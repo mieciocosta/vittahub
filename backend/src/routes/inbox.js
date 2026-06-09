@@ -9,10 +9,52 @@ import jwt from 'jsonwebtoken';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const r = express.Router();
 
-// ─── SSE: clientes conectados (push em tempo real) ───────────────────────────
-const sseClients = new Set(); // cada entry: { res, userId }
+// ─── CACHE EM MEMÓRIA: evita bater no banco para listagem de conversas ────────
+const convoCache = new Map(); // id → conversa
+let cacheReady = false;
 
-/** Envia evento SSE para TODOS os clientes conectados */
+async function loadCache() {
+  try {
+    const { rows } = await query(`SELECT * FROM conversas ORDER BY last_message_at DESC LIMIT 2000`);
+    rows.forEach(c => convoCache.set(c.id, c));
+    cacheReady = true;
+    console.log(`✅ ConvoCache: ${rows.length} conversas`);
+  } catch (e) { console.error('Cache load error:', e.message); }
+}
+// Carrega após 3s (espera o pool estar pronto)
+setTimeout(loadCache, 3000);
+
+function cacheUpdate(conv) {
+  convoCache.set(conv.id, conv);
+}
+
+function cacheGetList({ channel, search, unread_only, page = 1, limit = 50 }) {
+  let list = Array.from(convoCache.values())
+    .sort((a, b) => new Date(b.last_message_at || 0) - new Date(a.last_message_at || 0));
+  if (channel && channel !== 'all') list = list.filter(c => c.channel === channel);
+  if (unread_only === 'true') list = list.filter(c => (c.unread || 0) > 0);
+  if (search) {
+    const s = search.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    list = list.filter(c =>
+      (c.contact_name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').includes(s) ||
+      (c.phone || '').includes(s)
+    );
+  }
+  const total = list.length;
+  const offset = (Number(page) - 1) * Number(limit);
+  return { data: list.slice(offset, offset + Number(limit)), total, page: Number(page) };
+}
+
+function cacheGetUpdatedSince(since, filter = {}) {
+  const ts = new Date(since);
+  return Array.from(convoCache.values())
+    .filter(c => new Date(c.last_message_at || 0) > ts)
+    .sort((a, b) => new Date(b.last_message_at || 0) - new Date(a.last_message_at || 0));
+}
+
+// ─── SSE: clientes conectados (push em tempo real) ───────────────────────────
+const sseClients = new Set();
+
 function broadcast(event, data) {
   const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
   const dead = [];
@@ -23,11 +65,19 @@ function broadcast(event, data) {
   dead.forEach(c => sseClients.delete(c));
 }
 
-// Upload em memória (não disco — Railway não tem storage persistente)
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 25 * 1024 * 1024 }
-});
+// ─── LONG-POLL: entrega instantânea (<200ms) sem depender de SSE ─────────────
+// Servidor segura a conexão até 25s. Quando chega webhook → resposta imediata.
+const waiters = new Map(); // convId → [{resolve, timer}]
+
+function notifyWaiters(convId, message) {
+  const list = waiters.get(convId);
+  if (!list || list.length === 0) return;
+  const snapshot = list.splice(0); // atômico: pega tudo e limpa
+  snapshot.forEach(w => { clearTimeout(w.timer); w.resolve([message]); });
+}
+
+// Upload em memória
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 const EVO_URL  = () => process.env.EVOLUTION_API_URL  || '';
@@ -57,8 +107,8 @@ async function getMediaBase64(messageId, messageType, remoteJid) {
   return null;
 }
 
-// ─── SSE: stream de eventos em tempo real (/api/inbox/stream) ────────────────
-// EventSource não suporta headers → token via query param ?token=xxx
+// ─── SSE STREAM (/api/inbox/stream) ─────────────────────────────────────────
+// EventSource não suporta headers → token como query param
 r.get('/stream', (req, res) => {
   const token = req.query.token;
   if (!token) return res.status(401).end();
@@ -66,35 +116,36 @@ r.get('/stream', (req, res) => {
   try { user = jwt.verify(token, SECRET); }
   catch { return res.status(401).end(); }
 
-  // Headers SSE — X-Accel-Buffering desativa buffer do nginx/Railway
+  // CORS: usa a origem exata do frontend (não '*' — incompatível com credentials)
+  const origin = req.headers.origin || process.env.FRONTEND_URL || '*';
   res.set({
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache, no-store',
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-store, no-transform',
     'Connection': 'keep-alive',
-    'X-Accel-Buffering': 'no',
-    'Access-Control-Allow-Origin': '*',
+    'Keep-Alive': 'timeout=90',
+    'X-Accel-Buffering': 'no',       // Railway/nginx: desabilita buffering
+    'Access-Control-Allow-Origin': origin,
+    'Access-Control-Allow-Credentials': 'true',
   });
   res.flushHeaders();
 
-  // Heartbeat inicial
-  res.write('event: connected\ndata: {"ok":true}\n\n');
+  // retry: browser reconecta automaticamente após 3s se desconectar
+  res.write(`retry: 3000\n\n`);
+  res.write(`event: connected\ndata: {"ok":true,"ts":"${new Date().toISOString()}"}\n\n`);
 
   const client = { res, userId: user.id };
   sseClients.add(client);
 
-  // Ping a cada 20s para manter conexão viva
+  // Ping a cada 10s (Railway corta conexões ociosas após ~60s)
   const ping = setInterval(() => {
-    try { res.write('event: ping\ndata: {}\n\n'); }
+    try { res.write(`event: ping\ndata: {"ts":"${new Date().toISOString()}"}\n\n`); }
     catch { clearInterval(ping); sseClients.delete(client); }
-  }, 20000);
+  }, 10000);
 
-  req.on('close', () => {
-    clearInterval(ping);
-    sseClients.delete(client);
-  });
+  req.on('close', () => { clearInterval(ping); sseClients.delete(client); });
 });
 
-// ─── ROTAS PÚBLICAS (sem JWT) ─────────────────────────────────────────────────
+
 r.post('/webhook/whatsapp', async (req, res) => {
   res.json({ ok: true });
   try {
@@ -335,10 +386,10 @@ r.post('/webhook/zapi', async (req, res) => {
     else if (body.video?.videoUrl)     { content = body.video.caption || '🎥 Vídeo'; type = 'video'; mediaData = body.video.videoUrl; }
     else if (body.document?.documentUrl) { content = `📎 ${body.document.fileName || 'Documento'}`; type = 'document'; mediaData = body.document.documentUrl; }
     else if (body.sticker?.stickerUrl)   { content = '🎭 Sticker'; type = 'image'; mediaData = body.sticker.stickerUrl; }
+    else if (body.gif?.gifUrl)           { content = '🎞️ GIF'; type = 'gif'; mediaData = body.gif.gifUrl; } // gif = vídeo autoplay muted
     else if (body.location)              { content = `📍 ${body.location.address || `${body.location.lat},${body.location.lng}`}`; }
     else if (body.contact?.displayName) { content = `👤 ${body.contact.displayName}`; }
     else if (body.reaction?.text)        { content = `${body.reaction.text} (reação)`; }
-    else if (body.gif?.gifUrl)           { content = '🎞️ GIF'; type = 'image'; mediaData = body.gif.gifUrl; }
 
     const remoteJid = `${phone}@s.whatsapp.net`;
     const displayPhone = phone.startsWith('55') ? phone.slice(2) : phone;
@@ -347,7 +398,7 @@ r.post('/webhook/zapi', async (req, res) => {
 
     console.log(`ZAPI_MSG: from="${contactName}" phone="${displayPhone}" type="${type}" content="${content.slice(0,50)}"`);
 
-    // Upsert conversa — atualiza nome e foto se tiver
+    // Upsert conversa
     const { rows: [conv] } = await query(`
       INSERT INTO conversas (channel, contact_name, contact_id, phone, unread, last_message, last_message_at, profile_pic)
       VALUES ('whatsapp', $1, $2, $3, 1, $4, $5, $6)
@@ -365,6 +416,9 @@ r.post('/webhook/zapi', async (req, res) => {
       [contactName, remoteJid, displayPhone, content, ts, profilePic || null]
     );
 
+    // Atualiza cache em memória imediatamente
+    cacheUpdate(conv);
+
     // Salva mensagem
     const { rows: [newMsg] } = await query(
       `INSERT INTO mensagens (conversa_id, from_type, type, content, filename, created_at, wa_msg_id)
@@ -374,9 +428,10 @@ r.post('/webhook/zapi', async (req, res) => {
       [conv.id, type, mediaData || content, null, ts, msgId]
     );
 
-    // ── SSE: push em tempo real para todos os atendentes conectados ──
+    // ── Push instantâneo: SSE + long-poll ──
     if (newMsg) {
       broadcast('new_message', { convId: conv.id, message: newMsg, conv });
+      notifyWaiters(conv.id, newMsg); // acorda clientes em long-poll imediatamente
     }
 
 
@@ -411,79 +466,41 @@ r.post('/webhook/zapi', async (req, res) => {
 r.use(auth);
 r.use(auth);
 
-// ─── POLL: conversas atualizadas desde último timestamp (DEVE VIR ANTES de /:id) ─
+// ─── POLL: conversas atualizadas — servido do CACHE (zero DB query) ──────────
 r.get('/conversations/updates', async (req, res) => {
-  try {
-    res.set('Cache-Control', 'no-store, no-cache');
-    const since = req.query.since; // ISO timestamp
-    if (!since) return res.json({ data: [] });
-
-    const { channel, search, unread_only } = req.query;
-    const conditions = [`c.last_message_at > $1`];
-    const params = [since];
-    let pi = 2;
-
-    if (channel && channel !== 'all') { conditions.push(`c.channel = $${pi++}`); params.push(channel); }
-    if (unread_only === 'true') conditions.push(`c.unread > 0`);
-    if (search) {
-      conditions.push(`(unaccent(lower(c.contact_name)) ILIKE unaccent(lower($${pi})) OR c.phone ILIKE $${pi})`);
-      params.push(`%${search}%`); pi++;
-    }
-
-    const where = 'WHERE ' + conditions.join(' AND ');
-    const { rows } = await query(
-      `SELECT c.*, u.nome AS responsavel_nome FROM conversas c
-       LEFT JOIN usuarios u ON u.id = c.responsavel_id
-       ${where} ORDER BY c.last_message_at DESC LIMIT 100`,
-      params
-    );
-    res.json({ data: rows });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  res.set('Cache-Control', 'no-store, no-cache');
+  const since = req.query.since;
+  if (!since) return res.json({ data: [] });
+  const updated = cacheGetUpdatedSince(since);
+  res.json({ data: updated });
 });
 
-// ─── CONVERSATIONS LIST (paginated + search, high-performance) ──────────────
+// ─── LISTAGEM de conversas — servido do CACHE (zero DB query na maioria) ─────
 r.get('/conversations', async (req, res) => {
-  try {
-    const { channel, responsavel_id, search, page = 1, limit = 50, unread_only } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-    const conditions = [];
-    const params = [];
-    let pi = 1;
-
-    if (channel && channel !== 'all') { conditions.push(`c.channel = $${pi++}`); params.push(channel); }
-    if (responsavel_id)               { conditions.push(`c.responsavel_id = $${pi++}`); params.push(responsavel_id); }
-    if (unread_only === 'true')        { conditions.push(`c.unread > 0`); }
-    if (search) {
-      // Busca inteligente: sem acento, case insensitive, por nome ou telefone
-      conditions.push(`(
-        unaccent(lower(c.contact_name)) ILIKE unaccent(lower($${pi}))
-        OR c.phone ILIKE $${pi}
-        OR c.contact_id ILIKE $${pi}
-      )`);
-      params.push(`%${search}%`);
-      pi++;
-    }
-
-    const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
-    const countRes = await query(`SELECT COUNT(*) FROM conversas c ${where}`, params);
-    const total = parseInt(countRes.rows[0].count);
-
-    const dataRes = await query(`
-      SELECT c.*,
-        u.nome AS responsavel_nome,
-        (SELECT COUNT(*) FROM mensagens m WHERE m.conversa_id = c.id) AS message_count
-      FROM conversas c
-      LEFT JOIN usuarios u ON u.id = c.responsavel_id
-      ${where}
-      ORDER BY c.last_message_at DESC
-      LIMIT $${pi} OFFSET $${pi+1}
-    `, [...params, parseInt(limit), offset]);
-
-    res.json({ data: dataRes.rows, total, page: parseInt(page), pages: Math.ceil(total / parseInt(limit)) });
-  } catch (err) {
-    console.error('conversations list error:', err.message);
-    res.status(500).json({ error: err.message });
+  res.set('Cache-Control', 'no-store, no-cache');
+  if (!cacheReady) {
+    // Cache ainda não carregou — cai para o banco
+    try {
+      const { channel, search, page = 1, limit = 50, unread_only } = req.query;
+      const offset = (parseInt(page) - 1) * parseInt(limit);
+      const conditions = [];
+      const params = [];
+      let pi = 1;
+      if (channel && channel !== 'all') { conditions.push(`c.channel = $${pi++}`); params.push(channel); }
+      if (unread_only === 'true') conditions.push(`c.unread > 0`);
+      if (search) {
+        conditions.push(`(unaccent(lower(c.contact_name)) ILIKE unaccent(lower($${pi})) OR c.phone ILIKE $${pi})`);
+        params.push(`%${search}%`); pi++;
+      }
+      const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
+      const countRes = await query(`SELECT COUNT(*) FROM conversas c ${where}`, params);
+      const total = parseInt(countRes.rows[0].count);
+      const dataRes = await query(`SELECT c.* FROM conversas c ${where} ORDER BY c.last_message_at DESC LIMIT $${pi} OFFSET $${pi+1}`, [...params, parseInt(limit), offset]);
+      return res.json({ data: dataRes.rows, total, page: parseInt(page) });
+    } catch (err) { return res.status(500).json({ error: err.message }); }
   }
+  const result = cacheGetList(req.query);
+  res.json(result);
 });
 
 // ─── GET SINGLE CONVERSATION WITH MESSAGES (paginated) ───────────────────────
@@ -496,37 +513,22 @@ r.get('/conversations/:id', async (req, res) => {
       WHERE c.id = $1`, [req.params.id]);
     if (!conv) return res.status(404).json({ error: 'Não encontrado' });
 
-    // Paginação por created_at (IDs são UUID, não podem ser comparados numericamente)
-    const MSG_LIMIT = 60;
+    // Carrega apenas as últimas 15 mensagens — rápido mesmo com base64
+    const MSG_LIMIT = 15;
     const beforeTs = req.query.before_ts ? new Date(req.query.before_ts).toISOString() : null;
 
-    let msgRows;
-    if (beforeTs) {
-      // Mensagens mais antigas (scroll para cima): DESC pega as mais recentes antes de beforeTs
-      const { rows } = await query(
-        `SELECT * FROM (
-          SELECT * FROM mensagens WHERE conversa_id = $1 AND created_at < $2
-          ORDER BY created_at DESC LIMIT $3
-        ) sub ORDER BY created_at ASC`,
-        [req.params.id, beforeTs, MSG_LIMIT]
-      );
-      msgRows = rows;
-    } else {
-      // Abertura inicial: as últimas 60
-      const { rows } = await query(
-        `SELECT * FROM (
-          SELECT * FROM mensagens WHERE conversa_id = $1
-          ORDER BY created_at DESC LIMIT $2
-        ) sub ORDER BY created_at ASC`,
-        [req.params.id, MSG_LIMIT]
-      );
-      msgRows = rows;
-    }
+    const msgQuery = beforeTs
+      ? `SELECT * FROM (SELECT * FROM mensagens WHERE conversa_id = $1 AND created_at < $2 ORDER BY created_at DESC LIMIT $3) sub ORDER BY created_at ASC`
+      : `SELECT * FROM (SELECT * FROM mensagens WHERE conversa_id = $1 ORDER BY created_at DESC LIMIT $2) sub ORDER BY created_at ASC`;
+    const msgParams = beforeTs
+      ? [req.params.id, beforeTs, MSG_LIMIT]
+      : [req.params.id, MSG_LIMIT];
 
-    const { rows: [cnt] } = await query(
-      'SELECT COUNT(*)::int AS total FROM mensagens WHERE conversa_id = $1',
-      [req.params.id]
-    );
+    const { rows: msgRows } = await query(msgQuery, msgParams);
+
+    // has_more: se veio MSG_LIMIT de resultados, provavelmente tem mais
+    // Sem COUNT(*) — é caro e não é necessário para a UX
+    const has_more = msgRows.length === MSG_LIMIT;
 
     let lead = null;
     if (conv.lead_id) {
@@ -534,19 +536,57 @@ r.get('/conversations/:id', async (req, res) => {
       lead = l;
     }
 
-    res.json({
-      ...conv,
-      messages: msgRows,
-      messages_total: cnt.total,
-      has_more: beforeTs
-        ? (msgRows.length === MSG_LIMIT)
-        : (cnt.total > MSG_LIMIT),
-      lead
-    });
+    res.json({ ...conv, messages: msgRows, messages_total: null, has_more, lead });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ─── POLL: novas mensagens após um timestamp (cursor = created_at, não ID) ────
+// ─── LONG-POLL: aguarda mensagem nova — retorna imediatamente quando chegar ───
+// Frontend conecta e fica aguardando; servidor responde na hora que o webhook chegar.
+// Timeout de 25s → se nada chegar, retorna [] e o cliente reconecta imediatamente.
+r.get('/conversations/:id/poll', async (req, res) => {
+  try {
+    res.set('Cache-Control', 'no-store, no-cache');
+    const afterTs = req.query.after_ts
+      ? new Date(req.query.after_ts).toISOString()
+      : new Date(0).toISOString();
+
+    // Verifica se já há mensagens novas (sem esperar)
+    const { rows: immediate } = await query(
+      `SELECT id, conversa_id, from_type, type,
+        CASE WHEN content LIKE 'data:%' AND length(content) > 500 THEN content ELSE content END AS content,
+        filename, sender_nome, status, wa_msg_id, created_at
+       FROM mensagens WHERE conversa_id = $1 AND created_at > $2
+       ORDER BY created_at ASC LIMIT 20`,
+      [req.params.id, afterTs]
+    );
+    if (immediate.length > 0) return res.json({ messages: immediate });
+
+    // Nenhuma mensagem nova ainda — segura a conexão por até 25s
+    const messages = await new Promise(resolve => {
+      if (!waiters.has(req.params.id)) waiters.set(req.params.id, []);
+      const entry = { resolve, timer: null };
+      entry.timer = setTimeout(() => {
+        const list = waiters.get(req.params.id) || [];
+        const idx = list.indexOf(entry);
+        if (idx > -1) list.splice(idx, 1);
+        resolve([]);
+      }, 25000);
+      waiters.get(req.params.id).push(entry);
+
+      req.on('close', () => {
+        clearTimeout(entry.timer);
+        const list = waiters.get(req.params.id) || [];
+        const idx = list.indexOf(entry);
+        if (idx > -1) list.splice(idx, 1);
+        resolve([]);
+      });
+    });
+
+    res.json({ messages });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+
 // IDs são UUID — não podem ser comparados numericamente
 // Cache-Control: no-store evita 304 do browser
 r.get('/conversations/:id/messages/new', async (req, res) => {
@@ -585,6 +625,21 @@ r.patch('/conversations/:id/assign', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ─── STATUS DE ATENDIMENTO ────────────────────────────────────────────────────
+r.patch('/conversations/:id/status', async (req, res) => {
+  try {
+    const { status } = req.body; // 'aberto' | 'em_atendimento' | 'resolvido'
+    const valid = ['aberto', 'em_atendimento', 'resolvido'];
+    if (!valid.includes(status)) return res.status(400).json({ error: 'Status inválido' });
+    const { rows: [c] } = await query(
+      'UPDATE conversas SET status_atend = $1 WHERE id = $2 RETURNING *',
+      [status, req.params.id]
+    );
+    broadcast('status_change', { convId: req.params.id, status_atend: status });
+    res.json({ ok: true, status_atend: c.status_atend });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ─── BOT TOGGLE ────────────────────────────────────────────────────────────────
 r.patch('/conversations/:id/bot', async (req, res) => {
   try {
@@ -609,9 +664,11 @@ r.post('/conversations/:id/send', async (req, res) => {
 
     const preview = type === 'text' ? content : type === 'audio' ? '🎵 Áudio' : type === 'image' ? '📷 Imagem' : `📎 Arquivo`;
     const { rows: [convUpd] } = await query('UPDATE conversas SET last_message = $1, last_message_at = NOW() WHERE id = $2 RETURNING *', [preview, req.params.id]);
+    if (convUpd) cacheUpdate(convUpd);
 
-    // ── SSE: push para outros atendentes vendo a mesma conversa ──
+    // Push para todos os canais de entrega
     broadcast('new_message', { convId: req.params.id, message: msg, conv: convUpd || conv });
+    notifyWaiters(req.params.id, msg); // acorda long-poll instantaneamente
 
     // WhatsApp send: Z-API (preferred) or Evolution API (fallback)
     if (conv.channel === 'whatsapp') {

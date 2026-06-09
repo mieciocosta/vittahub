@@ -41,6 +41,8 @@ export default async function runMigrate() {
 
     // Add profile_pic column if not exists (for existing databases)
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS profile_pic TEXT`).catch(() => {});
+    await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS status_atend TEXT DEFAULT 'aberto'`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS idx_conv_status ON conversas(status_atend)`).catch(() => {});
 
     await query(`CREATE INDEX IF NOT EXISTS idx_conv_last ON conversas(last_message_at DESC)`);
     await query(`CREATE INDEX IF NOT EXISTS idx_conv_channel ON conversas(channel)`);
