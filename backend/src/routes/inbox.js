@@ -38,7 +38,8 @@ r.post('/webhook/whatsapp', async (req, res) => {
 
       const remoteJid = key.remoteJid;
       const isMe = !!key.fromMe;
-      const phone = remoteJid.replace('@s.whatsapp.net', '').replace(/\D/g, '').slice(-11);
+      const rawPhone = remoteJid.replace("@s.whatsapp.net", "").replace(/\\D/g, "");
+      const phone = rawPhone.startsWith("55") ? rawPhone.slice(2) : rawPhone;
       const pushName = msg.pushName || msg.verifiedBizName || '';
       const contactName = (pushName && pushName !== phone && pushName.length > 2) ? pushName : phone;
 
@@ -238,16 +239,24 @@ r.post('/conversations/:id/send', async (req, res) => {
     // Evolution API (WhatsApp)
     const EVO = process.env.EVOLUTION_API_URL, KEY = process.env.EVOLUTION_API_KEY;
     const INST = process.env.EVOLUTION_INSTANCE || 'vittalis';
-    if (EVO && KEY && conv.channel === 'whatsapp' && conv.phone) {
+    if (EVO && KEY && conv.channel === 'whatsapp') {
       try {
         const { default: fetch } = await import('node-fetch');
+        // Use contact_id (full jid) or phone with 55 prefix for Evolution API
+        const waNumber = conv.contact_id
+          ? conv.contact_id.replace('@s.whatsapp.net', '')
+          : `55${conv.phone}`;
         const r = await fetch(`${EVO}/message/sendText/${INST}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', apikey: KEY },
-          body: JSON.stringify({ number: conv.phone, text: content })
+          body: JSON.stringify({ number: waNumber, text: content })
         });
-        if (r.ok) await query("UPDATE mensagens SET status = 'delivered' WHERE id = $1", [msg.id]);
-      } catch (e) { console.error('Evolution error:', e.message); }
+        const evoResult = await r.json();
+        console.log('EVO_SEND:', JSON.stringify(evoResult).slice(0, 200));
+        if (r.ok && evoResult.key) {
+          await query("UPDATE mensagens SET status = 'delivered' WHERE id = $1", [msg.id]);
+        }
+      } catch (e) { console.error('Evolution send error:', e.message); }
     }
 
     res.json(msg);
@@ -507,7 +516,7 @@ r.post('/whatsapp/import-history', async (req, res) => {
       const remoteJid = chat.id || chat.remoteJid || '';
       if (!remoteJid || remoteJid.endsWith('@g.us') || remoteJid.endsWith('@broadcast')) continue;
 
-      const phone = remoteJid.replace('@s.whatsapp.net', '').replace(/\D/g, '').slice(-11);
+      const rawPhone2 = remoteJid.replace('@s.whatsapp.net', '').replace(/\D/g, ''); const phone = rawPhone2.startsWith('55') ? rawPhone2.slice(2) : rawPhone2;
 
       // Resolve nome: prioridade contatos > pushName do chat > nome do chat
       const name = contacts[remoteJid] || chat.pushName || chat.name || phone;
