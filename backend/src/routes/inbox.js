@@ -429,11 +429,16 @@ r.post('/webhook/zapi', async (req, res) => {
       [conv.id, type, mediaData || content, null, ts, msgId]
     );
 
-    // ── Push tri-canal: WebSocket (instantâneo) + SSE + long-poll ──
+    // ── Entrega em tempo real via Postgres NOTIFY ──
+    // O pgListener em index.js recebe este notify e faz wsBroadcast ao frontend.
+    // Funciona mesmo após restart do Railway — não depende de Map em memória.
     if (newMsg) {
-      wsBroadcast('new_message', { convId: conv.id, message: newMsg, conv });
-      broadcast('new_message',   { convId: conv.id, message: newMsg, conv }); // SSE
-      notifyWaiters(conv.id, newMsg); // long-poll fallback
+      await query(`SELECT pg_notify('vittahub', $1)`, [
+        JSON.stringify({ event: 'new_message', convId: conv.id, messageId: newMsg.id, conv })
+      ]).catch(() => {});
+      // Fallbacks legados (SSE + long-poll) — cobertura adicional
+      broadcast('new_message', { convId: conv.id, message: newMsg, conv });
+      notifyWaiters(conv.id, newMsg);
     }
 
 
@@ -505,7 +510,7 @@ r.get('/conversations', async (req, res) => {
   res.json(result);
 });
 
-// ─── GET SINGLE CONVERSATION WITH MESSAGES (paginated) ───────────────────────
+// ─── GET SINGLE CONVERSATION WITH MESSAGES ───────────────────────────────────
 r.get('/conversations/:id', async (req, res) => {
   try {
     res.set('Cache-Control', 'no-store, no-cache');
@@ -515,22 +520,25 @@ r.get('/conversations/:id', async (req, res) => {
       WHERE c.id = $1`, [req.params.id]);
     if (!conv) return res.status(404).json({ error: 'Não encontrado' });
 
-    // Carrega apenas as últimas 15 mensagens — rápido mesmo com base64
     const MSG_LIMIT = 15;
     const beforeTs = req.query.before_ts ? new Date(req.query.before_ts).toISOString() : null;
 
     const msgQuery = beforeTs
       ? `SELECT * FROM (SELECT * FROM mensagens WHERE conversa_id = $1 AND created_at < $2 ORDER BY created_at DESC LIMIT $3) sub ORDER BY created_at ASC`
       : `SELECT * FROM (SELECT * FROM mensagens WHERE conversa_id = $1 ORDER BY created_at DESC LIMIT $2) sub ORDER BY created_at ASC`;
-    const msgParams = beforeTs
+
+    const { rows: rawMsgs } = await query(msgQuery, beforeTs
       ? [req.params.id, beforeTs, MSG_LIMIT]
-      : [req.params.id, MSG_LIMIT];
+      : [req.params.id, MSG_LIMIT]);
 
-    const { rows: msgRows } = await query(msgQuery, msgParams);
-
-    // has_more: se veio MSG_LIMIT de resultados, provavelmente tem mais
-    // Sem COUNT(*) — é caro e não é necessário para a UX
-    const has_more = msgRows.length === MSG_LIMIT;
+    // Substitui base64 por referência — o frontend carrega sob demanda via /messages/:id/content
+    // Uma imagem base64 pode ter 200-500 kB; com 15 mensagens isso pode ser MB de payload desnecessário
+    const messages = rawMsgs.map(m => {
+      if (m.content && m.content.startsWith('data:') && m.content.length > 500) {
+        return { ...m, content: `[media:${m.id}]`, has_media: true };
+      }
+      return m;
+    });
 
     let lead = null;
     if (conv.lead_id) {
@@ -538,7 +546,30 @@ r.get('/conversations/:id', async (req, res) => {
       lead = l;
     }
 
-    res.json({ ...conv, messages: msgRows, messages_total: null, has_more, lead });
+    res.json({ ...conv, messages, has_more: messages.length === MSG_LIMIT, lead });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── GET MÍDIA DE UMA MENSAGEM (lazy load — evita base64 na resposta da conversa) ─
+r.get('/messages/:id/content', async (req, res) => {
+  try {
+    res.set('Cache-Control', 'public, max-age=86400'); // cache 24h no browser
+    const { rows: [m] } = await query('SELECT content, type, mimetype FROM mensagens WHERE id = $1', [req.params.id]);
+    if (!m || !m.content) return res.status(404).end();
+
+    if (m.content.startsWith('data:')) {
+      const comma = m.content.indexOf(',');
+      if (comma === -1) return res.status(400).end();
+      const header = m.content.slice(0, comma);         // "data:image/jpeg;base64"
+      const b64    = m.content.slice(comma + 1);
+      const mime   = header.replace('data:', '').replace(';base64', '');
+      const buf    = Buffer.from(b64, 'base64');
+      res.set('Content-Type', mime);
+      res.set('Content-Length', buf.length);
+      return res.send(buf);
+    }
+    // É uma URL normal — redireciona
+    res.redirect(m.content);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -667,10 +698,12 @@ r.post('/conversations/:id/send', async (req, res) => {
     const { rows: [convUpd] } = await query('UPDATE conversas SET last_message = $1, last_message_at = NOW() WHERE id = $2 RETURNING *', [preview, req.params.id]);
     if (convUpd) cacheUpdate(convUpd);
 
-    // Push para todos os canais de entrega
-    wsBroadcast('new_message', { convId: req.params.id, message: msg, conv: convUpd || conv });
-    broadcast('new_message',   { convId: req.params.id, message: msg, conv: convUpd || conv }); // SSE
-    notifyWaiters(req.params.id, msg); // long-poll fallback
+    // Push via PG NOTIFY → listener → WebSocket (confiável, sobrevive restart)
+    await query(`SELECT pg_notify('vittahub', $1)`, [
+      JSON.stringify({ event: 'new_message', convId: req.params.id, messageId: msg.id, conv: convUpd || conv })
+    ]).catch(() => {});
+    broadcast('new_message',   { convId: req.params.id, message: msg, conv: convUpd || conv });
+    notifyWaiters(req.params.id, msg);
 
     // WhatsApp send: Z-API (preferred) or Evolution API (fallback)
     if (conv.channel === 'whatsapp') {

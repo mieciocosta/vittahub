@@ -3,7 +3,7 @@ import {
   Send, Paperclip, Mic, MicOff, Sparkles, Search, RefreshCw, X,
   UserPlus, Hash, Bot, FileText, Volume2, File, Tag,
   Smile, PanelLeftClose, PanelLeftOpen, Play, ChevronUp, Loader2,
-  CheckCircle2, Clock, MessageCircle, Phone,
+  CheckCircle2, Clock, MessageCircle, Phone, Image,
 } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt, openWA } from '../hooks/utils.js';
@@ -226,13 +226,87 @@ function AIPanel({ messages, contactName, token, convId, onUseSuggestion, onClos
   );
 }
 
-/* ── MsgItem ─────────────────────────────────────────────────────────────────── */
-const MsgItem = React.memo(function MsgItem({ m, i, msgs, contactName, channel, onLightbox }) {
+/* ── LazyMedia: carrega base64 sob demanda via endpoint ─────────────────────── */
+function LazyMedia({ msgId, type, filename, token, onLightbox }) {
+  const [src, setSrc]     = useState(null);
+  const [loading, setLoading] = useState(false);
+  const BASE = import.meta.env.VITE_API_URL || '';
+
+  const load = useCallback(async () => {
+    if (src || loading) return;
+    setLoading(true);
+    try {
+      const resp = await fetch(`${BASE}/api/inbox/messages/${msgId}/content`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (resp.redirected || resp.headers.get('Content-Type')?.startsWith('image/') ||
+          resp.headers.get('Content-Type')?.startsWith('audio/') ||
+          resp.headers.get('Content-Type')?.startsWith('video/') ||
+          resp.headers.get('Content-Type')?.includes('pdf')) {
+        // Para mídia binária, cria object URL
+        const blob = await resp.blob();
+        setSrc(URL.createObjectURL(blob));
+      } else {
+        const text = await resp.text();
+        setSrc(text);
+      }
+    } catch {}
+    setLoading(false);
+  }, [msgId, src, loading]);
+
+  if (type === 'image') {
+    if (!src) return (
+      <div onClick={load} style={{ width:160, height:100, background:'var(--bg2)', borderRadius:8, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:6, cursor:'pointer' }}>
+        {loading ? <Loader2 size={18} style={{animation:'spin 1s linear infinite'}} color="var(--muted)"/> : <><Image size={22} color="var(--muted)"/><span style={{fontSize:10.5,color:'var(--muted)'}}>Clique para ver</span></>}
+      </div>
+    );
+    return <img src={src} alt="img" onClick={()=>onLightbox(src)} style={{ maxWidth:220, maxHeight:220, borderRadius:8, display:'block', objectFit:'cover', cursor:'pointer' }}/>;
+  }
+  if (type === 'audio') {
+    if (!src) return (
+      <div onClick={load} style={{ display:'flex', alignItems:'center', gap:8, minWidth:200, padding:'6px 0', cursor:'pointer' }}>
+        {loading ? <Loader2 size={14} style={{animation:'spin 1s linear infinite'}} color="var(--tq)"/> : <Volume2 size={14} color="var(--tq)"/>}
+        <span style={{fontSize:12,color:'var(--muted)'}}>Clique para carregar áudio</span>
+      </div>
+    );
+    return <div style={{ display:'flex', alignItems:'center', gap:8, minWidth:200 }}><Volume2 size={14} color="var(--tq)"/><audio controls src={src} style={{ flex:1, height:28, minWidth:150 }}/></div>;
+  }
+  if (type === 'video') {
+    if (!src) return (
+      <div onClick={load} style={{ width:200, height:120, background:'#000', borderRadius:8, display:'flex', alignItems:'center', justifyContent:'center', gap:6, cursor:'pointer' }}>
+        {loading ? <Loader2 size={18} style={{animation:'spin 1s linear infinite'}} color="#fff"/> : <><Play size={24} color="#fff"/></>}
+      </div>
+    );
+    return <video controls src={src} style={{ maxWidth:260, borderRadius:8, display:'block' }}/>;
+  }
+  // document
+  if (!src) return (
+    <div onClick={load} style={{ display:'flex', alignItems:'center', gap:9, padding:'8px 10px', background:'rgba(0,0,0,.04)', borderRadius:8, cursor:'pointer' }}>
+      <div style={{ width:32, height:32, borderRadius:6, background:'var(--err2)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+        {loading ? <Loader2 size={16} style={{animation:'spin 1s linear infinite'}} color="var(--err)"/> : <FileText size={16} color="var(--err)"/>}
+      </div>
+      <div><div style={{fontWeight:600,fontSize:12.5}}>{filename||'Documento'}</div><div style={{fontSize:10.5,color:'var(--muted)'}}>Clique para carregar</div></div>
+    </div>
+  );
+  return (
+    <a href={src} download={filename} target="_blank" rel="noreferrer"
+      style={{ display:'flex', alignItems:'center', gap:9, color:'var(--pet)', fontSize:13, padding:'8px 10px', background:'rgba(0,0,0,.04)', borderRadius:8, textDecoration:'none' }}>
+      <div style={{ width:32, height:32, borderRadius:6, background:'var(--err2)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+        <FileText size={16} color="var(--err)"/>
+      </div>
+      <div><div style={{fontWeight:600,fontSize:12.5}}>{filename||'Documento'}</div><div style={{fontSize:10.5,color:'var(--muted)'}}>Clique para baixar</div></div>
+    </a>
+  );
+}
+
+
+const MsgItem = React.memo(function MsgItem({ m, i, msgs, contactName, channel, onLightbox, token }) {
   const isMe = m.from_type==='me', isBot=m.from_type==='bot', isSys=m.from_type==='system';
   const showDate = i===0 || new Date(msgs[i-1].created_at).toDateString()!==new Date(m.created_at).toDateString();
   const showSender = isMe && m.sender_nome && (i===0 || msgs[i-1]?.from_type!=='me' || msgs[i-1]?.sender_nome!==m.sender_nome);
-
-  // Cor do bubble por atendente (hash do nome → cor)
+  const lazyMatch = m.content?.match(/^\[media:([a-f0-9-]+)\]$/);
+  const isLazy = !!lazyMatch;
+  const lazyId = lazyMatch?.[1] || m.id;
   const senderColor = useMemo(() => {
     if (!isMe && !isBot) return null;
     const name = m.sender_nome || 'Equipe';
@@ -247,7 +321,6 @@ const MsgItem = React.memo(function MsgItem({ m, i, msgs, contactName, channel, 
     let h = 0; for (let c of name) h = ((h << 5) - h) + c.charCodeAt(0);
     return colors[Math.abs(h) % colors.length];
   }, [m.sender_nome, isMe, isBot]);
-
   return (
     <React.Fragment>
       {showDate && (
@@ -268,25 +341,22 @@ const MsgItem = React.memo(function MsgItem({ m, i, msgs, contactName, channel, 
             borderRadius:isMe||isBot?'14px 14px 3px 14px':'14px 14px 14px 3px',
             padding:'8px 11px', boxShadow:'0 1px 2px rgba(0,0,0,.05)' }}>
             {(isBot||showSender) && (
-              <div style={{ fontSize:10, color:senderColor?.tag, fontWeight:700, marginBottom:3, display:'flex', alignItems:'center', gap:4 }}>
-                {isBot && '🤖 '}
-                {isBot ? 'Bot Vittalis' : m.sender_nome?.split(' ')[0]}
+              <div style={{ fontSize:10, color:senderColor?.tag, fontWeight:700, marginBottom:3 }}>
+                {isBot ? '🤖 Bot Vittalis' : m.sender_nome?.split(' ')[0]}
               </div>
             )}
-            {m.type==='text'     && <div style={{ fontSize:13.5, lineHeight:1.55, whiteSpace:'pre-wrap', wordBreak:'break-word' }}>{m.content}</div>}
-            {m.type==='image'    && <img onClick={()=>onLightbox(m.content)} src={m.content} alt="img" loading="lazy" style={{ maxWidth:220, maxHeight:220, borderRadius:8, display:'block', objectFit:'cover', cursor:'pointer' }} onError={e=>e.target.style.display='none'}/>}
-            {m.type==='audio'    && <div style={{ display:'flex', alignItems:'center', gap:8, minWidth:200 }}><Volume2 size={14} color="var(--tq)"/><audio controls src={m.content} style={{ flex:1, height:28, minWidth:150 }}/></div>}
-            {m.type==='video'    && <video controls src={m.content} style={{ maxWidth:260, borderRadius:8, display:'block' }}/>}
-            {m.type==='document' && (
+            {isLazy && <LazyMedia msgId={lazyId} type={m.type} filename={m.filename} token={token} onLightbox={onLightbox}/>}
+            {!isLazy && m.type==='text'     && <div style={{ fontSize:13.5, lineHeight:1.55, whiteSpace:'pre-wrap', wordBreak:'break-word' }}>{m.content}</div>}
+            {!isLazy && m.type==='image'    && <img onClick={()=>onLightbox(m.content)} src={m.content} alt="img" loading="lazy" style={{ maxWidth:220, maxHeight:220, borderRadius:8, display:'block', objectFit:'cover', cursor:'pointer' }} onError={e=>e.target.style.display='none'}/>}
+            {!isLazy && m.type==='audio'    && <div style={{ display:'flex', alignItems:'center', gap:8, minWidth:200 }}><Volume2 size={14} color="var(--tq)"/><audio controls src={m.content} style={{ flex:1, height:28, minWidth:150 }}/></div>}
+            {!isLazy && m.type==='video'    && <video controls src={m.content} style={{ maxWidth:260, borderRadius:8, display:'block' }}/>}
+            {!isLazy && m.type==='document' && (
               <a href={m.content} download target="_blank" rel="noreferrer"
                 style={{ display:'flex', alignItems:'center', gap:9, color:'var(--pet)', fontSize:13, padding:'8px 10px', background:'rgba(0,0,0,.04)', borderRadius:8, textDecoration:'none' }}>
                 <div style={{ width:32, height:32, borderRadius:6, background:'var(--err2)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
                   <FileText size={16} color="var(--err)"/>
                 </div>
-                <div>
-                  <div style={{ fontWeight:600, fontSize:12.5 }}>{m.filename||'Documento'}</div>
-                  <div style={{ fontSize:10.5, color:'var(--muted)' }}>Clique para baixar</div>
-                </div>
+                <div><div style={{fontWeight:600,fontSize:12.5}}>{m.filename||'Documento'}</div><div style={{fontSize:10.5,color:'var(--muted)'}}>Clique para baixar</div></div>
               </a>
             )}
             <div style={{ fontSize:10, color:'var(--light)', marginTop:4, textAlign:'right', display:'flex', alignItems:'center', justifyContent:'flex-end', gap:3 }}>
@@ -845,7 +915,7 @@ export default function Inbox({ onUnreadChange }) {
                 </div>
               )}
               {msgs.map((m, i) => (
-                <MsgItem key={m.id||i} m={m} i={i} msgs={msgs} contactName={sel.contact_name} channel={sel.channel} onLightbox={setLightbox}/>
+                <MsgItem key={m.id||i} m={m} i={i} msgs={msgs} contactName={sel.contact_name} channel={sel.channel} onLightbox={setLightbox} token={token}/>
               ))}
               <div ref={endRef}/>
             </div>
