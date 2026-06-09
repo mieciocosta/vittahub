@@ -325,6 +325,8 @@ r.get('/webhook/instagram', (req, res) => {
 r.post('/webhook/whatsapp', async (req, res) => {
   try {
     const body = req.body;
+    // DEBUG — log primeiros 800 chars do payload para diagnóstico
+    console.log('WA_PAYLOAD:', JSON.stringify(body).slice(0, 800));
 
     // Evolution API v2 sends: { event: 'messages.upsert', data: { messages: [...] } }
     // or directly: { event, instance, data: { key, pushName, message, ... } }
