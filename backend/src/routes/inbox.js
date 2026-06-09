@@ -324,34 +324,87 @@ r.get('/webhook/instagram', (req, res) => {
 
 r.post('/webhook/whatsapp', async (req, res) => {
   try {
-    const { data, event } = req.body;
-    if (event !== 'messages.upsert' || !data?.messages) return res.json({ ok: true });
-    for (const msg of data.messages) {
-      if (msg.key.fromMe) continue;
-      const phone = msg.key.remoteJid.replace('@s.whatsapp.net','').replace(/^55/,'');
-      const content = msg.message?.conversation || msg.message?.extendedTextMessage?.text || '[mídia]';
-      const contactName = msg.pushName || phone;
+    const body = req.body;
 
-      // Upsert conversation
+    // Evolution API v2 sends: { event: 'messages.upsert', data: { messages: [...] } }
+    // or directly: { event, instance, data: { key, pushName, message, ... } }
+    const event = body.event;
+    if (!event || !event.includes('messages')) return res.json({ ok: true });
+
+    // Normalize: v2 can send single message or array
+    let messages = [];
+    if (body.data?.messages) {
+      messages = Array.isArray(body.data.messages) ? body.data.messages : [body.data.messages];
+    } else if (body.data?.key) {
+      // v2 sends single message directly in data
+      messages = [{ key: body.data.key, message: body.data.message, pushName: body.data.pushName, messageTimestamp: body.data.messageTimestamp }];
+    }
+
+    for (const msg of messages) {
+      if (!msg?.key?.remoteJid) continue;
+      if (msg.key.fromMe) continue;
+      if (msg.key.remoteJid.includes('@g.us')) continue; // skip groups
+
+      const remoteJid = msg.key.remoteJid;
+      const phone = remoteJid.replace('@s.whatsapp.net','').replace(/^55/,'');
+
+      // Extract message content
+      const content =
+        msg.message?.conversation ||
+        msg.message?.extendedTextMessage?.text ||
+        msg.message?.imageMessage?.caption ||
+        msg.message?.videoMessage?.caption ||
+        msg.message?.audioMessage ? '🎵 Áudio' :
+        msg.message?.imageMessage ? '📷 Imagem' :
+        msg.message?.videoMessage ? '🎥 Vídeo' :
+        msg.message?.documentMessage ? `📎 ${msg.message.documentMessage.fileName || 'Arquivo'}` :
+        '[mensagem]';
+
+      // Get name — pushName from message or lookup in contacts
+      let contactName = msg.pushName || '';
+      if (!contactName || contactName === phone) {
+        // Try to get from existing conversation
+        const { rows: existing } = await query(
+          'SELECT contact_name FROM conversas WHERE contact_id = $1 AND contact_name != $2 LIMIT 1',
+          [remoteJid, phone]
+        );
+        contactName = existing[0]?.contact_name || phone;
+      }
+
+      const msgTime = msg.messageTimestamp
+        ? new Date(parseInt(msg.messageTimestamp) * 1000).toISOString()
+        : new Date().toISOString();
+
+      // Upsert conversation — update name if we have a better one
       const { rows: [conv] } = await query(`
-        INSERT INTO conversas (channel, contact_name, contact_id, phone, bot_ativo, unread, last_message, last_message_at)
-        VALUES ('whatsapp', $1, $2, $3, $4, 1, $5, NOW())
+        INSERT INTO conversas (channel, contact_name, contact_id, phone, unread, last_message, last_message_at)
+        VALUES ('whatsapp', $1, $2, $3, 1, $4, $5)
         ON CONFLICT (contact_id) DO UPDATE SET
-          unread = conversas.unread + 1, last_message = $5, last_message_at = NOW()
+          contact_name = CASE WHEN EXCLUDED.contact_name != conversas.phone THEN EXCLUDED.contact_name ELSE conversas.contact_name END,
+          unread = conversas.unread + 1,
+          last_message = EXCLUDED.last_message,
+          last_message_at = EXCLUDED.last_message_at
         RETURNING *`,
-        [contactName, msg.key.remoteJid, phone, true, content]
+        [contactName, remoteJid, phone, content, msgTime]
       );
 
-      // Insert message
-      await query(`INSERT INTO mensagens (conversa_id, from_type, type, content) VALUES ($1,'contact','text',$2)`, [conv.id, content]);
+      // Save message with correct timestamp
+      await query(`
+        INSERT INTO mensagens (conversa_id, from_type, type, content, created_at)
+        VALUES ($1, 'contact', 'text', $2, $3)`,
+        [conv.id, content, msgTime]
+      );
 
-      // Notify
-      await query(`INSERT INTO notificacoes (tipo,titulo,texto,conv_id) VALUES ('mensagem',$1,$2,$3)`,
-        [`Nova msg de ${contactName}`, content.slice(0,60), conv.id]);
+      // Notification
+      await query(
+        `INSERT INTO notificacoes (tipo, titulo, texto, conv_id) VALUES ('mensagem', $1, $2, $3)`,
+        [`Nova msg de ${contactName}`, content.slice(0, 60), conv.id]
+      );
     }
+
     res.json({ ok: true });
   } catch (err) {
-    console.error('WA webhook error:', err.message);
+    console.error('WA webhook error:', err.message, JSON.stringify(req.body).slice(0, 200));
     res.json({ ok: true }); // Always 200 to Evolution
   }
 });
@@ -420,39 +473,79 @@ r.post('/whatsapp/import-history', async (req, res) => {
   if (!EVO || !KEY) return res.status(400).json({ error: 'Não configurado' });
   try {
     const { default: fetch } = await import('node-fetch');
-    // Get all chats from Evolution API
+
+    // Get all chats
     const r2 = await fetch(`${EVO}/chat/findChats/${INST}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', apikey: KEY },
       body: JSON.stringify({}),
       signal: AbortSignal.timeout(30000)
     });
-    const chats = await r2.json();
-    const chatList = Array.isArray(chats) ? chats : (chats?.data || []);
+    const chatsRaw = await r2.json();
+    const chatList = Array.isArray(chatsRaw) ? chatsRaw : (chatsRaw?.data || []);
 
     let imported = 0;
-    for (const chat of chatList.slice(0, 100)) { // max 100 chats
-      const phone = (chat.id || chat.remoteJid || '').replace('@s.whatsapp.net','').replace(/^55/,'');
-      const name = chat.name || chat.pushName || phone;
-      if (!phone || phone.includes('@')) continue;
+    const limit = parseInt(req.body?.limit) || 100;
 
-      // Upsert conversation
-      await query(`
+    for (const chat of chatList.slice(0, limit)) {
+      const remoteJid = chat.id || chat.remoteJid || '';
+      if (!remoteJid || remoteJid.includes('@g.us')) continue; // skip groups
+      const phone = remoteJid.replace('@s.whatsapp.net','').replace(/^55/,'');
+      const name = chat.name || chat.pushName || phone;
+
+      const lastMsg =
+        chat.lastMessage?.message?.conversation ||
+        chat.lastMessage?.message?.extendedTextMessage?.text ||
+        '...';
+
+      const lastTime = chat.lastMessage?.messageTimestamp
+        ? new Date(parseInt(chat.lastMessage.messageTimestamp) * 1000).toISOString()
+        : new Date().toISOString();
+
+      // Upsert conversa
+      const { rows: [conv] } = await query(`
         INSERT INTO conversas (channel, contact_name, contact_id, phone, last_message, last_message_at, unread)
         VALUES ('whatsapp', $1, $2, $3, $4, $5, $6)
         ON CONFLICT (contact_id) DO UPDATE SET
-          contact_name = EXCLUDED.contact_name,
+          contact_name = CASE WHEN EXCLUDED.contact_name != conversas.phone THEN EXCLUDED.contact_name ELSE conversas.contact_name END,
           last_message = EXCLUDED.last_message,
-          last_message_at = EXCLUDED.last_message_at,
-          unread = EXCLUDED.unread
-      `, [
-        name,
-        phone + '@s.whatsapp.net',
-        phone,
-        chat.lastMessage?.message?.conversation || chat.lastMessage?.message?.extendedTextMessage?.text || '...',
-        chat.lastMessage?.messageTimestamp ? new Date(chat.lastMessage.messageTimestamp * 1000).toISOString() : new Date().toISOString(),
-        chat.unreadCount || 0
-      ]);
+          last_message_at = EXCLUDED.last_message_at
+        RETURNING *`,
+        [name, remoteJid, phone, lastMsg, lastTime, chat.unreadCount || 0]
+      );
+
+      // Fetch last 20 messages for each chat
+      try {
+        const r3 = await fetch(`${EVO}/chat/findMessages/${INST}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', apikey: KEY },
+          body: JSON.stringify({ where: { key: { remoteJid } }, limit: 20 }),
+          signal: AbortSignal.timeout(10000)
+        });
+        if (r3.ok) {
+          const msgsRaw = await r3.json();
+          const msgs = Array.isArray(msgsRaw) ? msgsRaw : (msgsRaw?.messages?.records || msgsRaw?.records || []);
+          for (const m of msgs) {
+            const content =
+              m.message?.conversation ||
+              m.message?.extendedTextMessage?.text ||
+              m.message?.imageMessage ? '📷 Imagem' :
+              m.message?.audioMessage ? '🎵 Áudio' : null;
+            if (!content) continue;
+            const fromType = m.key?.fromMe ? 'me' : 'contact';
+            const ts = m.messageTimestamp
+              ? new Date(parseInt(m.messageTimestamp) * 1000).toISOString()
+              : new Date().toISOString();
+            await query(`
+              INSERT INTO mensagens (conversa_id, from_type, type, content, created_at)
+              VALUES ($1, $2, 'text', $3, $4)
+              ON CONFLICT DO NOTHING`,
+              [conv.id, fromType, content, ts]
+            ).catch(() => {}); // ignore duplicates
+          }
+        }
+      } catch {} // messages import is best-effort
+
       imported++;
     }
 
