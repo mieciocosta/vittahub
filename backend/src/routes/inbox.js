@@ -546,17 +546,17 @@ r.get('/conversations/:id', async (req, res) => {
 r.get('/conversations/:id/poll', async (req, res) => {
   try {
     res.set('Cache-Control', 'no-store, no-cache');
-    const afterTs = req.query.after_ts
-      ? new Date(req.query.after_ts).toISOString()
-      : new Date(0).toISOString();
+
+    // Nunca aceitar timestamps muito antigos (evita retornar todo o histórico)
+    // Máximo de 30 minutos atrás — se after_ts for mais antigo, usa 30min atrás
+    const THIRTY_MIN_AGO = new Date(Date.now() - 30 * 60 * 1000);
+    let afterTs = req.query.after_ts ? new Date(req.query.after_ts) : THIRTY_MIN_AGO;
+    if (afterTs < THIRTY_MIN_AGO) afterTs = THIRTY_MIN_AGO;
+    afterTs = afterTs.toISOString();
 
     // Verifica se já há mensagens novas (sem esperar)
     const { rows: immediate } = await query(
-      `SELECT id, conversa_id, from_type, type,
-        CASE WHEN content LIKE 'data:%' AND length(content) > 500 THEN content ELSE content END AS content,
-        filename, sender_nome, status, wa_msg_id, created_at
-       FROM mensagens WHERE conversa_id = $1 AND created_at > $2
-       ORDER BY created_at ASC LIMIT 20`,
+      `SELECT * FROM mensagens WHERE conversa_id = $1 AND created_at > $2 ORDER BY created_at ASC LIMIT 20`,
       [req.params.id, afterTs]
     );
     if (immediate.length > 0) return res.json({ messages: immediate });
@@ -572,7 +572,6 @@ r.get('/conversations/:id/poll', async (req, res) => {
         resolve([]);
       }, 25000);
       waiters.get(req.params.id).push(entry);
-
       req.on('close', () => {
         clearTimeout(entry.timer);
         const list = waiters.get(req.params.id) || [];

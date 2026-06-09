@@ -331,6 +331,7 @@ export default function Inbox({ onUnreadChange }) {
   const [msgsHasMore, setMsgsHasMore]     = useState(false);
   const [loadingOlderMsgs, setLoadingOlderMsgs] = useState(false);
   const [input, setInput]     = useState('');
+  const [sending, setSending] = useState(false); // guard: evita envios duplos
   const [recording, setRecording] = useState(false);
   const [recorder, setRecorder]   = useState(null);
   const [showAI, setShowAI]     = useState(false);
@@ -414,41 +415,78 @@ export default function Inbox({ onUnreadChange }) {
     if (!sel) return;
     let active = true;
     const BASE = import.meta.env.VITE_API_URL || '';
+    const convId = sel.id;
 
     async function longPollLoop() {
+      // Aguarda até 1.5s para que openConvo() defina lastMsgTs antes de começar
+      // Evita usar timestamp 1970 (epoch) que retornaria todo o histórico
+      let waited = 0;
+      while (!lastMsgTs.current && waited < 1500) {
+        await new Promise(r => setTimeout(r, 100));
+        waited += 100;
+      }
+
+      // Fallback seguro: 2 minutos atrás (nunca epoch)
+      let localAfterTs = lastMsgTs.current || new Date(Date.now() - 120000).toISOString();
+
       while (active) {
         try {
           const controller = new AbortController();
-          // 30s timeout no cliente (servidor aguarda 25s)
           const abortTimer = setTimeout(() => controller.abort(), 30000);
 
-          const afterTs = lastMsgTs.current || new Date(0).toISOString();
           const resp = await fetch(
-            `${BASE}/api/inbox/conversations/${sel.id}/poll?after_ts=${encodeURIComponent(afterTs)}`,
-            {
-              headers: { Authorization: `Bearer ${token}`, 'Cache-Control': 'no-cache' },
-              signal: controller.signal,
-            }
+            `${BASE}/api/inbox/conversations/${convId}/poll?after_ts=${encodeURIComponent(localAfterTs)}`,
+            { headers: { Authorization: `Bearer ${token}`, 'Cache-Control': 'no-cache' }, signal: controller.signal }
           );
           clearTimeout(abortTimer);
-
           if (!resp.ok) { await new Promise(r => setTimeout(r, 2000)); continue; }
+
           const data = await resp.json();
           const newMsgs = data.messages || [];
 
           if (newMsgs.length > 0 && active) {
+            // Avança o cursor local para a próxima iteração
+            localAfterTs = newMsgs[newMsgs.length - 1].created_at;
+            lastMsgTs.current = localAfterTs;
+
             setMsgs(prev => {
-              const ids = new Set(prev.map(m => m.id));
-              const truly = newMsgs.filter(m => !ids.has(m.id));
+              const existingIds = new Set(prev.map(m => m.id));
+
+              // Filtra mensagens realmente novas
+              const truly = newMsgs.filter(m => !existingIds.has(m.id));
               if (truly.length === 0) return prev;
-              lastMsgTs.current = newMsgs[newMsgs.length - 1].created_at;
-              return [...prev, ...truly];
+
+              // Substitui mensagens otimistas (tmp-*) pela versão confirmada do banco
+              // Evita duplicação: "mensagem do usuário aparece duas vezes"
+              const withoutStaleOpt = prev.map(p => {
+                if (!String(p.id).startsWith('tmp-')) return p;
+                // Verifica se existe uma versão real desta mensagem
+                const confirmed = truly.find(r =>
+                  r.from_type === 'me' &&
+                  r.content === p.content &&
+                  r.sender_nome === p.sender_nome
+                );
+                return confirmed ? null : p; // null = remover
+              }).filter(Boolean);
+
+              // Mensagens novas que não vieram como confirmação de otimista
+              const confirmedContents = new Set(
+                withoutStaleOpt.length !== prev.length
+                  ? truly.filter(r => r.from_type === 'me').map(r => r.content)
+                  : []
+              );
+              const toAdd = truly.filter(m => {
+                if (m.from_type !== 'me') return true;
+                return !confirmedContents.has(m.content);
+              });
+
+              return [...withoutStaleOpt, ...toAdd];
             });
           }
-          // Sem delay: reconecta imediatamente para a próxima mensagem
+          // Sem delay: reconecta imediatamente
         } catch {
           if (!active) break;
-          await new Promise(r => setTimeout(r, 2000)); // retry após erro
+          await new Promise(r => setTimeout(r, 2000));
         }
       }
     }
@@ -579,7 +617,9 @@ export default function Inbox({ onUnreadChange }) {
 
   // ── Enviar mensagem ────────────────────────────────────────────────────────
   const send = async (text) => {
-    const t = (text || input).trim(); if (!t || !sel) return;
+    const t = (text || input).trim();
+    if (!t || !sel || sending) return; // guard: bloqueia double-send
+    setSending(true);
     setInput('');
     const now = new Date().toISOString();
     const tmp = { id:`tmp-${Date.now()}`, from_type:'me', type:'text', content:t, created_at:now, status:'sent', sender_nome:user?.nome };
@@ -587,6 +627,7 @@ export default function Inbox({ onUnreadChange }) {
     setConvos(p => p.map(c => c.id===sel.id ? {...c, last_message:t, last_message_at:now} : c));
     try { await api.post(`/inbox/conversations/${sel.id}/send`, { content:t }); }
     catch(e) { console.error('send error:', e.message); }
+    finally { setSending(false); }
   };
 
   // ── Arquivo ───────────────────────────────────────────────────────────────
@@ -615,12 +656,16 @@ export default function Inbox({ onUnreadChange }) {
   };
 
   const sendFilePreview = async () => {
-    if (!filePreview || !sel) return;
-    const fd = new FormData(); fd.append('file', filePreview.file);
-    const m = await api.upload(`/inbox/conversations/${sel.id}/upload`, fd);
-    setMsgs(p => [...p, m]);
-    if (filePreview.url) URL.revokeObjectURL(filePreview.url);
-    setFilePreview(null);
+    if (!filePreview || !sel || sending) return; // guard: evita múltiplos cliques
+    setSending(true);
+    try {
+      const fd = new FormData(); fd.append('file', filePreview.file);
+      const m = await api.upload(`/inbox/conversations/${sel.id}/upload`, fd);
+      setMsgs(p => [...p, m]);
+      if (filePreview.url) URL.revokeObjectURL(filePreview.url);
+      setFilePreview(null);
+    } catch(e) { console.error('upload error:', e.message); }
+    finally { setSending(false); }
   };
 
   const startRec = async () => {
@@ -873,7 +918,12 @@ export default function Inbox({ onUnreadChange }) {
                   {filePreview.type==='image'?'📷 Imagem':filePreview.type==='video'?'🎥 Vídeo':'📎 Documento'} · pronto para enviar
                 </div>
               </div>
-              <button onClick={sendFilePreview} className="btn btn-p btn-sm" style={{ gap:5 }}><Send size={12}/> Enviar</button>
+              <button onClick={sendFilePreview} disabled={sending} className="btn btn-p btn-sm" style={{ gap:5, minWidth:90, opacity: sending ? 0.7 : 1 }}>
+                {sending
+                  ? <><Loader2 size={13} style={{animation:'spin 1s linear infinite'}}/> Enviando…</>
+                  : <><Send size={12}/> Enviar</>
+                }
+              </button>
             </div>
           )}
 
@@ -908,8 +958,8 @@ export default function Inbox({ onUnreadChange }) {
               <button onClick={recording?stopRec:startRec} className="btn btn-ico" style={{ background:recording?'var(--err2)':'var(--bg2)', color:recording?'var(--err)':'var(--muted)', borderRadius:8, animation:recording?'pulse 1.2s infinite':'none' }}>
                 {recording?<MicOff size={15}/>:<Mic size={15}/>}
               </button>
-              <button onClick={()=>send()} disabled={!input.trim()&&!filePreview} className="btn btn-ico" style={{ background:(input.trim()||filePreview)?'var(--tq)':'var(--bg2)', color:(input.trim()||filePreview)?'#fff':'var(--light)', borderRadius:8, transition:'all .15s' }}>
-                <Send size={15}/>
+              <button onClick={()=>send()} disabled={(!input.trim()&&!filePreview)||sending} className="btn btn-ico" style={{ background:(input.trim()||filePreview)&&!sending?'var(--tq)':'var(--bg2)', color:(input.trim()||filePreview)&&!sending?'#fff':'var(--light)', borderRadius:8, transition:'all .15s' }}>
+                {sending ? <Loader2 size={15} style={{animation:'spin 1s linear infinite'}}/> : <Send size={15}/>}
               </button>
             </div>
             {recording&&<div style={{ textAlign:'center', marginTop:5, fontSize:11, color:'var(--err)', fontWeight:600 }}>🔴 Gravando… clique para parar</div>}
