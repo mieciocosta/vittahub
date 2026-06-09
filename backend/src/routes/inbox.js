@@ -514,7 +514,12 @@ r.post('/whatsapp/import-history', async (req, res) => {
 
     for (const chat of chatList.slice(0, limit)) {
       const remoteJid = chat.id || chat.remoteJid || '';
-      if (!remoteJid || remoteJid.endsWith('@g.us') || remoteJid.endsWith('@broadcast')) continue;
+      // Pula grupos, broadcast e LIDs (formato novo do WA Business sem número real)
+      if (!remoteJid) continue;
+      if (remoteJid.endsWith('@g.us')) continue;
+      if (remoteJid.endsWith('@broadcast')) continue;
+      if (remoteJid.endsWith('@lid')) continue;  // LID não tem telefone real
+      if (!remoteJid.endsWith('@s.whatsapp.net') && !remoteJid.match(/^\d+@/)) continue;
 
       const rawPhone2 = remoteJid.replace('@s.whatsapp.net', '').replace(/\D/g, ''); const phone = rawPhone2.startsWith('55') ? rawPhone2.slice(2) : rawPhone2;
 
