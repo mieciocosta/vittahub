@@ -606,71 +606,76 @@ r.post('/whatsapp/update-contacts', async (req, res) => {
   try {
     const { default: fetch } = await import('node-fetch');
 
-    // 1. Get all contacts from Evolution
-    const rc = await fetch(`${EVO}/contact/findContacts/${INST}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', apikey: KEY },
-      body: JSON.stringify({}),
-      signal: AbortSignal.timeout(20000)
-    });
-
-    let updated = 0;
-    if (rc.ok) {
-      const raw = await rc.json();
-      const contacts = Array.isArray(raw) ? raw : (raw?.data || []);
-      console.log(`UPDATE_CONTACTS: ${contacts.length} contacts from Evolution`);
-
-      for (const c of contacts) {
-        const jid = c.remoteJid || c.id || '';
-        if (!jid || jid.endsWith('@g.us') || jid.endsWith('@lid')) continue;
-
-        const name = c.pushName || c.verifiedName || c.name || '';
-        const pic  = c.profilePicUrl || c.imgUrl || c.profilePictureUrl || '';
-
-        if (!name && !pic) continue;
-
-        const updates = [];
-        const params = [];
-        let pi = 1;
-        if (name && name.length > 2) { updates.push(`contact_name = CASE WHEN contact_name = phone OR length(contact_name) <= 11 THEN $${pi++} ELSE contact_name END`); params.push(name); }
-        if (pic) { updates.push(`profile_pic = $${pi++}`); params.push(pic); }
-        params.push(jid);
-
-        if (updates.length > 0) {
-          const { rowCount } = await query(
-            `UPDATE conversas SET ${updates.join(', ')} WHERE contact_id = $${pi}`,
-            params
-          );
-          updated += rowCount || 0;
-        }
-      }
-    }
-
-    // 2. Fetch profile pics one by one for conversations still without pic
-    const { rows: missing } = await query(
-      'SELECT id, contact_id FROM conversas WHERE profile_pic IS NULL AND contact_id LIKE $1 LIMIT 20',
-      ['%@s.whatsapp.net']
+    // Get all conversations that need updating
+    const { rows: convos } = await query(
+      `SELECT id, contact_id, phone, contact_name FROM conversas
+       WHERE contact_id LIKE '%@s.whatsapp.net'
+       ORDER BY last_message_at DESC`
     );
 
-    let picsUpdated = 0;
-    for (const conv of missing) {
+    if (!convos.length) return res.json({ ok: true, updated: 0 });
+
+    // Batch lookup via whatsappNumbers (works!) - in batches of 10
+    let namesUpdated = 0, picsUpdated = 0;
+    const batchSize = 10;
+
+    for (let i = 0; i < convos.length; i += batchSize) {
+      const batch = convos.slice(i, i + batchSize);
+      const numbers = batch.map(c => c.contact_id.replace('@s.whatsapp.net', ''));
+
       try {
-        const rp = await fetch(`${EVO}/contact/getProfilePicture/${INST}?number=${conv.contact_id}`, {
-          headers: { apikey: KEY },
-          signal: AbortSignal.timeout(5000)
+        const r2 = await fetch(`${EVO}/chat/whatsappNumbers/${INST}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', apikey: KEY },
+          body: JSON.stringify({ numbers }),
+          signal: AbortSignal.timeout(15000)
         });
+        if (r2.ok) {
+          const results = await r2.json();
+          for (const item of (Array.isArray(results) ? results : [])) {
+            const jid = item.jid || item.number + '@s.whatsapp.net';
+            const name = item.name || item.pushName || '';
+            if (name && name.length > 2) {
+              const { rowCount } = await query(
+                `UPDATE conversas SET contact_name = $1
+                 WHERE contact_id = $2 AND (contact_name = phone OR length(contact_name) <= 11)`,
+                [name, jid]
+              );
+              namesUpdated += rowCount || 0;
+            }
+          }
+        }
+      } catch (e) { console.log('batch error:', e.message); }
+    }
+
+    // Fetch profile pics one by one
+    const { rows: noPic } = await query(
+      `SELECT id, contact_id FROM conversas
+       WHERE profile_pic IS NULL AND contact_id LIKE '%@s.whatsapp.net'
+       LIMIT 30`
+    );
+
+    for (const conv of noPic) {
+      try {
+        const rp = await fetch(
+          `${EVO}/contact/getProfilePicture/${INST}?number=${conv.contact_id}`,
+          { headers: { apikey: KEY }, signal: AbortSignal.timeout(6000) }
+        );
         if (rp.ok) {
           const pd = await rp.json();
-          const pic = pd.profilePictureUrl || pd.base64 || pd.imgUrl || '';
+          const pic = pd.profilePictureUrl || pd.profilePicUrl || pd.imgUrl || pd.base64 || '';
           if (pic) {
             await query('UPDATE conversas SET profile_pic = $1 WHERE id = $2', [pic, conv.id]);
             picsUpdated++;
           }
         }
       } catch {}
+      // Small delay to not overwhelm Evolution API
+      await new Promise(r => setTimeout(r, 200));
     }
 
-    res.json({ ok: true, namesUpdated: updated, picsUpdated, total: missing.length });
+    console.log(`UPDATE_CONTACTS done: ${namesUpdated} names, ${picsUpdated} pics`);
+    res.json({ ok: true, namesUpdated, picsUpdated });
   } catch (e) {
     console.error('update-contacts error:', e.message);
     res.status(500).json({ error: e.message });
