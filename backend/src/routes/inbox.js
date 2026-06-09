@@ -323,91 +323,82 @@ r.get('/webhook/instagram', (req, res) => {
 });
 
 r.post('/webhook/whatsapp', async (req, res) => {
+  // Responde 200 imediatamente para a Evolution API não retentar
+  res.json({ ok: true });
   try {
     const body = req.body;
-    // DEBUG — log primeiros 800 chars do payload para diagnóstico
-    console.log('WA_PAYLOAD:', JSON.stringify(body).slice(0, 800));
+    console.log('WA_RAW:', JSON.stringify(body).slice(0, 500));
 
-    // Evolution API v2 sends: { event: 'messages.upsert', data: { messages: [...] } }
-    // or directly: { event, instance, data: { key, pushName, message, ... } }
-    const event = body.event;
-    if (!event || !event.includes('messages')) return res.json({ ok: true });
+    const event = body.event || '';
+    if (!event.includes('messages')) return;
 
-    // Normalize: v2 can send single message or array
-    let messages = [];
-    if (body.data?.messages) {
-      messages = Array.isArray(body.data.messages) ? body.data.messages : [body.data.messages];
+    // Evolution API v2: mensagem única em body.data ou array em body.data.messages
+    let msgs = [];
+    if (Array.isArray(body.data?.messages)) {
+      msgs = body.data.messages;
     } else if (body.data?.key) {
-      // v2 sends single message directly in data
-      messages = [{ key: body.data.key, message: body.data.message, pushName: body.data.pushName, messageTimestamp: body.data.messageTimestamp }];
+      msgs = [body.data];
+    } else if (Array.isArray(body.data)) {
+      msgs = body.data;
     }
 
-    for (const msg of messages) {
-      if (!msg?.key?.remoteJid) continue;
-      if (msg.key.fromMe) continue;
-      if (msg.key.remoteJid.includes('@g.us')) continue; // skip groups
+    for (const msg of msgs) {
+      const key = msg.key || {};
+      if (!key.remoteJid) continue;
+      if (key.fromMe) continue;
+      if (key.remoteJid.endsWith('@g.us')) continue;
 
-      const remoteJid = msg.key.remoteJid;
-      const phone = remoteJid.replace('@s.whatsapp.net','').replace(/^55/,'');
+      const remoteJid = key.remoteJid;
+      const phone = remoteJid.replace('@s.whatsapp.net', '').replace(/\D/g, '').slice(-11);
+      const pushName = msg.pushName || msg.verifiedBizName || '';
+      const contactName = (pushName && pushName !== phone) ? pushName : phone;
 
-      // Extract message content
-      const content =
-        msg.message?.conversation ||
-        msg.message?.extendedTextMessage?.text ||
-        msg.message?.imageMessage?.caption ||
-        msg.message?.videoMessage?.caption ||
-        msg.message?.audioMessage ? '🎵 Áudio' :
-        msg.message?.imageMessage ? '📷 Imagem' :
-        msg.message?.videoMessage ? '🎥 Vídeo' :
-        msg.message?.documentMessage ? `📎 ${msg.message.documentMessage.fileName || 'Arquivo'}` :
-        '[mensagem]';
+      const m = msg.message || {};
+      let content = '[mensagem]', type = 'text';
+      if (m.conversation)                   { content = m.conversation; }
+      else if (m.extendedTextMessage?.text)  { content = m.extendedTextMessage.text; }
+      else if (m.imageMessage)               { content = m.imageMessage.caption || '📷 Imagem'; type = 'image'; }
+      else if (m.videoMessage)               { content = m.videoMessage.caption || '🎥 Vídeo'; type = 'video'; }
+      else if (m.audioMessage || m.pttMessage) { content = '🎵 Áudio'; type = 'audio'; }
+      else if (m.documentMessage)            { content = `📎 ${m.documentMessage.fileName || 'Documento'}`; type = 'document'; }
+      else if (m.stickerMessage)             { content = '🎭 Sticker'; }
+      else if (m.locationMessage)            { content = '📍 Localização'; }
+      else if (m.contactMessage)             { content = `👤 ${m.contactMessage.displayName}`; }
 
-      // Get name — pushName from message or lookup in contacts
-      let contactName = msg.pushName || '';
-      if (!contactName || contactName === phone) {
-        // Try to get from existing conversation
-        const { rows: existing } = await query(
-          'SELECT contact_name FROM conversas WHERE contact_id = $1 AND contact_name != $2 LIMIT 1',
-          [remoteJid, phone]
-        );
-        contactName = existing[0]?.contact_name || phone;
-      }
-
-      const msgTime = msg.messageTimestamp
-        ? new Date(parseInt(msg.messageTimestamp) * 1000).toISOString()
+      const ts = msg.messageTimestamp
+        ? new Date(parseInt(String(msg.messageTimestamp)) * 1000).toISOString()
         : new Date().toISOString();
 
-      // Upsert conversation — update name if we have a better one
+      console.log(`WA_MSG: name="${contactName}" phone="${phone}" content="${content.slice(0,50)}"`);
+
       const { rows: [conv] } = await query(`
         INSERT INTO conversas (channel, contact_name, contact_id, phone, unread, last_message, last_message_at)
         VALUES ('whatsapp', $1, $2, $3, 1, $4, $5)
         ON CONFLICT (contact_id) DO UPDATE SET
-          contact_name = CASE WHEN EXCLUDED.contact_name != conversas.phone THEN EXCLUDED.contact_name ELSE conversas.contact_name END,
+          contact_name = CASE
+            WHEN EXCLUDED.contact_name != EXCLUDED.phone AND length(EXCLUDED.contact_name) > 5
+            THEN EXCLUDED.contact_name
+            ELSE conversas.contact_name
+          END,
           unread = conversas.unread + 1,
           last_message = EXCLUDED.last_message,
           last_message_at = EXCLUDED.last_message_at
         RETURNING *`,
-        [contactName, remoteJid, phone, content, msgTime]
+        [contactName, remoteJid, phone, content, ts]
       );
 
-      // Save message with correct timestamp
-      await query(`
-        INSERT INTO mensagens (conversa_id, from_type, type, content, created_at)
-        VALUES ($1, 'contact', 'text', $2, $3)`,
-        [conv.id, content, msgTime]
-      );
-
-      // Notification
       await query(
-        `INSERT INTO notificacoes (tipo, titulo, texto, conv_id) VALUES ('mensagem', $1, $2, $3)`,
-        [`Nova msg de ${contactName}`, content.slice(0, 60), conv.id]
+        `INSERT INTO mensagens (conversa_id, from_type, type, content, created_at) VALUES ($1,'contact',$2,$3,$4)`,
+        [conv.id, type, content, ts]
       );
-    }
 
-    res.json({ ok: true });
+      await query(
+        `INSERT INTO notificacoes (tipo,titulo,texto,conv_id) VALUES ('mensagem',$1,$2,$3)`,
+        [`Nova msg: ${contactName}`, content.slice(0, 80), conv.id]
+      ).catch(() => {});
+    }
   } catch (err) {
-    console.error('WA webhook error:', err.message, JSON.stringify(req.body).slice(0, 200));
-    res.json({ ok: true }); // Always 200 to Evolution
+    console.error('WA_ERROR:', err.message, JSON.stringify(req.body).slice(0, 300));
   }
 });
 
