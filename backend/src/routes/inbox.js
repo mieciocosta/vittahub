@@ -49,19 +49,30 @@ r.post('/webhook/whatsapp', async (req, res) => {
     const body = req.body;
     const event = body.event || body.apikey || '';
 
-    // Log every webhook for debugging
-    console.log(`WH: event="${event}" keys=${Object.keys(body.data||{}).join(',')}`);
+    // Log raw payload for debugging
+    console.log(`WH_RAW: ${JSON.stringify(body).slice(0, 300)}`);
 
-    // Only process actual new messages
-    if (!['messages.upsert', 'messages_upsert', 'MESSAGES_UPSERT'].includes(event) &&
-        !event.includes('messages.upsert')) return;
+    // Extract messages from ANY payload format Evolution API sends
+    let msgs = [];
+    if (Array.isArray(body.data?.messages))      msgs = body.data.messages;
+    else if (body.data?.key)                      msgs = [body.data];
+    else if (Array.isArray(body.data))            msgs = body.data;
+    else if (body.key)                            msgs = [body];
+    else if (Array.isArray(body.messages))        msgs = body.messages;
+
+    if (msgs.length === 0) {
+      console.log(`WH_SKIP: no messages found in payload, event="${body.event}"`);
+      return;
+    }
+    console.log(`WH_PROCESS: ${msgs.length} msg(s), event="${body.event}"`);
 
     let msgs = [];
     if (Array.isArray(body.data?.messages)) msgs = body.data.messages;
-    else if (body.data?.key) msgs = [body.data]; // v2 single message format
-    else if (Array.isArray(body.data)) msgs = body.data;
+    else if (body.data?.key)               msgs = [body.data];
+    else if (Array.isArray(body.data))     msgs = body.data;
+    else if (body.key)                     msgs = [body]; // root level message
 
-    console.log(`WH: ${msgs.length} msg(s) to process`);
+    console.log(`WH_MSGS: ${msgs.length} | fromMe: ${msgs.map(m=>m.key?.fromMe).join(',')}`);
 
     for (const msg of msgs) {
       const key = msg.key || {};
@@ -593,6 +604,84 @@ r.post('/notifications/read-all', async (req, res) => {
     await query('UPDATE notificacoes SET lida = true WHERE lida = false');
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── UPDATE NAMES + PROFILE PICS ─────────────────────────────────────────────
+r.post('/whatsapp/update-contacts', async (req, res) => {
+  const EVO = EVO_URL(), KEY = EVO_KEY(), INST = EVO_INST();
+  if (!EVO || !KEY) return res.status(400).json({ error: 'Não configurado' });
+  try {
+    const { default: fetch } = await import('node-fetch');
+
+    // 1. Get all contacts from Evolution
+    const rc = await fetch(`${EVO}/contact/findContacts/${INST}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: KEY },
+      body: JSON.stringify({}),
+      signal: AbortSignal.timeout(20000)
+    });
+
+    let updated = 0;
+    if (rc.ok) {
+      const raw = await rc.json();
+      const contacts = Array.isArray(raw) ? raw : (raw?.data || []);
+      console.log(`UPDATE_CONTACTS: ${contacts.length} contacts from Evolution`);
+
+      for (const c of contacts) {
+        const jid = c.remoteJid || c.id || '';
+        if (!jid || jid.endsWith('@g.us') || jid.endsWith('@lid')) continue;
+
+        const name = c.pushName || c.verifiedName || c.name || '';
+        const pic  = c.profilePicUrl || c.imgUrl || c.profilePictureUrl || '';
+
+        if (!name && !pic) continue;
+
+        const updates = [];
+        const params = [];
+        let pi = 1;
+        if (name && name.length > 2) { updates.push(`contact_name = CASE WHEN contact_name = phone OR length(contact_name) <= 11 THEN $${pi++} ELSE contact_name END`); params.push(name); }
+        if (pic) { updates.push(`profile_pic = $${pi++}`); params.push(pic); }
+        params.push(jid);
+
+        if (updates.length > 0) {
+          const { rowCount } = await query(
+            `UPDATE conversas SET ${updates.join(', ')} WHERE contact_id = $${pi}`,
+            params
+          );
+          updated += rowCount || 0;
+        }
+      }
+    }
+
+    // 2. Fetch profile pics one by one for conversations still without pic
+    const { rows: missing } = await query(
+      'SELECT id, contact_id FROM conversas WHERE profile_pic IS NULL AND contact_id LIKE $1 LIMIT 20',
+      ['%@s.whatsapp.net']
+    );
+
+    let picsUpdated = 0;
+    for (const conv of missing) {
+      try {
+        const rp = await fetch(`${EVO}/contact/getProfilePicture/${INST}?number=${conv.contact_id}`, {
+          headers: { apikey: KEY },
+          signal: AbortSignal.timeout(5000)
+        });
+        if (rp.ok) {
+          const pd = await rp.json();
+          const pic = pd.profilePictureUrl || pd.base64 || pd.imgUrl || '';
+          if (pic) {
+            await query('UPDATE conversas SET profile_pic = $1 WHERE id = $2', [pic, conv.id]);
+            picsUpdated++;
+          }
+        }
+      } catch {}
+    }
+
+    res.json({ ok: true, namesUpdated: updated, picsUpdated, total: missing.length });
+  } catch (e) {
+    console.error('update-contacts error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ─── WHATSAPP QR CODE (Evolution API) ────────────────────────────────────────
