@@ -23,23 +23,25 @@ r.post('/webhook/whatsapp', async (req, res) => {
   res.json({ ok: true });
   try {
     const body = req.body;
-    console.log('WA_RAW:', JSON.stringify(body).slice(0, 500));
     const event = body.event || '';
     if (!event.includes('messages')) return;
+
     let msgs = [];
     if (Array.isArray(body.data?.messages)) msgs = body.data.messages;
     else if (body.data?.key) msgs = [body.data];
     else if (Array.isArray(body.data)) msgs = body.data;
-    console.log(`WA_MSGS: ${msgs.length}`);
+
     for (const msg of msgs) {
       const key = msg.key || {};
       if (!key.remoteJid) continue;
-      if (key.fromMe) continue;
       if (key.remoteJid.endsWith('@g.us')) continue;
+
       const remoteJid = key.remoteJid;
+      const isMe = !!key.fromMe;
       const phone = remoteJid.replace('@s.whatsapp.net', '').replace(/\D/g, '').slice(-11);
       const pushName = msg.pushName || msg.verifiedBizName || '';
-      const contactName = (pushName && pushName !== phone) ? pushName : phone;
+      const contactName = (pushName && pushName !== phone && pushName.length > 2) ? pushName : phone;
+
       const m = msg.message || {};
       let content = '[mensagem]', type = 'text';
       if (m.conversation)                        { content = m.conversation; }
@@ -50,20 +52,49 @@ r.post('/webhook/whatsapp', async (req, res) => {
       else if (m.documentMessage)                 { content = `📎 ${m.documentMessage.fileName || 'Documento'}`; type = 'document'; }
       else if (m.stickerMessage)                  { content = '🎭 Sticker'; }
       else if (m.locationMessage)                 { content = '📍 Localização'; }
-      else if (m.contactMessage)                  { content = `👤 ${m.contactMessage.displayName}`; }
-      const ts = msg.messageTimestamp ? new Date(parseInt(String(msg.messageTimestamp)) * 1000).toISOString() : new Date().toISOString();
-      console.log(`WA_MSG: name="${contactName}" phone="${phone}" content="${content.slice(0,50)}"`);
+      else if (m.contactMessage)                  { content = `👤 ${m.contactMessage.displayName || ''}`; }
+
+      const ts = msg.messageTimestamp
+        ? new Date(parseInt(String(msg.messageTimestamp)) * 1000).toISOString()
+        : new Date().toISOString();
+
+      // Se é mensagem enviada pelo VittaHub (fromMe), só atualiza status — não duplica
+      if (isMe) {
+        // Tenta marcar como delivered a mensagem já salva com mesmo conteúdo
+        await query(
+          `UPDATE mensagens SET status = 'delivered' WHERE conversa_id IN (SELECT id FROM conversas WHERE contact_id = $1) AND content = $2 AND from_type = 'me' AND status = 'sent' AND created_at > NOW() - INTERVAL '1 minute'`,
+          [remoteJid, content]
+        ).catch(() => {});
+        continue; // não processa como nova mensagem
+      }
+
+      console.log(`WA_MSG: name="${contactName}" phone="${phone}" content="${content.slice(0,60)}"`);
+
+      // Upsert conversa — atualiza nome se tiver um melhor
       const { rows: [conv] } = await query(`
         INSERT INTO conversas (channel, contact_name, contact_id, phone, unread, last_message, last_message_at)
         VALUES ('whatsapp', $1, $2, $3, 1, $4, $5)
         ON CONFLICT (contact_id) DO UPDATE SET
-          contact_name = CASE WHEN length(EXCLUDED.contact_name) > 8 AND EXCLUDED.contact_name != EXCLUDED.phone THEN EXCLUDED.contact_name ELSE conversas.contact_name END,
+          contact_name = CASE
+            WHEN length(EXCLUDED.contact_name) > 8 AND EXCLUDED.contact_name != EXCLUDED.phone
+            THEN EXCLUDED.contact_name
+            ELSE conversas.contact_name
+          END,
           unread = conversas.unread + 1,
           last_message = EXCLUDED.last_message,
           last_message_at = EXCLUDED.last_message_at
-        RETURNING *`, [contactName, remoteJid, phone, content, ts]);
-      await query(`INSERT INTO mensagens (conversa_id, from_type, type, content, created_at) VALUES ($1,'contact',$2,$3,$4)`, [conv.id, type, content, ts]);
-      await query(`INSERT INTO notificacoes (tipo,titulo,texto,conv_id) VALUES ('mensagem',$1,$2,$3)`, [`Nova msg: ${contactName}`, content.slice(0, 80), conv.id]).catch(() => {});
+        RETURNING *`,
+        [contactName, remoteJid, phone, content, ts]
+      );
+
+      await query(
+        `INSERT INTO mensagens (conversa_id, from_type, type, content, created_at) VALUES ($1,'contact',$2,$3,$4)`,
+        [conv.id, type, content, ts]
+      );
+      await query(
+        `INSERT INTO notificacoes (tipo,titulo,texto,conv_id) VALUES ('mensagem',$1,$2,$3)`,
+        [`Nova msg: ${contactName}`, content.slice(0, 80), conv.id]
+      ).catch(() => {});
     }
   } catch (err) { console.error('WA_ERROR:', err.message); }
 });
@@ -436,8 +467,9 @@ r.post('/whatsapp/import-history', async (req, res) => {
   if (!EVO || !KEY) return res.status(400).json({ error: 'Não configurado' });
   try {
     const { default: fetch } = await import('node-fetch');
+    const limit = parseInt(req.body?.limit) || 150;
 
-    // Get all chats
+    // Busca lista de chats
     const r2 = await fetch(`${EVO}/chat/findChats/${INST}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', apikey: KEY },
@@ -446,75 +478,123 @@ r.post('/whatsapp/import-history', async (req, res) => {
     });
     const chatsRaw = await r2.json();
     const chatList = Array.isArray(chatsRaw) ? chatsRaw : (chatsRaw?.data || []);
+    console.log(`IMPORT: ${chatList.length} chats encontrados`);
 
-    let imported = 0;
-    const limit = parseInt(req.body?.limit) || 100;
+    // Busca contatos para resolver nomes
+    let contacts = {};
+    try {
+      const rc = await fetch(`${EVO}/contact/findContacts/${INST}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: KEY },
+        body: JSON.stringify({}),
+        signal: AbortSignal.timeout(15000)
+      });
+      if (rc.ok) {
+        const cRaw = await rc.json();
+        const cList = Array.isArray(cRaw) ? cRaw : (cRaw?.data || []);
+        for (const c of cList) {
+          const jid = c.remoteJid || c.id || '';
+          const name = c.pushName || c.name || c.verifiedName || '';
+          if (jid && name) contacts[jid] = name;
+        }
+        console.log(`IMPORT: ${Object.keys(contacts).length} contatos carregados`);
+      }
+    } catch (e) { console.log('Contacts fetch failed:', e.message); }
+
+    let imported = 0, msgsImported = 0;
 
     for (const chat of chatList.slice(0, limit)) {
       const remoteJid = chat.id || chat.remoteJid || '';
-      if (!remoteJid || remoteJid.includes('@g.us')) continue; // skip groups
-      const phone = remoteJid.replace('@s.whatsapp.net','').replace(/^55/,'');
-      const name = chat.name || chat.pushName || phone;
+      if (!remoteJid || remoteJid.endsWith('@g.us') || remoteJid.endsWith('@broadcast')) continue;
 
-      const lastMsg =
-        chat.lastMessage?.message?.conversation ||
-        chat.lastMessage?.message?.extendedTextMessage?.text ||
-        '...';
+      const phone = remoteJid.replace('@s.whatsapp.net', '').replace(/\D/g, '').slice(-11);
 
+      // Resolve nome: prioridade contatos > pushName do chat > nome do chat
+      const name = contacts[remoteJid] || chat.pushName || chat.name || phone;
+
+      const extractContent = (msgObj) => {
+        const m = msgObj?.message || msgObj || {};
+        if (m.conversation) return { content: m.conversation, type: 'text' };
+        if (m.extendedTextMessage?.text) return { content: m.extendedTextMessage.text, type: 'text' };
+        if (m.imageMessage) return { content: m.imageMessage.caption || '📷 Imagem', type: 'image' };
+        if (m.videoMessage) return { content: m.videoMessage.caption || '🎥 Vídeo', type: 'video' };
+        if (m.audioMessage || m.pttMessage) return { content: '🎵 Áudio', type: 'audio' };
+        if (m.documentMessage) return { content: `📎 ${m.documentMessage.fileName || 'Documento'}`, type: 'document' };
+        if (m.stickerMessage) return { content: '🎭 Sticker', type: 'text' };
+        if (m.locationMessage) return { content: '📍 Localização', type: 'text' };
+        return null;
+      };
+
+      const lastExtracted = extractContent(chat.lastMessage);
+      const lastMsg = lastExtracted?.content || '...';
       const lastTime = chat.lastMessage?.messageTimestamp
-        ? new Date(parseInt(chat.lastMessage.messageTimestamp) * 1000).toISOString()
+        ? new Date(parseInt(String(chat.lastMessage.messageTimestamp)) * 1000).toISOString()
         : new Date().toISOString();
 
-      // Upsert conversa
+      // Upsert conversa com nome correto
       const { rows: [conv] } = await query(`
         INSERT INTO conversas (channel, contact_name, contact_id, phone, last_message, last_message_at, unread)
         VALUES ('whatsapp', $1, $2, $3, $4, $5, $6)
         ON CONFLICT (contact_id) DO UPDATE SET
-          contact_name = CASE WHEN EXCLUDED.contact_name != conversas.phone THEN EXCLUDED.contact_name ELSE conversas.contact_name END,
+          contact_name = CASE
+            WHEN length(EXCLUDED.contact_name) > 5 AND EXCLUDED.contact_name != EXCLUDED.phone
+            THEN EXCLUDED.contact_name
+            ELSE conversas.contact_name
+          END,
           last_message = EXCLUDED.last_message,
           last_message_at = EXCLUDED.last_message_at
         RETURNING *`,
         [name, remoteJid, phone, lastMsg, lastTime, chat.unreadCount || 0]
       );
 
-      // Fetch last 20 messages for each chat
+      // Busca mensagens do chat (últimas 50)
       try {
-        const r3 = await fetch(`${EVO}/chat/findMessages/${INST}`, {
+        const rm = await fetch(`${EVO}/chat/findMessages/${INST}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', apikey: KEY },
-          body: JSON.stringify({ where: { key: { remoteJid } }, limit: 20 }),
-          signal: AbortSignal.timeout(10000)
+          body: JSON.stringify({ where: { key: { remoteJid } }, limit: 50 }),
+          signal: AbortSignal.timeout(12000)
         });
-        if (r3.ok) {
-          const msgsRaw = await r3.json();
-          const msgs = Array.isArray(msgsRaw) ? msgsRaw : (msgsRaw?.messages?.records || msgsRaw?.records || []);
+        if (rm.ok) {
+          const msgsRaw = await rm.json();
+          const msgs = Array.isArray(msgsRaw) ? msgsRaw
+            : (msgsRaw?.messages?.records || msgsRaw?.records || msgsRaw?.data || []);
+
           for (const m of msgs) {
-            const content =
-              m.message?.conversation ||
-              m.message?.extendedTextMessage?.text ||
-              m.message?.imageMessage ? '📷 Imagem' :
-              m.message?.audioMessage ? '🎵 Áudio' : null;
-            if (!content) continue;
+            const extracted = extractContent(m);
+            if (!extracted) continue;
             const fromType = m.key?.fromMe ? 'me' : 'contact';
             const ts = m.messageTimestamp
-              ? new Date(parseInt(m.messageTimestamp) * 1000).toISOString()
+              ? new Date(parseInt(String(m.messageTimestamp)) * 1000).toISOString()
               : new Date().toISOString();
-            await query(`
-              INSERT INTO mensagens (conversa_id, from_type, type, content, created_at)
-              VALUES ($1, $2, 'text', $3, $4)
-              ON CONFLICT DO NOTHING`,
-              [conv.id, fromType, content, ts]
-            ).catch(() => {}); // ignore duplicates
+            await query(
+              `INSERT INTO mensagens (conversa_id, from_type, type, content, created_at) VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`,
+              [conv.id, fromType, extracted.type, extracted.content, ts]
+            ).catch(() => {});
+            msgsImported++;
           }
         }
-      } catch {} // messages import is best-effort
+      } catch (e) { /* mensagens são best-effort */ }
 
       imported++;
     }
 
-    res.json({ ok: true, imported, total: chatList.length });
+    // Atualiza nomes de conversas antigas que ainda têm ID como nome
+    if (Object.keys(contacts).length > 0) {
+      for (const [jid, nome] of Object.entries(contacts)) {
+        if (nome && nome.length > 2) {
+          await query(
+            `UPDATE conversas SET contact_name = $1 WHERE contact_id = $2 AND (contact_name = phone OR length(contact_name) < 5)`,
+            [nome, jid]
+          ).catch(() => {});
+        }
+      }
+    }
+
+    console.log(`IMPORT DONE: ${imported} conversas, ${msgsImported} mensagens`);
+    res.json({ ok: true, imported, msgsImported, total: chatList.length });
   } catch (e) {
-    console.error('Import history error:', e.message);
+    console.error('Import error:', e.message);
     res.status(500).json({ error: e.message });
   }
 });
