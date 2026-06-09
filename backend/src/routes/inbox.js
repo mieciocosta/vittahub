@@ -61,18 +61,10 @@ r.post('/webhook/whatsapp', async (req, res) => {
     else if (Array.isArray(body.messages))        msgs = body.messages;
 
     if (msgs.length === 0) {
-      console.log(`WH_SKIP: no messages found in payload, event="${body.event}"`);
+      console.log(`WH_SKIP: no messages found, event="${body.event}"`);
       return;
     }
     console.log(`WH_PROCESS: ${msgs.length} msg(s), event="${body.event}"`);
-
-    let msgs = [];
-    if (Array.isArray(body.data?.messages)) msgs = body.data.messages;
-    else if (body.data?.key)               msgs = [body.data];
-    else if (Array.isArray(body.data))     msgs = body.data;
-    else if (body.key)                     msgs = [body]; // root level message
-
-    console.log(`WH_MSGS: ${msgs.length} | fromMe: ${msgs.map(m=>m.key?.fromMe).join(',')}`);
 
     for (const msg of msgs) {
       const key = msg.key || {};
