@@ -442,60 +442,70 @@ export default function Inbox({ onUnreadChange }) {
   // ── Tab ativa? ─────────────────────────────────────────────────────────────
   const isTabActive = () => !document.hidden;
 
-  // ── WebSocket: conexão PERSISTENTE — mensagens chegam em <100ms ─────────────
-  // Railway suporta WebSocket corretamente (ao contrário de SSE que bufferiza)
-  // Reconecta automaticamente em 3s se cair
+  // ── Socket.io: real-time confiável ───────────────────────────────────────────
+  // Socket.io gerencia automaticamente: WebSocket → HTTP polling fallback
+  // Reconexão automática, funciona com qualquer proxy (Railway, nginx, Cloudflare)
   useEffect(() => {
     const BASE = import.meta.env.VITE_API_URL || '';
-    const WS   = BASE.replace(/^https:\/\//, 'wss://').replace(/^http:\/\//, 'ws://') + '/ws';
     const tk   = localStorage.getItem('vh_token') || '';
     if (!tk) return;
 
-    let ws = null, retryTimer = null, active = true;
+    // Importação dinâmica do socket.io-client (evita aumentar bundle no SSR)
+    let socket = null;
+    let active = true;
 
-    function connect() {
+    import('socket.io-client').then(({ io }) => {
       if (!active) return;
-      try {
-        ws = new WebSocket(`${WS}?token=${encodeURIComponent(tk)}`);
-        ws.onopen = () => console.log('%c WS ✅ Tempo real ativo', 'background:#00B8C0;color:#fff;padding:2px 8px;border-radius:4px');
 
-        ws.onmessage = ({ data }) => {
-          try {
-            const { type, data: d } = JSON.parse(data);
-            if (type === 'new_message') {
-              const { convId, message, conv: updConv } = d;
-              setConvos(prev => {
-                const ex = prev.find(c => c.id === convId);
-                return [{ ...(ex || {}), ...updConv }, ...prev.filter(c => c.id !== convId)];
-              });
-              if (selRef.current?.id === convId) {
-                setMsgs(prev => {
-                  if (prev.find(m => m.id === message.id)) return prev;
-                  // Substitui mensagem otimista (tmp-*) pela versão confirmada do banco
-                  const clean = prev.filter(p =>
-                    !String(p.id).startsWith('tmp-') ||
-                    !(p.from_type === 'me' && p.content === message.content)
-                  );
-                  lastMsgTs.current = message.created_at;
-                  return [...clean, message];
-                });
-              }
-            }
-          } catch {}
-        };
+      socket = io(BASE, {
+        auth: { token: tk },
+        transports: ['websocket', 'polling'],
+        reconnection: true,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
+        timeout: 10000,
+      });
 
-        ws.onclose = (e) => {
-          if (e.code === 4001) return; // token inválido — não tenta reconectar
-          if (active) retryTimer = setTimeout(connect, 3000);
-        };
-        ws.onerror = () => ws.close();
-      } catch {}
-    }
+      socket.on('connect', () => {
+        console.log('%c Socket.io ✅ Tempo real ativo', 'background:#00B8C0;color:#fff;padding:2px 8px;border-radius:4px;font-weight:bold');
+      });
 
-    connect();
-    return () => { active = false; clearTimeout(retryTimer); try { ws?.close(); } catch {} };
-  }, []); // monta uma vez, persiste durante toda a sessão
+      socket.on('disconnect', (reason) => {
+        console.log('Socket.io desconectado:', reason);
+      });
 
+      socket.on('connect_error', (err) => {
+        console.warn('Socket.io erro:', err.message);
+      });
+
+      socket.on('new_message', ({ convId, message, conv: updConv }) => {
+        // Atualiza lista de conversas — move para o topo
+        setConvos(prev => {
+          const ex = prev.find(c => c.id === convId);
+          return [{ ...(ex || {}), ...updConv }, ...prev.filter(c => c.id !== convId)];
+        });
+
+        // Adiciona mensagem se a conversa aberta for essa
+        if (selRef.current?.id === convId) {
+          setMsgs(prev => {
+            if (prev.find(m => m.id === message.id)) return prev;
+            // Substitui otimista correspondente (tmp-*) pela versão real
+            const clean = prev.filter(p =>
+              !String(p.id).startsWith('tmp-') ||
+              !(p.from_type === 'me' && p.content === message.content)
+            );
+            lastMsgTs.current = message.created_at;
+            return [...clean, message];
+          });
+        }
+      });
+    }).catch(err => console.warn('socket.io-client não disponível:', err.message));
+
+    return () => {
+      active = false;
+      socket?.disconnect();
+    };
+  }, []); // uma vez, persiste durante toda a sessão
 
 
   // ── LONG-POLL: entrega instantânea de mensagens ──────────────────────────────

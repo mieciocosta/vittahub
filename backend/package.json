@@ -1,6 +1,6 @@
 {
   "name": "vittahub-backend",
-  "version": "2.1.0",
+  "version": "2.3.0",
   "type": "module",
   "scripts": {
     "dev": "node --watch src/index.js",
@@ -15,6 +15,7 @@
     "multer": "^1.4.5-lts.1",
     "node-fetch": "^3.3.2",
     "pg": "^8.11.3",
+    "socket.io": "^4.8.1",
     "uuid": "^9.0.0",
     "ws": "^8.18.0"
   }

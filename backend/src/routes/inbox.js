@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import { query } from '../db/pool.js';
 import { auth, SECRET } from '../middleware/auth.js';
 import jwt from 'jsonwebtoken';
-import { wsBroadcast } from '../ws.js';
+import { socketEmit } from '../socketServer.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const r = express.Router();
@@ -429,15 +429,12 @@ r.post('/webhook/zapi', async (req, res) => {
       [conv.id, type, mediaData || content, null, ts, msgId]
     );
 
-    // ── Entrega em tempo real via Postgres NOTIFY ──
-    // O pgListener em index.js recebe este notify e faz wsBroadcast ao frontend.
-    // Funciona mesmo após restart do Railway — não depende de Map em memória.
+    // ── Socket.io: entrega instantânea para todos os clientes ──
     if (newMsg) {
+      socketEmit('new_message', { convId: conv.id, message: newMsg, conv });
       await query(`SELECT pg_notify('vittahub', $1)`, [
-        JSON.stringify({ event: 'new_message', convId: conv.id, messageId: newMsg.id, conv })
+        JSON.stringify({ event:'new_message', convId:conv.id, messageId:newMsg.id, conv })
       ]).catch(() => {});
-      // Fallbacks legados (SSE + long-poll) — cobertura adicional
-      broadcast('new_message', { convId: conv.id, message: newMsg, conv });
       notifyWaiters(conv.id, newMsg);
     }
 
@@ -888,11 +885,10 @@ r.post('/conversations/:id/send', async (req, res) => {
     const { rows: [convUpd] } = await query('UPDATE conversas SET last_message = $1, last_message_at = NOW() WHERE id = $2 RETURNING *', [preview, req.params.id]);
     if (convUpd) cacheUpdate(convUpd);
 
-    // Push via PG NOTIFY → listener → WebSocket (confiável, sobrevive restart)
+    socketEmit('new_message', { convId: req.params.id, message: msg, conv: convUpd || conv });
     await query(`SELECT pg_notify('vittahub', $1)`, [
       JSON.stringify({ event: 'new_message', convId: req.params.id, messageId: msg.id, conv: convUpd || conv })
     ]).catch(() => {});
-    broadcast('new_message',   { convId: req.params.id, message: msg, conv: convUpd || conv });
     notifyWaiters(req.params.id, msg);
 
     // WhatsApp send: roteia por provider da conversa (meta → Z-API → Evolution)

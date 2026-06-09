@@ -5,27 +5,24 @@ import path from 'path';
 import { createServer } from 'http';
 import { fileURLToPath } from 'url';
 
-import authRouter   from './routes/auth.js';
-import leadsRouter  from './routes/leads.js';
+import authRouter    from './routes/auth.js';
+import leadsRouter   from './routes/leads.js';
 import reportsRouter from './routes/reports.js';
-import inboxRouter  from './routes/inbox.js';
-import { handleWsUpgrade, wsBroadcast } from './ws.js';
-import { startPgListener, onNotify } from './db/pgListener.js';
+import inboxRouter   from './routes/inbox.js';
+
+import { createSocketServer, socketEmit } from './socketServer.js';
+import { startPgListener, onNotify }       from './db/pgListener.js';
 import pool from './db/pool.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const app = express();
-const PORT = process.env.PORT || 8080;
-
-const allowedOrigins = [
-  process.env.FRONTEND_URL,
-  'http://localhost:3000',
-  'http://localhost:5173',
-].filter(Boolean);
+const app    = express();
+const PORT   = process.env.PORT || 8080;
+const ORIGIN = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 app.use(cors({
   origin: (origin, cb) => {
-    if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+    const allowed = [ORIGIN, 'http://localhost:3000', 'http://localhost:5173'];
+    if (!origin || allowed.includes(origin) || /\.railway\.app$/.test(origin)) return cb(null, true);
     cb(new Error('Not allowed by CORS'));
   },
   credentials: true,
@@ -37,8 +34,8 @@ app.use(express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use('/uploads', express.static(path.join(__dirname, '../../uploads')));
 
-app.get('/',           (_, res) => res.json({ ok:true, app:'VittaHub API', version:'2.2.0', realtime:'ws+pgnotify' }));
-app.get('/api/health', (_, res) => res.json({ ok:true, status:'online', realtime:'ws+pgnotify' }));
+app.get('/',           (_, res) => res.json({ ok:true, app:'VittaHub API v2.3', realtime:'socket.io' }));
+app.get('/api/health', (_, res) => res.json({ ok:true, status:'online', realtime:'socket.io' }));
 
 app.use('/api/auth',    authRouter);
 app.use('/api/leads',   leadsRouter);
@@ -50,18 +47,11 @@ app.use((err, req, res, next) => {
   res.status(err.status || 500).json({ error: err.message || 'Erro interno' });
 });
 
-// ── HTTP Server com WebSocket ─────────────────────────────────────────────────
+// ── HTTP + Socket.io ──────────────────────────────────────────────────────────
 const httpServer = createServer(app);
+createSocketServer(httpServer, ORIGIN);
 
-httpServer.on('upgrade', (req, socket, head) => {
-  if (new URL(req.url, 'http://localhost').pathname === '/ws') {
-    handleWsUpgrade(req, socket, head);
-  } else {
-    socket.destroy();
-  }
-});
-
-// ── Startup ───────────────────────────────────────────────────────────────────
+// ── PG LISTEN/NOTIFY → Socket.io emit ────────────────────────────────────────
 async function start() {
   try {
     await pool.query('SELECT 1');
@@ -72,35 +62,31 @@ async function start() {
       await runMigrate();
       console.log('✅ Migrations executadas');
 
-      // ── PG LISTEN/NOTIFY → wsBroadcast ─────────────────────────────────────
-      // Quando uma mensagem nova é inserida no banco (via webhook ou send),
-      // o pg_notify dispara este callback → wsBroadcast para TODOS os clientes WS.
-      // Funciona mesmo após restart do Railway e com múltiplas instâncias.
       await startPgListener();
 
       onNotify(async ({ event, convId, messageId, conv }) => {
         if (event !== 'new_message' || !messageId) return;
         try {
           const { rows: [msg] } = await pool.query(
-            'SELECT * FROM mensagens WHERE id = $1',
-            [messageId]
+            'SELECT * FROM mensagens WHERE id = $1', [messageId]
           );
           if (msg) {
-            wsBroadcast('new_message', { convId, message: msg, conv });
+            // Socket.io entrega a todos os clientes conectados
+            socketEmit('new_message', { convId, message: msg, conv });
           }
-        } catch (e) { console.error('PG notify handler:', e.message); }
+        } catch (e) { console.error('PG notify → Socket.io error:', e.message); }
       });
 
-      console.log('✅ Real-time: WebSocket + PG NOTIFY configurados');
+      console.log('✅ Real-time: Socket.io + PG NOTIFY configurados');
     }
   } catch (err) {
     console.error('❌ Startup:', err.message);
   }
 
   httpServer.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 VittaHub v2.2 na porta ${PORT}`);
-    console.log(`🌐 Frontend: ${process.env.FRONTEND_URL}`);
-    console.log(`🔌 WebSocket: ws://0.0.0.0:${PORT}/ws`);
+    console.log(`🚀 VittaHub v2.3 na porta ${PORT}`);
+    console.log(`🔌 Socket.io ativo`);
+    console.log(`🌐 Frontend: ${ORIGIN}`);
   });
 }
 
