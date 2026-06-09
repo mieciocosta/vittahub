@@ -1,12 +1,21 @@
-const BASE = '/api';
+const BASE =
+  import.meta.env.VITE_API_URL ||
+  'https://vittahub-backend-production.up.railway.app';
 
 async function request(method, path, body) {
   const res = await fetch(`${BASE}${path}`, {
     method,
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json'
+    },
     body: body ? JSON.stringify(body) : undefined
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`HTTP ${res.status} - ${text}`);
+  }
+
   return res.json();
 }
 
