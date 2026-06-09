@@ -9,11 +9,11 @@ import Leads from './pages/Leads.jsx';
 import Funil from './pages/Funil.jsx';
 import Relatorios from './pages/Relatorios.jsx';
 import Configuracoes from './pages/Configuracoes.jsx';
+import WhatsApp from './pages/WhatsApp.jsx';
 
 export default function App() {
   const { user, loading } = useAuth();
   const [unread, setUnread] = useState(0);
-  const [notifs, setNotifs] = useState(0);
 
   if (loading) return (
     <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', background:'linear-gradient(135deg,#0d3d52,#207898)' }}>
@@ -28,7 +28,7 @@ export default function App() {
 
   return (
     <div style={{ display:'flex', minHeight:'100vh' }}>
-      <Sidebar unread={unread} notifs={notifs} />
+      <Sidebar unread={unread} />
       <main style={{ marginLeft:'var(--sw)', flex:1, minHeight:'100vh', overflowX:'hidden' }}>
         <Routes>
           <Route path="/" element={<Dashboard />} />
@@ -36,6 +36,7 @@ export default function App() {
           <Route path="/leads" element={<Leads />} />
           <Route path="/funil" element={<Funil />} />
           <Route path="/relatorios" element={<Relatorios />} />
+          <Route path="/whatsapp" element={<WhatsApp />} />
           <Route path="/configuracoes" element={<Configuracoes />} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>

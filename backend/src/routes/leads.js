@@ -1,87 +1,155 @@
 import express from 'express';
-import { v4 as uuid } from 'uuid';
-import { leads, users, conversations, notifications, nextAtendente, ORIGENS, INTERESSES, STATUS_LIST, MOTIVOS_PERDA, TAGS } from '../data/db.js';
+import { query } from '../db/pool.js';
 import { auth } from '../middleware/auth.js';
 
 const r = express.Router();
 r.use(auth);
 
-const enrich = (l) => ({ ...l, responsavelNome: users.find(u => u.id === l.responsavelId)?.nome || null, responsavelCor: users.find(u => u.id === l.responsavelId)?.cor || null });
-const guard = (l, role) => role === 'master' ? l : { ...l, valorProposta: null };
+// Helper: hide financial data from non-master
+const guard = (row, role) => role === 'master' ? row : { ...row, valor_proposta: null };
 
-r.get('/', (req, res) => {
-  const { status, responsavelId, origem, search, tag, page = 1, limit = 50 } = req.query;
-  let list = leads.map(enrich);
-  if (status) list = list.filter(l => l.status === status);
-  if (responsavelId) list = list.filter(l => l.responsavelId === responsavelId);
-  if (origem) list = list.filter(l => l.origem === origem);
-  if (tag) list = list.filter(l => l.tags?.includes(tag));
-  if (search) { const s = search.toLowerCase(); list = list.filter(l => l.nome.toLowerCase().includes(s) || (l.telefone||'').replace(/\D/g,'').includes(s.replace(/\D/g,'')) || (l.email||'').toLowerCase().includes(s)); }
-  list.sort((a, b) => new Date(b.dataEntrada) - new Date(a.dataEntrada));
-  const total = list.length;
-  const paged = list.slice((+page-1)*+limit, +page*+limit);
-  res.json({ data: paged.map(l => guard(l, req.user.role)), total, page: +page, pages: Math.ceil(total/+limit) });
+// ─── LIST (with pagination + search + filters) ────────────────────────────────
+r.get('/', async (req, res) => {
+  try {
+    const { status, responsavel_id, origem, search, tag, page = 1, limit = 50 } = req.query;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    const conditions = [];
+    const params = [];
+    let pi = 1;
+
+    if (status)         { conditions.push(`l.status = $${pi++}`);            params.push(status); }
+    if (responsavel_id) { conditions.push(`l.responsavel_id = $${pi++}`);    params.push(responsavel_id); }
+    if (origem)         { conditions.push(`l.origem = $${pi++}`);            params.push(origem); }
+    if (tag)            { conditions.push(`$${pi++} = ANY(l.tags)`);         params.push(tag); }
+    if (search) {
+      conditions.push(`(l.nome ILIKE $${pi} OR l.telefone ILIKE $${pi} OR l.email ILIKE $${pi})`);
+      params.push(`%${search}%`); pi++;
+    }
+    // Atendente only sees their own leads
+    if (req.user.role !== 'master') {
+      conditions.push(`l.responsavel_id = $${pi++}`);
+      params.push(req.user.id);
+    }
+
+    const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
+
+    const countRes = await query(`SELECT COUNT(*) FROM leads l ${where}`, params);
+    const total = parseInt(countRes.rows[0].count);
+
+    const dataRes = await query(`
+      SELECT l.*, u.nome AS responsavel_nome, u.cor AS responsavel_cor
+      FROM leads l
+      LEFT JOIN usuarios u ON u.id = l.responsavel_id
+      ${where}
+      ORDER BY l.data_entrada DESC, l.created_at DESC
+      LIMIT $${pi} OFFSET $${pi+1}
+    `, [...params, parseInt(limit), offset]);
+
+    res.json({ data: dataRes.rows.map(row => guard(row, req.user.role)), total, page: parseInt(page), pages: Math.ceil(total / parseInt(limit)) });
+  } catch (err) {
+    console.error('leads list error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
-r.get('/meta', (req, res) => res.json({ origens: ORIGENS, interesses: INTERESSES, statusList: STATUS_LIST, motivosPerda: MOTIVOS_PERDA, tags: TAGS, users: users.filter(u=>u.role!=='bot').map(u => ({ id: u.id, nome: u.nome, cor: u.cor })) }));
-
-r.get('/:id', (req, res) => {
-  const l = leads.find(l => l.id === req.params.id);
-  if (!l) return res.status(404).json({ error: 'Não encontrado' });
-  res.json(guard(enrich(l), req.user.role));
+// ─── META ────────────────────────────────────────────────────────────────────
+r.get('/meta', async (req, res) => {
+  try {
+    const { rows: users } = await query("SELECT id, nome, cor FROM usuarios WHERE role != 'bot' AND ativo = true ORDER BY nome");
+    res.json({
+      origens:     ['Instagram','Google','WhatsApp','Indicação','Facebook','Tráfego Pago','Orgânico','Outro'],
+      interesses:  ['Consulta','Vacina','Plano Vacinal','Terapia','Plano Infantil','Gestante','Outro'],
+      statusList:  ['Novo lead','Em atendimento','Orçamento enviado','Aguardando retorno','Fechado','Perdido'],
+      motivosPerda:['Preço','Concorrência','Sem interesse','Sem retorno','Adiou','Outro'],
+      tags:        ['urgente','quente','plano','vip','infantil','retorno','casal','gestante','indicação','frio'],
+      users,
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-r.post('/', (req, res) => {
-  // Auto-assign to next atendente if no responsavelId
-  const responsavelId = req.body.responsavelId || nextAtendente();
-  const novo = {
-    id: uuid(),
-    nome: req.body.nome || '',
-    telefone: req.body.telefone || '',
-    email: req.body.email || '',
-    origem: req.body.origem || 'WhatsApp',
-    interesse: req.body.interesse || 'Consulta',
-    status: 'Novo lead',
-    responsavelId,
-    valorProposta: req.user.role === 'master' ? (parseFloat(req.body.valorProposta)||0) : 0,
-    servico: req.body.servico || '',
-    dataEntrada: new Date().toISOString().split('T')[0],
-    dataRetorno: req.body.dataRetorno || null,
-    observacoes: req.body.observacoes || '',
-    motivoPerda: null,
-    tags: req.body.tags || [],
-    vittasysClienteId: req.body.vittasysClienteId || null,
-  };
-  leads.unshift(novo);
-  // Notification
-  notifications.unshift({ id: uuid(), tipo:'novo_lead', titulo:'Novo lead', texto:`${novo.nome} entrou via ${novo.origem}`, leadId: novo.id, lida: false, createdAt: new Date().toISOString() });
-  res.status(201).json(guard(enrich(novo), req.user.role));
+// ─── GET ONE ──────────────────────────────────────────────────────────────────
+r.get('/:id', async (req, res) => {
+  try {
+    const { rows } = await query(`
+      SELECT l.*, u.nome AS responsavel_nome, u.cor AS responsavel_cor
+      FROM leads l LEFT JOIN usuarios u ON u.id = l.responsavel_id
+      WHERE l.id = $1`, [req.params.id]);
+    if (!rows[0]) return res.status(404).json({ error: 'Não encontrado' });
+    res.json(guard(rows[0], req.user.role));
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-r.put('/:id', (req, res) => {
-  const idx = leads.findIndex(l => l.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'Não encontrado' });
-  const update = { ...leads[idx], ...req.body, id: leads[idx].id };
-  if (req.user.role !== 'master') delete update.valorProposta;
-  leads[idx] = update;
-  res.json(guard(enrich(leads[idx]), req.user.role));
+// ─── CREATE ────────────────────────────────────────────────────────────────────
+r.post('/', async (req, res) => {
+  try {
+    const { nome, telefone = '', email = '', origem = 'WhatsApp', interesse = 'Consulta', responsavel_id, valor_proposta = 0, servico = '', data_retorno, observacoes = '', tags = [] } = req.body;
+    const respId = responsavel_id || req.user.id;
+    const valor = req.user.role === 'master' ? parseFloat(valor_proposta) || 0 : 0;
+
+    const { rows } = await query(`
+      INSERT INTO leads (nome, telefone, email, origem, interesse, status, responsavel_id, valor_proposta, servico, data_retorno, observacoes, tags)
+      VALUES ($1,$2,$3,$4,$5,'Novo lead',$6,$7,$8,$9,$10,$11)
+      RETURNING *`,
+      [nome, telefone, email, origem, interesse, respId, valor, servico, data_retorno || null, observacoes, tags]
+    );
+
+    // Notify
+    await query(`INSERT INTO notificacoes (tipo, titulo, texto, lead_id) VALUES ($1,$2,$3,$4)`,
+      ['novo_lead', 'Novo lead', `${nome} entrou via ${origem}`, rows[0].id]);
+
+    res.status(201).json(guard(rows[0], req.user.role));
+  } catch (err) {
+    console.error('leads create error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
-r.patch('/:id/status', (req, res) => {
-  const l = leads.find(l => l.id === req.params.id);
-  if (!l) return res.status(404).json({ error: 'Não encontrado' });
-  l.status = req.body.status;
-  if (req.body.motivoPerda) l.motivoPerda = req.body.motivoPerda;
-  if (req.body.responsavelId) l.responsavelId = req.body.responsavelId;
-  res.json(guard(enrich(l), req.user.role));
+// ─── UPDATE ────────────────────────────────────────────────────────────────────
+r.put('/:id', async (req, res) => {
+  try {
+    const { nome, telefone, email, origem, interesse, status, responsavel_id, valor_proposta, servico, data_retorno, observacoes, motivo_perda, tags } = req.body;
+    const valor = req.user.role === 'master' ? parseFloat(valor_proposta) || 0 : undefined;
+
+    const updates = [];
+    const params = [];
+    let pi = 1;
+    const set = (col, val) => { if (val !== undefined) { updates.push(`${col} = $${pi++}`); params.push(val); } };
+    set('nome', nome); set('telefone', telefone); set('email', email);
+    set('origem', origem); set('interesse', interesse); set('status', status);
+    set('responsavel_id', responsavel_id); set('servico', servico);
+    set('data_retorno', data_retorno || null); set('observacoes', observacoes);
+    set('motivo_perda', motivo_perda); set('tags', tags);
+    if (valor !== undefined) set('valor_proposta', valor);
+
+    if (!updates.length) return res.status(400).json({ error: 'Nada para atualizar' });
+    params.push(req.params.id);
+
+    const { rows } = await query(`UPDATE leads SET ${updates.join(',')} WHERE id = $${pi} RETURNING *`, params);
+    if (!rows[0]) return res.status(404).json({ error: 'Não encontrado' });
+    res.json(guard(rows[0], req.user.role));
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-r.delete('/:id', (req, res) => {
+// ─── PATCH STATUS ─────────────────────────────────────────────────────────────
+r.patch('/:id/status', async (req, res) => {
+  try {
+    const { status, motivo_perda } = req.body;
+    const { rows } = await query(
+      'UPDATE leads SET status = $1, motivo_perda = $2 WHERE id = $3 RETURNING *',
+      [status, motivo_perda || null, req.params.id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Não encontrado' });
+    res.json(guard(rows[0], req.user.role));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── DELETE ────────────────────────────────────────────────────────────────────
+r.delete('/:id', async (req, res) => {
   if (req.user.role !== 'master') return res.status(403).json({ error: 'Somente master' });
-  const idx = leads.findIndex(l => l.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'Não encontrado' });
-  leads.splice(idx, 1);
-  res.json({ ok: true });
+  try {
+    await query('DELETE FROM leads WHERE id = $1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 export default r;

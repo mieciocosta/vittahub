@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, MessageSquare, Users, Kanban, BarChart2, LogOut, Settings } from 'lucide-react';
+import { LayoutDashboard, MessageSquare, Users, Kanban, BarChart2, LogOut, Settings, Smartphone } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 
 const NAV = [
@@ -48,14 +48,33 @@ export default function Sidebar({ unread = 0 }) {
             <Icon size={16} strokeWidth={1.8} />
             <span style={{ flex:1 }}>{label}</span>
             {showU && unread > 0 && (
-              <span style={{ background:'var(--tq)', color:'#fff', borderRadius:10, padding:'1px 7px', fontSize:10.5, fontWeight:800, minWidth:20, textAlign:'center', boxShadow:'0 2px 6px rgba(0,184,192,.4)' }}>{unread > 99 ? '99+' : unread}</span>
+              <span style={{ background:'var(--tq)', color:'#fff', borderRadius:10, padding:'1px 7px', fontSize:10.5, fontWeight:800, minWidth:20, textAlign:'center', boxShadow:'0 2px 6px rgba(0,184,192,.4)' }}>
+                {unread > 99 ? '99+' : unread}
+              </span>
             )}
           </NavLink>
         ))}
 
+        {/* Separator */}
+        <div style={{ height:1, background:'rgba(255,255,255,0.07)', margin:'8px 12px' }}/>
+
+        {/* WhatsApp - visible to all */}
+        <NavLink to="/whatsapp" style={({ isActive }) => ({
+          display:'flex', alignItems:'center', gap:10, padding:'9px 12px',
+          borderRadius:10, textDecoration:'none',
+          color: isActive ? '#25D366' : 'rgba(255,255,255,0.45)',
+          background: isActive ? 'rgba(37,211,102,0.1)' : 'transparent',
+          fontWeight: isActive ? 600 : 400, fontSize:13.5,
+          borderLeft: `2px solid ${isActive ? '#25D366' : 'transparent'}`,
+          transition: 'all .13s',
+        })}>
+          <Smartphone size={16} strokeWidth={1.8} />
+          <span>WhatsApp</span>
+        </NavLink>
+
         {isMaster && (
           <NavLink to="/configuracoes" style={({ isActive }) => ({
-            display:'flex', alignItems:'center', gap:10, padding:'9px 12px', marginTop:8,
+            display:'flex', alignItems:'center', gap:10, padding:'9px 12px',
             borderRadius:10, textDecoration:'none',
             color: isActive ? '#fff' : 'rgba(255,255,255,0.28)',
             background: isActive ? 'rgba(255,255,255,0.08)' : 'transparent',
@@ -77,7 +96,7 @@ export default function Sidebar({ unread = 0 }) {
             <div style={{ color:'#fff', fontSize:13, fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{user?.nome?.split(' ')[0]}</div>
             <div style={{ color:'rgba(255,255,255,0.32)', fontSize:10.5 }}>{user?.role === 'master' ? '◆ Master' : 'Atendente'}</div>
           </div>
-          <button onClick={logout} style={{ padding:6, background:'none', color:'rgba(255,255,255,0.3)', borderRadius:6, transition:'color .15s' }}
+          <button onClick={logout} style={{ padding:6, background:'none', color:'rgba(255,255,255,0.3)', borderRadius:6, transition:'color .15s', cursor:'pointer', border:'none' }}
             onMouseEnter={e=>e.currentTarget.style.color='rgba(255,255,255,.7)'}
             onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,.3)'}>
             <LogOut size={13} />
