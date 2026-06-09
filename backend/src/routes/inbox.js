@@ -47,13 +47,21 @@ r.post('/webhook/whatsapp', async (req, res) => {
   res.json({ ok: true });
   try {
     const body = req.body;
-    const event = body.event || '';
-    if (!event.includes('messages')) return;
+    const event = body.event || body.apikey || '';
+
+    // Log every webhook for debugging
+    console.log(`WH: event="${event}" keys=${Object.keys(body.data||{}).join(',')}`);
+
+    // Only process actual new messages
+    if (!['messages.upsert', 'messages_upsert', 'MESSAGES_UPSERT'].includes(event) &&
+        !event.includes('messages.upsert')) return;
 
     let msgs = [];
     if (Array.isArray(body.data?.messages)) msgs = body.data.messages;
-    else if (body.data?.key) msgs = [body.data];
+    else if (body.data?.key) msgs = [body.data]; // v2 single message format
     else if (Array.isArray(body.data)) msgs = body.data;
+
+    console.log(`WH: ${msgs.length} msg(s) to process`);
 
     for (const msg of msgs) {
       const key = msg.key || {};
@@ -245,7 +253,7 @@ r.get('/conversations', async (req, res) => {
 r.get('/conversations/:id', async (req, res) => {
   try {
     const { rows: [conv] } = await query(`
-      SELECT c.*, u.nome AS responsavel_nome
+      SELECT c.*, u.nome AS responsavel_nome, u.cor AS responsavel_cor
       FROM conversas c LEFT JOIN usuarios u ON u.id = c.responsavel_id
       WHERE c.id = $1`, [req.params.id]);
     if (!conv) return res.status(404).json({ error: 'Não encontrado' });
@@ -255,11 +263,25 @@ r.get('/conversations/:id', async (req, res) => {
       [req.params.id]
     );
 
-    // Get associated lead if exists
     let lead = null;
     if (conv.lead_id) {
       const { rows: [l] } = await query('SELECT * FROM leads WHERE id = $1', [conv.lead_id]);
       lead = l;
+    }
+
+    // Fetch profile pic from Evolution API if not cached
+    if (!conv.profile_pic && conv.contact_id && EVO_URL() && EVO_KEY()) {
+      try {
+        const r2 = await evoFetch(`/contact/getProfilePicture/${EVO_INST()}?number=${conv.contact_id}`, 'GET');
+        if (r2.ok) {
+          const picData = await r2.json();
+          const pic = picData.profilePictureUrl || picData.base64 || picData.imgUrl || '';
+          if (pic) {
+            await query('UPDATE conversas SET profile_pic = $1 WHERE id = $2', [pic, conv.id]);
+            conv.profile_pic = pic;
+          }
+        }
+      } catch (e) { /* non-fatal */ }
     }
 
     res.json({ ...conv, messages, lead });

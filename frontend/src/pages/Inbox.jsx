@@ -285,6 +285,8 @@ export default function Inbox({ onUnreadChange }) {
   const [recording, setRecording] = useState(false);
   const [recorder, setRecorder] = useState(null);
   const [showAI, setShowAI] = useState(false);
+  const [showInfo, setShowInfo] = useState(false);
+  const [selFull, setSelFull] = useState(null);
   const [showQR, setShowQR] = useState(false);
   const [qr, setQr] = useState([]);
   const [lightbox, setLightbox] = useState(null);
@@ -399,10 +401,13 @@ export default function Inbox({ onUnreadChange }) {
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [msgs]);
 
   const openConvo = async (c) => {
-    setSel(c); setShowAI(false); setShowProposta(false); setLeadData(null);
+    setSel(c); setShowAI(false); setShowProposta(false); setLeadData(null); setSelFull(null);
     try {
       const data = await api.get(`/inbox/conversations/${c.id}`);
       setMsgs(data.messages || []);
+      setSelFull(data);
+      // Update sel with profile_pic if fetched
+      if (data.profile_pic) setSel(prev => ({ ...prev, profile_pic: data.profile_pic }));
       if (data.lead_id) api.get(`/leads/${data.lead_id}`).then(setLeadData).catch(() => {});
     } catch {}
     fetch(`${import.meta.env.VITE_API_URL || ''}/api/inbox/conversations/${c.id}/read`, { method: 'PATCH', headers: { Authorization: `Bearer ${token}` } });
@@ -538,16 +543,94 @@ export default function Inbox({ onUnreadChange }) {
               <button onClick={() => setShowAI(p => !p)} className="btn btn-sm" style={{ background: showAI ? '#071e2c' : 'var(--bg2)', color: showAI ? '#00B8C0' : 'var(--muted)', border: `1.5px solid ${showAI ? 'rgba(0,184,192,.4)' : 'var(--border)'}`, fontSize: 11.5, padding: '5px 10px' }}>
                 <Sparkles size={11} /> IA
               </button>
+              <button onClick={() => setShowInfo(p => !p)} className="btn btn-sm" style={{ background: showInfo ? 'var(--tq3)' : 'var(--bg2)', color: showInfo ? 'var(--tq2)' : 'var(--muted)', border: `1.5px solid ${showInfo ? 'var(--tq)' : 'var(--border)'}`, fontSize: 11.5, padding: '5px 10px' }}>
+                <Tag size={11} /> Info
+              </button>
             </div>
           </div>
 
           {/* AI Panel */}
           {showAI && <AIPanel messages={msgs} contactName={sel.contact_name} token={token} convId={sel.id} onUseSuggestion={t => { setInput(t); textRef.current?.focus(); }} onClose={() => setShowAI(false)} />}
 
-          {/* Messages */}
-          <div style={{ flex: 1, overflowY: 'auto', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 5 }}>
-            {msgs.map((m, i) => <MsgItem key={m.id || i} m={m} i={i} msgs={msgs} contactName={sel.contact_name} channel={sel.channel} onLightbox={setLightbox} />)}
-            <div ref={endRef} />
+          {/* Messages area + contact info panel */}
+          <div style={{ flex: 1, display: 'flex', minHeight: 0, overflow: 'hidden' }}>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 5 }}>
+              {msgs.map((m, i) => <MsgItem key={m.id || i} m={m} i={i} msgs={msgs} contactName={sel.contact_name} channel={sel.channel} onLightbox={setLightbox} />)}
+              <div ref={endRef} />
+            </div>
+
+            {/* Contact info panel */}
+            {showInfo && sel && (
+              <div style={{ width: 280, flexShrink: 0, borderLeft: '1px solid var(--border)', background: 'var(--card, #fff)', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+                {/* Header */}
+                <div style={{ padding: '16px 16px 12px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontWeight: 700, fontSize: 14 }}>Contato</span>
+                  <button onClick={() => setShowInfo(false)} style={{ padding: 5, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}>✕</button>
+                </div>
+
+                {/* Avatar + name */}
+                <div style={{ padding: '20px 16px 16px', textAlign: 'center', borderBottom: '1px solid var(--border)' }}>
+                  <div style={{ width: 72, height: 72, borderRadius: '50%', margin: '0 auto 12px', background: sel.channel === 'whatsapp' ? '#d4f7e0' : '#fce4ef', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 24, color: sel.channel === 'whatsapp' ? '#0a7a40' : '#9a1050', overflow: 'hidden', position: 'relative' }}>
+                    {sel.profile_pic
+                      ? <img src={sel.profile_pic} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} onError={e => { e.target.style.display = 'none'; }} />
+                      : (sel.contact_name || '?').split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase()
+                    }
+                  </div>
+                  <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>{sel.contact_name}</div>
+                  {sel.phone && <div style={{ fontSize: 13, color: 'var(--muted)' }}>+{sel.contact_id?.replace('@s.whatsapp.net', '') || sel.phone}</div>}
+                  <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 12 }}>
+                    <a href={`https://wa.me/${sel.contact_id?.replace('@s.whatsapp.net','') || '55' + sel.phone}`} target="_blank" rel="noreferrer"
+                      style={{ padding: '6px 14px', background: '#25D366', color: '#fff', borderRadius: 8, fontSize: 12, fontWeight: 700, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <WA s={12} /> Abrir WA
+                    </a>
+                  </div>
+                </div>
+
+                {/* Lead info */}
+                {leadData ? (
+                  <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)' }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--tq2)', textTransform: 'uppercase', letterSpacing: .6, marginBottom: 10 }}>◆ Lead no Funil</div>
+                    {[
+                      ['Origem', leadData.origem],
+                      ['Interesse', leadData.interesse],
+                      ['Status', leadData.status],
+                      leadData.valor_proposta > 0 && ['Proposta', `R$ ${parseFloat(leadData.valor_proposta).toFixed(2).replace('.', ',')}`],
+                    ].filter(Boolean).map(([k, v]) => (
+                      <div key={k} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 7, fontSize: 13 }}>
+                        <span style={{ color: 'var(--muted)' }}>{k}</span>
+                        <span style={{ fontWeight: 600 }}>{v}</span>
+                      </div>
+                    ))}
+                    {leadData.observacoes && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8, lineHeight: 1.5, padding: '8px', background: 'var(--bg)', borderRadius: 6 }}>{leadData.observacoes}</div>}
+                  </div>
+                ) : (
+                  <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)' }}>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>Não é um lead ainda</div>
+                    <button onClick={toLead} className="btn btn-p btn-sm" style={{ width: '100%', justifyContent: 'center' }}>
+                      <UserPlus size={12} /> Adicionar ao funil
+                    </button>
+                  </div>
+                )}
+
+                {/* Stats */}
+                <div style={{ padding: '14px 16px' }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .6, marginBottom: 10 }}>Estatísticas</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    {[
+                      ['Mensagens', msgs.length],
+                      ['Não lidas', sel.unread || 0],
+                      ['Canal', sel.channel === 'whatsapp' ? 'WhatsApp' : 'Instagram'],
+                      ['Bot', sel.bot_ativo ? '✅ Ativo' : '⏸ Inativo'],
+                    ].map(([k, v]) => (
+                      <div key={k} style={{ background: 'var(--bg)', borderRadius: 8, padding: '10px 12px', textAlign: 'center' }}>
+                        <div style={{ fontWeight: 800, fontSize: 16 }}>{v}</div>
+                        <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{k}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Quick replies */}
