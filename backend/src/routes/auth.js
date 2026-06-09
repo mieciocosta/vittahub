@@ -25,7 +25,7 @@ r.post('/login', async (req, res) => {
 
 r.get('/me', auth, async (req, res) => {
   try {
-    const { rows } = await query('SELECT id, nome, email, role, cor FROM usuarios WHERE id = $1', [req.user.id]);
+    const { rows } = await query('SELECT id,nome,email,role,cor FROM usuarios WHERE id=$1', [req.user.id]);
     if (!rows[0]) return res.status(404).json({ error: 'Não encontrado' });
     res.json(rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -34,19 +34,9 @@ r.get('/me', auth, async (req, res) => {
 r.get('/usuarios', auth, async (req, res) => {
   if (req.user.role !== 'master') return res.status(403).json({ error: 'Acesso negado' });
   try {
-    const { rows } = await query("SELECT id, nome, email, role, cor, ativo FROM usuarios WHERE role != 'bot' ORDER BY nome");
+    const { rows } = await query("SELECT id,nome,email,role,cor,ativo FROM usuarios WHERE role!='bot' ORDER BY nome");
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-r.post('/usuarios', auth, async (req, res) => {
-  if (req.user.role !== 'master') return res.status(403).json({ error: 'Acesso negado' });
-  try {
-    const { nome, email, senha = 'vittalis123', role = 'atendente', cor = '#00B8C0' } = req.body;
-    const hash = await bcrypt.hash(senha, 10);
-    const { rows } = await query('INSERT INTO usuarios (nome, email, senha, role, cor) VALUES ($1,$2,$3,$4,$5) RETURNING id,nome,email,role,cor', [nome, email, hash, role, cor]);
-    res.status(201).json(rows[0]);
-  } catch (err) { res.status(400).json({ error: err.message }); }
 });
 
 export default r;
