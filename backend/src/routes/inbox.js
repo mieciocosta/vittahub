@@ -815,32 +815,6 @@ r.get('/whatsapp/status', async (req, res) => {
     res.json({ connected: state === 'open', status: state, provider: 'evolution' });
   } catch (e) { res.json({ connected: false, status: 'error', message: e.message }); }
 });
-  try {
-    const { default: fetch } = await import('node-fetch');
-    // v2 uses /instance/connectionState/:instance
-    const r2 = await fetch(`${EVO}/instance/connectionState/${INST}`, { headers: { apikey: KEY }, signal: AbortSignal.timeout(8000) });
-    if (r2.ok) {
-      const data = await r2.json();
-      // v2 returns { instance: { state: 'open' } } or { state: 'open' }
-      const state = data?.instance?.state || data?.state || data?.currentState || 'closed';
-      return res.json({ connected: state === 'open', status: state, instance: INST });
-    }
-    // Fallback: fetchInstances
-    const r3 = await fetch(`${EVO}/instance/fetchInstances`, { headers: { apikey: KEY }, signal: AbortSignal.timeout(8000) });
-    const list = await r3.json();
-    const arr = Array.isArray(list) ? list : (list?.data || [list]);
-    const inst = arr.find(i =>
-      i.name === INST ||
-      i.instance?.instanceName === INST ||
-      i.instanceName === INST
-    );
-    const state = inst?.instance?.state || inst?.state || inst?.connectionStatus || 'closed';
-    res.json({ connected: state === 'open', status: state, instance: INST });
-  } catch (e) {
-    console.error('WA status error:', e.message);
-    res.json({ connected: false, status: 'error', message: e.message });
-  }
-});
 
 // ─── IMPORT WHATSAPP HISTORY ──────────────────────────────────────────────────
 r.post('/whatsapp/import-history', async (req, res) => {
