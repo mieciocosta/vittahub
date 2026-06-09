@@ -158,7 +158,7 @@ export default function WhatsApp() {
               {status === 'connected' && 'Mensagens sendo recebidas no Inbox automaticamente'}
               {status === 'disconnected' && 'Clique em "Conectar WhatsApp" para gerar o QR Code'}
               {status === 'qrcode' && 'Escaneie o QR Code no WhatsApp do celular da clínica'}
-              {status === 'not_configured' && 'Evolution API não configurada nas variáveis de ambiente'}
+              {status === 'not_configured' && 'Configure Z-API ou Evolution API nas variáveis do Railway'}
               {status === 'loading' && 'Verificando conexão...'}
               {status === 'error' && `Erro: ${message}`}
             </div>
@@ -282,21 +282,30 @@ export default function WhatsApp() {
       {/* Setup guide - only when not configured */}
       {status === 'not_configured' && (
         <div className="card" style={{ padding: '24px' }}>
-          <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 16 }}>Como configurar a Evolution API</h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Configurar Z-API (recomendado)</h3>
+          <p style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 16 }}>
+            Melhor estabilidade, suporte a fotos de perfil e mídia completa. R$97/mês em <a href="https://z-api.io" target="_blank" rel="noreferrer" style={{ color: 'var(--tq)' }}>z-api.io</a>
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
             {[
-              ['1', 'No Railway, acesse o serviço evolution-api'],
-              ['2', 'Vá em Variables → Raw Editor'],
-              ['3', 'Adicione: AUTHENTICATION_API_KEY=sua_chave'],
-              ['4', 'Adicione: SERVER_URL=https://sua-evolution.up.railway.app'],
-              ['5', 'No vittahub-backend, adicione EVOLUTION_API_URL e EVOLUTION_API_KEY'],
-              ['6', 'Volte aqui e clique em "Conectar WhatsApp"'],
+              ['1', 'Crie uma conta em z-api.io e crie uma instância'],
+              ['2', 'Conecte seu WhatsApp escaneando o QR Code no painel da Z-API'],
+              ['3', 'Copie o Instance ID e o Token da instância'],
+              ['4', 'No vittahub-backend → Variables, adicione:'],
+              ['5', 'ZAPI_INSTANCE=seu_instance_id'],
+              ['6', 'ZAPI_TOKEN=seu_token'],
+              ['7', 'ZAPI_CLIENT_TOKEN=seu_client_token (em Account → Security)'],
+              ['8', 'Configure o webhook da Z-API para: https://vittahub-backend-production.up.railway.app/api/inbox/webhook/zapi'],
+              ['9', 'Volte aqui — status vai aparecer como Conectado'],
             ].map(([n, text]) => (
-              <div key={n} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                <div style={{ width: 26, height: 26, borderRadius: '50%', background: 'var(--tq)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 800, flexShrink: 0 }}>{n}</div>
-                <span style={{ fontSize: 13.5, color: 'var(--txt2)', lineHeight: 1.6, paddingTop: 3 }}>{text}</span>
+              <div key={n} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                <div style={{ width: 24, height: 24, borderRadius: '50%', background: 'var(--tq)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, flexShrink: 0, marginTop: 2 }}>{n}</div>
+                <span style={{ fontSize: 13, color: 'var(--txt2)', lineHeight: 1.6 }}>{text}</span>
               </div>
             ))}
+          </div>
+          <div style={{ background: 'var(--bg)', borderRadius: 8, padding: '12px 14px', fontSize: 12, color: 'var(--muted)', fontFamily: 'monospace' }}>
+            Webhook URL: https://vittahub-backend-production.up.railway.app/api/inbox/webhook/zapi
           </div>
         </div>
       )}

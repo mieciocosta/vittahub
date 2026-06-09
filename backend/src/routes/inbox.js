@@ -205,6 +205,150 @@ r.get('/webhook/instagram', (req, res) => {
 });
 
 // ─── JWT REQUIRED BELOW ───────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+//  Z-API INTEGRATION
+//  Docs: https://developer.z-api.io
+//  Endpoints: https://api.z-api.io/instances/{id}/token/{token}/...
+//  Webhook payload: { phone, senderName, profilePicUrl, text: { message }, 
+//                     image: { imageUrl }, audio: { audioUrl }, 
+//                     video: { videoUrl }, document: { documentUrl },
+//                     isFromMe: bool, messageId }
+// ═══════════════════════════════════════════════════════════════════════════
+
+const ZAPI_BASE  = () => `https://api.z-api.io/instances/${process.env.ZAPI_INSTANCE}/token/${process.env.ZAPI_TOKEN}`;
+const ZAPI_CTOKEN = () => process.env.ZAPI_CLIENT_TOKEN || '';
+
+// Helper: check if Z-API is configured
+const zapiOk = () => process.env.ZAPI_INSTANCE && process.env.ZAPI_TOKEN;
+
+// Helper: call Z-API
+async function zapiCall(path, method = 'GET', body = null) {
+  const { default: fetch } = await import('node-fetch');
+  const headers = { 'Content-Type': 'application/json' };
+  if (ZAPI_CTOKEN()) headers['Client-Token'] = ZAPI_CTOKEN();
+  return fetch(`${ZAPI_BASE()}${path}`, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+    signal: AbortSignal.timeout(15000)
+  });
+}
+
+// ─── WEBHOOK Z-API (sem JWT — chamado pela Z-API) ─────────────────────────
+r.post('/webhook/zapi', async (req, res) => {
+  res.json({ received: true });
+  try {
+    const body = req.body;
+    console.log(`ZAPI_WH: ${JSON.stringify(body).slice(0, 300)}`);
+
+    // Z-API webhook payload:
+    // { phone, senderName, profilePicUrl, isFromMe, messageId,
+    //   text: { message }, image: { imageUrl, caption },
+    //   audio: { audioUrl }, video: { videoUrl, caption },
+    //   document: { documentUrl, fileName, caption },
+    //   sticker: { stickerUrl }, location: { lat, lng } }
+
+    const phone = body.phone; // already formatted: 5511999999999
+    if (!phone) return;
+    if (body.isGroup) return; // skip groups
+
+    const isMe = !!body.isFromMe;
+    const msgId = body.messageId || body.zaapId || null;
+    const senderName = body.senderName || '';
+    const profilePic = body.profilePicUrl || body.photo || '';
+
+    if (isMe) {
+      // fromMe: just update delivery status
+      if (msgId) {
+        await query(
+          `UPDATE mensagens SET status = 'delivered'
+           WHERE wa_msg_id = $1`,
+          [msgId]
+        ).catch(() => {});
+      }
+      return;
+    }
+
+    // Deduplication
+    if (msgId) {
+      const { rows: exists } = await query('SELECT id FROM mensagens WHERE wa_msg_id = $1 LIMIT 1', [msgId]);
+      if (exists.length > 0) return;
+    }
+
+    // Extract content
+    let content = '[mensagem]', type = 'text', mediaData = null;
+    if (body.text?.message)           { content = body.text.message; type = 'text'; }
+    else if (body.image?.imageUrl)     { content = body.image.caption || '📷 Imagem'; type = 'image'; mediaData = body.image.imageUrl; }
+    else if (body.audio?.audioUrl)     { content = '🎵 Áudio'; type = 'audio'; mediaData = body.audio.audioUrl; }
+    else if (body.video?.videoUrl)     { content = body.video.caption || '🎥 Vídeo'; type = 'video'; mediaData = body.video.videoUrl; }
+    else if (body.document?.documentUrl) { content = `📎 ${body.document.fileName || 'Documento'}`; type = 'document'; mediaData = body.document.documentUrl; }
+    else if (body.sticker?.stickerUrl)   { content = '🎭 Sticker'; type = 'image'; mediaData = body.sticker.stickerUrl; }
+    else if (body.location)              { content = `📍 ${body.location.address || `${body.location.lat},${body.location.lng}`}`; }
+    else if (body.contact?.displayName) { content = `👤 ${body.contact.displayName}`; }
+    else if (body.reaction?.text)        { content = `${body.reaction.text} (reação)`; }
+    else if (body.gif?.gifUrl)           { content = '🎞️ GIF'; type = 'image'; mediaData = body.gif.gifUrl; }
+
+    const remoteJid = `${phone}@s.whatsapp.net`;
+    const displayPhone = phone.startsWith('55') ? phone.slice(2) : phone;
+    const contactName = senderName && senderName.length > 2 ? senderName : displayPhone;
+    const ts = body.momment ? new Date(body.momment).toISOString() : new Date().toISOString();
+
+    console.log(`ZAPI_MSG: from="${contactName}" phone="${displayPhone}" type="${type}" content="${content.slice(0,50)}"`);
+
+    // Upsert conversa — atualiza nome e foto se tiver
+    const { rows: [conv] } = await query(`
+      INSERT INTO conversas (channel, contact_name, contact_id, phone, unread, last_message, last_message_at, profile_pic)
+      VALUES ('whatsapp', $1, $2, $3, 1, $4, $5, $6)
+      ON CONFLICT (contact_id) DO UPDATE SET
+        contact_name = CASE
+          WHEN length(EXCLUDED.contact_name) > 5 AND EXCLUDED.contact_name != EXCLUDED.phone
+          THEN EXCLUDED.contact_name
+          ELSE conversas.contact_name
+        END,
+        profile_pic = COALESCE(EXCLUDED.profile_pic, conversas.profile_pic),
+        unread = conversas.unread + 1,
+        last_message = EXCLUDED.last_message,
+        last_message_at = EXCLUDED.last_message_at
+      RETURNING *`,
+      [contactName, remoteJid, displayPhone, content, ts, profilePic || null]
+    );
+
+    // Salva mensagem
+    await query(
+      `INSERT INTO mensagens (conversa_id, from_type, type, content, filename, created_at, wa_msg_id)
+       SELECT $1, 'contact', $2, $3, $4, $5, $6
+       WHERE NOT EXISTS (SELECT 1 FROM mensagens WHERE wa_msg_id = $6 AND $6 IS NOT NULL)`,
+      [conv.id, type, mediaData || content, null, ts, msgId]
+    );
+
+    await query(
+      `INSERT INTO notificacoes (tipo, titulo, texto, conv_id) VALUES ('mensagem',$1,$2,$3)`,
+      [contactName, content.slice(0, 80), conv.id]
+    ).catch(() => {});
+
+    // Bot
+    if (conv.bot_ativo) {
+      try {
+        const { rows: [cfgRow] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'");
+        const cfg = cfgRow?.valor || {};
+        if (cfg.ativo !== false && zapiOk()) {
+          const { rows: countRow } = await query('SELECT COUNT(*) n FROM mensagens WHERE conversa_id = $1', [conv.id]);
+          const msgCount = parseInt(countRow[0].n);
+          let botReply = msgCount <= 1 && cfg.mensagemBoasVindas
+            ? cfg.mensagemBoasVindas
+            : (cfg.respostas?.[content.trim()] || cfg.respostas?.['default'] || '');
+          if (botReply) {
+            await zapiCall('/send-text', 'POST', { phone: `55${displayPhone}`, message: botReply });
+            await query(`INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome) VALUES ($1,'me','text',$2,'Bot Vittalis')`, [conv.id, botReply]);
+            await query('UPDATE conversas SET last_message=$1, last_message_at=NOW() WHERE id=$2', [botReply.slice(0, 100), conv.id]);
+          }
+        }
+      } catch (e) { console.error('Bot error:', e.message); }
+    }
+  } catch (err) { console.error('ZAPI_ERROR:', err.message); }
+});
+
+// Keep Evolution webhook for backward compat
 r.use(auth);
 r.use(auth);
 
@@ -322,49 +466,41 @@ r.post('/conversations/:id/send', async (req, res) => {
     const preview = type === 'text' ? content : type === 'audio' ? '🎵 Áudio' : type === 'image' ? '📷 Imagem' : `📎 Arquivo`;
     await query('UPDATE conversas SET last_message = $1, last_message_at = NOW() WHERE id = $2', [preview, req.params.id]);
 
-    // Evolution API (WhatsApp)
-    const EVO = process.env.EVOLUTION_API_URL, KEY = process.env.EVOLUTION_API_KEY;
-    const INST = process.env.EVOLUTION_INSTANCE || 'vittalis';
-    const BACKEND_URL = process.env.RAILWAY_PUBLIC_DOMAIN
-      ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
-      : process.env.BACKEND_URL || 'https://vittahub-backend-production.up.railway.app';
-
-    if (EVO && KEY && conv.channel === 'whatsapp') {
+    // WhatsApp send: Z-API (preferred) or Evolution API (fallback)
+    if (conv.channel === 'whatsapp') {
       try {
-        const { default: fetch } = await import('node-fetch');
         const waNumber = conv.contact_id
           ? conv.contact_id.replace('@s.whatsapp.net', '')
           : `55${conv.phone}`;
+        const phone55 = waNumber.startsWith('55') ? waNumber : `55${waNumber}`;
+        let sent = false;
 
-        let evoRes;
-        if (type === 'text') {
-          evoRes = await fetch(`${EVO}/message/sendText/${INST}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', apikey: KEY },
-            body: JSON.stringify({ number: waNumber, text: content })
-          });
-        } else if (type === 'audio') {
-          const audioUrl = content.startsWith('http') ? content : `${BACKEND_URL}${content}`;
-          evoRes = await fetch(`${EVO}/message/sendWhatsAppAudio/${INST}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', apikey: KEY },
-            body: JSON.stringify({ number: waNumber, audio: audioUrl })
-          });
-        } else if (type === 'image' || type === 'video' || type === 'document') {
-          const mediaUrl = content.startsWith('http') ? content : `${BACKEND_URL}${content}`;
-          const endpoint = type === 'image' ? 'sendMedia' : type === 'video' ? 'sendMedia' : 'sendMedia';
-          evoRes = await fetch(`${EVO}/message/${endpoint}/${INST}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', apikey: KEY },
-            body: JSON.stringify({ number: waNumber, mediatype: type, media: mediaUrl, caption: '' })
-          });
+        // Z-API
+        if (zapiOk()) {
+          let zr;
+          if (type === 'text')     zr = await zapiCall('/send-text',     'POST', { phone: phone55, message: content });
+          else if (type === 'audio')    zr = await zapiCall('/send-audio',    'POST', { phone: phone55, audio: content });
+          else if (type === 'image')    zr = await zapiCall('/send-image',    'POST', { phone: phone55, image: content, caption: '' });
+          else if (type === 'video')    zr = await zapiCall('/send-video',    'POST', { phone: phone55, video: content, caption: '' });
+          else if (type === 'document') zr = await zapiCall('/send-document', 'POST', { phone: phone55, document: content, fileName: msg.filename || 'arquivo' });
+          if (zr?.ok) {
+            const zd = await zr.json();
+            if (zd.zaapId || zd.messageId) {
+              await query("UPDATE mensagens SET status = 'delivered', wa_msg_id = $1 WHERE id = $2", [zd.messageId || zd.zaapId, msg.id]);
+              sent = true;
+            }
+          }
         }
 
-        if (evoRes?.ok) {
-          const evoData = await evoRes.json();
-          if (evoData.key) await query("UPDATE mensagens SET status = 'delivered' WHERE id = $1", [msg.id]);
+        // Evolution API fallback
+        if (!sent && EVO_URL() && EVO_KEY()) {
+          const { default: fetch } = await import('node-fetch');
+          let er;
+          if (type === 'text') er = await fetch(`${EVO_URL()}/message/sendText/${EVO_INST()}`, { method:'POST', headers:{'Content-Type':'application/json',apikey:EVO_KEY()}, body: JSON.stringify({number:waNumber,text:content})});
+          else er = await fetch(`${EVO_URL()}/message/sendMedia/${EVO_INST()}`, { method:'POST', headers:{'Content-Type':'application/json',apikey:EVO_KEY()}, body: JSON.stringify({number:waNumber,mediatype:type,media:content,caption:''})});
+          if (er?.ok) { const ed = await er.json(); if (ed.key) await query("UPDATE mensagens SET status = 'delivered' WHERE id = $1", [msg.id]); }
         }
-      } catch (e) { console.error('Evolution send error:', e.message); }
+      } catch (e) { console.error('WA send error:', e.message); }
     }
 
     res.json(msg);
@@ -649,10 +785,36 @@ r.post('/whatsapp/update-contacts', async (req, res) => {
 
 // ─── WHATSAPP QR CODE (Evolution API) ────────────────────────────────────────
 r.get('/whatsapp/status', async (req, res) => {
-  const EVO = process.env.EVOLUTION_API_URL;
-  const KEY = process.env.EVOLUTION_API_KEY;
-  const INST = process.env.EVOLUTION_INSTANCE || 'vittalis';
-  if (!EVO || !KEY) return res.json({ connected: false, status: 'not_configured', message: 'Evolution API não configurada' });
+  // Z-API (preferred)
+  if (zapiOk()) {
+    try {
+      const r2 = await zapiCall('/status');
+      if (r2.ok) {
+        const data = await r2.json();
+        const connected = data.connected === true || data.status === 'CONNECTED' || data.smartphone?.connection === 'CONNECTED';
+        return res.json({ connected, status: connected ? 'open' : 'closed', provider: 'zapi' });
+      }
+    } catch (e) { console.error('Z-API status error:', e.message); }
+  }
+  // Evolution API fallback
+  const EVO = process.env.EVOLUTION_API_URL, KEY = process.env.EVOLUTION_API_KEY, INST = process.env.EVOLUTION_INSTANCE || 'vittalis';
+  if (!EVO || !KEY) return res.json({ connected: false, status: 'not_configured', message: 'Configure ZAPI ou Evolution API' });
+  try {
+    const { default: fetch } = await import('node-fetch');
+    const r2 = await fetch(`${EVO}/instance/connectionState/${INST}`, { headers: { apikey: KEY }, signal: AbortSignal.timeout(8000) });
+    if (r2.ok) {
+      const data = await r2.json();
+      const state = data?.instance?.state || data?.state || data?.currentState || 'closed';
+      return res.json({ connected: state === 'open', status: state, provider: 'evolution' });
+    }
+    const r3 = await fetch(`${EVO}/instance/fetchInstances`, { headers: { apikey: KEY }, signal: AbortSignal.timeout(8000) });
+    const list = await r3.json();
+    const arr = Array.isArray(list) ? list : (list?.data || [list]);
+    const inst = arr.find(i => i.name === INST || i.instance?.instanceName === INST || i.instanceName === INST);
+    const state = inst?.instance?.state || inst?.state || inst?.connectionStatus || 'closed';
+    res.json({ connected: state === 'open', status: state, provider: 'evolution' });
+  } catch (e) { res.json({ connected: false, status: 'error', message: e.message }); }
+});
   try {
     const { default: fetch } = await import('node-fetch');
     // v2 uses /instance/connectionState/:instance
