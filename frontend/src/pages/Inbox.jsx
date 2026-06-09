@@ -306,6 +306,44 @@ export default function Inbox({ onUnreadChange }) {
     return () => window.removeEventListener('resize', measure);
   }, []);
 
+  // ── Auto-polling: atualiza lista de conversas a cada 4s ──────────────────
+  const selRef = useRef(sel);
+  useEffect(() => { selRef.current = sel; }, [sel]);
+
+  useEffect(() => {
+    const iv = setInterval(async () => {
+      try {
+        const params = new URLSearchParams({ page: 1, limit: 50 });
+        if (filter !== 'all') params.set('channel', filter);
+        if (search) params.set('search', search);
+        if (unreadOnly) params.set('unread_only', 'true');
+        const data = await api.get(`/inbox/conversations?${params}`);
+        const list = data.data || data;
+        const tot = data.total ?? list.length;
+        setConvos(list);
+        setTotal(tot);
+        onUnreadChange?.(list.reduce((s, c) => s + (c.unread || 0), 0));
+      } catch {}
+    }, 4000);
+    return () => clearInterval(iv);
+  }, [filter, search, unreadOnly]);
+
+  // ── Auto-polling: atualiza mensagens da conversa selecionada a cada 3s ──
+  useEffect(() => {
+    if (!sel) return;
+    const iv = setInterval(async () => {
+      try {
+        const data = await api.get(`/inbox/conversations/${sel.id}`);
+        const newMsgs = data.messages || [];
+        setMsgs(prev => {
+          if (newMsgs.length !== prev.length) return newMsgs;
+          return prev;
+        });
+      } catch {}
+    }, 3000);
+    return () => clearInterval(iv);
+  }, [sel?.id]);
+
   // Load conversations (first page or full reload)
   const loadConvos = useCallback(async (reset = true) => {
     try {
