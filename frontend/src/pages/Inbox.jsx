@@ -369,44 +369,61 @@ export default function Inbox({ onUnreadChange }) {
   // ── Tab ativa? ─────────────────────────────────────────────────────────────
   const isTabActive = () => !document.hidden;
 
-  // ── SSE (tempo real — bônus quando funcionar no Railway) ──────────────────
+  // ── WebSocket: conexão PERSISTENTE — mensagens chegam em <100ms ─────────────
+  // Railway suporta WebSocket corretamente (ao contrário de SSE que bufferiza)
+  // Reconecta automaticamente em 3s se cair
   useEffect(() => {
     const BASE = import.meta.env.VITE_API_URL || '';
+    const WS   = BASE.replace(/^https:\/\//, 'wss://').replace(/^http:\/\//, 'ws://') + '/ws';
     const tk   = localStorage.getItem('vh_token') || '';
     if (!tk) return;
-    let es = null;
-    let retryTimer = null;
+
+    let ws = null, retryTimer = null, active = true;
+
     function connect() {
-      es = new EventSource(`${BASE}/api/inbox/stream?token=${encodeURIComponent(tk)}`);
-      es.addEventListener('new_message', e => {
-        try {
-          const { convId, message, conv: updatedConv } = JSON.parse(e.data);
-          setConvos(prev => {
-            const existing = prev.find(c => c.id === convId);
-            const merged = { ...(existing || {}), ...updatedConv };
-            return [merged, ...prev.filter(c => c.id !== convId)];
-          });
-          if (selRef.current?.id === convId) {
-            setMsgs(prev => {
-              if (prev.find(m => m.id === message.id)) return prev;
-              lastMsgTs.current = message.created_at;
-              return [...prev, message];
-            });
-          }
-        } catch {}
-      });
-      es.addEventListener('status_change', e => {
-        try {
-          const { convId, status_atend } = JSON.parse(e.data);
-          setConvos(prev => prev.map(c => c.id === convId ? { ...c, status_atend } : c));
-          if (selRef.current?.id === convId) setSel(prev => ({ ...prev, status_atend }));
-        } catch {}
-      });
-      es.onerror = () => { es.close(); retryTimer = setTimeout(connect, 8000); };
+      if (!active) return;
+      try {
+        ws = new WebSocket(`${WS}?token=${encodeURIComponent(tk)}`);
+        ws.onopen = () => console.log('WS ✅');
+
+        ws.onmessage = ({ data }) => {
+          try {
+            const { type, data: d } = JSON.parse(data);
+            if (type === 'new_message') {
+              const { convId, message, conv: updConv } = d;
+              setConvos(prev => {
+                const ex = prev.find(c => c.id === convId);
+                return [{ ...(ex || {}), ...updConv }, ...prev.filter(c => c.id !== convId)];
+              });
+              if (selRef.current?.id === convId) {
+                setMsgs(prev => {
+                  if (prev.find(m => m.id === message.id)) return prev;
+                  // Substitui mensagem otimista (tmp-*) pela versão confirmada do banco
+                  const clean = prev.filter(p =>
+                    !String(p.id).startsWith('tmp-') ||
+                    !(p.from_type === 'me' && p.content === message.content)
+                  );
+                  lastMsgTs.current = message.created_at;
+                  return [...clean, message];
+                });
+              }
+            }
+          } catch {}
+        };
+
+        ws.onclose = (e) => {
+          if (e.code === 4001) return; // token inválido — não tenta reconectar
+          if (active) retryTimer = setTimeout(connect, 3000);
+        };
+        ws.onerror = () => ws.close();
+      } catch {}
     }
+
     connect();
-    return () => { clearTimeout(retryTimer); es?.close(); };
-  }, []);
+    return () => { active = false; clearTimeout(retryTimer); try { ws?.close(); } catch {} };
+  }, []); // monta uma vez, persiste durante toda a sessão
+
+
 
   // ── LONG-POLL: entrega instantânea de mensagens (substitui setInterval) ──────
   // Quando chega mensagem no servidor → resposta imediata (<200ms de latência)

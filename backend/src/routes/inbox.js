@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import { query } from '../db/pool.js';
 import { auth, SECRET } from '../middleware/auth.js';
 import jwt from 'jsonwebtoken';
+import { wsBroadcast } from '../ws.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const r = express.Router();
@@ -428,10 +429,11 @@ r.post('/webhook/zapi', async (req, res) => {
       [conv.id, type, mediaData || content, null, ts, msgId]
     );
 
-    // ── Push instantâneo: SSE + long-poll ──
+    // ── Push tri-canal: WebSocket (instantâneo) + SSE + long-poll ──
     if (newMsg) {
-      broadcast('new_message', { convId: conv.id, message: newMsg, conv });
-      notifyWaiters(conv.id, newMsg); // acorda clientes em long-poll imediatamente
+      wsBroadcast('new_message', { convId: conv.id, message: newMsg, conv });
+      broadcast('new_message',   { convId: conv.id, message: newMsg, conv }); // SSE
+      notifyWaiters(conv.id, newMsg); // long-poll fallback
     }
 
 
@@ -666,8 +668,9 @@ r.post('/conversations/:id/send', async (req, res) => {
     if (convUpd) cacheUpdate(convUpd);
 
     // Push para todos os canais de entrega
-    broadcast('new_message', { convId: req.params.id, message: msg, conv: convUpd || conv });
-    notifyWaiters(req.params.id, msg); // acorda long-poll instantaneamente
+    wsBroadcast('new_message', { convId: req.params.id, message: msg, conv: convUpd || conv });
+    broadcast('new_message',   { convId: req.params.id, message: msg, conv: convUpd || conv }); // SSE
+    notifyWaiters(req.params.id, msg); // long-poll fallback
 
     // WhatsApp send: Z-API (preferred) or Evolution API (fallback)
     if (conv.channel === 'whatsapp') {
