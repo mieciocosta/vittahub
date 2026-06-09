@@ -2,7 +2,8 @@ import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import {
   Send, Paperclip, Mic, MicOff, Sparkles, Search, RefreshCw, X,
   UserPlus, Hash, Bot, FileText, Volume2, File, Tag, Filter, ChevronDown,
-  ArrowUpDown, Smile, PanelLeftClose, PanelLeftOpen, Image, Play
+  ArrowUpDown, Smile, PanelLeftClose, PanelLeftOpen, Image, Play,
+  ChevronUp, Loader2,
 } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt, openWA } from '../hooks/utils.js';
@@ -12,9 +13,33 @@ import PropostaModal from '../components/PropostaModal.jsx';
 const WA = ({s=13})=><svg width={s} height={s} viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.124.556 4.118 1.523 5.847L0 24l6.302-1.496A11.934 11.934 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.818a9.807 9.807 0 01-5.032-1.388l-.361-.214-3.741.888.948-3.651-.235-.374A9.786 9.786 0 012.182 12C2.182 6.58 6.58 2.182 12 2.182S21.818 6.58 21.818 12 17.42 21.818 12 21.818z"/></svg>;
 const IG = ({s=13})=><svg width={s} height={s} viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg>;
 
-const ITEM_HEIGHT = 72; // px per conversation row — used for virtual scroll
+const ITEM_HEIGHT = 72;
 
-/* ── VirtualList: renders only visible rows ──────────────────────────────────── */
+/* ── Avatar com foto lazy-loaded ─────────────────────────────────────────────── */
+const Avatar = React.memo(function Avatar({ conv, size = 38, fontSize = 13 }) {
+  const initials = (conv.contact_name || '?').split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase();
+  const bg = conv.channel === 'whatsapp' ? '#d4f7e0' : '#fce4ef';
+  const color = conv.channel === 'whatsapp' ? '#0a7a40' : '#9a1050';
+  return (
+    <div style={{ width: size, height: size, borderRadius: '50%', flexShrink: 0, background: bg,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontWeight: 700, fontSize, color, position: 'relative', overflow: 'hidden' }}>
+      {conv.profile_pic
+        ? <img src={conv.profile_pic} alt="" loading="lazy"
+            style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover', position: 'absolute', inset: 0 }}
+            onError={e => { e.target.style.display = 'none'; }} />
+        : initials
+      }
+      <span style={{ position: 'absolute', bottom: -1, right: -1, width: Math.round(size*0.37), height: Math.round(size*0.37), borderRadius: '50%',
+        background: conv.channel === 'whatsapp' ? 'var(--wa)' : 'var(--ig)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid #fff' }}>
+        {conv.channel === 'whatsapp' ? <WA s={Math.round(size*0.18)}/> : <IG s={Math.round(size*0.18)}/>}
+      </span>
+    </div>
+  );
+});
+
+/* ── VirtualList ─────────────────────────────────────────────────────────────── */
 function VirtualList({ items, selectedId, onSelect, containerHeight, loadMore, hasMore, loadingMore }) {
   const scrollRef = useRef(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -28,26 +53,23 @@ function VirtualList({ items, selectedId, onSelect, containerHeight, loadMore, h
   const onScroll = useCallback(e => {
     const st = e.currentTarget.scrollTop;
     setScrollTop(st);
-    // Infinite scroll trigger
-    const near = st + containerHeight >= totalHeight - ITEM_HEIGHT * 3;
+    const near = st + containerHeight >= totalHeight - ITEM_HEIGHT * 4;
     if (near && hasMore && !loadingMore) loadMore();
   }, [containerHeight, totalHeight, hasMore, loadingMore, loadMore]);
 
   return (
     <div ref={scrollRef} onScroll={onScroll}
       style={{ flex: 1, overflowY: 'auto', position: 'relative', height: containerHeight }}>
-      {/* Spacer fills total height so scrollbar is correct */}
       <div style={{ height: totalHeight, position: 'relative' }}>
-        {/* Only render visible slice */}
         <div style={{ position: 'absolute', top: visibleStart * ITEM_HEIGHT, left: 0, right: 0 }}>
           {visibleItems.map((c, i) => (
-            <ConvoRow key={c.id} conv={c} selected={selectedId === c.id} onSelect={onSelect} idx={visibleStart + i} />
+            <ConvoRow key={c.id} conv={c} selected={selectedId === c.id} onSelect={onSelect} />
           ))}
         </div>
       </div>
       {loadingMore && (
-        <div style={{ textAlign: 'center', padding: 12 }}>
-          <span className="spin" style={{ width: 16, height: 16 }} />
+        <div style={{ textAlign: 'center', padding: 12, position: 'sticky', bottom: 0 }}>
+          <Loader2 size={16} color="var(--tq)" style={{ animation: 'spin 1s linear infinite' }} />
         </div>
       )}
       {!hasMore && items.length > 30 && (
@@ -59,7 +81,7 @@ function VirtualList({ items, selectedId, onSelect, containerHeight, loadMore, h
   );
 }
 
-/* ── Single conversation row ─────────────────────────────────────────────────── */
+/* ── ConvoRow ────────────────────────────────────────────────────────────────── */
 const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect }) {
   return (
     <div onClick={() => onSelect(conv)}
@@ -70,32 +92,15 @@ const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect }) {
         borderLeft: `3px solid ${selected ? 'var(--tq)' : 'transparent'}`,
         background: selected ? 'var(--tq4)' : 'transparent',
         transition: 'background .1s',
-        willChange: 'transform', // GPU acceleration hint
+        willChange: 'transform',
       }}
       onMouseEnter={e => { if (!selected) e.currentTarget.style.background = 'var(--bg)'; }}
       onMouseLeave={e => { if (!selected) e.currentTarget.style.background = 'transparent'; }}>
-      {/* Avatar com foto de perfil */}
-      <div style={{ width: 38, height: 38, borderRadius: '50%', flexShrink: 0,
-        background: conv.channel === 'whatsapp' ? '#d4f7e0' : '#fce4ef',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontWeight: 700, fontSize: 13, color: conv.channel === 'whatsapp' ? '#0a7a40' : '#9a1050',
-        position: 'relative', overflow: 'hidden'
-      }}>
-        {conv.profile_pic
-          ? <img src={conv.profile_pic} alt="" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover', position: 'absolute', inset: 0 }} onError={e => { e.target.style.display = 'none'; }} />
-          : (conv.contact_name || '?').split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase()
-        }
-        <span style={{ position: 'absolute', bottom: -1, right: -1, width: 14, height: 14, borderRadius: '50%',
-          background: conv.channel === 'whatsapp' ? 'var(--wa)' : 'var(--ig)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid #fff'
-        }}>{conv.channel === 'whatsapp' ? <WA s={6} /> : <IG s={6} />}</span>
-      </div>
-
-      {/* Content */}
+      <Avatar conv={conv} size={38} fontSize={13} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
           <span style={{ fontWeight: 600, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
-            {conv.contact_name}
+            {conv.contact_name || conv.phone || '…'}
           </span>
           <span style={{ fontSize: 10.5, color: 'var(--light)', flexShrink: 0, marginLeft: 4 }}>
             {fmt.relTime(conv.last_message_at)}
@@ -120,16 +125,15 @@ const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect }) {
   );
 });
 
-/* ── Search + filter bar ─────────────────────────────────────────────────────── */
-function SearchBar({ value, onChange, filter, setFilter, showFilters, setShowFilters, totalUnread, unreadOnly, setUnreadOnly }) {
+/* ── SearchBar ───────────────────────────────────────────────────────────────── */
+function SearchBar({ value, onChange, filter, setFilter, totalUnread, unreadOnly, setUnreadOnly }) {
   return (
     <div style={{ padding: '12px 13px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
-      {/* Channel tabs */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 9 }}>
         {[['all','Todos'],['whatsapp','WA'],['instagram','IG']].map(([ch, l]) => (
           <button key={ch} onClick={() => setFilter(ch)}
             style={{ flex: 1, padding: '6px', borderRadius: 8, fontSize: 11.5, fontWeight: 600, cursor: 'pointer', border: '1.5px solid',
-              background: filter === ch ? (ch === 'whatsapp' ? 'var(--wa2)' : ch === 'instagram' ? 'var(--ig2)' : 'var(--tq3)') : '#fff',
+              background: filter === ch ? (ch === 'whatsapp' ? 'var(--wa2)' : ch === 'instagram' ? 'var(--ig2)' : 'var(--tq3)') : 'var(--card,#fff)',
               color: filter === ch ? (ch === 'whatsapp' ? 'var(--wa)' : ch === 'instagram' ? 'var(--ig)' : 'var(--tq)') : 'var(--muted)',
               borderColor: filter === ch ? 'currentColor' : 'var(--border)',
             }}>{l}</button>
@@ -137,18 +141,16 @@ function SearchBar({ value, onChange, filter, setFilter, showFilters, setShowFil
         {totalUnread > 0 && (
           <button onClick={() => setUnreadOnly(p => !p)}
             style={{ padding: '5px 8px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer', border: '1.5px solid',
-              background: unreadOnly ? 'var(--tq)' : '#fff', color: unreadOnly ? '#fff' : 'var(--muted)', borderColor: unreadOnly ? 'var(--tq)' : 'var(--border)' }}>
+              background: unreadOnly ? 'var(--tq)' : 'var(--card,#fff)', color: unreadOnly ? '#fff' : 'var(--muted)', borderColor: unreadOnly ? 'var(--tq)' : 'var(--border)' }}>
             🔔{totalUnread}
           </button>
         )}
       </div>
-
-      {/* Search input */}
       <div style={{ position: 'relative' }}>
         <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)', pointerEvents: 'none' }} />
         <input value={value} onChange={e => onChange(e.target.value)}
           placeholder="Buscar por nome, número…"
-          style={{ width: '100%', padding: '8px 32px 8px 28px', border: '1.5px solid var(--border)', borderRadius: 8, outline: 'none', fontSize: 13, background: 'var(--bg)' }}
+          style={{ width: '100%', padding: '8px 32px 8px 28px', border: '1.5px solid var(--border)', borderRadius: 8, outline: 'none', fontSize: 13, background: 'var(--bg)', color: 'var(--txt)' }}
           onFocus={e => e.target.style.borderColor = 'var(--tq)'} onBlur={e => e.target.style.borderColor = 'var(--border)'} />
         {value && (
           <button onClick={() => onChange('')} style={{ position: 'absolute', right: 7, top: '50%', transform: 'translateY(-50%)', background: 'none', padding: 3, color: 'var(--muted)', cursor: 'pointer', border: 'none' }}>
@@ -160,7 +162,7 @@ function SearchBar({ value, onChange, filter, setFilter, showFilters, setShowFil
   );
 }
 
-/* ── AI Panel ─────────────────────────────────────────────────────────────────── */
+/* ── AIPanel ─────────────────────────────────────────────────────────────────── */
 function AIPanel({ messages, contactName, token, convId, onUseSuggestion, onClose }) {
   const [mode, setMode] = useState(null);
   const [result, setResult] = useState('');
@@ -188,7 +190,6 @@ function AIPanel({ messages, contactName, token, convId, onUseSuggestion, onClos
   };
 
   const BTNS = [['summary','📋 Resumo'],['qualify','⭐ Score'],['suggest','💡 Estratégia'],['reply','✍️ Resposta']];
-
   return (
     <div style={{ background: '#071e2c', padding: '12px 16px', flexShrink: 0 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 9 }}>
@@ -217,11 +218,10 @@ function AIPanel({ messages, contactName, token, convId, onUseSuggestion, onClos
   );
 }
 
-/* ── Message item ────────────────────────────────────────────────────────────── */
+/* ── MsgItem ─────────────────────────────────────────────────────────────────── */
 const MsgItem = React.memo(function MsgItem({ m, i, msgs, contactName, channel, onLightbox }) {
   const isMe = m.from_type === 'me', isBot = m.from_type === 'bot', isSys = m.from_type === 'system';
   const showDate = i === 0 || new Date(msgs[i-1].created_at).toDateString() !== new Date(m.created_at).toDateString();
-
   return (
     <React.Fragment>
       {showDate && (
@@ -239,11 +239,11 @@ const MsgItem = React.memo(function MsgItem({ m, i, msgs, contactName, channel, 
         <div style={{ display: 'flex', justifyContent: isMe || isBot ? 'flex-end' : 'flex-start' }}>
           <div style={{ maxWidth: '70%', background: isBot ? '#e8faf4' : isMe ? (channel === 'whatsapp' ? '#dcfce7' : '#fde4f0') : '#fff', borderRadius: isMe || isBot ? '14px 14px 3px 14px' : '14px 14px 14px 3px', padding: '9px 12px', boxShadow: '0 1px 2px rgba(0,0,0,.06)' }}>
             {isBot && <div style={{ fontSize: 10, color: 'var(--ok)', fontWeight: 700, marginBottom: 3 }}>🤖 Bot</div>}
-            {isMe && m.sender_nome && i > 0 && msgs[i-1].from_type !== 'me' && <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 2, fontWeight: 600 }}>{m.sender_nome?.split(' ')[0]}</div>}
-            {m.type === 'text' && <div style={{ fontSize: 13.5, lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>{m.content}</div>}
-            {m.type === 'image' && <img onClick={() => onLightbox(m.content)} src={m.content} alt="img" style={{ maxWidth: 220, maxHeight: 220, borderRadius: 8, display: 'block', objectFit: 'cover', cursor: 'pointer' }} onError={e => e.target.style.display = 'none'} />}
-            {m.type === 'audio' && <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 180 }}><Volume2 size={13} color="var(--tq)" /><audio controls src={m.content} style={{ flex: 1, height: 28, minWidth: 140 }} /></div>}
-            {m.type === 'video' && <video controls src={m.content} style={{ maxWidth: 240, borderRadius: 8 }} />}
+            {isMe && m.sender_nome && i > 0 && msgs[i-1]?.from_type !== 'me' && <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 2, fontWeight: 600 }}>{m.sender_nome?.split(' ')[0]}</div>}
+            {m.type === 'text'     && <div style={{ fontSize: 13.5, lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>{m.content}</div>}
+            {m.type === 'image'    && <img onClick={() => onLightbox(m.content)} src={m.content} alt="img" loading="lazy" style={{ maxWidth: 220, maxHeight: 220, borderRadius: 8, display: 'block', objectFit: 'cover', cursor: 'pointer' }} onError={e => e.target.style.display = 'none'} />}
+            {m.type === 'audio'    && <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 180 }}><Volume2 size={13} color="var(--tq)" /><audio controls src={m.content} style={{ flex: 1, height: 28, minWidth: 140 }} /></div>}
+            {m.type === 'video'    && <video controls src={m.content} style={{ maxWidth: 240, borderRadius: 8 }} />}
             {m.type === 'document' && <a href={m.content} download target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 7, color: 'var(--pet)', fontSize: 13 }}><File size={13} /><span style={{ textDecoration: 'underline' }}>{m.filename || 'Arquivo'}</span></a>}
             <div style={{ fontSize: 10, color: 'var(--light)', marginTop: 4, textAlign: 'right' }}>
               {fmt.msgTime(m.created_at || m.timestamp)}{isMe && <span style={{ marginLeft: 3 }}>{m.status === 'delivered' ? '✓✓' : '✓'}</span>}
@@ -257,54 +257,61 @@ const MsgItem = React.memo(function MsgItem({ m, i, msgs, contactName, channel, 
 
 /* ─────────────────────────────────────────────────────────────────────────────
    MAIN INBOX COMPONENT
-──────────────────────────────────────────────────────────────────────────────── */
+─────────────────────────────────────────────────────────────────────────────── */
 export default function Inbox({ onUnreadChange }) {
-  const api = useApi();
+  const api    = useApi();
   const { user } = useAuth();
-  const token = localStorage.getItem('vh_token') || '';
+  const token  = localStorage.getItem('vh_token') || '';
 
-  // Conversation list state
-  const [convos, setConvos] = useState([]);
-  const [listWidth, setListWidth] = useState(300);
-  const resizing = useRef(false);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
+  // ── Lista de conversas ──────────────────────────────────────────────────────
+  const [convos, setConvos]           = useState([]);
+  const [listWidth, setListWidth]     = useState(300);
+  const resizing                      = useRef(false);
+  const [total, setTotal]             = useState(0);
+  const [page, setPage]               = useState(1);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [hasMore, setHasMore] = useState(true);
+  const [hasMore, setHasMore]         = useState(true);
   const LIMIT = 50;
 
-  // Filters
-  const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState('all');
-  const [unreadOnly, setUnreadOnly] = useState(false);
-  const [showFilters, setShowFilters] = useState(false);
+  // ── Filtros ─────────────────────────────────────────────────────────────────
+  const [search, setSearch]           = useState('');
+  const [filter, setFilter]           = useState('all');
+  const [unreadOnly, setUnreadOnly]   = useState(false);
 
-  // Chat state
-  const [sel, setSel] = useState(null);
-  const [msgs, setMsgs] = useState([]);
-  const [input, setInput] = useState('');
-  const [recording, setRecording] = useState(false);
-  const [recorder, setRecorder] = useState(null);
-  const [showAI, setShowAI] = useState(false);
-  const [showInfo, setShowInfo] = useState(false);
-  const [showEmoji, setShowEmoji] = useState(false);
+  // ── Collapse da lista de conversas (painel esquerdo do inbox) ───────────────
+  const [listCollapsed, setListCollapsed] = useState(false);
+
+  // ── Chat state ──────────────────────────────────────────────────────────────
+  const [sel, setSel]                 = useState(null);
+  const [msgs, setMsgs]               = useState([]);
+  const [msgsTotal, setMsgsTotal]     = useState(0);
+  const [msgsHasMore, setMsgsHasMore] = useState(false);
+  const [loadingOlderMsgs, setLoadingOlderMsgs] = useState(false);
+  const [input, setInput]             = useState('');
+  const [recording, setRecording]     = useState(false);
+  const [recorder, setRecorder]       = useState(null);
+  const [showAI, setShowAI]           = useState(false);
+  const [showInfo, setShowInfo]       = useState(false);
+  const [showEmoji, setShowEmoji]     = useState(false);
   const [filePreview, setFilePreview] = useState(null);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [selFull, setSelFull] = useState(null);
-  const [showQR, setShowQR] = useState(false);
-  const [qr, setQr] = useState([]);
-  const [lightbox, setLightbox] = useState(null);
+  const [selFull, setSelFull]         = useState(null);
+  const [showQR, setShowQR]           = useState(false);
+  const [qr, setQr]                   = useState([]);
+  const [lightbox, setLightbox]       = useState(null);
   const [showProposta, setShowProposta] = useState(false);
-  const [leadData, setLeadData] = useState(null);
-  const [listH, setListH] = useState(500);
+  const [leadData, setLeadData]       = useState(null);
+  const [listH, setListH]             = useState(500);
 
-  const endRef = useRef(null);
-  const fileRef = useRef(null);
-  const textRef = useRef(null);
-  const listContainerRef = useRef(null);
-  const searchTimeout = useRef(null);
+  const endRef            = useRef(null);
+  const msgAreaRef        = useRef(null);
+  const fileRef           = useRef(null);
+  const textRef           = useRef(null);
+  const listContainerRef  = useRef(null);
+  const searchTimeout     = useRef(null);
+  const lastPollTs        = useRef(new Date().toISOString()); // para poll incremental
+  const lastMsgId         = useRef(null);                    // para poll incremental de msgs
 
-  // Measure list container height for virtual scroll
+  // ── Mede altura da lista ────────────────────────────────────────────────────
   useEffect(() => {
     const measure = () => {
       if (listContainerRef.current) {
@@ -317,74 +324,99 @@ export default function Inbox({ onUnreadChange }) {
     return () => window.removeEventListener('resize', measure);
   }, []);
 
-  // ── Auto-polling: atualiza lista de conversas a cada 4s ──────────────────
+  // ── Helper: tab ativa? (parar poll quando aba em background) ─────────────────
+  const isTabActive = () => !document.hidden;
+
+  // ── Poll incremental de conversas (só busca o que mudou desde lastPollTs) ───
   const selRef = useRef(sel);
   useEffect(() => { selRef.current = sel; }, [sel]);
 
-  // ── Auto-polling: lista de conversas a cada 6s (reduzido para performance) ──
   useEffect(() => {
     const iv = setInterval(async () => {
+      if (!isTabActive()) return; // não polleia em background
       try {
-        const params = new URLSearchParams({ page: 1, limit: 50 });
+        const since = lastPollTs.current;
+        lastPollTs.current = new Date().toISOString();
+
+        const params = new URLSearchParams({ since });
         if (filter !== 'all') params.set('channel', filter);
         if (search) params.set('search', search);
         if (unreadOnly) params.set('unread_only', 'true');
-        const data = await api.get(`/inbox/conversations?${params}`);
-        const list = data.data || data;
-        const tot = data.total ?? list.length;
-        // Only update if something changed (avoid re-render)
+
+        const data = await api.get(`/inbox/conversations/updates?${params}`);
+        const updated = data.data || [];
+        if (updated.length === 0) return;
+
         setConvos(prev => {
-          const changed = list.length !== prev.length ||
-            list[0]?.last_message !== prev[0]?.last_message ||
-            list.reduce((s,c)=>s+(c.unread||0),0) !== prev.reduce((s,c)=>s+(c.unread||0),0);
-          return changed ? list : prev;
+          // Merge: conversas atualizadas vão para o topo se tiverem msg mais recente
+          const map = new Map(prev.map(c => [c.id, c]));
+          updated.forEach(c => map.set(c.id, { ...map.get(c.id), ...c }));
+          // Re-sort por last_message_at
+          return Array.from(map.values()).sort((a, b) =>
+            new Date(b.last_message_at || 0) - new Date(a.last_message_at || 0)
+          );
         });
-        setTotal(tot);
-        onUnreadChange?.(list.reduce((s, c) => s + (c.unread || 0), 0));
+
+        const allUnread = updated.reduce((s, c) => s + (c.unread || 0), 0);
+        if (allUnread > 0) onUnreadChange?.(allUnread);
       } catch {}
-    }, 6000);
+    }, 5000); // poll a cada 5s, mas só busca deltas
     return () => clearInterval(iv);
   }, [filter, search, unreadOnly]);
 
-  // ── Auto-polling: mensagens da conversa selecionada a cada 5s ──
+  // ── Poll incremental de mensagens da conversa aberta ──────────────────────
   useEffect(() => {
     if (!sel) return;
+    lastMsgId.current = msgs[msgs.length - 1]?.id || 0;
     const iv = setInterval(async () => {
+      if (!isTabActive()) return;
       try {
-        const data = await api.get(`/inbox/conversations/${sel.id}`);
+        const afterId = lastMsgId.current || 0;
+        const data = await api.get(`/inbox/conversations/${sel.id}/messages/new?after_id=${afterId}`);
         const newMsgs = data.messages || [];
-        setMsgs(prev => {
-          // Only update if new messages arrived
-          if (newMsgs.length > prev.length) return newMsgs;
-          // Or if last message changed
-          if (newMsgs[newMsgs.length-1]?.id !== prev[prev.length-1]?.id) return newMsgs;
-          return prev;
-        });
+        if (newMsgs.length > 0) {
+          setMsgs(prev => {
+            const existingIds = new Set(prev.map(m => m.id));
+            const truly = newMsgs.filter(m => !existingIds.has(m.id));
+            if (truly.length === 0) return prev;
+            lastMsgId.current = newMsgs[newMsgs.length - 1].id;
+            return [...prev, ...truly];
+          });
+        }
       } catch {}
-    }, 5000);
+    }, 4000);
     return () => clearInterval(iv);
   }, [sel?.id]);
 
-  // Load conversations (first page or full reload)
-  const loadConvos = useCallback(async (reset = true) => {
+  // ── Scroll para baixo quando chegam novas msgs ─────────────────────────────
+  useEffect(() => {
+    if (!msgAreaRef.current) return;
+    const el = msgAreaRef.current;
+    // Só auto-scroll se estiver perto do fim (não interrompe quem lê msgs antigas)
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 200;
+    if (nearBottom) el.scrollTop = el.scrollHeight;
+  }, [msgs]);
+
+  // ── Carrega lista completa (primeiro load ou refresh manual) ───────────────
+  const loadConvos = useCallback(async () => {
     try {
       const params = new URLSearchParams({ page: 1, limit: LIMIT });
       if (filter !== 'all') params.set('channel', filter);
-      if (search)           params.set('search', search);
-      if (unreadOnly)       params.set('unread_only', 'true');
-
+      if (search) params.set('search', search);
+      if (unreadOnly) params.set('unread_only', 'true');
       const data = await api.get(`/inbox/conversations?${params}`);
-      const list = data.data || data; // handle both paginated and flat
+      const list = data.data || data;
       const tot  = data.total ?? list.length;
       setConvos(list);
       setTotal(tot);
       setPage(1);
       setHasMore(list.length < tot);
+      lastPollTs.current = new Date().toISOString();
       onUnreadChange?.(list.reduce((s, c) => s + (c.unread || 0), 0));
     } catch (err) { console.error('loadConvos:', err.message); }
   }, [filter, search, unreadOnly]);
 
-  // Load more (pagination for infinite scroll)
+  // ── Infinite scroll — carrega mais conversas ──────────────────────────────
   const loadMore = useCallback(async () => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
@@ -392,44 +424,96 @@ export default function Inbox({ onUnreadChange }) {
       const next = page + 1;
       const params = new URLSearchParams({ page: next, limit: LIMIT });
       if (filter !== 'all') params.set('channel', filter);
-      if (search)           params.set('search', search);
-      if (unreadOnly)       params.set('unread_only', 'true');
-
+      if (search) params.set('search', search);
+      if (unreadOnly) params.set('unread_only', 'true');
       const data = await api.get(`/inbox/conversations?${params}`);
       const list = data.data || [];
-      setConvos(prev => [...prev, ...list]);
+      setConvos(prev => {
+        const ids = new Set(prev.map(c => c.id));
+        const unique = list.filter(c => !ids.has(c.id));
+        const merged = [...prev, ...unique];
+        setHasMore(merged.length < (data.total ?? 0));
+        return merged;
+      });
       setPage(next);
-      setHasMore(convos.length + list.length < (data.total ?? 0));
     } catch (err) { console.error('loadMore:', err.message); }
     setLoadingMore(false);
-  }, [page, hasMore, loadingMore, filter, search, unreadOnly, convos.length]);
+  }, [page, hasMore, loadingMore, filter, search, unreadOnly]);
 
-  // Debounced search
+  // ── Debounced search ───────────────────────────────────────────────────────
   useEffect(() => {
     clearTimeout(searchTimeout.current);
-    searchTimeout.current = setTimeout(() => loadConvos(true), 300);
+    searchTimeout.current = setTimeout(() => loadConvos(), 350);
     return () => clearTimeout(searchTimeout.current);
   }, [search, filter, unreadOnly]);
 
   useEffect(() => { api.get('/inbox/quick-replies').then(setQr).catch(() => {}); }, []);
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [msgs]);
 
+  // ── Abre conversa — carrega apenas as últimas 60 msgs ─────────────────────
   const openConvo = async (c) => {
-    setSel(c); setShowAI(false); setShowProposta(false); setLeadData(null); setSelFull(null);
+    setSel(c);
+    setMsgs([]);
+    setMsgsHasMore(false);
+    setMsgsTotal(0);
+    setShowAI(false);
+    setShowProposta(false);
+    setLeadData(null);
+    setSelFull(null);
+    lastMsgId.current = null;
+
     try {
       const data = await api.get(`/inbox/conversations/${c.id}`);
       setMsgs(data.messages || []);
+      setMsgsTotal(data.messages_total || data.messages?.length || 0);
+      setMsgsHasMore(!!data.has_more);
       setSelFull(data);
-      // Update sel with profile_pic if fetched
       if (data.profile_pic) setSel(prev => ({ ...prev, profile_pic: data.profile_pic }));
       if (data.lead_id) api.get(`/leads/${data.lead_id}`).then(setLeadData).catch(() => {});
+      // Atualiza lastMsgId para poll incremental
+      const lastId = data.messages?.[data.messages.length - 1]?.id;
+      if (lastId) lastMsgId.current = lastId;
+      // Scroll para o fim
+      setTimeout(() => {
+        if (msgAreaRef.current) msgAreaRef.current.scrollTop = msgAreaRef.current.scrollHeight;
+      }, 80);
     } catch {}
-    fetch(`${import.meta.env.VITE_API_URL || ''}/api/inbox/conversations/${c.id}/read`, { method: 'PATCH', headers: { Authorization: `Bearer ${token}` } });
+
+    // Marca como lido
+    fetch(`${import.meta.env.VITE_API_URL || ''}/api/inbox/conversations/${c.id}/read`, {
+      method: 'PATCH', headers: { Authorization: `Bearer ${token}` }
+    });
     setConvos(prev => prev.map(x => x.id === c.id ? { ...x, unread: 0 } : x));
   };
 
+  // ── Carrega mensagens mais antigas (scroll para cima) ─────────────────────
+  const loadOlderMsgs = async () => {
+    if (!sel || loadingOlderMsgs || !msgsHasMore) return;
+    setLoadingOlderMsgs(true);
+    try {
+      const firstId = msgs[0]?.id;
+      const data = await api.get(`/inbox/conversations/${sel.id}?before_id=${firstId}`);
+      const older = data.messages || [];
+      setMsgs(prev => {
+        const ids = new Set(prev.map(m => m.id));
+        return [...older.filter(m => !ids.has(m.id)), ...prev];
+      });
+      setMsgsHasMore(!!data.has_more);
+      // Mantém posição de scroll (não pula para o topo)
+      const el = msgAreaRef.current;
+      if (el) {
+        const prevHeight = el.scrollHeight;
+        requestAnimationFrame(() => {
+          el.scrollTop = el.scrollHeight - prevHeight;
+        });
+      }
+    } catch {}
+    setLoadingOlderMsgs(false);
+  };
+
+  // ── Enviar mensagem ────────────────────────────────────────────────────────
   const send = async (text) => {
-    const t = (text || input).trim(); if (!t || !sel) return;
+    const t = (text || input).trim();
+    if (!t || !sel) return;
     setInput('');
     const now = new Date().toISOString();
     const tmp = { id: `tmp-${Date.now()}`, from_type: 'me', type: 'text', content: t, created_at: now, status: 'sent', sender_nome: user?.nome };
@@ -442,14 +526,11 @@ export default function Inbox({ onUnreadChange }) {
   const handleFile = async (e) => {
     const f = e.target.files[0]; if (!f || !sel) return;
     const type = f.type.startsWith('image/') ? 'image' : f.type.startsWith('video/') ? 'video' : f.type.startsWith('audio/') ? 'audio' : 'document';
-    // Show preview for images and videos
     if (type === 'image' || type === 'video') {
       const url = URL.createObjectURL(f);
-      setFilePreview({ url, type, name: f.originalname || f.name, file: f });
-      e.target.value = '';
-      return;
+      setFilePreview({ url, type, name: f.name, file: f });
+      e.target.value = ''; return;
     }
-    // Direct upload for audio and documents
     const fd = new FormData(); fd.append('file', f);
     const m = await api.upload(`/inbox/conversations/${sel.id}/upload`, fd);
     setMsgs(p => [...p, m]); e.target.value = '';
@@ -493,34 +574,48 @@ export default function Inbox({ onUnreadChange }) {
 
   const totalUnread = useMemo(() => convos.reduce((s, c) => s + (c.unread || 0), 0), [convos]);
 
+  /* ─────────────────────────── RENDER ─────────────────────────────────────── */
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}
       onMouseMove={e => { if (resizing.current) { const w = Math.min(500, Math.max(220, e.clientX - 230)); setListWidth(w); } }}
       onMouseUp={() => { resizing.current = false; document.body.style.cursor = ''; }}
-      onMouseLeave={() => { resizing.current = false; document.body.style.cursor = ''; }}
-    >
+      onMouseLeave={() => { resizing.current = false; document.body.style.cursor = ''; }}>
 
-      {/* ── LEFT PANEL: Conversation list ────────────────────────────────────── */}
-      <div style={{ width: sidebarCollapsed ? 0 : listWidth, flexShrink: 0, background: 'var(--card, #fff)', display: 'flex', flexDirection: 'column', borderRight: '1px solid var(--border)', overflow: 'hidden', transition: 'width .2s ease' }}>
+      {/* ── PAINEL ESQUERDO: Lista de conversas ──────────────────────────────── */}
+      <div style={{
+        width: listCollapsed ? 0 : listWidth,
+        flexShrink: 0,
+        background: 'var(--card, #fff)',
+        display: 'flex', flexDirection: 'column',
+        borderRight: '1px solid var(--border)',
+        overflow: 'hidden',
+        transition: 'width .2s ease',
+      }}>
         {/* Header */}
         <div style={{ padding: '14px 13px 0', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
               <h2 style={{ fontSize: 18, fontWeight: 700 }}>Inbox</h2>
-              {totalUnread > 0 && <span style={{ background: 'var(--tq)', color: '#fff', borderRadius: 10, padding: '1px 7px', fontSize: 11, fontWeight: 800, boxShadow: '0 2px 6px rgba(0,184,192,.3)' }}>{totalUnread > 99 ? '99+' : totalUnread}</span>}
+              {totalUnread > 0 && (
+                <span style={{ background: 'var(--tq)', color: '#fff', borderRadius: 10, padding: '1px 7px', fontSize: 11, fontWeight: 800, boxShadow: '0 2px 6px rgba(0,184,192,.3)' }}>
+                  {totalUnread > 99 ? '99+' : totalUnread}
+                </span>
+              )}
             </div>
-            <div style={{ display: 'flex', gap: 4 }}>
-              <span style={{ fontSize: 11.5, color: 'var(--muted)', alignSelf: 'center' }}>{total.toLocaleString()}</span>
-              <button onClick={() => loadConvos(true)} className="btn btn-g btn-ico" title="Recarregar"><RefreshCw size={14} /></button>
+            <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+              <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{total.toLocaleString()}</span>
+              <button onClick={() => loadConvos()} className="btn btn-g btn-ico" title="Recarregar"><RefreshCw size={14} /></button>
+              {/* Botão de recolher a lista de conversas */}
+              <button onClick={() => setListCollapsed(true)} className="btn btn-g btn-ico" title="Recolher lista">
+                <PanelLeftClose size={14} />
+              </button>
             </div>
           </div>
         </div>
 
         <SearchBar value={search} onChange={setSearch} filter={filter} setFilter={setFilter}
-          showFilters={showFilters} setShowFilters={setShowFilters}
           totalUnread={totalUnread} unreadOnly={unreadOnly} setUnreadOnly={setUnreadOnly} />
 
-        {/* Virtual list */}
         <div ref={listContainerRef} style={{ flex: 1, minHeight: 0 }}>
           <VirtualList
             items={convos}
@@ -533,29 +628,47 @@ export default function Inbox({ onUnreadChange }) {
           />
         </div>
       </div>
-      {/* Resize handle */}
-      <div className="inbox-resize-handle"
-        onMouseDown={() => { resizing.current = true; document.body.style.cursor = 'col-resize'; }}
-        style={{ width: 4, flexShrink: 0, cursor: 'col-resize', background: 'transparent', transition: 'background .15s', zIndex: 10 }}
-        onMouseEnter={e => e.currentTarget.style.background = 'var(--tq)'}
-        onMouseLeave={e => { if (!resizing.current) e.currentTarget.style.background = 'transparent'; }}
-      />
 
-      {/* ── RIGHT PANEL: Chat ─────────────────────────────────────────────────── */}
+      {/* Handle de resize */}
+      {!listCollapsed && (
+        <div className="inbox-resize-handle"
+          onMouseDown={() => { resizing.current = true; document.body.style.cursor = 'col-resize'; }}
+          style={{ width: 4, flexShrink: 0, cursor: 'col-resize', background: 'transparent', transition: 'background .15s', zIndex: 10 }}
+          onMouseEnter={e => e.currentTarget.style.background = 'var(--tq)'}
+          onMouseLeave={e => { if (!resizing.current) e.currentTarget.style.background = 'transparent'; }}
+        />
+      )}
+
+      {/* ── PAINEL DIREITO: Chat ────────────────────────────────────────────── */}
       {!sel ? (
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', position: 'relative' }}>
+          {/* Botão para mostrar lista quando colapsada */}
+          {listCollapsed && (
+            <button onClick={() => setListCollapsed(false)}
+              style={{ position: 'absolute', top: 16, left: 16, padding: '7px 14px', borderRadius: 8, background: 'var(--card,#fff)', border: '1.5px solid var(--border)', display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', color: 'var(--txt)' }}>
+              <PanelLeftOpen size={14} /> Conversas
+            </button>
+          )}
           <img src="/logos/logo-icon-color.png" alt="" style={{ width: 50, opacity: .12, marginBottom: 14 }} />
           <p style={{ color: 'var(--light)', fontSize: 13.5 }}>Selecione uma conversa</p>
           <p style={{ color: 'var(--light)', fontSize: 12, marginTop: 4 }}>{total.toLocaleString()} conversa{total !== 1 ? 's' : ''} · {totalUnread} não lida{totalUnread !== 1 ? 's' : ''}</p>
         </div>
       ) : (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+
           {/* Chat header */}
-          <div style={{ background: '#fff', padding: '11px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-            <div style={{ width: 32, height: 32, borderRadius: '50%', background: sel.channel === 'whatsapp' ? '#d4f7e0' : '#fce4ef', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 11.5, color: sel.channel === 'whatsapp' ? '#0a7a40' : '#9a1050', position: 'relative', flexShrink: 0 }}>
-              {(sel.contact_name || '?').split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase()}
-              <span style={{ position: 'absolute', bottom: -1, right: -1, width: 12, height: 12, borderRadius: '50%', background: sel.channel === 'whatsapp' ? 'var(--wa)' : 'var(--ig)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid #fff' }}>{sel.channel === 'whatsapp' ? <WA s={5} /> : <IG s={5} />}</span>
-            </div>
+          <div style={{ background: 'var(--card,#fff)', padding: '11px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+            {/* Botão para expandir a lista quando está colapsada */}
+            {listCollapsed && (
+              <button onClick={() => setListCollapsed(false)}
+                title="Mostrar conversas"
+                style={{ padding: '6px 8px', borderRadius: 8, background: 'var(--bg2)', border: '1.5px solid var(--border)', cursor: 'pointer', color: 'var(--muted)', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+                <PanelLeftOpen size={14} />
+              </button>
+            )}
+
+            <Avatar conv={sel} size={32} fontSize={11.5} />
+
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 600, fontSize: 14, display: 'flex', alignItems: 'center', gap: 7 }}>
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sel.contact_name}</span>
@@ -564,7 +677,8 @@ export default function Inbox({ onUnreadChange }) {
               </div>
               {sel.phone && <div style={{ fontSize: 11, color: 'var(--muted)' }}>{fmt.phone(sel.phone)}</div>}
             </div>
-            <div style={{ display: 'flex', gap: 5 }}>
+
+            <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
               <button onClick={toggleBot} className="btn btn-sm" style={{ background: sel.bot_ativo ? 'var(--ok2)' : 'var(--bg2)', color: sel.bot_ativo ? 'var(--ok)' : 'var(--muted)', border: `1.5px solid ${sel.bot_ativo ? 'var(--ok)' : 'var(--border)'}`, fontSize: 11.5, padding: '5px 10px' }}>
                 <Bot size={11} /> {sel.bot_ativo ? 'Bot ON' : 'Bot'}
               </button>
@@ -575,9 +689,6 @@ export default function Inbox({ onUnreadChange }) {
               <button onClick={() => setShowAI(p => !p)} className="btn btn-sm" style={{ background: showAI ? '#071e2c' : 'var(--bg2)', color: showAI ? '#00B8C0' : 'var(--muted)', border: `1.5px solid ${showAI ? 'rgba(0,184,192,.4)' : 'var(--border)'}`, fontSize: 11.5, padding: '5px 10px' }}>
                 <Sparkles size={11} /> IA
               </button>
-              <button onClick={() => setSidebarCollapsed(p => !p)} className="btn btn-sm" title={sidebarCollapsed ? 'Mostrar lista' : 'Expandir chat'} style={{ background: 'var(--bg2)', color: 'var(--muted)', border: '1.5px solid var(--border)', fontSize: 11.5, padding: '5px 8px' }}>
-                {sidebarCollapsed ? <PanelLeftOpen size={13}/> : <PanelLeftClose size={13}/>}
-              </button>
               <button onClick={() => setShowInfo(p => !p)} className="btn btn-sm" style={{ background: showInfo ? 'var(--tq3)' : 'var(--bg2)', color: showInfo ? 'var(--tq2)' : 'var(--muted)', border: `1.5px solid ${showInfo ? 'var(--tq)' : 'var(--border)'}`, fontSize: 11.5, padding: '5px 10px' }}>
                 <Tag size={11} /> Info
               </button>
@@ -587,31 +698,37 @@ export default function Inbox({ onUnreadChange }) {
           {/* AI Panel */}
           {showAI && <AIPanel messages={msgs} contactName={sel.contact_name} token={token} convId={sel.id} onUseSuggestion={t => { setInput(t); textRef.current?.focus(); }} onClose={() => setShowAI(false)} />}
 
-          {/* Messages area + contact info panel */}
+          {/* Messages + Info panel */}
           <div style={{ flex: 1, display: 'flex', minHeight: 0, overflow: 'hidden' }}>
-            <div style={{ flex: 1, overflowY: 'auto', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 5, background: 'var(--bg)' }}>
-              {msgs.map((m, i) => <MsgItem key={m.id || i} m={m} i={i} msgs={msgs} contactName={sel.contact_name} channel={sel.channel} onLightbox={setLightbox} />)}
+            <div ref={msgAreaRef} style={{ flex: 1, overflowY: 'auto', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 5, background: 'var(--bg)' }}>
+
+              {/* Botão carregar mensagens mais antigas */}
+              {msgsHasMore && (
+                <div style={{ textAlign: 'center', marginBottom: 8 }}>
+                  <button onClick={loadOlderMsgs} disabled={loadingOlderMsgs}
+                    style={{ padding: '6px 18px', borderRadius: 20, background: 'var(--card,#fff)', border: '1.5px solid var(--border)', fontSize: 12, fontWeight: 600, cursor: loadingOlderMsgs ? 'default' : 'pointer', color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    {loadingOlderMsgs ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <ChevronUp size={12} />}
+                    {loadingOlderMsgs ? 'Carregando…' : 'Ver mensagens anteriores'}
+                  </button>
+                </div>
+              )}
+
+              {msgs.map((m, i) => (
+                <MsgItem key={m.id || i} m={m} i={i} msgs={msgs} contactName={sel.contact_name} channel={sel.channel} onLightbox={setLightbox} />
+              ))}
               <div ref={endRef} />
             </div>
 
-            {/* Contact info panel */}
+            {/* Info panel */}
             {showInfo && sel && (
               <div style={{ width: 280, flexShrink: 0, borderLeft: '1px solid var(--border)', background: 'var(--card, #fff)', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-                {/* Header */}
                 <div style={{ padding: '16px 16px 12px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontWeight: 700, fontSize: 14 }}>Contato</span>
                   <button onClick={() => setShowInfo(false)} style={{ padding: 5, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}>✕</button>
                 </div>
-
-                {/* Avatar + name */}
                 <div style={{ padding: '20px 16px 16px', textAlign: 'center', borderBottom: '1px solid var(--border)' }}>
-                  <div style={{ width: 72, height: 72, borderRadius: '50%', margin: '0 auto 12px', background: sel.channel === 'whatsapp' ? '#d4f7e0' : '#fce4ef', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 24, color: sel.channel === 'whatsapp' ? '#0a7a40' : '#9a1050', overflow: 'hidden', position: 'relative' }}>
-                    {sel.profile_pic
-                      ? <img src={sel.profile_pic} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} onError={e => { e.target.style.display = 'none'; }} />
-                      : (sel.contact_name || '?').split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase()
-                    }
-                  </div>
-                  <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>{sel.contact_name}</div>
+                  <Avatar conv={sel} size={72} fontSize={24} />
+                  <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4, marginTop: 12 }}>{sel.contact_name}</div>
                   {sel.phone && <div style={{ fontSize: 13, color: 'var(--muted)' }}>+{sel.contact_id?.replace('@s.whatsapp.net', '') || sel.phone}</div>}
                   <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 12 }}>
                     <a href={`https://wa.me/${sel.contact_id?.replace('@s.whatsapp.net','') || '55' + sel.phone}`} target="_blank" rel="noreferrer"
@@ -620,8 +737,6 @@ export default function Inbox({ onUnreadChange }) {
                     </a>
                   </div>
                 </div>
-
-                {/* Lead info */}
                 {leadData ? (
                   <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)' }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--tq2)', textTransform: 'uppercase', letterSpacing: .6, marginBottom: 10 }}>◆ Lead no Funil</div>
@@ -646,13 +761,11 @@ export default function Inbox({ onUnreadChange }) {
                     </button>
                   </div>
                 )}
-
-                {/* Stats */}
                 <div style={{ padding: '14px 16px' }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .6, marginBottom: 10 }}>Estatísticas</div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                     {[
-                      ['Mensagens', msgs.length],
+                      ['Mensagens', msgsTotal || msgs.length],
                       ['Não lidas', sel.unread || 0],
                       ['Canal', sel.channel === 'whatsapp' ? 'WhatsApp' : 'Instagram'],
                       ['Bot', sel.bot_ativo ? '✅ Ativo' : '⏸ Inativo'],
@@ -670,7 +783,7 @@ export default function Inbox({ onUnreadChange }) {
 
           {/* Quick replies */}
           {showQR && (
-            <div style={{ background: '#fff', borderTop: '1px solid var(--border)', padding: '9px 14px', display: 'flex', gap: 6, flexWrap: 'wrap', maxHeight: 100, overflowY: 'auto', flexShrink: 0 }}>
+            <div style={{ background: 'var(--card,#fff)', borderTop: '1px solid var(--border)', padding: '9px 14px', display: 'flex', gap: 6, flexWrap: 'wrap', maxHeight: 100, overflowY: 'auto', flexShrink: 0 }}>
               {qr.map(q => <button key={q.id} onClick={() => { setInput(q.texto); setShowQR(false); textRef.current?.focus(); }} style={{ padding: '5px 12px', borderRadius: 8, background: 'var(--tq3)', color: 'var(--tq2)', border: '1px solid var(--tq3)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>{q.titulo}</button>)}
             </div>
           )}
@@ -742,7 +855,7 @@ export default function Inbox({ onUnreadChange }) {
         </div>
       )}
 
-      {/* Proposta */}
+      {/* Proposta modal */}
       {showProposta && sel && (
         <PropostaModal convId={sel.id} token={token} contactName={sel.contact_name} atendente={user?.nome}
           onClose={txt => { setShowProposta(false); if (txt) setMsgs(p => [...p, { id: Date.now(), from_type: 'me', type: 'text', content: txt, created_at: new Date().toISOString(), status: 'sent', sender_nome: user?.nome }]); }} />
