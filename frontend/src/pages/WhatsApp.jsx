@@ -15,6 +15,7 @@ export default function WhatsApp() {
   const [refreshing, setRefreshing] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
+  const [updating, setUpdating] = useState(false);
   const [pollInterval, setPollInterval] = useState(null);
 
   const checkStatus = useCallback(async () => {
@@ -108,6 +109,17 @@ export default function WhatsApp() {
       setImportResult({ error: e.message });
     }
     setImporting(false);
+  };
+
+  const updateContacts = async () => {
+    setUpdating(true);
+    try {
+      const data = await api.post('/inbox/whatsapp/update-contacts', {});
+      setImportResult({ ...data, type: 'update' });
+    } catch (e) {
+      setImportResult({ error: e.message });
+    }
+    setUpdating(false);
   };
 
   if (!isMaster) {
@@ -243,12 +255,20 @@ export default function WhatsApp() {
           <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14 }}>
             Carrega as conversas existentes do WhatsApp para o Inbox (últimas 100 conversas).
           </p>
-          <button onClick={importHistory} disabled={importing} className="btn btn-p">
-            {importing ? <><span className="spin" style={{ width: 14, height: 14 }} /> Importando...</> : '📥 Importar conversas do WhatsApp'}
-          </button>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <button onClick={importHistory} disabled={importing} className="btn btn-p">
+              {importing ? <><span className="spin" style={{ width: 14, height: 14 }} /> Importando...</> : '📥 Importar conversas'}
+            </button>
+            <button onClick={updateContacts} disabled={updating} className="btn btn-s">
+              {updating ? <><span className="spin" style={{ width: 14, height: 14 }} /> Atualizando...</> : '👤 Atualizar nomes e fotos'}
+            </button>
+          </div>
           {importResult && !importResult.error && (
             <div style={{ marginTop: 12, padding: '10px 14px', background: 'var(--ok2)', borderRadius: 8, fontSize: 13, color: '#065f46', fontWeight: 600 }}>
-              ✅ {importResult.imported} conversas importadas de {importResult.total} encontradas. Abra o Inbox para ver.
+              {importResult.type === 'update'
+                ? `✅ ${importResult.namesUpdated} nomes atualizados · ${importResult.picsUpdated} fotos carregadas`
+                : `✅ ${importResult.imported} conversas importadas · ${importResult.msgsImported || 0} mensagens. Abra o Inbox.`
+              }
             </div>
           )}
           {importResult?.error && (
