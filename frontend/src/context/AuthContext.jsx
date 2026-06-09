@@ -1,50 +1,45 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { api, setToken, clearToken, getToken } from '../hooks/api.js';
+
 const Ctx = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
-  const [token, setToken] = useState(() => localStorage.getItem('vh_token'));
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (token) {
-      fetch('/api/auth/me', { headers: { Authorization:`Bearer ${token}` } })
-        .then(r => r.ok ? r.json() : null)
+    const tk = getToken();
+    if (tk) {
+      api.get('/auth/me')
         .then(u => { setUser(u); setLoading(false); })
-        .catch(() => { logout(); setLoading(false); });
-    } else setLoading(false);
+        .catch(() => { clearToken(); setLoading(false); });
+    } else { setLoading(false); }
   }, []);
 
   const login = async (email, senha) => {
-    const r = await fetch('/api/auth/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ email, senha }) });
-    if (!r.ok) { const e = await r.json(); throw new Error(e.error); }
-    const { token: tk, user: u } = await r.json();
-    localStorage.setItem('vh_token', tk);
-    setToken(tk); setUser(u);
+    const { token, user: u } = await api.post('/auth/login', { email, senha });
+    setToken(token);
+    setUser(u);
   };
 
-  const logout = () => { localStorage.removeItem('vh_token'); setToken(null); setUser(null); };
+  const logout = () => { clearToken(); setUser(null); };
 
-  return <Ctx.Provider value={{ user, token, login, logout, isMaster: user?.role==='master', loading }}>{children}</Ctx.Provider>;
+  return (
+    <Ctx.Provider value={{ user, login, logout, isMaster: user?.role === 'master', loading }}>
+      {children}
+    </Ctx.Provider>
+  );
 }
 
 export const useAuth = () => useContext(Ctx);
 
 export function useApi() {
-  const { token } = useContext(Ctx);
-  const call = async (method, path, body, isFile=false) => {
-    const headers = { Authorization: `Bearer ${token}` };
-    if (!isFile) headers['Content-Type'] = 'application/json';
-    const r = await fetch(`/api${path}`, { method, headers, body: isFile ? body : (body ? JSON.stringify(body) : undefined) });
-    if (!r.ok) { const e = await r.json().catch(()=>({})); throw new Error(e.error||`HTTP ${r.status}`); }
-    return r.json();
-  };
   return {
-    get:    (p)    => call('GET', p),
-    post:   (p,b)  => call('POST', p, b),
-    put:    (p,b)  => call('PUT', p, b),
-    patch:  (p,b)  => call('PATCH', p, b),
-    del:    (p)    => call('DELETE', p),
-    upload: (p,fd) => call('POST', p, fd, true),
+    get:    (path)        => api.get(path),
+    post:   (path, body)  => api.post(path, body),
+    put:    (path, body)  => api.put(path, body),
+    patch:  (path, body)  => api.patch(path, body),
+    del:    (path)        => api.delete(path),
+    upload: (path, fd)    => api.upload(path, fd),
   };
 }

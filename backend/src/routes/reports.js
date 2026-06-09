@@ -1,83 +1,78 @@
 import express from 'express';
-import { leads, conversations, users, notifications } from '../data/db.js';
+import { query } from '../db/pool.js';
 import { auth } from '../middleware/auth.js';
 
 const r = express.Router();
 r.use(auth);
 
-r.get('/dashboard', (req, res) => {
-  const isMaster = req.user.role === 'master';
-  const today = new Date().toISOString().split('T')[0];
-  const mine = isMaster ? leads : leads.filter(l => l.responsavelId === req.user.id);
+r.get('/dashboard', async (req, res) => {
+  try {
+    const isMaster = req.user.role === 'master';
+    const uid = req.user.id;
+    const uFilter = isMaster ? '' : `AND l.responsavel_id = '${uid}'`;
+    const today = new Date().toISOString().split('T')[0];
 
-  const fechados = mine.filter(l => l.status === 'Fechado');
-  const perdidos = mine.filter(l => l.status === 'Perdido');
-  const totalVendido = isMaster ? fechados.reduce((s,l) => s+(l.valorProposta||0), 0) : null;
-  const ticket = isMaster && fechados.length > 0 ? totalVendido/fechados.length : null;
+    const [totals, porStatus, porOrigem, porResp, porDia, unread, retornos, perdas] = await Promise.all([
+      query(`SELECT
+        COUNT(*) total,
+        COUNT(*) FILTER (WHERE data_entrada = CURRENT_DATE) hoje,
+        COUNT(*) FILTER (WHERE status = 'Fechado') fechados,
+        COUNT(*) FILTER (WHERE status = 'Perdido') perdidos,
+        COUNT(*) FILTER (WHERE status = 'Em atendimento') em_atendimento,
+        ${isMaster ? 'SUM(CASE WHEN status=\'Fechado\' THEN valor_proposta ELSE 0 END) total_vendido,' : ''}
+        ${isMaster ? 'AVG(CASE WHEN status=\'Fechado\' THEN valor_proposta END) ticket_medio,' : ''}
+        COUNT(*) FILTER (WHERE data_retorno = CURRENT_DATE) retornos_hoje,
+        COUNT(*) FILTER (WHERE data_retorno < CURRENT_DATE AND status NOT IN ('Fechado','Perdido')) retornos_vencidos
+        FROM leads l WHERE 1=1 ${uFilter}`),
+      query(`SELECT status, COUNT(*) n FROM leads l WHERE 1=1 ${uFilter} GROUP BY status`),
+      query(`SELECT origem, COUNT(*) total, COUNT(*) FILTER (WHERE status='Fechado') fechados FROM leads l WHERE 1=1 ${uFilter} GROUP BY origem ORDER BY total DESC`),
+      isMaster ? query(`SELECT u.id, u.nome, u.cor, COUNT(l.id) leads, COUNT(l.id) FILTER (WHERE l.status='Fechado') fechados, SUM(CASE WHEN l.status='Fechado' THEN l.valor_proposta ELSE 0 END) valor FROM usuarios u LEFT JOIN leads l ON l.responsavel_id = u.id WHERE u.role = 'atendente' GROUP BY u.id ORDER BY valor DESC`) : Promise.resolve({ rows: [] }),
+      query(`SELECT data_entrada::text data, COUNT(*) leads, COUNT(*) FILTER (WHERE status='Fechado') fechados FROM leads l WHERE data_entrada >= CURRENT_DATE - INTERVAL '7 days' ${uFilter} GROUP BY data_entrada ORDER BY data_entrada`),
+      query('SELECT SUM(unread) unread FROM conversas'),
+      query(`SELECT COUNT(*) n FROM leads WHERE data_retorno = CURRENT_DATE ${uFilter.replace('l.', '')}`),
+      query(`SELECT motivo_perda, COUNT(*) n FROM leads WHERE status = 'Perdido' AND motivo_perda IS NOT NULL ${uFilter} GROUP BY motivo_perda ORDER BY n DESC`),
+    ]);
 
-  // Por responsavel (master)
-  const porResponsavel = isMaster ? {} : null;
-  if (isMaster) {
-    users.filter(u=>u.role!=='bot').forEach(u => { porResponsavel[u.id] = { id:u.id, nome:u.nome, cor:u.cor, leads:0, fechados:0, valor:0, taxa:0 }; });
-    leads.forEach(l => {
-      if (l.responsavelId && porResponsavel[l.responsavelId]) {
-        porResponsavel[l.responsavelId].leads++;
-        if (l.status==='Fechado') { porResponsavel[l.responsavelId].fechados++; porResponsavel[l.responsavelId].valor+=(l.valorProposta||0); }
-      }
+    const t = totals.rows[0];
+    res.json({
+      resumo: {
+        totalLeads: parseInt(t.total), leadsHoje: parseInt(t.hoje),
+        fechados: parseInt(t.fechados), perdidos: parseInt(t.perdidos),
+        emAtendimento: parseInt(t.em_atendimento),
+        totalVendido: isMaster ? parseFloat(t.total_vendido)||0 : null,
+        ticket: isMaster ? parseFloat(t.ticket_medio)||0 : null,
+        taxaConversao: t.total > 0 ? +((t.fechados/t.total)*100).toFixed(1) : 0,
+        retornosHoje: parseInt(t.retornos_hoje),
+        retornosVencidos: parseInt(t.retornos_vencidos),
+        totalUnread: parseInt(unread.rows[0]?.unread)||0,
+      },
+      porStatus: porStatus.rows,
+      porOrigem: porOrigem.rows,
+      porResponsavel: isMaster ? porResp.rows : [],
+      porDia: porDia.rows,
+      motivosPerda: perdas.rows,
     });
-    Object.values(porResponsavel).forEach(v => { v.taxa = v.leads>0?+(v.fechados/v.leads*100).toFixed(1):0; });
+  } catch (err) {
+    console.error('dashboard error:', err.message);
+    res.status(500).json({ error: err.message });
   }
-
-  // Por origem
-  const porOrigem = {};
-  mine.forEach(l => {
-    if (!porOrigem[l.origem]) porOrigem[l.origem] = { total:0, fechados:0 };
-    porOrigem[l.origem].total++;
-    if(l.status==='Fechado') porOrigem[l.origem].fechados++;
-  });
-
-  // Por status
-  const porStatus = {};
-  mine.forEach(l => { porStatus[l.status] = (porStatus[l.status]||0)+1; });
-
-  // Motivos perda
-  const motivosPerda = {};
-  perdidos.forEach(l => { if(l.motivoPerda) motivosPerda[l.motivoPerda]=(motivosPerda[l.motivoPerda]||0)+1; });
-
-  // Por dia (last 7 days)
-  const porDia = {};
-  for (let i=6; i>=0; i--) { const dt=new Date(); dt.setDate(dt.getDate()-i); porDia[dt.toISOString().split('T')[0]] = { leads:0, fechados:0 }; }
-  mine.forEach(l => { if(porDia[l.dataEntrada]) { porDia[l.dataEntrada].leads++; if(l.status==='Fechado') porDia[l.dataEntrada].fechados++; } });
-
-  const totalUnread = conversations.reduce((s,c) => s+(c.unread||0), 0);
-  const retornosHoje = mine.filter(l => l.dataRetorno===today).length;
-  const retornosVencidos = mine.filter(l => l.dataRetorno && l.dataRetorno<today && l.status!=='Fechado' && l.status!=='Perdido').length;
-  const notificacoesNaoLidas = notifications.filter(n=>!n.lida).length;
-
-  res.json({
-    resumo: { totalLeads:mine.length, leadsHoje:mine.filter(l=>l.dataEntrada===today).length, emAtendimento:mine.filter(l=>l.status==='Em atendimento').length, fechados:fechados.length, perdidos:perdidos.length, totalVendido, ticket, taxaConversao:mine.length>0?+((fechados.length/mine.length)*100).toFixed(1):0, retornosHoje, retornosVencidos, totalUnread, notificacoesNaoLidas },
-    porResponsavel,
-    porOrigem,
-    porStatus,
-    motivosPerda,
-    porDia: Object.entries(porDia).map(([data,v]) => ({ data: data.slice(5), ...v })),
-  });
 });
 
-// PDF report data
-r.get('/pdf-data', (req, res) => {
+r.get('/pdf-data', async (req, res) => {
   if (req.user.role !== 'master') return res.status(403).json({ error: 'Somente master' });
-  const fechados = leads.filter(l=>l.status==='Fechado');
-  const totalVendido = fechados.reduce((s,l)=>s+(l.valorProposta||0),0);
-  const porOrigem = {};
-  leads.forEach(l => { if(!porOrigem[l.origem]) porOrigem[l.origem]={total:0,fechados:0}; porOrigem[l.origem].total++; if(l.status==='Fechado') porOrigem[l.origem].fechados++; });
-  const porResponsavel = {};
-  users.filter(u=>u.role!=='bot').forEach(u => { porResponsavel[u.nome]={leads:0,fechados:0,valor:0}; });
-  leads.forEach(l => {
-    const nome = users.find(u=>u.id===l.responsavelId)?.nome;
-    if(nome&&porResponsavel[nome]){porResponsavel[nome].leads++;if(l.status==='Fechado'){porResponsavel[nome].fechados++;porResponsavel[nome].valor+=(l.valorProposta||0);}}
-  });
-  res.json({ totalLeads:leads.length, fechados:fechados.length, totalVendido, porOrigem, porResponsavel, geradoEm:new Date().toLocaleString('pt-BR'), periodo:'Todo período' });
+  try {
+    const [totals, porOrigem, porResp] = await Promise.all([
+      query(`SELECT COUNT(*) total, COUNT(*) FILTER(WHERE status='Fechado') fechados, SUM(CASE WHEN status='Fechado' THEN valor_proposta ELSE 0 END) vendido FROM leads`),
+      query(`SELECT origem, COUNT(*) total, COUNT(*) FILTER(WHERE status='Fechado') fechados FROM leads GROUP BY origem`),
+      query(`SELECT u.nome, COUNT(l.id) leads, COUNT(l.id) FILTER(WHERE l.status='Fechado') fechados, SUM(CASE WHEN l.status='Fechado' THEN l.valor_proposta ELSE 0 END) valor FROM usuarios u LEFT JOIN leads l ON l.responsavel_id=u.id WHERE u.role='atendente' GROUP BY u.nome ORDER BY valor DESC`),
+    ]);
+    const t = totals.rows[0];
+    const porOrigem2 = {};
+    porOrigem.rows.forEach(r => { porOrigem2[r.origem] = { total: parseInt(r.total), fechados: parseInt(r.fechados) }; });
+    const porResponsavel2 = {};
+    porResp.rows.forEach(r => { porResponsavel2[r.nome] = { leads: parseInt(r.leads), fechados: parseInt(r.fechados), valor: parseFloat(r.valor)||0 }; });
+    res.json({ totalLeads: parseInt(t.total), fechados: parseInt(t.fechados), totalVendido: parseFloat(t.vendido)||0, porOrigem: porOrigem2, porResponsavel: porResponsavel2, geradoEm: new Date().toLocaleString('pt-BR'), periodo: 'Todo período' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 export default r;
