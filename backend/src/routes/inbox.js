@@ -3,10 +3,25 @@ import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { query } from '../db/pool.js';
-import { auth } from '../middleware/auth.js';
+import { auth, SECRET } from '../middleware/auth.js';
+import jwt from 'jsonwebtoken';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const r = express.Router();
+
+// ─── SSE: clientes conectados (push em tempo real) ───────────────────────────
+const sseClients = new Set(); // cada entry: { res, userId }
+
+/** Envia evento SSE para TODOS os clientes conectados */
+function broadcast(event, data) {
+  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  const dead = [];
+  for (const client of sseClients) {
+    try { client.res.write(payload); }
+    catch { dead.push(client); }
+  }
+  dead.forEach(c => sseClients.delete(c));
+}
 
 // Upload em memória (não disco — Railway não tem storage persistente)
 const upload = multer({
@@ -41,6 +56,43 @@ async function getMediaBase64(messageId, messageType, remoteJid) {
   } catch (e) { console.error('getBase64 error:', e.message); }
   return null;
 }
+
+// ─── SSE: stream de eventos em tempo real (/api/inbox/stream) ────────────────
+// EventSource não suporta headers → token via query param ?token=xxx
+r.get('/stream', (req, res) => {
+  const token = req.query.token;
+  if (!token) return res.status(401).end();
+  let user;
+  try { user = jwt.verify(token, SECRET); }
+  catch { return res.status(401).end(); }
+
+  // Headers SSE — X-Accel-Buffering desativa buffer do nginx/Railway
+  res.set({
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-store',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no',
+    'Access-Control-Allow-Origin': '*',
+  });
+  res.flushHeaders();
+
+  // Heartbeat inicial
+  res.write('event: connected\ndata: {"ok":true}\n\n');
+
+  const client = { res, userId: user.id };
+  sseClients.add(client);
+
+  // Ping a cada 20s para manter conexão viva
+  const ping = setInterval(() => {
+    try { res.write('event: ping\ndata: {}\n\n'); }
+    catch { clearInterval(ping); sseClients.delete(client); }
+  }, 20000);
+
+  req.on('close', () => {
+    clearInterval(ping);
+    sseClients.delete(client);
+  });
+});
 
 // ─── ROTAS PÚBLICAS (sem JWT) ─────────────────────────────────────────────────
 r.post('/webhook/whatsapp', async (req, res) => {
@@ -314,12 +366,19 @@ r.post('/webhook/zapi', async (req, res) => {
     );
 
     // Salva mensagem
-    await query(
+    const { rows: [newMsg] } = await query(
       `INSERT INTO mensagens (conversa_id, from_type, type, content, filename, created_at, wa_msg_id)
        SELECT $1, 'contact', $2, $3, $4, $5, $6
-       WHERE NOT EXISTS (SELECT 1 FROM mensagens WHERE wa_msg_id = $6 AND $6 IS NOT NULL)`,
+       WHERE NOT EXISTS (SELECT 1 FROM mensagens WHERE wa_msg_id = $6 AND $6 IS NOT NULL)
+       RETURNING *`,
       [conv.id, type, mediaData || content, null, ts, msgId]
     );
+
+    // ── SSE: push em tempo real para todos os atendentes conectados ──
+    if (newMsg) {
+      broadcast('new_message', { convId: conv.id, message: newMsg, conv });
+    }
+
 
     await query(
       `INSERT INTO notificacoes (tipo, titulo, texto, conv_id) VALUES ('mensagem',$1,$2,$3)`,
@@ -353,9 +412,9 @@ r.use(auth);
 r.use(auth);
 
 // ─── POLL: conversas atualizadas desde último timestamp (DEVE VIR ANTES de /:id) ─
-// Retorna apenas conversas modificadas após "since" — evita recarregar lista inteira
 r.get('/conversations/updates', async (req, res) => {
   try {
+    res.set('Cache-Control', 'no-store, no-cache');
     const since = req.query.since; // ISO timestamp
     if (!since) return res.json({ data: [] });
 
@@ -430,30 +489,30 @@ r.get('/conversations', async (req, res) => {
 // ─── GET SINGLE CONVERSATION WITH MESSAGES (paginated) ───────────────────────
 r.get('/conversations/:id', async (req, res) => {
   try {
+    res.set('Cache-Control', 'no-store, no-cache');
     const { rows: [conv] } = await query(`
       SELECT c.*, u.nome AS responsavel_nome, u.cor AS responsavel_cor
       FROM conversas c LEFT JOIN usuarios u ON u.id = c.responsavel_id
       WHERE c.id = $1`, [req.params.id]);
     if (!conv) return res.status(404).json({ error: 'Não encontrado' });
 
-    // Paginação de mensagens: carrega as últimas 60 por padrão
-    // before_id=<id> para carregar mensagens mais antigas (infinite scroll para cima)
+    // Paginação por created_at (IDs são UUID, não podem ser comparados numericamente)
     const MSG_LIMIT = 60;
-    const beforeId = req.query.before_id ? parseInt(req.query.before_id) : null;
+    const beforeTs = req.query.before_ts ? new Date(req.query.before_ts).toISOString() : null;
 
     let msgRows;
-    if (beforeId) {
-      // Carrega mensagens anteriores ao before_id (scroll para cima)
+    if (beforeTs) {
+      // Mensagens mais antigas (scroll para cima): DESC pega as mais recentes antes de beforeTs
       const { rows } = await query(
         `SELECT * FROM (
-          SELECT * FROM mensagens WHERE conversa_id = $1 AND id < $2
+          SELECT * FROM mensagens WHERE conversa_id = $1 AND created_at < $2
           ORDER BY created_at DESC LIMIT $3
         ) sub ORDER BY created_at ASC`,
-        [req.params.id, beforeId, MSG_LIMIT]
+        [req.params.id, beforeTs, MSG_LIMIT]
       );
       msgRows = rows;
     } else {
-      // Carrega as últimas mensagens (abertura inicial da conversa)
+      // Abertura inicial: as últimas 60
       const { rows } = await query(
         `SELECT * FROM (
           SELECT * FROM mensagens WHERE conversa_id = $1
@@ -464,7 +523,6 @@ r.get('/conversations/:id', async (req, res) => {
       msgRows = rows;
     }
 
-    // Total de mensagens para saber se tem mais
     const { rows: [cnt] } = await query(
       'SELECT COUNT(*)::int AS total FROM mensagens WHERE conversa_id = $1',
       [req.params.id]
@@ -480,7 +538,7 @@ r.get('/conversations/:id', async (req, res) => {
       ...conv,
       messages: msgRows,
       messages_total: cnt.total,
-      has_more: beforeId
+      has_more: beforeTs
         ? (msgRows.length === MSG_LIMIT)
         : (cnt.total > MSG_LIMIT),
       lead
@@ -488,13 +546,22 @@ r.get('/conversations/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ─── POLL: novas mensagens após um ID (incremental, não recarrega tudo) ──────
+// ─── POLL: novas mensagens após um timestamp (cursor = created_at, não ID) ────
+// IDs são UUID — não podem ser comparados numericamente
+// Cache-Control: no-store evita 304 do browser
 r.get('/conversations/:id/messages/new', async (req, res) => {
   try {
-    const afterId = req.query.after_id ? parseInt(req.query.after_id) : 0;
+    res.set('Cache-Control', 'no-store, no-cache');
+    // after_ts: ISO timestamp da última mensagem conhecida
+    const afterTs = req.query.after_ts
+      ? new Date(req.query.after_ts).toISOString()
+      : new Date(0).toISOString();
+
     const { rows } = await query(
-      `SELECT * FROM mensagens WHERE conversa_id = $1 AND id > $2 ORDER BY created_at ASC LIMIT 50`,
-      [req.params.id, afterId]
+      `SELECT * FROM mensagens
+       WHERE conversa_id = $1 AND created_at > $2
+       ORDER BY created_at ASC LIMIT 50`,
+      [req.params.id, afterTs]
     );
     res.json({ messages: rows });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -541,7 +608,10 @@ r.post('/conversations/:id/send', async (req, res) => {
     );
 
     const preview = type === 'text' ? content : type === 'audio' ? '🎵 Áudio' : type === 'image' ? '📷 Imagem' : `📎 Arquivo`;
-    await query('UPDATE conversas SET last_message = $1, last_message_at = NOW() WHERE id = $2', [preview, req.params.id]);
+    const { rows: [convUpd] } = await query('UPDATE conversas SET last_message = $1, last_message_at = NOW() WHERE id = $2 RETURNING *', [preview, req.params.id]);
+
+    // ── SSE: push para outros atendentes vendo a mesma conversa ──
+    broadcast('new_message', { convId: req.params.id, message: msg, conv: convUpd || conv });
 
     // WhatsApp send: Z-API (preferred) or Evolution API (fallback)
     if (conv.channel === 'whatsapp') {

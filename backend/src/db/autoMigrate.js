@@ -60,6 +60,8 @@ export default async function runMigrate() {
     await query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_msg_wa_id ON mensagens(wa_msg_id) WHERE wa_msg_id IS NOT NULL`).catch(() => {});
 
     await query(`CREATE INDEX IF NOT EXISTS idx_msg_conv ON mensagens(conversa_id, created_at)`);
+    await query(`CREATE INDEX IF NOT EXISTS idx_msg_conv_desc ON mensagens(conversa_id, created_at DESC)`);
+    await query(`CREATE INDEX IF NOT EXISTS idx_conv_last_desc ON conversas(last_message_at DESC)`).catch(()=>{});
 
     await query(`CREATE TABLE IF NOT EXISTS respostas_rapidas (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
