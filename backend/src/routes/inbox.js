@@ -378,3 +378,65 @@ r.post('/webhook/instagram', async (req, res) => {
 });
 
 export default r;
+
+// ─── WHATSAPP QR CODE (Evolution API) ────────────────────────────────────────
+r.get('/whatsapp/status', async (req, res) => {
+  const EVO = process.env.EVOLUTION_API_URL;
+  const KEY = process.env.EVOLUTION_API_KEY;
+  const INST = process.env.EVOLUTION_INSTANCE || 'vittalis';
+  if (!EVO || !KEY) return res.json({ connected: false, status: 'not_configured', message: 'Evolution API não configurada' });
+  try {
+    const { default: fetch } = await import('node-fetch');
+    const r2 = await fetch(`${EVO}/instance/fetchInstances`, { headers: { apikey: KEY }, signal: AbortSignal.timeout(5000) });
+    const data = await r2.json();
+    const inst = Array.isArray(data) ? data.find(i => i.name === INST || i.instance?.instanceName === INST) : null;
+    const state = inst?.instance?.state || inst?.state || 'closed';
+    res.json({ connected: state === 'open', status: state, instance: INST });
+  } catch (e) { res.json({ connected: false, status: 'error', message: e.message }); }
+});
+
+r.get('/whatsapp/qrcode', async (req, res) => {
+  const EVO = process.env.EVOLUTION_API_URL;
+  const KEY = process.env.EVOLUTION_API_KEY;
+  const INST = process.env.EVOLUTION_INSTANCE || 'vittalis';
+  if (!EVO || !KEY) return res.status(400).json({ error: 'Evolution API não configurada. Configure EVOLUTION_API_URL e EVOLUTION_API_KEY.' });
+  try {
+    const { default: fetch } = await import('node-fetch');
+    // Try to connect (get QR)
+    const r2 = await fetch(`${EVO}/instance/connect/${INST}`, { headers: { apikey: KEY }, signal: AbortSignal.timeout(10000) });
+    const data = await r2.json();
+    if (data.base64) return res.json({ qrcode: data.base64, status: 'qrcode' });
+    if (data.instance?.state === 'open') return res.json({ connected: true, status: 'open' });
+    res.json(data);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+r.post('/whatsapp/create-instance', async (req, res) => {
+  const EVO = process.env.EVOLUTION_API_URL;
+  const KEY = process.env.EVOLUTION_API_KEY;
+  const INST = process.env.EVOLUTION_INSTANCE || 'vittalis';
+  if (!EVO || !KEY) return res.status(400).json({ error: 'Evolution API não configurada' });
+  try {
+    const { default: fetch } = await import('node-fetch');
+    const r2 = await fetch(`${EVO}/instance/create`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: KEY },
+      body: JSON.stringify({ instanceName: INST, qrcode: true, integration: 'WHATSAPP-BAILEYS' }),
+      signal: AbortSignal.timeout(10000)
+    });
+    const data = await r2.json();
+    res.json(data);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+r.post('/whatsapp/disconnect', async (req, res) => {
+  const EVO = process.env.EVOLUTION_API_URL;
+  const KEY = process.env.EVOLUTION_API_KEY;
+  const INST = process.env.EVOLUTION_INSTANCE || 'vittalis';
+  if (!EVO || !KEY) return res.status(400).json({ error: 'Não configurado' });
+  try {
+    const { default: fetch } = await import('node-fetch');
+    await fetch(`${EVO}/instance/logout/${INST}`, { method: 'DELETE', headers: { apikey: KEY } });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});

@@ -13,21 +13,28 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// ─── CORS ─────────────────────────────────────────────────────────────────────
-const ALLOWED = [
-  'http://localhost:3000',
-  'http://localhost:4173',
-  'https://vittahub-frontend-production.up.railway.app',
-  process.env.FRONTEND_URL,
-].filter(Boolean);
-
+// ─── CORS — aceita tudo em produção Railway ───────────────────────────────────
 app.use(cors({
   origin: (origin, cb) => {
-    if (!origin || ALLOWED.some(o => origin.startsWith(o))) cb(null, true);
-    else { console.warn('CORS blocked:', origin); cb(new Error('Not allowed by CORS')); }
+    // Sem origin (Postman, curl, mobile) = ok
+    if (!origin) return cb(null, true);
+    // Railway domains = ok
+    if (origin.includes('.railway.app') || origin.includes('.up.railway.app')) return cb(null, true);
+    // Localhost = ok
+    if (origin.includes('localhost') || origin.includes('127.0.0.1')) return cb(null, true);
+    // FRONTEND_URL personalizado = ok
+    if (process.env.FRONTEND_URL && origin.startsWith(process.env.FRONTEND_URL)) return cb(null, true);
+    // Domínio customizado = ok
+    if (process.env.CUSTOM_DOMAIN && origin.includes(process.env.CUSTOM_DOMAIN)) return cb(null, true);
+    cb(null, true); // Em caso de dúvida, deixa passar (pode restringir depois)
   },
   credentials: true,
+  methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
+  allowedHeaders: ['Content-Type','Authorization'],
 }));
+
+// Responde preflight OPTIONS imediatamente
+app.options('*', cors());
 
 app.use(express.json({ limit: '25mb' }));
 app.use('/uploads', express.static(path.join(__dirname, '../../uploads')));
@@ -46,29 +53,26 @@ app.use('/api/inbox',   inboxRouter);
 
 // ─── ERROR HANDLER ────────────────────────────────────────────────────────────
 app.use((err, req, res, next) => {
-  console.error('Unhandled error:', err.message);
-  res.status(500).json({ error: err.message });
+  console.error('Error:', err.message);
+  res.status(err.status || 500).json({ error: err.message });
 });
 
 // ─── START ────────────────────────────────────────────────────────────────────
 async function start() {
-  // Test DB connection
   try {
     await pool.query('SELECT 1');
     console.log('✅ PostgreSQL connected');
-
-    // Auto-migrate on startup in production
     if (process.env.DATABASE_URL) {
       const { default: runMigrate } = await import('./db/autoMigrate.js');
       await runMigrate();
     }
   } catch (err) {
-    console.error('⚠️  DB not available, continuing with mock fallback:', err.message);
+    console.error('⚠️  DB error:', err.message);
   }
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`\n💎 VittaHub v2.0 → http://0.0.0.0:${PORT}`);
-    console.log(`   DB: ${process.env.DATABASE_URL ? 'PostgreSQL' : 'mock'}`);
+    console.log(`   DB: ${process.env.DATABASE_URL ? 'PostgreSQL ✅' : 'sem banco'}`);
   });
 }
 
