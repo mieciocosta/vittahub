@@ -352,6 +352,36 @@ r.post('/webhook/zapi', async (req, res) => {
 r.use(auth);
 r.use(auth);
 
+// ─── POLL: conversas atualizadas desde último timestamp (DEVE VIR ANTES de /:id) ─
+// Retorna apenas conversas modificadas após "since" — evita recarregar lista inteira
+r.get('/conversations/updates', async (req, res) => {
+  try {
+    const since = req.query.since; // ISO timestamp
+    if (!since) return res.json({ data: [] });
+
+    const { channel, search, unread_only } = req.query;
+    const conditions = [`c.last_message_at > $1`];
+    const params = [since];
+    let pi = 2;
+
+    if (channel && channel !== 'all') { conditions.push(`c.channel = $${pi++}`); params.push(channel); }
+    if (unread_only === 'true') conditions.push(`c.unread > 0`);
+    if (search) {
+      conditions.push(`(unaccent(lower(c.contact_name)) ILIKE unaccent(lower($${pi})) OR c.phone ILIKE $${pi})`);
+      params.push(`%${search}%`); pi++;
+    }
+
+    const where = 'WHERE ' + conditions.join(' AND ');
+    const { rows } = await query(
+      `SELECT c.*, u.nome AS responsavel_nome FROM conversas c
+       LEFT JOIN usuarios u ON u.id = c.responsavel_id
+       ${where} ORDER BY c.last_message_at DESC LIMIT 100`,
+      params
+    );
+    res.json({ data: rows });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ─── CONVERSATIONS LIST (paginated + search, high-performance) ──────────────
 r.get('/conversations', async (req, res) => {
   try {
@@ -397,7 +427,7 @@ r.get('/conversations', async (req, res) => {
   }
 });
 
-// ─── GET SINGLE CONVERSATION WITH MESSAGES ────────────────────────────────────
+// ─── GET SINGLE CONVERSATION WITH MESSAGES (paginated) ───────────────────────
 r.get('/conversations/:id', async (req, res) => {
   try {
     const { rows: [conv] } = await query(`
@@ -406,8 +436,37 @@ r.get('/conversations/:id', async (req, res) => {
       WHERE c.id = $1`, [req.params.id]);
     if (!conv) return res.status(404).json({ error: 'Não encontrado' });
 
-    const { rows: messages } = await query(
-      'SELECT * FROM mensagens WHERE conversa_id = $1 ORDER BY created_at ASC',
+    // Paginação de mensagens: carrega as últimas 60 por padrão
+    // before_id=<id> para carregar mensagens mais antigas (infinite scroll para cima)
+    const MSG_LIMIT = 60;
+    const beforeId = req.query.before_id ? parseInt(req.query.before_id) : null;
+
+    let msgRows;
+    if (beforeId) {
+      // Carrega mensagens anteriores ao before_id (scroll para cima)
+      const { rows } = await query(
+        `SELECT * FROM (
+          SELECT * FROM mensagens WHERE conversa_id = $1 AND id < $2
+          ORDER BY created_at DESC LIMIT $3
+        ) sub ORDER BY created_at ASC`,
+        [req.params.id, beforeId, MSG_LIMIT]
+      );
+      msgRows = rows;
+    } else {
+      // Carrega as últimas mensagens (abertura inicial da conversa)
+      const { rows } = await query(
+        `SELECT * FROM (
+          SELECT * FROM mensagens WHERE conversa_id = $1
+          ORDER BY created_at DESC LIMIT $2
+        ) sub ORDER BY created_at ASC`,
+        [req.params.id, MSG_LIMIT]
+      );
+      msgRows = rows;
+    }
+
+    // Total de mensagens para saber se tem mais
+    const { rows: [cnt] } = await query(
+      'SELECT COUNT(*)::int AS total FROM mensagens WHERE conversa_id = $1',
       [req.params.id]
     );
 
@@ -417,12 +476,30 @@ r.get('/conversations/:id', async (req, res) => {
       lead = l;
     }
 
-    // Profile pic: save from webhook pushName data going forward
-    // getProfilePicture endpoint not available in this Evolution fork
-
-    res.json({ ...conv, messages, lead });
+    res.json({
+      ...conv,
+      messages: msgRows,
+      messages_total: cnt.total,
+      has_more: beforeId
+        ? (msgRows.length === MSG_LIMIT)
+        : (cnt.total > MSG_LIMIT),
+      lead
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
+// ─── POLL: novas mensagens após um ID (incremental, não recarrega tudo) ──────
+r.get('/conversations/:id/messages/new', async (req, res) => {
+  try {
+    const afterId = req.query.after_id ? parseInt(req.query.after_id) : 0;
+    const { rows } = await query(
+      `SELECT * FROM mensagens WHERE conversa_id = $1 AND id > $2 ORDER BY created_at ASC LIMIT 50`,
+      [req.params.id, afterId]
+    );
+    res.json({ messages: rows });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 
 // ─── MARK READ ────────────────────────────────────────────────────────────────
 r.patch('/conversations/:id/read', async (req, res) => {
