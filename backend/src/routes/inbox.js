@@ -1,252 +1,219 @@
 import express from 'express';
-import { v4 as uuid } from 'uuid';
 import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { conversations, leads, quickReplies, users, botConfig, vittasysPlanos, vittasysVacinas, notifications, nextAtendente } from '../data/db.js';
+import { v4 as uuid } from 'uuid';
+import { query } from '../db/pool.js';
 import { auth } from '../middleware/auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const r = express.Router();
-const upload = multer({ storage: multer.diskStorage({ destination: path.join(__dirname,'../../../uploads'), filename: (_, f, cb) => cb(null, `${Date.now()}-${f.originalname}`) }), limits: { fileSize: 25*1024*1024 } });
-
-// Bot processing
-function processBot(conv, content) {
-  if (!conv.botAtivo) return null;
-  const resp = botConfig.respostas[content.trim()] || botConfig.respostas['default'];
-  const msg = { id: uuid(), from: 'bot', type: 'text', content: resp, timestamp: new Date().toISOString(), status: 'sent', senderNome: 'Bot Vittalis' };
-  conv.messages.push(msg);
-  conv.lastMessage = resp;
-  conv.lastMessageTime = msg.timestamp;
-  // Transfer after N contact messages
-  const contactMsgs = conv.messages.filter(m => m.from === 'contact').length;
-  if (contactMsgs >= botConfig.transferirApos) {
-    conv.botAtivo = false;
-    if (!conv.responsavelId) conv.responsavelId = nextAtendente();
-    const transferMsg = { id: uuid(), from: 'system', type: 'event', content: `Conversa transferida para ${users.find(u=>u.id===conv.responsavelId)?.nome || 'atendente'}`, timestamp: new Date().toISOString() };
-    conv.messages.push(transferMsg);
-  }
-  return msg;
-}
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: path.join(__dirname, '../../../uploads'),
+    filename: (_, f, cb) => cb(null, `${Date.now()}-${f.originalname.replace(/[^a-z0-9._-]/gi,'_')}`)
+  }),
+  limits: { fileSize: 25 * 1024 * 1024 }
+});
 
 r.use(auth);
 
-r.get('/conversations', (req, res) => {
-  const { channel, responsavelId, search } = req.query;
-  let list = [...conversations];
-  if (channel && channel !== 'all') list = list.filter(c => c.channel === channel);
-  if (responsavelId) list = list.filter(c => c.responsavelId === responsavelId);
-  if (search) list = list.filter(c => c.contactName.toLowerCase().includes(search.toLowerCase()));
-  list.sort((a, b) => new Date(b.lastMessageTime) - new Date(a.lastMessageTime));
-  res.json(list.map(({ messages, ...rest }) => ({ ...rest, messageCount: rest.messageCount || 0 })));
+// ─── CONVERSATIONS LIST (paginated + search, high-performance) ──────────────
+r.get('/conversations', async (req, res) => {
+  try {
+    const { channel, responsavel_id, search, page = 1, limit = 50, unread_only } = req.query;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    const conditions = [];
+    const params = [];
+    let pi = 1;
+
+    if (channel && channel !== 'all') { conditions.push(`c.channel = $${pi++}`); params.push(channel); }
+    if (responsavel_id)               { conditions.push(`c.responsavel_id = $${pi++}`); params.push(responsavel_id); }
+    if (unread_only === 'true')        { conditions.push(`c.unread > 0`); }
+    if (search) {
+      conditions.push(`c.contact_name ILIKE $${pi++}`);
+      params.push(`%${search}%`);
+    }
+
+    const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
+    const countRes = await query(`SELECT COUNT(*) FROM conversas c ${where}`, params);
+    const total = parseInt(countRes.rows[0].count);
+
+    const dataRes = await query(`
+      SELECT c.*,
+        u.nome AS responsavel_nome,
+        (SELECT COUNT(*) FROM mensagens m WHERE m.conversa_id = c.id) AS message_count
+      FROM conversas c
+      LEFT JOIN usuarios u ON u.id = c.responsavel_id
+      ${where}
+      ORDER BY c.last_message_at DESC
+      LIMIT $${pi} OFFSET $${pi+1}
+    `, [...params, parseInt(limit), offset]);
+
+    res.json({ data: dataRes.rows, total, page: parseInt(page), pages: Math.ceil(total / parseInt(limit)) });
+  } catch (err) {
+    console.error('conversations list error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
-r.get('/conversations/:id', (req, res) => {
-  const c = conversations.find(c => c.id === req.params.id);
-  if (!c) return res.status(404).json({ error: 'Não encontrado' });
-  const enriched = { ...c, responsavelNome: users.find(u => u.id === c.responsavelId)?.nome || null, lead: leads.find(l => l.id === c.leadId) || null };
-  res.json(enriched);
+// ─── GET SINGLE CONVERSATION WITH MESSAGES ────────────────────────────────────
+r.get('/conversations/:id', async (req, res) => {
+  try {
+    const { rows: [conv] } = await query(`
+      SELECT c.*, u.nome AS responsavel_nome
+      FROM conversas c LEFT JOIN usuarios u ON u.id = c.responsavel_id
+      WHERE c.id = $1`, [req.params.id]);
+    if (!conv) return res.status(404).json({ error: 'Não encontrado' });
+
+    const { rows: messages } = await query(
+      'SELECT * FROM mensagens WHERE conversa_id = $1 ORDER BY created_at ASC',
+      [req.params.id]
+    );
+
+    // Get associated lead if exists
+    let lead = null;
+    if (conv.lead_id) {
+      const { rows: [l] } = await query('SELECT * FROM leads WHERE id = $1', [conv.lead_id]);
+      lead = l;
+    }
+
+    res.json({ ...conv, messages, lead });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-r.patch('/conversations/:id/read', (req, res) => {
-  const c = conversations.find(c => c.id === req.params.id);
-  if (c) { c.unread = 0; c.messages.forEach(m => m.status = 'read'); }
-  res.json({ ok: true });
+// ─── MARK READ ────────────────────────────────────────────────────────────────
+r.patch('/conversations/:id/read', async (req, res) => {
+  try {
+    await query('UPDATE conversas SET unread = 0 WHERE id = $1', [req.params.id]);
+    await query("UPDATE mensagens SET status = 'read' WHERE conversa_id = $1", [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-r.patch('/conversations/:id/assign', (req, res) => {
-  const c = conversations.find(c => c.id === req.params.id);
-  if (!c) return res.status(404).json({ error: 'Não encontrado' });
-  c.responsavelId = req.body.responsavelId;
-  res.json({ ok: true });
+// ─── ASSIGN ────────────────────────────────────────────────────────────────────
+r.patch('/conversations/:id/assign', async (req, res) => {
+  try {
+    await query('UPDATE conversas SET responsavel_id = $1 WHERE id = $2', [req.body.responsavel_id, req.params.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-r.patch('/conversations/:id/bot', (req, res) => {
-  const c = conversations.find(c => c.id === req.params.id);
-  if (!c) return res.status(404).json({ error: 'Não encontrado' });
-  c.botAtivo = req.body.ativo;
-  res.json({ ok: true, botAtivo: c.botAtivo });
+// ─── BOT TOGGLE ────────────────────────────────────────────────────────────────
+r.patch('/conversations/:id/bot', async (req, res) => {
+  try {
+    const { rows: [c] } = await query('UPDATE conversas SET bot_ativo = $1 WHERE id = $2 RETURNING bot_ativo', [req.body.ativo, req.params.id]);
+    res.json({ ok: true, botAtivo: c.bot_ativo });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ─── SEND MESSAGE ─────────────────────────────────────────────────────────────
 r.post('/conversations/:id/send', async (req, res) => {
-  const c = conversations.find(cv => cv.id === req.params.id);
-  if (!c) return res.status(404).json({ error: 'Não encontrado' });
-  const { content, type = 'text' } = req.body;
-  const msg = { id: uuid(), from: 'me', type, content, timestamp: new Date().toISOString(), status: 'sent', senderId: req.user.id, senderNome: req.user.nome };
-  c.messages.push(msg);
-  c.lastMessage = type === 'text' ? content : type === 'audio' ? '🎵 Áudio' : type === 'image' ? '📷 Imagem' : `📎 Arquivo`;
-  c.lastMessageTime = msg.timestamp;
-
-  // Evolution API
-  const EVO = process.env.EVOLUTION_API_URL, KEY = process.env.EVOLUTION_API_KEY, INST = process.env.EVOLUTION_INSTANCE || 'vittalis';
-  if (EVO && KEY && c.channel === 'whatsapp') {
-    try { const { default: fetch } = await import('node-fetch'); await fetch(`${EVO}/message/sendText/${INST}`, { method:'POST', headers:{'Content-Type':'application/json',apikey:KEY}, body: JSON.stringify({ number: c.phone, text: content }) }); msg.status = 'delivered'; }
-    catch(e) { console.error('EVO:', e.message); }
-  }
-  res.json(msg);
-});
-
-r.post('/conversations/:id/upload', upload.single('file'), (req, res) => {
-  const c = conversations.find(cv => cv.id === req.params.id);
-  if (!c) return res.status(404).json({ error: 'Não encontrado' });
-  const f = req.file;
-  const type = f.mimetype.startsWith('audio/') ? 'audio' : f.mimetype.startsWith('image/') ? 'image' : f.mimetype.startsWith('video/') ? 'video' : 'document';
-  const msg = { id: uuid(), from: 'me', type, content: `/uploads/${f.filename}`, filename: f.originalname, mimetype: f.mimetype, size: f.size, timestamp: new Date().toISOString(), status: 'sent', senderId: req.user.id, senderNome: req.user.nome };
-  c.messages.push(msg);
-  c.lastMessage = type === 'audio' ? '🎵 Áudio' : type === 'image' ? '📷 Imagem' : type === 'video' ? '🎥 Vídeo' : `📎 ${f.originalname}`;
-  c.lastMessageTime = msg.timestamp;
-  res.json(msg);
-});
-
-// AI summary
-r.post('/conversations/:id/summary', async (req, res) => {
-  const c = conversations.find(cv => cv.id === req.params.id);
-  if (!c) return res.status(404).json({ error: 'Não encontrado' });
-  const transcript = c.messages.filter(m=>m.type==='text').map(m => `${m.from==='me'?`Atendente(${m.senderNome||'Equipe'})`:m.from==='bot'?'Bot':c.contactName}: ${m.content}`).join('\n');
-  const KEY = process.env.ANTHROPIC_API_KEY;
-  if (!KEY) {
-    return res.json({ summary: `📋 **Resumo — ${c.contactName}**\n\n• Canal: ${c.channel==='whatsapp'?'WhatsApp':'Instagram'}\n• Interesse: Vacinas / Plano Vacinal\n• Intenção: **Alta** 🔥\n• Objeções: Preço\n• ✅ Próximo passo: Enviar proposta + PDF com valores`, mock: true });
-  }
   try {
-    const { default: fetch } = await import('node-fetch');
-    const resp = await fetch('https://api.anthropic.com/v1/messages', { method:'POST', headers:{'Content-Type':'application/json','x-api-key':KEY,'anthropic-version':'2023-06-01'}, body: JSON.stringify({ model:'claude-haiku-4-5-20251001', max_tokens:600, messages:[{role:'user',content:`Analise esta conversa do CRM da Vittalis Saúde (clínica de vacinas, São Luís-MA) e gere resumo comercial: interesse, objeções, intenção (baixo/médio/alto), próximo passo sugerido. Conversa:\n${transcript}\n\nFormato markdown simples, pt-BR.`}] }) });
-    const data = await resp.json();
-    res.json({ summary: data.content[0].text });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+    const { content, type = 'text' } = req.body;
+    const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
+    if (!conv) return res.status(404).json({ error: 'Não encontrado' });
+
+    const { rows: [msg] } = await query(`
+      INSERT INTO mensagens (conversa_id, from_type, type, content, sender_id, sender_nome, status)
+      VALUES ($1, 'me', $2, $3, $4, $5, 'sent')
+      RETURNING *`,
+      [req.params.id, type, content, req.user.id, req.user.nome]
+    );
+
+    const preview = type === 'text' ? content : type === 'audio' ? '🎵 Áudio' : type === 'image' ? '📷 Imagem' : `📎 Arquivo`;
+    await query('UPDATE conversas SET last_message = $1, last_message_at = NOW() WHERE id = $2', [preview, req.params.id]);
+
+    // Evolution API (WhatsApp)
+    const EVO = process.env.EVOLUTION_API_URL, KEY = process.env.EVOLUTION_API_KEY;
+    const INST = process.env.EVOLUTION_INSTANCE || 'vittalis';
+    if (EVO && KEY && conv.channel === 'whatsapp' && conv.phone) {
+      try {
+        const { default: fetch } = await import('node-fetch');
+        const r = await fetch(`${EVO}/message/sendText/${INST}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', apikey: KEY },
+          body: JSON.stringify({ number: conv.phone, text: content })
+        });
+        if (r.ok) await query("UPDATE mensagens SET status = 'delivered' WHERE id = $1", [msg.id]);
+      } catch (e) { console.error('Evolution error:', e.message); }
+    }
+
+    res.json(msg);
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Convert to lead (auto-assign)
-r.post('/conversations/:id/to-lead', (req, res) => {
-  const c = conversations.find(cv => cv.id === req.params.id);
-  if (!c) return res.status(404).json({ error: 'Não encontrado' });
-  if (c.leadId) { const existing = leads.find(l=>l.id===c.leadId); if(existing) return res.json({ lead: existing, created: false }); }
-  const byPhone = c.phone && leads.find(l => l.telefone?.replace(/\D/g,'') === c.phone.replace(/\D/g,''));
-  if (byPhone) { c.leadId = byPhone.id; return res.json({ lead: byPhone, created: false }); }
-  const responsavelId = c.responsavelId || nextAtendente();
-  const lead = { id: uuid(), nome: c.contactName, telefone: c.phone||'', email:'', origem: c.channel==='instagram'?'Instagram':'WhatsApp', interesse: req.body.interesse||'Consulta', status:'Novo lead', responsavelId, valorProposta:0, servico:'', dataEntrada:new Date().toISOString().split('T')[0], dataRetorno:null, observacoes:`Lead automático via ${c.channel}`, motivoPerda:null, tags:[], vittasysClienteId:null };
-  leads.unshift(lead);
-  c.leadId = lead.id;
-  c.responsavelId = responsavelId;
-  notifications.unshift({ id:uuid(), tipo:'novo_lead', titulo:'Lead criado', texto:`${lead.nome} adicionado ao funil`, leadId:lead.id, lida:false, createdAt:new Date().toISOString() });
-  res.json({ lead, created: true });
-});
-
-// Quick replies
-r.get('/quick-replies', (req, res) => res.json(quickReplies));
-r.post('/quick-replies', (req, res) => {
-  const qr = { id: uuid(), titulo: req.body.titulo, texto: req.body.texto };
-  quickReplies.push(qr);
-  res.json(qr);
-});
-r.delete('/quick-replies/:id', (req, res) => {
-  const idx = quickReplies.findIndex(q=>q.id===req.params.id);
-  if(idx!==-1) quickReplies.splice(idx,1);
-  res.json({ ok: true });
-});
-
-// Bot config
-r.get('/bot-config', (req, res) => res.json(botConfig));
-r.put('/bot-config', (req, res) => {
-  Object.assign(botConfig, req.body);
-  res.json(botConfig);
-});
-
-// VittaSys integration — search proposals
-r.get('/vittasys/planos', (req, res) => res.json(vittasysPlanos));
-r.get('/vittasys/vacinas', (req, res) => res.json(vittasysVacinas));
-
-r.post('/vittasys/proposta', async (req, res) => {
-  // Try real VittaSys API first
-  const VITTASYS = process.env.VITTASYS_URL || 'https://vittasys.vittalissaude.com.br';
+// ─── UPLOAD FILE ──────────────────────────────────────────────────────────────
+r.post('/conversations/:id/upload', upload.single('file'), async (req, res) => {
   try {
-    const { default: fetch } = await import('node-fetch');
-    const resp = await fetch(`${VITTASYS}/api/propostas/planos`, { headers: { 'Content-Type':'application/json' }, timeout: 5000 });
-    if (resp.ok) { const data = await resp.json(); return res.json({ source: 'vittasys', data }); }
-  } catch {}
-  // Fallback to local mock
-  res.json({ source: 'mock', planos: vittasysPlanos, vacinas: vittasysVacinas });
+    const f = req.file;
+    if (!f) return res.status(400).json({ error: 'Arquivo não enviado' });
+    const type = f.mimetype.startsWith('audio/') ? 'audio' : f.mimetype.startsWith('image/') ? 'image' : f.mimetype.startsWith('video/') ? 'video' : 'document';
+
+    const { rows: [msg] } = await query(`
+      INSERT INTO mensagens (conversa_id, from_type, type, content, filename, mimetype, file_size, sender_id, sender_nome)
+      VALUES ($1, 'me', $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+      [req.params.id, type, `/uploads/${f.filename}`, f.originalname, f.mimetype, f.size, req.user.id, req.user.nome]
+    );
+
+    const preview = type === 'audio' ? '🎵 Áudio' : type === 'image' ? '📷 Imagem' : type === 'video' ? '🎥 Vídeo' : `📎 ${f.originalname}`;
+    await query('UPDATE conversas SET last_message = $1, last_message_at = NOW() WHERE id = $2', [preview, req.params.id]);
+
+    res.json(msg);
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Webhook: Evolution API / WhatsApp
-r.post('/webhook/whatsapp', (req, res) => {
-  const { data, event } = req.body;
-  if (event !== 'messages.upsert' || !data?.messages) return res.json({ ok: true });
-  data.messages.forEach(msg => {
-    if (msg.key.fromMe) return;
-    const phone = msg.key.remoteJid.replace('@s.whatsapp.net','').replace(/^55/,'');
-    const content = msg.message?.conversation || msg.message?.extendedTextMessage?.text || '[mídia]';
-    const contactName = msg.pushName || phone;
-    let c = conversations.find(cv => cv.phone === phone || cv.contactId === msg.key.remoteJid);
-    if (!c) {
-      const responsavelId = botConfig.ativo ? null : nextAtendente();
-      c = { id:uuid(), channel:'whatsapp', contactName, contactId:msg.key.remoteJid, phone, lastMessage:content, lastMessageTime:new Date().toISOString(), unread:1, responsavelId, leadId:null, tags:[], botAtivo:botConfig.ativo, messages:[] };
-      conversations.unshift(c);
-      // Auto-create lead
-      if (!botConfig.ativo) {
-        const lead = { id:uuid(), nome:contactName, telefone:phone, email:'', origem:'WhatsApp', interesse:'Consulta', status:'Novo lead', responsavelId: responsavelId||nextAtendente(), valorProposta:0, servico:'', dataEntrada:new Date().toISOString().split('T')[0], dataRetorno:null, observacoes:'Lead automático via WhatsApp', motivoPerda:null, tags:[], vittasysClienteId:null };
-        leads.unshift(lead);
-        c.leadId = lead.id;
-        notifications.unshift({ id:uuid(), tipo:'novo_lead', titulo:'Novo lead WA', texto:`${contactName} enviou mensagem`, leadId:lead.id, lida:false, createdAt:new Date().toISOString() });
+// ─── CONVERT TO LEAD ──────────────────────────────────────────────────────────
+r.post('/conversations/:id/to-lead', async (req, res) => {
+  try {
+    const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
+    if (!conv) return res.status(404).json({ error: 'Não encontrado' });
+
+    if (conv.lead_id) {
+      const { rows: [l] } = await query('SELECT * FROM leads WHERE id = $1', [conv.lead_id]);
+      if (l) return res.json({ lead: l, created: false });
+    }
+
+    // Check by phone
+    if (conv.phone) {
+      const { rows: [existing] } = await query('SELECT * FROM leads WHERE telefone = $1 LIMIT 1', [conv.phone]);
+      if (existing) {
+        await query('UPDATE conversas SET lead_id = $1 WHERE id = $2', [existing.id, conv.id]);
+        return res.json({ lead: existing, created: false });
       }
-      // Send welcome bot msg
-      if (botConfig.ativo) processBot(c, '');
-    } else { c.unread = (c.unread||0)+1; c.lastMessage = content; c.lastMessageTime = new Date().toISOString(); }
-    c.messages.push({ id:uuid(), from:'contact', type:'text', content, timestamp:new Date().toISOString(), status:'delivered' });
-    if (c.botAtivo) processBot(c, content);
-    notifications.unshift({ id:uuid(), tipo:'mensagem', titulo:`Nova msg de ${contactName}`, texto:content.slice(0,60), convId:c.id, lida:false, createdAt:new Date().toISOString() });
-  });
-  res.json({ ok: true });
+    }
+
+    // Create new lead
+    const { rows: [lead] } = await query(`
+      INSERT INTO leads (nome, telefone, origem, interesse, status, responsavel_id, observacoes)
+      VALUES ($1,$2,$3,'Consulta','Novo lead',$4,$5) RETURNING *`,
+      [conv.contact_name, conv.phone || '', conv.channel === 'instagram' ? 'Instagram' : 'WhatsApp', conv.responsavel_id || req.user.id, `Lead automático via ${conv.channel}`]
+    );
+
+    await query('UPDATE conversas SET lead_id = $1 WHERE id = $2', [lead.id, conv.id]);
+    await query('INSERT INTO notificacoes (tipo,titulo,texto,lead_id) VALUES ($1,$2,$3,$4)', ['novo_lead','Lead criado',`${lead.nome} adicionado ao funil`,lead.id]);
+
+    res.json({ lead, created: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-r.post('/webhook/instagram', (req, res) => {
-  const { object, entry } = req.body;
-  if (object !== 'instagram') return res.json({ ok: true });
-  entry?.forEach(e => e.messaging?.forEach(ev => {
-    if (!ev.message) return;
-    const sid = ev.sender.id;
-    const content = ev.message.text || '[mídia]';
-    let c = conversations.find(cv => cv.contactId === sid);
-    if (!c) { c = { id:uuid(), channel:'instagram', contactName:`@${sid}`, contactId:sid, phone:null, lastMessage:content, lastMessageTime:new Date().toISOString(), unread:1, responsavelId:nextAtendente(), leadId:null, tags:[], botAtivo:false, messages:[] }; conversations.unshift(c); }
-    else { c.unread++; c.lastMessage=content; c.lastMessageTime=new Date().toISOString(); }
-    c.messages.push({ id:uuid(), from:'contact', type:'text', content, timestamp:new Date().toISOString() });
-    notifications.unshift({ id:uuid(), tipo:'mensagem', titulo:`Nova msg IG @${sid}`, texto:content.slice(0,60), convId:c.id, lida:false, createdAt:new Date().toISOString() });
-  }));
-  res.json({ ok: true });
-});
-
-r.get('/webhook/instagram', (req, res) => {
-  const T = process.env.INSTAGRAM_VERIFY_TOKEN || 'vittahub_2024';
-  if (req.query['hub.mode']==='subscribe' && req.query['hub.verify_token']===T) res.send(req.query['hub.challenge']);
-  else res.sendStatus(403);
-});
-
-// Notifications
-r.get('/notifications', (req, res) => res.json(notifications.slice(0,20)));
-r.patch('/notifications/:id/read', (req, res) => {
-  const n = notifications.find(n=>n.id===req.params.id);
-  if(n) n.lida = true;
-  res.json({ ok: true });
-});
-r.post('/notifications/read-all', (req, res) => { notifications.forEach(n=>n.lida=true); res.json({ ok: true }); });
-
-export default r;
-
-// AI Assist endpoint
+// ─── AI ASSIST ────────────────────────────────────────────────────────────────
 r.post('/ai-assist', async (req, res) => {
-  const { prompt, convId } = req.body;
-  const KEY = process.env.ANTHROPIC_API_KEY;
-  if (!KEY) {
-    // Mock responses when no API key
-    const mocks = {
-      summary: '📋 **Resumo Comercial**\n\n◆ **Interesse:** Plano Vacinal Adulto / Vacinas avulsas\n◆ **Objeções:** Preço (não confirmado)\n◆ **Intenção de compra:** Alta 🔥\n◆ **Próximo passo:** Enviar proposta personalizada com valores e condições de pagamento',
-      suggest: '💡 **Estratégia recomendada:**\n\nO cliente demonstra alto interesse. Recomendo enviar a proposta do Plano Vacinal Adulto agora, destacando o valor preventivo. Mencione o parcelamento e crie urgência com "temos agenda disponível esta semana".',
-    };
-    const isSuggest = prompt.includes('estratégia') || prompt.includes('consultor');
-    const isReply = prompt.includes('escreva a próxima mensagem');
-    if (isReply) return res.json({ text: 'Olá! 😊 Aqui é a equipe da Vittalis Saúde. Consegui preparar um orçamento personalizado para você — posso enviar agora?' });
-    return res.json({ text: isSuggest ? mocks.suggest : mocks.summary });
-  }
   try {
+    const { prompt } = req.body;
+    const KEY = process.env.ANTHROPIC_API_KEY;
+    if (!KEY) {
+      const mocks = {
+        summary: '📋 **Resumo**\n\n◆ **Interesse:** Plano Vacinal / Vacinas\n◆ **Intenção:** Alta 🔥\n◆ **Objeções:** Preço (possível)\n◆ **Próximo passo:** Enviar proposta personalizada com condições',
+        qualify: '⭐ **Score: 8/10**\n\nAlto potencial. Cliente demonstra interesse real, está comparando opções. Urgência média-alta. Recomendo proposta imediata com desconto de fidelidade.',
+        suggest: '💡 **Estratégia:** Envie a proposta do Plano Adulto agora. Destaque o valor preventivo e mencione parcelamento. Crie urgência: "temos agenda disponível esta semana".',
+      };
+      const isReply = prompt?.includes('próxima mensagem');
+      const isSuggest = prompt?.includes('estratégia') || prompt?.includes('consultor');
+      const isScore = prompt?.includes('Score') || prompt?.includes('score');
+      if (isReply) return res.json({ text: 'Olá! 😊 Preparei uma proposta personalizada para você — posso enviar agora? Temos condições especiais esta semana! 💎' });
+      return res.json({ text: isScore ? mocks.qualify : isSuggest ? mocks.suggest : mocks.summary });
+    }
     const { default: fetch } = await import('node-fetch');
     const resp = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -254,6 +221,222 @@ r.post('/ai-assist', async (req, res) => {
       body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 500, messages: [{ role: 'user', content: prompt }] })
     });
     const data = await resp.json();
-    res.json({ text: data.content?.[0]?.text || 'Erro na resposta da IA' });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+    res.json({ text: data.content?.[0]?.text || 'Sem resposta' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── QUICK REPLIES ────────────────────────────────────────────────────────────
+r.get('/quick-replies', async (req, res) => {
+  try {
+    const { rows } = await query('SELECT * FROM respostas_rapidas ORDER BY created_at');
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.post('/quick-replies', async (req, res) => {
+  try {
+    const { rows: [qr] } = await query('INSERT INTO respostas_rapidas (titulo,texto) VALUES ($1,$2) RETURNING *', [req.body.titulo, req.body.texto]);
+    res.json(qr);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.delete('/quick-replies/:id', async (req, res) => {
+  try {
+    await query('DELETE FROM respostas_rapidas WHERE id = $1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── BOT CONFIG ────────────────────────────────────────────────────────────────
+r.get('/bot-config', async (req, res) => {
+  try {
+    const { rows: [row] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'");
+    res.json(row?.valor || {});
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.put('/bot-config', async (req, res) => {
+  try {
+    await query("INSERT INTO configuracoes (chave,valor) VALUES ('bot',$1) ON CONFLICT (chave) DO UPDATE SET valor=$1, updated_at=NOW()", [JSON.stringify(req.body)]);
+    res.json(req.body);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── VITTASYS MOCK ─────────────────────────────────────────────────────────────
+r.get('/vittasys/planos', (req, res) => res.json([
+  { id:'p1', nome:'Plano Vacinal Adulto Básico',   preco:420,  descricao:'HPV + Varicela + Hepatite A' },
+  { id:'p2', nome:'Plano Vacinal Adulto Completo', preco:760,  descricao:'8 vacinas essenciais' },
+  { id:'p3', nome:'Plano Infantil 0-6 meses',      preco:1850, descricao:'Hexacelular, Rotavírus e mais' },
+  { id:'p4', nome:'Plano Infantil 0-9 meses',      preco:2400, descricao:'Cobertura completa até 9 meses' },
+  { id:'p5', nome:'Plano Gestante',                preco:680,  descricao:'dTpa, Influenza, Hepatite B' },
+  { id:'p6', nome:'Plano Idoso (60+)',             preco:540,  descricao:'Pneumocócica, Influenza, Zóster' },
+]));
+
+r.get('/vittasys/vacinas', (req, res) => res.json([
+  { id:'v1',  nome:'HPV 9-valente',      preco:950,  doses:3 },
+  { id:'v2',  nome:'Febre Amarela',       preco:250,  doses:1 },
+  { id:'v3',  nome:'Varicela',            preco:450,  doses:2 },
+  { id:'v4',  nome:'Hepatite A',          preco:250,  doses:2 },
+  { id:'v5',  nome:'Influenza',           preco:180,  doses:1 },
+  { id:'v6',  nome:'Pneumocócica 20',     preco:800,  doses:1 },
+  { id:'v7',  nome:'Meningocócica ACWY',  preco:500,  doses:1 },
+  { id:'v8',  nome:'Herpes Zóster',       preco:1200, doses:2 },
+  { id:'v9',  nome:'dTpa (adulto)',        preco:180,  doses:1 },
+  { id:'v10', nome:'Hexacelular',         preco:450,  doses:3 },
+]));
+
+r.post('/vittasys/proposta', (req, res) => {
+  res.json({ source:'mock', planos:[
+    { id:'p1', nome:'Plano Vacinal Adulto Básico',   preco:420,  descricao:'HPV + Varicela + Hepatite A' },
+    { id:'p2', nome:'Plano Vacinal Adulto Completo', preco:760,  descricao:'8 vacinas essenciais' },
+    { id:'p3', nome:'Plano Infantil 0-6 meses',      preco:1850, descricao:'Hexacelular, Rotavírus e mais' },
+    { id:'p4', nome:'Plano Gestante',                preco:680,  descricao:'dTpa, Influenza, Hepatite B' },
+  ], vacinas:[
+    { id:'v1', nome:'HPV 9-valente', preco:950, doses:3 },
+    { id:'v2', nome:'Febre Amarela', preco:250, doses:1 },
+    { id:'v3', nome:'Varicela',      preco:450, doses:2 },
+    { id:'v4', nome:'Influenza',     preco:180, doses:1 },
+    { id:'v5', nome:'Pneumocócica',  preco:800, doses:1 },
+  ]});
+});
+
+// ─── NOTIFICATIONS ────────────────────────────────────────────────────────────
+r.get('/notifications', async (req, res) => {
+  try {
+    const { rows } = await query('SELECT * FROM notificacoes ORDER BY created_at DESC LIMIT 30');
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.post('/notifications/read-all', async (req, res) => {
+  try {
+    await query('UPDATE notificacoes SET lida = true WHERE lida = false');
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── WEBHOOKS ─────────────────────────────────────────────────────────────────
+r.get('/webhook/instagram', (req, res) => {
+  const T = process.env.INSTAGRAM_VERIFY_TOKEN || 'vittahub_2024';
+  if (req.query['hub.mode'] === 'subscribe' && req.query['hub.verify_token'] === T) res.send(req.query['hub.challenge']);
+  else res.sendStatus(403);
+});
+
+r.post('/webhook/whatsapp', async (req, res) => {
+  try {
+    const { data, event } = req.body;
+    if (event !== 'messages.upsert' || !data?.messages) return res.json({ ok: true });
+    for (const msg of data.messages) {
+      if (msg.key.fromMe) continue;
+      const phone = msg.key.remoteJid.replace('@s.whatsapp.net','').replace(/^55/,'');
+      const content = msg.message?.conversation || msg.message?.extendedTextMessage?.text || '[mídia]';
+      const contactName = msg.pushName || phone;
+
+      // Upsert conversation
+      const { rows: [conv] } = await query(`
+        INSERT INTO conversas (channel, contact_name, contact_id, phone, bot_ativo, unread, last_message, last_message_at)
+        VALUES ('whatsapp', $1, $2, $3, $4, 1, $5, NOW())
+        ON CONFLICT (contact_id) DO UPDATE SET
+          unread = conversas.unread + 1, last_message = $5, last_message_at = NOW()
+        RETURNING *`,
+        [contactName, msg.key.remoteJid, phone, true, content]
+      );
+
+      // Insert message
+      await query(`INSERT INTO mensagens (conversa_id, from_type, type, content) VALUES ($1,'contact','text',$2)`, [conv.id, content]);
+
+      // Notify
+      await query(`INSERT INTO notificacoes (tipo,titulo,texto,conv_id) VALUES ('mensagem',$1,$2,$3)`,
+        [`Nova msg de ${contactName}`, content.slice(0,60), conv.id]);
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('WA webhook error:', err.message);
+    res.json({ ok: true }); // Always 200 to Evolution
+  }
+});
+
+r.post('/webhook/instagram', async (req, res) => {
+  try {
+    const { object, entry } = req.body;
+    if (object !== 'instagram') return res.json({ ok: true });
+    for (const e of (entry||[])) {
+      for (const ev of (e.messaging||[])) {
+        if (!ev.message) continue;
+        const sid = ev.sender.id;
+        const content = ev.message.text || '[mídia]';
+        const { rows: [conv] } = await query(`
+          INSERT INTO conversas (channel, contact_name, contact_id, unread, last_message, last_message_at)
+          VALUES ('instagram', $1, $2, 1, $3, NOW())
+          ON CONFLICT (contact_id) DO UPDATE SET unread = conversas.unread + 1, last_message = $3, last_message_at = NOW()
+          RETURNING *`, [`@${sid}`, sid, content]);
+        await query('INSERT INTO mensagens (conversa_id, from_type, type, content) VALUES ($1,\'contact\',\'text\',$2)', [conv.id, content]);
+      }
+    }
+    res.json({ ok: true });
+  } catch (err) { console.error('IG webhook:', err.message); res.json({ ok: true }); }
+});
+
+export default r;
+
+// ─── WHATSAPP QR CODE (Evolution API) ────────────────────────────────────────
+r.get('/whatsapp/status', async (req, res) => {
+  const EVO = process.env.EVOLUTION_API_URL;
+  const KEY = process.env.EVOLUTION_API_KEY;
+  const INST = process.env.EVOLUTION_INSTANCE || 'vittalis';
+  if (!EVO || !KEY) return res.json({ connected: false, status: 'not_configured', message: 'Evolution API não configurada' });
+  try {
+    const { default: fetch } = await import('node-fetch');
+    const r2 = await fetch(`${EVO}/instance/fetchInstances`, { headers: { apikey: KEY }, signal: AbortSignal.timeout(5000) });
+    const data = await r2.json();
+    const inst = Array.isArray(data) ? data.find(i => i.name === INST || i.instance?.instanceName === INST) : null;
+    const state = inst?.instance?.state || inst?.state || 'closed';
+    res.json({ connected: state === 'open', status: state, instance: INST });
+  } catch (e) { res.json({ connected: false, status: 'error', message: e.message }); }
+});
+
+r.get('/whatsapp/qrcode', async (req, res) => {
+  const EVO = process.env.EVOLUTION_API_URL;
+  const KEY = process.env.EVOLUTION_API_KEY;
+  const INST = process.env.EVOLUTION_INSTANCE || 'vittalis';
+  if (!EVO || !KEY) return res.status(400).json({ error: 'Evolution API não configurada. Configure EVOLUTION_API_URL e EVOLUTION_API_KEY.' });
+  try {
+    const { default: fetch } = await import('node-fetch');
+    // Try to connect (get QR)
+    const r2 = await fetch(`${EVO}/instance/connect/${INST}`, { headers: { apikey: KEY }, signal: AbortSignal.timeout(10000) });
+    const data = await r2.json();
+    if (data.base64) return res.json({ qrcode: data.base64, status: 'qrcode' });
+    if (data.instance?.state === 'open') return res.json({ connected: true, status: 'open' });
+    res.json(data);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+r.post('/whatsapp/create-instance', async (req, res) => {
+  const EVO = process.env.EVOLUTION_API_URL;
+  const KEY = process.env.EVOLUTION_API_KEY;
+  const INST = process.env.EVOLUTION_INSTANCE || 'vittalis';
+  if (!EVO || !KEY) return res.status(400).json({ error: 'Evolution API não configurada' });
+  try {
+    const { default: fetch } = await import('node-fetch');
+    const r2 = await fetch(`${EVO}/instance/create`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: KEY },
+      body: JSON.stringify({ instanceName: INST, qrcode: true, integration: 'WHATSAPP-BAILEYS' }),
+      signal: AbortSignal.timeout(10000)
+    });
+    const data = await r2.json();
+    res.json(data);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+r.post('/whatsapp/disconnect', async (req, res) => {
+  const EVO = process.env.EVOLUTION_API_URL;
+  const KEY = process.env.EVOLUTION_API_KEY;
+  const INST = process.env.EVOLUTION_INSTANCE || 'vittalis';
+  if (!EVO || !KEY) return res.status(400).json({ error: 'Não configurado' });
+  try {
+    const { default: fetch } = await import('node-fetch');
+    await fetch(`${EVO}/instance/logout/${INST}`, { method: 'DELETE', headers: { apikey: KEY } });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
