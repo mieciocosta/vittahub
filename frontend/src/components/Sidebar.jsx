@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, MessageSquare, Users, Kanban, BarChart2, LogOut, Settings, Smartphone } from 'lucide-react';
+import { LayoutDashboard, MessageSquare, Users, Kanban, BarChart2, LogOut, Settings, Smartphone, Sun, Moon } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 
 const NAV = [
@@ -13,7 +13,7 @@ const NAV = [
 
 const initials = n => (n||'?').split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase();
 
-export default function Sidebar({ unread = 0 }) {
+export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme }) {
   const { user, logout, isMaster } = useAuth();
 
   return (
@@ -96,6 +96,11 @@ export default function Sidebar({ unread = 0 }) {
             <div style={{ color:'#fff', fontSize:13, fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{user?.nome?.split(' ')[0]}</div>
             <div style={{ color:'rgba(255,255,255,0.32)', fontSize:10.5 }}>{user?.role === 'master' ? '◆ Master' : 'Atendente'}</div>
           </div>
+          <button onClick={onToggleTheme} title={theme === 'dark' ? 'Modo claro' : 'Modo escuro'} style={{ padding:6, background:'none', color:'rgba(255,255,255,0.3)', borderRadius:6, transition:'color .15s', cursor:'pointer', border:'none' }}
+            onMouseEnter={e=>e.currentTarget.style.color='rgba(255,255,255,.7)'}
+            onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,.3)'}>
+            {theme === 'dark' ? <Sun size={13} /> : <Moon size={13} />}
+          </button>
           <button onClick={logout} style={{ padding:6, background:'none', color:'rgba(255,255,255,0.3)', borderRadius:6, transition:'color .15s', cursor:'pointer', border:'none' }}
             onMouseEnter={e=>e.currentTarget.style.color='rgba(255,255,255,.7)'}
             onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,.3)'}>

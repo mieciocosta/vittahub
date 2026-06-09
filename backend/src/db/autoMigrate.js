@@ -5,6 +5,7 @@ export default async function runMigrate() {
   try {
     await query(`CREATE EXTENSION IF NOT EXISTS "pgcrypto"`);
     await query(`CREATE EXTENSION IF NOT EXISTS pg_trgm`);
+    await query(`CREATE EXTENSION IF NOT EXISTS unaccent`).catch(() => {});
 
     await query(`CREATE TABLE IF NOT EXISTS usuarios (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
@@ -51,8 +52,12 @@ export default async function runMigrate() {
       from_type TEXT NOT NULL, type TEXT DEFAULT 'text', content TEXT,
       filename TEXT, mimetype TEXT, file_size INT,
       sender_id TEXT, sender_nome TEXT, status TEXT DEFAULT 'sent',
+      wa_msg_id TEXT,
       created_at TIMESTAMPTZ DEFAULT NOW()
     )`);
+
+    await query(`ALTER TABLE mensagens ADD COLUMN IF NOT EXISTS wa_msg_id TEXT`).catch(() => {});
+    await query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_msg_wa_id ON mensagens(wa_msg_id) WHERE wa_msg_id IS NOT NULL`).catch(() => {});
 
     await query(`CREATE INDEX IF NOT EXISTS idx_msg_conv ON mensagens(conversa_id, created_at)`);
 

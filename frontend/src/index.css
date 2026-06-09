@@ -184,3 +184,35 @@ a { text-decoration: none; color: inherit; }
 }
 .typing-dot:nth-child(2) { animation-delay: .2s; }
 .typing-dot:nth-child(3) { animation-delay: .4s; }
+
+/* ─── DARK THEME ─────────────────────────────────────────────────────────── */
+[data-theme="dark"] {
+  --bg:     #0f1923;
+  --bg2:    #162030;
+  --card:   #1a2535;
+  --border: #243347;
+  --bord2:  #2d4060;
+  --txt:    #e8f0f7;
+  --txt2:   #b8cad8;
+  --muted:  #7a95aa;
+  --light:  #4d6880;
+  --tq3:    rgba(0,184,192,0.12);
+  --tq4:    rgba(0,184,192,0.06);
+}
+[data-theme="dark"] body { background: var(--bg); color: var(--txt); }
+[data-theme="dark"] .card { background: var(--card); border-color: var(--border); }
+[data-theme="dark"] input, [data-theme="dark"] textarea, [data-theme="dark"] select {
+  background: var(--bg2) !important; color: var(--txt) !important; border-color: var(--border) !important;
+}
+[data-theme="dark"] .btn-s { background: var(--card); color: var(--txt2); border-color: var(--border); }
+[data-theme="dark"] .btn-g { background: var(--bg2); color: var(--txt2); }
+
+/* ─── RESIZABLE SIDEBAR ──────────────────────────────────────────────────── */
+.inbox-resize-handle {
+  width: 4px;
+  cursor: col-resize;
+  background: transparent;
+  transition: background .15s;
+  flex-shrink: 0;
+}
+.inbox-resize-handle:hover { background: var(--tq); }

@@ -264,6 +264,8 @@ export default function Inbox({ onUnreadChange }) {
 
   // Conversation list state
   const [convos, setConvos] = useState([]);
+  const [listWidth, setListWidth] = useState(300);
+  const resizing = useRef(false);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -455,10 +457,14 @@ export default function Inbox({ onUnreadChange }) {
   const totalUnread = useMemo(() => convos.reduce((s, c) => s + (c.unread || 0), 0), [convos]);
 
   return (
-    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}
+      onMouseMove={e => { if (resizing.current) { const w = Math.min(500, Math.max(220, e.clientX - 230)); setListWidth(w); } }}
+      onMouseUp={() => { resizing.current = false; document.body.style.cursor = ''; }}
+      onMouseLeave={() => { resizing.current = false; document.body.style.cursor = ''; }}
+    >
 
       {/* ── LEFT PANEL: Conversation list ────────────────────────────────────── */}
-      <div style={{ width: 300, flexShrink: 0, background: '#fff', display: 'flex', flexDirection: 'column', borderRight: '1px solid var(--border)' }}>
+      <div style={{ width: listWidth, flexShrink: 0, background: 'var(--card, #fff)', display: 'flex', flexDirection: 'column', borderRight: '1px solid var(--border)' }}>
         {/* Header */}
         <div style={{ padding: '14px 13px 0', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
@@ -490,6 +496,13 @@ export default function Inbox({ onUnreadChange }) {
           />
         </div>
       </div>
+      {/* Resize handle */}
+      <div className="inbox-resize-handle"
+        onMouseDown={() => { resizing.current = true; document.body.style.cursor = 'col-resize'; }}
+        style={{ width: 4, flexShrink: 0, cursor: 'col-resize', background: 'transparent', transition: 'background .15s', zIndex: 10 }}
+        onMouseEnter={e => e.currentTarget.style.background = 'var(--tq)'}
+        onMouseLeave={e => { if (!resizing.current) e.currentTarget.style.background = 'transparent'; }}
+      />
 
       {/* ── RIGHT PANEL: Chat ─────────────────────────────────────────────────── */}
       {!sel ? (

@@ -65,18 +65,17 @@ r.post('/webhook/whatsapp', async (req, res) => {
       const isMe = !!key.fromMe;
 
       if (isMe) {
-        // Só atualiza status — não duplica
-        const content = msg.message?.conversation || msg.message?.extendedTextMessage?.text || '';
-        if (content) {
-          await query(
-            `UPDATE mensagens SET status = 'delivered'
-             WHERE conversa_id IN (SELECT id FROM conversas WHERE contact_id = $1)
-               AND content = $2 AND from_type = 'me' AND status = 'sent'
-               AND created_at > NOW() - INTERVAL '3 minutes'`,
-            [remoteJid, content]
-          ).catch(() => {});
+        // fromMe: marca entregue se existir, nunca duplica
+        if (key.id) {
+          await query(`UPDATE mensagens SET status = 'delivered' WHERE wa_msg_id = $1`, [key.id]).catch(() => {});
         }
         continue;
+      }
+
+      // Deduplicação por ID da mensagem WhatsApp
+      if (key.id) {
+        const { rows: exists } = await query('SELECT id FROM mensagens WHERE wa_msg_id = $1 LIMIT 1', [key.id]);
+        if (exists.length > 0) continue; // já processada
       }
 
       const rawPhone = remoteJid.replace('@s.whatsapp.net', '').replace(/\D/g, '');
@@ -126,11 +125,12 @@ r.post('/webhook/whatsapp', async (req, res) => {
         [contactName, remoteJid, phone, content, ts]
       );
 
-      // Salva mensagem com mídia inline (base64)
+      // Salva mensagem com wa_msg_id para deduplicação
       await query(
-        `INSERT INTO mensagens (conversa_id, from_type, type, content, filename, created_at)
-         VALUES ($1, 'contact', $2, $3, $4, $5)`,
-        [conv.id, type, mediaData || content, messageType || null, ts]
+        `INSERT INTO mensagens (conversa_id, from_type, type, content, filename, created_at, wa_msg_id)
+         VALUES ($1, 'contact', $2, $3, $4, $5, $6)
+         ON CONFLICT (wa_msg_id) DO NOTHING`,
+        [conv.id, type, mediaData || content, messageType || null, ts, key.id || null]
       );
 
       await query(
@@ -209,8 +209,14 @@ r.get('/conversations', async (req, res) => {
     if (responsavel_id)               { conditions.push(`c.responsavel_id = $${pi++}`); params.push(responsavel_id); }
     if (unread_only === 'true')        { conditions.push(`c.unread > 0`); }
     if (search) {
-      conditions.push(`c.contact_name ILIKE $${pi++}`);
+      // Busca inteligente: sem acento, case insensitive, por nome ou telefone
+      conditions.push(`(
+        unaccent(lower(c.contact_name)) ILIKE unaccent(lower($${pi}))
+        OR c.phone ILIKE $${pi}
+        OR c.contact_id ILIKE $${pi}
+      )`);
       params.push(`%${search}%`);
+      pi++;
     }
 
     const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';

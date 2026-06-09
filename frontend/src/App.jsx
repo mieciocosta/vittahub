@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext.jsx';
 import Sidebar from './components/Sidebar.jsx';
@@ -14,6 +14,14 @@ import WhatsApp from './pages/WhatsApp.jsx';
 export default function App() {
   const { user, loading } = useAuth();
   const [unread, setUnread] = useState(0);
+  const [theme, setTheme] = useState(() => localStorage.getItem('vh_theme') || 'light');
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('vh_theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => setTheme(t => t === 'light' ? 'dark' : 'light');
 
   if (loading) return (
     <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', background:'linear-gradient(135deg,#0d3d52,#207898)' }}>
@@ -28,7 +36,7 @@ export default function App() {
 
   return (
     <div style={{ display:'flex', minHeight:'100vh' }}>
-      <Sidebar unread={unread} />
+      <Sidebar unread={unread} theme={theme} onToggleTheme={toggleTheme} />
       <main style={{ marginLeft:'var(--sw)', flex:1, minHeight:'100vh', overflowX:'hidden' }}>
         <Routes>
           <Route path="/" element={<Dashboard />} />
