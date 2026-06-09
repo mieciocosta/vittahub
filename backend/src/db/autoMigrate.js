@@ -1,6 +1,6 @@
 import { query } from './pool.js';
-import bcrypt from 'bcryptjs';
 
+// Runs idempotent CREATE TABLE IF NOT EXISTS on startup
 export default async function runMigrate() {
   try {
     await query(`CREATE EXTENSION IF NOT EXISTS "pgcrypto"`);
@@ -10,7 +10,7 @@ export default async function runMigrate() {
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
       nome TEXT NOT NULL, email TEXT UNIQUE NOT NULL, senha TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'atendente', cor TEXT DEFAULT '#00B8C0',
-      ativo BOOLEAN DEFAULT true, created_at TIMESTAMPTZ DEFAULT NOW()
+      ativo BOOLEAN DEFAULT true, created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()
     )`);
 
     await query(`CREATE TABLE IF NOT EXISTS leads (
@@ -21,11 +21,12 @@ export default async function runMigrate() {
       valor_proposta NUMERIC(10,2) DEFAULT 0, servico TEXT,
       data_entrada DATE DEFAULT CURRENT_DATE, data_retorno DATE,
       observacoes TEXT, motivo_perda TEXT, tags TEXT[] DEFAULT '{}',
-      created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()
+      vittasys_id TEXT, created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()
     )`);
 
     await query(`CREATE INDEX IF NOT EXISTS idx_leads_status ON leads(status)`);
     await query(`CREATE INDEX IF NOT EXISTS idx_leads_resp ON leads(responsavel_id)`);
+    await query(`CREATE INDEX IF NOT EXISTS idx_leads_nome ON leads USING gin(nome gin_trgm_ops)`);
 
     await query(`CREATE TABLE IF NOT EXISTS conversas (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
@@ -33,10 +34,16 @@ export default async function runMigrate() {
       phone TEXT, lead_id TEXT, responsavel_id TEXT,
       last_message TEXT, last_message_at TIMESTAMPTZ DEFAULT NOW(),
       unread INT DEFAULT 0, bot_ativo BOOLEAN DEFAULT false,
-      tags TEXT[] DEFAULT '{}', created_at TIMESTAMPTZ DEFAULT NOW()
+      profile_pic TEXT,
+      tags TEXT[] DEFAULT '{}', created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()
     )`);
 
+    // Add profile_pic column if not exists (for existing databases)
+    await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS profile_pic TEXT`).catch(() => {});
+
     await query(`CREATE INDEX IF NOT EXISTS idx_conv_last ON conversas(last_message_at DESC)`);
+    await query(`CREATE INDEX IF NOT EXISTS idx_conv_channel ON conversas(channel)`);
+    await query(`CREATE INDEX IF NOT EXISTS idx_conv_contact ON conversas(contact_id)`);
 
     await query(`CREATE TABLE IF NOT EXISTS mensagens (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
@@ -60,14 +67,17 @@ export default async function runMigrate() {
       lida BOOLEAN DEFAULT false, created_at TIMESTAMPTZ DEFAULT NOW()
     )`);
 
+    await query(`CREATE INDEX IF NOT EXISTS idx_notif_lida ON notificacoes(lida) WHERE lida = false`);
+
     await query(`CREATE TABLE IF NOT EXISTS configuracoes (
       chave TEXT PRIMARY KEY, valor JSONB NOT NULL, updated_at TIMESTAMPTZ DEFAULT NOW()
     )`);
 
-    // Seed usuarios se vazio
+    // Seed initial users if empty
     const { rows } = await query('SELECT COUNT(*) FROM usuarios');
     if (parseInt(rows[0].count) === 0) {
-      const HASH = await bcrypt.hash('vittalis123', 10);
+      const bcrypt = await import('bcryptjs');
+      const HASH = await bcrypt.default.hash('vittalis123', 10);
       await query(`INSERT INTO usuarios (id,nome,email,senha,role,cor) VALUES
         ('u1','Miecio Costa','miecio@vittalissaude.com.br',$1,'master','#00B8C0'),
         ('u2','Nágila Santos','nagila@vittalissaude.com.br',$1,'atendente','#C4973B'),
@@ -77,22 +87,18 @@ export default async function runMigrate() {
 
       await query(`INSERT INTO respostas_rapidas (titulo,texto) VALUES
         ('Boas-vindas','Olá! 👋 Seja bem-vindo(a) à *Vittalis Saúde* 💎 Como posso te ajudar?'),
-        ('Horário','Atendemos seg-sáb 8h-18h 📅'),
-        ('Valores','Qual vacina ou serviço você precisa? 💉'),
-        ('Plano Vacinal','Temos planos vacinais para adultos e crianças! Posso enviar os detalhes? 📋'),
+        ('Horário','Atendemos seg-sáb 8h-18h. Dom e feriados 8h-12h 📅'),
+        ('Solicitar valores','Qual vacina ou serviço você precisa? 💉'),
+        ('Plano Vacinal','Temos planos vacinais completos para adultos e crianças! Posso enviar os detalhes? 📋'),
         ('Agendamento','Ótimo! Qual o melhor horário? (manhã ou tarde?) 📅'),
-        ('Fechar','Obrigado(a) pelo contato! 🙏 Cuide-se!')
-        ON CONFLICT DO NOTHING`);
+        ('Fechar','Muito obrigado(a) pelo contato! 🙏 Cuide-se!') ON CONFLICT DO NOTHING`);
 
-      await query(`INSERT INTO configuracoes (chave,valor) VALUES
-        ('bot','{"ativo":true,"mensagemBoasVindas":"Olá! 💎 Sou a assistente da Vittalis Saúde!\\n\\n1️⃣ Vacinas\\n2️⃣ Plano Vacinal\\n3️⃣ Consultas\\n4️⃣ Atendente","respostas":{"1":"Um atendente enviará os valores!","2":"Planos completos! Aguarde um atendente!","3":"Consultas especializadas!","4":"Chamando atendente! 😊","default":"Vou chamar um atendente! 😊"},"transferirApos":1}')
-        ON CONFLICT DO NOTHING`);
-
-      console.log('🌱 Seed inicial aplicado — usuários criados');
+      await query(`INSERT INTO configuracoes (chave,valor) VALUES ('bot','{"ativo":true,"mensagemBoasVindas":"Olá! 💎 Sou a assistente da Vittalis Saúde!\\n\\n1️⃣ Vacinas avulsas\\n2️⃣ Plano Vacinal\\n3️⃣ Consultas\\n4️⃣ Falar com atendente","respostas":{"1":"Um atendente enviará os valores! 💉","2":"Planos completos! Um atendente irá te ajudar! 👶","3":"Consultas especializadas 🩺","4":"Já chamo um atendente! 😊","default":"Vou chamar um atendente 😊"},"transferirApos":1}') ON CONFLICT DO NOTHING`);
+      console.log('🌱 Initial seed complete');
     }
 
-    console.log('✅ Migrations OK');
+    console.log('✅ Auto-migrate complete');
   } catch (err) {
-    console.error('⚠️  Migration error (não fatal):', err.message);
+    console.error('⚠️  Auto-migrate error (non-fatal):', err.message);
   }
 }

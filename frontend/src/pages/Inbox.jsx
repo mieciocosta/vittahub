@@ -73,14 +73,17 @@ const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect }) {
       }}
       onMouseEnter={e => { if (!selected) e.currentTarget.style.background = 'var(--bg)'; }}
       onMouseLeave={e => { if (!selected) e.currentTarget.style.background = 'transparent'; }}>
-      {/* Avatar */}
+      {/* Avatar com foto de perfil */}
       <div style={{ width: 38, height: 38, borderRadius: '50%', flexShrink: 0,
         background: conv.channel === 'whatsapp' ? '#d4f7e0' : '#fce4ef',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         fontWeight: 700, fontSize: 13, color: conv.channel === 'whatsapp' ? '#0a7a40' : '#9a1050',
-        position: 'relative'
+        position: 'relative', overflow: 'hidden'
       }}>
-        {(conv.contact_name || '?').split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase()}
+        {conv.profile_pic
+          ? <img src={conv.profile_pic} alt="" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover', position: 'absolute', inset: 0 }} onError={e => { e.target.style.display = 'none'; }} />
+          : (conv.contact_name || '?').split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase()
+        }
         <span style={{ position: 'absolute', bottom: -1, right: -1, width: 14, height: 14, borderRadius: '50%',
           background: conv.channel === 'whatsapp' ? 'var(--wa)' : 'var(--ig)',
           display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid #fff'

@@ -2,23 +2,47 @@ import express from 'express';
 import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { v4 as uuid } from 'uuid';
 import { query } from '../db/pool.js';
 import { auth } from '../middleware/auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const r = express.Router();
+
+// Upload em memória (não disco — Railway não tem storage persistente)
 const upload = multer({
-  storage: multer.diskStorage({
-    destination: path.join(__dirname, '../../../uploads'),
-    filename: (_, f, cb) => cb(null, `${Date.now()}-${f.originalname.replace(/[^a-z0-9._-]/gi,'_')}`)
-  }),
+  storage: multer.memoryStorage(),
   limits: { fileSize: 25 * 1024 * 1024 }
 });
 
-// ─── ROTAS PÚBLICAS (sem JWT) — webhooks externos ────────────────────────────
-// IMPORTANTE: devem vir ANTES do r.use(auth)
+// ─── HELPERS ─────────────────────────────────────────────────────────────────
+const EVO_URL  = () => process.env.EVOLUTION_API_URL  || '';
+const EVO_KEY  = () => process.env.EVOLUTION_API_KEY  || '';
+const EVO_INST = () => process.env.EVOLUTION_INSTANCE || 'vittalis';
 
+async function evoFetch(path, method = 'GET', body = null) {
+  const { default: fetch } = await import('node-fetch');
+  return fetch(`${EVO_URL()}${path}`, {
+    method,
+    headers: { 'Content-Type': 'application/json', apikey: EVO_KEY() },
+    body: body ? JSON.stringify(body) : undefined,
+    signal: AbortSignal.timeout(15000)
+  });
+}
+
+async function getMediaBase64(messageId, messageType, remoteJid) {
+  try {
+    const r = await evoFetch(`/chat/getBase64FromMediaMessage/${EVO_INST()}`, 'POST', {
+      message: { key: { remoteJid, id: messageId }, messageType }
+    });
+    if (r.ok) {
+      const d = await r.json();
+      return d.base64 ? `data:${d.mimetype || 'image/jpeg'};base64,${d.base64}` : null;
+    }
+  } catch (e) { console.error('getBase64 error:', e.message); }
+  return null;
+}
+
+// ─── ROTAS PÚBLICAS (sem JWT) ─────────────────────────────────────────────────
 r.post('/webhook/whatsapp', async (req, res) => {
   res.json({ ok: true });
   try {
@@ -40,15 +64,18 @@ r.post('/webhook/whatsapp', async (req, res) => {
       const remoteJid = key.remoteJid;
       const isMe = !!key.fromMe;
 
-      // fromMe: só atualiza status, nunca duplica
       if (isMe) {
-        await query(
-          `UPDATE mensagens SET status = 'delivered'
-           WHERE conversa_id IN (SELECT id FROM conversas WHERE contact_id = $1)
-             AND content = $2 AND from_type = 'me' AND status = 'sent'
-             AND created_at > NOW() - INTERVAL '2 minutes'`,
-          [remoteJid, msg.message?.conversation || msg.message?.extendedTextMessage?.text || '']
-        ).catch(() => {});
+        // Só atualiza status — não duplica
+        const content = msg.message?.conversation || msg.message?.extendedTextMessage?.text || '';
+        if (content) {
+          await query(
+            `UPDATE mensagens SET status = 'delivered'
+             WHERE conversa_id IN (SELECT id FROM conversas WHERE contact_id = $1)
+               AND content = $2 AND from_type = 'me' AND status = 'sent'
+               AND created_at > NOW() - INTERVAL '3 minutes'`,
+            [remoteJid, content]
+          ).catch(() => {});
+        }
         continue;
       }
 
@@ -58,22 +85,29 @@ r.post('/webhook/whatsapp', async (req, res) => {
       const contactName = (pushName && pushName.length > 2 && pushName !== phone) ? pushName : phone;
 
       const m = msg.message || {};
-      let content = '[mensagem]', type = 'text', mediaUrl = null;
+      let content = '[mensagem]', type = 'text', mediaData = null;
+      let messageType = '';
 
-      if (m.conversation)                        { content = m.conversation; }
-      else if (m.extendedTextMessage?.text)       { content = m.extendedTextMessage.text; }
-      else if (m.imageMessage)                    { content = m.imageMessage.caption || '📷 Imagem'; type = 'image'; }
-      else if (m.videoMessage)                    { content = m.videoMessage.caption || '🎥 Vídeo'; type = 'video'; }
-      else if (m.audioMessage || m.pttMessage)    { content = '🎵 Áudio'; type = 'audio'; }
-      else if (m.documentMessage)                 { content = `📎 ${m.documentMessage.fileName || 'Documento'}`; type = 'document'; }
-      else if (m.stickerMessage)                  { content = '🎭 Sticker'; type = 'image'; }
-      else if (m.locationMessage)                 { content = `📍 ${m.locationMessage.address || 'Localização'}`; }
-      else if (m.contactMessage)                  { content = `👤 ${m.contactMessage.displayName || 'Contato'}`; }
-      else if (m.reactionMessage)                 { content = `${m.reactionMessage.text || '👍'} (reação)`; }
+      if (m.conversation)                     { content = m.conversation; }
+      else if (m.extendedTextMessage?.text)    { content = m.extendedTextMessage.text; }
+      else if (m.imageMessage)                 { content = m.imageMessage.caption || '📷 Imagem'; type = 'image'; messageType = 'imageMessage'; }
+      else if (m.videoMessage)                 { content = m.videoMessage.caption || '🎥 Vídeo'; type = 'video'; messageType = 'videoMessage'; }
+      else if (m.audioMessage)                 { content = '🎵 Áudio'; type = 'audio'; messageType = 'audioMessage'; }
+      else if (m.pttMessage)                   { content = '🎵 Áudio'; type = 'audio'; messageType = 'pttMessage'; }
+      else if (m.documentMessage)              { content = `📎 ${m.documentMessage.fileName || 'Documento'}`; type = 'document'; messageType = 'documentMessage'; }
+      else if (m.stickerMessage)               { content = '🎭 Sticker'; type = 'image'; messageType = 'stickerMessage'; }
+      else if (m.locationMessage)              { content = `📍 ${m.locationMessage.address || 'Localização'}`; }
+      else if (m.contactMessage)               { content = `👤 ${m.contactMessage.displayName || 'Contato'}`; }
+      else if (m.reactionMessage)              { content = `${m.reactionMessage.text || '👍'} (reação)`; }
 
       const ts = msg.messageTimestamp
         ? new Date(parseInt(String(msg.messageTimestamp)) * 1000).toISOString()
         : new Date().toISOString();
+
+      // Busca mídia em base64 se necessário
+      if (messageType && key.id) {
+        mediaData = await getMediaBase64(key.id, messageType, remoteJid);
+      }
 
       // Upsert conversa
       const { rows: [conv] } = await query(`
@@ -88,58 +122,41 @@ r.post('/webhook/whatsapp', async (req, res) => {
           unread = conversas.unread + 1,
           last_message = EXCLUDED.last_message,
           last_message_at = EXCLUDED.last_message_at
-        RETURNING *`, [contactName, remoteJid, phone, content, ts]);
+        RETURNING *`,
+        [contactName, remoteJid, phone, content, ts]
+      );
 
+      // Salva mensagem com mídia inline (base64)
       await query(
-        `INSERT INTO mensagens (conversa_id, from_type, type, content, created_at) VALUES ($1,'contact',$2,$3,$4)`,
-        [conv.id, type, content, ts]
+        `INSERT INTO mensagens (conversa_id, from_type, type, content, filename, created_at)
+         VALUES ($1, 'contact', $2, $3, $4, $5)`,
+        [conv.id, type, mediaData || content, messageType || null, ts]
       );
 
       await query(
-        `INSERT INTO notificacoes (tipo,titulo,texto,conv_id) VALUES ('mensagem',$1,$2,$3)`,
-        [`${contactName}`, content.slice(0, 80), conv.id]
+        `INSERT INTO notificacoes (tipo, titulo, texto, conv_id) VALUES ('mensagem',$1,$2,$3)`,
+        [contactName, content.slice(0, 80), conv.id]
       ).catch(() => {});
 
-      // ── BOT ─────────────────────────────────────────────────────────────
+      // Bot
       if (conv.bot_ativo) {
         try {
           const { rows: [cfgRow] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'");
           const cfg = cfgRow?.valor || {};
           if (cfg.ativo !== false) {
+            const { rows: countRow } = await query('SELECT COUNT(*) n FROM mensagens WHERE conversa_id = $1', [conv.id]);
+            const msgCount = parseInt(countRow[0].n);
             const respostas = cfg.respostas || {};
-            const texto = content.trim();
-            let botReply = respostas[texto] || respostas['default'] || '';
-
-            // Primeira mensagem — envia boas-vindas
-            const { rows: msgCount } = await query(
-              'SELECT COUNT(*) n FROM mensagens WHERE conversa_id = $1', [conv.id]
-            );
-            if (parseInt(msgCount[0].n) <= 1 && cfg.mensagemBoasVindas) {
+            let botReply = '';
+            if (msgCount <= 1 && cfg.mensagemBoasVindas) {
               botReply = cfg.mensagemBoasVindas;
+            } else {
+              botReply = respostas[content.trim()] || respostas['default'] || '';
             }
-
-            if (botReply) {
-              const EVO = process.env.EVOLUTION_API_URL;
-              const KEY = process.env.EVOLUTION_API_KEY;
-              const INST = process.env.EVOLUTION_INSTANCE || 'vittalis';
-              if (EVO && KEY) {
-                const { default: fetch } = await import('node-fetch');
-                await fetch(`${EVO}/message/sendText/${INST}`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json', apikey: KEY },
-                  body: JSON.stringify({ number: rawPhone, text: botReply })
-                });
-                // Salva resposta do bot
-                await query(
-                  `INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome)
-                   VALUES ($1, 'me', 'text', $2, 'Bot Vittalis')`,
-                  [conv.id, botReply]
-                );
-                await query(
-                  'UPDATE conversas SET last_message=$1, last_message_at=NOW() WHERE id=$2',
-                  [botReply.slice(0, 100), conv.id]
-                );
-              }
+            if (botReply && EVO_URL() && EVO_KEY()) {
+              await evoFetch(`/message/sendText/${EVO_INST()}`, 'POST', { number: rawPhone, text: botReply });
+              await query(`INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome) VALUES ($1,'me','text',$2,'Bot Vittalis')`, [conv.id, botReply]);
+              await query('UPDATE conversas SET last_message=$1, last_message_at=NOW() WHERE id=$2', [botReply.slice(0, 100), conv.id]);
             }
           }
         } catch (e) { console.error('Bot error:', e.message); }
@@ -147,6 +164,7 @@ r.post('/webhook/whatsapp', async (req, res) => {
     }
   } catch (err) { console.error('WA_ERROR:', err.message); }
 });
+
 r.post('/webhook/instagram', async (req, res) => {
   try {
     const { object, entry } = req.body;
@@ -165,7 +183,7 @@ r.post('/webhook/instagram', async (req, res) => {
       }
     }
     res.json({ ok: true });
-  } catch (err) { console.error('IG webhook:', err.message); res.json({ ok: true }); }
+  } catch (err) { res.json({ ok: true }); }
 });
 
 r.get('/webhook/instagram', (req, res) => {
@@ -174,7 +192,8 @@ r.get('/webhook/instagram', (req, res) => {
   else res.sendStatus(403);
 });
 
-// ─── A partir daqui requer JWT ────────────────────────────────────────────────
+// ─── JWT REQUIRED BELOW ───────────────────────────────────────────────────────
+r.use(auth);
 r.use(auth);
 
 // ─── CONVERSATIONS LIST (paginated + search, high-performance) ──────────────
@@ -337,19 +356,63 @@ r.post('/conversations/:id/upload', upload.single('file'), async (req, res) => {
   try {
     const f = req.file;
     if (!f) return res.status(400).json({ error: 'Arquivo não enviado' });
-    const type = f.mimetype.startsWith('audio/') ? 'audio' : f.mimetype.startsWith('image/') ? 'image' : f.mimetype.startsWith('video/') ? 'video' : 'document';
+
+    const type = f.mimetype.startsWith('audio/') ? 'audio'
+               : f.mimetype.startsWith('image/') ? 'image'
+               : f.mimetype.startsWith('video/') ? 'video'
+               : 'document';
+
+    // Converte para base64 para armazenar inline (Railway sem storage persistente)
+    const base64 = f.buffer.toString('base64');
+    const dataUrl = `data:${f.mimetype};base64,${base64}`;
+
+    const preview = type === 'audio' ? '🎵 Áudio'
+                  : type === 'image' ? '📷 Imagem'
+                  : type === 'video' ? '🎥 Vídeo'
+                  : `📎 ${f.originalname}`;
 
     const { rows: [msg] } = await query(`
       INSERT INTO mensagens (conversa_id, from_type, type, content, filename, mimetype, file_size, sender_id, sender_nome)
       VALUES ($1, 'me', $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-      [req.params.id, type, `/uploads/${f.filename}`, f.originalname, f.mimetype, f.size, req.user.id, req.user.nome]
+      [req.params.id, type, dataUrl, f.originalname, f.mimetype, f.size, req.user.id, req.user.nome]
     );
 
-    const preview = type === 'audio' ? '🎵 Áudio' : type === 'image' ? '📷 Imagem' : type === 'video' ? '🎥 Vídeo' : `📎 ${f.originalname}`;
     await query('UPDATE conversas SET last_message = $1, last_message_at = NOW() WHERE id = $2', [preview, req.params.id]);
 
+    // Envia via Evolution API usando base64
+    const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
+    if (conv && EVO_URL() && EVO_KEY() && conv.channel === 'whatsapp') {
+      try {
+        const waNumber = conv.contact_id
+          ? conv.contact_id.replace('@s.whatsapp.net', '')
+          : `55${conv.phone}`;
+
+        if (type === 'audio') {
+          await evoFetch(`/message/sendWhatsAppAudio/${EVO_INST()}`, 'POST', {
+            number: waNumber,
+            audio: base64,
+            encoding: true
+          });
+        } else {
+          const mediatype = type === 'image' ? 'image' : type === 'video' ? 'video' : 'document';
+          await evoFetch(`/message/sendMedia/${EVO_INST()}`, 'POST', {
+            number: waNumber,
+            mediatype,
+            mimetype: f.mimetype,
+            media: base64,
+            fileName: f.originalname,
+            caption: ''
+          });
+        }
+        await query("UPDATE mensagens SET status = 'delivered' WHERE id = $1", [msg.id]);
+      } catch (e) { console.error('EVO media send error:', e.message); }
+    }
+
     res.json(msg);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) {
+    console.error('Upload error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ─── CONVERT TO LEAD ──────────────────────────────────────────────────────────
@@ -573,7 +636,10 @@ r.post('/whatsapp/import-history', async (req, res) => {
         for (const c of cList) {
           const jid = c.remoteJid || c.id || '';
           const name = c.pushName || c.name || c.verifiedName || '';
-          if (jid && name) contacts[jid] = name;
+          const pic  = c.profilePicUrl || c.imgUrl || '';
+          if (jid) {
+            if (name) contacts[jid] = { name, pic };
+          }
         }
         console.log(`IMPORT: ${Object.keys(contacts).length} contatos carregados`);
       }
@@ -592,8 +658,10 @@ r.post('/whatsapp/import-history', async (req, res) => {
 
       const rawPhone2 = remoteJid.replace('@s.whatsapp.net', '').replace(/\D/g, ''); const phone = rawPhone2.startsWith('55') ? rawPhone2.slice(2) : rawPhone2;
 
-      // Resolve nome: prioridade contatos > pushName do chat > nome do chat
-      const name = contacts[remoteJid] || chat.pushName || chat.name || phone;
+      // Resolve nome e foto: prioridade contatos > pushName do chat > nome do chat
+      const contactInfo = contacts[remoteJid] || {};
+      const name = contactInfo.name || chat.pushName || chat.name || phone;
+      const profilePic = contactInfo.pic || chat.profilePicUrl || '';
 
       const extractContent = (msgObj) => {
         const m = msgObj?.message || msgObj || {};
@@ -614,20 +682,21 @@ r.post('/whatsapp/import-history', async (req, res) => {
         ? new Date(parseInt(String(chat.lastMessage.messageTimestamp)) * 1000).toISOString()
         : new Date().toISOString();
 
-      // Upsert conversa com nome correto
+      // Upsert conversa com nome e foto corretos
       const { rows: [conv] } = await query(`
-        INSERT INTO conversas (channel, contact_name, contact_id, phone, last_message, last_message_at, unread)
-        VALUES ('whatsapp', $1, $2, $3, $4, $5, $6)
+        INSERT INTO conversas (channel, contact_name, contact_id, phone, last_message, last_message_at, unread, profile_pic)
+        VALUES ('whatsapp', $1, $2, $3, $4, $5, $6, $7)
         ON CONFLICT (contact_id) DO UPDATE SET
           contact_name = CASE
             WHEN length(EXCLUDED.contact_name) > 5 AND EXCLUDED.contact_name != EXCLUDED.phone
             THEN EXCLUDED.contact_name
             ELSE conversas.contact_name
           END,
+          profile_pic = COALESCE(EXCLUDED.profile_pic, conversas.profile_pic),
           last_message = EXCLUDED.last_message,
           last_message_at = EXCLUDED.last_message_at
         RETURNING *`,
-        [name, remoteJid, phone, lastMsg, lastTime, chat.unreadCount || 0]
+        [name, remoteJid, phone, lastMsg, lastTime, chat.unreadCount || 0, profilePic || null]
       );
 
       // Busca mensagens do chat (últimas 50)
