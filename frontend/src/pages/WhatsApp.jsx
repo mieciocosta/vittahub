@@ -13,6 +13,8 @@ export default function WhatsApp() {
   const [polling, setPolling] = useState(false);
   const [creating, setCreating] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState(null);
   const [pollInterval, setPollInterval] = useState(null);
 
   const checkStatus = useCallback(async () => {
@@ -94,6 +96,18 @@ export default function WhatsApp() {
       setQrcode(null);
       stopPolling();
     } catch (e) { alert(e.message); }
+  };
+
+  const importHistory = async () => {
+    setImporting(true);
+    setImportResult(null);
+    try {
+      const data = await api.post('/inbox/whatsapp/import-history', {});
+      setImportResult(data);
+    } catch (e) {
+      setImportResult({ error: e.message });
+    }
+    setImporting(false);
   };
 
   if (!isMaster) {
@@ -209,9 +223,8 @@ export default function WhatsApp() {
         </div>
       )}
 
-      {/* Connected info */}
       {status === 'connected' && (
-        <div className="card anim" style={{ padding: '20px 24px', background: 'linear-gradient(135deg, #f0fdf4, #dcfce7)', border: '1.5px solid #86efac' }}>
+        <div className="card anim" style={{ padding: '20px 24px', background: 'linear-gradient(135deg, #f0fdf4, #dcfce7)', border: '1.5px solid #86efac', marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <CheckCircle size={22} color="#16a34a" />
             <div>
@@ -221,6 +234,28 @@ export default function WhatsApp() {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {status === 'connected' && (
+        <div className="card" style={{ padding: '20px 24px' }}>
+          <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 6 }}>📥 Importar histórico</h3>
+          <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14 }}>
+            Carrega as conversas existentes do WhatsApp para o Inbox (últimas 100 conversas).
+          </p>
+          <button onClick={importHistory} disabled={importing} className="btn btn-p">
+            {importing ? <><span className="spin" style={{ width: 14, height: 14 }} /> Importando...</> : '📥 Importar conversas do WhatsApp'}
+          </button>
+          {importResult && !importResult.error && (
+            <div style={{ marginTop: 12, padding: '10px 14px', background: 'var(--ok2)', borderRadius: 8, fontSize: 13, color: '#065f46', fontWeight: 600 }}>
+              ✅ {importResult.imported} conversas importadas de {importResult.total} encontradas. Abra o Inbox para ver.
+            </div>
+          )}
+          {importResult?.error && (
+            <div style={{ marginTop: 12, padding: '10px 14px', background: 'var(--err2)', borderRadius: 8, fontSize: 13, color: 'var(--err)' }}>
+              ⚠️ {importResult.error}
+            </div>
+          )}
         </div>
       )}
 

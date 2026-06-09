@@ -387,12 +387,80 @@ r.get('/whatsapp/status', async (req, res) => {
   if (!EVO || !KEY) return res.json({ connected: false, status: 'not_configured', message: 'Evolution API não configurada' });
   try {
     const { default: fetch } = await import('node-fetch');
-    const r2 = await fetch(`${EVO}/instance/fetchInstances`, { headers: { apikey: KEY }, signal: AbortSignal.timeout(5000) });
-    const data = await r2.json();
-    const inst = Array.isArray(data) ? data.find(i => i.name === INST || i.instance?.instanceName === INST) : null;
-    const state = inst?.instance?.state || inst?.state || 'closed';
+    // v2 uses /instance/connectionState/:instance
+    const r2 = await fetch(`${EVO}/instance/connectionState/${INST}`, { headers: { apikey: KEY }, signal: AbortSignal.timeout(8000) });
+    if (r2.ok) {
+      const data = await r2.json();
+      // v2 returns { instance: { state: 'open' } } or { state: 'open' }
+      const state = data?.instance?.state || data?.state || data?.currentState || 'closed';
+      return res.json({ connected: state === 'open', status: state, instance: INST });
+    }
+    // Fallback: fetchInstances
+    const r3 = await fetch(`${EVO}/instance/fetchInstances`, { headers: { apikey: KEY }, signal: AbortSignal.timeout(8000) });
+    const list = await r3.json();
+    const arr = Array.isArray(list) ? list : (list?.data || [list]);
+    const inst = arr.find(i =>
+      i.name === INST ||
+      i.instance?.instanceName === INST ||
+      i.instanceName === INST
+    );
+    const state = inst?.instance?.state || inst?.state || inst?.connectionStatus || 'closed';
     res.json({ connected: state === 'open', status: state, instance: INST });
-  } catch (e) { res.json({ connected: false, status: 'error', message: e.message }); }
+  } catch (e) {
+    console.error('WA status error:', e.message);
+    res.json({ connected: false, status: 'error', message: e.message });
+  }
+});
+
+// ─── IMPORT WHATSAPP HISTORY ──────────────────────────────────────────────────
+r.post('/whatsapp/import-history', async (req, res) => {
+  const EVO = process.env.EVOLUTION_API_URL;
+  const KEY = process.env.EVOLUTION_API_KEY;
+  const INST = process.env.EVOLUTION_INSTANCE || 'vittalis';
+  if (!EVO || !KEY) return res.status(400).json({ error: 'Não configurado' });
+  try {
+    const { default: fetch } = await import('node-fetch');
+    // Get all chats from Evolution API
+    const r2 = await fetch(`${EVO}/chat/findChats/${INST}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: KEY },
+      body: JSON.stringify({}),
+      signal: AbortSignal.timeout(30000)
+    });
+    const chats = await r2.json();
+    const chatList = Array.isArray(chats) ? chats : (chats?.data || []);
+
+    let imported = 0;
+    for (const chat of chatList.slice(0, 100)) { // max 100 chats
+      const phone = (chat.id || chat.remoteJid || '').replace('@s.whatsapp.net','').replace(/^55/,'');
+      const name = chat.name || chat.pushName || phone;
+      if (!phone || phone.includes('@')) continue;
+
+      // Upsert conversation
+      await query(`
+        INSERT INTO conversas (channel, contact_name, contact_id, phone, last_message, last_message_at, unread)
+        VALUES ('whatsapp', $1, $2, $3, $4, $5, $6)
+        ON CONFLICT (contact_id) DO UPDATE SET
+          contact_name = EXCLUDED.contact_name,
+          last_message = EXCLUDED.last_message,
+          last_message_at = EXCLUDED.last_message_at,
+          unread = EXCLUDED.unread
+      `, [
+        name,
+        phone + '@s.whatsapp.net',
+        phone,
+        chat.lastMessage?.message?.conversation || chat.lastMessage?.message?.extendedTextMessage?.text || '...',
+        chat.lastMessage?.messageTimestamp ? new Date(chat.lastMessage.messageTimestamp * 1000).toISOString() : new Date().toISOString(),
+        chat.unreadCount || 0
+      ]);
+      imported++;
+    }
+
+    res.json({ ok: true, imported, total: chatList.length });
+  } catch (e) {
+    console.error('Import history error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 r.get('/whatsapp/qrcode', async (req, res) => {
