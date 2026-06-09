@@ -35,71 +35,118 @@ r.post('/webhook/whatsapp', async (req, res) => {
       const key = msg.key || {};
       if (!key.remoteJid) continue;
       if (key.remoteJid.endsWith('@g.us')) continue;
+      if (key.remoteJid.endsWith('@lid')) continue;
 
       const remoteJid = key.remoteJid;
       const isMe = !!key.fromMe;
-      const rawPhone = remoteJid.replace("@s.whatsapp.net", "").replace(/\\D/g, "");
-      const phone = rawPhone.startsWith("55") ? rawPhone.slice(2) : rawPhone;
+
+      // fromMe: só atualiza status, nunca duplica
+      if (isMe) {
+        await query(
+          `UPDATE mensagens SET status = 'delivered'
+           WHERE conversa_id IN (SELECT id FROM conversas WHERE contact_id = $1)
+             AND content = $2 AND from_type = 'me' AND status = 'sent'
+             AND created_at > NOW() - INTERVAL '2 minutes'`,
+          [remoteJid, msg.message?.conversation || msg.message?.extendedTextMessage?.text || '']
+        ).catch(() => {});
+        continue;
+      }
+
+      const rawPhone = remoteJid.replace('@s.whatsapp.net', '').replace(/\D/g, '');
+      const phone = rawPhone.startsWith('55') ? rawPhone.slice(2) : rawPhone;
       const pushName = msg.pushName || msg.verifiedBizName || '';
-      const contactName = (pushName && pushName !== phone && pushName.length > 2) ? pushName : phone;
+      const contactName = (pushName && pushName.length > 2 && pushName !== phone) ? pushName : phone;
 
       const m = msg.message || {};
-      let content = '[mensagem]', type = 'text';
+      let content = '[mensagem]', type = 'text', mediaUrl = null;
+
       if (m.conversation)                        { content = m.conversation; }
       else if (m.extendedTextMessage?.text)       { content = m.extendedTextMessage.text; }
       else if (m.imageMessage)                    { content = m.imageMessage.caption || '📷 Imagem'; type = 'image'; }
       else if (m.videoMessage)                    { content = m.videoMessage.caption || '🎥 Vídeo'; type = 'video'; }
       else if (m.audioMessage || m.pttMessage)    { content = '🎵 Áudio'; type = 'audio'; }
       else if (m.documentMessage)                 { content = `📎 ${m.documentMessage.fileName || 'Documento'}`; type = 'document'; }
-      else if (m.stickerMessage)                  { content = '🎭 Sticker'; }
-      else if (m.locationMessage)                 { content = '📍 Localização'; }
-      else if (m.contactMessage)                  { content = `👤 ${m.contactMessage.displayName || ''}`; }
+      else if (m.stickerMessage)                  { content = '🎭 Sticker'; type = 'image'; }
+      else if (m.locationMessage)                 { content = `📍 ${m.locationMessage.address || 'Localização'}`; }
+      else if (m.contactMessage)                  { content = `👤 ${m.contactMessage.displayName || 'Contato'}`; }
+      else if (m.reactionMessage)                 { content = `${m.reactionMessage.text || '👍'} (reação)`; }
 
       const ts = msg.messageTimestamp
         ? new Date(parseInt(String(msg.messageTimestamp)) * 1000).toISOString()
         : new Date().toISOString();
 
-      // Se é mensagem enviada pelo VittaHub (fromMe), só atualiza status — não duplica
-      if (isMe) {
-        // Tenta marcar como delivered a mensagem já salva com mesmo conteúdo
-        await query(
-          `UPDATE mensagens SET status = 'delivered' WHERE conversa_id IN (SELECT id FROM conversas WHERE contact_id = $1) AND content = $2 AND from_type = 'me' AND status = 'sent' AND created_at > NOW() - INTERVAL '1 minute'`,
-          [remoteJid, content]
-        ).catch(() => {});
-        continue; // não processa como nova mensagem
-      }
-
-      console.log(`WA_MSG: name="${contactName}" phone="${phone}" content="${content.slice(0,60)}"`);
-
-      // Upsert conversa — atualiza nome se tiver um melhor
+      // Upsert conversa
       const { rows: [conv] } = await query(`
         INSERT INTO conversas (channel, contact_name, contact_id, phone, unread, last_message, last_message_at)
         VALUES ('whatsapp', $1, $2, $3, 1, $4, $5)
         ON CONFLICT (contact_id) DO UPDATE SET
           contact_name = CASE
-            WHEN length(EXCLUDED.contact_name) > 8 AND EXCLUDED.contact_name != EXCLUDED.phone
+            WHEN length(EXCLUDED.contact_name) > 5 AND EXCLUDED.contact_name != EXCLUDED.phone
             THEN EXCLUDED.contact_name
             ELSE conversas.contact_name
           END,
           unread = conversas.unread + 1,
           last_message = EXCLUDED.last_message,
           last_message_at = EXCLUDED.last_message_at
-        RETURNING *`,
-        [contactName, remoteJid, phone, content, ts]
-      );
+        RETURNING *`, [contactName, remoteJid, phone, content, ts]);
 
       await query(
         `INSERT INTO mensagens (conversa_id, from_type, type, content, created_at) VALUES ($1,'contact',$2,$3,$4)`,
         [conv.id, type, content, ts]
       );
+
       await query(
         `INSERT INTO notificacoes (tipo,titulo,texto,conv_id) VALUES ('mensagem',$1,$2,$3)`,
-        [`Nova msg: ${contactName}`, content.slice(0, 80), conv.id]
+        [`${contactName}`, content.slice(0, 80), conv.id]
       ).catch(() => {});
+
+      // ── BOT ─────────────────────────────────────────────────────────────
+      if (conv.bot_ativo) {
+        try {
+          const { rows: [cfgRow] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'");
+          const cfg = cfgRow?.valor || {};
+          if (cfg.ativo !== false) {
+            const respostas = cfg.respostas || {};
+            const texto = content.trim();
+            let botReply = respostas[texto] || respostas['default'] || '';
+
+            // Primeira mensagem — envia boas-vindas
+            const { rows: msgCount } = await query(
+              'SELECT COUNT(*) n FROM mensagens WHERE conversa_id = $1', [conv.id]
+            );
+            if (parseInt(msgCount[0].n) <= 1 && cfg.mensagemBoasVindas) {
+              botReply = cfg.mensagemBoasVindas;
+            }
+
+            if (botReply) {
+              const EVO = process.env.EVOLUTION_API_URL;
+              const KEY = process.env.EVOLUTION_API_KEY;
+              const INST = process.env.EVOLUTION_INSTANCE || 'vittalis';
+              if (EVO && KEY) {
+                const { default: fetch } = await import('node-fetch');
+                await fetch(`${EVO}/message/sendText/${INST}`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', apikey: KEY },
+                  body: JSON.stringify({ number: rawPhone, text: botReply })
+                });
+                // Salva resposta do bot
+                await query(
+                  `INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome)
+                   VALUES ($1, 'me', 'text', $2, 'Bot Vittalis')`,
+                  [conv.id, botReply]
+                );
+                await query(
+                  'UPDATE conversas SET last_message=$1, last_message_at=NOW() WHERE id=$2',
+                  [botReply.slice(0, 100), conv.id]
+                );
+              }
+            }
+          }
+        } catch (e) { console.error('Bot error:', e.message); }
+      }
     }
   } catch (err) { console.error('WA_ERROR:', err.message); }
 });
-
 r.post('/webhook/instagram', async (req, res) => {
   try {
     const { object, entry } = req.body;
@@ -239,22 +286,44 @@ r.post('/conversations/:id/send', async (req, res) => {
     // Evolution API (WhatsApp)
     const EVO = process.env.EVOLUTION_API_URL, KEY = process.env.EVOLUTION_API_KEY;
     const INST = process.env.EVOLUTION_INSTANCE || 'vittalis';
+    const BACKEND_URL = process.env.RAILWAY_PUBLIC_DOMAIN
+      ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+      : process.env.BACKEND_URL || 'https://vittahub-backend-production.up.railway.app';
+
     if (EVO && KEY && conv.channel === 'whatsapp') {
       try {
         const { default: fetch } = await import('node-fetch');
-        // Use contact_id (full jid) or phone with 55 prefix for Evolution API
         const waNumber = conv.contact_id
           ? conv.contact_id.replace('@s.whatsapp.net', '')
           : `55${conv.phone}`;
-        const r = await fetch(`${EVO}/message/sendText/${INST}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', apikey: KEY },
-          body: JSON.stringify({ number: waNumber, text: content })
-        });
-        const evoResult = await r.json();
-        console.log('EVO_SEND:', JSON.stringify(evoResult).slice(0, 200));
-        if (r.ok && evoResult.key) {
-          await query("UPDATE mensagens SET status = 'delivered' WHERE id = $1", [msg.id]);
+
+        let evoRes;
+        if (type === 'text') {
+          evoRes = await fetch(`${EVO}/message/sendText/${INST}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', apikey: KEY },
+            body: JSON.stringify({ number: waNumber, text: content })
+          });
+        } else if (type === 'audio') {
+          const audioUrl = content.startsWith('http') ? content : `${BACKEND_URL}${content}`;
+          evoRes = await fetch(`${EVO}/message/sendWhatsAppAudio/${INST}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', apikey: KEY },
+            body: JSON.stringify({ number: waNumber, audio: audioUrl })
+          });
+        } else if (type === 'image' || type === 'video' || type === 'document') {
+          const mediaUrl = content.startsWith('http') ? content : `${BACKEND_URL}${content}`;
+          const endpoint = type === 'image' ? 'sendMedia' : type === 'video' ? 'sendMedia' : 'sendMedia';
+          evoRes = await fetch(`${EVO}/message/${endpoint}/${INST}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', apikey: KEY },
+            body: JSON.stringify({ number: waNumber, mediatype: type, media: mediaUrl, caption: '' })
+          });
+        }
+
+        if (evoRes?.ok) {
+          const evoData = await evoRes.json();
+          if (evoData.key) await query("UPDATE mensagens SET status = 'delivered' WHERE id = $1", [msg.id]);
         }
       } catch (e) { console.error('Evolution send error:', e.message); }
     }

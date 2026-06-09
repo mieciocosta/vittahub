@@ -304,10 +304,12 @@ export default function PropostaModal({ convId, token, contactName, atendente, o
   const [validade, setValidade] = useState('7');
   const [sending, setSending] = useState(false);
   const [step, setStep] = useState('select'); // select | preview
+  const BASE = import.meta.env.VITE_API_URL || '';
 
   useEffect(() => {
-    fetch('/api/inbox/vittasys/proposta', { method:'POST', headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`}, body:'{}' })
-      .then(r=>r.json()).then(d=>{ setPlanos(d.planos||[]); setVacinas(d.vacinas||[]); setLoading(false); });
+    fetch(`${BASE}/api/inbox/vittasys/proposta`, { method:'POST', headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`}, body:'{}' })
+      .then(r=>r.json()).then(d=>{ setPlanos(d.planos||[]); setVacinas(d.vacinas||[]); setLoading(false); })
+      .catch(e=>{ console.error('Proposta load error:',e); setLoading(false); });
   }, []);
 
   const addItem = (item) => {
@@ -324,7 +326,7 @@ export default function PropostaModal({ convId, token, contactName, atendente, o
     const itensMsg = carrinho.map(i=>`  • *${i.nome}* — R$ ${i.preco.toFixed(2).replace('.',',')}`).join('\n');
     const discMsg = discP > 0 ? `\n\n🎁 *Desconto especial:* ${discP}% = −R$ ${(valTotal-valFinal).toFixed(2).replace('.',',')}` : '';
     const txt = `💎 *Proposta Personalizada — Vittalis Saúde*\n\nOlá, ${contactName}! Preparei uma proposta especial para você:\n\n${itensMsg}${discMsg}\n\n💰 *Valor total: R$ ${valFinal.toFixed(2).replace('.',',')}*\n\n✅ Parcelamos em até 12x no cartão\n⚡ Pix com desconto adicional\n📋 Agenda disponível esta semana!\n\n_Posso enviar o PDF detalhado com todos os benefícios incluídos. Interesse?_ 😊`;
-    await fetch(`/api/inbox/conversations/${convId}/send`, { method:'POST', headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`}, body:JSON.stringify({content:txt}) });
+    await fetch(`${BASE}/api/inbox/conversations/${convId}/send`, { method:'POST', headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`}, body:JSON.stringify({content:txt}) });
     setSending(false);
     onClose(txt);
   };
