@@ -1,0 +1,149 @@
+import React, { useEffect, useState } from 'react';
+import { Bot, MessageSquare, Plus, Trash2, Save, Users, ExternalLink } from 'lucide-react';
+import { useApi, useAuth } from '../context/AuthContext.jsx';
+
+export default function Configuracoes() {
+  const api = useApi();
+  const { isMaster } = useAuth();
+  const [qr, setQr] = useState([]);
+  const [bot, setBot] = useState(null);
+  const [users, setUsers] = useState([]);
+  const [newQR, setNewQR] = useState({ titulo:'', texto:'' });
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    api.get('/inbox/quick-replies').then(setQr);
+    api.get('/inbox/bot-config').then(setBot);
+    api.get('/auth/usuarios').then(setUsers).catch(()=>{});
+  }, []);
+
+  if (!isMaster) return <div style={{padding:40,textAlign:'center',color:'var(--muted)'}}>Acesso restrito ao Master.</div>;
+
+  const saveBot = async () => {
+    setSaving(true);
+    await api.put('/inbox/bot-config', bot);
+    setSaving(false); setSaved(true);
+    setTimeout(()=>setSaved(false), 2000);
+  };
+
+  const addQR = async () => {
+    if (!newQR.titulo||!newQR.texto) return;
+    const q = await api.post('/inbox/quick-replies', newQR);
+    setQr(p=>[...p,q]); setNewQR({titulo:'',texto:''});
+  };
+
+  const delQR = async (id) => {
+    await api.del(`/inbox/quick-replies/${id}`);
+    setQr(p=>p.filter(q=>q.id!==id));
+  };
+
+  return (
+    <div style={{ padding:'28px' }}>
+      <h1 style={{ fontSize:30, marginBottom:6 }}>Configurações</h1>
+      <p style={{ color:'var(--muted)', fontSize:13.5, marginBottom:28 }}>Gerencie bot, respostas rápidas e usuários</p>
+
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:20 }}>
+        {/* Bot Config */}
+        <div className="card" style={{ padding:'22px' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:9, marginBottom:18 }}>
+            <div style={{ width:36, height:36, borderRadius:10, background:'var(--ok2)', display:'flex', alignItems:'center', justifyContent:'center' }}><Bot size={18} color="var(--ok)"/></div>
+            <div><h2 style={{ fontSize:16, fontWeight:800 }}>Bot de Atendimento</h2><p style={{ fontSize:12, color:'var(--muted)', marginTop:1 }}>Configurações do assistente virtual</p></div>
+          </div>
+
+          {bot && (
+            <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+              <label style={{ display:'flex', alignItems:'center', gap:10, cursor:'pointer' }}>
+                <input type="checkbox" checked={bot.ativo} onChange={e=>setBot(p=>({...p,ativo:e.target.checked}))} style={{ width:16, height:16, accentColor:'var(--tq)' }}/>
+                <span style={{ fontWeight:600 }}>Bot ativo (responde automaticamente)</span>
+              </label>
+
+              <div className="field">
+                <label>Mensagem de boas-vindas</label>
+                <textarea value={bot.mensagemBoasVindas} onChange={e=>setBot(p=>({...p,mensagemBoasVindas:e.target.value}))} rows={5} style={{ resize:'vertical' }} />
+              </div>
+
+              <div className="field">
+                <label>Transferir para atendente após N mensagens do cliente</label>
+                <input type="number" min={1} max={10} value={bot.transferirApos} onChange={e=>setBot(p=>({...p,transferirApos:+e.target.value}))} />
+              </div>
+
+              <button onClick={saveBot} disabled={saving} className="btn btn-p" style={{ width:'100%' }}>
+                {saving?<span className="spin" style={{width:14,height:14}}/>:saved?'✅ Salvo!':'💾 Salvar configurações'}
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Quick Replies */}
+        <div className="card" style={{ padding:'22px' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:9, marginBottom:18 }}>
+            <div style={{ width:36, height:36, borderRadius:10, background:'var(--tq3)', display:'flex', alignItems:'center', justifyContent:'center' }}><MessageSquare size={18} color="var(--tq)"/></div>
+            <div><h2 style={{ fontSize:16, fontWeight:800 }}>Respostas Rápidas</h2><p style={{ fontSize:12, color:'var(--muted)', marginTop:1 }}>{qr.length} templates cadastrados</p></div>
+          </div>
+
+          <div style={{ maxHeight:280, overflowY:'auto', marginBottom:14 }}>
+            {qr.map(q=>(
+              <div key={q.id} style={{ display:'flex', gap:8, padding:'9px 0', borderBottom:'1px solid var(--border)', alignItems:'flex-start' }}>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontWeight:700, fontSize:13 }}>{q.titulo}</div>
+                  <div style={{ fontSize:12, color:'var(--muted)', marginTop:2, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden' }}>{q.texto}</div>
+                </div>
+                <button onClick={()=>delQR(q.id)} style={{ padding:5, background:'var(--err2)', color:'var(--err)', borderRadius:6, flexShrink:0 }}><Trash2 size={12}/></button>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ display:'flex', flexDirection:'column', gap:9 }}>
+            <div className="field"><label>Título</label><input value={newQR.titulo} onChange={e=>setNewQR(p=>({...p,titulo:e.target.value}))} placeholder="Ex: Boas-vindas"/></div>
+            <div className="field"><label>Texto do template</label><textarea value={newQR.texto} onChange={e=>setNewQR(p=>({...p,texto:e.target.value}))} rows={2} placeholder="Olá! Seja bem-vindo..." style={{ resize:'vertical' }}/></div>
+            <button onClick={addQR} className="btn btn-p btn-sm" disabled={!newQR.titulo||!newQR.texto}><Plus size={14}/> Adicionar template</button>
+          </div>
+        </div>
+
+        {/* Users */}
+        <div className="card" style={{ padding:'22px' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:9, marginBottom:18 }}>
+            <div style={{ width:36, height:36, borderRadius:10, background:'var(--pet)', display:'flex', alignItems:'center', justifyContent:'center' }}><Users size={18} color="#fff"/></div>
+            <div><h2 style={{ fontSize:16, fontWeight:800 }}>Usuários</h2><p style={{ fontSize:12, color:'var(--muted)', marginTop:1 }}>Equipe ativa no VittaHub</p></div>
+          </div>
+          {users.map(u=>(
+            <div key={u.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 0', borderBottom:'1px solid var(--border)' }}>
+              <div style={{ width:34, height:34, borderRadius:'50%', background:u.cor||'var(--tq)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:800, color:'#fff', flexShrink:0 }}>
+                {u.nome.split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase()}
+              </div>
+              <div style={{ flex:1 }}>
+                <div style={{ fontWeight:700, fontSize:13 }}>{u.nome}</div>
+                <div style={{ fontSize:12, color:'var(--muted)' }}>{u.email}</div>
+              </div>
+              <span style={{ fontSize:11, fontWeight:700, padding:'3px 9px', borderRadius:12, background:u.role==='master'?'#fdf5e8':'var(--tq3)', color:u.role==='master'?'var(--gold)':'var(--tq)' }}>
+                {u.role==='master'?'👑 Master':'Atendente'}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {/* VittaSys Integration */}
+        <div className="card" style={{ padding:'22px' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:9, marginBottom:18 }}>
+            <div style={{ width:36, height:36, borderRadius:10, background:'var(--gold2)', display:'flex', alignItems:'center', justifyContent:'center' }}><ExternalLink size={18} color="var(--gold)"/></div>
+            <div><h2 style={{ fontSize:16, fontWeight:800 }}>Integração VittaSys</h2><p style={{ fontSize:12, color:'var(--muted)', marginTop:1 }}>Sistema de gestão clínica</p></div>
+          </div>
+          <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+            <div style={{ padding:'12px 14px', background:'var(--ok2)', borderRadius:10, display:'flex', alignItems:'center', gap:8 }}>
+              <div style={{ width:8, height:8, borderRadius:'50%', background:'var(--ok)' }}/>
+              <span style={{ fontSize:13, fontWeight:600, color:'#065f46' }}>Integração configurada</span>
+            </div>
+            <div className="field"><label>URL do VittaSys</label><input defaultValue="https://vittasys.vittalissaude.com.br" readOnly style={{ background:'var(--bg)' }}/></div>
+            <div style={{ fontSize:12.5, color:'var(--muted)', lineHeight:1.6 }}>
+              O VittaHub busca automaticamente planos vacinais e vacinas avulsas do VittaSys ao enviar propostas no chat.
+            </div>
+            <a href="https://vittasys.vittalissaude.com.br" target="_blank" rel="noreferrer" className="btn btn-s btn-sm" style={{ textDecoration:'none', display:'inline-flex', width:'fit-content' }}>
+              <ExternalLink size={13}/> Abrir VittaSys
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

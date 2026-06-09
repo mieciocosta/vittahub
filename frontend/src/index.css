@@ -1,0 +1,186 @@
+/* ─── VittaHub Design System — Premium Vittalis Brand ─────────────────────── */
+:root {
+  /* Brand — exact from Vittalis brandbook */
+  --tq:    #00B8C0;   /* turquesa principal */
+  --tq2:   #007d83;   /* turquesa escuro */
+  --tq3:   #e5f8f9;   /* turquesa claro */
+  --tq4:   #f0fdfe;   /* turquesa muito claro */
+  --pet:   #207898;   /* azul-petróleo */
+  --pet2:  #0d3d52;   /* azul-petróleo escuro */
+  --pet3:  #071e2c;   /* azul-petróleo profundo */
+  --gold:  #C4973B;
+  --gold2: #fdf5e8;
+
+  /* Neutrals — elegant, not flat */
+  --bg:     #f0f4f7;
+  --bg2:    #e6ecf1;
+  --card:   #ffffff;
+  --border: #dde5ec;
+  --bord2:  #c5d2db;
+  --txt:    #0a1520;
+  --txt2:   #2d4255;
+  --muted:  #5a7285;
+  --light:  #8fa3b3;
+
+  /* Status */
+  --ok:   #0fb07a; --ok2:  #ebfaf4;
+  --warn: #e8991a; --warn2:#fef8eb;
+  --err:  #e84040; --err2: #fef1f1;
+  --info: #3b82f6; --info2:#eff6ff;
+  --pur:  #7c5cbf; --pur2: #f3effe;
+  --org:  #e8671a; --org2: #fef3eb;
+
+  /* Channels */
+  --wa:  #25D366; --wa2: #e8fdf0;
+  --ig:  #D62976; --ig2: #fde8f2;
+
+  /* Layout */
+  --sw: 230px;
+
+  /* Shadows — layered for depth */
+  --s1: 0 1px 2px rgba(10,21,32,0.05);
+  --s2: 0 1px 3px rgba(10,21,32,0.06), 0 4px 14px rgba(10,21,32,0.05);
+  --s3: 0 4px 18px rgba(10,21,32,0.09), 0 1px 4px rgba(10,21,32,0.06);
+  --s4: 0 12px 44px rgba(10,21,32,0.14), 0 2px 8px rgba(10,21,32,0.08);
+  --s-tq: 0 4px 16px rgba(0,184,192,0.25);
+
+  /* Radii */
+  --r1:4px; --r2:8px; --r3:12px; --r4:16px; --r5:24px;
+}
+
+/* ─── Reset + Base ─────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'DM Sans', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--txt);
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Display / brand headings */
+h1, h2, .display { font-family: 'Fraunces', Georgia, serif; line-height: 1.15; }
+h3, h4 { font-family: 'DM Sans', sans-serif; line-height: 1.3; }
+code, kbd, pre { font-family: 'DM Mono', monospace; }
+
+button { font-family: 'DM Sans', sans-serif; cursor: pointer; border: none; outline: none; }
+input, select, textarea { font-family: 'DM Sans', sans-serif; font-size: 14px; }
+a { text-decoration: none; color: inherit; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--bord2); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+/* ─── Status Badges ─────────────────────────────────────────────────────────── */
+.badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 10px; border-radius: 20px;
+  font-size: 11.5px; font-weight: 600; letter-spacing: 0.1px; white-space: nowrap;
+}
+.badge::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: currentColor; opacity: .7; }
+.b-novo    { background: var(--info2); color: #1d4ed8; }
+.b-atend   { background: var(--org2);  color: #b94c10; }
+.b-orca    { background: var(--pur2);  color: #5c3ea0; }
+.b-aguard  { background: var(--warn2); color: #9a6010; }
+.b-fechado { background: var(--ok2);   color: #0a7a55; }
+.b-perdido { background: var(--err2);  color: #b02020; }
+
+/* ─── Tags ──────────────────────────────────────────────────────────────────── */
+.tag { display:inline-flex; align-items:center; padding:2px 8px; border-radius:20px; font-size:11px; font-weight:600; letter-spacing:.2px; }
+.tag          { background: var(--tq3);  color: var(--tq2); }
+.tag-urgente  { background: #fde8e8;     color: #b02020; }
+.tag-quente   { background: #feebd8;     color: #b94c10; }
+.tag-vip      { background: var(--gold2);color: #9a6a1a; }
+.tag-frio     { background: var(--info2);color: #1d4ed8; }
+.tag-gestante { background: #f3effe;     color: #5c3ea0; }
+
+/* ─── Buttons ───────────────────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 9px 18px; border-radius: var(--r2);
+  font-weight: 600; font-size: 13.5px;
+  transition: all .15s cubic-bezier(.4,0,.2,1); cursor: pointer;
+  white-space: nowrap;
+}
+.btn-p {
+  background: var(--tq); color: #fff;
+  box-shadow: var(--s-tq);
+}
+.btn-p:hover { background: var(--tq2); transform: translateY(-1px); box-shadow: 0 6px 20px rgba(0,184,192,.32); }
+.btn-p:active { transform: translateY(0); }
+
+.btn-dark { background: var(--pet2); color: #fff; box-shadow: 0 3px 10px rgba(13,61,82,.25); }
+.btn-dark:hover { background: var(--pet3); transform: translateY(-1px); }
+
+.btn-s {
+  background: #fff; color: var(--txt2);
+  border: 1.5px solid var(--border);
+  box-shadow: var(--s1);
+}
+.btn-s:hover { background: var(--bg); border-color: var(--bord2); }
+
+.btn-g { background: transparent; color: var(--muted); }
+.btn-g:hover { background: var(--bg2); color: var(--txt); }
+
+.btn-sm { padding: 6px 12px; font-size: 12.5px; border-radius: var(--r2); }
+.btn-ico { padding: 7px; border-radius: var(--r2); aspect-ratio: 1; }
+.btn:disabled { opacity: .45; cursor: not-allowed; transform: none !important; }
+
+/* ─── Cards ─────────────────────────────────────────────────────────────────── */
+.card { background: var(--card); border-radius: var(--r4); box-shadow: var(--s2); }
+.card-hover { transition: box-shadow .2s, transform .2s; }
+.card-hover:hover { box-shadow: var(--s3); transform: translateY(-1px); }
+
+/* ─── Form fields ───────────────────────────────────────────────────────────── */
+.field { display: flex; flex-direction: column; gap: 5px; }
+.field label {
+  font-size: 11px; font-weight: 700; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .7px;
+}
+.field input, .field select, .field textarea {
+  padding: 9px 12px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--r2);
+  color: var(--txt); background: #fff;
+  outline: none;
+  transition: border-color .15s, box-shadow .15s;
+  width: 100%;
+}
+.field input:focus, .field select:focus, .field textarea:focus {
+  border-color: var(--tq);
+  box-shadow: 0 0 0 3px rgba(0,184,192,.1);
+}
+.field input::placeholder, .field textarea::placeholder { color: var(--light); }
+
+/* ─── Animations ────────────────────────────────────────────────────────────── */
+@keyframes fadeUp   { from { opacity:0; transform:translateY(10px) } to { opacity:1; transform:translateY(0) } }
+@keyframes fadeIn   { from { opacity:0 } to { opacity:1 } }
+@keyframes slideR   { from { opacity:0; transform:translateX(-8px) } to { opacity:1; transform:translateX(0) } }
+@keyframes pulse    { 0%,100%{opacity:1} 50%{opacity:.3} }
+@keyframes spin     { to { transform:rotate(360deg) } }
+@keyframes shimmer  { from{background-position:-200% 0} to{background-position:200% 0} }
+@keyframes typedot  { 0%,60%,100%{transform:translateY(0)} 30%{transform:translateY(-5px)} }
+
+.anim   { animation: fadeUp .22s cubic-bezier(.4,0,.2,1) both; }
+.anim-r { animation: slideR .2s cubic-bezier(.4,0,.2,1) both; }
+
+/* Spinner */
+.spin {
+  display: inline-block; width: 17px; height: 17px;
+  border: 2px solid var(--border); border-top-color: var(--tq);
+  border-radius: 50%; animation: spin .65s linear infinite;
+}
+
+/* Typing dots */
+.typing-dot {
+  display: inline-block; width: 6px; height: 6px;
+  border-radius: 50%; background: var(--muted);
+  animation: typedot 1.2s ease infinite;
+}
+.typing-dot:nth-child(2) { animation-delay: .2s; }
+.typing-dot:nth-child(3) { animation-delay: .4s; }
