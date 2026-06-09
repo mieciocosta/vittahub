@@ -16,6 +16,86 @@ const upload = multer({
   limits: { fileSize: 25 * 1024 * 1024 }
 });
 
+// ─── ROTAS PÚBLICAS (sem JWT) — webhooks externos ────────────────────────────
+// IMPORTANTE: devem vir ANTES do r.use(auth)
+
+r.post('/webhook/whatsapp', async (req, res) => {
+  res.json({ ok: true });
+  try {
+    const body = req.body;
+    console.log('WA_RAW:', JSON.stringify(body).slice(0, 500));
+    const event = body.event || '';
+    if (!event.includes('messages')) return;
+    let msgs = [];
+    if (Array.isArray(body.data?.messages)) msgs = body.data.messages;
+    else if (body.data?.key) msgs = [body.data];
+    else if (Array.isArray(body.data)) msgs = body.data;
+    console.log(`WA_MSGS: ${msgs.length}`);
+    for (const msg of msgs) {
+      const key = msg.key || {};
+      if (!key.remoteJid) continue;
+      if (key.fromMe) continue;
+      if (key.remoteJid.endsWith('@g.us')) continue;
+      const remoteJid = key.remoteJid;
+      const phone = remoteJid.replace('@s.whatsapp.net', '').replace(/\D/g, '').slice(-11);
+      const pushName = msg.pushName || msg.verifiedBizName || '';
+      const contactName = (pushName && pushName !== phone) ? pushName : phone;
+      const m = msg.message || {};
+      let content = '[mensagem]', type = 'text';
+      if (m.conversation)                        { content = m.conversation; }
+      else if (m.extendedTextMessage?.text)       { content = m.extendedTextMessage.text; }
+      else if (m.imageMessage)                    { content = m.imageMessage.caption || '📷 Imagem'; type = 'image'; }
+      else if (m.videoMessage)                    { content = m.videoMessage.caption || '🎥 Vídeo'; type = 'video'; }
+      else if (m.audioMessage || m.pttMessage)    { content = '🎵 Áudio'; type = 'audio'; }
+      else if (m.documentMessage)                 { content = `📎 ${m.documentMessage.fileName || 'Documento'}`; type = 'document'; }
+      else if (m.stickerMessage)                  { content = '🎭 Sticker'; }
+      else if (m.locationMessage)                 { content = '📍 Localização'; }
+      else if (m.contactMessage)                  { content = `👤 ${m.contactMessage.displayName}`; }
+      const ts = msg.messageTimestamp ? new Date(parseInt(String(msg.messageTimestamp)) * 1000).toISOString() : new Date().toISOString();
+      console.log(`WA_MSG: name="${contactName}" phone="${phone}" content="${content.slice(0,50)}"`);
+      const { rows: [conv] } = await query(`
+        INSERT INTO conversas (channel, contact_name, contact_id, phone, unread, last_message, last_message_at)
+        VALUES ('whatsapp', $1, $2, $3, 1, $4, $5)
+        ON CONFLICT (contact_id) DO UPDATE SET
+          contact_name = CASE WHEN length(EXCLUDED.contact_name) > 8 AND EXCLUDED.contact_name != EXCLUDED.phone THEN EXCLUDED.contact_name ELSE conversas.contact_name END,
+          unread = conversas.unread + 1,
+          last_message = EXCLUDED.last_message,
+          last_message_at = EXCLUDED.last_message_at
+        RETURNING *`, [contactName, remoteJid, phone, content, ts]);
+      await query(`INSERT INTO mensagens (conversa_id, from_type, type, content, created_at) VALUES ($1,'contact',$2,$3,$4)`, [conv.id, type, content, ts]);
+      await query(`INSERT INTO notificacoes (tipo,titulo,texto,conv_id) VALUES ('mensagem',$1,$2,$3)`, [`Nova msg: ${contactName}`, content.slice(0, 80), conv.id]).catch(() => {});
+    }
+  } catch (err) { console.error('WA_ERROR:', err.message); }
+});
+
+r.post('/webhook/instagram', async (req, res) => {
+  try {
+    const { object, entry } = req.body;
+    if (object !== 'instagram') return res.json({ ok: true });
+    for (const e of (entry || [])) {
+      for (const ev of (e.messaging || [])) {
+        if (!ev.message) continue;
+        const sid = ev.sender.id;
+        const content = ev.message.text || '[mídia]';
+        const { rows: [conv] } = await query(`
+          INSERT INTO conversas (channel, contact_name, contact_id, unread, last_message, last_message_at)
+          VALUES ('instagram', $1, $2, 1, $3, NOW())
+          ON CONFLICT (contact_id) DO UPDATE SET unread = conversas.unread + 1, last_message = $3, last_message_at = NOW()
+          RETURNING *`, [`@${sid}`, sid, content]);
+        await query(`INSERT INTO mensagens (conversa_id, from_type, type, content) VALUES ($1,'contact','text',$2)`, [conv.id, content]);
+      }
+    }
+    res.json({ ok: true });
+  } catch (err) { console.error('IG webhook:', err.message); res.json({ ok: true }); }
+});
+
+r.get('/webhook/instagram', (req, res) => {
+  const T = process.env.INSTAGRAM_VERIFY_TOKEN || 'vittahub_2024';
+  if (req.query['hub.mode'] === 'subscribe' && req.query['hub.verify_token'] === T) res.send(req.query['hub.challenge']);
+  else res.sendStatus(403);
+});
+
+// ─── A partir daqui requer JWT ────────────────────────────────────────────────
 r.use(auth);
 
 // ─── CONVERSATIONS LIST (paginated + search, high-performance) ──────────────
@@ -315,116 +395,6 @@ r.post('/notifications/read-all', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ─── WEBHOOKS ─────────────────────────────────────────────────────────────────
-r.get('/webhook/instagram', (req, res) => {
-  const T = process.env.INSTAGRAM_VERIFY_TOKEN || 'vittahub_2024';
-  if (req.query['hub.mode'] === 'subscribe' && req.query['hub.verify_token'] === T) res.send(req.query['hub.challenge']);
-  else res.sendStatus(403);
-});
-
-r.post('/webhook/whatsapp', async (req, res) => {
-  // Responde 200 imediatamente para a Evolution API não retentar
-  res.json({ ok: true });
-  try {
-    const body = req.body;
-    console.log('WA_RAW:', JSON.stringify(body).slice(0, 500));
-
-    const event = body.event || '';
-    if (!event.includes('messages')) return;
-
-    // Evolution API v2: mensagem única em body.data ou array em body.data.messages
-    let msgs = [];
-    if (Array.isArray(body.data?.messages)) {
-      msgs = body.data.messages;
-    } else if (body.data?.key) {
-      msgs = [body.data];
-    } else if (Array.isArray(body.data)) {
-      msgs = body.data;
-    }
-
-    for (const msg of msgs) {
-      const key = msg.key || {};
-      if (!key.remoteJid) continue;
-      if (key.fromMe) continue;
-      if (key.remoteJid.endsWith('@g.us')) continue;
-
-      const remoteJid = key.remoteJid;
-      const phone = remoteJid.replace('@s.whatsapp.net', '').replace(/\D/g, '').slice(-11);
-      const pushName = msg.pushName || msg.verifiedBizName || '';
-      const contactName = (pushName && pushName !== phone) ? pushName : phone;
-
-      const m = msg.message || {};
-      let content = '[mensagem]', type = 'text';
-      if (m.conversation)                   { content = m.conversation; }
-      else if (m.extendedTextMessage?.text)  { content = m.extendedTextMessage.text; }
-      else if (m.imageMessage)               { content = m.imageMessage.caption || '📷 Imagem'; type = 'image'; }
-      else if (m.videoMessage)               { content = m.videoMessage.caption || '🎥 Vídeo'; type = 'video'; }
-      else if (m.audioMessage || m.pttMessage) { content = '🎵 Áudio'; type = 'audio'; }
-      else if (m.documentMessage)            { content = `📎 ${m.documentMessage.fileName || 'Documento'}`; type = 'document'; }
-      else if (m.stickerMessage)             { content = '🎭 Sticker'; }
-      else if (m.locationMessage)            { content = '📍 Localização'; }
-      else if (m.contactMessage)             { content = `👤 ${m.contactMessage.displayName}`; }
-
-      const ts = msg.messageTimestamp
-        ? new Date(parseInt(String(msg.messageTimestamp)) * 1000).toISOString()
-        : new Date().toISOString();
-
-      console.log(`WA_MSG: name="${contactName}" phone="${phone}" content="${content.slice(0,50)}"`);
-
-      const { rows: [conv] } = await query(`
-        INSERT INTO conversas (channel, contact_name, contact_id, phone, unread, last_message, last_message_at)
-        VALUES ('whatsapp', $1, $2, $3, 1, $4, $5)
-        ON CONFLICT (contact_id) DO UPDATE SET
-          contact_name = CASE
-            WHEN EXCLUDED.contact_name != EXCLUDED.phone AND length(EXCLUDED.contact_name) > 5
-            THEN EXCLUDED.contact_name
-            ELSE conversas.contact_name
-          END,
-          unread = conversas.unread + 1,
-          last_message = EXCLUDED.last_message,
-          last_message_at = EXCLUDED.last_message_at
-        RETURNING *`,
-        [contactName, remoteJid, phone, content, ts]
-      );
-
-      await query(
-        `INSERT INTO mensagens (conversa_id, from_type, type, content, created_at) VALUES ($1,'contact',$2,$3,$4)`,
-        [conv.id, type, content, ts]
-      );
-
-      await query(
-        `INSERT INTO notificacoes (tipo,titulo,texto,conv_id) VALUES ('mensagem',$1,$2,$3)`,
-        [`Nova msg: ${contactName}`, content.slice(0, 80), conv.id]
-      ).catch(() => {});
-    }
-  } catch (err) {
-    console.error('WA_ERROR:', err.message, JSON.stringify(req.body).slice(0, 300));
-  }
-});
-
-r.post('/webhook/instagram', async (req, res) => {
-  try {
-    const { object, entry } = req.body;
-    if (object !== 'instagram') return res.json({ ok: true });
-    for (const e of (entry||[])) {
-      for (const ev of (e.messaging||[])) {
-        if (!ev.message) continue;
-        const sid = ev.sender.id;
-        const content = ev.message.text || '[mídia]';
-        const { rows: [conv] } = await query(`
-          INSERT INTO conversas (channel, contact_name, contact_id, unread, last_message, last_message_at)
-          VALUES ('instagram', $1, $2, 1, $3, NOW())
-          ON CONFLICT (contact_id) DO UPDATE SET unread = conversas.unread + 1, last_message = $3, last_message_at = NOW()
-          RETURNING *`, [`@${sid}`, sid, content]);
-        await query('INSERT INTO mensagens (conversa_id, from_type, type, content) VALUES ($1,\'contact\',\'text\',$2)', [conv.id, content]);
-      }
-    }
-    res.json({ ok: true });
-  } catch (err) { console.error('IG webhook:', err.message); res.json({ ok: true }); }
-});
-
-export default r;
-
 // ─── WHATSAPP QR CODE (Evolution API) ────────────────────────────────────────
 r.get('/whatsapp/status', async (req, res) => {
   const EVO = process.env.EVOLUTION_API_URL;
@@ -594,3 +564,4 @@ r.post('/whatsapp/disconnect', async (req, res) => {
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+export default r;
