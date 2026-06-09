@@ -136,12 +136,13 @@ r.post('/webhook/whatsapp', async (req, res) => {
         [contactName, remoteJid, phone, content, ts]
       );
 
-      // Salva mensagem com wa_msg_id para deduplicação
+      // Salva mensagem com deduplicação por wa_msg_id
+      const waId = key.id || null;
       await query(
         `INSERT INTO mensagens (conversa_id, from_type, type, content, filename, created_at, wa_msg_id)
-         VALUES ($1, 'contact', $2, $3, $4, $5, $6)
-         ON CONFLICT (wa_msg_id) DO NOTHING`,
-        [conv.id, type, mediaData || content, messageType || null, ts, key.id || null]
+         SELECT $1, 'contact', $2, $3, $4, $5, $6
+         WHERE NOT EXISTS (SELECT 1 FROM mensagens WHERE wa_msg_id = $6 AND $6 IS NOT NULL)`,
+        [conv.id, type, mediaData || content, messageType || null, ts, waId]
       );
 
       await query(
