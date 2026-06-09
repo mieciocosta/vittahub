@@ -300,10 +300,11 @@ function LazyMedia({ msgId, type, filename, token, onLightbox }) {
 }
 
 
-const MsgItem = React.memo(function MsgItem({ m, i, msgs, contactName, channel, onLightbox, token }) {
+const MsgItem = React.memo(function MsgItem({ m, prevMsg, contactName, channel, onLightbox, token }) {
   const isMe = m.from_type==='me', isBot=m.from_type==='bot', isSys=m.from_type==='system';
-  const showDate = i===0 || new Date(msgs[i-1].created_at).toDateString()!==new Date(m.created_at).toDateString();
-  const showSender = isMe && m.sender_nome && (i===0 || msgs[i-1]?.from_type!=='me' || msgs[i-1]?.sender_nome!==m.sender_nome);
+  // Usa prevMsg em vez do array msgs inteiro — React.memo agora é eficaz
+  const showDate = !prevMsg || new Date(prevMsg.created_at).toDateString() !== new Date(m.created_at).toDateString();
+  const showSender = isMe && m.sender_nome && (!prevMsg || prevMsg.from_type !== 'me' || prevMsg.sender_nome !== m.sender_nome);
   const lazyMatch = m.content?.match(/^\[media:([a-f0-9-]+)\]$/);
   const isLazy = !!lazyMatch;
   const lazyId = lazyMatch?.[1] || m.id;
@@ -424,7 +425,9 @@ export default function Inbox({ onUnreadChange }) {
   const lastPollTs       = useRef(new Date().toISOString());
   const lastMsgTs        = useRef(null);
   const selRef           = useRef(sel);
-  useEffect(() => { selRef.current = sel; }, [sel]);
+  // CRÍTICO: atribuir no render body (síncrono), não em useEffect (assíncrono)
+  // Evita janela onde WebSocket chega e selRef ainda aponta para conversa anterior
+  selRef.current = sel;
 
   // ── Mede altura da lista ───────────────────────────────────────────────────
   useEffect(() => {
@@ -454,7 +457,7 @@ export default function Inbox({ onUnreadChange }) {
       if (!active) return;
       try {
         ws = new WebSocket(`${WS}?token=${encodeURIComponent(tk)}`);
-        ws.onopen = () => console.log('WS ✅');
+        ws.onopen = () => console.log('%c WS ✅ Tempo real ativo', 'background:#00B8C0;color:#fff;padding:2px 8px;border-radius:4px');
 
         ws.onmessage = ({ data }) => {
           try {
@@ -495,83 +498,72 @@ export default function Inbox({ onUnreadChange }) {
 
 
 
-  // ── LONG-POLL: entrega instantânea de mensagens (substitui setInterval) ──────
-  // Quando chega mensagem no servidor → resposta imediata (<200ms de latência)
-  // Sem sobreposição de requests: só dispara próximo após o anterior terminar
+  // ── LONG-POLL: entrega instantânea de mensagens ──────────────────────────────
   useEffect(() => {
     if (!sel) return;
     let active = true;
     const BASE = import.meta.env.VITE_API_URL || '';
     const convId = sel.id;
+    let currentController = null; // AbortController do fetch ativo
 
     async function longPollLoop() {
-      // Aguarda até 1.5s para que openConvo() defina lastMsgTs antes de começar
-      // Evita usar timestamp 1970 (epoch) que retornaria todo o histórico
+      // Aguarda até 1.5s para que openConvo() defina lastMsgTs
       let waited = 0;
       while (!lastMsgTs.current && waited < 1500) {
         await new Promise(r => setTimeout(r, 100));
         waited += 100;
+        if (!active) return; // conversa trocada durante espera → sair
       }
 
-      // Fallback seguro: 2 minutos atrás (nunca epoch)
       let localAfterTs = lastMsgTs.current || new Date(Date.now() - 120000).toISOString();
 
       while (active) {
         try {
-          const controller = new AbortController();
-          const abortTimer = setTimeout(() => controller.abort(), 30000);
+          currentController = new AbortController();
+          const abortTimer = setTimeout(() => currentController.abort(), 30000);
 
           const resp = await fetch(
             `${BASE}/api/inbox/conversations/${convId}/poll?after_ts=${encodeURIComponent(localAfterTs)}`,
-            { headers: { Authorization: `Bearer ${token}`, 'Cache-Control': 'no-cache' }, signal: controller.signal }
+            { headers: { Authorization: `Bearer ${token}`, 'Cache-Control': 'no-cache' }, signal: currentController.signal }
           );
           clearTimeout(abortTimer);
+          currentController = null;
+
           if (!resp.ok) { await new Promise(r => setTimeout(r, 2000)); continue; }
 
           const data = await resp.json();
           const newMsgs = data.messages || [];
 
           if (newMsgs.length > 0 && active) {
-            // Avança o cursor local para a próxima iteração
             localAfterTs = newMsgs[newMsgs.length - 1].created_at;
             lastMsgTs.current = localAfterTs;
 
             setMsgs(prev => {
               const existingIds = new Set(prev.map(m => m.id));
-
-              // Filtra mensagens realmente novas
               const truly = newMsgs.filter(m => !existingIds.has(m.id));
               if (truly.length === 0) return prev;
 
-              // Substitui mensagens otimistas (tmp-*) pela versão confirmada do banco
-              // Evita duplicação: "mensagem do usuário aparece duas vezes"
               const withoutStaleOpt = prev.map(p => {
                 if (!String(p.id).startsWith('tmp-')) return p;
-                // Verifica se existe uma versão real desta mensagem
                 const confirmed = truly.find(r =>
-                  r.from_type === 'me' &&
-                  r.content === p.content &&
-                  r.sender_nome === p.sender_nome
+                  r.from_type === 'me' && r.content === p.content && r.sender_nome === p.sender_nome
                 );
-                return confirmed ? null : p; // null = remover
+                return confirmed ? null : p;
               }).filter(Boolean);
 
-              // Mensagens novas que não vieram como confirmação de otimista
               const confirmedContents = new Set(
                 withoutStaleOpt.length !== prev.length
                   ? truly.filter(r => r.from_type === 'me').map(r => r.content)
                   : []
               );
-              const toAdd = truly.filter(m => {
-                if (m.from_type !== 'me') return true;
-                return !confirmedContents.has(m.content);
-              });
-
+              const toAdd = truly.filter(m =>
+                m.from_type !== 'me' || !confirmedContents.has(m.content)
+              );
               return [...withoutStaleOpt, ...toAdd];
             });
           }
-          // Sem delay: reconecta imediatamente
         } catch {
+          currentController = null;
           if (!active) break;
           await new Promise(r => setTimeout(r, 2000));
         }
@@ -579,7 +571,12 @@ export default function Inbox({ onUnreadChange }) {
     }
 
     longPollLoop();
-    return () => { active = false; };
+    return () => {
+      active = false;
+      // CRÍTICO: aborta o fetch em progresso imediatamente
+      // Sem isso, fetch antigo continua por até 30s ao trocar de conversa
+      if (currentController) { try { currentController.abort(); } catch {} }
+    };
   }, [sel?.id, token]);
 
   // ── POLL da lista de conversas (cache em memória no servidor) ─────────────
@@ -608,12 +605,15 @@ export default function Inbox({ onUnreadChange }) {
   }, [filter, search, unreadOnly]);
 
   // ── Auto-scroll ao chegar novas mensagens ─────────────────────────────────
+  // Só rola se o usuário já estava perto do fim (não interrompe quem lê mensagens antigas)
   useEffect(() => {
-    if (!msgAreaRef.current) return;
+    if (!msgAreaRef.current || msgs.length === 0) return;
     const el = msgAreaRef.current;
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 200;
-    if (nearBottom) el.scrollTop = el.scrollHeight;
-  }, [msgs]);
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 250;
+    if (nearBottom) {
+      requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
+    }
+  }, [msgs.length]); // depende do LENGTH, não do array — evita trigger em mutações internas
 
   // ── Carrega lista inicial ──────────────────────────────────────────────────
   const loadConvos = useCallback(async () => {
@@ -915,7 +915,7 @@ export default function Inbox({ onUnreadChange }) {
                 </div>
               )}
               {msgs.map((m, i) => (
-                <MsgItem key={m.id||i} m={m} i={i} msgs={msgs} contactName={sel.contact_name} channel={sel.channel} onLightbox={setLightbox} token={token}/>
+                <MsgItem key={m.id||i} m={m} prevMsg={msgs[i-1] || null} contactName={sel.contact_name} channel={sel.channel} onLightbox={setLightbox} token={token}/>
               ))}
               <div ref={endRef}/>
             </div>

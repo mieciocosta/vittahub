@@ -469,6 +469,196 @@ r.post('/webhook/zapi', async (req, res) => {
   } catch (err) { console.error('ZAPI_ERROR:', err.message); }
 });
 
+// ─── META WHATSAPP CLOUD API — WEBHOOK ───────────────────────────────────────
+//
+// GET /api/inbox/webhook/meta  → verificação do webhook pela Meta
+// POST /api/inbox/webhook/meta → mensagens/status recebidos
+//
+// Variáveis de ambiente necessárias no Railway:
+//   META_VERIFY_TOKEN   = string aleatória que você define ao registrar o webhook
+//   META_ACCESS_TOKEN   = token de acesso permanente (System User) ou temporário
+//   META_PHONE_NUMBER_ID = Phone Number ID do painel Meta for Developers
+
+// Função helper para enviar mensagem pela Meta Cloud API
+async function metaSend(phoneNumberId, accessToken, to, type, payload) {
+  const url = `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`;
+  const body = { messaging_product: 'whatsapp', to, type, ...payload };
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+    body: JSON.stringify(body),
+  });
+  const data = await r.json();
+  if (!r.ok) throw new Error(JSON.stringify(data));
+  return data;
+}
+
+// GET: Verificação do webhook (Meta chama isso quando você registra o URL)
+r.get('/webhook/meta', (req, res) => {
+  const mode      = req.query['hub.mode'];
+  const token     = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+  const verifyToken = process.env.META_VERIFY_TOKEN;
+
+  if (mode === 'subscribe' && token === verifyToken) {
+    console.log('✅ Webhook Meta verificado');
+    return res.status(200).send(challenge);
+  }
+  console.error('❌ Webhook Meta: token inválido');
+  res.sendStatus(403);
+});
+
+// POST: Mensagens e eventos recebidos
+r.post('/webhook/meta', async (req, res) => {
+  // Responde 200 IMEDIATAMENTE — Meta retenta se demorar > 5s
+  res.sendStatus(200);
+
+  try {
+    const body = req.body;
+    if (body.object !== 'whatsapp_business_account') return;
+
+    for (const entry of (body.entry || [])) {
+      for (const change of (entry.changes || [])) {
+        if (change.field !== 'messages') continue;
+        const val = change.value;
+
+        // ── Atualização de status (sent/delivered/read) ───────────────────
+        for (const status of (val.statuses || [])) {
+          const statusMap = { sent:'sent', delivered:'delivered', read:'read', failed:'failed' };
+          const s = statusMap[status.status];
+          if (s && status.id) {
+            await query('UPDATE mensagens SET status=$1 WHERE wa_msg_id=$2', [s, status.id]).catch(() => {});
+          }
+        }
+
+        // ── Mensagens recebidas ───────────────────────────────────────────
+        for (const msg of (val.messages || [])) {
+          const from     = msg.from;           // ex: "5598xxxxxxxx"
+          const msgId    = msg.id;             // wamid.xxx
+          const ts       = new Date(parseInt(msg.timestamp) * 1000);
+          const contact  = (val.contacts || []).find(c => c.wa_id === from);
+          const name     = contact?.profile?.name || from;
+
+          // Determina tipo e conteúdo
+          let type = 'text', content = '', mediaData = null, filename = null;
+
+          if (msg.type === 'text') {
+            type    = 'text';
+            content = msg.text?.body || '';
+          } else if (msg.type === 'image') {
+            type    = 'image';
+            content = msg.image?.url || msg.image?.id || '';
+            // A Meta retorna media_id; buscar URL via Graph API
+            if (msg.image?.id && !content.startsWith('http')) {
+              try {
+                const AT = process.env.META_ACCESS_TOKEN;
+                const mr = await fetch(`https://graph.facebook.com/v21.0/${msg.image.id}`, { headers:{ Authorization:`Bearer ${AT}` } });
+                const md = await mr.json();
+                content = md.url || content;
+              } catch {}
+            }
+          } else if (msg.type === 'audio') {
+            type = 'audio';
+            if (msg.audio?.id) {
+              try {
+                const AT = process.env.META_ACCESS_TOKEN;
+                const mr = await fetch(`https://graph.facebook.com/v21.0/${msg.audio.id}`, { headers:{ Authorization:`Bearer ${AT}` } });
+                const md = await mr.json();
+                content = md.url || '';
+              } catch {}
+            }
+          } else if (msg.type === 'video') {
+            type = 'video';
+            if (msg.video?.id) {
+              try {
+                const AT = process.env.META_ACCESS_TOKEN;
+                const mr = await fetch(`https://graph.facebook.com/v21.0/${msg.video.id}`, { headers:{ Authorization:`Bearer ${AT}` } });
+                const md = await mr.json();
+                content = md.url || '';
+              } catch {}
+            }
+          } else if (msg.type === 'document') {
+            type     = 'document';
+            filename = msg.document?.filename || 'Documento';
+            if (msg.document?.id) {
+              try {
+                const AT = process.env.META_ACCESS_TOKEN;
+                const mr = await fetch(`https://graph.facebook.com/v21.0/${msg.document.id}`, { headers:{ Authorization:`Bearer ${AT}` } });
+                const md = await mr.json();
+                content = md.url || '';
+              } catch {}
+            }
+          } else if (msg.type === 'sticker') {
+            type = 'image'; content = msg.sticker?.url || '';
+          } else if (msg.type === 'location') {
+            type    = 'text';
+            content = `📍 Localização: https://maps.google.com/?q=${msg.location?.latitude},${msg.location?.longitude}`;
+          } else if (msg.type === 'reaction') {
+            continue; // ignorar reações
+          } else {
+            type = 'text'; content = `[${msg.type}]`;
+          }
+
+          if (!content && !mediaData) continue;
+
+          // Upsert da conversa
+          const displayPhone = from.replace(/^\+/, '').replace(/^55/, '');
+          const contactId    = `${from}@s.whatsapp.net`;
+          const profilePic   = null; // Meta não fornece foto via webhook
+
+          const { rows: [conv] } = await query(`
+            INSERT INTO conversas (contact_id, phone, contact_name, channel, profile_pic, last_message, last_message_at, unread, status_atend, provider)
+            VALUES ($1, $2, $3, 'whatsapp', $4, $5, $6, 1, 'aberto', 'meta')
+            ON CONFLICT (contact_id) DO UPDATE SET
+              contact_name    = COALESCE(NULLIF(EXCLUDED.contact_name, conversas.contact_id), conversas.contact_name),
+              last_message    = EXCLUDED.last_message,
+              last_message_at = EXCLUDED.last_message_at,
+              unread          = conversas.unread + 1,
+              provider        = 'meta'
+            RETURNING *`,
+            [contactId, displayPhone, name, profilePic,
+             type==='text' ? content.slice(0,100) : `[${type}]`,
+             ts]
+          );
+
+          // Inserção deduplicada da mensagem
+          const { rows: [newMsg] } = await query(`
+            INSERT INTO mensagens (conversa_id, from_type, type, content, filename, created_at, wa_msg_id)
+            SELECT $1, 'contact', $2, $3, $4, $5, $6
+            WHERE NOT EXISTS (SELECT 1 FROM mensagens WHERE wa_msg_id = $6 AND $6 IS NOT NULL)
+            RETURNING *`,
+            [conv.id, type, content, filename, ts, msgId]
+          );
+
+          if (newMsg) {
+            // Entrega em tempo real: PG NOTIFY → WebSocket + fallbacks
+            await query(`SELECT pg_notify('vittahub', $1)`, [
+              JSON.stringify({ event:'new_message', convId:conv.id, messageId:newMsg.id, conv })
+            ]).catch(() => {});
+            broadcast('new_message', { convId:conv.id, message:newMsg, conv });
+            notifyWaiters(conv.id, newMsg);
+            console.log(`META_MSG from ${from}: ${type} | conv ${conv.id}`);
+          }
+        }
+      }
+    }
+  } catch (err) { console.error('META_WEBHOOK_ERROR:', err.message); }
+});
+
+// ─── META: enviar mensagem (usado pelo endpoint /send quando provider = 'meta') ─
+// Exportado como função para uso interno — ver endpoint /conversations/:id/send
+export async function sendViaMeta(phone, type, content) {
+  const AT  = process.env.META_ACCESS_TOKEN;
+  const PID = process.env.META_PHONE_NUMBER_ID;
+  if (!AT || !PID) throw new Error('META_ACCESS_TOKEN ou META_PHONE_NUMBER_ID não configurados');
+  const to = phone.startsWith('55') ? phone : `55${phone}`;
+  if (type === 'text') {
+    return metaSend(PID, AT, to, 'text', { text:{ body:content } });
+  }
+  // Para mídia: envia link
+  return metaSend(PID, AT, to, type, { [type]:{ link:content } });
+}
+
 // Keep Evolution webhook for backward compat
 r.use(auth);
 r.use(auth);
@@ -705,7 +895,7 @@ r.post('/conversations/:id/send', async (req, res) => {
     broadcast('new_message',   { convId: req.params.id, message: msg, conv: convUpd || conv });
     notifyWaiters(req.params.id, msg);
 
-    // WhatsApp send: Z-API (preferred) or Evolution API (fallback)
+    // WhatsApp send: roteia por provider da conversa (meta → Z-API → Evolution)
     if (conv.channel === 'whatsapp') {
       try {
         const waNumber = conv.contact_id
@@ -714,8 +904,20 @@ r.post('/conversations/:id/send', async (req, res) => {
         const phone55 = waNumber.startsWith('55') ? waNumber : `55${waNumber}`;
         let sent = false;
 
-        // Z-API
-        if (zapiOk()) {
+        // ── Meta Cloud API (provider = 'meta') ────────────────────────────────
+        if (conv.provider === 'meta' && process.env.META_ACCESS_TOKEN && process.env.META_PHONE_NUMBER_ID) {
+          try {
+            const metaResp = await sendViaMeta(phone55, type, content);
+            if (metaResp?.messages?.[0]?.id) {
+              await query("UPDATE mensagens SET status='sent', wa_msg_id=$1 WHERE id=$2",
+                [metaResp.messages[0].id, msg.id]);
+              sent = true;
+            }
+          } catch (e) { console.error('Meta send error:', e.message); }
+        }
+
+        // ── Z-API ─────────────────────────────────────────────────────────────
+        if (!sent && zapiOk()) {
           let zr;
           if (type === 'text')     zr = await zapiCall('/send-text',     'POST', { phone: phone55, message: content });
           else if (type === 'audio')    zr = await zapiCall('/send-audio',    'POST', { phone: phone55, audio: content });
@@ -725,19 +927,19 @@ r.post('/conversations/:id/send', async (req, res) => {
           if (zr?.ok) {
             const zd = await zr.json();
             if (zd.zaapId || zd.messageId) {
-              await query("UPDATE mensagens SET status = 'delivered', wa_msg_id = $1 WHERE id = $2", [zd.messageId || zd.zaapId, msg.id]);
+              await query("UPDATE mensagens SET status='delivered', wa_msg_id=$1 WHERE id=$2", [zd.messageId || zd.zaapId, msg.id]);
               sent = true;
             }
           }
         }
 
-        // Evolution API fallback
+        // ── Evolution API fallback ─────────────────────────────────────────────
         if (!sent && EVO_URL() && EVO_KEY()) {
           const { default: fetch } = await import('node-fetch');
           let er;
           if (type === 'text') er = await fetch(`${EVO_URL()}/message/sendText/${EVO_INST()}`, { method:'POST', headers:{'Content-Type':'application/json',apikey:EVO_KEY()}, body: JSON.stringify({number:waNumber,text:content})});
           else er = await fetch(`${EVO_URL()}/message/sendMedia/${EVO_INST()}`, { method:'POST', headers:{'Content-Type':'application/json',apikey:EVO_KEY()}, body: JSON.stringify({number:waNumber,mediatype:type,media:content,caption:''})});
-          if (er?.ok) { const ed = await er.json(); if (ed.key) await query("UPDATE mensagens SET status = 'delivered' WHERE id = $1", [msg.id]); }
+          if (er?.ok) { const ed = await er.json(); if (ed.key) await query("UPDATE mensagens SET status='delivered' WHERE id=$1", [msg.id]); }
         }
       } catch (e) { console.error('WA send error:', e.message); }
     }
