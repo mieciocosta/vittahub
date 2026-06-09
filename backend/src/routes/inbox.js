@@ -726,11 +726,11 @@ r.post('/notifications/read-all', async (req, res) => {
 // ─── UPDATE NAMES + PROFILE PICS ─────────────────────────────────────────────
 r.post('/whatsapp/update-contacts', async (req, res) => {
   const EVO = EVO_URL(), KEY = EVO_KEY(), INST = EVO_INST();
-  if (!EVO || !KEY) return res.status(400).json({ error: 'Não configurado' });
+  const zapiBase = zapiOk() ? `https://api.z-api.io/instances/${process.env.ZAPI_INSTANCE}/token/${process.env.ZAPI_TOKEN}` : null;
+
   try {
     const { default: fetch } = await import('node-fetch');
 
-    // Get all conversations
     const { rows: convos } = await query(
       `SELECT id, contact_id, phone, contact_name FROM conversas
        WHERE contact_id LIKE '%@s.whatsapp.net'
@@ -741,41 +741,79 @@ r.post('/whatsapp/update-contacts', async (req, res) => {
 
     let namesUpdated = 0, picsUpdated = 0;
 
-    // Batch via whatsappNumbers — confirmed working
+    // Batch name lookup via whatsappNumbers
     const batchSize = 20;
     for (let i = 0; i < convos.length; i += batchSize) {
       const batch = convos.slice(i, i + batchSize);
       const numbers = batch.map(c => c.contact_id.replace('@s.whatsapp.net', ''));
       try {
-        const r2 = await fetch(`${EVO}/chat/whatsappNumbers/${INST}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', apikey: KEY },
-          body: JSON.stringify({ numbers }),
+        const endpoint = zapiOk()
+          ? `${zapiBase}/chat/whatsapp-numbers`
+          : `${EVO}/chat/whatsappNumbers/${INST}`;
+        const headers = zapiOk()
+          ? { 'Content-Type': 'application/json', ...(process.env.ZAPI_CLIENT_TOKEN ? { 'Client-Token': process.env.ZAPI_CLIENT_TOKEN } : {}) }
+          : { 'Content-Type': 'application/json', apikey: KEY };
+
+        const r2 = await fetch(endpoint, {
+          method: 'POST', headers,
+          body: JSON.stringify({ phones: numbers }),
           signal: AbortSignal.timeout(15000)
         });
         if (r2.ok) {
           const results = await r2.json();
           for (const item of (Array.isArray(results) ? results : [])) {
-            const jid = item.jid || (item.number + '@s.whatsapp.net');
+            const jid = item.jid || ((item.phone || item.number || '') + '@s.whatsapp.net');
             const name = item.name || item.pushName || '';
             if (name && name.length > 2) {
               const { rowCount } = await query(
                 `UPDATE conversas SET contact_name = $1
-                 WHERE contact_id = $2
-                   AND (length(contact_name) <= 11 OR contact_name = phone)`,
+                 WHERE contact_id = $2 AND (length(contact_name) <= 11 OR contact_name = phone)`,
                 [name, jid]
               );
               namesUpdated += rowCount || 0;
             }
           }
         }
-      } catch (e) { console.log('whatsappNumbers batch error:', e.message); }
+      } catch (e) { console.log('name batch error:', e.message); }
     }
 
-    // Try to get profile pic from instance info (has profilePicUrl for the instance)
-    // For individual contacts, use the pushName webhook data going forward
-    // For now, set a placeholder so the avatar shows initials nicely
-    console.log(`UPDATE_CONTACTS: ${namesUpdated} names updated`);
+    // Fetch profile pics using Z-API /profile-picture?phone=NUMBER
+    for (const conv of convos) {
+      if (conv.profile_pic) continue; // skip if already has pic
+      try {
+        const phone = conv.contact_id.replace('@s.whatsapp.net', '');
+        let pic = null;
+
+        if (zapiOk()) {
+          // Z-API: GET /profile-picture?phone=559888278736
+          const headers = { 'Content-Type': 'application/json' };
+          if (process.env.ZAPI_CLIENT_TOKEN) headers['Client-Token'] = process.env.ZAPI_CLIENT_TOKEN;
+          const rp = await fetch(`${zapiBase}/profile-picture?phone=${phone}`, {
+            headers, signal: AbortSignal.timeout(6000)
+          });
+          if (rp.ok) {
+            const pd = await rp.json();
+            pic = pd.link || pd.url || pd.profilePicUrl || '';
+          }
+        } else if (EVO && KEY) {
+          const rp = await fetch(`${EVO}/contact/getProfilePicture/${INST}?number=${conv.contact_id}`, {
+            headers: { apikey: KEY }, signal: AbortSignal.timeout(5000)
+          });
+          if (rp.ok) {
+            const pd = await rp.json();
+            pic = pd.profilePictureUrl || pd.base64 || pd.imgUrl || '';
+          }
+        }
+
+        if (pic) {
+          await query('UPDATE conversas SET profile_pic = $1 WHERE id = $2', [pic, conv.id]);
+          picsUpdated++;
+        }
+        await new Promise(r => setTimeout(r, 150)); // rate limit
+      } catch {}
+    }
+
+    console.log(`UPDATE_CONTACTS: ${namesUpdated} names, ${picsUpdated} pics`);
     res.json({ ok: true, namesUpdated, picsUpdated });
   } catch (e) {
     console.error('update-contacts error:', e.message);
