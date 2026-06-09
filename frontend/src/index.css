@@ -216,3 +216,28 @@ a { text-decoration: none; color: inherit; }
   flex-shrink: 0;
 }
 .inbox-resize-handle:hover { background: var(--tq); }
+
+/* ─── DARK THEME COMPLETE FIX ───────────────────────────────────────────── */
+[data-theme="dark"] * { border-color: var(--border) !important; }
+[data-theme="dark"] div, [data-theme="dark"] span, [data-theme="dark"] p,
+[data-theme="dark"] h1, [data-theme="dark"] h2, [data-theme="dark"] h3,
+[data-theme="dark"] label, [data-theme="dark"] a:not(.btn) {
+  color: var(--txt);
+}
+[data-theme="dark"] [style*="background:#fff"],
+[data-theme="dark"] [style*="background: #fff"],
+[data-theme="dark"] [style*="background: white"],
+[data-theme="dark"] [style*="background:'#fff'"] {
+  background: var(--card) !important;
+}
+[data-theme="dark"] [style*="background: 'var(--card, #fff')"],
+[data-theme="dark"] [style*="background:'var(--card"] {
+  background: var(--card) !important;
+}
+/* Chat messages dark */
+[data-theme="dark"] [style*="background:#dcfce7"],
+[data-theme="dark"] [style*="background: #dcfce7"] { background: #1a3a2a !important; }
+[data-theme="dark"] [style*="background:#fff"][style*="border-radius"] { background: var(--bg2) !important; }
+/* Sidebar always dark - no change needed */
+/* Inbox list */
+[data-theme="dark"] [style*="borderBottom: '1px solid var(--border)'"] { border-color: var(--border) !important; }

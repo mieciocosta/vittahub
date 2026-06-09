@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import {
   Send, Paperclip, Mic, MicOff, Sparkles, Search, RefreshCw, X,
-  UserPlus, Hash, Bot, FileText, Volume2, File, Tag, Filter, ChevronDown, ArrowUpDown
+  UserPlus, Hash, Bot, FileText, Volume2, File, Tag, Filter, ChevronDown,
+  ArrowUpDown, Smile, PanelLeftClose, PanelLeftOpen, Image, Play
 } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt, openWA } from '../hooks/utils.js';
@@ -286,6 +287,9 @@ export default function Inbox({ onUnreadChange }) {
   const [recorder, setRecorder] = useState(null);
   const [showAI, setShowAI] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
+  const [showEmoji, setShowEmoji] = useState(false);
+  const [filePreview, setFilePreview] = useState(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [selFull, setSelFull] = useState(null);
   const [showQR, setShowQR] = useState(false);
   const [qr, setQr] = useState([]);
@@ -317,6 +321,7 @@ export default function Inbox({ onUnreadChange }) {
   const selRef = useRef(sel);
   useEffect(() => { selRef.current = sel; }, [sel]);
 
+  // ── Auto-polling: lista de conversas a cada 6s (reduzido para performance) ──
   useEffect(() => {
     const iv = setInterval(async () => {
       try {
@@ -327,15 +332,21 @@ export default function Inbox({ onUnreadChange }) {
         const data = await api.get(`/inbox/conversations?${params}`);
         const list = data.data || data;
         const tot = data.total ?? list.length;
-        setConvos(list);
+        // Only update if something changed (avoid re-render)
+        setConvos(prev => {
+          const changed = list.length !== prev.length ||
+            list[0]?.last_message !== prev[0]?.last_message ||
+            list.reduce((s,c)=>s+(c.unread||0),0) !== prev.reduce((s,c)=>s+(c.unread||0),0);
+          return changed ? list : prev;
+        });
         setTotal(tot);
         onUnreadChange?.(list.reduce((s, c) => s + (c.unread || 0), 0));
       } catch {}
-    }, 4000);
+    }, 6000);
     return () => clearInterval(iv);
   }, [filter, search, unreadOnly]);
 
-  // ── Auto-polling: atualiza mensagens da conversa selecionada a cada 3s ──
+  // ── Auto-polling: mensagens da conversa selecionada a cada 5s ──
   useEffect(() => {
     if (!sel) return;
     const iv = setInterval(async () => {
@@ -343,11 +354,14 @@ export default function Inbox({ onUnreadChange }) {
         const data = await api.get(`/inbox/conversations/${sel.id}`);
         const newMsgs = data.messages || [];
         setMsgs(prev => {
-          if (newMsgs.length !== prev.length) return newMsgs;
+          // Only update if new messages arrived
+          if (newMsgs.length > prev.length) return newMsgs;
+          // Or if last message changed
+          if (newMsgs[newMsgs.length-1]?.id !== prev[prev.length-1]?.id) return newMsgs;
           return prev;
         });
       } catch {}
-    }, 3000);
+    }, 5000);
     return () => clearInterval(iv);
   }, [sel?.id]);
 
@@ -427,9 +441,27 @@ export default function Inbox({ onUnreadChange }) {
 
   const handleFile = async (e) => {
     const f = e.target.files[0]; if (!f || !sel) return;
+    const type = f.type.startsWith('image/') ? 'image' : f.type.startsWith('video/') ? 'video' : f.type.startsWith('audio/') ? 'audio' : 'document';
+    // Show preview for images and videos
+    if (type === 'image' || type === 'video') {
+      const url = URL.createObjectURL(f);
+      setFilePreview({ url, type, name: f.originalname || f.name, file: f });
+      e.target.value = '';
+      return;
+    }
+    // Direct upload for audio and documents
     const fd = new FormData(); fd.append('file', f);
     const m = await api.upload(`/inbox/conversations/${sel.id}/upload`, fd);
     setMsgs(p => [...p, m]); e.target.value = '';
+  };
+
+  const sendFilePreview = async () => {
+    if (!filePreview || !sel) return;
+    const fd = new FormData(); fd.append('file', filePreview.file);
+    const m = await api.upload(`/inbox/conversations/${sel.id}/upload`, fd);
+    setMsgs(p => [...p, m]);
+    URL.revokeObjectURL(filePreview.url);
+    setFilePreview(null);
   };
 
   const startRec = async () => {
@@ -469,7 +501,7 @@ export default function Inbox({ onUnreadChange }) {
     >
 
       {/* ── LEFT PANEL: Conversation list ────────────────────────────────────── */}
-      <div style={{ width: listWidth, flexShrink: 0, background: 'var(--card, #fff)', display: 'flex', flexDirection: 'column', borderRight: '1px solid var(--border)' }}>
+      <div style={{ width: sidebarCollapsed ? 0 : listWidth, flexShrink: 0, background: 'var(--card, #fff)', display: 'flex', flexDirection: 'column', borderRight: '1px solid var(--border)', overflow: 'hidden', transition: 'width .2s ease' }}>
         {/* Header */}
         <div style={{ padding: '14px 13px 0', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
@@ -543,6 +575,9 @@ export default function Inbox({ onUnreadChange }) {
               <button onClick={() => setShowAI(p => !p)} className="btn btn-sm" style={{ background: showAI ? '#071e2c' : 'var(--bg2)', color: showAI ? '#00B8C0' : 'var(--muted)', border: `1.5px solid ${showAI ? 'rgba(0,184,192,.4)' : 'var(--border)'}`, fontSize: 11.5, padding: '5px 10px' }}>
                 <Sparkles size={11} /> IA
               </button>
+              <button onClick={() => setSidebarCollapsed(p => !p)} className="btn btn-sm" title={sidebarCollapsed ? 'Mostrar lista' : 'Expandir chat'} style={{ background: 'var(--bg2)', color: 'var(--muted)', border: '1.5px solid var(--border)', fontSize: 11.5, padding: '5px 8px' }}>
+                {sidebarCollapsed ? <PanelLeftOpen size={13}/> : <PanelLeftClose size={13}/>}
+              </button>
               <button onClick={() => setShowInfo(p => !p)} className="btn btn-sm" style={{ background: showInfo ? 'var(--tq3)' : 'var(--bg2)', color: showInfo ? 'var(--tq2)' : 'var(--muted)', border: `1.5px solid ${showInfo ? 'var(--tq)' : 'var(--border)'}`, fontSize: 11.5, padding: '5px 10px' }}>
                 <Tag size={11} /> Info
               </button>
@@ -554,7 +589,7 @@ export default function Inbox({ onUnreadChange }) {
 
           {/* Messages area + contact info panel */}
           <div style={{ flex: 1, display: 'flex', minHeight: 0, overflow: 'hidden' }}>
-            <div style={{ flex: 1, overflowY: 'auto', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 5 }}>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 5, background: 'var(--bg)' }}>
               {msgs.map((m, i) => <MsgItem key={m.id || i} m={m} i={i} msgs={msgs} contactName={sel.contact_name} channel={sel.channel} onLightbox={setLightbox} />)}
               <div ref={endRef} />
             </div>
@@ -640,21 +675,57 @@ export default function Inbox({ onUnreadChange }) {
             </div>
           )}
 
+          {/* File preview */}
+          {filePreview && (
+            <div style={{ background: 'var(--bg)', borderTop: '1px solid var(--border)', padding: '10px 14px', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ position: 'relative', flexShrink: 0 }}>
+                {filePreview.type === 'image'
+                  ? <img src={filePreview.url} alt="" style={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 8 }} />
+                  : <div style={{ width: 80, height: 80, background: 'var(--bg2)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Play size={24} color="var(--tq)"/></div>
+                }
+                <button onClick={() => { URL.revokeObjectURL(filePreview.url); setFilePreview(null); }} style={{ position: 'absolute', top: -6, right: -6, width: 20, height: 20, borderRadius: '50%', background: 'var(--err)', color: '#fff', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10 }}>✕</button>
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>{filePreview.name}</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>{filePreview.type === 'image' ? '📷 Imagem' : '🎥 Vídeo'} · pronto para enviar</div>
+              </div>
+              <button onClick={sendFilePreview} className="btn btn-p btn-sm"><Send size={13}/> Enviar</button>
+            </div>
+          )}
+
+          {/* Emoji picker */}
+          {showEmoji && (
+            <div style={{ background: 'var(--card, #fff)', borderTop: '1px solid var(--border)', padding: '10px 14px', flexShrink: 0, maxHeight: 180, overflowY: 'auto' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: .6 }}>Emojis frequentes</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                {['😊','😂','❤️','👍','🙏','😍','🎉','😢','😮','😡','👏','🔥','✅','⭐','💎','💉','🏥','👶','💊','🩺',
+                  '😁','🤣','😘','🥰','😎','🤔','😴','🤒','🤧','💪','🌟','💯','📋','📅','⏰','📞','💬','📱','🚀','✨'].map(e => (
+                  <button key={e} onClick={() => { setInput(p => p + e); textRef.current?.focus(); }}
+                    style={{ fontSize: 20, padding: '3px 5px', background: 'none', border: 'none', cursor: 'pointer', borderRadius: 6, lineHeight: 1 }}
+                    onMouseEnter={ev => ev.currentTarget.style.background = 'var(--bg)'}
+                    onMouseLeave={ev => ev.currentTarget.style.background = 'none'}
+                  >{e}</button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Input bar */}
-          <div style={{ background: '#fff', padding: '9px 14px', borderTop: '1px solid var(--border)', flexShrink: 0 }}>
+          <div style={{ background: 'var(--card, #fff)', padding: '9px 14px', borderTop: '1px solid var(--border)', flexShrink: 0 }}>
             <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end' }}>
               <button onClick={() => fileRef.current?.click()} className="btn btn-g btn-ico"><Paperclip size={16} /></button>
-              <button onClick={() => setShowQR(p => !p)} className="btn btn-ico" style={{ background: showQR ? 'var(--tq3)' : 'transparent', color: showQR ? 'var(--tq)' : 'var(--muted)', borderRadius: 8 }}><Hash size={16} /></button>
+              <button onClick={() => { setShowEmoji(p => !p); setShowQR(false); }} className="btn btn-ico" style={{ background: showEmoji ? 'var(--tq3)' : 'transparent', color: showEmoji ? 'var(--tq)' : 'var(--muted)', borderRadius: 8 }}><Smile size={16} /></button>
+              <button onClick={() => { setShowQR(p => !p); setShowEmoji(false); }} className="btn btn-ico" style={{ background: showQR ? 'var(--tq3)' : 'transparent', color: showQR ? 'var(--tq)' : 'var(--muted)', borderRadius: 8 }}><Hash size={16} /></button>
               <input ref={fileRef} type="file" accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx" style={{ display: 'none' }} onChange={handleFile} />
               <textarea ref={textRef} value={input} onChange={e => setInput(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
                 placeholder="Mensagem… (Enter envia)" rows={1}
-                style={{ flex: 1, padding: '9px 13px', border: '1.5px solid var(--border)', borderRadius: 10, fontSize: 13.5, resize: 'none', outline: 'none', maxHeight: 100, overflowY: 'auto', lineHeight: 1.55, fontFamily: 'DM Sans, sans-serif', transition: 'border-color .15s' }}
+                style={{ flex: 1, padding: '9px 13px', border: '1.5px solid var(--border)', borderRadius: 10, fontSize: 13.5, resize: 'none', outline: 'none', maxHeight: 100, overflowY: 'auto', lineHeight: 1.55, fontFamily: 'DM Sans, sans-serif', transition: 'border-color .15s', background: 'var(--card, #fff)', color: 'var(--txt)' }}
                 onFocus={e => e.target.style.borderColor = 'var(--tq)'} onBlur={e => e.target.style.borderColor = 'var(--border)'} />
               <button onClick={recording ? stopRec : startRec} className="btn btn-ico" style={{ background: recording ? 'var(--err2)' : 'var(--bg2)', color: recording ? 'var(--err)' : 'var(--muted)', borderRadius: 8, animation: recording ? 'pulse 1.2s infinite' : 'none' }}>
                 {recording ? <MicOff size={16} /> : <Mic size={16} />}
               </button>
-              <button onClick={() => send()} disabled={!input.trim()} className="btn btn-ico" style={{ background: input.trim() ? 'var(--tq)' : 'var(--bg2)', color: input.trim() ? '#fff' : 'var(--light)', borderRadius: 8, transition: 'all .15s' }}>
+              <button onClick={() => send()} disabled={!input.trim() && !filePreview} className="btn btn-ico" style={{ background: (input.trim() || filePreview) ? 'var(--tq)' : 'var(--bg2)', color: (input.trim() || filePreview) ? '#fff' : 'var(--light)', borderRadius: 8, transition: 'all .15s' }}>
                 <Send size={16} />
               </button>
             </div>
