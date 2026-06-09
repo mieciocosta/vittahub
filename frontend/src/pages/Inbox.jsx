@@ -309,7 +309,7 @@ export default function Inbox({ onUnreadChange }) {
   const listContainerRef  = useRef(null);
   const searchTimeout     = useRef(null);
   const lastPollTs        = useRef(new Date().toISOString()); // para poll incremental
-  const lastMsgId         = useRef(null);                    // para poll incremental de msgs
+  const lastMsgTs         = useRef(null);                    // timestamp da última msg (cursor SSE fallback)
 
   // ── Mede altura da lista ────────────────────────────────────────────────────
   useEffect(() => {
@@ -364,31 +364,68 @@ export default function Inbox({ onUnreadChange }) {
     return () => clearInterval(iv);
   }, [filter, search, unreadOnly]);
 
-  // ── Poll incremental de mensagens da conversa aberta ──────────────────────
+  // ── SSE: conexão em tempo real (substitui o poll de mensagens) ────────────
   useEffect(() => {
-    if (!sel) return;
-    lastMsgId.current = msgs[msgs.length - 1]?.id || 0;
-    const iv = setInterval(async () => {
-      if (!isTabActive()) return;
-      try {
-        const afterId = lastMsgId.current || 0;
-        const data = await api.get(`/inbox/conversations/${sel.id}/messages/new?after_id=${afterId}`);
-        const newMsgs = data.messages || [];
-        if (newMsgs.length > 0) {
-          setMsgs(prev => {
-            const existingIds = new Set(prev.map(m => m.id));
-            const truly = newMsgs.filter(m => !existingIds.has(m.id));
-            if (truly.length === 0) return prev;
-            lastMsgId.current = newMsgs[newMsgs.length - 1].id;
-            return [...prev, ...truly];
-          });
-        }
-      } catch {}
-    }, 4000);
-    return () => clearInterval(iv);
-  }, [sel?.id]);
+    const BASE = import.meta.env.VITE_API_URL || '';
+    const tk   = localStorage.getItem('vh_token') || '';
+    if (!tk) return;
 
-  // ── Scroll para baixo quando chegam novas msgs ─────────────────────────────
+    let es = null;
+    let retryTimer = null;
+
+    function connect() {
+      es = new EventSource(`${BASE}/api/inbox/stream?token=${encodeURIComponent(tk)}`);
+
+      es.addEventListener('connected', () => {
+        console.log('SSE conectado ✅');
+      });
+
+      es.addEventListener('new_message', (e) => {
+        try {
+          const { convId, message, conv: updatedConv } = JSON.parse(e.data);
+
+          // Atualiza lista de conversas — move para o topo
+          setConvos(prev => {
+            const existing = prev.find(c => c.id === convId);
+            const merged = { ...(existing || {}), ...updatedConv };
+            return [merged, ...prev.filter(c => c.id !== convId)];
+          });
+
+          // Atualiza badge de não lidos
+          onUnreadChange?.(prev => {
+            // Recalcula depois
+          });
+
+          // Se a conversa aberta for essa, adiciona a mensagem
+          if (selRef.current?.id === convId) {
+            setMsgs(prev => {
+              if (prev.find(m => m.id === message.id)) return prev;
+              lastMsgTs.current = message.created_at;
+              return [...prev, message];
+            });
+          }
+        } catch {}
+      });
+
+      es.addEventListener('ping', () => {/* heartbeat */});
+
+      es.onerror = () => {
+        es.close();
+        // Reconectar após 5s
+        retryTimer = setTimeout(connect, 5000);
+      };
+    }
+
+    connect();
+
+    return () => {
+      clearTimeout(retryTimer);
+      es?.close();
+    };
+  }, []); // Conecta uma vez, sem dependências
+
+  // ── Poll de CONVERSAS como fallback (lista, não mensagens) ────────────────
+  // SSE cobre mensagens em tempo real — este poll só mantém a lista de conversas atualizada
   useEffect(() => {
     if (!msgAreaRef.current) return;
     const el = msgAreaRef.current;
@@ -459,7 +496,7 @@ export default function Inbox({ onUnreadChange }) {
     setShowProposta(false);
     setLeadData(null);
     setSelFull(null);
-    lastMsgId.current = null;
+    lastMsgTs.current = null;
 
     try {
       const data = await api.get(`/inbox/conversations/${c.id}`);
@@ -469,9 +506,9 @@ export default function Inbox({ onUnreadChange }) {
       setSelFull(data);
       if (data.profile_pic) setSel(prev => ({ ...prev, profile_pic: data.profile_pic }));
       if (data.lead_id) api.get(`/leads/${data.lead_id}`).then(setLeadData).catch(() => {});
-      // Atualiza lastMsgId para poll incremental
-      const lastId = data.messages?.[data.messages.length - 1]?.id;
-      if (lastId) lastMsgId.current = lastId;
+      // Salva timestamp da última mensagem para o SSE saber o cursor
+      const lastTs = data.messages?.[data.messages.length - 1]?.created_at;
+      if (lastTs) lastMsgTs.current = lastTs;
       // Scroll para o fim
       setTimeout(() => {
         if (msgAreaRef.current) msgAreaRef.current.scrollTop = msgAreaRef.current.scrollHeight;
@@ -490,8 +527,8 @@ export default function Inbox({ onUnreadChange }) {
     if (!sel || loadingOlderMsgs || !msgsHasMore) return;
     setLoadingOlderMsgs(true);
     try {
-      const firstId = msgs[0]?.id;
-      const data = await api.get(`/inbox/conversations/${sel.id}?before_id=${firstId}`);
+      const firstTs = msgs[0]?.created_at;
+      const data = await api.get(`/inbox/conversations/${sel.id}?before_ts=${encodeURIComponent(firstTs)}`);
       const older = data.messages || [];
       setMsgs(prev => {
         const ids = new Set(prev.map(m => m.id));
