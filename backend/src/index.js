@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
+import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -13,101 +14,79 @@ import pool from './db/pool.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 8080;
 
-/**
- * CORS
- */
 const allowedOrigins = [
+  process.env.FRONTEND_URL,
   'http://localhost:3000',
-  'http://localhost:5173',
-  'https://vittahub-frontend-production.up.railway.app',
-  process.env.FRONTEND_URL
+  'http://localhost:5173'
 ].filter(Boolean);
 
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
 
-  if (!origin || allowedOrigins.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin || '*');
-  }
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
 
-  res.setHeader('Vary', 'Origin');
-  res.setHeader(
-    'Access-Control-Allow-Methods',
-    'GET,POST,PUT,PATCH,DELETE,OPTIONS'
-  );
+      console.log(`❌ CORS bloqueado para: ${origin}`);
+      return callback(new Error('Not allowed by CORS'));
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'Accept',
+      'Origin'
+    ]
+  })
+);
 
-  res.setHeader(
-    'Access-Control-Allow-Headers',
-    'Content-Type,Authorization,Accept'
-  );
+app.options('*', cors());
 
-  res.setHeader(
-    'Access-Control-Allow-Credentials',
-    'true'
-  );
-
-  if (req.method === 'OPTIONS') {
-    return res.sendStatus(204);
-  }
-
-  next();
-});
-
-/**
- * Middlewares
- */
 app.use(express.json({ limit: '25mb' }));
+app.use(express.urlencoded({ extended: true }));
 
 app.use(
   '/uploads',
   express.static(path.join(__dirname, '../../uploads'))
 );
 
-/**
- * Health Check
- */
-app.get('/api/health', async (_, res) => {
-  let db = false;
-
-  try {
-    await pool.query('SELECT 1');
-    db = true;
-  } catch (error) {
-    console.error(error);
-  }
-
-  res.json({
+app.get('/', (_, res) => {
+  res.status(200).json({
     ok: true,
-    app: 'VittaHub',
+    app: 'VittaHub API',
     version: '2.0.0',
-    db: db ? 'ok' : 'error'
+    status: 'online'
   });
 });
 
-/**
- * Rotas
- */
+app.get('/api/health', (_, res) => {
+  res.status(200).json({
+    ok: true,
+    app: 'VittaHub',
+    version: '2.0.0',
+    status: 'online',
+    frontend: process.env.FRONTEND_URL || 'não configurado'
+  });
+});
+
 app.use('/api/auth', authRouter);
 app.use('/api/leads', leadsRouter);
 app.use('/api/reports', reportsRouter);
 app.use('/api/inbox', inboxRouter);
 
-/**
- * Tratamento global de erros
- */
 app.use((err, req, res, next) => {
-  console.error(err);
+  console.error('❌ Erro:', err);
 
-  return res.status(err.status || 500).json({
-    error: err.message || 'Erro interno do servidor'
+  res.status(err.status || 500).json({
+    error: err.message || 'Erro interno'
   });
 });
 
-/**
- * Inicialização
- */
 async function start() {
   try {
     await pool.query('SELECT 1');
