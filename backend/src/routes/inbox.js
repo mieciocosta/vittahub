@@ -358,27 +358,10 @@ async function zapiCall(path, method = 'GET', body = null) {
 const VITTASYS_URL = () => process.env.VITTASYS_API_URL || 'https://vittasys.vittalissaude.com.br';
 let _precosCache = null, _precosCacheAt = 0;
 
-// Busca tabela de preços do VittaSys (cache de 10 min)
+// Busca tabela de preços — usa o catálogo local (independente do VittaSys)
 async function getPrecosVittaSys() {
-  const agora = Date.now();
-  if (_precosCache && (agora - _precosCacheAt) < 600000) return _precosCache;
-  try {
-    const { default: fetch } = await import('node-fetch');
-    const r = await fetch(`${VITTASYS_URL()}/api/proposta/precos`, {
-      headers: { 'x-vittalis-key': process.env.VITTAHUB_API_KEY || '' },
-      signal: AbortSignal.timeout(8000)
-    });
-    if (r.ok) {
-      const json = await r.json();
-      // VittaSys retorna { success:true, data:[...] } — extrai o array
-      const data = Array.isArray(json) ? json : (json.data || json.precos || []);
-      if (Array.isArray(data) && data.length) {
-        _precosCache = data; _precosCacheAt = agora;
-        return data;
-      }
-    }
-  } catch (e) { console.error('Erro buscar preços VittaSys:', e.message); }
-  return _precosCache || []; // retorna cache antigo se falhar
+  // Fonte primária: catálogo local (proposta-gen). Sempre disponível.
+  return propostaGen.VACINAS;
 }
 
 // Formata os preços para o contexto da IA
@@ -392,53 +375,45 @@ function formatarPrecos(precos) {
   return `\nTABELA DE PREÇOS DAS VACINAS (use estes valores reais quando o cliente perguntar):\n${linhas.join('\n')}`;
 }
 
-// Gera PDF da proposta: busca HTML no VittaSys e converte com Puppeteer
-async function gerarPropostaPDF({ nomeCliente, nomeBebe, template, pacoteNome, vacinas, desconto, parcelas }) {
-  const { default: fetch } = await import('node-fetch');
-  // 1. Busca o HTML da proposta no VittaSys (rota /api/proposta/html)
-  const r = await fetch(`${VITTASYS_URL()}/api/proposta/html`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-vittalis-key': process.env.VITTAHUB_API_KEY || '',
-    },
-    body: JSON.stringify({ nomeCliente, nomeBebe, template, pacoteNome, vacinas, desconto: desconto||0, parcelas: parcelas||1 }),
-    signal: AbortSignal.timeout(20000),
-  });
-  if (!r.ok) {
-    const err = await r.text().catch(() => '');
-    throw new Error(`VittaSys HTML ${r.status}: ${err.slice(0,150)}`);
-  }
-  const html = await r.text();
+// Gera PDF da proposta: HTML local (módulo proposta-gen) → Puppeteer
+const propostaGen = require('../services/proposta-gen');
 
-  // 2. Converte HTML → PDF com Puppeteer + Chromium
+async function htmlParaPDF(html) {
   const puppeteer = (await import('puppeteer-core')).default;
   let browser;
   try {
-    // Tenta usar o Chromium do sistema (instalado via nixpacks); senão, usa sparticuz
     const fsMod = await import('fs');
     const sysChromePaths = ['/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome'];
     let execPath = sysChromePaths.find(p => { try { return fsMod.existsSync(p); } catch { return false; } });
     let launchArgs = ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--single-process'];
-
     if (!execPath) {
       const chromium = (await import('@sparticuz/chromium')).default;
       execPath = await chromium.executablePath();
       launchArgs = chromium.args;
     }
-
-    browser = await puppeteer.launch({
-      args: launchArgs,
-      executablePath: execPath,
-      headless: true,
-    });
+    browser = await puppeteer.launch({ args: launchArgs, executablePath: execPath, headless: true });
     const page = await browser.newPage();
     await page.setContent(html, { waitUntil: 'networkidle0', timeout: 20000 });
-    const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true, margin: { top: '10mm', bottom: '10mm', left: '8mm', right: '8mm' } });
+    const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true });
     return Buffer.from(pdfBuffer);
   } finally {
     if (browser) await browser.close().catch(() => {});
   }
+}
+
+// Proposta de VACINAS INDIVIDUAIS (gera localmente)
+async function gerarPropostaPDF({ nomeCliente, nomeBebe, template, pacoteNome, vacinas, desconto, parcelas }) {
+  const html = propostaGen.gerarHtmlOrcamento({
+    vacinas, template: template || 'adulto', nomeCliente, nomeBebe, pacoteNome,
+    desconto: desconto || 0, parcelas: parcelas || 1,
+  });
+  return htmlParaPDF(html);
+}
+
+// Proposta de PLANO VACINAL completo (gera localmente, com capa e benefícios)
+async function gerarPlanoPDF({ planoId, desconto, parcelas, bonus }) {
+  const html = propostaGen.gerarHtmlPlano({ planoId, desconto: desconto || 0, parcelas, bonus });
+  return htmlParaPDF(html);
 }
 
 // Envia um PDF (base64) via Z-API para um número
@@ -717,15 +692,17 @@ ESTILO DE ESCRITA:
 - Seja consultiva, não robótica. Não despeje opções numeradas como um menu.
 
 PROPOSTA EM PDF (REGRA CRÍTICA):
-- Quando o cliente pedir proposta/orçamento de uma vacina, use a ferramenta "enviar_proposta" e ENVIE NA HORA. Não interrogue.
+- Quando o cliente pedir proposta/orçamento de uma vacina avulsa, use "enviar_proposta" e ENVIE NA HORA. Não interrogue.
+- Quando o cliente tem um BEBÊ e quer o calendário/plano completo por idade, use "enviar_plano" com o plano adequado à idade. Planos disponíveis: 0-6 meses, 0-9 meses, 2-6 meses, 2-9 meses, 2-18 meses, e completo 0-18 meses.
 - Use o nome do cliente do contexto (campo "Cliente"). NÃO pergunte o nome.
 - "gripe"=Influenza, "pneumo 20"=Pneumocócica 20, "catapora"=Varicela, etc. Mapeie sozinha.
 - Escolha o template: "infantil" para bebê/criança, "adulto" para o resto. NÃO pergunte isso.
 - Se o cliente disse a vacina, ENVIE. Só pergunte se realmente não houver nenhuma vacina mencionável.
-- Depois de enviar, gere valor: "Enviei sua proposta! Posso já reservar um horário com nossa equipe para a aplicação?" — sempre conduzindo para o agendamento.
+- Depois de enviar, gere valor: ofereça reservar horário com a equipe para a aplicação.
 
-EXEMPLO DO COMPORTAMENTO CERTO:
-Cliente: "me envia a proposta da pneumo 20" → CHAME enviar_proposta com vacinas=["Pneumocócica 20"], e depois ofereça agendar. NÃO pergunte mais nada.
+EXEMPLO:
+Cliente: "me envia a proposta da pneumo 20" → enviar_proposta com vacinas=["Pneumocócica 20"], depois ofereça agendar.
+Cliente: "meu bebê tem 2 meses, quero o plano completo" → enviar_plano com planoId="plano_2_a_18_meses" ou "plano_completo_0_a_18_meses".
 
 Cliente atual: ${conv.contact_name || 'não identificado'}.`;
 
@@ -747,6 +724,20 @@ Cliente atual: ${conv.contact_name || 'não identificado'}.`;
                   parcelas: { type: 'number', description: 'Número de parcelas no cartão (padrão 1)' },
                 },
                 required: ['nomeCliente', 'vacinas'],
+              },
+            }, {
+              name: 'enviar_plano',
+              description: 'Gera e envia em PDF um PLANO VACINAL completo (cronograma de vacinas por idade do bebê/criança, com capa e benefícios). Use quando o cliente tem um bebê e quer o calendário/plano completo por faixa de idade, em vez de vacinas avulsas.',
+              input_schema: {
+                type: 'object',
+                properties: {
+                  planoId: {
+                    type: 'string',
+                    enum: ['plano_0_a_6_meses','plano_0_a_9_meses','plano_2_a_6_meses','plano_2_a_9_meses','plano_2_a_18_meses','plano_completo_0_a_18_meses'],
+                    description: 'Qual plano: escolha conforme a idade atual do bebê e até quando quer o calendário'
+                  },
+                },
+                required: ['planoId'],
               },
             }, {
               name: 'passar_para_equipe',
@@ -788,9 +779,35 @@ Cliente atual: ${conv.contact_name || 'não identificado'}.`;
             } else {
               // Verifica se a IA quer usar alguma ferramenta
               const toolUse = aiData.content?.find(c => c.type === 'tool_use' && c.name === 'enviar_proposta');
+              const toolPlano = aiData.content?.find(c => c.type === 'tool_use' && c.name === 'enviar_plano');
               const toolPassar = aiData.content?.find(c => c.type === 'tool_use' && c.name === 'passar_para_equipe');
               const textBlock = aiData.content?.find(c => c.type === 'text');
               botReply = textBlock?.text?.trim() || '';
+
+              // ── Enviar PLANO VACINAL completo ──
+              if (toolPlano) {
+                try {
+                  const planoId = toolPlano.input?.planoId;
+                  console.log('IA chamou enviar_plano:', planoId);
+                  let phoneNum = conv.phone.replace(/\D/g, '');
+                  if (phoneNum.startsWith('55') && phoneNum.length >= 12) phoneNum = phoneNum.slice(2);
+                  const pdfBuf = await gerarPlanoPDF({ planoId });
+                  console.log('PDF plano gerado:', pdfBuf.length, 'bytes');
+                  const planoNome = (propostaGen.PLANOS.find(p => p.id === planoId) || {}).nome || 'Plano Vacinal';
+                  const zr = await enviarPDFZapi(`55${phoneNum}`, pdfBuf.toString('base64'), `${planoNome.replace(/\s+/g,'-')}.pdf`);
+                  if (zr?.ok) {
+                    const { rows: [pmsg] } = await query(
+                      `INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, filename, created_at)
+                       VALUES ($1,'bot','Vitta','document',$2,$3,NOW()) RETURNING *`,
+                      [conv.id, `📎 ${planoNome}`, `${planoNome}.pdf`]
+                    ).catch(() => ({ rows: [null] }));
+                    if (pmsg) socketEmit('new_message', { convId: conv.id, message: pmsg, conv });
+                    if (!botReply) botReply = `Enviei o ${planoNome} em PDF. Quer que eu reserve um horário com nossa equipe para começar?`;
+                  } else if (!botReply) {
+                    botReply = 'Estou finalizando seu plano, a equipe envia em instantes.';
+                  }
+                } catch (e) { console.error('Erro enviar_plano:', e.message); ultimoPropostaDebug = { etapa:'plano', erro:e.message }; }
+              }
 
               // ── Qualificou o lead → passa para a equipe humana ──
               if (toolPassar) {
@@ -1309,6 +1326,20 @@ r.get('/proposta/test-envio', async (req, res) => {
       envio_resposta: zrBody.slice(0, 300),
       phone_usado: `55${ph}`,
     });
+  } catch (e) {
+    res.status(500).json({ error: e.message, stack: e.stack?.slice(0, 400) });
+  }
+});
+
+// ─── DEBUG: testar geração de PLANO vacinal (via ?k=vt24&plano=plano_0_a_6_meses) ──
+r.get('/proposta/test-plano', async (req, res) => {
+  if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
+  try {
+    const planoId = req.query.plano || 'plano_completo_0_a_18_meses';
+    const pdfBuf = await gerarPlanoPDF({ planoId });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename="plano.pdf"');
+    res.send(pdfBuf);
   } catch (e) {
     res.status(500).json({ error: e.message, stack: e.stack?.slice(0, 400) });
   }
