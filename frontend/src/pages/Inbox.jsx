@@ -508,86 +508,58 @@ export default function Inbox({ onUnreadChange }) {
   }, []); // uma vez, persiste durante toda a sessão
 
 
-  // ── LONG-POLL: entrega instantânea de mensagens ──────────────────────────────
+  // ── POLL DE MENSAGENS — 2s, simples, garantido funcionar ─────────────────────
+  // Socket.io tenta entrega instantânea (bônus quando funcionar)
+  // Este poll de 2s é o mecanismo PRINCIPAL e confiável
+  // Max delay: 2s — aceitável para chat
   useEffect(() => {
     if (!sel) return;
-    let active = true;
-    const BASE = import.meta.env.VITE_API_URL || '';
+    const BASE  = import.meta.env.VITE_API_URL || '';
     const convId = sel.id;
-    let currentController = null; // AbortController do fetch ativo
 
-    async function longPollLoop() {
-      // Aguarda até 1.5s para que openConvo() defina lastMsgTs
-      let waited = 0;
-      while (!lastMsgTs.current && waited < 1500) {
-        await new Promise(r => setTimeout(r, 100));
-        waited += 100;
-        if (!active) return; // conversa trocada durante espera → sair
-      }
+    const fetchNew = async () => {
+      try {
+        const afterTs = lastMsgTs.current || new Date(Date.now() - 30000).toISOString();
+        const resp = await fetch(
+          `${BASE}/api/inbox/conversations/${convId}/messages/new?after_ts=${encodeURIComponent(afterTs)}`,
+          { headers: { Authorization: `Bearer ${token}`, 'Cache-Control': 'no-cache, no-store' } }
+        );
+        if (!resp.ok) return;
+        const { messages: newMsgs = [] } = await resp.json();
+        if (!newMsgs.length) return;
 
-      let localAfterTs = lastMsgTs.current || new Date(Date.now() - 120000).toISOString();
-
-      while (active) {
-        try {
-          currentController = new AbortController();
-          const abortTimer = setTimeout(() => currentController.abort(), 30000);
-
-          const resp = await fetch(
-            `${BASE}/api/inbox/conversations/${convId}/poll?after_ts=${encodeURIComponent(localAfterTs)}`,
-            { headers: { Authorization: `Bearer ${token}`, 'Cache-Control': 'no-cache' }, signal: currentController.signal }
+        setMsgs(prev => {
+          const ids = new Set(prev.map(m => m.id));
+          // Só mensagens que ainda não estão no estado
+          const truly = newMsgs.filter(m => !ids.has(m.id));
+          if (!truly.length) return prev;
+          // Remove otimistas correspondentes (evita duplicata ao confirmar envio)
+          const clean = prev.filter(p =>
+            !String(p.id).startsWith('tmp-') ||
+            !truly.some(r => r.from_type === 'me' && r.content === p.content)
           );
-          clearTimeout(abortTimer);
-          currentController = null;
+          lastMsgTs.current = truly[truly.length - 1].created_at;
+          return [...clean, ...truly];
+        });
 
-          if (!resp.ok) { await new Promise(r => setTimeout(r, 2000)); continue; }
-
-          const data = await resp.json();
-          const newMsgs = data.messages || [];
-
-          if (newMsgs.length > 0 && active) {
-            localAfterTs = newMsgs[newMsgs.length - 1].created_at;
-            lastMsgTs.current = localAfterTs;
-
-            setMsgs(prev => {
-              const existingIds = new Set(prev.map(m => m.id));
-              const truly = newMsgs.filter(m => !existingIds.has(m.id));
-              if (truly.length === 0) return prev;
-
-              const withoutStaleOpt = prev.map(p => {
-                if (!String(p.id).startsWith('tmp-')) return p;
-                const confirmed = truly.find(r =>
-                  r.from_type === 'me' && r.content === p.content && r.sender_nome === p.sender_nome
-                );
-                return confirmed ? null : p;
-              }).filter(Boolean);
-
-              const confirmedContents = new Set(
-                withoutStaleOpt.length !== prev.length
-                  ? truly.filter(r => r.from_type === 'me').map(r => r.content)
-                  : []
-              );
-              const toAdd = truly.filter(m =>
-                m.from_type !== 'me' || !confirmedContents.has(m.content)
-              );
-              return [...withoutStaleOpt, ...toAdd];
-            });
+        // Também atualiza a lista de conversas
+        setConvos(prev => prev.map(c =>
+          c.id !== convId ? c : {
+            ...c,
+            last_message: newMsgs[newMsgs.length - 1].content?.slice(0, 80) || c.last_message,
+            last_message_at: newMsgs[newMsgs.length - 1].created_at,
           }
-        } catch {
-          currentController = null;
-          if (!active) break;
-          await new Promise(r => setTimeout(r, 2000));
-        }
-      }
-    }
-
-    longPollLoop();
-    return () => {
-      active = false;
-      // CRÍTICO: aborta o fetch em progresso imediatamente
-      // Sem isso, fetch antigo continua por até 30s ao trocar de conversa
-      if (currentController) { try { currentController.abort(); } catch {} }
+        ));
+      } catch {}
     };
+
+    // Poll imediato ao abrir conversa + a cada 2s
+    fetchNew();
+    const iv = setInterval(fetchNew, 2000);
+    return () => clearInterval(iv);
   }, [sel?.id, token]);
+
+
 
   // ── POLL da lista de conversas (cache em memória no servidor) ─────────────
   useEffect(() => {
