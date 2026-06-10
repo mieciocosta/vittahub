@@ -796,23 +796,20 @@ r.get('/whatsapp/debug-raw', async (req, res) => {
     const t1 = await r1?.text() || '';
     let p1 = null; try { p1 = JSON.parse(t1); } catch {}
 
-    // Testa /contacts
-    const r2 = await zapiCall('/contacts?page=1&pageSize=3', 'GET');
-    const t2 = await r2?.text() || '';
-    let p2 = null; try { p2 = JSON.parse(t2); } catch {}
+    // Testa /profile-picture com o primeiro número real
+    const firstPhone = Array.isArray(p1) && p1[0] ? p1[0].phone : '559884126869';
+    const ph = firstPhone.startsWith('55') ? firstPhone.slice(2) : firstPhone;
+    const r3 = await zapiCall(`/profile-picture?phone=55${ph}`, 'GET');
+    const t3 = await r3?.text() || '';
+    let p3 = null; try { p3 = JSON.parse(t3); } catch {}
 
     res.json({
-      chats: {
-        status: r1?.status,
-        type: Array.isArray(p1) ? 'array' : typeof p1,
-        keys: p1 && typeof p1 === 'object' ? Object.keys(p1) : [],
-        sample: Array.isArray(p1) ? p1[0] : p1,
-      },
-      contacts: {
-        status: r2?.status,
-        type: Array.isArray(p2) ? 'array' : typeof p2,
-        keys: p2 && typeof p2 === 'object' ? Object.keys(p2) : [],
-        sample: Array.isArray(p2) ? p2[0] : p2,
+      chats_sample: Array.isArray(p1) ? p1[0] : p1,
+      profile_picture: {
+        phone_testado: `55${ph}`,
+        status: r3?.status,
+        raw: t3.slice(0, 500),
+        parsed: p3,
       }
     });
   } catch (e) { res.json({ error: e.message }); }
