@@ -1684,7 +1684,7 @@ r.post('/whatsapp/switch-number', async (req, res) => {
     }
 
     // Reinicia o cache com os dados do banco
-    await cacheInit();
+    await loadCache();
     res.json({ ok: true, cleared, message: 'Pronto para conectar novo número' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
