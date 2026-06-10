@@ -380,16 +380,18 @@ r.post('/webhook/zapi', async (req, res) => {
     // Z-API webhook payload:
     const phone = body.phone;
     if (!phone) return;
-    if (body.isGroup === true || body.isGroup === 'true') return; // skip grupos
+    // Ignora eventos que não são mensagens (presença, digitando, etc)
+    if (body.type === 'PresenceChatCallback' || body.type === 'MessageStatusCallback') return;
+    if (body.isGroup === true || body.isGroup === 'true') return;
     if (body.isNewsletter || body.isStatusReply) return;
     if (String(phone).includes('@lid') || String(phone).includes('broadcast') || String(phone).includes('status')) return;
     const phoneDigits = String(phone).replace(/\D/g, '');
     if (phoneDigits.length < 10 || phoneDigits.length > 15) return;
 
-    const isMe = !!body.isFromMe;
+    const isMe = !!body.isFromMe || !!body.fromMe;
     const msgId = body.messageId || body.zaapId || null;
-    const senderName = body.senderName || '';
-    const profilePic = body.profilePicUrl || body.photo || '';
+    const senderName = body.senderName || body.chatName || '';
+    const profilePic = body.photo || body.senderPhoto || body.profilePicUrl || '';
 
     if (isMe) {
       // fromMe: just update delivery status
@@ -446,17 +448,8 @@ r.post('/webhook/zapi', async (req, res) => {
       console.log('WEBHOOK_CONTEUDO_DESCONHECIDO:', JSON.stringify(body).slice(0, 500));
     }
 
-    // Foto de perfil: tenta buscar via Z-API na primeira mensagem do contato
-    let fetchedPic = profilePic;
-    if (!fetchedPic && zapiOk()) {
-      try {
-        const picResp = await zapiCall(`/profile-picture?phone=55${phone.startsWith('55') ? phone.slice(2) : phone}`, 'GET');
-        if (picResp?.ok) {
-          const picData = await picResp.json();
-          fetchedPic = picData.value || picData.url || null;
-        }
-      } catch {}
-    }
+    // Foto de perfil: já vem no campo "photo" do webhook
+    let fetchedPic = profilePic && profilePic !== 'null' ? profilePic : null;
 
     const remoteJid = `${phone}@s.whatsapp.net`;
     const displayPhone = phone.startsWith('55') ? phone.slice(2) : phone;
