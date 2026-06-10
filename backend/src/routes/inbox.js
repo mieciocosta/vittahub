@@ -1463,13 +1463,21 @@ r.post('/whatsapp/import-history', async (req, res) => {
         try {
           const phone = (chat.phone || chat.id || '').replace('@s.whatsapp.net', '').replace(/\D/g,'');
           if (!phone || phone.length < 8) continue;
-          if (chat.isGroup || phone.endsWith('-group')) continue; // pula grupos
+          if (chat.isGroup || String(chat.phone || chat.id || '').includes('-group')) continue;
 
           const contactId   = `${phone}@s.whatsapp.net`;
           const contactName = chat.name || chat.pushName || chat.title || phone;
-          const lastMsg     = chat.lastMessage?.text || chat.snippet || '';
-          const lastMsgAt   = chat.lastMessage?.momment
+          // Extrai preview da última mensagem em vários formatos possíveis
+          const lastMsg = chat.lastMessage?.text
+            || chat.lastMessage?.caption
+            || chat.lastMessage?.body
+            || chat.snippet
+            || chat.lastMessageText
+            || chat.preview
+            || '';
+          const lastMsgAt = chat.lastMessage?.momment
             ? new Date(chat.lastMessage.momment * 1000)
+            : chat.t ? new Date(chat.t * 1000)
             : new Date();
 
           await query(`
@@ -1477,7 +1485,7 @@ r.post('/whatsapp/import-history', async (req, res) => {
             VALUES ($1, $2, $3, 'whatsapp', $4, $5, $6)
             ON CONFLICT (contact_id) DO UPDATE SET
               contact_name    = CASE WHEN length(EXCLUDED.contact_name) > 5 THEN EXCLUDED.contact_name ELSE conversas.contact_name END,
-              last_message    = EXCLUDED.last_message,
+              last_message    = CASE WHEN EXCLUDED.last_message != '' THEN EXCLUDED.last_message ELSE conversas.last_message END,
               last_message_at = EXCLUDED.last_message_at`,
             [contactId, phone, contactName, lastMsg.slice(0,100), lastMsgAt, chat.unreadCount || 0]
           );
@@ -1487,15 +1495,52 @@ r.post('/whatsapp/import-history', async (req, res) => {
 
       if (chats.length < pageSize) break;
       page++;
-      await new Promise(r => setTimeout(r, 300)); // rate limit
+      await new Promise(r => setTimeout(r, 300));
     }
 
     // Recarrega cache
     convoCache.clear(); cacheReady = false;
     await loadCache();
 
-    console.log(`IMPORT Z-API DONE: ${imported} conversas importadas`);
-    res.json({ ok: true, imported, message: `${imported} conversas importadas do Z-API` });
+    // Carrega fotos em background (não bloqueia a resposta)
+    setImmediate(async () => {
+      console.log('IMPORT: iniciando carregamento de fotos em background...');
+      let photoPage = 1;
+      let totalPhotos = 0;
+      while (true) {
+        const { rows } = await query(
+          `SELECT id, phone FROM conversas WHERE profile_pic IS NULL AND phone IS NOT NULL ORDER BY last_message_at DESC LIMIT 50 OFFSET $1`,
+          [(photoPage - 1) * 50]
+        ).catch(() => ({ rows: [] }));
+        if (!rows.length) break;
+        let updated = 0;
+        for (const conv of rows) {
+          try {
+            const ph = conv.phone?.replace(/\D/g,'');
+            if (!ph || ph.length < 8) continue;
+            const r2 = await zapiCall(`/profile-picture?phone=55${ph}`, 'GET');
+            if (r2?.ok) {
+              const d = await r2.json();
+              const pic = d.value || d.url || null;
+              if (pic?.startsWith('http')) {
+                await query('UPDATE conversas SET profile_pic=$1 WHERE id=$2', [pic, conv.id]);
+                const cached = convoCache.get(conv.id);
+                if (cached) cacheUpdate({ ...cached, profile_pic: pic });
+                updated++;
+              }
+            }
+            await new Promise(r => setTimeout(r, 150));
+          } catch {}
+        }
+        totalPhotos += updated;
+        photoPage++;
+        if (rows.length < 50) break;
+      }
+      console.log(`IMPORT FOTOS: ${totalPhotos} fotos carregadas em background`);
+    });
+
+    console.log(`IMPORT Z-API DONE: ${imported} conversas`);
+    res.json({ ok: true, imported, message: `${imported} conversas importadas. Fotos sendo carregadas em background...` });
   } catch (err) {
     console.error('Import error:', err.message);
     res.status(500).json({ error: err.message });
