@@ -1167,7 +1167,25 @@ r.get('/whatsapp/debug-zapi', async (req, res) => {
   } catch (e) { res.json({ error: e.message }); }
 });
 
-r.use(auth);
+// ─── DEBUG: testar geração de PDF da proposta (via ?k=vt24) ──────────────────
+r.get('/proposta/test-pdf', async (req, res) => {
+  if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
+  try {
+    const pdfBuf = await gerarPropostaPDF({
+      nomeCliente: 'Teste Vittalis',
+      template: 'adulto',
+      pacoteNome: 'Teste',
+      vacinas: [{ nome: 'Influenza', avista: 170, credito: 180, parcelas: 1 }],
+      desconto: 0, parcelas: 1,
+    });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename="teste.pdf"');
+    res.send(pdfBuf);
+  } catch (e) {
+    res.status(500).json({ error: e.message, stack: e.stack?.slice(0, 400) });
+  }
+});
+
 r.use(auth);
 
 // ─── POLL: conversas atualizadas — servido do CACHE (zero DB query) ──────────
@@ -1699,25 +1717,6 @@ r.put('/bot-config', async (req, res) => {
     await query("INSERT INTO configuracoes (chave,valor) VALUES ('bot',$1) ON CONFLICT (chave) DO UPDATE SET valor=$1, updated_at=NOW()", [JSON.stringify(req.body)]);
     res.json(req.body);
   } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// ─── DEBUG: testar geração de PDF da proposta (via ?k=vt24) ──────────────────
-r.get('/proposta/test-pdf', async (req, res) => {
-  if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
-  try {
-    const pdfBuf = await gerarPropostaPDF({
-      nomeCliente: 'Teste Vittalis',
-      template: 'adulto',
-      pacoteNome: 'Teste',
-      vacinas: [{ nome: 'Influenza', avista: 170, credito: 180, parcelas: 1 }],
-      desconto: 0, parcelas: 1,
-    });
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', 'inline; filename="teste.pdf"');
-    res.send(pdfBuf);
-  } catch (e) {
-    res.status(500).json({ error: e.message, stack: e.stack?.slice(0, 300) });
-  }
 });
 
 // ─── PROPOSTA: preços reais do VittaSys ──────────────────────────────────────
