@@ -48,10 +48,10 @@ export default function WhatsApp() {
     }, 3000);
   };
 
-  // Gera QR Code (endpoint tem retry interno de 5x com 2s cada)
+  // Gera QR Code (backend faz restart + retry automático ~30s)
   const connectQR = async () => {
     setBusy(true);
-    setMsg('Gerando QR Code... aguarde até 12 segundos.');
+    setMsg('Reiniciando conexão e gerando QR Code... aguarde até 30 segundos.');
     try {
       const d = await api.get('/inbox/whatsapp/zapi/qrcode');
       if (d.qrcode) {
@@ -60,9 +60,9 @@ export default function WhatsApp() {
         setMsg('');
         startPoll();
       } else {
-        setMsg(d.error || 'Não foi possível gerar QR Code.');
+        setMsg(d.error || 'Não foi possível gerar QR Code. Tente novamente.');
       }
-    } catch (e) { setMsg(e.message); }
+    } catch (e) { setMsg(e.message || 'Erro ao gerar QR Code.'); }
     setBusy(false);
   };
 
