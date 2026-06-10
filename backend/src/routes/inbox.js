@@ -917,6 +917,9 @@ r.get('/conversations', async (req, res) => {
 });
 
 // ─── CARREGAR MENSAGENS DO Z-API (ao abrir conversa vazia) ───────────────────
+// NOTA: A Z-API NÃO fornece endpoint para buscar mensagens antigas do histórico.
+// O histórico fica apenas no celular. Mensagens novas chegam via webhook.
+// Este endpoint apenas atualiza a foto de perfil do contato.
 r.post('/conversations/:id/load-from-zapi', async (req, res) => {
   if (!zapiOk()) return res.json({ ok: false, loaded: 0 });
   try {
@@ -925,44 +928,25 @@ r.post('/conversations/:id/load-from-zapi', async (req, res) => {
 
     let phone = conv.phone?.replace(/\D/g, '') || '';
     if (phone.startsWith('55') && phone.length >= 12) phone = phone.slice(2);
-    const fullPhone = `55${phone}`;
 
-    // Busca metadata do chat no Z-API (inclui mensagens recentes)
-    const r2 = await zapiCall(`/chats/${fullPhone}`, 'GET');
-    if (!r2?.ok) return res.json({ ok: false, loaded: 0, error: 'Chat não encontrado no Z-API' });
-
-    const chatData = await r2.json().catch(() => null);
-    if (!chatData) return res.json({ ok: false, loaded: 0 });
-
-    // Extrai mensagens do response
-    const msgs = chatData.messages || chatData.chats || chatData.data || [];
-    if (!msgs.length) return res.json({ ok: true, loaded: 0 });
-
-    let loaded = 0;
-    for (const m of msgs) {
+    // Atualiza foto de perfil se ainda não tiver
+    if (!conv.profile_pic) {
       try {
-        const fromMe  = m.fromMe || m.isFromMe || false;
-        const content = m.text?.message || m.caption || m.body || m.message || '';
-        if (!content) continue;
-        const type    = 'text';
-        const ts      = m.momment ? new Date(m.momment * 1000) : new Date();
-        const msgId   = m.messageId || m.id || null;
-
-        await query(`
-          INSERT INTO mensagens (conversa_id, from_type, type, content, created_at, wa_msg_id)
-          SELECT $1, $2, $3, $4, $5, $6
-          WHERE NOT EXISTS (SELECT 1 FROM mensagens WHERE wa_msg_id = $6 AND $6 IS NOT NULL)
-        `, [conv.id, fromMe ? 'me' : 'contact', type, content, ts, msgId]);
-        loaded++;
+        const r2 = await zapiCall(`/profile-picture?phone=55${phone}`, 'GET');
+        if (r2?.ok) {
+          const d = await r2.json().catch(() => ({}));
+          const pic = d.value || d.url || d.imgUrl || null;
+          if (pic?.startsWith('http')) {
+            await query('UPDATE conversas SET profile_pic=$1 WHERE id=$2', [pic, conv.id]);
+            const cached = convoCache.get(conv.id);
+            if (cached) cacheUpdate({ ...cached, profile_pic: pic });
+          }
+        }
       } catch {}
     }
 
-    // Atualiza last_message se necessário
-    if (loaded > 0) {
-      await query('UPDATE conversas SET last_message_at = NOW() WHERE id = $1 AND last_message = \'\'', [conv.id]).catch(() => {});
-    }
-
-    res.json({ ok: true, loaded });
+    // Z-API não tem API de histórico de mensagens — retorna 0
+    res.json({ ok: true, loaded: 0, note: 'Z-API não fornece histórico antigo. Mensagens novas chegam via webhook.' });
   } catch (err) { res.json({ ok: false, loaded: 0, error: err.message }); }
 });
 
@@ -1584,33 +1568,26 @@ r.post('/whatsapp/import-history', async (req, res) => {
 
       for (const chat of chats) {
         try {
-          const phone = (chat.phone || chat.id || '').replace('@s.whatsapp.net', '').replace(/\D/g,'');
+          const phone = (chat.phone || '').replace(/\D/g, '');
           if (!phone || phone.length < 8) continue;
-          if (chat.isGroup || String(chat.phone || chat.id || '').includes('-group')) continue;
+          if (chat.isGroup === true || chat.isGroup === 'true') continue;
 
           const contactId   = `${phone}@s.whatsapp.net`;
-          const contactName = chat.name || chat.pushName || chat.title || phone;
-          // Extrai preview da última mensagem em vários formatos possíveis
-          const lastMsg = chat.lastMessage?.text
-            || chat.lastMessage?.caption
-            || chat.lastMessage?.body
-            || chat.snippet
-            || chat.lastMessageText
-            || chat.preview
-            || '';
-          const lastMsgAt = chat.lastMessage?.momment
-            ? new Date(chat.lastMessage.momment * 1000)
-            : chat.t ? new Date(chat.t * 1000)
+          const contactName = chat.name || chat.phone || phone;
+          // Z-API usa lastMessageTime em milissegundos (string)
+          const lastMsgAt = chat.lastMessageTime
+            ? new Date(parseInt(chat.lastMessageTime))
             : new Date();
+          const unread = parseInt(chat.messagesUnread || chat.unread || 0) || 0;
 
           await query(`
             INSERT INTO conversas (contact_id, phone, contact_name, channel, last_message, last_message_at, unread)
-            VALUES ($1, $2, $3, 'whatsapp', $4, $5, $6)
+            VALUES ($1, $2, $3, 'whatsapp', '', $4, $5)
             ON CONFLICT (contact_id) DO UPDATE SET
-              contact_name    = CASE WHEN length(EXCLUDED.contact_name) > 5 THEN EXCLUDED.contact_name ELSE conversas.contact_name END,
-              last_message    = CASE WHEN EXCLUDED.last_message != '' THEN EXCLUDED.last_message ELSE conversas.last_message END,
-              last_message_at = EXCLUDED.last_message_at`,
-            [contactId, phone, contactName, lastMsg.slice(0,100), lastMsgAt, chat.unreadCount || 0]
+              contact_name    = CASE WHEN length(EXCLUDED.contact_name) > 3 THEN EXCLUDED.contact_name ELSE conversas.contact_name END,
+              last_message_at = EXCLUDED.last_message_at,
+              unread          = EXCLUDED.unread`,
+            [contactId, phone, contactName, lastMsgAt, unread]
           );
           imported++;
         } catch {}
@@ -1748,9 +1725,34 @@ r.get('/whatsapp/zapi/debug-chats', async (req, res) => {
 });
 
 r.get('/whatsapp/zapi/status', async (req, res) => {
-  // Retorna status baseado nos webhooks recebidos — não precisa de client-token
-  // O estado é atualizado quando Z-API dispara o webhook "Ao conectar/desconectar"
-  res.json({ connected: zapiConnected, phone: zapiPhone, provider: 'zapi' });
+  if (!zapiOk()) return res.json({ connected: false, error: 'Z-API não configurada' });
+  try {
+    // Com client-token configurado, /status agora funciona
+    const r2 = await zapiCall('/status', 'GET');
+    const text = await r2?.text() || '{}';
+    let d = {};
+    try { d = JSON.parse(text); } catch {}
+
+    // Se a API retornou erro de client-token, usa estado dos webhooks
+    if (d.error) {
+      return res.json({ connected: zapiConnected, phone: zapiPhone, provider: 'zapi', via: 'webhook' });
+    }
+
+    const connected = d.connected === true || d.status === 'open' || d.status === 'connected';
+    // Atualiza estado local também
+    if (connected) setZapiConnected(true, d.phone || null);
+
+    res.json({
+      connected,
+      phone: d.phone || zapiPhone || null,
+      smartphoneConnected: d.smartphoneConnected,
+      provider: 'zapi',
+      via: 'api',
+    });
+  } catch (e) {
+    // Fallback para estado dos webhooks
+    res.json({ connected: zapiConnected, phone: zapiPhone, provider: 'zapi', via: 'webhook-fallback' });
+  }
 });
 
 // Marca conexão manualmente (quando usuário confirma que conectou no painel Z-API)
