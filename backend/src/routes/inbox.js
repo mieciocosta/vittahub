@@ -15,6 +15,14 @@ let zapiConnected = false;
 let zapiPhone = null;
 function setZapiConnected(v, phone) { zapiConnected = v; zapiPhone = phone || null; }
 
+// Debug: registra os últimos webhooks recebidos
+let lastWebhooks = [];
+function logWebhook(body) {
+  lastWebhooks.unshift({ at: new Date().toISOString(), body });
+  if (lastWebhooks.length > 10) lastWebhooks = lastWebhooks.slice(0, 10);
+}
+
+
 // ─── CACHE EM MEMÓRIA: evita bater no banco para listagem de conversas ────────
 const convoCache = new Map(); // id → conversa
 let cacheReady = false;
@@ -348,6 +356,7 @@ r.post('/webhook/zapi', async (req, res) => {
   res.json({ received: true });
   try {
     const body = req.body;
+    logWebhook(body);
     console.log(`ZAPI_WH: ${JSON.stringify(body).slice(0, 300)}`);
 
     // ── Eventos de conexão/desconexão (vêm do webhook "Ao conectar/desconectar") ──
@@ -791,23 +800,17 @@ r.get('/whatsapp/debug-raw', async (req, res) => {
   if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
   if (!zapiOk()) return res.json({ error: 'Z-API não configurada', zapiOk: false });
   try {
-    // Pega 10 conversas do banco e testa a foto de cada
-    const { rows } = await query(
-      `SELECT id, phone, contact_name FROM conversas WHERE phone IS NOT NULL ORDER BY last_message_at DESC LIMIT 10`
-    );
-    const resultados = [];
-    for (const conv of rows) {
-      let ph = conv.phone?.replace(/\D/g, '') || '';
-      if (ph.startsWith('55') && ph.length >= 12) ph = ph.slice(2);
-      const r2 = await zapiCall(`/contacts/55${ph}`, 'GET');
-      const text = await r2?.text() || '{}';
-      let imgUrl = null;
-      try { imgUrl = JSON.parse(text).imgUrl; } catch {}
-      resultados.push({ nome: conv.contact_name, phone: `55${ph}`, imgUrl, raw: text.slice(0, 150) });
-      await new Promise(r => setTimeout(r, 150));
-    }
-    const comFoto = resultados.filter(r => r.imgUrl && r.imgUrl !== 'null').length;
-    res.json({ total_testado: resultados.length, com_foto: comFoto, detalhes: resultados });
+    // Ver webhooks configurados na Z-API
+    const rW = await zapiCall('/webhooks', 'GET').catch(() => null);
+    const webhooksConfig = rW?.ok ? await rW.text() : 'não disponível';
+
+    res.json({
+      backend_url_usada: process.env.BACKEND_URL || 'NÃO CONFIGURADA',
+      webhook_esperado: `${process.env.BACKEND_URL || 'https://vittahub-backend-production.up.railway.app'}/api/inbox/webhook/zapi`,
+      zapi_conectado_local: zapiConnected,
+      webhooks_configurados_zapi: (() => { try { return JSON.parse(webhooksConfig); } catch { return webhooksConfig; } })(),
+      ultimos_webhooks_recebidos: lastWebhooks,
+    });
   } catch (e) { res.json({ error: e.message }); }
 });
 
