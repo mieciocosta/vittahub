@@ -436,10 +436,12 @@ r.post('/webhook/zapi', async (req, res) => {
       filename = body.document.fileName || 'Documento';
       content = `📎 ${filename}`; type = 'document'; mediaData = body.document.documentUrl;
     }
-    else if (body.sticker) {
-      content = ''; type = 'sticker';
-      mediaData = body.sticker.stickerUrl || body.sticker.url || body.sticker.image || (typeof body.sticker === 'string' ? body.sticker : null);
-      if (!mediaData) console.log('STICKER_FORMATO:', JSON.stringify(body.sticker).slice(0, 300));
+    else if (body.sticker?.stickerUrl) { content = ''; type = 'sticker'; mediaData = body.sticker.stickerUrl; }
+    else if (body.audio?.audioUrl)     { content = '🎵 Áudio'; type = 'audio'; mediaData = body.audio.audioUrl; }
+    else if (body.video?.videoUrl)     { content = body.video.caption || ''; type = 'video'; mediaData = body.video.videoUrl; }
+    else if (body.document?.documentUrl) {
+      filename = body.document.fileName || body.document.title || 'Documento';
+      content = `📎 ${filename}`; type = 'document'; mediaData = body.document.documentUrl;
     }
     else if (body.gif?.gifUrl)         { content = ''; type = 'gif'; mediaData = body.gif.gifUrl; }
     else if (body.location)            { content = `📍 ${body.location.address || `${body.location.latitude||body.location.lat},${body.location.longitude||body.location.lng}`}`; }
@@ -508,16 +510,60 @@ r.post('/webhook/zapi', async (req, res) => {
       [contactName, content.slice(0, 80), conv.id]
     ).catch(() => {});
 
-    // ─── VITTA — IA CONVERSACIONAL COM CLAUDE ─────────────────────────────────
-    // Só responde a mensagens de TEXTO real (ignora mídia, stickers e placeholders)
-    const isTextoReal = type === 'text'
-      && content
-      && content !== '[mensagem]'
-      && !content.startsWith('[')
-      && content.trim().length > 0;
-
-    if (conv.bot_ativo && isTextoReal) {
+    // ─── TRANSCRIÇÃO DE ÁUDIO (para a Vitta entender mensagens de voz) ────────
+    const isTextoReal = type === 'text' && content && content !== '[mensagem]' && !content.startsWith('[') && content.trim().length > 0;
+    let textoParaIA = isTextoReal ? content : null;
+    if (conv.bot_ativo && type === 'audio' && mediaData && process.env.ANTHROPIC_API_KEY) {
       try {
+        const { default: fetch } = await import('node-fetch');
+        // Baixa o áudio (URLs Z-API são públicas, sem auth)
+        const audioResp = await fetch(mediaData);
+        const audioBuf = Buffer.from(await audioResp.arrayBuffer());
+        const audioBase64 = audioBuf.toString('base64');
+        // Detecta mime (ogg/opus é o padrão do WhatsApp)
+        const mime = body.audio?.mimeType?.split(';')[0] || 'audio/ogg';
+
+        // Claude transcreve via input de áudio
+        const transResp = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': process.env.ANTHROPIC_API_KEY,
+            'anthropic-version': '2023-06-01',
+          },
+          body: JSON.stringify({
+            model: 'claude-haiku-4-5-20251001',
+            max_tokens: 500,
+            messages: [{
+              role: 'user',
+              content: [
+                { type: 'input_audio', input_audio: { data: audioBase64, format: mime.includes('mp') ? 'mp3' : 'wav' } },
+                { type: 'text', text: 'Transcreva este áudio em português. Responda APENAS com a transcrição, sem comentários.' }
+              ]
+            }],
+          }),
+        });
+        const transData = await transResp.json();
+        if (!transData.error) {
+          const transcricao = transData.content?.[0]?.text?.trim();
+          if (transcricao && transcricao.length > 1) {
+            textoParaIA = transcricao;
+            // Salva a transcrição como conteúdo da mensagem de áudio
+            await query('UPDATE mensagens SET content = $1 WHERE id = $2',
+              [`🎵 Áudio: "${transcricao}"`, newMsg?.id]).catch(() => {});
+            console.log('Áudio transcrito:', transcricao.slice(0, 80));
+          }
+        } else {
+          console.error('Transcrição erro:', JSON.stringify(transData.error));
+        }
+      } catch (e) { console.error('Erro transcrição áudio:', e.message); }
+    }
+
+    // ─── VITTA — IA CONVERSACIONAL COM CLAUDE ─────────────────────────────────
+    // Responde a texto real OU áudio transcrito
+    if (conv.bot_ativo && textoParaIA) {
+      try {
+        const msgCliente = textoParaIA; // texto digitado ou áudio transcrito
         const { rows: [cfgRow] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'");
         const cfg = cfgRow?.valor || {};
         if (cfg.ativo === false) throw new Error('bot desabilitado');
@@ -585,7 +631,7 @@ Você está conversando com ${conv.contact_name || 'um cliente'}.`;
                     { role: 'user', content: historyText },
                     { role: 'assistant', content: 'Entendido.' }
                   ] : []),
-                  { role: 'user', content: content },
+                  { role: 'user', content: msgCliente },
                 ],
               }),
             });
