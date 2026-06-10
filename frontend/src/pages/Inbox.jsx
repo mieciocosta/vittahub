@@ -387,7 +387,7 @@ export default function Inbox({ onUnreadChange }) {
   const [page, setPage]               = useState(1);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore]         = useState(true);
-  const LIMIT = 50;
+  const LIMIT = 100;
 
   // ── Filtros ────────────────────────────────────────────────────────────────
   const [search, setSearch]         = useState('');
@@ -415,6 +415,7 @@ export default function Inbox({ onUnreadChange }) {
   const [showProposta, setShowProposta] = useState(false);
   const [leadData, setLeadData] = useState(null);
   const [listH, setListH]       = useState(500);
+  const [showScrollBtn, setShowScrollBtn] = useState(false); // botão de scroll para o fim
 
   const endRef           = useRef(null);
   const msgAreaRef       = useRef(null);
@@ -794,6 +795,12 @@ export default function Inbox({ onUnreadChange }) {
             <div style={{ display:'flex', gap:3, alignItems:'center' }}>
               <span style={{ fontSize:11, color:'var(--muted)' }}>{total.toLocaleString()}</span>
               <button onClick={()=>loadConvos()} className="btn btn-g btn-ico" title="Recarregar"><RefreshCw size={13}/></button>
+              <button onClick={async () => {
+                const btn = document.activeElement; if(btn) btn.blur();
+                const r = await api.post('/inbox/conversations/load-photos', {});
+                loadConvos();
+                alert(`✅ ${r.updated} fotos atualizadas de ${r.total} contatos`);
+              }} className="btn btn-g btn-ico" title="Carregar fotos dos contatos" style={{fontSize:12}}>👤</button>
               <button onClick={()=>setListCollapsed(true)} className="btn btn-g btn-ico" title="Recolher"><PanelLeftClose size={13}/></button>
             </div>
           </div>
@@ -886,20 +893,45 @@ export default function Inbox({ onUnreadChange }) {
           {/* Área de mensagens + info panel */}
           <div style={{ flex:1, display:'flex', minHeight:0, overflow:'hidden' }}>
             {/* Mensagens */}
-            <div ref={msgAreaRef} style={{ flex:1, overflowY:'auto', padding:'12px 14px', display:'flex', flexDirection:'column', gap:3, background:'var(--bg)' }}>
-              {msgsHasMore && (
-                <div style={{ textAlign:'center', marginBottom:8 }}>
-                  <button onClick={loadOlderMsgs} disabled={loadingOlderMsgs}
-                    style={{ padding:'5px 16px', borderRadius:20, background:'var(--card,#fff)', border:'1.5px solid var(--border)', fontSize:11.5, fontWeight:600, cursor:loadingOlderMsgs?'default':'pointer', color:'var(--muted)', display:'inline-flex', alignItems:'center', gap:5 }}>
-                    {loadingOlderMsgs?<Loader2 size={11} style={{animation:'spin 1s linear infinite'}}/>:<ChevronUp size={11}/>}
-                    {loadingOlderMsgs?'Carregando…':'Ver mensagens anteriores'}
-                  </button>
-                </div>
+            <div style={{ flex:1, position:'relative', display:'flex', flexDirection:'column', minHeight:0 }}>
+              <div ref={msgAreaRef}
+                onScroll={e => {
+                  const el = e.currentTarget;
+                  const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+                  setShowScrollBtn(distFromBottom > 300);
+                }}
+                style={{ flex:1, overflowY:'auto', padding:'12px 14px', display:'flex', flexDirection:'column', gap:3, background:'var(--bg)' }}>
+                {msgsHasMore && (
+                  <div style={{ textAlign:'center', marginBottom:8 }}>
+                    <button onClick={loadOlderMsgs} disabled={loadingOlderMsgs}
+                      style={{ padding:'5px 16px', borderRadius:20, background:'var(--card,#fff)', border:'1.5px solid var(--border)', fontSize:11.5, fontWeight:600, cursor:loadingOlderMsgs?'default':'pointer', color:'var(--muted)', display:'inline-flex', alignItems:'center', gap:5 }}>
+                      {loadingOlderMsgs?<Loader2 size={11} style={{animation:'spin 1s linear infinite'}}/>:<ChevronUp size={11}/>}
+                      {loadingOlderMsgs?'Carregando…':'Ver mensagens anteriores'}
+                    </button>
+                  </div>
+                )}
+                {msgs.map((m, i) => (
+                  <MsgItem key={m.id||i} m={m} prevMsg={msgs[i-1] || null} contactName={sel.contact_name} channel={sel.channel} onLightbox={setLightbox} token={token}/>
+                ))}
+                <div ref={endRef}/>
+              </div>
+
+              {/* Botão scroll para o fim — aparece quando usuário sobe no histórico */}
+              {showScrollBtn && (
+                <button
+                  onClick={() => { if(msgAreaRef.current) msgAreaRef.current.scrollTop = msgAreaRef.current.scrollHeight; setShowScrollBtn(false); }}
+                  style={{
+                    position:'absolute', bottom:12, right:12, zIndex:10,
+                    width:38, height:38, borderRadius:'50%',
+                    background:'var(--tq)', color:'#fff', border:'none', cursor:'pointer',
+                    display:'flex', alignItems:'center', justifyContent:'center',
+                    boxShadow:'0 2px 12px rgba(0,184,192,.5)',
+                    fontSize:18, lineHeight:1,
+                  }}
+                  title="Ir para mensagem mais recente">
+                  ↓
+                </button>
               )}
-              {msgs.map((m, i) => (
-                <MsgItem key={m.id||i} m={m} prevMsg={msgs[i-1] || null} contactName={sel.contact_name} channel={sel.channel} onLightbox={setLightbox} token={token}/>
-              ))}
-              <div ref={endRef}/>
             </div>
 
             {/* Info panel */}

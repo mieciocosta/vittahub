@@ -29,7 +29,7 @@ function cacheUpdate(conv) {
   convoCache.set(conv.id, conv);
 }
 
-function cacheGetList({ channel, search, unread_only, page = 1, limit = 50 }) {
+function cacheGetList({ channel, search, unread_only, page = 1, limit = 100 }) {
   let list = Array.from(convoCache.values())
     .sort((a, b) => new Date(b.last_message_at || 0) - new Date(a.last_message_at || 0));
   if (channel && channel !== 'all') list = list.filter(c => c.channel === channel);
@@ -444,24 +444,89 @@ r.post('/webhook/zapi', async (req, res) => {
       [contactName, content.slice(0, 80), conv.id]
     ).catch(() => {});
 
-    // Bot
+    // ─── BOT INTELIGENTE COM CLAUDE AI ────────────────────────────────────────
     if (conv.bot_ativo) {
       try {
         const { rows: [cfgRow] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'");
         const cfg = cfgRow?.valor || {};
-        if (cfg.ativo !== false && zapiOk()) {
+        if (cfg.ativo === false) throw new Error('bot desabilitado');
+
+        // Busca histórico da conversa (últimas 10 mensagens para contexto)
+        const { rows: history } = await query(
+          `SELECT from_type, content, type FROM mensagens
+           WHERE conversa_id = $1 AND type = 'text'
+           ORDER BY created_at DESC LIMIT 10`,
+          [conv.id]
+        );
+        const historyText = history.reverse()
+          .map(m => `${m.from_type === 'me' ? 'Atendente' : 'Cliente'}: ${m.content}`)
+          .join('\n');
+
+        let botReply = '';
+
+        // Tenta Claude AI primeiro (se ANTHROPIC_API_KEY estiver configurada)
+        if (process.env.ANTHROPIC_API_KEY) {
+          try {
+            const { default: fetch } = await import('node-fetch');
+            const clinicInfo = cfg.infoClinica || 
+              `Vittalis Saúde — clínica particular multidisciplinar e pediátrica em São Luís, MA. 
+               Especialidades: pediatria, vacinação, consultas. Tel: (98) 98827-8736.
+               Site: vittalissaude.com.br. Slogan: "Sua vida é preciosa."`;
+
+            const sysPrompt = `Você é o assistente virtual da Vittalis Saúde. 
+${clinicInfo}
+Instruções:
+- Responda de forma cordial, humana e objetiva em português brasileiro
+- Se for uma dúvida sobre vacinas, preços ou agendamento, responda com base nas informações disponíveis
+- Se não souber a resposta, diga que vai verificar com a equipe e encaminhe para um atendente
+- Máximo 3 linhas por resposta
+- Não use emojis em excesso
+- Encerre sempre com disponibilidade para ajudar
+${cfg.instrucoes ? `\nInstruções adicionais: ${cfg.instrucoes}` : ''}`;
+
+            const aiResp = await fetch('https://api.anthropic.com/v1/messages', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': process.env.ANTHROPIC_API_KEY,
+                'anthropic-version': '2023-06-01',
+              },
+              body: JSON.stringify({
+                model: 'claude-haiku-4-5',
+                max_tokens: 300,
+                system: sysPrompt,
+                messages: [
+                  ...(historyText ? [{ role: 'user', content: historyText }] : []),
+                  { role: 'user', content: `Cliente: ${content}` },
+                ],
+              }),
+            });
+            const aiData = await aiResp.json();
+            botReply = aiData.content?.[0]?.text?.trim() || '';
+          } catch (e) { console.error('Claude bot error:', e.message); }
+        }
+
+        // Fallback para respostas configuradas manualmente
+        if (!botReply) {
           const { rows: countRow } = await query('SELECT COUNT(*) n FROM mensagens WHERE conversa_id = $1', [conv.id]);
           const msgCount = parseInt(countRow[0].n);
-          let botReply = msgCount <= 1 && cfg.mensagemBoasVindas
+          botReply = msgCount <= 1 && cfg.mensagemBoasVindas
             ? cfg.mensagemBoasVindas
             : (cfg.respostas?.[content.trim()] || cfg.respostas?.['default'] || '');
-          if (botReply) {
-            await zapiCall('/send-text', 'POST', { phone: `55${displayPhone}`, message: botReply });
-            await query(`INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome) VALUES ($1,'me','text',$2,'Bot Vittalis')`, [conv.id, botReply]);
-            await query('UPDATE conversas SET last_message=$1, last_message_at=NOW() WHERE id=$2', [botReply.slice(0, 100), conv.id]);
+        }
+
+        if (botReply && zapiOk()) {
+          await zapiCall('/send-text', 'POST', { phone: `55${displayPhone}`, message: botReply });
+          const { rows: [botMsg] } = await query(
+            `INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome) VALUES ($1,'bot','text',$2,'Bot Vittalis') RETURNING *`,
+            [conv.id, botReply]
+          );
+          await query('UPDATE conversas SET last_message=$1, last_message_at=NOW() WHERE id=$2', [botReply.slice(0, 100), conv.id]);
+          if (botMsg) {
+            socketEmit('new_message', { convId: conv.id, message: botMsg, conv });
           }
         }
-      } catch (e) { console.error('Bot error:', e.message); }
+      } catch (e) { if (e.message !== 'bot desabilitado') console.error('Bot error:', e.message); }
     }
   } catch (err) { console.error('ZAPI_ERROR:', err.message); }
 });
@@ -670,6 +735,36 @@ r.get('/conversations/updates', async (req, res) => {
 });
 
 // ─── LISTAGEM de conversas — servido do CACHE (zero DB query na maioria) ─────
+// ─── BATCH: carregar fotos de perfil via Z-API ────────────────────────────────
+r.post('/conversations/load-photos', async (req, res) => {
+  try {
+    if (!zapiOk()) return res.json({ ok: false, updated: 0, error: 'Z-API não configurada' });
+    const { rows } = await query(
+      `SELECT id, phone FROM conversas WHERE profile_pic IS NULL AND phone IS NOT NULL ORDER BY last_message_at DESC LIMIT 50`
+    );
+    let updated = 0;
+    for (const conv of rows) {
+      try {
+        const phone = conv.phone?.replace(/\D/g, '');
+        if (!phone || phone.length < 8) continue;
+        const r2 = await zapiCall(`/profile-picture?phone=55${phone}`, 'GET');
+        if (r2?.ok) {
+          const d = await r2.json();
+          const pic = d.value || d.url || d.profilePictureUrl || null;
+          if (pic && pic.startsWith('http')) {
+            await query('UPDATE conversas SET profile_pic = $1 WHERE id = $2', [pic, conv.id]);
+            const cached = convoCache.get(conv.id);
+            if (cached) cacheUpdate({ ...cached, profile_pic: pic });
+            updated++;
+          }
+        }
+        await new Promise(r => setTimeout(r, 150));
+      } catch {}
+    }
+    res.json({ ok: true, updated, total: rows.length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.get('/conversations', async (req, res) => {
   res.set('Cache-Control', 'no-store, no-cache');
   if (!cacheReady) {
