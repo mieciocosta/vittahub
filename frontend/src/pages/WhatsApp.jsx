@@ -202,7 +202,7 @@ export default function WhatsApp() {
             No celular que vai usar: <strong>WhatsApp → ⋮ → Aparelhos conectados → Conectar aparelho</strong>
           </div>
           <img
-            src={qrcode.startsWith('data:') ? qrcode : `data:image/png;base64,${qrcode}`}
+            src={qrcode.startsWith('data:') || qrcode.startsWith('http') ? qrcode : `data:image/png;base64,${qrcode}`}
             alt="QR Code WhatsApp"
             style={{ width:200, height:200, borderRadius:10, border:'2px solid var(--border)' }}
           />
