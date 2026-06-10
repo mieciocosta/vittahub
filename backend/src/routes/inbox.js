@@ -10,6 +10,19 @@ import { socketEmit } from '../socketServer.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const r = express.Router();
 
+// ─── STATUS DE CONEXÃO Z-API (atualizado pelos webhooks, sem precisar de client-token) ──
+let zapiConnected = false;
+let zapiPhone = null;
+function setZapiConnected(v, phone) { zapiConnected = v; zapiPhone = phone || null; }
+
+// Debug: registra os últimos webhooks recebidos
+let lastWebhooks = [];
+function logWebhook(body) {
+  lastWebhooks.unshift({ at: new Date().toISOString(), body });
+  if (lastWebhooks.length > 10) lastWebhooks = lastWebhooks.slice(0, 10);
+}
+
+
 // ─── CACHE EM MEMÓRIA: evita bater no banco para listagem de conversas ────────
 const convoCache = new Map(); // id → conversa
 let cacheReady = false;
@@ -29,7 +42,7 @@ function cacheUpdate(conv) {
   convoCache.set(conv.id, conv);
 }
 
-function cacheGetList({ channel, search, unread_only, page = 1, limit = 50 }) {
+function cacheGetList({ channel, search, unread_only, page = 1, limit = 100 }) {
   let list = Array.from(convoCache.values())
     .sort((a, b) => new Date(b.last_message_at || 0) - new Date(a.last_message_at || 0));
   if (channel && channel !== 'all') list = list.filter(c => c.channel === channel);
@@ -339,22 +352,39 @@ async function zapiCall(path, method = 'GET', body = null) {
 }
 
 // ─── WEBHOOK Z-API (sem JWT — chamado pela Z-API) ─────────────────────────
+// GET para teste manual de acessibilidade da rota
+r.get('/webhook/zapi', (req, res) => {
+  res.json({ ok: true, message: 'Webhook endpoint acessível', method: 'use POST para eventos' });
+});
 r.post('/webhook/zapi', async (req, res) => {
   res.json({ received: true });
   try {
     const body = req.body;
+    logWebhook(body);
     console.log(`ZAPI_WH: ${JSON.stringify(body).slice(0, 300)}`);
 
-    // Z-API webhook payload:
-    // { phone, senderName, profilePicUrl, isFromMe, messageId,
-    //   text: { message }, image: { imageUrl, caption },
-    //   audio: { audioUrl }, video: { videoUrl, caption },
-    //   document: { documentUrl, fileName, caption },
-    //   sticker: { stickerUrl }, location: { lat, lng } }
+    // ── Eventos de conexão/desconexão (vêm do webhook "Ao conectar/desconectar") ──
+    const event = body.event || body.type || '';
+    if (event === 'connected' || body.connected === true || body.status === 'open') {
+      const ph = body.phone || body.connectedPhone || null;
+      setZapiConnected(true, ph);
+      socketEmit('zapi_status', { connected: true, phone: ph });
+      console.log(`✅ Z-API Conectado (webhook): ${ph || 'número não informado'}`);
+    }
+    if (event === 'disconnected' || body.status === 'close' || body.status === 'disconnected') {
+      setZapiConnected(false, null);
+      socketEmit('zapi_status', { connected: false });
+      console.log('❌ Z-API Desconectado (webhook)');
+    }
 
-    const phone = body.phone; // already formatted: 5511999999999
+    // Z-API webhook payload:
+    const phone = body.phone;
     if (!phone) return;
-    if (body.isGroup) return; // skip groups
+    if (body.isGroup === true || body.isGroup === 'true') return; // skip grupos
+    if (body.isNewsletter || body.isStatusReply) return;
+    if (String(phone).includes('@lid') || String(phone).includes('broadcast') || String(phone).includes('status')) return;
+    const phoneDigits = String(phone).replace(/\D/g, '');
+    if (phoneDigits.length < 10 || phoneDigits.length > 15) return;
 
     const isMe = !!body.isFromMe;
     const msgId = body.messageId || body.zaapId || null;
@@ -379,25 +409,62 @@ r.post('/webhook/zapi', async (req, res) => {
       if (exists.length > 0) return;
     }
 
-    // Extract content
-    let content = '[mensagem]', type = 'text', mediaData = null;
-    if (body.text?.message)           { content = body.text.message; type = 'text'; }
-    else if (body.image?.imageUrl)     { content = body.image.caption || '📷 Imagem'; type = 'image'; mediaData = body.image.imageUrl; }
+    // Extract content — cobre todos os formatos da Z-API
+    let content = '[mensagem]', type = 'text', mediaData = null, filename = null;
+
+    // Texto: vários formatos possíveis
+    const textMsg = body.text?.message
+      || body.message?.text
+      || body.text
+      || body.body
+      || body.conversation
+      || (typeof body.message === 'string' ? body.message : null)
+      || body.extendedTextMessage?.text
+      || body.notification
+      || null;
+
+    if (textMsg && typeof textMsg === 'string') { content = textMsg; type = 'text'; }
+    else if (body.image?.imageUrl)     { content = body.image.caption || ''; type = 'image'; mediaData = body.image.imageUrl; }
+    else if (body.image?.url)          { content = body.image.caption || ''; type = 'image'; mediaData = body.image.url; }
     else if (body.audio?.audioUrl)     { content = '🎵 Áudio'; type = 'audio'; mediaData = body.audio.audioUrl; }
-    else if (body.video?.videoUrl)     { content = body.video.caption || '🎥 Vídeo'; type = 'video'; mediaData = body.video.videoUrl; }
-    else if (body.document?.documentUrl) { content = `📎 ${body.document.fileName || 'Documento'}`; type = 'document'; mediaData = body.document.documentUrl; }
-    else if (body.sticker?.stickerUrl)   { content = '🎭 Sticker'; type = 'image'; mediaData = body.sticker.stickerUrl; }
-    else if (body.gif?.gifUrl)           { content = '🎞️ GIF'; type = 'gif'; mediaData = body.gif.gifUrl; } // gif = vídeo autoplay muted
-    else if (body.location)              { content = `📍 ${body.location.address || `${body.location.lat},${body.location.lng}`}`; }
-    else if (body.contact?.displayName) { content = `👤 ${body.contact.displayName}`; }
-    else if (body.reaction?.text)        { content = `${body.reaction.text} (reação)`; }
+    else if (body.audio?.url)          { content = '🎵 Áudio'; type = 'audio'; mediaData = body.audio.url; }
+    else if (body.video?.videoUrl)     { content = body.video.caption || ''; type = 'video'; mediaData = body.video.videoUrl; }
+    else if (body.video?.url)          { content = body.video.caption || ''; type = 'video'; mediaData = body.video.url; }
+    else if (body.document?.documentUrl) {
+      filename = body.document.fileName || 'Documento';
+      content = `📎 ${filename}`; type = 'document'; mediaData = body.document.documentUrl;
+    }
+    else if (body.sticker?.stickerUrl) { content = ''; type = 'sticker'; mediaData = body.sticker.stickerUrl; }
+    else if (body.sticker?.url)        { content = ''; type = 'sticker'; mediaData = body.sticker.url; }
+    else if (body.gif?.gifUrl)         { content = ''; type = 'gif'; mediaData = body.gif.gifUrl; }
+    else if (body.location)            { content = `📍 ${body.location.address || `${body.location.latitude||body.location.lat},${body.location.longitude||body.location.lng}`}`; }
+    else if (body.contact?.displayName){ content = `👤 ${body.contact.displayName}`; }
+    else if (body.reaction?.text || body.reaction?.value) { content = `${body.reaction.text || body.reaction.value} (reação)`; }
+    else if (body.pix?.pixKey)         { content = `💰 Pix: ${body.pix.pixKey}`; }
+    else {
+      // Log payload desconhecido para entender o formato
+      console.log('WEBHOOK_CONTEUDO_DESCONHECIDO:', JSON.stringify(body).slice(0, 500));
+    }
+
+    // Foto de perfil: tenta buscar via Z-API na primeira mensagem do contato
+    let fetchedPic = profilePic;
+    if (!fetchedPic && zapiOk()) {
+      try {
+        const picResp = await zapiCall(`/profile-picture?phone=55${phone.startsWith('55') ? phone.slice(2) : phone}`, 'GET');
+        if (picResp?.ok) {
+          const picData = await picResp.json();
+          fetchedPic = picData.value || picData.url || null;
+        }
+      } catch {}
+    }
 
     const remoteJid = `${phone}@s.whatsapp.net`;
     const displayPhone = phone.startsWith('55') ? phone.slice(2) : phone;
     const contactName = senderName && senderName.length > 2 ? senderName : displayPhone;
     const ts = body.momment ? new Date(body.momment).toISOString() : new Date().toISOString();
+    const previewContent = type === 'text' ? content : type === 'sticker' ? '🎭 Sticker' : type === 'gif' ? '🎞️ GIF' : type === 'image' ? '📷 Imagem' : type === 'audio' ? '🎵 Áudio' : type === 'video' ? '🎥 Vídeo' : type === 'document' ? `📎 ${filename}` : content;
 
-    console.log(`ZAPI_MSG: from="${contactName}" phone="${displayPhone}" type="${type}" content="${content.slice(0,50)}"`);
+    console.log(`ZAPI_MSG: from="${contactName}" phone="${displayPhone}" type="${type}"`);
 
     // Upsert conversa
     const { rows: [conv] } = await query(`
@@ -414,19 +481,20 @@ r.post('/webhook/zapi', async (req, res) => {
         last_message = EXCLUDED.last_message,
         last_message_at = EXCLUDED.last_message_at
       RETURNING *`,
-      [contactName, remoteJid, displayPhone, content, ts, profilePic || null]
+      [contactName, remoteJid, displayPhone, previewContent, ts, fetchedPic || null]
     );
 
     // Atualiza cache em memória imediatamente
     cacheUpdate(conv);
 
     // Salva mensagem
+    const finalContent = mediaData || content;
     const { rows: [newMsg] } = await query(
       `INSERT INTO mensagens (conversa_id, from_type, type, content, filename, created_at, wa_msg_id)
        SELECT $1, 'contact', $2, $3, $4, $5, $6
        WHERE NOT EXISTS (SELECT 1 FROM mensagens WHERE wa_msg_id = $6 AND $6 IS NOT NULL)
        RETURNING *`,
-      [conv.id, type, mediaData || content, null, ts, msgId]
+      [conv.id, type, finalContent, filename, ts, msgId]
     );
 
     // ── Socket.io: entrega instantânea para todos os clientes ──
@@ -444,24 +512,120 @@ r.post('/webhook/zapi', async (req, res) => {
       [contactName, content.slice(0, 80), conv.id]
     ).catch(() => {});
 
-    // Bot
+    // ─── VITTA — BOT INTELIGENTE COM CLAUDE AI ────────────────────────────────
     if (conv.bot_ativo) {
       try {
         const { rows: [cfgRow] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'");
         const cfg = cfgRow?.valor || {};
-        if (cfg.ativo !== false && zapiOk()) {
-          const { rows: countRow } = await query('SELECT COUNT(*) n FROM mensagens WHERE conversa_id = $1', [conv.id]);
-          const msgCount = parseInt(countRow[0].n);
-          let botReply = msgCount <= 1 && cfg.mensagemBoasVindas
-            ? cfg.mensagemBoasVindas
-            : (cfg.respostas?.[content.trim()] || cfg.respostas?.['default'] || '');
-          if (botReply) {
-            await zapiCall('/send-text', 'POST', { phone: `55${displayPhone}`, message: botReply });
-            await query(`INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome) VALUES ($1,'me','text',$2,'Bot Vittalis')`, [conv.id, botReply]);
-            await query('UPDATE conversas SET last_message=$1, last_message_at=NOW() WHERE id=$2', [botReply.slice(0, 100), conv.id]);
+        if (cfg.ativo === false) throw new Error('bot desabilitado');
+
+        // Histórico da conversa para contexto
+        const { rows: history } = await query(
+          `SELECT from_type, content FROM mensagens
+           WHERE conversa_id = $1 AND type = 'text'
+           ORDER BY created_at DESC LIMIT 12`,
+          [conv.id]
+        );
+        const historyText = history.reverse()
+          .filter(m => m.content && m.content.length < 500)
+          .map(m => `${m.from_type === 'me' || m.from_type === 'bot' ? 'Vitta' : 'Cliente'}: ${m.content}`)
+          .join('\n');
+
+        let botReply = '';
+
+        // ── CLAUDE AI (quando ANTHROPIC_API_KEY está configurada) ──────────────
+        if (process.env.ANTHROPIC_API_KEY) {
+          try {
+            const { default: fetch } = await import('node-fetch');
+            const botInstrucoes = process.env.BOT_INSTRUCOES || cfg.instrucoes || '';
+
+            const sysPrompt = `Você é a Vitta, assistente virtual da Vittalis Saúde.
+
+Informações da clínica:
+- Clínica particular de pediatria e vacinação em São Luís, MA
+- Localização: Business Center, Av. Coronel Colares Moreira 3, Jardim Renascença
+- Funcionamento: segunda a sexta 8h-18h, sábado 8h-12h
+- WhatsApp da clínica: (98) 98422-1002
+- Site: vittalissaude.com.br
+- Slogan: "Sua vida é preciosa."
+${botInstrucoes ? `\nInformações adicionais: ${botInstrucoes}` : ''}
+
+Como se comportar:
+- Se apresente como Vitta quando for a primeira mensagem
+- Seja acolhedora, humana e profissional — como uma recepcionista excelente
+- Para agendamentos: peça nome, idade do paciente e qual vacina/consulta deseja
+- Para valores: diga que varia por vacina/consulta e ofereça enviar tabela de valores
+- Para dúvidas médicas complexas: diga que vai conectar com um especialista da equipe
+- Encerre sempre deixando espaço para mais perguntas
+- Máximo 3 parágrafos. Português brasileiro. Não use linguagem robótica.`;
+
+            const aiResp = await fetch('https://api.anthropic.com/v1/messages', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': process.env.ANTHROPIC_API_KEY,
+                'anthropic-version': '2023-06-01',
+              },
+              body: JSON.stringify({
+                model: 'claude-haiku-4-5-20251001',
+                max_tokens: 350,
+                system: sysPrompt,
+                messages: [
+                  ...(historyText ? [
+                    { role: 'user', content: historyText },
+                    { role: 'assistant', content: 'Entendido.' }
+                  ] : []),
+                  { role: 'user', content: content },
+                ],
+              }),
+            });
+            const aiData = await aiResp.json();
+            if (aiData.error) {
+              console.error('Vitta (Claude) erro:', JSON.stringify(aiData.error));
+            } else {
+              botReply = aiData.content?.[0]?.text?.trim() || '';
+            }
+          } catch (e) { console.error('Vitta bot error:', e.message); }
+        }
+
+        // ── FALLBACK INTELIGENTE (sem API key ou erro) ─────────────────────────
+        // Responde baseado em palavras-chave — NÃO usa mais "Vou chamar um atendente"
+        if (!botReply) {
+          const msg = content.toLowerCase().trim();
+          const isFirstMsg = history.length <= 1;
+
+          if (isFirstMsg || /^(oi|olá|ola|bom dia|boa tarde|boa noite|hey|hi|hello|tudo bem)/.test(msg)) {
+            botReply = `Olá! 😊 Sou a Vitta, assistente da Vittalis Saúde. Posso ajudar com informações sobre vacinas, agendamentos e consultas.\n\nComo posso te ajudar hoje?`;
+          } else if (/vacin|dose|imun/.test(msg)) {
+            botReply = `Temos um calendário vacinal completo para bebês, crianças e adultos! 💉\n\nPara saber quais vacinas estão disponíveis e os valores, pode me passar a idade do paciente?`;
+          } else if (/preço|valor|custa|quanto/.test(msg)) {
+            botReply = `Os valores variam de acordo com a vacina ou consulta desejada. Para te passar uma informação precisa, nossa equipe entrará em contato em breve! 📋\n\nQual vacina ou consulta você tem interesse?`;
+          } else if (/agend|marcar|consulta|hora/.test(msg)) {
+            botReply = `Ficamos felizes em agendar! 📅\n\nPode me informar: nome do paciente, idade e qual vacina ou consulta deseja? Assim nossa equipe confirma a disponibilidade.`;
+          } else if (/horário|funciona|abre|fecha|sábado|domingo/.test(msg)) {
+            botReply = `Nosso horário de atendimento é:\n• Segunda a sexta: 8h às 18h\n• Sábado: 8h às 12h\n\nEstamos localizados no Business Center, Av. Coronel Colares Moreira 3, Jardim Renascença — São Luís, MA. 📍`;
+          } else if (/endereço|onde|localiz|chegar/.test(msg)) {
+            botReply = `Estamos no Business Center, Av. Coronel Colares Moreira 3, Salas 36-37, Jardim Renascença — São Luís, MA. 📍\n\nPosso te ajudar com mais alguma informação?`;
+          } else if (/obrig|valeu|ok|perfeito|ótimo|entend/.test(msg)) {
+            botReply = `De nada! 💙 Estamos à disposição. Sua vida é preciosa — a gente quer cuidar dela!\n\nSe precisar de mais alguma informação, é só me chamar. 😊`;
+          } else {
+            // Resposta genérica mas útil — sem "Vou chamar um atendente"
+            botReply = `Obrigada pela mensagem! 😊 Recebi sua dúvida e nossa equipe da Vittalis Saúde vai responder em breve.\n\nEnquanto isso, posso te ajudar com informações sobre vacinas, agendamentos ou horários de atendimento. O que você prefere?`;
           }
         }
-      } catch (e) { console.error('Bot error:', e.message); }
+
+        if (botReply && zapiOk()) {
+          await zapiCall('/send-text', 'POST', { phone: `55${displayPhone}`, message: botReply });
+          const { rows: [botMsg] } = await query(
+            `INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome)
+             VALUES ($1,'bot','text',$2,'Vitta') RETURNING *`,
+            [conv.id, botReply]
+          );
+          await query('UPDATE conversas SET last_message=$1, last_message_at=NOW() WHERE id=$2',
+            [botReply.slice(0, 100), conv.id]);
+          if (botMsg) socketEmit('new_message', { convId: conv.id, message: botMsg, conv });
+        }
+      } catch (e) { if (e.message !== 'bot desabilitado') console.error('Vitta error:', e.message); }
     }
   } catch (err) { console.error('ZAPI_ERROR:', err.message); }
 });
@@ -657,6 +821,114 @@ export async function sendViaMeta(phone, type, content) {
 }
 
 // Keep Evolution webhook for backward compat
+// ─── DEBUG: testar POST no próprio webhook (via ?k=vt24) ─────────────────────
+r.get('/whatsapp/test-post', async (req, res) => {
+  if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
+  try {
+    const { default: fetch } = await import('node-fetch');
+    const url = 'https://vittahub-backend-production.up.railway.app/api/inbox/webhook/zapi';
+    const r2 = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ test: true, phone: '5598999999999', text: { message: 'teste POST' } }),
+    });
+    const body = await r2.text();
+    res.json({
+      post_status: r2.status,
+      post_body: body.slice(0, 200),
+      post_ok: r2.status === 200,
+    });
+  } catch (e) { res.json({ error: e.message }); }
+});
+
+// ─── DEBUG: enviar mensagem de teste e checar webhook (via ?k=vt24) ──────────
+r.get('/whatsapp/test-send', async (req, res) => {
+  if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
+  if (!zapiOk()) return res.json({ error: 'Z-API não configurada' });
+  try {
+    const phone = req.query.phone || '559888278736'; // número do Miécio
+    const before = lastWebhooks.length;
+    // Envia mensagem de teste
+    const r2 = await zapiCall('/send-text', 'POST', { phone, message: 'Teste webhook VittaHub ' + new Date().toLocaleTimeString() });
+    const sendResult = await r2?.text() || '';
+    // Aguarda 3s para o webhook "ao enviar" chegar
+    await new Promise(r => setTimeout(r, 3000));
+    res.json({
+      enviou: { status: r2?.status, body: sendResult.slice(0, 200) },
+      webhooks_antes: before,
+      webhooks_depois: lastWebhooks.length,
+      recebeu_webhook: lastWebhooks.length > before,
+      ultimos: lastWebhooks.slice(0, 3),
+    });
+  } catch (e) { res.json({ error: e.message }); }
+});
+
+// ─── DEBUG: forçar configuração de webhooks e ver resultado (via ?k=vt24) ────
+r.get('/whatsapp/force-webhooks', async (req, res) => {
+  if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
+  if (!zapiOk()) return res.json({ error: 'Z-API não configurada' });
+  const webhookUrl = 'https://vittahub-backend-production.up.railway.app/api/inbox/webhook/zapi';
+  const results = {};
+  const endpoints = [
+    'update-webhook-received',
+    'update-webhook-delivery',
+    'update-webhook-received-delivery',
+    'update-webhook-message-status',
+    'update-webhook-connected',
+    'update-webhook-disconnected',
+  ];
+  for (const ep of endpoints) {
+    try {
+      const r2 = await zapiCall(`/${ep}`, 'PUT', { value: webhookUrl });
+      const txt = await r2?.text().catch(() => '');
+      results[ep] = { status: r2?.status, body: txt.slice(0, 100) };
+    } catch (e) { results[ep] = { error: e.message }; }
+  }
+  res.json({ webhookUrl, results });
+});
+
+// ─── DEBUG: ver resposta raw do Z-API (acesso via ?k=vt24) ───────────────────
+r.get('/whatsapp/debug-raw', async (req, res) => {
+  if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
+  if (!zapiOk()) return res.json({ error: 'Z-API não configurada', zapiOk: false });
+  try {
+    // Status da instância
+    const rS = await zapiCall('/status', 'GET');
+    const statusBody = await rS?.text().catch(() => '');
+
+    // Device info
+    const rD = await zapiCall('/device', 'GET');
+    const deviceBody = await rD?.text().catch(() => '');
+
+    res.json({
+      backend_url: process.env.BACKEND_URL,
+      webhook_esperado: 'https://vittahub-backend-production.up.railway.app/api/inbox/webhook/zapi',
+      zapi_status: { http: rS?.status, body: statusBody.slice(0, 300) },
+      zapi_device: { http: rD?.status, body: deviceBody.slice(0, 300) },
+      ultimos_webhooks_recebidos: lastWebhooks,
+    });
+  } catch (e) { res.json({ error: e.message }); }
+});
+
+// ─── DEBUG: ver resposta raw do Z-API /chats (público — remover após debug) ───
+r.get('/whatsapp/debug-zapi', async (req, res) => {
+  if (!zapiOk()) return res.json({ error: 'Z-API não configurada', zapiOk: false });
+  try {
+    const r2 = await zapiCall('/chats?page=1&pageSize=3', 'GET');
+    const status = r2?.status;
+    const text = await r2?.text() || '{}';
+    let parsed = null;
+    try { parsed = JSON.parse(text); } catch {}
+    res.json({
+      zapi_status: status,
+      response_type: Array.isArray(parsed) ? 'array' : typeof parsed,
+      response_keys: parsed && typeof parsed === 'object' ? Object.keys(parsed) : [],
+      first_item: Array.isArray(parsed) ? parsed[0] : (parsed?.chats?.[0] || parsed?.data?.[0] || null),
+      raw_preview: text.slice(0, 1000)
+    });
+  } catch (e) { res.json({ error: e.message }); }
+});
+
 r.use(auth);
 r.use(auth);
 
@@ -670,6 +942,56 @@ r.get('/conversations/updates', async (req, res) => {
 });
 
 // ─── LISTAGEM de conversas — servido do CACHE (zero DB query na maioria) ─────
+// ─── BATCH: carregar fotos de perfil via Z-API ────────────────────────────────
+r.post('/conversations/load-photos', async (req, res) => {
+  try {
+    if (!zapiOk()) return res.json({ ok: false, updated: 0, error: 'Z-API não configurada' });
+    const { rows } = await query(
+      `SELECT id, phone FROM conversas
+       WHERE (profile_pic IS NULL OR profile_pic = '')
+       AND phone IS NOT NULL
+       ORDER BY last_message_at DESC LIMIT 50`
+    );
+    let updated = 0, semFoto = 0;
+    for (const conv of rows) {
+      try {
+        let phone = conv.phone?.replace(/\D/g, '') || '';
+        if (!phone || phone.length < 8) continue;
+        if (phone.startsWith('55') && phone.length >= 12) phone = phone.slice(2);
+        const fullPhone = `55${phone}`;
+
+        // Endpoint /contacts/{phone} retorna imgUrl (campo correto)
+        const r2 = await zapiCall(`/contacts/${fullPhone}`, 'GET');
+        if (r2?.ok) {
+          const text = await r2.text().catch(() => '{}');
+          let pic = null;
+          try {
+            const d = JSON.parse(text);
+            pic = d.imgUrl || d.profilePic || d.image || null;
+          } catch {}
+          if (pic && pic !== 'null' && pic.startsWith('http')) {
+            await query('UPDATE conversas SET profile_pic = $1 WHERE id = $2', [pic, conv.id]);
+            const cached = convoCache.get(conv.id);
+            if (cached) cacheUpdate({ ...cached, profile_pic: pic });
+            updated++;
+          } else {
+            semFoto++;
+          }
+        }
+        await new Promise(r => setTimeout(r, 200));
+      } catch {}
+    }
+    res.json({
+      ok: true,
+      updated,
+      total: rows.length,
+      message: updated > 0
+        ? `${updated} fotos carregadas. ${semFoto} contatos não têm foto pública (privacidade do WhatsApp deles).`
+        : `Nenhuma foto disponível. Os contatos têm foto de perfil restrita a contatos (privacidade do WhatsApp).`
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.get('/conversations', async (req, res) => {
   res.set('Cache-Control', 'no-store, no-cache');
   if (!cacheReady) {
@@ -697,7 +1019,41 @@ r.get('/conversations', async (req, res) => {
   res.json(result);
 });
 
-// ─── GET SINGLE CONVERSATION WITH MESSAGES ───────────────────────────────────
+// ─── CARREGAR MENSAGENS DO Z-API (ao abrir conversa vazia) ───────────────────
+// NOTA: A Z-API NÃO fornece endpoint para buscar mensagens antigas do histórico.
+// O histórico fica apenas no celular. Mensagens novas chegam via webhook.
+// Este endpoint apenas atualiza a foto de perfil do contato.
+r.post('/conversations/:id/load-from-zapi', async (req, res) => {
+  if (!zapiOk()) return res.json({ ok: false, loaded: 0 });
+  try {
+    const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
+
+    let phone = conv.phone?.replace(/\D/g, '') || '';
+    if (phone.startsWith('55') && phone.length >= 12) phone = phone.slice(2);
+
+    // Atualiza foto de perfil se ainda não tiver
+    if (!conv.profile_pic) {
+      try {
+        const r2 = await zapiCall(`/profile-picture?phone=55${phone}`, 'GET');
+        if (r2?.ok) {
+          const d = await r2.json().catch(() => ({}));
+          const pic = d.value || d.url || d.imgUrl || null;
+          if (pic?.startsWith('http')) {
+            await query('UPDATE conversas SET profile_pic=$1 WHERE id=$2', [pic, conv.id]);
+            const cached = convoCache.get(conv.id);
+            if (cached) cacheUpdate({ ...cached, profile_pic: pic });
+          }
+        }
+      } catch {}
+    }
+
+    // Z-API não tem API de histórico de mensagens — retorna 0
+    res.json({ ok: true, loaded: 0, note: 'Z-API não fornece histórico antigo. Mensagens novas chegam via webhook.' });
+  } catch (err) { res.json({ ok: false, loaded: 0, error: err.message }); }
+});
+
+
 r.get('/conversations/:id', async (req, res) => {
   try {
     res.set('Cache-Control', 'no-store, no-cache');
@@ -1291,154 +1647,108 @@ r.get('/whatsapp/status', async (req, res) => {
   } catch (e) { res.json({ connected: false, status: 'error', message: e.message }); }
 });
 
-// ─── IMPORT WHATSAPP HISTORY ──────────────────────────────────────────────────
+// ─── IMPORT WHATSAPP HISTORY (via Z-API) ──────────────────────────────────────
 r.post('/whatsapp/import-history', async (req, res) => {
-  const EVO = process.env.EVOLUTION_API_URL;
-  const KEY = process.env.EVOLUTION_API_KEY;
-  const INST = process.env.EVOLUTION_INSTANCE || 'vittalis';
-  if (!EVO || !KEY) return res.status(400).json({ error: 'Não configurado' });
+  if (!zapiOk()) return res.status(400).json({ error: 'Z-API não configurada' });
   try {
-    const { default: fetch } = await import('node-fetch');
-    const limit = parseInt(req.body?.limit) || 150;
+    let imported = 0;
+    let page = 1;
+    const pageSize = 50;
 
-    // Busca lista de chats
-    const r2 = await fetch(`${EVO}/chat/findChats/${INST}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', apikey: KEY },
-      body: JSON.stringify({}),
-      signal: AbortSignal.timeout(30000)
-    });
-    const chatsRaw = await r2.json();
-    const chatList = Array.isArray(chatsRaw) ? chatsRaw : (chatsRaw?.data || []);
-    console.log(`IMPORT: ${chatList.length} chats encontrados`);
+    while (true) {
+      const r2 = await zapiCall(`/chats?page=${page}&pageSize=${pageSize}`, 'GET');
+      if (!r2?.ok) break;
 
-    // Busca contatos para resolver nomes
-    let contacts = {};
-    try {
-      const rc = await fetch(`${EVO}/contact/findContacts/${INST}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', apikey: KEY },
-        body: JSON.stringify({}),
-        signal: AbortSignal.timeout(15000)
-      });
-      if (rc.ok) {
-        const cRaw = await rc.json();
-        const cList = Array.isArray(cRaw) ? cRaw : (cRaw?.data || []);
-        for (const c of cList) {
-          const jid = c.remoteJid || c.id || '';
-          const name = c.pushName || c.name || c.verifiedName || '';
-          const pic  = c.profilePicUrl || c.imgUrl || '';
-          if (jid) {
-            if (name) contacts[jid] = { name, pic };
-          }
-        }
-        console.log(`IMPORT: ${Object.keys(contacts).length} contatos carregados`);
-      }
-    } catch (e) { console.log('Contacts fetch failed:', e.message); }
-
-    let imported = 0, msgsImported = 0;
-
-    for (const chat of chatList.slice(0, limit)) {
-      const remoteJid = chat.id || chat.remoteJid || '';
-      // Pula grupos, broadcast e LIDs (formato novo do WA Business sem número real)
-      if (!remoteJid) continue;
-      if (remoteJid.endsWith('@g.us')) continue;
-      if (remoteJid.endsWith('@broadcast')) continue;
-      if (remoteJid.endsWith('@lid')) continue;  // LID não tem telefone real
-      if (!remoteJid.endsWith('@s.whatsapp.net') && !remoteJid.match(/^\d+@/)) continue;
-
-      const rawPhone2 = remoteJid.replace('@s.whatsapp.net', '').replace(/\D/g, ''); const phone = rawPhone2.startsWith('55') ? rawPhone2.slice(2) : rawPhone2;
-
-      // Resolve nome e foto: prioridade contatos > pushName do chat > nome do chat
-      const contactInfo = contacts[remoteJid] || {};
-      const name = contactInfo.name || chat.pushName || chat.name || phone;
-      const profilePic = contactInfo.pic || chat.profilePicUrl || '';
-
-      const extractContent = (msgObj) => {
-        const m = msgObj?.message || msgObj || {};
-        if (m.conversation) return { content: m.conversation, type: 'text' };
-        if (m.extendedTextMessage?.text) return { content: m.extendedTextMessage.text, type: 'text' };
-        if (m.imageMessage) return { content: m.imageMessage.caption || '📷 Imagem', type: 'image' };
-        if (m.videoMessage) return { content: m.videoMessage.caption || '🎥 Vídeo', type: 'video' };
-        if (m.audioMessage || m.pttMessage) return { content: '🎵 Áudio', type: 'audio' };
-        if (m.documentMessage) return { content: `📎 ${m.documentMessage.fileName || 'Documento'}`, type: 'document' };
-        if (m.stickerMessage) return { content: '🎭 Sticker', type: 'text' };
-        if (m.locationMessage) return { content: '📍 Localização', type: 'text' };
-        return null;
-      };
-
-      const lastExtracted = extractContent(chat.lastMessage);
-      const lastMsg = lastExtracted?.content || '...';
-      const lastTime = chat.lastMessage?.messageTimestamp
-        ? new Date(parseInt(String(chat.lastMessage.messageTimestamp)) * 1000).toISOString()
-        : new Date().toISOString();
-
-      // Upsert conversa com nome e foto corretos
-      const { rows: [conv] } = await query(`
-        INSERT INTO conversas (channel, contact_name, contact_id, phone, last_message, last_message_at, unread, profile_pic)
-        VALUES ('whatsapp', $1, $2, $3, $4, $5, $6, $7)
-        ON CONFLICT (contact_id) DO UPDATE SET
-          contact_name = CASE
-            WHEN length(EXCLUDED.contact_name) > 5 AND EXCLUDED.contact_name != EXCLUDED.phone
-            THEN EXCLUDED.contact_name
-            ELSE conversas.contact_name
-          END,
-          profile_pic = COALESCE(EXCLUDED.profile_pic, conversas.profile_pic),
-          last_message = EXCLUDED.last_message,
-          last_message_at = EXCLUDED.last_message_at
-        RETURNING *`,
-        [name, remoteJid, phone, lastMsg, lastTime, chat.unreadCount || 0, profilePic || null]
-      );
-
-      // Busca mensagens do chat (últimas 50)
+      let chats = [];
       try {
-        const rm = await fetch(`${EVO}/chat/findMessages/${INST}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', apikey: KEY },
-          body: JSON.stringify({ where: { key: { remoteJid } }, limit: 50 }),
-          signal: AbortSignal.timeout(12000)
-        });
-        if (rm.ok) {
-          const msgsRaw = await rm.json();
-          const msgs = Array.isArray(msgsRaw) ? msgsRaw
-            : (msgsRaw?.messages?.records || msgsRaw?.records || msgsRaw?.data || []);
+        const d = await r2.json();
+        chats = Array.isArray(d) ? d : (d.chats || d.data || []);
+      } catch { break; }
 
-          for (const m of msgs) {
-            const extracted = extractContent(m);
-            if (!extracted) continue;
-            const fromType = m.key?.fromMe ? 'me' : 'contact';
-            const ts = m.messageTimestamp
-              ? new Date(parseInt(String(m.messageTimestamp)) * 1000).toISOString()
-              : new Date().toISOString();
-            await query(
-              `INSERT INTO mensagens (conversa_id, from_type, type, content, created_at) VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`,
-              [conv.id, fromType, extracted.type, extracted.content, ts]
-            ).catch(() => {});
-            msgsImported++;
-          }
-        }
-      } catch (e) { /* mensagens são best-effort */ }
+      if (!chats.length) break;
 
-      imported++;
-    }
+      console.log(`IMPORT Z-API: página ${page}, ${chats.length} chats`);
 
-    // Atualiza nomes de conversas antigas que ainda têm ID como nome
-    if (Object.keys(contacts).length > 0) {
-      for (const [jid, nome] of Object.entries(contacts)) {
-        if (nome && nome.length > 2) {
-          await query(
-            `UPDATE conversas SET contact_name = $1 WHERE contact_id = $2 AND (contact_name = phone OR length(contact_name) < 5)`,
-            [nome, jid]
-          ).catch(() => {});
-        }
+      for (const chat of chats) {
+        try {
+          const phone = (chat.phone || '').replace(/\D/g, '');
+          if (!phone || phone.length < 8) continue;
+          if (chat.isGroup === true || chat.isGroup === 'true') continue;
+
+          const contactId   = `${phone}@s.whatsapp.net`;
+          const contactName = chat.name || chat.phone || phone;
+          // Z-API usa lastMessageTime em milissegundos (string)
+          const lastMsgAt = chat.lastMessageTime
+            ? new Date(parseInt(chat.lastMessageTime))
+            : new Date();
+          const unread = parseInt(chat.messagesUnread || chat.unread || 0) || 0;
+
+          await query(`
+            INSERT INTO conversas (contact_id, phone, contact_name, channel, last_message, last_message_at, unread)
+            VALUES ($1, $2, $3, 'whatsapp', '', $4, $5)
+            ON CONFLICT (contact_id) DO UPDATE SET
+              contact_name    = CASE WHEN length(EXCLUDED.contact_name) > 3 THEN EXCLUDED.contact_name ELSE conversas.contact_name END,
+              last_message_at = EXCLUDED.last_message_at,
+              unread          = EXCLUDED.unread`,
+            [contactId, phone, contactName, lastMsgAt, unread]
+          );
+          imported++;
+        } catch {}
       }
+
+      if (chats.length < pageSize) break;
+      page++;
+      await new Promise(r => setTimeout(r, 300));
     }
 
-    console.log(`IMPORT DONE: ${imported} conversas, ${msgsImported} mensagens`);
-    res.json({ ok: true, imported, msgsImported, total: chatList.length });
-  } catch (e) {
-    console.error('Import error:', e.message);
-    res.status(500).json({ error: e.message });
+    // Recarrega cache
+    convoCache.clear(); cacheReady = false;
+    await loadCache();
+
+    // Carrega fotos em background (não bloqueia a resposta)
+    setImmediate(async () => {
+      console.log('IMPORT: iniciando carregamento de fotos em background...');
+      let photoPage = 1;
+      let totalPhotos = 0;
+      while (true) {
+        const { rows } = await query(
+          `SELECT id, phone FROM conversas WHERE (profile_pic IS NULL OR profile_pic = '') AND phone IS NOT NULL ORDER BY last_message_at DESC LIMIT 50 OFFSET $1`,
+          [(photoPage - 1) * 50]
+        ).catch(() => ({ rows: [] }));
+        if (!rows.length) break;
+        let updated = 0;
+        for (const conv of rows) {
+          try {
+            let ph = conv.phone?.replace(/\D/g,'') || '';
+            if (!ph || ph.length < 8) continue;
+            if (ph.startsWith('55') && ph.length >= 12) ph = ph.slice(2);
+            const r2 = await zapiCall(`/contacts/55${ph}`, 'GET');
+            if (r2?.ok) {
+              const text = await r2.text().catch(() => '{}');
+              let pic = null;
+              try { const d = JSON.parse(text); pic = d.imgUrl || d.profilePic || null; } catch {}
+              if (pic && pic !== 'null' && pic.startsWith('http')) {
+                await query('UPDATE conversas SET profile_pic=$1 WHERE id=$2', [pic, conv.id]);
+                const cached = convoCache.get(conv.id);
+                if (cached) cacheUpdate({ ...cached, profile_pic: pic });
+                updated++;
+              }
+            }
+            await new Promise(r => setTimeout(r, 200));
+          } catch {}
+        }
+        totalPhotos += updated;
+        photoPage++;
+        if (rows.length < 50) break;
+      }
+      console.log(`IMPORT FOTOS: ${totalPhotos} fotos carregadas em background`);
+    });
+
+    console.log(`IMPORT Z-API DONE: ${imported} conversas`);
+    res.json({ ok: true, imported, message: `${imported} conversas importadas. Fotos sendo carregadas em background...` });
+  } catch (err) {
+    console.error('Import error:', err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -1487,4 +1797,187 @@ r.post('/whatsapp/disconnect', async (req, res) => {
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+
+// ─── Z-API: disconnect ─────────────────────────────────────────────────────────
+r.post('/whatsapp/zapi/disconnect', async (req, res) => {
+  if (!zapiOk()) return res.status(400).json({ error: 'Z-API não configurada' });
+  try {
+    const r2 = await zapiCall('/disconnect', 'POST');
+    const d = r2?.ok ? await r2.json() : {};
+    res.json({ ok: true, ...d });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── Z-API: status ────────────────────────────────────────────────────────────
+// ─── DEBUG: ver resposta raw do Z-API /chats ─────────────────────────────────
+r.get('/whatsapp/zapi/debug-chats', async (req, res) => {
+  if (!zapiOk()) return res.json({ error: 'Z-API não configurada' });
+  try {
+    const r2 = await zapiCall('/chats?page=1&pageSize=5', 'GET');
+    const text = await r2?.text() || '{}';
+    let parsed = null;
+    try { parsed = JSON.parse(text); } catch {}
+    res.json({ 
+      status: r2?.status, 
+      raw: text.slice(0, 3000),
+      parsed_type: Array.isArray(parsed) ? 'array' : typeof parsed,
+      first_item: Array.isArray(parsed) ? parsed[0] : (parsed?.chats?.[0] || parsed?.data?.[0] || parsed)
+    });
+  } catch (e) { res.json({ error: e.message }); }
+});
+
+r.get('/whatsapp/zapi/status', async (req, res) => {
+  if (!zapiOk()) return res.json({ connected: false, error: 'Z-API não configurada' });
+  try {
+    // Tenta /status primeiro
+    const r2 = await zapiCall('/status', 'GET');
+    const text = await r2?.text() || '{}';
+    let d = {};
+    try { d = JSON.parse(text); } catch {}
+    console.log('Z-API /status:', r2?.status, text.slice(0, 150));
+
+    let connected = d.connected === true || d.status === 'open' || d.status === 'connected';
+
+    // Se /status não confirmar, valida via /chats (se retorna chats, está conectado)
+    if (!connected && !d.error) {
+      try {
+        const rc = await zapiCall('/chats?page=1&pageSize=1', 'GET');
+        if (rc?.ok) {
+          const chatsText = await rc.text();
+          const chats = JSON.parse(chatsText);
+          if (Array.isArray(chats)) {
+            connected = true; // conseguiu listar chats = conectado
+          }
+        }
+      } catch {}
+    }
+
+    if (connected) setZapiConnected(true, d.phone || zapiPhone);
+
+    res.json({
+      connected,
+      phone: d.phone || zapiPhone || null,
+      provider: 'zapi',
+    });
+  } catch (e) {
+    res.json({ connected: zapiConnected, phone: zapiPhone, provider: 'zapi' });
+  }
+});
+
+// Marca conexão manualmente (quando usuário confirma que conectou no painel Z-API)
+r.post('/whatsapp/zapi/mark-connected', async (req, res) => {
+  setZapiConnected(true, req.body?.phone || null);
+  socketEmit('zapi_status', { connected: true, phone: req.body?.phone || null });
+  res.json({ ok: true, connected: true });
+});
+
+// ─── Z-API: Auto-configurar webhooks ─────────────────────────────────────────
+r.post('/whatsapp/zapi/setup-webhooks', async (req, res) => {
+  if (!zapiOk()) return res.status(400).json({ error: 'Z-API não configurada' });
+  // URL do backend (corrige precedência de operador)
+  const BACKEND = process.env.BACKEND_URL
+    || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : 'https://vittahub-backend-production.up.railway.app');
+  const webhookUrl = `${BACKEND}/api/inbox/webhook/zapi`;
+
+  const results = {};
+  const endpoints = [
+    'update-webhook-received',          // ao receber mensagem
+    'update-webhook-delivery',          // ao enviar
+    'update-webhook-received-delivery', // notificar enviadas por mim
+    'update-webhook-message-status',    // status da mensagem
+    'update-webhook-connected',         // ao conectar
+    'update-webhook-disconnected',      // ao desconectar
+  ];
+
+  for (const ep of endpoints) {
+    try {
+      const r2 = await zapiCall(`/${ep}`, 'PUT', { value: webhookUrl });
+      const txt = await r2?.text().catch(() => '');
+      results[ep] = r2?.ok ? 'ok' : `erro(${r2?.status}): ${txt.slice(0,60)}`;
+    } catch (e) { results[ep] = `erro: ${e.message}`; }
+  }
+  console.log('Z-API webhooks configurados:', JSON.stringify(results));
+  res.json({ ok: true, webhookUrl, results });
+});
+
+
+r.get('/whatsapp/zapi/qrcode', async (req, res) => {
+  if (!zapiOk()) return res.status(400).json({ error: 'Z-API não configurada' });
+  try {
+    console.log('Z-API: restart para modo QR...');
+    await zapiCall('/restart', 'GET').catch(() => {});
+    await new Promise(r => setTimeout(r, 4000));
+
+    for (let attempt = 0; attempt < 6; attempt++) {
+      try {
+        if (attempt > 0) await new Promise(r => setTimeout(r, 3000));
+
+        // /qr-code/image retorna PNG binário
+        const r2 = await zapiCall('/qr-code/image', 'GET');
+        if (r2?.ok) {
+          const contentType = r2.headers?.get('content-type') || '';
+          if (contentType.includes('image')) {
+            const buf = Buffer.from(await r2.arrayBuffer());
+            if (buf.length > 500) {
+              console.log(`Z-API: QR PNG obtido na tentativa ${attempt + 1}`);
+              return res.json({ qrcode: `data:image/png;base64,${buf.toString('base64')}` });
+            }
+          }
+        }
+
+        // /qr-code retorna JSON com value = URL raw do QR
+        const r3 = await zapiCall('/qr-code', 'GET');
+        if (r3?.ok) {
+          const d = await r3.json().catch(() => ({}));
+          const raw = d.value || d.qrcode || '';
+          if (raw && raw.length > 20) {
+            // Raw pode ser URL wa.me ou base64 — renderiza via serviço externo
+            const encoded = encodeURIComponent(raw);
+            const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?data=${encoded}&size=256x256&format=png`;
+            console.log(`Z-API: QR raw → renderizando via qrserver na tentativa ${attempt + 1}`);
+            return res.json({ qrcode: qrUrl });
+          }
+        }
+      } catch (e) { console.log(`QR attempt ${attempt + 1}:`, e.message); }
+    }
+    res.status(400).json({ error: 'Não foi possível gerar QR Code. Certifique-se de ter desconectado o aparelho no WhatsApp do celular.' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── Limpar todas as conversas (ao trocar número) ─────────────────────────────
+r.post('/whatsapp/clear-all', async (req, res) => {
+  try {
+    await query('DELETE FROM mensagens');
+    await query('DELETE FROM conversas');
+    convoCache.clear();
+    cacheReady = false;
+    await loadCache();
+    res.json({ ok: true, message: 'Todas as conversas foram removidas' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+
+r.post('/whatsapp/switch-number', async (req, res) => {
+  try {
+    const { clearConversations = false } = req.body;
+    // Limpa o cache em memória sempre
+    convoCache.clear();
+    cacheReady = false;
+    let cleared = { contacts: 0, conversations: 0 };
+
+    if (clearConversations) {
+      // Limpa apenas contatos sem nome real (gerados automaticamente)
+      const { rowCount: c } = await query(
+        `DELETE FROM conversas WHERE contact_name = phone OR contact_name LIKE 'Contato%'`
+      );
+      cleared.conversations = c;
+    }
+
+    // Reinicia o cache com os dados do banco
+    await loadCache();
+    res.json({ ok: true, cleared, message: 'Pronto para conectar novo número' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 export default r;
+
