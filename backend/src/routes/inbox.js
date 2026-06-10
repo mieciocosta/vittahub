@@ -799,6 +799,26 @@ export async function sendViaMeta(phone, type, content) {
 }
 
 // Keep Evolution webhook for backward compat
+// ─── DEBUG: testar POST no próprio webhook (via ?k=vt24) ─────────────────────
+r.get('/whatsapp/test-post', async (req, res) => {
+  if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
+  try {
+    const { default: fetch } = await import('node-fetch');
+    const url = 'https://vittahub-backend-production.up.railway.app/api/inbox/webhook/zapi';
+    const r2 = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ test: true, phone: '5598999999999', text: { message: 'teste POST' } }),
+    });
+    const body = await r2.text();
+    res.json({
+      post_status: r2.status,
+      post_body: body.slice(0, 200),
+      post_ok: r2.status === 200,
+    });
+  } catch (e) { res.json({ error: e.message }); }
+});
+
 // ─── DEBUG: enviar mensagem de teste e checar webhook (via ?k=vt24) ──────────
 r.get('/whatsapp/test-send', async (req, res) => {
   if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
