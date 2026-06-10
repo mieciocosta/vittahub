@@ -389,24 +389,43 @@ function formatarPrecos(precos) {
   return `\nTABELA DE PREÇOS DAS VACINAS (use estes valores reais quando o cliente perguntar):\n${linhas.join('\n')}`;
 }
 
-// Gera PDF da proposta no VittaSys e retorna o buffer
+// Gera PDF da proposta: busca HTML no VittaSys e converte com Puppeteer
 async function gerarPropostaPDF({ nomeCliente, nomeBebe, template, pacoteNome, vacinas, desconto, parcelas }) {
   const { default: fetch } = await import('node-fetch');
-  const r = await fetch(`${VITTASYS_URL()}/api/proposta/pdf`, {
+  // 1. Busca o HTML da proposta no VittaSys (rota /api/proposta/html)
+  const r = await fetch(`${VITTASYS_URL()}/api/proposta/html`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'x-vittalis-key': process.env.VITTAHUB_API_KEY || '',
     },
     body: JSON.stringify({ nomeCliente, nomeBebe, template, pacoteNome, vacinas, desconto: desconto||0, parcelas: parcelas||1 }),
-    signal: AbortSignal.timeout(30000),
+    signal: AbortSignal.timeout(20000),
   });
   if (!r.ok) {
     const err = await r.text().catch(() => '');
-    throw new Error(`VittaSys PDF ${r.status}: ${err.slice(0,150)}`);
+    throw new Error(`VittaSys HTML ${r.status}: ${err.slice(0,150)}`);
   }
-  const buf = Buffer.from(await r.arrayBuffer());
-  return buf;
+  const html = await r.text();
+
+  // 2. Converte HTML → PDF com Puppeteer + Chromium otimizado
+  const puppeteer = (await import('puppeteer-core')).default;
+  const chromium = (await import('@sparticuz/chromium')).default;
+  let browser;
+  try {
+    browser = await puppeteer.launch({
+      args: chromium.args,
+      defaultViewport: chromium.defaultViewport,
+      executablePath: await chromium.executablePath(),
+      headless: chromium.headless,
+    });
+    const page = await browser.newPage();
+    await page.setContent(html, { waitUntil: 'networkidle0', timeout: 20000 });
+    const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true, margin: { top: '10mm', bottom: '10mm', left: '8mm', right: '8mm' } });
+    return Buffer.from(pdfBuffer);
+  } finally {
+    if (browser) await browser.close().catch(() => {});
+  }
 }
 
 // Envia um PDF (base64) via Z-API para um número
@@ -1680,6 +1699,25 @@ r.put('/bot-config', async (req, res) => {
     await query("INSERT INTO configuracoes (chave,valor) VALUES ('bot',$1) ON CONFLICT (chave) DO UPDATE SET valor=$1, updated_at=NOW()", [JSON.stringify(req.body)]);
     res.json(req.body);
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── DEBUG: testar geração de PDF da proposta (via ?k=vt24) ──────────────────
+r.get('/proposta/test-pdf', async (req, res) => {
+  if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
+  try {
+    const pdfBuf = await gerarPropostaPDF({
+      nomeCliente: 'Teste Vittalis',
+      template: 'adulto',
+      pacoteNome: 'Teste',
+      vacinas: [{ nome: 'Influenza', avista: 170, credito: 180, parcelas: 1 }],
+      desconto: 0, parcelas: 1,
+    });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename="teste.pdf"');
+    res.send(pdfBuf);
+  } catch (e) {
+    res.status(500).json({ error: e.message, stack: e.stack?.slice(0, 300) });
+  }
 });
 
 // ─── PROPOSTA: preços reais do VittaSys ──────────────────────────────────────
