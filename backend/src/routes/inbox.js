@@ -685,9 +685,36 @@ SEU TRABALHO:
 - Agendamento: peça nome do paciente, idade e o serviço desejado — de forma direta, sem rodeios.
 - Preços: use a TABELA DE PREÇOS acima para informar valores reais. Se a vacina não estiver na tabela, diga que confirma com a equipe. Não invente valores.
 - Dúvidas médicas: oriente no geral e indique avaliação com a equipe quando necessário.
-- Se o cliente pedir algo que você não pode fazer agora (ex: enviar PDF), seja honesta e diga que a equipe providencia. Não prometa o que não pode cumprir nem fique perguntando email/forma de envio repetidamente.
+
+PROPOSTA EM PDF (IMPORTANTE):
+- Quando o cliente pedir a proposta/orçamento em PDF, use a ferramenta "enviar_proposta" para gerar e enviar automaticamente.
+- Antes de enviar, confirme: o NOME do cliente e QUAIS vacinas ele quer. Se já souber pelo histórico, não pergunte de novo.
+- Use o template "infantil" se for para bebê/criança, ou "adulto" caso contrário.
+- Depois de chamar a ferramenta, confirme ao cliente que a proposta foi enviada.
+- Só chame a ferramenta quando tiver nome do cliente e ao menos uma vacina definida.
 
 Cliente: ${conv.contact_name || 'não identificado'}.`;
+
+            // Ferramenta de proposta — a IA chama quando o cliente quer o PDF
+            const tools = [{
+              name: 'enviar_proposta',
+              description: 'Gera e envia a proposta de vacinas em PDF para o cliente via WhatsApp. Use quando o cliente pedir orçamento/proposta em PDF e você já souber o nome dele e quais vacinas deseja.',
+              input_schema: {
+                type: 'object',
+                properties: {
+                  nomeCliente: { type: 'string', description: 'Nome do cliente ou responsável' },
+                  nomeBebe: { type: 'string', description: 'Nome do bebê/paciente, se aplicável' },
+                  template: { type: 'string', enum: ['infantil', 'adulto'], description: 'infantil para bebês/crianças, adulto para o resto' },
+                  vacinas: {
+                    type: 'array',
+                    description: 'Lista de nomes das vacinas que o cliente quer (devem existir na tabela de preços)',
+                    items: { type: 'string' }
+                  },
+                  parcelas: { type: 'number', description: 'Número de parcelas no cartão (padrão 1)' },
+                },
+                required: ['nomeCliente', 'vacinas'],
+              },
+            }];
 
             const aiResp = await fetch('https://api.anthropic.com/v1/messages', {
               method: 'POST',
@@ -698,8 +725,9 @@ Cliente: ${conv.contact_name || 'não identificado'}.`;
               },
               body: JSON.stringify({
                 model: 'claude-haiku-4-5-20251001',
-                max_tokens: 200,
+                max_tokens: 400,
                 system: sysPrompt,
+                tools,
                 messages: [
                   ...(historyText ? [
                     { role: 'user', content: historyText },
@@ -713,7 +741,54 @@ Cliente: ${conv.contact_name || 'não identificado'}.`;
             if (aiData.error) {
               console.error('Vitta (Claude) erro:', JSON.stringify(aiData.error));
             } else {
-              botReply = aiData.content?.[0]?.text?.trim() || '';
+              // Verifica se a IA quer usar a ferramenta de proposta
+              const toolUse = aiData.content?.find(c => c.type === 'tool_use' && c.name === 'enviar_proposta');
+              const textBlock = aiData.content?.find(c => c.type === 'text');
+              botReply = textBlock?.text?.trim() || '';
+
+              if (toolUse) {
+                try {
+                  const args = toolUse.input || {};
+                  const precosTabela = await getPrecosVittaSys();
+                  // Mapeia nomes de vacinas para os objetos de preço completos
+                  const vacinasObj = (args.vacinas || [])
+                    .map(nome => precosTabela.find(p => p.nome.toLowerCase().includes(String(nome).toLowerCase()) || String(nome).toLowerCase().includes(p.nome.toLowerCase())))
+                    .filter(Boolean);
+
+                  if (vacinasObj.length) {
+                    let phoneNum = conv.phone.replace(/\D/g, '');
+                    if (phoneNum.startsWith('55') && phoneNum.length >= 12) phoneNum = phoneNum.slice(2);
+                    const pdfBuf = await gerarPropostaPDF({
+                      nomeCliente: args.nomeCliente || conv.contact_name || 'Cliente',
+                      nomeBebe: args.nomeBebe,
+                      template: args.template || 'adulto',
+                      pacoteNome: 'Proposta de Vacinas',
+                      vacinas: vacinasObj,
+                      desconto: 0,
+                      parcelas: args.parcelas || 1,
+                    });
+                    const zr = await enviarPDFZapi(`55${phoneNum}`, pdfBuf.toString('base64'), `Proposta-Vittalis.pdf`);
+                    if (zr?.ok) {
+                      // Registra o envio no histórico
+                      const { rows: [pmsg] } = await query(
+                        `INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, filename, created_at)
+                         VALUES ($1,'bot','Vitta','document','📎 Proposta enviada',$2,NOW()) RETURNING *`,
+                        [conv.id, 'Proposta-Vittalis.pdf']
+                      ).catch(() => ({ rows: [null] }));
+                      if (pmsg) socketEmit('new_message', { convId: conv.id, message: pmsg, conv });
+                      if (!botReply) botReply = 'Pronto! Acabei de enviar sua proposta em PDF. Qualquer dúvida, estou à disposição.';
+                    } else {
+                      console.error('Falha envio PDF proposta via IA');
+                      if (!botReply) botReply = 'Estou gerando sua proposta, em instantes envio o PDF.';
+                    }
+                  } else {
+                    if (!botReply) botReply = 'Para montar sua proposta, me confirma quais vacinas você tem interesse?';
+                  }
+                } catch (e) {
+                  console.error('Erro tool proposta:', e.message);
+                  if (!botReply) botReply = 'Estou preparando sua proposta, a equipe finaliza o envio em instantes.';
+                }
+              }
             }
           } catch (e) { console.error('Vitta bot error:', e.message); }
         }
