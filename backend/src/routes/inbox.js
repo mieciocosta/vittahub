@@ -1738,9 +1738,25 @@ r.get('/whatsapp/zapi/status', async (req, res) => {
   if (!zapiOk()) return res.json({ connected: false, error: 'Z-API não configurada' });
   try {
     const r2 = await zapiCall('/status', 'GET');
-    if (!r2?.ok) return res.json({ connected: false });
-    const d = await r2.json();
-    res.json({ connected: d.connected || d.status === 'connected', phone: d.phone, ...d });
+    const text = await r2?.text() || '{}';
+    let d = {};
+    try { d = JSON.parse(text); } catch {}
+
+    console.log('Z-API /status HTTP:', r2?.status, '| body:', text.slice(0, 150));
+
+    // Z-API retorna connected:true OU status:"open" quando conectado
+    // Não usa r2.ok como gate pois client-token error retorna 400 mas pode estar conectado
+    const connected = d.connected === true
+      || d.status === 'open'
+      || d.status === 'connected'
+      || d.status === 'qrcode'; // qrcode = aguardando leitura, não conectado mas ativo
+
+    res.json({
+      connected: connected && d.status !== 'qrcode',
+      status: d.status,
+      phone: d.phone || d.connectedPhone || null,
+      provider: 'zapi',
+    });
   } catch (e) { res.json({ connected: false, error: e.message }); }
 });
 
