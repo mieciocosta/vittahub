@@ -352,6 +352,10 @@ async function zapiCall(path, method = 'GET', body = null) {
 }
 
 // ─── WEBHOOK Z-API (sem JWT — chamado pela Z-API) ─────────────────────────
+// GET para teste manual de acessibilidade da rota
+r.get('/webhook/zapi', (req, res) => {
+  res.json({ ok: true, message: 'Webhook endpoint acessível', method: 'use POST para eventos' });
+});
 r.post('/webhook/zapi', async (req, res) => {
   res.json({ received: true });
   try {
@@ -795,6 +799,28 @@ export async function sendViaMeta(phone, type, content) {
 }
 
 // Keep Evolution webhook for backward compat
+// ─── DEBUG: enviar mensagem de teste e checar webhook (via ?k=vt24) ──────────
+r.get('/whatsapp/test-send', async (req, res) => {
+  if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
+  if (!zapiOk()) return res.json({ error: 'Z-API não configurada' });
+  try {
+    const phone = req.query.phone || '559888278736'; // número do Miécio
+    const before = lastWebhooks.length;
+    // Envia mensagem de teste
+    const r2 = await zapiCall('/send-text', 'POST', { phone, message: 'Teste webhook VittaHub ' + new Date().toLocaleTimeString() });
+    const sendResult = await r2?.text() || '';
+    // Aguarda 3s para o webhook "ao enviar" chegar
+    await new Promise(r => setTimeout(r, 3000));
+    res.json({
+      enviou: { status: r2?.status, body: sendResult.slice(0, 200) },
+      webhooks_antes: before,
+      webhooks_depois: lastWebhooks.length,
+      recebeu_webhook: lastWebhooks.length > before,
+      ultimos: lastWebhooks.slice(0, 3),
+    });
+  } catch (e) { res.json({ error: e.message }); }
+});
+
 // ─── DEBUG: forçar configuração de webhooks e ver resultado (via ?k=vt24) ────
 r.get('/whatsapp/force-webhooks', async (req, res) => {
   if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
