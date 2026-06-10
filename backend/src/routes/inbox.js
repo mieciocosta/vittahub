@@ -864,32 +864,43 @@ r.post('/conversations/load-photos', async (req, res) => {
        AND phone IS NOT NULL
        ORDER BY last_message_at DESC LIMIT 50`
     );
-    let updated = 0;
+    let updated = 0, semFoto = 0;
     for (const conv of rows) {
       try {
         let phone = conv.phone?.replace(/\D/g, '') || '';
         if (!phone || phone.length < 8) continue;
-        // Corrige bug: se phone já começa com 55 (ex: 5598...), não adiciona outro 55
         if (phone.startsWith('55') && phone.length >= 12) phone = phone.slice(2);
-        const r2 = await zapiCall(`/profile-picture?phone=55${phone}`, 'GET');
+        const fullPhone = `55${phone}`;
+
+        // Endpoint /contacts/{phone} retorna imgUrl (campo correto)
+        const r2 = await zapiCall(`/contacts/${fullPhone}`, 'GET');
         if (r2?.ok) {
           const text = await r2.text().catch(() => '{}');
           let pic = null;
           try {
             const d = JSON.parse(text);
-            pic = d.value || d.url || d.imgUrl || d.profilePictureUrl || null;
+            pic = d.imgUrl || d.profilePic || d.image || null;
           } catch {}
-          if (pic && pic.startsWith('http')) {
+          if (pic && pic !== 'null' && pic.startsWith('http')) {
             await query('UPDATE conversas SET profile_pic = $1 WHERE id = $2', [pic, conv.id]);
             const cached = convoCache.get(conv.id);
             if (cached) cacheUpdate({ ...cached, profile_pic: pic });
             updated++;
+          } else {
+            semFoto++;
           }
         }
-        await new Promise(r => setTimeout(r, 150));
+        await new Promise(r => setTimeout(r, 200));
       } catch {}
     }
-    res.json({ ok: true, updated, total: rows.length });
+    res.json({
+      ok: true,
+      updated,
+      total: rows.length,
+      message: updated > 0
+        ? `${updated} fotos carregadas. ${semFoto} contatos não têm foto pública (privacidade do WhatsApp deles).`
+        : `Nenhuma foto disponível. Os contatos têm foto de perfil restrita a contatos (privacidade do WhatsApp).`
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1622,21 +1633,20 @@ r.post('/whatsapp/import-history', async (req, res) => {
           try {
             let ph = conv.phone?.replace(/\D/g,'') || '';
             if (!ph || ph.length < 8) continue;
-            // Corrige bug 55 duplo
             if (ph.startsWith('55') && ph.length >= 12) ph = ph.slice(2);
-            const r2 = await zapiCall(`/profile-picture?phone=55${ph}`, 'GET');
+            const r2 = await zapiCall(`/contacts/55${ph}`, 'GET');
             if (r2?.ok) {
               const text = await r2.text().catch(() => '{}');
               let pic = null;
-              try { const d = JSON.parse(text); pic = d.value || d.url || null; } catch {}
-              if (pic?.startsWith('http')) {
+              try { const d = JSON.parse(text); pic = d.imgUrl || d.profilePic || null; } catch {}
+              if (pic && pic !== 'null' && pic.startsWith('http')) {
                 await query('UPDATE conversas SET profile_pic=$1 WHERE id=$2', [pic, conv.id]);
                 const cached = convoCache.get(conv.id);
                 if (cached) cacheUpdate({ ...cached, profile_pic: pic });
                 updated++;
               }
             }
-            await new Promise(r => setTimeout(r, 150));
+            await new Promise(r => setTimeout(r, 200));
           } catch {}
         }
         totalPhotos += updated;
