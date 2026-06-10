@@ -773,6 +773,57 @@ export async function sendViaMeta(phone, type, content) {
 }
 
 // Keep Evolution webhook for backward compat
+// ─── DEBUG: ver resposta raw do Z-API (acesso via ?k=vt24) ───────────────────
+r.get('/whatsapp/debug-raw', async (req, res) => {
+  if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
+  if (!zapiOk()) return res.json({ error: 'Z-API não configurada', zapiOk: false });
+  try {
+    // Testa /chats
+    const r1 = await zapiCall('/chats?page=1&pageSize=3', 'GET');
+    const t1 = await r1?.text() || '';
+    let p1 = null; try { p1 = JSON.parse(t1); } catch {}
+
+    // Testa /contacts
+    const r2 = await zapiCall('/contacts?page=1&pageSize=3', 'GET');
+    const t2 = await r2?.text() || '';
+    let p2 = null; try { p2 = JSON.parse(t2); } catch {}
+
+    res.json({
+      chats: {
+        status: r1?.status,
+        type: Array.isArray(p1) ? 'array' : typeof p1,
+        keys: p1 && typeof p1 === 'object' ? Object.keys(p1) : [],
+        sample: Array.isArray(p1) ? p1[0] : p1,
+      },
+      contacts: {
+        status: r2?.status,
+        type: Array.isArray(p2) ? 'array' : typeof p2,
+        keys: p2 && typeof p2 === 'object' ? Object.keys(p2) : [],
+        sample: Array.isArray(p2) ? p2[0] : p2,
+      }
+    });
+  } catch (e) { res.json({ error: e.message }); }
+});
+
+// ─── DEBUG: ver resposta raw do Z-API /chats (público — remover após debug) ───
+r.get('/whatsapp/debug-zapi', async (req, res) => {
+  if (!zapiOk()) return res.json({ error: 'Z-API não configurada', zapiOk: false });
+  try {
+    const r2 = await zapiCall('/chats?page=1&pageSize=3', 'GET');
+    const status = r2?.status;
+    const text = await r2?.text() || '{}';
+    let parsed = null;
+    try { parsed = JSON.parse(text); } catch {}
+    res.json({
+      zapi_status: status,
+      response_type: Array.isArray(parsed) ? 'array' : typeof parsed,
+      response_keys: parsed && typeof parsed === 'object' ? Object.keys(parsed) : [],
+      first_item: Array.isArray(parsed) ? parsed[0] : (parsed?.chats?.[0] || parsed?.data?.[0] || null),
+      raw_preview: text.slice(0, 1000)
+    });
+  } catch (e) { res.json({ error: e.message }); }
+});
+
 r.use(auth);
 r.use(auth);
 
@@ -1666,6 +1717,23 @@ r.post('/whatsapp/zapi/disconnect', async (req, res) => {
 });
 
 // ─── Z-API: status ────────────────────────────────────────────────────────────
+// ─── DEBUG: ver resposta raw do Z-API /chats ─────────────────────────────────
+r.get('/whatsapp/zapi/debug-chats', async (req, res) => {
+  if (!zapiOk()) return res.json({ error: 'Z-API não configurada' });
+  try {
+    const r2 = await zapiCall('/chats?page=1&pageSize=5', 'GET');
+    const text = await r2?.text() || '{}';
+    let parsed = null;
+    try { parsed = JSON.parse(text); } catch {}
+    res.json({ 
+      status: r2?.status, 
+      raw: text.slice(0, 3000),
+      parsed_type: Array.isArray(parsed) ? 'array' : typeof parsed,
+      first_item: Array.isArray(parsed) ? parsed[0] : (parsed?.chats?.[0] || parsed?.data?.[0] || parsed)
+    });
+  } catch (e) { res.json({ error: e.message }); }
+});
+
 r.get('/whatsapp/zapi/status', async (req, res) => {
   if (!zapiOk()) return res.json({ connected: false, error: 'Z-API não configurada' });
   try {
