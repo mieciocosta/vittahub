@@ -76,12 +76,33 @@ export default function WhatsApp() {
   };
 
   const disconnect = async () => {
-    if (!confirm('Desconectar o WhatsApp?')) return;
+    const limpar = confirm(
+      'Desconectar o WhatsApp?\n\nClique OK para desconectar E limpar todas as conversas.\nClique Cancelar para só desconectar sem limpar.'
+    );
+    // Se cancelou totalmente — usa um segundo confirm mais claro
+    const only = !limpar ? confirm('Desconectar SEM limpar as conversas?') : false;
+    if (!limpar && !only) return;
+
     setBusy(true);
     try {
       await api.post('/inbox/whatsapp/zapi/disconnect', {});
+      if (limpar) {
+        await api.post('/inbox/whatsapp/clear-all', {});
+        setMsg('Desconectado e conversas removidas.');
+      } else {
+        setMsg('Desconectado. Conversas mantidas.');
+      }
       setStatus('disconnected'); setQrcode(null); setPhone(null); stopPoll(); setStep(null);
-      setMsg('Desconectado.');
+    } catch (e) { setMsg(e.message); }
+    setBusy(false);
+  };
+
+  const clearAll = async () => {
+    if (!confirm('⚠️ Isso vai APAGAR TODAS as conversas e mensagens do sistema. Não tem como desfazer. Confirmar?')) return;
+    setBusy(true);
+    try {
+      await api.post('/inbox/whatsapp/clear-all', {});
+      setMsg('✅ Todas as conversas foram removidas.');
     } catch (e) { setMsg(e.message); }
     setBusy(false);
   };
@@ -217,10 +238,16 @@ export default function WhatsApp() {
         <div style={{ display:'grid', gap:10 }}>
           {/* Conectar */}
           {(status === 'disconnected' || status === 'error') && (
-            <button onClick={startConnect} disabled={busy}
-              style={{ padding:'14px', borderRadius:12, background:WA_GREEN, color:'#fff', border:'none', cursor:'pointer', fontWeight:700, fontSize:14, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
-              <QrCode size={16}/> Conectar WhatsApp
-            </button>
+            <>
+              <button onClick={startConnect} disabled={busy}
+                style={{ padding:'14px', borderRadius:12, background:WA_GREEN, color:'#fff', border:'none', cursor:'pointer', fontWeight:700, fontSize:14, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
+                <QrCode size={16}/> Conectar WhatsApp
+              </button>
+              <button onClick={clearAll} disabled={busy}
+                style={{ padding:'11px', borderRadius:11, background:'#fee2e2', border:'1.5px solid #fecaca', cursor:'pointer', fontWeight:600, fontSize:13, display:'flex', alignItems:'center', justifyContent:'center', gap:7, color:'#dc2626' }}>
+                🗑️ Limpar todas as conversas
+              </button>
+            </>
           )}
 
           {/* Conectado */}

@@ -1726,7 +1726,19 @@ r.get('/whatsapp/zapi/qrcode', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ─── TROCA DE NÚMERO: limpa dados conflitantes do número anterior ─────────────
+// ─── Limpar todas as conversas (ao trocar número) ─────────────────────────────
+r.post('/whatsapp/clear-all', async (req, res) => {
+  try {
+    await query('DELETE FROM mensagens');
+    await query('DELETE FROM conversas');
+    convoCache.clear();
+    cacheReady = false;
+    await loadCache();
+    res.json({ ok: true, message: 'Todas as conversas foram removidas' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+
 r.post('/whatsapp/switch-number', async (req, res) => {
   try {
     const { clearConversations = false } = req.body;
