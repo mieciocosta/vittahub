@@ -698,12 +698,25 @@ export default function Inbox({ onUnreadChange }) {
     lastMsgTs.current = null;
     try {
       const data = await api.get(`/inbox/conversations/${c.id}`);
-      setMsgs(data.messages || []);
-      setMsgsTotal(data.messages_total || data.messages?.length || 0);
+      let messages = data.messages || [];
       setMsgsHasMore(!!data.has_more);
       setSel(prev => ({ ...prev, ...(data.profile_pic ? { profile_pic: data.profile_pic } : {}), status_atend: data.status_atend || 'aberto' }));
       if (data.lead_id) api.get(`/leads/${data.lead_id}`).then(setLeadData).catch(() => {});
-      const lastTs = data.messages?.[data.messages.length - 1]?.created_at;
+
+      // Se conversa está vazia, tenta carregar histórico do Z-API
+      if (messages.length === 0) {
+        try {
+          const zapiData = await api.post(`/inbox/conversations/${c.id}/load-from-zapi`, {});
+          if (zapiData.loaded > 0) {
+            // Recarrega as mensagens do banco após inserção
+            const fresh = await api.get(`/inbox/conversations/${c.id}`);
+            messages = fresh.messages || [];
+          }
+        } catch {}
+      }
+
+      setMsgs(messages);
+      const lastTs = messages[messages.length - 1]?.created_at;
       if (lastTs) lastMsgTs.current = lastTs;
       setTimeout(() => { if (msgAreaRef.current) msgAreaRef.current.scrollTop = msgAreaRef.current.scrollHeight; }, 80);
     } catch {}

@@ -791,17 +791,26 @@ r.post('/conversations/load-photos', async (req, res) => {
   try {
     if (!zapiOk()) return res.json({ ok: false, updated: 0, error: 'Z-API não configurada' });
     const { rows } = await query(
-      `SELECT id, phone FROM conversas WHERE profile_pic IS NULL AND phone IS NOT NULL ORDER BY last_message_at DESC LIMIT 50`
+      `SELECT id, phone FROM conversas
+       WHERE (profile_pic IS NULL OR profile_pic = '')
+       AND phone IS NOT NULL
+       ORDER BY last_message_at DESC LIMIT 50`
     );
     let updated = 0;
     for (const conv of rows) {
       try {
-        const phone = conv.phone?.replace(/\D/g, '');
+        let phone = conv.phone?.replace(/\D/g, '') || '';
         if (!phone || phone.length < 8) continue;
+        // Corrige bug: se phone já começa com 55 (ex: 5598...), não adiciona outro 55
+        if (phone.startsWith('55') && phone.length >= 12) phone = phone.slice(2);
         const r2 = await zapiCall(`/profile-picture?phone=55${phone}`, 'GET');
         if (r2?.ok) {
-          const d = await r2.json();
-          const pic = d.value || d.url || d.profilePictureUrl || null;
+          const text = await r2.text().catch(() => '{}');
+          let pic = null;
+          try {
+            const d = JSON.parse(text);
+            pic = d.value || d.url || d.imgUrl || d.profilePictureUrl || null;
+          } catch {}
           if (pic && pic.startsWith('http')) {
             await query('UPDATE conversas SET profile_pic = $1 WHERE id = $2', [pic, conv.id]);
             const cached = convoCache.get(conv.id);
@@ -843,7 +852,57 @@ r.get('/conversations', async (req, res) => {
   res.json(result);
 });
 
-// ─── GET SINGLE CONVERSATION WITH MESSAGES ───────────────────────────────────
+// ─── CARREGAR MENSAGENS DO Z-API (ao abrir conversa vazia) ───────────────────
+r.post('/conversations/:id/load-from-zapi', async (req, res) => {
+  if (!zapiOk()) return res.json({ ok: false, loaded: 0 });
+  try {
+    const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
+
+    let phone = conv.phone?.replace(/\D/g, '') || '';
+    if (phone.startsWith('55') && phone.length >= 12) phone = phone.slice(2);
+    const fullPhone = `55${phone}`;
+
+    // Busca metadata do chat no Z-API (inclui mensagens recentes)
+    const r2 = await zapiCall(`/chats/${fullPhone}`, 'GET');
+    if (!r2?.ok) return res.json({ ok: false, loaded: 0, error: 'Chat não encontrado no Z-API' });
+
+    const chatData = await r2.json().catch(() => null);
+    if (!chatData) return res.json({ ok: false, loaded: 0 });
+
+    // Extrai mensagens do response
+    const msgs = chatData.messages || chatData.chats || chatData.data || [];
+    if (!msgs.length) return res.json({ ok: true, loaded: 0 });
+
+    let loaded = 0;
+    for (const m of msgs) {
+      try {
+        const fromMe  = m.fromMe || m.isFromMe || false;
+        const content = m.text?.message || m.caption || m.body || m.message || '';
+        if (!content) continue;
+        const type    = 'text';
+        const ts      = m.momment ? new Date(m.momment * 1000) : new Date();
+        const msgId   = m.messageId || m.id || null;
+
+        await query(`
+          INSERT INTO mensagens (conversa_id, from_type, type, content, created_at, wa_msg_id)
+          SELECT $1, $2, $3, $4, $5, $6
+          WHERE NOT EXISTS (SELECT 1 FROM mensagens WHERE wa_msg_id = $6 AND $6 IS NOT NULL)
+        `, [conv.id, fromMe ? 'me' : 'contact', type, content, ts, msgId]);
+        loaded++;
+      } catch {}
+    }
+
+    // Atualiza last_message se necessário
+    if (loaded > 0) {
+      await query('UPDATE conversas SET last_message_at = NOW() WHERE id = $1 AND last_message = \'\'', [conv.id]).catch(() => {});
+    }
+
+    res.json({ ok: true, loaded });
+  } catch (err) { res.json({ ok: false, loaded: 0, error: err.message }); }
+});
+
+
 r.get('/conversations/:id', async (req, res) => {
   try {
     res.set('Cache-Control', 'no-store, no-cache');
@@ -1509,19 +1568,22 @@ r.post('/whatsapp/import-history', async (req, res) => {
       let totalPhotos = 0;
       while (true) {
         const { rows } = await query(
-          `SELECT id, phone FROM conversas WHERE profile_pic IS NULL AND phone IS NOT NULL ORDER BY last_message_at DESC LIMIT 50 OFFSET $1`,
+          `SELECT id, phone FROM conversas WHERE (profile_pic IS NULL OR profile_pic = '') AND phone IS NOT NULL ORDER BY last_message_at DESC LIMIT 50 OFFSET $1`,
           [(photoPage - 1) * 50]
         ).catch(() => ({ rows: [] }));
         if (!rows.length) break;
         let updated = 0;
         for (const conv of rows) {
           try {
-            const ph = conv.phone?.replace(/\D/g,'');
+            let ph = conv.phone?.replace(/\D/g,'') || '';
             if (!ph || ph.length < 8) continue;
+            // Corrige bug 55 duplo
+            if (ph.startsWith('55') && ph.length >= 12) ph = ph.slice(2);
             const r2 = await zapiCall(`/profile-picture?phone=55${ph}`, 'GET');
             if (r2?.ok) {
-              const d = await r2.json();
-              const pic = d.value || d.url || null;
+              const text = await r2.text().catch(() => '{}');
+              let pic = null;
+              try { const d = JSON.parse(text); pic = d.value || d.url || null; } catch {}
               if (pic?.startsWith('http')) {
                 await query('UPDATE conversas SET profile_pic=$1 WHERE id=$2', [pic, conv.id]);
                 const cached = convoCache.get(conv.id);
