@@ -791,34 +791,23 @@ r.get('/whatsapp/debug-raw', async (req, res) => {
   if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
   if (!zapiOk()) return res.json({ error: 'Z-API não configurada', zapiOk: false });
   try {
-    // Testa /chats
-    const r1 = await zapiCall('/chats?page=1&pageSize=3', 'GET');
-    const t1 = await r1?.text() || '';
-    let p1 = null; try { p1 = JSON.parse(t1); } catch {}
-
-    // Testa /profile-picture com o primeiro número real
-    const firstPhone = Array.isArray(p1) && p1[0] ? p1[0].phone : '559884126869';
-    const ph = firstPhone.startsWith('55') ? firstPhone.slice(2) : firstPhone;
-
-    // Várias formas de obter foto
-    const tests = {};
-
-    // 1. profile-picture sem 55 extra (usa número completo do chat)
-    const rA = await zapiCall(`/profile-picture?phone=${firstPhone}`, 'GET');
-    tests.profilePic_fullPhone = { status: rA?.status, body: (await rA?.text() || '').slice(0, 300) };
-
-    // 2. chats/{phone} metadata
-    const rB = await zapiCall(`/chats/${firstPhone}`, 'GET');
-    tests.chatMetadata = { status: rB?.status, body: (await rB?.text() || '').slice(0, 500) };
-
-    // 3. contacts/{phone}
-    const rC = await zapiCall(`/contacts/${firstPhone}`, 'GET');
-    tests.contactDetail = { status: rC?.status, body: (await rC?.text() || '').slice(0, 500) };
-
-    res.json({
-      chats_sample: Array.isArray(p1) ? p1[0] : p1,
-      foto_tests: tests,
-    });
+    // Pega 10 conversas do banco e testa a foto de cada
+    const { rows } = await query(
+      `SELECT id, phone, contact_name FROM conversas WHERE phone IS NOT NULL ORDER BY last_message_at DESC LIMIT 10`
+    );
+    const resultados = [];
+    for (const conv of rows) {
+      let ph = conv.phone?.replace(/\D/g, '') || '';
+      if (ph.startsWith('55') && ph.length >= 12) ph = ph.slice(2);
+      const r2 = await zapiCall(`/contacts/55${ph}`, 'GET');
+      const text = await r2?.text() || '{}';
+      let imgUrl = null;
+      try { imgUrl = JSON.parse(text).imgUrl; } catch {}
+      resultados.push({ nome: conv.contact_name, phone: `55${ph}`, imgUrl, raw: text.slice(0, 150) });
+      await new Promise(r => setTimeout(r, 150));
+    }
+    const comFoto = resultados.filter(r => r.imgUrl && r.imgUrl !== 'null').length;
+    res.json({ total_testado: resultados.length, com_foto: comFoto, detalhes: resultados });
   } catch (e) { res.json({ error: e.message }); }
 });
 
