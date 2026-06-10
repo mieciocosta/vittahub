@@ -1686,41 +1686,43 @@ r.post('/whatsapp/zapi/setup-webhooks', async (req, res) => {
 r.get('/whatsapp/zapi/qrcode', async (req, res) => {
   if (!zapiOk()) return res.status(400).json({ error: 'Z-API não configurada' });
   try {
-    // Restart coloca a instância em modo "aguardando QR" quando desconectada
-    console.log('Z-API: chamando /restart para forçar modo QR...');
+    console.log('Z-API: restart para modo QR...');
     await zapiCall('/restart', 'GET').catch(() => {});
-    // Aguarda Z-API processar o restart
     await new Promise(r => setTimeout(r, 4000));
 
-    // Tenta obter QR com até 6 tentativas
     for (let attempt = 0; attempt < 6; attempt++) {
       try {
         if (attempt > 0) await new Promise(r => setTimeout(r, 3000));
-        // Tenta /qr-code (base64) primeiro, depois /qrcode-image como fallback
-        for (const ep of ['/qr-code', '/qrcode-image']) {
-          const r2 = await zapiCall(ep, 'GET');
-          if (!r2) continue;
-          const text = await r2.text();
-          if (!text || text.length < 20) continue;
-          // Tenta parsear como JSON
-          try {
-            const d = JSON.parse(text);
-            const qr = d.value || d.qrcode || d.base64 || d.qr || null;
-            if (qr) {
-              console.log(`Z-API: QR Code obtido via ${ep} na tentativa ${attempt+1}`);
-              return res.json({ qrcode: qr });
-            }
-          } catch {
-            // Pode ser base64 direto (PNG)
-            if (/^[A-Za-z0-9+/=]{50,}/.test(text.trim())) {
-              console.log(`Z-API: QR Code base64 direto via ${ep}`);
-              return res.json({ qrcode: text.trim() });
+
+        // /qr-code/image retorna PNG binário
+        const r2 = await zapiCall('/qr-code/image', 'GET');
+        if (r2?.ok) {
+          const contentType = r2.headers?.get('content-type') || '';
+          if (contentType.includes('image')) {
+            const buf = Buffer.from(await r2.arrayBuffer());
+            if (buf.length > 500) {
+              console.log(`Z-API: QR PNG obtido na tentativa ${attempt + 1}`);
+              return res.json({ qrcode: `data:image/png;base64,${buf.toString('base64')}` });
             }
           }
         }
-      } catch (e) { console.log(`QR attempt ${attempt+1} error:`, e.message); }
+
+        // /qr-code retorna JSON com value = URL raw do QR
+        const r3 = await zapiCall('/qr-code', 'GET');
+        if (r3?.ok) {
+          const d = await r3.json().catch(() => ({}));
+          const raw = d.value || d.qrcode || '';
+          if (raw && raw.length > 20) {
+            // Raw pode ser URL wa.me ou base64 — renderiza via serviço externo
+            const encoded = encodeURIComponent(raw);
+            const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?data=${encoded}&size=256x256&format=png`;
+            console.log(`Z-API: QR raw → renderizando via qrserver na tentativa ${attempt + 1}`);
+            return res.json({ qrcode: qrUrl });
+          }
+        }
+      } catch (e) { console.log(`QR attempt ${attempt + 1}:`, e.message); }
     }
-    res.status(400).json({ error: 'Não foi possível gerar QR Code após restart. Verifique se a instância Z-API está ativa no painel.' });
+    res.status(400).json({ error: 'Não foi possível gerar QR Code. Certifique-se de ter desconectado o aparelho no WhatsApp do celular.' });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
