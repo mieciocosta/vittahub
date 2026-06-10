@@ -520,10 +520,12 @@ export default function Inbox({ onUnreadChange }) {
   }, []);
 
   const notifyNewMsg = useCallback((contactName, content, convId) => {
-    // Só notifica se aba não estiver em foco
-    if (!document.hidden) return;
+    // Notifica se: tab está oculta OU está em outra conversa
+    const tabHidden = document.hidden;
+    const differentConv = selRef.current?.id !== convId;
+    if (!tabHidden && !differentConv) return; // só não notifica se está vendo exatamente esta conversa agora
 
-    // Som de notificação (beep simples via AudioContext)
+    // Som de notificação
     try {
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
       const osc = ctx.createOscillator();
@@ -532,21 +534,23 @@ export default function Inbox({ onUnreadChange }) {
       osc.frequency.value = 880;
       osc.type = 'sine';
       gain.gain.setValueAtTime(0.3, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
       osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.4);
+      osc.stop(ctx.currentTime + 0.5);
     } catch {}
 
-    // Notificação do sistema
-    if ('Notification' in window && Notification.permission === 'granted') {
-      const n = new Notification(`💬 ${contactName}`, {
-        body: content?.slice(0, 80) || 'Nova mensagem',
-        icon: '/logos/logo-icon-color.png',
-        tag: convId,
-        silent: true,
-      });
-      n.onclick = () => { window.focus(); n.close(); };
-      setTimeout(() => n.close(), 5000);
+    // Notificação do sistema (quando tab oculta)
+    if (tabHidden && 'Notification' in window && Notification.permission === 'granted') {
+      try {
+        const n = new Notification(`💬 ${contactName}`, {
+          body: content?.slice(0, 100) || 'Nova mensagem',
+          icon: '/logos/logo-icon-color.png',
+          tag: convId,
+          silent: true,
+        });
+        n.onclick = () => { window.focus(); n.close(); };
+        setTimeout(() => n.close(), 6000);
+      } catch {}
     }
   }, []);
 

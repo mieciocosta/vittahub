@@ -488,21 +488,29 @@ r.post('/webhook/zapi', async (req, res) => {
         if (process.env.ANTHROPIC_API_KEY) {
           try {
             const { default: fetch } = await import('node-fetch');
-            const clinicInfo = cfg.infoClinica || 
-              `Vittalis Saúde — clínica particular multidisciplinar e pediátrica em São Luís, MA. 
-               Especialidades: pediatria, vacinação, consultas. Tel: (98) 98827-8736.
-               Site: vittalissaude.com.br. Slogan: "Sua vida é preciosa."`;
+            const clinicInfo = cfg.infoClinica ||
+              `Vittalis Saúde — clínica particular de pediatria e vacinação em São Luís, MA.
+               Especialidades: vacinas infantis e adulto, pediatria, check-up vacinal.
+               Funcionamento: segunda a sexta 8h-18h, sábado 8h-12h.
+               Localização: Business Center, Av. Coronel Colares Moreira 3, Jardim Renascença.
+               WhatsApp: (98) 98422-1002. Site: vittalissaude.com.br.`;
 
-            const sysPrompt = `Você é o assistente virtual da Vittalis Saúde. 
+            const botInstrucoes = process.env.BOT_INSTRUCOES || cfg.instrucoes || '';
+
+            const sysPrompt = `Você é o assistente virtual da Vittalis Saúde. Seu nome é Vita.
 ${clinicInfo}
-Instruções:
-- Responda de forma cordial, humana e objetiva em português brasileiro
-- Se for uma dúvida sobre vacinas, preços ou agendamento, responda com base nas informações disponíveis
-- Se não souber a resposta, diga que vai verificar com a equipe e encaminhe para um atendente
-- Máximo 3 linhas por resposta
-- Não use emojis em excesso
-- Encerre sempre com disponibilidade para ajudar
-${cfg.instrucoes ? `\nInstruções adicionais: ${cfg.instrucoes}` : ''}`;
+
+Seu papel:
+- Recepcionar o cliente com cordialidade e calor humano
+- Entender a necessidade: vacina específica? dúvida sobre calendário? agendamento?
+- Apresentar os benefícios de se vacinar na Vittalis (clínica especializada, ambiente seguro, equipe qualificada)
+- Se perguntarem sobre preço, diga que os valores variam por vacina e ofereça verificar com a equipe
+- Se quiser agendar → peça nome completo, idade do paciente e vacina desejada
+- Se for dúvida médica complexa → diga que vai encaminhar para um especialista
+- Máximo 3 parágrafos por resposta. Tom: acolhedor, profissional, humano.
+- Use o slogan quando apropriado: "Sua vida é preciosa."
+- NUNCA diga que não sabe nada. Se não souber, diga que vai verificar.
+${botInstrucoes ? `\nInstruções da clínica: ${botInstrucoes}` : ''}`;
 
             const aiResp = await fetch('https://api.anthropic.com/v1/messages', {
               method: 'POST',
@@ -512,17 +520,21 @@ ${cfg.instrucoes ? `\nInstruções adicionais: ${cfg.instrucoes}` : ''}`;
                 'anthropic-version': '2023-06-01',
               },
               body: JSON.stringify({
-                model: 'claude-haiku-4-5',
-                max_tokens: 300,
+                model: 'claude-haiku-4-5-20251001',
+                max_tokens: 350,
                 system: sysPrompt,
                 messages: [
-                  ...(historyText ? [{ role: 'user', content: historyText }] : []),
-                  { role: 'user', content: `Cliente: ${content}` },
+                  ...(historyText ? [{ role: 'user', content: historyText }, { role: 'assistant', content: 'Entendido.' }] : []),
+                  { role: 'user', content: content },
                 ],
               }),
             });
             const aiData = await aiResp.json();
-            botReply = aiData.content?.[0]?.text?.trim() || '';
+            if (aiData.error) {
+              console.error('Claude API error:', JSON.stringify(aiData.error));
+            } else {
+              botReply = aiData.content?.[0]?.text?.trim() || '';
+            }
           } catch (e) { console.error('Claude bot error:', e.message); }
         }
 
