@@ -1233,7 +1233,28 @@ r.get('/whatsapp/debug-zapi', async (req, res) => {
   } catch (e) { res.json({ error: e.message }); }
 });
 
-// ─── DEBUG: testar ENVIO completo de proposta (via ?k=vt24&phone=559888278736) ──
+// ─── DEBUG: ver resposta crua de preços do VittaSys (via ?k=vt24) ────────────
+r.get('/proposta/test-precos', async (req, res) => {
+  if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
+  try {
+    const { default: fetch } = await import('node-fetch');
+    const url = `${VITTASYS_URL()}/api/proposta/precos`;
+    const r2 = await fetch(url, {
+      headers: { 'x-vittalis-key': process.env.VITTAHUB_API_KEY || '' },
+      signal: AbortSignal.timeout(8000),
+    });
+    const body = await r2.text();
+    res.json({
+      url_chamada: url,
+      vittahub_key_configurada: !!process.env.VITTAHUB_API_KEY,
+      vittasys_url: VITTASYS_URL(),
+      http_status: r2.status,
+      resposta: body.slice(0, 600),
+    });
+  } catch (e) { res.json({ error: e.message }); }
+});
+
+// ─── DEBUG: testar ENVIO completo de proposta ───────────────────────────────
 r.get('/proposta/test-envio', async (req, res) => {
   if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
   const phone = req.query.phone || '559888278736';
