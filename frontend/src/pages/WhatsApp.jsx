@@ -240,6 +240,19 @@ export default function WhatsApp() {
               style={{ display:'inline-flex', alignItems:'center', gap:6, padding:'9px 16px', background:'#25D366', color:'#fff', borderRadius:8, fontWeight:700, fontSize:13, textDecoration:'none' }}>
               📱 Abrir painel Z-API e escanear QR
             </a>
+            <button onClick={async () => {
+              setBusy(true);
+              try {
+                await api.post('/inbox/whatsapp/zapi/mark-connected', {});
+                await api.post('/inbox/whatsapp/zapi/setup-webhooks', {});
+                setStatus('connected'); setStep(null);
+                setMsg('✅ Marcado como conectado! Importe o histórico para carregar as conversas.');
+              } catch (e) { setMsg(e.message); }
+              setBusy(false);
+            }} disabled={busy}
+              style={{ display:'block', marginTop:10, padding:'9px 16px', background:'#207898', color:'#fff', borderRadius:8, fontWeight:700, fontSize:13, border:'none', cursor:'pointer' }}>
+              ✅ Já escaneei — marcar como conectado
+            </button>
             <p style={{ fontSize:12, color:'#92400e', marginTop:10 }}>
               Depois de escanear, volte aqui e clique no botão 🔄 para verificar a conexão.
             </p>

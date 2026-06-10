@@ -1753,6 +1753,13 @@ r.get('/whatsapp/zapi/status', async (req, res) => {
   res.json({ connected: zapiConnected, phone: zapiPhone, provider: 'zapi' });
 });
 
+// Marca conexão manualmente (quando usuário confirma que conectou no painel Z-API)
+r.post('/whatsapp/zapi/mark-connected', async (req, res) => {
+  setZapiConnected(true, req.body?.phone || null);
+  socketEmit('zapi_status', { connected: true, phone: req.body?.phone || null });
+  res.json({ ok: true, connected: true });
+});
+
 // ─── Z-API: Auto-configurar webhooks ─────────────────────────────────────────
 r.post('/whatsapp/zapi/setup-webhooks', async (req, res) => {
   if (!zapiOk()) return res.status(400).json({ error: 'Z-API não configurada' });
