@@ -351,6 +351,40 @@ async function zapiCall(path, method = 'GET', body = null) {
   });
 }
 
+// ─── INTEGRAÇÃO VITTASYS: preços e proposta PDF ──────────────────────────────
+const VITTASYS_URL = () => process.env.VITTASYS_API_URL || 'https://vittasys.vittalissaude.com.br';
+let _precosCache = null, _precosCacheAt = 0;
+
+// Busca tabela de preços do VittaSys (cache de 10 min)
+async function getPrecosVittaSys() {
+  const agora = Date.now();
+  if (_precosCache && (agora - _precosCacheAt) < 600000) return _precosCache;
+  try {
+    const { default: fetch } = await import('node-fetch');
+    const r = await fetch(`${VITTASYS_URL()}/api/precos`, { signal: AbortSignal.timeout(8000) });
+    if (r.ok) {
+      const data = await r.json();
+      if (Array.isArray(data) && data.length) {
+        _precosCache = data; _precosCacheAt = agora;
+        return data;
+      }
+    }
+  } catch (e) { console.error('Erro buscar preços VittaSys:', e.message); }
+  return _precosCache || []; // retorna cache antigo se falhar
+}
+
+// Formata os preços para o contexto da IA
+function formatarPrecos(precos) {
+  if (!precos || !precos.length) return '';
+  const linhas = precos.map(p => {
+    const avista = p.avista ? `à vista R$ ${p.avista}` : '';
+    const credito = p.credito ? `cartão R$ ${p.credito}${p.parcelas ? ` em ${p.parcelas}x` : ''}` : '';
+    return `- ${p.nome}: ${[avista, credito].filter(Boolean).join(' | ')}`;
+  });
+  return `\nTABELA DE PREÇOS DAS VACINAS (use estes valores reais quando o cliente perguntar):\n${linhas.join('\n')}`;
+}
+
+
 // ─── WEBHOOK Z-API (sem JWT — chamado pela Z-API) ─────────────────────────
 // GET para teste manual de acessibilidade da rota
 r.get('/webhook/zapi', (req, res) => {
@@ -516,14 +550,18 @@ r.post('/webhook/zapi', async (req, res) => {
     if (conv.bot_ativo && type === 'audio' && mediaData && process.env.ANTHROPIC_API_KEY) {
       try {
         const { default: fetch } = await import('node-fetch');
-        // Baixa o áudio (URLs Z-API são públicas, sem auth)
         const audioResp = await fetch(mediaData);
         const audioBuf = Buffer.from(await audioResp.arrayBuffer());
         const audioBase64 = audioBuf.toString('base64');
-        // Detecta mime (ogg/opus é o padrão do WhatsApp)
-        const mime = body.audio?.mimeType?.split(';')[0] || 'audio/ogg';
+        const rawMime = body.audio?.mimeType || 'audio/ogg';
+        console.log(`ÁUDIO recebido: mime=${rawMime}, tamanho=${audioBuf.length} bytes`);
 
-        // Claude transcreve via input de áudio
+        // Claude aceita mp3 e wav. WhatsApp manda ogg/opus → precisa converter OU usar formato aceito.
+        // Tentamos enviar como está; se falhar, logamos o erro real.
+        let fmt = 'mp3';
+        if (rawMime.includes('wav')) fmt = 'wav';
+        else if (rawMime.includes('ogg') || rawMime.includes('opus')) fmt = 'ogg';
+
         const transResp = await fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST',
           headers: {
@@ -537,26 +575,27 @@ r.post('/webhook/zapi', async (req, res) => {
             messages: [{
               role: 'user',
               content: [
-                { type: 'input_audio', input_audio: { data: audioBase64, format: mime.includes('mp') ? 'mp3' : 'wav' } },
-                { type: 'text', text: 'Transcreva este áudio em português. Responda APENAS com a transcrição, sem comentários.' }
+                { type: 'input_audio', input_audio: { data: audioBase64, format: fmt } },
+                { type: 'text', text: 'Transcreva este áudio em português. Responda APENAS com a transcrição literal, sem comentários.' }
               ]
             }],
           }),
         });
         const transData = await transResp.json();
-        if (!transData.error) {
+        if (transData.error) {
+          console.error('TRANSCRIÇÃO ERRO:', JSON.stringify(transData.error));
+        } else {
           const transcricao = transData.content?.[0]?.text?.trim();
           if (transcricao && transcricao.length > 1) {
             textoParaIA = transcricao;
-            // Salva a transcrição como conteúdo da mensagem de áudio
             await query('UPDATE mensagens SET content = $1 WHERE id = $2',
-              [`🎵 Áudio: "${transcricao}"`, newMsg?.id]).catch(() => {});
-            console.log('Áudio transcrito:', transcricao.slice(0, 80));
+              [`🎵 "${transcricao}"`, newMsg?.id]).catch(() => {});
+            // Atualiza no frontend via socket
+            if (newMsg) socketEmit('message_updated', { convId: conv.id, messageId: newMsg.id, content: `🎵 "${transcricao}"` });
+            console.log('ÁUDIO transcrito OK:', transcricao.slice(0, 80));
           }
-        } else {
-          console.error('Transcrição erro:', JSON.stringify(transData.error));
         }
-      } catch (e) { console.error('Erro transcrição áudio:', e.message); }
+      } catch (e) { console.error('TRANSCRIÇÃO exceção:', e.message); }
     }
 
     // ─── VITTA — IA CONVERSACIONAL COM CLAUDE ─────────────────────────────────
@@ -588,32 +627,38 @@ r.post('/webhook/zapi', async (req, res) => {
             const { default: fetch } = await import('node-fetch');
             const botInstrucoes = process.env.BOT_INSTRUCOES || cfg.instrucoes || '';
 
-            const sysPrompt = `Você é a Vitta, atendente de vendas da Vittalis Saúde no WhatsApp. Você conversa como uma pessoa real — não como um robô.
+            // Busca preços reais do VittaSys para a IA usar
+            const precos = await getPrecosVittaSys();
+            const tabelaPrecos = formatarPrecos(precos);
+
+            const sysPrompt = `Você é a Vitta, atendente da Vittalis Saúde no WhatsApp. Atendimento profissional, cordial e objetivo.
 
 SOBRE A CLÍNICA:
 - Clínica particular de pediatria e vacinação em São Luís, MA
 - Endereço: Business Center, Av. Coronel Colares Moreira 3, Salas 36-37, Jardim Renascença
 - Horário: seg a sex 8h-18h, sáb 8h-12h
 - WhatsApp: (98) 98422-1002 | Site: vittalissaude.com.br
-- Diferenciais: equipe especializada em pediatria, calendário vacinal completo (bebês, crianças e adultos), ambiente acolhedor, vacinas que faltam no SUS
-${botInstrucoes ? `\nINFO ADICIONAL:\n${botInstrucoes}` : ''}
+- Calendário vacinal completo para bebês, crianças e adultos
+${botInstrucoes ? `\nINFORMAÇÕES ADICIONAIS:\n${botInstrucoes}` : ''}${tabelaPrecos}
 
-COMO VOCÊ ESCREVE (MUITO IMPORTANTE):
-- Mensagens CURTAS, como no WhatsApp real. Geralmente 1 a 3 linhas. Nunca textão.
-- NO MÁXIMO 1 emoji por mensagem, e só quando fizer sentido. Muitas vezes nenhum.
-- Tom natural e caloroso, mas direto. Como uma recepcionista simpática e eficiente conversa.
-- Uma pergunta por vez. Não despeje várias perguntas juntas.
-- Não repita saudação a cada mensagem. Cumprimente só na primeira.
-- Não use frases prontas de robô tipo "estou aqui para ajudar" toda hora.
+REGRAS DE COMUNICAÇÃO (SIGA RIGOROSAMENTE):
+- Tom PROFISSIONAL e cordial. Você representa uma clínica de saúde premium.
+- PROIBIDO usar gírias: nunca diga "galera", "tá tranquilo", "pode crer", "beleza", "tipo assim".
+- Seja OBJETIVA. Vá direto ao ponto. Respostas de 1 a 2 linhas na maioria das vezes.
+- NUNCA repita uma pergunta que o cliente já respondeu. Leia o histórico antes de responder.
+- NUNCA peça a mesma informação duas vezes.
+- No máximo 1 emoji por mensagem, e só quando agregar. Geralmente nenhum.
+- Cumprimente apenas na primeira mensagem da conversa. Depois, vá direto ao assunto.
+- Não encha de promessas ("preços competitivos", "melhor do mercado") — soa vendedor demais. Seja informativa e honesta.
 
 SEU TRABALHO:
-- Entender o que a pessoa precisa (vacina, consulta, dúvida) e conduzir para agendar ou visitar.
-- Para agendar: pergunte nome do paciente, idade e o que deseja — um dado por vez, de forma natural.
-- Para preços: diga que depende da vacina/consulta e pergunte qual interessa. Não invente valores.
-- Dúvida médica específica: oriente no geral e diga que a equipe dá a orientação completa.
-- Se não souber algo, seja honesta e diga que confirma com a equipe.
+- Entender a necessidade e conduzir para agendamento de forma eficiente.
+- Agendamento: peça nome do paciente, idade e o serviço desejado — de forma direta, sem rodeios.
+- Preços: use a TABELA DE PREÇOS acima para informar valores reais. Se a vacina não estiver na tabela, diga que confirma com a equipe. Não invente valores.
+- Dúvidas médicas: oriente no geral e indique avaliação com a equipe quando necessário.
+- Se o cliente pedir algo que você não pode fazer agora (ex: enviar PDF), seja honesta e diga que a equipe providencia. Não prometa o que não pode cumprir nem fique perguntando email/forma de envio repetidamente.
 
-Você está conversando com ${conv.contact_name || 'um cliente'}.`;
+Cliente: ${conv.contact_name || 'não identificado'}.`;
 
             const aiResp = await fetch('https://api.anthropic.com/v1/messages', {
               method: 'POST',
@@ -624,7 +669,7 @@ Você está conversando com ${conv.contact_name || 'um cliente'}.`;
               },
               body: JSON.stringify({
                 model: 'claude-haiku-4-5-20251001',
-                max_tokens: 250,
+                max_tokens: 200,
                 system: sysPrompt,
                 messages: [
                   ...(historyText ? [
