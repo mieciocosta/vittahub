@@ -547,64 +547,52 @@ r.post('/webhook/zapi', async (req, res) => {
       [contactName, content.slice(0, 80), conv.id]
     ).catch(() => {});
 
-    // ─── TRANSCRIÇÃO DE ÁUDIO (para a Vitta entender mensagens de voz) ────────
+    // ─── TRANSCRIÇÃO DE ÁUDIO via Whisper (OpenAI) ────────────────────────────
+    // A API da Anthropic NÃO transcreve áudio. Usamos Whisper, que aceita ogg/opus direto.
     const isTextoReal = type === 'text' && content && content !== '[mensagem]' && !content.startsWith('[') && content.trim().length > 0;
     let textoParaIA = isTextoReal ? content : null;
-    if (conv.bot_ativo && type === 'audio' && mediaData && process.env.ANTHROPIC_API_KEY) {
+    if (conv.bot_ativo && type === 'audio' && mediaData && process.env.OPENAI_API_KEY) {
       try {
         const { default: fetch } = await import('node-fetch');
+        // Baixa o áudio (URLs Z-API são públicas)
         const audioResp = await fetch(mediaData);
         const audioBuf = Buffer.from(await audioResp.arrayBuffer());
-        const audioBase64 = audioBuf.toString('base64');
-        const rawMime = body.audio?.mimeType || 'audio/ogg';
-        console.log(`ÁUDIO recebido: mime=${rawMime}, tamanho=${audioBuf.length} bytes`);
+        console.log(`ÁUDIO p/ Whisper: ${audioBuf.length} bytes, mime=${body.audio?.mimeType}`);
 
-        // Claude aceita mp3 e wav. WhatsApp manda ogg/opus → precisa converter OU usar formato aceito.
-        // Tentamos enviar como está; se falhar, logamos o erro real.
-        let fmt = 'mp3';
-        if (rawMime.includes('wav')) fmt = 'wav';
-        else if (rawMime.includes('ogg') || rawMime.includes('opus')) fmt = 'ogg';
+        // Monta multipart/form-data manualmente para o Whisper
+        const FormData = (await import('form-data')).default;
+        const form = new FormData();
+        form.append('file', audioBuf, { filename: 'audio.ogg', contentType: 'audio/ogg' });
+        form.append('model', 'whisper-1');
+        form.append('language', 'pt');
 
-        const transResp = await fetch('https://api.anthropic.com/v1/messages', {
+        const transResp = await fetch('https://api.openai.com/v1/audio/transcriptions', {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': process.env.ANTHROPIC_API_KEY,
-            'anthropic-version': '2023-06-01',
+            'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+            ...form.getHeaders(),
           },
-          body: JSON.stringify({
-            model: 'claude-haiku-4-5-20251001',
-            max_tokens: 500,
-            messages: [{
-              role: 'user',
-              content: [
-                { type: 'input_audio', input_audio: { data: audioBase64, format: fmt } },
-                { type: 'text', text: 'Transcreva este áudio em português. Responda APENAS com a transcrição literal, sem comentários.' }
-              ]
-            }],
-          }),
+          body: form,
         });
         const transData = await transResp.json();
         ultimoAudioDebug = {
           at: new Date().toISOString(),
-          mime: rawMime, fmt, tamanho: audioBuf.length,
+          tamanho: audioBuf.length,
           erro: transData.error ? JSON.stringify(transData.error) : null,
-          transcricao: transData.content?.[0]?.text?.slice(0, 200) || null,
+          transcricao: transData.text?.slice(0, 200) || null,
         };
-        if (transData.error) {
-          console.error('TRANSCRIÇÃO ERRO:', JSON.stringify(transData.error));
-        } else {
-          const transcricao = transData.content?.[0]?.text?.trim();
-          if (transcricao && transcricao.length > 1) {
-            textoParaIA = transcricao;
-            await query('UPDATE mensagens SET content = $1 WHERE id = $2',
-              [`🎵 "${transcricao}"`, newMsg?.id]).catch(() => {});
-            // Atualiza no frontend via socket
-            if (newMsg) socketEmit('message_updated', { convId: conv.id, messageId: newMsg.id, content: `🎵 "${transcricao}"` });
-            console.log('ÁUDIO transcrito OK:', transcricao.slice(0, 80));
-          }
+        if (transData.text && transData.text.trim().length > 1) {
+          textoParaIA = transData.text.trim();
+          await query('UPDATE mensagens SET content = $1 WHERE id = $2',
+            [`🎵 "${textoParaIA}"`, newMsg?.id]).catch(() => {});
+          if (newMsg) socketEmit('message_updated', { convId: conv.id, messageId: newMsg.id, content: `🎵 "${textoParaIA}"` });
+          console.log('ÁUDIO transcrito (Whisper):', textoParaIA.slice(0, 80));
+        } else if (transData.error) {
+          console.error('WHISPER ERRO:', JSON.stringify(transData.error));
         }
-      } catch (e) { console.error('TRANSCRIÇÃO exceção:', e.message); }
+      } catch (e) { console.error('Erro Whisper:', e.message); ultimoAudioDebug = { erro: e.message }; }
+    } else if (conv.bot_ativo && type === 'audio' && mediaData && !process.env.OPENAI_API_KEY) {
+      console.log('ÁUDIO recebido mas OPENAI_API_KEY não configurada — transcrição desativada');
     }
 
     // ─── VITTA — IA CONVERSACIONAL COM CLAUDE ─────────────────────────────────
