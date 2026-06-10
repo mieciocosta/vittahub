@@ -522,7 +522,7 @@ export default function Inbox({ onUnreadChange }) {
         const afterTs = lastMsgTs.current || new Date(Date.now() - 30000).toISOString();
         const resp = await fetch(
           `${BASE}/api/inbox/conversations/${convId}/messages/new?after_ts=${encodeURIComponent(afterTs)}`,
-          { headers: { Authorization: `Bearer ${token}`, 'Cache-Control': 'no-cache, no-store' } }
+          { headers: { Authorization: `Bearer ${token}` } }
         );
         if (!resp.ok) return;
         const { messages: newMsgs = [] } = await resp.json();
