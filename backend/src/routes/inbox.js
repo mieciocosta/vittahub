@@ -17,6 +17,8 @@ function setZapiConnected(v, phone) { zapiConnected = v; zapiPhone = phone || nu
 
 // Debug: registra os últimos webhooks recebidos
 let lastWebhooks = [];
+let ultimoPayloadDesconhecido = null;
+let ultimoAudioDebug = null;
 function logWebhook(body) {
   lastWebhooks.unshift({ at: new Date().toISOString(), body });
   if (lastWebhooks.length > 10) lastWebhooks = lastWebhooks.slice(0, 10);
@@ -485,6 +487,7 @@ r.post('/webhook/zapi', async (req, res) => {
     else {
       // Log payload desconhecido para entender o formato
       console.log('WEBHOOK_CONTEUDO_DESCONHECIDO:', JSON.stringify(body).slice(0, 500));
+      ultimoPayloadDesconhecido = { at: new Date().toISOString(), keys: Object.keys(body), body: JSON.stringify(body).slice(0, 800) };
     }
 
     // Foto de perfil: já vem no campo "photo" do webhook
@@ -582,6 +585,12 @@ r.post('/webhook/zapi', async (req, res) => {
           }),
         });
         const transData = await transResp.json();
+        ultimoAudioDebug = {
+          at: new Date().toISOString(),
+          mime: rawMime, fmt, tamanho: audioBuf.length,
+          erro: transData.error ? JSON.stringify(transData.error) : null,
+          transcricao: transData.content?.[0]?.text?.slice(0, 200) || null,
+        };
         if (transData.error) {
           console.error('TRANSCRIÇÃO ERRO:', JSON.stringify(transData.error));
         } else {
@@ -1018,6 +1027,8 @@ r.get('/whatsapp/debug-raw', async (req, res) => {
       webhook_esperado: 'https://vittahub-backend-production.up.railway.app/api/inbox/webhook/zapi',
       zapi_status: { http: rS?.status, body: statusBody.slice(0, 300) },
       zapi_device: { http: rD?.status, body: deviceBody.slice(0, 300) },
+      ultimo_payload_desconhecido: ultimoPayloadDesconhecido,
+      ultimo_audio_debug: ultimoAudioDebug,
       ultimos_webhooks_recebidos: lastWebhooks,
     });
   } catch (e) { res.json({ error: e.message }); }
