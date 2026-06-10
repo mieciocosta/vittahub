@@ -19,6 +19,7 @@ function setZapiConnected(v, phone) { zapiConnected = v; zapiPhone = phone || nu
 let lastWebhooks = [];
 let ultimoPayloadDesconhecido = null;
 let ultimoAudioDebug = null;
+let ultimoPropostaDebug = null;
 function logWebhook(body) {
   lastWebhooks.unshift({ at: new Date().toISOString(), body });
   if (lastWebhooks.length > 10) lastWebhooks = lastWebhooks.slice(0, 10);
@@ -783,9 +784,11 @@ Cliente: ${conv.contact_name || 'não identificado'}.`;
               botReply = textBlock?.text?.trim() || '';
 
               if (toolUse) {
+                console.log('IA chamou enviar_proposta:', JSON.stringify(toolUse.input));
                 try {
                   const args = toolUse.input || {};
                   const precosTabela = await getPrecosVittaSys();
+                  console.log('Preços carregados:', precosTabela.length, 'itens');
 
                   // Mapa de sinônimos comuns
                   const sinonimos = {
@@ -824,33 +827,46 @@ Cliente: ${conv.contact_name || 'não identificado'}.`;
                   }
 
                   if (vacinasObj.length) {
+                    console.log('Vacinas mapeadas:', vacinasObj.map(v => v.nome).join(', '));
                     let phoneNum = conv.phone.replace(/\D/g, '');
                     if (phoneNum.startsWith('55') && phoneNum.length >= 12) phoneNum = phoneNum.slice(2);
-                    const pdfBuf = await gerarPropostaPDF({
-                      nomeCliente: args.nomeCliente || conv.contact_name || 'Cliente',
-                      nomeBebe: args.nomeBebe,
-                      template: args.template || 'adulto',
-                      pacoteNome: 'Proposta de Vacinas',
-                      vacinas: vacinasObj,
-                      desconto: 0,
-                      parcelas: args.parcelas || 1,
-                    });
+                    let pdfBuf;
+                    try {
+                      pdfBuf = await gerarPropostaPDF({
+                        nomeCliente: args.nomeCliente || conv.contact_name || 'Cliente',
+                        nomeBebe: args.nomeBebe,
+                        template: args.template || 'adulto',
+                        pacoteNome: 'Proposta de Vacinas',
+                        vacinas: vacinasObj,
+                        desconto: 0,
+                        parcelas: args.parcelas || 1,
+                      });
+                      console.log('PDF gerado:', pdfBuf.length, 'bytes');
+                    } catch (pdfErr) {
+                      console.error('ERRO ao gerar PDF:', pdfErr.message);
+                      ultimoPropostaDebug = { etapa: 'gerar_pdf', erro: pdfErr.message, at: new Date().toISOString() };
+                      throw pdfErr;
+                    }
+
                     const zr = await enviarPDFZapi(`55${phoneNum}`, pdfBuf.toString('base64'), `Proposta-Vittalis.pdf`);
+                    const zrBody = await zr?.text().catch(() => '');
+                    console.log('Envio Z-API PDF:', zr?.status, zrBody.slice(0, 200));
+                    ultimoPropostaDebug = { etapa: 'enviar_zapi', status: zr?.status, body: zrBody.slice(0, 200), pdfBytes: pdfBuf.length, at: new Date().toISOString() };
+
                     if (zr?.ok) {
-                      // Registra o envio no histórico
                       const { rows: [pmsg] } = await query(
                         `INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, filename, created_at)
                          VALUES ($1,'bot','Vitta','document','📎 Proposta enviada',$2,NOW()) RETURNING *`,
                         [conv.id, 'Proposta-Vittalis.pdf']
                       ).catch(() => ({ rows: [null] }));
                       if (pmsg) socketEmit('new_message', { convId: conv.id, message: pmsg, conv });
-                      if (!botReply) botReply = 'Pronto! Acabei de enviar sua proposta em PDF. Qualquer dúvida, estou à disposição.';
+                      botReply = 'Pronto! Acabei de enviar sua proposta em PDF.';
                     } else {
-                      console.error('Falha envio PDF proposta via IA');
-                      if (!botReply) botReply = 'Estou gerando sua proposta, em instantes envio o PDF.';
+                      console.error('Z-API rejeitou o PDF:', zr?.status, zrBody);
+                      botReply = 'Tive um problema técnico ao enviar o PDF. Já avisei a equipe, que envia em instantes.';
                     }
                   } else {
-                    if (!botReply) botReply = 'Para montar sua proposta, me confirma quais vacinas você tem interesse?';
+                    botReply = 'Para qual vacina você gostaria da proposta?';
                   }
                 } catch (e) {
                   console.error('Erro tool proposta:', e.message);
@@ -1192,6 +1208,7 @@ r.get('/whatsapp/debug-raw', async (req, res) => {
       zapi_device: { http: rD?.status, body: deviceBody.slice(0, 300) },
       ultimo_payload_desconhecido: ultimoPayloadDesconhecido,
       ultimo_audio_debug: ultimoAudioDebug,
+      ultimo_proposta_debug: ultimoPropostaDebug,
       ultimos_webhooks_recebidos: lastWebhooks,
     });
   } catch (e) { res.json({ error: e.message }); }
