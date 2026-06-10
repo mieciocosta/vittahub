@@ -508,8 +508,15 @@ r.post('/webhook/zapi', async (req, res) => {
       [contactName, content.slice(0, 80), conv.id]
     ).catch(() => {});
 
-    // ─── VITTA — BOT INTELIGENTE COM CLAUDE AI ────────────────────────────────
-    if (conv.bot_ativo) {
+    // ─── VITTA — IA CONVERSACIONAL COM CLAUDE ─────────────────────────────────
+    // Só responde a mensagens de TEXTO real (ignora mídia, stickers e placeholders)
+    const isTextoReal = type === 'text'
+      && content
+      && content !== '[mensagem]'
+      && !content.startsWith('[')
+      && content.trim().length > 0;
+
+    if (conv.bot_ativo && isTextoReal) {
       try {
         const { rows: [cfgRow] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'");
         const cfg = cfgRow?.valor || {};
@@ -592,30 +599,15 @@ CONTEXTO: você está falando com ${conv.contact_name || 'um cliente'}.`;
           } catch (e) { console.error('Vitta bot error:', e.message); }
         }
 
-        // ── FALLBACK INTELIGENTE (sem API key ou erro) ─────────────────────────
-        // Responde baseado em palavras-chave — NÃO usa mais "Vou chamar um atendente"
+        // ── FALLBACK (só se a IA Claude falhar) ────────────────────────────────
+        // Sem API key ou erro: responde apenas uma saudação simples, sem inventar
         if (!botReply) {
-          const msg = content.toLowerCase().trim();
           const isFirstMsg = history.length <= 1;
-
-          if (isFirstMsg || /^(oi|olá|ola|bom dia|boa tarde|boa noite|hey|hi|hello|tudo bem)/.test(msg)) {
-            botReply = `Olá! 😊 Sou a Vitta, assistente da Vittalis Saúde. Posso ajudar com informações sobre vacinas, agendamentos e consultas.\n\nComo posso te ajudar hoje?`;
-          } else if (/vacin|dose|imun/.test(msg)) {
-            botReply = `Temos um calendário vacinal completo para bebês, crianças e adultos! 💉\n\nPara saber quais vacinas estão disponíveis e os valores, pode me passar a idade do paciente?`;
-          } else if (/preço|valor|custa|quanto/.test(msg)) {
-            botReply = `Os valores variam de acordo com a vacina ou consulta desejada. Para te passar uma informação precisa, nossa equipe entrará em contato em breve! 📋\n\nQual vacina ou consulta você tem interesse?`;
-          } else if (/agend|marcar|consulta|hora/.test(msg)) {
-            botReply = `Ficamos felizes em agendar! 📅\n\nPode me informar: nome do paciente, idade e qual vacina ou consulta deseja? Assim nossa equipe confirma a disponibilidade.`;
-          } else if (/horário|funciona|abre|fecha|sábado|domingo/.test(msg)) {
-            botReply = `Nosso horário de atendimento é:\n• Segunda a sexta: 8h às 18h\n• Sábado: 8h às 12h\n\nEstamos localizados no Business Center, Av. Coronel Colares Moreira 3, Jardim Renascença — São Luís, MA. 📍`;
-          } else if (/endereço|onde|localiz|chegar/.test(msg)) {
-            botReply = `Estamos no Business Center, Av. Coronel Colares Moreira 3, Salas 36-37, Jardim Renascença — São Luís, MA. 📍\n\nPosso te ajudar com mais alguma informação?`;
-          } else if (/obrig|valeu|ok|perfeito|ótimo|entend/.test(msg)) {
-            botReply = `De nada! 💙 Estamos à disposição. Sua vida é preciosa — a gente quer cuidar dela!\n\nSe precisar de mais alguma informação, é só me chamar. 😊`;
-          } else {
-            // Resposta genérica mas útil — sem "Vou chamar um atendente"
-            botReply = `Obrigada pela mensagem! 😊 Recebi sua dúvida e nossa equipe da Vittalis Saúde vai responder em breve.\n\nEnquanto isso, posso te ajudar com informações sobre vacinas, agendamentos ou horários de atendimento. O que você prefere?`;
+          if (isFirstMsg) {
+            botReply = `Olá! 😊 Sou a Vitta, da Vittalis Saúde. Em instantes nossa equipe vai te atender. Enquanto isso, me conta: você tem interesse em vacinas, consulta ou tem alguma dúvida?`;
           }
+          // Se não for primeira mensagem e a IA falhou, não responde nada
+          // (evita respostas genéricas confusas — melhor o humano assumir)
         }
 
         if (botReply && zapiOk()) {
@@ -825,6 +817,35 @@ export async function sendViaMeta(phone, type, content) {
 }
 
 // Keep Evolution webhook for backward compat
+// ─── DEBUG: testar IA Claude (via ?k=vt24) ──────────────────────────────────
+r.get('/whatsapp/test-ia', async (req, res) => {
+  if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
+  if (!process.env.ANTHROPIC_API_KEY) return res.json({ error: 'ANTHROPIC_API_KEY não configurada' });
+  try {
+    const { default: fetch } = await import('node-fetch');
+    const r2 = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 100,
+        messages: [{ role: 'user', content: 'Diga apenas: IA funcionando!' }],
+      }),
+    });
+    const d = await r2.json();
+    res.json({
+      http_status: r2.status,
+      resposta: d.content?.[0]?.text || null,
+      erro: d.error || null,
+      key_prefix: process.env.ANTHROPIC_API_KEY.slice(0, 15) + '...',
+    });
+  } catch (e) { res.json({ error: e.message }); }
+});
+
 // ─── DEBUG: testar POST no próprio webhook (via ?k=vt24) ─────────────────────
 r.get('/whatsapp/test-post', async (req, res) => {
   if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
