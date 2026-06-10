@@ -799,18 +799,25 @@ r.get('/whatsapp/debug-raw', async (req, res) => {
     // Testa /profile-picture com o primeiro número real
     const firstPhone = Array.isArray(p1) && p1[0] ? p1[0].phone : '559884126869';
     const ph = firstPhone.startsWith('55') ? firstPhone.slice(2) : firstPhone;
-    const r3 = await zapiCall(`/profile-picture?phone=55${ph}`, 'GET');
-    const t3 = await r3?.text() || '';
-    let p3 = null; try { p3 = JSON.parse(t3); } catch {}
+
+    // Várias formas de obter foto
+    const tests = {};
+
+    // 1. profile-picture sem 55 extra (usa número completo do chat)
+    const rA = await zapiCall(`/profile-picture?phone=${firstPhone}`, 'GET');
+    tests.profilePic_fullPhone = { status: rA?.status, body: (await rA?.text() || '').slice(0, 300) };
+
+    // 2. chats/{phone} metadata
+    const rB = await zapiCall(`/chats/${firstPhone}`, 'GET');
+    tests.chatMetadata = { status: rB?.status, body: (await rB?.text() || '').slice(0, 500) };
+
+    // 3. contacts/{phone}
+    const rC = await zapiCall(`/contacts/${firstPhone}`, 'GET');
+    tests.contactDetail = { status: rC?.status, body: (await rC?.text() || '').slice(0, 500) };
 
     res.json({
       chats_sample: Array.isArray(p1) ? p1[0] : p1,
-      profile_picture: {
-        phone_testado: `55${ph}`,
-        status: r3?.status,
-        raw: t3.slice(0, 500),
-        parsed: p3,
-      }
+      foto_tests: tests,
     });
   } catch (e) { res.json({ error: e.message }); }
 });
