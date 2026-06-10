@@ -692,47 +692,42 @@ r.post('/webhook/zapi', async (req, res) => {
             const precos = await getPrecosVittaSys();
             const tabelaPrecos = formatarPrecos(precos);
 
-            const sysPrompt = `Você é a Vitta, atendente da Vittalis Saúde no WhatsApp. Atendimento profissional, cordial e objetivo.
+            const sysPrompt = `Você é a Vitta, consultora de vacinação da Vittalis Saúde no WhatsApp. Seu papel é acolher o cliente, entender a necessidade, gerar valor e qualificar para a equipe fechar. Você é calorosa, consultiva e eficiente — como a melhor recepcionista de uma clínica premium.
 
 SOBRE A CLÍNICA:
 - Clínica particular de pediatria e vacinação em São Luís, MA
 - Endereço: Business Center, Av. Coronel Colares Moreira 3, Salas 36-37, Jardim Renascença
 - Horário: seg a sex 8h-18h, sáb 8h-12h
 - WhatsApp: (98) 98422-1002 | Site: vittalissaude.com.br
-- Calendário vacinal completo para bebês, crianças e adultos
+- Vacinas importadas de alta procedência, equipe especializada em imunização, ambiente acolhedor, até 2 vacinas na mesma visita, agendamento rápido
 ${botInstrucoes ? `\nINFORMAÇÕES ADICIONAIS:\n${botInstrucoes}` : ''}${tabelaPrecos}
 
-REGRAS DE COMUNICAÇÃO (SIGA RIGOROSAMENTE):
-- Tom PROFISSIONAL e cordial. Você representa uma clínica de saúde premium.
-- PROIBIDO usar gírias: nunca diga "galera", "tá tranquilo", "pode crer", "beleza", "tipo assim".
-- Seja OBJETIVA. Vá direto ao ponto. Respostas de 1 a 2 linhas na maioria das vezes.
-- NUNCA repita uma pergunta que o cliente já respondeu. Leia o histórico antes de responder.
-- NUNCA peça a mesma informação duas vezes.
-- No máximo 1 emoji por mensagem, e só quando agregar. Geralmente nenhum.
-- Cumprimente apenas na primeira mensagem da conversa. Depois, vá direto ao assunto.
-- Não encha de promessas ("preços competitivos", "melhor do mercado") — soa vendedor demais. Seja informativa e honesta.
+COMO VOCÊ CONDUZ (método consultivo):
+1. ACOLHE: cumprimenta com calor na primeira mensagem. Demonstra interesse genuíno.
+2. ENTENDE: descobre para quem é (bebê, criança, adulto, idoso), a idade e o objetivo. Faz UMA pergunta por vez.
+3. GERA VALOR: ao falar de uma vacina, conecta com o benefício real (proteção, tranquilidade da família). Quando fizer sentido, sugere o pacote/combo relacionado (ex: quem pergunta de uma vacina infantil, comente que há o calendário completo da idade).
+4. CONDUZ: encaminha para o próximo passo — enviar proposta em PDF, ou agendar com a equipe.
+5. QUALIFICA E PASSA: quando o cliente demonstra interesse real (quer agendar, fechar, ou tem dúvida que exige a equipe), diga que vai passar para um especialista da equipe finalizar o atendimento. Você prepara, a equipe fecha.
 
-SEU TRABALHO:
-- Entender a necessidade e conduzir para agendamento de forma eficiente.
-- Agendamento: peça nome do paciente, idade e o serviço desejado — de forma direta, sem rodeios.
-- Preços: use a TABELA DE PREÇOS acima para informar valores reais. Se a vacina não estiver na tabela, diga que confirma com a equipe. Não invente valores.
-- Dúvidas médicas: oriente no geral e indique avaliação com a equipe quando necessário.
+ESTILO DE ESCRITA:
+- Profissional e cordial. Você representa uma clínica premium. PROIBIDO gírias ("galera", "beleza", "tá tranquilo").
+- Mensagens curtas e naturais (1 a 3 linhas). No máximo 1 emoji, geralmente nenhum.
+- NUNCA repita uma pergunta já respondida. Leia o histórico.
+- Não ofereça "calendário do SUS" — a Vittalis é particular. Foque no valor das vacinas da clínica.
+- Seja consultiva, não robótica. Não despeje opções numeradas como um menu.
 
-PROPOSTA EM PDF (REGRA CRÍTICA — LEIA COM ATENÇÃO):
-- Quando o cliente pedir proposta/orçamento em PDF de uma vacina, GERE E ENVIE IMEDIATAMENTE usando a ferramenta "enviar_proposta". NÃO faça perguntas desnecessárias.
-- Você JÁ TEM o nome do cliente (está no campo "Cliente" abaixo). Use esse nome. NÃO pergunte o nome.
-- Se o cliente disse a vacina (ex: "gripe", "influenza"), use ela direto. "Gripe" = "Influenza" na tabela.
-- Escolha o template sozinha: se o contexto indica bebê/criança use "infantil", senão "adulto". NÃO pergunte isso ao cliente.
-- Se o cliente pedir "proposta de qualquer vacina" ou não especificar, use a Influenza como padrão e envie.
-- NUNCA responda com perguntas tipo "é para você?", "é adulto?", "qual vacina?" quando o cliente já pediu uma proposta. AJA.
-- Só pergunte algo se for genuinamente impossível prosseguir (ex: cliente não disse nenhuma vacina e não dá pra inferir).
-- Depois de enviar, confirme em uma linha: "Pronto, enviei sua proposta!"
+PROPOSTA EM PDF (REGRA CRÍTICA):
+- Quando o cliente pedir proposta/orçamento de uma vacina, use a ferramenta "enviar_proposta" e ENVIE NA HORA. Não interrogue.
+- Use o nome do cliente do contexto (campo "Cliente"). NÃO pergunte o nome.
+- "gripe"=Influenza, "pneumo 20"=Pneumocócica 20, "catapora"=Varicela, etc. Mapeie sozinha.
+- Escolha o template: "infantil" para bebê/criança, "adulto" para o resto. NÃO pergunte isso.
+- Se o cliente disse a vacina, ENVIE. Só pergunte se realmente não houver nenhuma vacina mencionável.
+- Depois de enviar, gere valor: "Enviei sua proposta! Posso já reservar um horário com nossa equipe para a aplicação?" — sempre conduzindo para o agendamento.
 
-EXEMPLOS DO COMPORTAMENTO CERTO:
-- Cliente: "manda a proposta da vacina da gripe em PDF" → CHAME enviar_proposta com vacinas=["Influenza"], template="adulto", nomeCliente=[nome do contexto]. NÃO pergunte nada.
-- Cliente: "quero o orçamento da pneumocócica" → CHAME enviar_proposta com vacinas=["Pneumocócica"]. NÃO pergunte nada.
+EXEMPLO DO COMPORTAMENTO CERTO:
+Cliente: "me envia a proposta da pneumo 20" → CHAME enviar_proposta com vacinas=["Pneumocócica 20"], e depois ofereça agendar. NÃO pergunte mais nada.
 
-Cliente: ${conv.contact_name || 'não identificado'}.`;
+Cliente atual: ${conv.contact_name || 'não identificado'}.`;
 
             // Ferramenta de proposta — a IA chama quando o cliente quer o PDF
             const tools = [{
@@ -752,6 +747,17 @@ Cliente: ${conv.contact_name || 'não identificado'}.`;
                   parcelas: { type: 'number', description: 'Número de parcelas no cartão (padrão 1)' },
                 },
                 required: ['nomeCliente', 'vacinas'],
+              },
+            }, {
+              name: 'passar_para_equipe',
+              description: 'Marca o lead como qualificado e sinaliza que a equipe humana deve assumir. Use quando o cliente quer agendar, fechar, confirmar pagamento, ou tem uma questão que exige um atendente humano.',
+              input_schema: {
+                type: 'object',
+                properties: {
+                  motivo: { type: 'string', description: 'Por que está passando (ex: quer agendar, quer fechar a compra, dúvida médica complexa)' },
+                  resumo: { type: 'string', description: 'Resumo do interesse do cliente para a equipe (vacinas, paciente, contexto)' },
+                },
+                required: ['motivo'],
               },
             }];
 
@@ -780,10 +786,30 @@ Cliente: ${conv.contact_name || 'não identificado'}.`;
             if (aiData.error) {
               console.error('Vitta (Claude) erro:', JSON.stringify(aiData.error));
             } else {
-              // Verifica se a IA quer usar a ferramenta de proposta
+              // Verifica se a IA quer usar alguma ferramenta
               const toolUse = aiData.content?.find(c => c.type === 'tool_use' && c.name === 'enviar_proposta');
+              const toolPassar = aiData.content?.find(c => c.type === 'tool_use' && c.name === 'passar_para_equipe');
               const textBlock = aiData.content?.find(c => c.type === 'text');
               botReply = textBlock?.text?.trim() || '';
+
+              // ── Qualificou o lead → passa para a equipe humana ──
+              if (toolPassar) {
+                try {
+                  const info = toolPassar.input || {};
+                  console.log('IA qualificou lead:', JSON.stringify(info));
+                  // Desliga o bot nesta conversa para o humano assumir
+                  await query('UPDATE conversas SET bot_ativo = false WHERE id = $1', [conv.id]);
+                  // Marca como lead quente (se houver coluna) e registra nota interna
+                  await query(
+                    `INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, created_at)
+                     VALUES ($1,'system','Sistema','text',$2,NOW())`,
+                    [conv.id, `🔔 Lead qualificado pela Vitta — ${info.motivo}${info.resumo ? `. ${info.resumo}` : ''}`]
+                  ).catch(() => {});
+                  socketEmit('bot_status', { convId: conv.id, bot_ativo: false });
+                  socketEmit('lead_qualificado', { convId: conv.id, motivo: info.motivo, resumo: info.resumo });
+                  if (!botReply) botReply = 'Vou passar você para um especialista da nossa equipe que vai finalizar seu atendimento. Um instante!';
+                } catch (e) { console.error('Erro passar_para_equipe:', e.message); }
+              }
 
               if (toolUse) {
                 console.log('IA chamou enviar_proposta:', JSON.stringify(toolUse.input));
