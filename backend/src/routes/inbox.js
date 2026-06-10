@@ -1724,31 +1724,38 @@ r.get('/whatsapp/zapi/debug-chats', async (req, res) => {
 r.get('/whatsapp/zapi/status', async (req, res) => {
   if (!zapiOk()) return res.json({ connected: false, error: 'Z-API não configurada' });
   try {
-    // Com client-token configurado, /status agora funciona
+    // Tenta /status primeiro
     const r2 = await zapiCall('/status', 'GET');
     const text = await r2?.text() || '{}';
     let d = {};
     try { d = JSON.parse(text); } catch {}
+    console.log('Z-API /status:', r2?.status, text.slice(0, 150));
 
-    // Se a API retornou erro de client-token, usa estado dos webhooks
-    if (d.error) {
-      return res.json({ connected: zapiConnected, phone: zapiPhone, provider: 'zapi', via: 'webhook' });
+    let connected = d.connected === true || d.status === 'open' || d.status === 'connected';
+
+    // Se /status não confirmar, valida via /chats (se retorna chats, está conectado)
+    if (!connected && !d.error) {
+      try {
+        const rc = await zapiCall('/chats?page=1&pageSize=1', 'GET');
+        if (rc?.ok) {
+          const chatsText = await rc.text();
+          const chats = JSON.parse(chatsText);
+          if (Array.isArray(chats)) {
+            connected = true; // conseguiu listar chats = conectado
+          }
+        }
+      } catch {}
     }
 
-    const connected = d.connected === true || d.status === 'open' || d.status === 'connected';
-    // Atualiza estado local também
-    if (connected) setZapiConnected(true, d.phone || null);
+    if (connected) setZapiConnected(true, d.phone || zapiPhone);
 
     res.json({
       connected,
       phone: d.phone || zapiPhone || null,
-      smartphoneConnected: d.smartphoneConnected,
       provider: 'zapi',
-      via: 'api',
     });
   } catch (e) {
-    // Fallback para estado dos webhooks
-    res.json({ connected: zapiConnected, phone: zapiPhone, provider: 'zapi', via: 'webhook-fallback' });
+    res.json({ connected: zapiConnected, phone: zapiPhone, provider: 'zapi' });
   }
 });
 
