@@ -349,12 +349,10 @@ const MsgItem = React.memo(function MsgItem({ m, prevMsg, contactName, channel, 
             {isLazy && <LazyMedia msgId={lazyId} type={m.type} filename={m.filename} token={token} onLightbox={onLightbox}/>}
             {!isLazy && m.type==='text'     && <div style={{ fontSize:13.5, lineHeight:1.55, whiteSpace:'pre-wrap', wordBreak:'break-word' }}>{m.content}</div>}
             {!isLazy && m.type==='image'    && <img onClick={()=>onLightbox(m.content)} src={m.content} alt="img" loading="lazy" style={{ maxWidth:220, maxHeight:220, borderRadius:8, display:'block', objectFit:'cover', cursor:'pointer' }} onError={e=>e.target.style.display='none'}/>}
-            {!isLazy && m.type==='sticker'  && <img src={m.content} alt="sticker" loading="lazy" style={{ width:100, height:100, objectFit:'contain', display:'block', background:'transparent' }} onError={e=>e.target.style.display='none'}/>}
-            {!isLazy && m.type==='gif'      && <img src={m.content} alt="gif" loading="lazy" style={{ maxWidth:220, borderRadius:8, display:'block' }} onError={e=>e.target.style.display='none'}/>}
             {!isLazy && m.type==='audio'    && <div style={{ display:'flex', alignItems:'center', gap:8, minWidth:200 }}><Volume2 size={14} color="var(--tq)"/><audio controls src={m.content} style={{ flex:1, height:28, minWidth:150 }}/></div>}
             {!isLazy && m.type==='video'    && <video controls src={m.content} style={{ maxWidth:260, borderRadius:8, display:'block' }}/>}
             {!isLazy && m.type==='document' && (
-              <a href={m.content} download={m.filename} target="_blank" rel="noreferrer"
+              <a href={m.content} download target="_blank" rel="noreferrer"
                 style={{ display:'flex', alignItems:'center', gap:9, color:'var(--pet)', fontSize:13, padding:'8px 10px', background:'rgba(0,0,0,.04)', borderRadius:8, textDecoration:'none' }}>
                 <div style={{ width:32, height:32, borderRadius:6, background:'var(--err2)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
                   <FileText size={16} color="var(--err)"/>
@@ -389,7 +387,7 @@ export default function Inbox({ onUnreadChange }) {
   const [page, setPage]               = useState(1);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore]         = useState(true);
-  const LIMIT = 100;
+  const LIMIT = 50;
 
   // ── Filtros ────────────────────────────────────────────────────────────────
   const [search, setSearch]         = useState('');
@@ -398,7 +396,6 @@ export default function Inbox({ onUnreadChange }) {
 
   // ── UI state ───────────────────────────────────────────────────────────────
   const [listCollapsed, setListCollapsed] = useState(false);
-  const [toasts, setToasts] = useState([]); // notificações in-app (banners)
   const [sel, setSel]                     = useState(null);
   const [msgs, setMsgs]                   = useState([]);
   const [msgsTotal, setMsgsTotal]         = useState(0);
@@ -418,7 +415,6 @@ export default function Inbox({ onUnreadChange }) {
   const [showProposta, setShowProposta] = useState(false);
   const [leadData, setLeadData] = useState(null);
   const [listH, setListH]       = useState(500);
-  const [showScrollBtn, setShowScrollBtn] = useState(false); // botão de scroll para o fim
 
   const endRef           = useRef(null);
   const msgAreaRef       = useRef(null);
@@ -483,17 +479,17 @@ export default function Inbox({ onUnreadChange }) {
       });
 
       socket.on('new_message', ({ convId, message, conv: updConv }) => {
+        // Atualiza lista de conversas — move para o topo
         setConvos(prev => {
           const ex = prev.find(c => c.id === convId);
           return [{ ...(ex || {}), ...updConv }, ...prev.filter(c => c.id !== convId)];
         });
-        // Notificação browser + som para mensagens recebidas
-        if (message.from_type === 'contact') {
-          notifyNewMsg(updConv?.contact_name || 'WhatsApp', message.content, convId, updConv?.profile_pic);
-        }
+
+        // Adiciona mensagem se a conversa aberta for essa
         if (selRef.current?.id === convId) {
           setMsgs(prev => {
             if (prev.find(m => m.id === message.id)) return prev;
+            // Substitui otimista correspondente (tmp-*) pela versão real
             const clean = prev.filter(p =>
               !String(p.id).startsWith('tmp-') ||
               !(p.from_type === 'me' && p.content === message.content)
@@ -512,49 +508,7 @@ export default function Inbox({ onUnreadChange }) {
   }, []); // uma vez, persiste durante toda a sessão
 
 
-  // ── Notificações: toast in-app + browser + som ───────────────────────────
-  useEffect(() => {
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission();
-    }
-  }, []);
-
-  const notifyNewMsg = useCallback((contactName, content, convId, pic) => {
-    const tabHidden = document.hidden;
-    const differentConv = selRef.current?.id !== convId;
-    if (!tabHidden && !differentConv) return;
-
-    // Som
-    try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const osc = ctx.createOscillator(); const gain = ctx.createGain();
-      osc.connect(gain); gain.connect(ctx.destination);
-      osc.frequency.value = 880; osc.type = 'sine';
-      gain.gain.setValueAtTime(0.3, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
-      osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.5);
-    } catch {}
-
-    // Toast in-app visível mesmo dentro do VittaHub em outra conversa
-    const id = Date.now();
-    setToasts(prev => [...prev.slice(-3), { id, contactName, content: content?.slice(0,80) || 'Nova mensagem', convId, pic }]);
-    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 6000);
-
-    // Notificação do sistema (só quando aba oculta)
-    if (tabHidden && 'Notification' in window && Notification.permission === 'granted') {
-      try {
-        const n = new Notification(`💬 ${contactName}`, {
-          body: content?.slice(0, 100) || 'Nova mensagem',
-          icon: pic || '/logos/logo-icon-color.png',
-          tag: convId, silent: true,
-        });
-        n.onclick = () => { window.focus(); n.close(); };
-        setTimeout(() => n.close(), 6000);
-      } catch {}
-    }
-  }, []);
-
-
+  // ── POLL DE MENSAGENS — 2s, simples, garantido funcionar ─────────────────────
   // Socket.io tenta entrega instantânea (bônus quando funcionar)
   // Este poll de 2s é o mecanismo PRINCIPAL e confiável
   // Max delay: 2s — aceitável para chat
@@ -698,25 +652,12 @@ export default function Inbox({ onUnreadChange }) {
     lastMsgTs.current = null;
     try {
       const data = await api.get(`/inbox/conversations/${c.id}`);
-      let messages = data.messages || [];
+      setMsgs(data.messages || []);
+      setMsgsTotal(data.messages_total || data.messages?.length || 0);
       setMsgsHasMore(!!data.has_more);
       setSel(prev => ({ ...prev, ...(data.profile_pic ? { profile_pic: data.profile_pic } : {}), status_atend: data.status_atend || 'aberto' }));
       if (data.lead_id) api.get(`/leads/${data.lead_id}`).then(setLeadData).catch(() => {});
-
-      // Se conversa está vazia, tenta carregar histórico do Z-API
-      if (messages.length === 0) {
-        try {
-          const zapiData = await api.post(`/inbox/conversations/${c.id}/load-from-zapi`, {});
-          if (zapiData.loaded > 0) {
-            // Recarrega as mensagens do banco após inserção
-            const fresh = await api.get(`/inbox/conversations/${c.id}`);
-            messages = fresh.messages || [];
-          }
-        } catch {}
-      }
-
-      setMsgs(messages);
-      const lastTs = messages[messages.length - 1]?.created_at;
+      const lastTs = data.messages?.[data.messages.length - 1]?.created_at;
       if (lastTs) lastMsgTs.current = lastTs;
       setTimeout(() => { if (msgAreaRef.current) msgAreaRef.current.scrollTop = msgAreaRef.current.scrollHeight; }, 80);
     } catch {}
@@ -853,12 +794,6 @@ export default function Inbox({ onUnreadChange }) {
             <div style={{ display:'flex', gap:3, alignItems:'center' }}>
               <span style={{ fontSize:11, color:'var(--muted)' }}>{total.toLocaleString()}</span>
               <button onClick={()=>loadConvos()} className="btn btn-g btn-ico" title="Recarregar"><RefreshCw size={13}/></button>
-              <button onClick={async () => {
-                const btn = document.activeElement; if(btn) btn.blur();
-                const r = await api.post('/inbox/conversations/load-photos', {});
-                loadConvos();
-                alert(`✅ ${r.updated} fotos atualizadas de ${r.total} contatos`);
-              }} className="btn btn-g btn-ico" title="Carregar fotos dos contatos" style={{fontSize:12}}>👤</button>
               <button onClick={()=>setListCollapsed(true)} className="btn btn-g btn-ico" title="Recolher"><PanelLeftClose size={13}/></button>
             </div>
           </div>
@@ -903,10 +838,7 @@ export default function Inbox({ onUnreadChange }) {
                 <PanelLeftOpen size={13}/>
               </button>
             )}
-            {/* Avatar clicável no header — expande foto de perfil */}
-            <div onClick={()=>sel.profile_pic&&setLightbox(sel.profile_pic)} style={{cursor:sel.profile_pic?'zoom-in':'default',flexShrink:0}}>
-              <Avatar conv={sel} size={32} fontSize={11}/>
-            </div>
+            <Avatar conv={sel} size={32} fontSize={11}/>
             <div style={{ flex:1, minWidth:0 }}>
               <div style={{ fontWeight:600, fontSize:13.5, display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
                 <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{sel.contact_name}</span>
@@ -954,45 +886,20 @@ export default function Inbox({ onUnreadChange }) {
           {/* Área de mensagens + info panel */}
           <div style={{ flex:1, display:'flex', minHeight:0, overflow:'hidden' }}>
             {/* Mensagens */}
-            <div style={{ flex:1, position:'relative', display:'flex', flexDirection:'column', minHeight:0 }}>
-              <div ref={msgAreaRef}
-                onScroll={e => {
-                  const el = e.currentTarget;
-                  const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-                  setShowScrollBtn(distFromBottom > 300);
-                }}
-                style={{ flex:1, overflowY:'auto', padding:'12px 14px', display:'flex', flexDirection:'column', gap:3, background:'var(--bg)' }}>
-                {msgsHasMore && (
-                  <div style={{ textAlign:'center', marginBottom:8 }}>
-                    <button onClick={loadOlderMsgs} disabled={loadingOlderMsgs}
-                      style={{ padding:'5px 16px', borderRadius:20, background:'var(--card,#fff)', border:'1.5px solid var(--border)', fontSize:11.5, fontWeight:600, cursor:loadingOlderMsgs?'default':'pointer', color:'var(--muted)', display:'inline-flex', alignItems:'center', gap:5 }}>
-                      {loadingOlderMsgs?<Loader2 size={11} style={{animation:'spin 1s linear infinite'}}/>:<ChevronUp size={11}/>}
-                      {loadingOlderMsgs?'Carregando…':'Ver mensagens anteriores'}
-                    </button>
-                  </div>
-                )}
-                {msgs.map((m, i) => (
-                  <MsgItem key={m.id||i} m={m} prevMsg={msgs[i-1] || null} contactName={sel.contact_name} channel={sel.channel} onLightbox={setLightbox} token={token}/>
-                ))}
-                <div ref={endRef}/>
-              </div>
-
-              {/* Botão scroll para o fim — aparece quando usuário sobe no histórico */}
-              {showScrollBtn && (
-                <button
-                  onClick={() => { if(msgAreaRef.current) msgAreaRef.current.scrollTop = msgAreaRef.current.scrollHeight; setShowScrollBtn(false); }}
-                  style={{
-                    position:'absolute', bottom:12, right:12, zIndex:10,
-                    width:38, height:38, borderRadius:'50%',
-                    background:'var(--tq)', color:'#fff', border:'none', cursor:'pointer',
-                    display:'flex', alignItems:'center', justifyContent:'center',
-                    boxShadow:'0 2px 12px rgba(0,184,192,.5)',
-                    fontSize:18, lineHeight:1,
-                  }}
-                  title="Ir para mensagem mais recente">
-                  ↓
-                </button>
+            <div ref={msgAreaRef} style={{ flex:1, overflowY:'auto', padding:'12px 14px', display:'flex', flexDirection:'column', gap:3, background:'var(--bg)' }}>
+              {msgsHasMore && (
+                <div style={{ textAlign:'center', marginBottom:8 }}>
+                  <button onClick={loadOlderMsgs} disabled={loadingOlderMsgs}
+                    style={{ padding:'5px 16px', borderRadius:20, background:'var(--card,#fff)', border:'1.5px solid var(--border)', fontSize:11.5, fontWeight:600, cursor:loadingOlderMsgs?'default':'pointer', color:'var(--muted)', display:'inline-flex', alignItems:'center', gap:5 }}>
+                    {loadingOlderMsgs?<Loader2 size={11} style={{animation:'spin 1s linear infinite'}}/>:<ChevronUp size={11}/>}
+                    {loadingOlderMsgs?'Carregando…':'Ver mensagens anteriores'}
+                  </button>
+                </div>
               )}
+              {msgs.map((m, i) => (
+                <MsgItem key={m.id||i} m={m} prevMsg={msgs[i-1] || null} contactName={sel.contact_name} channel={sel.channel} onLightbox={setLightbox} token={token}/>
+              ))}
+              <div ref={endRef}/>
             </div>
 
             {/* Info panel */}
@@ -1126,27 +1033,6 @@ export default function Inbox({ onUnreadChange }) {
             </div>
             {recording&&<div style={{ textAlign:'center', marginTop:5, fontSize:11, color:'var(--err)', fontWeight:600 }}>🔴 Gravando… clique para parar</div>}
           </div>
-        </div>
-      )}
-
-      {/* Toasts in-app — notificação visível quando está em outra conversa */}
-      {toasts.length > 0 && (
-        <div style={{ position:'fixed', top:16, right:16, zIndex:600, display:'flex', flexDirection:'column', gap:8, maxWidth:320 }}>
-          {toasts.map(t => (
-            <div key={t.id}
-              onClick={() => { setToasts(p=>p.filter(x=>x.id!==t.id)); const c = convos.find(x=>x.id===t.convId); if(c) openConvo(c); }}
-              style={{ background:'var(--pet3,#0d3d52)', color:'#fff', borderRadius:12, padding:'12px 14px', boxShadow:'0 4px 20px rgba(0,0,0,.3)', cursor:'pointer', display:'flex', alignItems:'center', gap:10, animation:'slideIn .2s ease' }}>
-              {t.pic
-                ? <img src={t.pic} alt="" style={{width:36,height:36,borderRadius:'50%',objectFit:'cover',flexShrink:0}} onError={e=>e.target.style.display='none'}/>
-                : <div style={{width:36,height:36,borderRadius:'50%',background:'var(--tq)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,fontWeight:700,flexShrink:0}}>{(t.contactName||'?')[0].toUpperCase()}</div>
-              }
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{fontWeight:700,fontSize:13,marginBottom:2}}>{t.contactName}</div>
-                <div style={{fontSize:12,opacity:.8,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{t.content}</div>
-              </div>
-              <button onClick={e=>{e.stopPropagation();setToasts(p=>p.filter(x=>x.id!==t.id));}} style={{background:'none',border:'none',color:'rgba(255,255,255,.5)',cursor:'pointer',fontSize:14,padding:0,lineHeight:1}}>✕</button>
-            </div>
-          ))}
         </div>
       )}
 
