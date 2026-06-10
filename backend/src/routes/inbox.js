@@ -1655,7 +1655,34 @@ r.get('/whatsapp/zapi/status', async (req, res) => {
   } catch (e) { res.json({ connected: false, error: e.message }); }
 });
 
-// ─── Z-API: QR Code com restart + retry ──────────────────────────────────────
+// ─── Z-API: Auto-configurar webhooks ─────────────────────────────────────────
+r.post('/whatsapp/zapi/setup-webhooks', async (req, res) => {
+  if (!zapiOk()) return res.status(400).json({ error: 'Z-API não configurada' });
+  const BACKEND = process.env.BACKEND_URL || process.env.RAILWAY_PUBLIC_DOMAIN
+    ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : null;
+  const webhookUrl = BACKEND
+    ? `${BACKEND}/api/inbox/webhook/zapi`
+    : `${process.env.BACKEND_URL}/api/inbox/webhook/zapi`;
+
+  const results = {};
+  const endpoints = [
+    ['update-webhook-received',          webhookUrl],
+    ['update-webhook-delivery',          webhookUrl],
+    ['update-webhook-received-delivery', webhookUrl],
+    ['update-webhook-message-status',    webhookUrl],
+  ];
+
+  for (const [ep, url] of endpoints) {
+    try {
+      const r2 = await zapiCall(`/${ep}`, 'PUT', { value: url });
+      results[ep] = r2?.ok ? 'ok' : 'erro';
+    } catch { results[ep] = 'erro'; }
+  }
+  console.log('Z-API webhooks configurados:', results);
+  res.json({ ok: true, webhookUrl, results });
+});
+
+
 r.get('/whatsapp/zapi/qrcode', async (req, res) => {
   if (!zapiOk()) return res.status(400).json({ error: 'Z-API não configurada' });
   try {
