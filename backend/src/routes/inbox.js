@@ -369,7 +369,9 @@ async function getPrecosVittaSys() {
       signal: AbortSignal.timeout(8000)
     });
     if (r.ok) {
-      const data = await r.json();
+      const json = await r.json();
+      // VittaSys retorna { success:true, data:[...] } — extrai o array
+      const data = Array.isArray(json) ? json : (json.data || json.precos || []);
       if (Array.isArray(data) && data.length) {
         _precosCache = data; _precosCacheAt = agora;
         return data;
