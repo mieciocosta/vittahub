@@ -1775,27 +1775,29 @@ r.post('/whatsapp/zapi/mark-connected', async (req, res) => {
 // ─── Z-API: Auto-configurar webhooks ─────────────────────────────────────────
 r.post('/whatsapp/zapi/setup-webhooks', async (req, res) => {
   if (!zapiOk()) return res.status(400).json({ error: 'Z-API não configurada' });
-  const BACKEND = process.env.BACKEND_URL || process.env.RAILWAY_PUBLIC_DOMAIN
-    ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : null;
-  const webhookUrl = BACKEND
-    ? `${BACKEND}/api/inbox/webhook/zapi`
-    : `${process.env.BACKEND_URL}/api/inbox/webhook/zapi`;
+  // URL do backend (corrige precedência de operador)
+  const BACKEND = process.env.BACKEND_URL
+    || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : 'https://vittahub-backend-production.up.railway.app');
+  const webhookUrl = `${BACKEND}/api/inbox/webhook/zapi`;
 
   const results = {};
   const endpoints = [
-    ['update-webhook-received',          webhookUrl],
-    ['update-webhook-delivery',          webhookUrl],
-    ['update-webhook-received-delivery', webhookUrl],
-    ['update-webhook-message-status',    webhookUrl],
+    'update-webhook-received',          // ao receber mensagem
+    'update-webhook-delivery',          // ao enviar
+    'update-webhook-received-delivery', // notificar enviadas por mim
+    'update-webhook-message-status',    // status da mensagem
+    'update-webhook-connected',         // ao conectar
+    'update-webhook-disconnected',      // ao desconectar
   ];
 
-  for (const [ep, url] of endpoints) {
+  for (const ep of endpoints) {
     try {
-      const r2 = await zapiCall(`/${ep}`, 'PUT', { value: url });
-      results[ep] = r2?.ok ? 'ok' : 'erro';
-    } catch { results[ep] = 'erro'; }
+      const r2 = await zapiCall(`/${ep}`, 'PUT', { value: webhookUrl });
+      const txt = await r2?.text().catch(() => '');
+      results[ep] = r2?.ok ? 'ok' : `erro(${r2?.status}): ${txt.slice(0,60)}`;
+    } catch (e) { results[ep] = `erro: ${e.message}`; }
   }
-  console.log('Z-API webhooks configurados:', results);
+  console.log('Z-API webhooks configurados:', JSON.stringify(results));
   res.json({ ok: true, webhookUrl, results });
 });
 
