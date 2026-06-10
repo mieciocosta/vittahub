@@ -1614,4 +1614,61 @@ r.post('/whatsapp/disconnect', async (req, res) => {
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+
+// ─── Z-API: disconnect ─────────────────────────────────────────────────────────
+r.post('/whatsapp/zapi/disconnect', async (req, res) => {
+  if (!zapiOk()) return res.status(400).json({ error: 'Z-API não configurada' });
+  try {
+    const r2 = await zapiCall('/disconnect', 'POST');
+    const d = r2?.ok ? await r2.json() : {};
+    res.json({ ok: true, ...d });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── Z-API: status ────────────────────────────────────────────────────────────
+r.get('/whatsapp/zapi/status', async (req, res) => {
+  if (!zapiOk()) return res.json({ connected: false, error: 'Z-API não configurada' });
+  try {
+    const r2 = await zapiCall('/status', 'GET');
+    if (!r2?.ok) return res.json({ connected: false });
+    const d = await r2.json();
+    res.json({ connected: d.connected || d.status === 'connected', phone: d.phone, ...d });
+  } catch (e) { res.json({ connected: false, error: e.message }); }
+});
+
+// ─── Z-API: QR Code ───────────────────────────────────────────────────────────
+r.get('/whatsapp/zapi/qrcode', async (req, res) => {
+  if (!zapiOk()) return res.status(400).json({ error: 'Z-API não configurada' });
+  try {
+    const r2 = await zapiCall('/qrcode-image', 'GET');
+    if (!r2?.ok) return res.status(400).json({ error: 'Erro ao gerar QR Code' });
+    const d = await r2.json();
+    res.json({ qrcode: d.value || d.base64 || d.qrcode });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── TROCA DE NÚMERO: limpa dados conflitantes do número anterior ─────────────
+r.post('/whatsapp/switch-number', async (req, res) => {
+  try {
+    const { clearConversations = false } = req.body;
+    // Limpa o cache em memória sempre
+    convoCache.clear();
+    cacheReady = false;
+    let cleared = { contacts: 0, conversations: 0 };
+
+    if (clearConversations) {
+      // Limpa apenas contatos sem nome real (gerados automaticamente)
+      const { rowCount: c } = await query(
+        `DELETE FROM conversas WHERE contact_name = phone OR contact_name LIKE 'Contato%'`
+      );
+      cleared.conversations = c;
+    }
+
+    // Reinicia o cache com os dados do banco
+    await cacheInit();
+    res.json({ ok: true, cleared, message: 'Pronto para conectar novo número' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 export default r;
+
