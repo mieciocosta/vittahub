@@ -363,7 +363,10 @@ async function getPrecosVittaSys() {
   if (_precosCache && (agora - _precosCacheAt) < 600000) return _precosCache;
   try {
     const { default: fetch } = await import('node-fetch');
-    const r = await fetch(`${VITTASYS_URL()}/api/precos`, { signal: AbortSignal.timeout(8000) });
+    const r = await fetch(`${VITTASYS_URL()}/api/proposta/precos`, {
+      headers: { 'x-vittalis-key': process.env.VITTAHUB_API_KEY || '' },
+      signal: AbortSignal.timeout(8000)
+    });
     if (r.ok) {
       const data = await r.json();
       if (Array.isArray(data) && data.length) {
@@ -384,6 +387,35 @@ function formatarPrecos(precos) {
     return `- ${p.nome}: ${[avista, credito].filter(Boolean).join(' | ')}`;
   });
   return `\nTABELA DE PREÇOS DAS VACINAS (use estes valores reais quando o cliente perguntar):\n${linhas.join('\n')}`;
+}
+
+// Gera PDF da proposta no VittaSys e retorna o buffer
+async function gerarPropostaPDF({ nomeCliente, nomeBebe, template, pacoteNome, vacinas, desconto, parcelas }) {
+  const { default: fetch } = await import('node-fetch');
+  const r = await fetch(`${VITTASYS_URL()}/api/proposta/pdf`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-vittalis-key': process.env.VITTAHUB_API_KEY || '',
+    },
+    body: JSON.stringify({ nomeCliente, nomeBebe, template, pacoteNome, vacinas, desconto: desconto||0, parcelas: parcelas||1 }),
+    signal: AbortSignal.timeout(30000),
+  });
+  if (!r.ok) {
+    const err = await r.text().catch(() => '');
+    throw new Error(`VittaSys PDF ${r.status}: ${err.slice(0,150)}`);
+  }
+  const buf = Buffer.from(await r.arrayBuffer());
+  return buf;
+}
+
+// Envia um PDF (base64) via Z-API para um número
+async function enviarPDFZapi(phone, pdfBase64, fileName = 'Proposta-Vittalis.pdf') {
+  return zapiCall('/send-document/pdf', 'POST', {
+    phone,
+    document: `data:application/pdf;base64,${pdfBase64}`,
+    fileName,
+  });
 }
 
 
@@ -1573,6 +1605,56 @@ r.put('/bot-config', async (req, res) => {
     await query("INSERT INTO configuracoes (chave,valor) VALUES ('bot',$1) ON CONFLICT (chave) DO UPDATE SET valor=$1, updated_at=NOW()", [JSON.stringify(req.body)]);
     res.json(req.body);
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── PROPOSTA: preços reais do VittaSys ──────────────────────────────────────
+r.get('/proposta/precos', async (req, res) => {
+  try {
+    const precos = await getPrecosVittaSys();
+    res.json(precos);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── PROPOSTA: gerar PDF e enviar via WhatsApp ───────────────────────────────
+// Body: { conversaId, nomeCliente, nomeBebe, template, pacoteNome, vacinas[], desconto, parcelas }
+r.post('/proposta/enviar', async (req, res) => {
+  try {
+    const { conversaId, nomeCliente, nomeBebe, template, pacoteNome, vacinas, desconto, parcelas } = req.body;
+    if (!conversaId) return res.status(400).json({ error: 'conversaId obrigatório' });
+    if (!vacinas?.length) return res.status(400).json({ error: 'selecione ao menos uma vacina' });
+
+    // Pega o telefone da conversa
+    const { rows: [conv] } = await query('SELECT phone, contact_name FROM conversas WHERE id = $1', [conversaId]);
+    if (!conv) return res.status(404).json({ error: 'conversa não encontrada' });
+
+    // Gera o PDF no VittaSys
+    const pdfBuf = await gerarPropostaPDF({
+      nomeCliente: nomeCliente || conv.contact_name || 'Cliente',
+      nomeBebe, template: template || 'adulto', pacoteNome,
+      vacinas, desconto, parcelas,
+    });
+
+    // Envia via Z-API
+    let phone = conv.phone.replace(/\D/g, '');
+    if (phone.startsWith('55') && phone.length >= 12) phone = phone.slice(2);
+    const zr = await enviarPDFZapi(`55${phone}`, pdfBuf.toString('base64'), `Proposta-${(nomeCliente||'Vittalis').replace(/\s+/g,'-')}.pdf`);
+    const zrText = await zr?.text().catch(() => '');
+
+    if (!zr?.ok) return res.status(502).json({ error: 'falha ao enviar PDF', detalhe: zrText.slice(0,200) });
+
+    // Registra a mensagem no histórico
+    const { rows: [msg] } = await query(
+      `INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, filename, created_at)
+       VALUES ($1,'me','Atendente','document',$2,$3,NOW()) RETURNING *`,
+      [conversaId, '📎 Proposta enviada', `Proposta-${nomeCliente||'Vittalis'}.pdf`]
+    ).catch(() => ({ rows: [null] }));
+    if (msg) socketEmit('new_message', { convId: conversaId, message: msg, conv });
+
+    res.json({ ok: true, enviado: true, tamanho_pdf: pdfBuf.length });
+  } catch (err) {
+    console.error('Erro proposta/enviar:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ─── VITTASYS MOCK ─────────────────────────────────────────────────────────────
