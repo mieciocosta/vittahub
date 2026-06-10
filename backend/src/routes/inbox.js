@@ -795,6 +795,30 @@ export async function sendViaMeta(phone, type, content) {
 }
 
 // Keep Evolution webhook for backward compat
+// ─── DEBUG: forçar configuração de webhooks e ver resultado (via ?k=vt24) ────
+r.get('/whatsapp/force-webhooks', async (req, res) => {
+  if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
+  if (!zapiOk()) return res.json({ error: 'Z-API não configurada' });
+  const webhookUrl = 'https://vittahub-backend-production.up.railway.app/api/inbox/webhook/zapi';
+  const results = {};
+  const endpoints = [
+    'update-webhook-received',
+    'update-webhook-delivery',
+    'update-webhook-received-delivery',
+    'update-webhook-message-status',
+    'update-webhook-connected',
+    'update-webhook-disconnected',
+  ];
+  for (const ep of endpoints) {
+    try {
+      const r2 = await zapiCall(`/${ep}`, 'PUT', { value: webhookUrl });
+      const txt = await r2?.text().catch(() => '');
+      results[ep] = { status: r2?.status, body: txt.slice(0, 100) };
+    } catch (e) { results[ep] = { error: e.message }; }
+  }
+  res.json({ webhookUrl, results });
+});
+
 // ─── DEBUG: ver resposta raw do Z-API (acesso via ?k=vt24) ───────────────────
 r.get('/whatsapp/debug-raw', async (req, res) => {
   if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
