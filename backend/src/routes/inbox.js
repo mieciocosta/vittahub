@@ -464,53 +464,52 @@ r.post('/webhook/zapi', async (req, res) => {
       [contactName, content.slice(0, 80), conv.id]
     ).catch(() => {});
 
-    // ─── BOT INTELIGENTE COM CLAUDE AI ────────────────────────────────────────
+    // ─── VITTA — BOT INTELIGENTE COM CLAUDE AI ────────────────────────────────
     if (conv.bot_ativo) {
       try {
         const { rows: [cfgRow] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'");
         const cfg = cfgRow?.valor || {};
         if (cfg.ativo === false) throw new Error('bot desabilitado');
 
-        // Busca histórico da conversa (últimas 10 mensagens para contexto)
+        // Histórico da conversa para contexto
         const { rows: history } = await query(
-          `SELECT from_type, content, type FROM mensagens
+          `SELECT from_type, content FROM mensagens
            WHERE conversa_id = $1 AND type = 'text'
-           ORDER BY created_at DESC LIMIT 10`,
+           ORDER BY created_at DESC LIMIT 12`,
           [conv.id]
         );
         const historyText = history.reverse()
-          .map(m => `${m.from_type === 'me' ? 'Atendente' : 'Cliente'}: ${m.content}`)
+          .filter(m => m.content && m.content.length < 500)
+          .map(m => `${m.from_type === 'me' || m.from_type === 'bot' ? 'Vitta' : 'Cliente'}: ${m.content}`)
           .join('\n');
 
         let botReply = '';
 
-        // Tenta Claude AI primeiro (se ANTHROPIC_API_KEY estiver configurada)
+        // ── CLAUDE AI (quando ANTHROPIC_API_KEY está configurada) ──────────────
         if (process.env.ANTHROPIC_API_KEY) {
           try {
             const { default: fetch } = await import('node-fetch');
-            const clinicInfo = cfg.infoClinica ||
-              `Vittalis Saúde — clínica particular de pediatria e vacinação em São Luís, MA.
-               Especialidades: vacinas infantis e adulto, pediatria, check-up vacinal.
-               Funcionamento: segunda a sexta 8h-18h, sábado 8h-12h.
-               Localização: Business Center, Av. Coronel Colares Moreira 3, Jardim Renascença.
-               WhatsApp: (98) 98422-1002. Site: vittalissaude.com.br.`;
-
             const botInstrucoes = process.env.BOT_INSTRUCOES || cfg.instrucoes || '';
 
-            const sysPrompt = `Você é o assistente virtual da Vittalis Saúde. Seu nome é Vita.
-${clinicInfo}
+            const sysPrompt = `Você é a Vitta, assistente virtual da Vittalis Saúde.
 
-Seu papel:
-- Recepcionar o cliente com cordialidade e calor humano
-- Entender a necessidade: vacina específica? dúvida sobre calendário? agendamento?
-- Apresentar os benefícios de se vacinar na Vittalis (clínica especializada, ambiente seguro, equipe qualificada)
-- Se perguntarem sobre preço, diga que os valores variam por vacina e ofereça verificar com a equipe
-- Se quiser agendar → peça nome completo, idade do paciente e vacina desejada
-- Se for dúvida médica complexa → diga que vai encaminhar para um especialista
-- Máximo 3 parágrafos por resposta. Tom: acolhedor, profissional, humano.
-- Use o slogan quando apropriado: "Sua vida é preciosa."
-- NUNCA diga que não sabe nada. Se não souber, diga que vai verificar.
-${botInstrucoes ? `\nInstruções da clínica: ${botInstrucoes}` : ''}`;
+Informações da clínica:
+- Clínica particular de pediatria e vacinação em São Luís, MA
+- Localização: Business Center, Av. Coronel Colares Moreira 3, Jardim Renascença
+- Funcionamento: segunda a sexta 8h-18h, sábado 8h-12h
+- WhatsApp da clínica: (98) 98422-1002
+- Site: vittalissaude.com.br
+- Slogan: "Sua vida é preciosa."
+${botInstrucoes ? `\nInformações adicionais: ${botInstrucoes}` : ''}
+
+Como se comportar:
+- Se apresente como Vitta quando for a primeira mensagem
+- Seja acolhedora, humana e profissional — como uma recepcionista excelente
+- Para agendamentos: peça nome, idade do paciente e qual vacina/consulta deseja
+- Para valores: diga que varia por vacina/consulta e ofereça enviar tabela de valores
+- Para dúvidas médicas complexas: diga que vai conectar com um especialista da equipe
+- Encerre sempre deixando espaço para mais perguntas
+- Máximo 3 parágrafos. Português brasileiro. Não use linguagem robótica.`;
 
             const aiResp = await fetch('https://api.anthropic.com/v1/messages', {
               method: 'POST',
@@ -524,41 +523,61 @@ ${botInstrucoes ? `\nInstruções da clínica: ${botInstrucoes}` : ''}`;
                 max_tokens: 350,
                 system: sysPrompt,
                 messages: [
-                  ...(historyText ? [{ role: 'user', content: historyText }, { role: 'assistant', content: 'Entendido.' }] : []),
+                  ...(historyText ? [
+                    { role: 'user', content: historyText },
+                    { role: 'assistant', content: 'Entendido.' }
+                  ] : []),
                   { role: 'user', content: content },
                 ],
               }),
             });
             const aiData = await aiResp.json();
             if (aiData.error) {
-              console.error('Claude API error:', JSON.stringify(aiData.error));
+              console.error('Vitta (Claude) erro:', JSON.stringify(aiData.error));
             } else {
               botReply = aiData.content?.[0]?.text?.trim() || '';
             }
-          } catch (e) { console.error('Claude bot error:', e.message); }
+          } catch (e) { console.error('Vitta bot error:', e.message); }
         }
 
-        // Fallback para respostas configuradas manualmente
+        // ── FALLBACK INTELIGENTE (sem API key ou erro) ─────────────────────────
+        // Responde baseado em palavras-chave — NÃO usa mais "Vou chamar um atendente"
         if (!botReply) {
-          const { rows: countRow } = await query('SELECT COUNT(*) n FROM mensagens WHERE conversa_id = $1', [conv.id]);
-          const msgCount = parseInt(countRow[0].n);
-          botReply = msgCount <= 1 && cfg.mensagemBoasVindas
-            ? cfg.mensagemBoasVindas
-            : (cfg.respostas?.[content.trim()] || cfg.respostas?.['default'] || '');
+          const msg = content.toLowerCase().trim();
+          const isFirstMsg = history.length <= 1;
+
+          if (isFirstMsg || /^(oi|olá|ola|bom dia|boa tarde|boa noite|hey|hi|hello|tudo bem)/.test(msg)) {
+            botReply = `Olá! 😊 Sou a Vitta, assistente da Vittalis Saúde. Posso ajudar com informações sobre vacinas, agendamentos e consultas.\n\nComo posso te ajudar hoje?`;
+          } else if (/vacin|dose|imun/.test(msg)) {
+            botReply = `Temos um calendário vacinal completo para bebês, crianças e adultos! 💉\n\nPara saber quais vacinas estão disponíveis e os valores, pode me passar a idade do paciente?`;
+          } else if (/preço|valor|custa|quanto/.test(msg)) {
+            botReply = `Os valores variam de acordo com a vacina ou consulta desejada. Para te passar uma informação precisa, nossa equipe entrará em contato em breve! 📋\n\nQual vacina ou consulta você tem interesse?`;
+          } else if (/agend|marcar|consulta|hora/.test(msg)) {
+            botReply = `Ficamos felizes em agendar! 📅\n\nPode me informar: nome do paciente, idade e qual vacina ou consulta deseja? Assim nossa equipe confirma a disponibilidade.`;
+          } else if (/horário|funciona|abre|fecha|sábado|domingo/.test(msg)) {
+            botReply = `Nosso horário de atendimento é:\n• Segunda a sexta: 8h às 18h\n• Sábado: 8h às 12h\n\nEstamos localizados no Business Center, Av. Coronel Colares Moreira 3, Jardim Renascença — São Luís, MA. 📍`;
+          } else if (/endereço|onde|localiz|chegar/.test(msg)) {
+            botReply = `Estamos no Business Center, Av. Coronel Colares Moreira 3, Salas 36-37, Jardim Renascença — São Luís, MA. 📍\n\nPosso te ajudar com mais alguma informação?`;
+          } else if (/obrig|valeu|ok|perfeito|ótimo|entend/.test(msg)) {
+            botReply = `De nada! 💙 Estamos à disposição. Sua vida é preciosa — a gente quer cuidar dela!\n\nSe precisar de mais alguma informação, é só me chamar. 😊`;
+          } else {
+            // Resposta genérica mas útil — sem "Vou chamar um atendente"
+            botReply = `Obrigada pela mensagem! 😊 Recebi sua dúvida e nossa equipe da Vittalis Saúde vai responder em breve.\n\nEnquanto isso, posso te ajudar com informações sobre vacinas, agendamentos ou horários de atendimento. O que você prefere?`;
+          }
         }
 
         if (botReply && zapiOk()) {
           await zapiCall('/send-text', 'POST', { phone: `55${displayPhone}`, message: botReply });
           const { rows: [botMsg] } = await query(
-            `INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome) VALUES ($1,'bot','text',$2,'Bot Vittalis') RETURNING *`,
+            `INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome)
+             VALUES ($1,'bot','text',$2,'Vitta') RETURNING *`,
             [conv.id, botReply]
           );
-          await query('UPDATE conversas SET last_message=$1, last_message_at=NOW() WHERE id=$2', [botReply.slice(0, 100), conv.id]);
-          if (botMsg) {
-            socketEmit('new_message', { convId: conv.id, message: botMsg, conv });
-          }
+          await query('UPDATE conversas SET last_message=$1, last_message_at=NOW() WHERE id=$2',
+            [botReply.slice(0, 100), conv.id]);
+          if (botMsg) socketEmit('new_message', { convId: conv.id, message: botMsg, conv });
         }
-      } catch (e) { if (e.message !== 'bot desabilitado') console.error('Bot error:', e.message); }
+      } catch (e) { if (e.message !== 'bot desabilitado') console.error('Vitta error:', e.message); }
     }
   } catch (err) { console.error('ZAPI_ERROR:', err.message); }
 });
