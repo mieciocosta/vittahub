@@ -408,16 +408,26 @@ async function gerarPropostaPDF({ nomeCliente, nomeBebe, template, pacoteNome, v
   }
   const html = await r.text();
 
-  // 2. Converte HTML → PDF com Puppeteer + Chromium otimizado
+  // 2. Converte HTML → PDF com Puppeteer + Chromium
   const puppeteer = (await import('puppeteer-core')).default;
-  const chromium = (await import('@sparticuz/chromium')).default;
   let browser;
   try {
+    // Tenta usar o Chromium do sistema (instalado via nixpacks); senão, usa sparticuz
+    const fsMod = await import('fs');
+    const sysChromePaths = ['/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome'];
+    let execPath = sysChromePaths.find(p => { try { return fsMod.existsSync(p); } catch { return false; } });
+    let launchArgs = ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--single-process'];
+
+    if (!execPath) {
+      const chromium = (await import('@sparticuz/chromium')).default;
+      execPath = await chromium.executablePath();
+      launchArgs = chromium.args;
+    }
+
     browser = await puppeteer.launch({
-      args: chromium.args,
-      defaultViewport: chromium.defaultViewport,
-      executablePath: await chromium.executablePath(),
-      headless: chromium.headless,
+      args: launchArgs,
+      executablePath: execPath,
+      headless: true,
     });
     const page = await browser.newPage();
     await page.setContent(html, { waitUntil: 'networkidle0', timeout: 20000 });
