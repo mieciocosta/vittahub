@@ -349,10 +349,12 @@ const MsgItem = React.memo(function MsgItem({ m, prevMsg, contactName, channel, 
             {isLazy && <LazyMedia msgId={lazyId} type={m.type} filename={m.filename} token={token} onLightbox={onLightbox}/>}
             {!isLazy && m.type==='text'     && <div style={{ fontSize:13.5, lineHeight:1.55, whiteSpace:'pre-wrap', wordBreak:'break-word' }}>{m.content}</div>}
             {!isLazy && m.type==='image'    && <img onClick={()=>onLightbox(m.content)} src={m.content} alt="img" loading="lazy" style={{ maxWidth:220, maxHeight:220, borderRadius:8, display:'block', objectFit:'cover', cursor:'pointer' }} onError={e=>e.target.style.display='none'}/>}
+            {!isLazy && m.type==='sticker'  && <img src={m.content} alt="sticker" loading="lazy" style={{ width:100, height:100, objectFit:'contain', display:'block', background:'transparent' }} onError={e=>e.target.style.display='none'}/>}
+            {!isLazy && m.type==='gif'      && <img src={m.content} alt="gif" loading="lazy" style={{ maxWidth:220, borderRadius:8, display:'block' }} onError={e=>e.target.style.display='none'}/>}
             {!isLazy && m.type==='audio'    && <div style={{ display:'flex', alignItems:'center', gap:8, minWidth:200 }}><Volume2 size={14} color="var(--tq)"/><audio controls src={m.content} style={{ flex:1, height:28, minWidth:150 }}/></div>}
             {!isLazy && m.type==='video'    && <video controls src={m.content} style={{ maxWidth:260, borderRadius:8, display:'block' }}/>}
             {!isLazy && m.type==='document' && (
-              <a href={m.content} download target="_blank" rel="noreferrer"
+              <a href={m.content} download={m.filename} target="_blank" rel="noreferrer"
                 style={{ display:'flex', alignItems:'center', gap:9, color:'var(--pet)', fontSize:13, padding:'8px 10px', background:'rgba(0,0,0,.04)', borderRadius:8, textDecoration:'none' }}>
                 <div style={{ width:32, height:32, borderRadius:6, background:'var(--err2)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
                   <FileText size={16} color="var(--err)"/>
@@ -480,17 +482,17 @@ export default function Inbox({ onUnreadChange }) {
       });
 
       socket.on('new_message', ({ convId, message, conv: updConv }) => {
-        // Atualiza lista de conversas — move para o topo
         setConvos(prev => {
           const ex = prev.find(c => c.id === convId);
           return [{ ...(ex || {}), ...updConv }, ...prev.filter(c => c.id !== convId)];
         });
-
-        // Adiciona mensagem se a conversa aberta for essa
+        // Notificação browser + som para mensagens recebidas
+        if (message.from_type === 'contact') {
+          notifyNewMsg(updConv?.contact_name || 'WhatsApp', message.content, convId);
+        }
         if (selRef.current?.id === convId) {
           setMsgs(prev => {
             if (prev.find(m => m.id === message.id)) return prev;
-            // Substitui otimista correspondente (tmp-*) pela versão real
             const clean = prev.filter(p =>
               !String(p.id).startsWith('tmp-') ||
               !(p.from_type === 'me' && p.content === message.content)
@@ -509,7 +511,46 @@ export default function Inbox({ onUnreadChange }) {
   }, []); // uma vez, persiste durante toda a sessão
 
 
-  // ── POLL DE MENSAGENS — 2s, simples, garantido funcionar ─────────────────────
+  // ── Notificações browser + som ────────────────────────────────────────────
+  useEffect(() => {
+    // Pede permissão para notificações
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  }, []);
+
+  const notifyNewMsg = useCallback((contactName, content, convId) => {
+    // Só notifica se aba não estiver em foco
+    if (!document.hidden) return;
+
+    // Som de notificação (beep simples via AudioContext)
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.frequency.value = 880;
+      osc.type = 'sine';
+      gain.gain.setValueAtTime(0.3, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.4);
+    } catch {}
+
+    // Notificação do sistema
+    if ('Notification' in window && Notification.permission === 'granted') {
+      const n = new Notification(`💬 ${contactName}`, {
+        body: content?.slice(0, 80) || 'Nova mensagem',
+        icon: '/logos/logo-icon-color.png',
+        tag: convId,
+        silent: true,
+      });
+      n.onclick = () => { window.focus(); n.close(); };
+      setTimeout(() => n.close(), 5000);
+    }
+  }, []);
+
+
   // Socket.io tenta entrega instantânea (bônus quando funcionar)
   // Este poll de 2s é o mecanismo PRINCIPAL e confiável
   // Max delay: 2s — aceitável para chat

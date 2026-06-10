@@ -380,24 +380,43 @@ r.post('/webhook/zapi', async (req, res) => {
     }
 
     // Extract content
-    let content = '[mensagem]', type = 'text', mediaData = null;
-    if (body.text?.message)           { content = body.text.message; type = 'text'; }
-    else if (body.image?.imageUrl)     { content = body.image.caption || '📷 Imagem'; type = 'image'; mediaData = body.image.imageUrl; }
+    let content = '[mensagem]', type = 'text', mediaData = null, filename = null;
+    if (body.text?.message)            { content = body.text.message; type = 'text'; }
+    else if (body.image?.imageUrl)     { content = body.image.caption || ''; type = 'image'; mediaData = body.image.imageUrl; }
     else if (body.audio?.audioUrl)     { content = '🎵 Áudio'; type = 'audio'; mediaData = body.audio.audioUrl; }
-    else if (body.video?.videoUrl)     { content = body.video.caption || '🎥 Vídeo'; type = 'video'; mediaData = body.video.videoUrl; }
-    else if (body.document?.documentUrl) { content = `📎 ${body.document.fileName || 'Documento'}`; type = 'document'; mediaData = body.document.documentUrl; }
-    else if (body.sticker?.stickerUrl)   { content = '🎭 Sticker'; type = 'image'; mediaData = body.sticker.stickerUrl; }
-    else if (body.gif?.gifUrl)           { content = '🎞️ GIF'; type = 'gif'; mediaData = body.gif.gifUrl; } // gif = vídeo autoplay muted
-    else if (body.location)              { content = `📍 ${body.location.address || `${body.location.lat},${body.location.lng}`}`; }
-    else if (body.contact?.displayName) { content = `👤 ${body.contact.displayName}`; }
-    else if (body.reaction?.text)        { content = `${body.reaction.text} (reação)`; }
+    else if (body.video?.videoUrl)     { content = body.video.caption || ''; type = 'video'; mediaData = body.video.videoUrl; }
+    else if (body.document?.documentUrl) {
+      filename = body.document.fileName || 'Documento';
+      content = `📎 ${filename}`;
+      type = 'document';
+      mediaData = body.document.documentUrl;
+    }
+    else if (body.sticker?.stickerUrl) { content = ''; type = 'sticker'; mediaData = body.sticker.stickerUrl; }
+    else if (body.gif?.gifUrl)         { content = ''; type = 'gif'; mediaData = body.gif.gifUrl; }
+    else if (body.location)            { content = `📍 ${body.location.address || `${body.location.lat},${body.location.lng}`}`; }
+    else if (body.contact?.displayName){ content = `👤 ${body.contact.displayName}`; }
+    else if (body.reaction?.text)      { content = `${body.reaction.text} (reação)`; }
+    else if (body.pix?.pixKey)         { content = `💰 Pix: ${body.pix.pixKey}`; }
+
+    // Foto de perfil: tenta buscar via Z-API na primeira mensagem do contato
+    let fetchedPic = profilePic;
+    if (!fetchedPic && zapiOk()) {
+      try {
+        const picResp = await zapiCall(`/profile-picture?phone=55${phone.startsWith('55') ? phone.slice(2) : phone}`, 'GET');
+        if (picResp?.ok) {
+          const picData = await picResp.json();
+          fetchedPic = picData.value || picData.url || null;
+        }
+      } catch {}
+    }
 
     const remoteJid = `${phone}@s.whatsapp.net`;
     const displayPhone = phone.startsWith('55') ? phone.slice(2) : phone;
     const contactName = senderName && senderName.length > 2 ? senderName : displayPhone;
     const ts = body.momment ? new Date(body.momment).toISOString() : new Date().toISOString();
+    const previewContent = type === 'text' ? content : type === 'sticker' ? '🎭 Sticker' : type === 'gif' ? '🎞️ GIF' : type === 'image' ? '📷 Imagem' : type === 'audio' ? '🎵 Áudio' : type === 'video' ? '🎥 Vídeo' : type === 'document' ? `📎 ${filename}` : content;
 
-    console.log(`ZAPI_MSG: from="${contactName}" phone="${displayPhone}" type="${type}" content="${content.slice(0,50)}"`);
+    console.log(`ZAPI_MSG: from="${contactName}" phone="${displayPhone}" type="${type}"`);
 
     // Upsert conversa
     const { rows: [conv] } = await query(`
@@ -414,19 +433,20 @@ r.post('/webhook/zapi', async (req, res) => {
         last_message = EXCLUDED.last_message,
         last_message_at = EXCLUDED.last_message_at
       RETURNING *`,
-      [contactName, remoteJid, displayPhone, content, ts, profilePic || null]
+      [contactName, remoteJid, displayPhone, previewContent, ts, fetchedPic || null]
     );
 
     // Atualiza cache em memória imediatamente
     cacheUpdate(conv);
 
     // Salva mensagem
+    const finalContent = mediaData || content;
     const { rows: [newMsg] } = await query(
       `INSERT INTO mensagens (conversa_id, from_type, type, content, filename, created_at, wa_msg_id)
        SELECT $1, 'contact', $2, $3, $4, $5, $6
        WHERE NOT EXISTS (SELECT 1 FROM mensagens WHERE wa_msg_id = $6 AND $6 IS NOT NULL)
        RETURNING *`,
-      [conv.id, type, mediaData || content, null, ts, msgId]
+      [conv.id, type, finalContent, filename, ts, msgId]
     );
 
     // ── Socket.io: entrega instantânea para todos os clientes ──
