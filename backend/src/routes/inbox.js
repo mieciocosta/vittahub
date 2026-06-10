@@ -824,15 +824,19 @@ r.get('/whatsapp/debug-raw', async (req, res) => {
   if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
   if (!zapiOk()) return res.json({ error: 'Z-API não configurada', zapiOk: false });
   try {
-    // Ver webhooks configurados na Z-API
-    const rW = await zapiCall('/webhooks', 'GET').catch(() => null);
-    const webhooksConfig = rW?.ok ? await rW.text() : 'não disponível';
+    // Status da instância
+    const rS = await zapiCall('/status', 'GET');
+    const statusBody = await rS?.text().catch(() => '');
+
+    // Device info
+    const rD = await zapiCall('/device', 'GET');
+    const deviceBody = await rD?.text().catch(() => '');
 
     res.json({
-      backend_url_usada: process.env.BACKEND_URL || 'NÃO CONFIGURADA',
-      webhook_esperado: `${process.env.BACKEND_URL || 'https://vittahub-backend-production.up.railway.app'}/api/inbox/webhook/zapi`,
-      zapi_conectado_local: zapiConnected,
-      webhooks_configurados_zapi: (() => { try { return JSON.parse(webhooksConfig); } catch { return webhooksConfig; } })(),
+      backend_url: process.env.BACKEND_URL,
+      webhook_esperado: 'https://vittahub-backend-production.up.railway.app/api/inbox/webhook/zapi',
+      zapi_status: { http: rS?.status, body: statusBody.slice(0, 300) },
+      zapi_device: { http: rD?.status, body: deviceBody.slice(0, 300) },
       ultimos_webhooks_recebidos: lastWebhooks,
     });
   } catch (e) { res.json({ error: e.message }); }
