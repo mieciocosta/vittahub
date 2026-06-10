@@ -398,6 +398,7 @@ export default function Inbox({ onUnreadChange }) {
 
   // ── UI state ───────────────────────────────────────────────────────────────
   const [listCollapsed, setListCollapsed] = useState(false);
+  const [toasts, setToasts] = useState([]); // notificações in-app (banners)
   const [sel, setSel]                     = useState(null);
   const [msgs, setMsgs]                   = useState([]);
   const [msgsTotal, setMsgsTotal]         = useState(0);
@@ -488,7 +489,7 @@ export default function Inbox({ onUnreadChange }) {
         });
         // Notificação browser + som para mensagens recebidas
         if (message.from_type === 'contact') {
-          notifyNewMsg(updConv?.contact_name || 'WhatsApp', message.content, convId);
+          notifyNewMsg(updConv?.contact_name || 'WhatsApp', message.content, convId, updConv?.profile_pic);
         }
         if (selRef.current?.id === convId) {
           setMsgs(prev => {
@@ -511,42 +512,41 @@ export default function Inbox({ onUnreadChange }) {
   }, []); // uma vez, persiste durante toda a sessão
 
 
-  // ── Notificações browser + som ────────────────────────────────────────────
+  // ── Notificações: toast in-app + browser + som ───────────────────────────
   useEffect(() => {
-    // Pede permissão para notificações
     if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission();
     }
   }, []);
 
-  const notifyNewMsg = useCallback((contactName, content, convId) => {
-    // Notifica se: tab está oculta OU está em outra conversa
+  const notifyNewMsg = useCallback((contactName, content, convId, pic) => {
     const tabHidden = document.hidden;
     const differentConv = selRef.current?.id !== convId;
-    if (!tabHidden && !differentConv) return; // só não notifica se está vendo exatamente esta conversa agora
+    if (!tabHidden && !differentConv) return;
 
-    // Som de notificação
+    // Som
     try {
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
+      const osc = ctx.createOscillator(); const gain = ctx.createGain();
       osc.connect(gain); gain.connect(ctx.destination);
-      osc.frequency.value = 880;
-      osc.type = 'sine';
+      osc.frequency.value = 880; osc.type = 'sine';
       gain.gain.setValueAtTime(0.3, ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.5);
+      osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.5);
     } catch {}
 
-    // Notificação do sistema (quando tab oculta)
+    // Toast in-app visível mesmo dentro do VittaHub em outra conversa
+    const id = Date.now();
+    setToasts(prev => [...prev.slice(-3), { id, contactName, content: content?.slice(0,80) || 'Nova mensagem', convId, pic }]);
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 6000);
+
+    // Notificação do sistema (só quando aba oculta)
     if (tabHidden && 'Notification' in window && Notification.permission === 'granted') {
       try {
         const n = new Notification(`💬 ${contactName}`, {
           body: content?.slice(0, 100) || 'Nova mensagem',
-          icon: '/logos/logo-icon-color.png',
-          tag: convId,
-          silent: true,
+          icon: pic || '/logos/logo-icon-color.png',
+          tag: convId, silent: true,
         });
         n.onclick = () => { window.focus(); n.close(); };
         setTimeout(() => n.close(), 6000);
@@ -890,7 +890,10 @@ export default function Inbox({ onUnreadChange }) {
                 <PanelLeftOpen size={13}/>
               </button>
             )}
-            <Avatar conv={sel} size={32} fontSize={11}/>
+            {/* Avatar clicável no header — expande foto de perfil */}
+            <div onClick={()=>sel.profile_pic&&setLightbox(sel.profile_pic)} style={{cursor:sel.profile_pic?'zoom-in':'default',flexShrink:0}}>
+              <Avatar conv={sel} size={32} fontSize={11}/>
+            </div>
             <div style={{ flex:1, minWidth:0 }}>
               <div style={{ fontWeight:600, fontSize:13.5, display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
                 <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{sel.contact_name}</span>
@@ -1110,6 +1113,27 @@ export default function Inbox({ onUnreadChange }) {
             </div>
             {recording&&<div style={{ textAlign:'center', marginTop:5, fontSize:11, color:'var(--err)', fontWeight:600 }}>🔴 Gravando… clique para parar</div>}
           </div>
+        </div>
+      )}
+
+      {/* Toasts in-app — notificação visível quando está em outra conversa */}
+      {toasts.length > 0 && (
+        <div style={{ position:'fixed', top:16, right:16, zIndex:600, display:'flex', flexDirection:'column', gap:8, maxWidth:320 }}>
+          {toasts.map(t => (
+            <div key={t.id}
+              onClick={() => { setToasts(p=>p.filter(x=>x.id!==t.id)); const c = convos.find(x=>x.id===t.convId); if(c) openConvo(c); }}
+              style={{ background:'var(--pet3,#0d3d52)', color:'#fff', borderRadius:12, padding:'12px 14px', boxShadow:'0 4px 20px rgba(0,0,0,.3)', cursor:'pointer', display:'flex', alignItems:'center', gap:10, animation:'slideIn .2s ease' }}>
+              {t.pic
+                ? <img src={t.pic} alt="" style={{width:36,height:36,borderRadius:'50%',objectFit:'cover',flexShrink:0}} onError={e=>e.target.style.display='none'}/>
+                : <div style={{width:36,height:36,borderRadius:'50%',background:'var(--tq)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,fontWeight:700,flexShrink:0}}>{(t.contactName||'?')[0].toUpperCase()}</div>
+              }
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontWeight:700,fontSize:13,marginBottom:2}}>{t.contactName}</div>
+                <div style={{fontSize:12,opacity:.8,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{t.content}</div>
+              </div>
+              <button onClick={e=>{e.stopPropagation();setToasts(p=>p.filter(x=>x.id!==t.id));}} style={{background:'none',border:'none',color:'rgba(255,255,255,.5)',cursor:'pointer',fontSize:14,padding:0,lineHeight:1}}>✕</button>
+            </div>
+          ))}
         </div>
       )}
 
