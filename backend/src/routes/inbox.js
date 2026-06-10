@@ -1437,154 +1437,68 @@ r.get('/whatsapp/status', async (req, res) => {
   } catch (e) { res.json({ connected: false, status: 'error', message: e.message }); }
 });
 
-// ─── IMPORT WHATSAPP HISTORY ──────────────────────────────────────────────────
+// ─── IMPORT WHATSAPP HISTORY (via Z-API) ──────────────────────────────────────
 r.post('/whatsapp/import-history', async (req, res) => {
-  const EVO = process.env.EVOLUTION_API_URL;
-  const KEY = process.env.EVOLUTION_API_KEY;
-  const INST = process.env.EVOLUTION_INSTANCE || 'vittalis';
-  if (!EVO || !KEY) return res.status(400).json({ error: 'Não configurado' });
+  if (!zapiOk()) return res.status(400).json({ error: 'Z-API não configurada' });
   try {
-    const { default: fetch } = await import('node-fetch');
-    const limit = parseInt(req.body?.limit) || 150;
+    let imported = 0;
+    let page = 1;
+    const pageSize = 50;
 
-    // Busca lista de chats
-    const r2 = await fetch(`${EVO}/chat/findChats/${INST}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', apikey: KEY },
-      body: JSON.stringify({}),
-      signal: AbortSignal.timeout(30000)
-    });
-    const chatsRaw = await r2.json();
-    const chatList = Array.isArray(chatsRaw) ? chatsRaw : (chatsRaw?.data || []);
-    console.log(`IMPORT: ${chatList.length} chats encontrados`);
+    while (true) {
+      const r2 = await zapiCall(`/chats?page=${page}&pageSize=${pageSize}`, 'GET');
+      if (!r2?.ok) break;
 
-    // Busca contatos para resolver nomes
-    let contacts = {};
-    try {
-      const rc = await fetch(`${EVO}/contact/findContacts/${INST}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', apikey: KEY },
-        body: JSON.stringify({}),
-        signal: AbortSignal.timeout(15000)
-      });
-      if (rc.ok) {
-        const cRaw = await rc.json();
-        const cList = Array.isArray(cRaw) ? cRaw : (cRaw?.data || []);
-        for (const c of cList) {
-          const jid = c.remoteJid || c.id || '';
-          const name = c.pushName || c.name || c.verifiedName || '';
-          const pic  = c.profilePicUrl || c.imgUrl || '';
-          if (jid) {
-            if (name) contacts[jid] = { name, pic };
-          }
-        }
-        console.log(`IMPORT: ${Object.keys(contacts).length} contatos carregados`);
-      }
-    } catch (e) { console.log('Contacts fetch failed:', e.message); }
-
-    let imported = 0, msgsImported = 0;
-
-    for (const chat of chatList.slice(0, limit)) {
-      const remoteJid = chat.id || chat.remoteJid || '';
-      // Pula grupos, broadcast e LIDs (formato novo do WA Business sem número real)
-      if (!remoteJid) continue;
-      if (remoteJid.endsWith('@g.us')) continue;
-      if (remoteJid.endsWith('@broadcast')) continue;
-      if (remoteJid.endsWith('@lid')) continue;  // LID não tem telefone real
-      if (!remoteJid.endsWith('@s.whatsapp.net') && !remoteJid.match(/^\d+@/)) continue;
-
-      const rawPhone2 = remoteJid.replace('@s.whatsapp.net', '').replace(/\D/g, ''); const phone = rawPhone2.startsWith('55') ? rawPhone2.slice(2) : rawPhone2;
-
-      // Resolve nome e foto: prioridade contatos > pushName do chat > nome do chat
-      const contactInfo = contacts[remoteJid] || {};
-      const name = contactInfo.name || chat.pushName || chat.name || phone;
-      const profilePic = contactInfo.pic || chat.profilePicUrl || '';
-
-      const extractContent = (msgObj) => {
-        const m = msgObj?.message || msgObj || {};
-        if (m.conversation) return { content: m.conversation, type: 'text' };
-        if (m.extendedTextMessage?.text) return { content: m.extendedTextMessage.text, type: 'text' };
-        if (m.imageMessage) return { content: m.imageMessage.caption || '📷 Imagem', type: 'image' };
-        if (m.videoMessage) return { content: m.videoMessage.caption || '🎥 Vídeo', type: 'video' };
-        if (m.audioMessage || m.pttMessage) return { content: '🎵 Áudio', type: 'audio' };
-        if (m.documentMessage) return { content: `📎 ${m.documentMessage.fileName || 'Documento'}`, type: 'document' };
-        if (m.stickerMessage) return { content: '🎭 Sticker', type: 'text' };
-        if (m.locationMessage) return { content: '📍 Localização', type: 'text' };
-        return null;
-      };
-
-      const lastExtracted = extractContent(chat.lastMessage);
-      const lastMsg = lastExtracted?.content || '...';
-      const lastTime = chat.lastMessage?.messageTimestamp
-        ? new Date(parseInt(String(chat.lastMessage.messageTimestamp)) * 1000).toISOString()
-        : new Date().toISOString();
-
-      // Upsert conversa com nome e foto corretos
-      const { rows: [conv] } = await query(`
-        INSERT INTO conversas (channel, contact_name, contact_id, phone, last_message, last_message_at, unread, profile_pic)
-        VALUES ('whatsapp', $1, $2, $3, $4, $5, $6, $7)
-        ON CONFLICT (contact_id) DO UPDATE SET
-          contact_name = CASE
-            WHEN length(EXCLUDED.contact_name) > 5 AND EXCLUDED.contact_name != EXCLUDED.phone
-            THEN EXCLUDED.contact_name
-            ELSE conversas.contact_name
-          END,
-          profile_pic = COALESCE(EXCLUDED.profile_pic, conversas.profile_pic),
-          last_message = EXCLUDED.last_message,
-          last_message_at = EXCLUDED.last_message_at
-        RETURNING *`,
-        [name, remoteJid, phone, lastMsg, lastTime, chat.unreadCount || 0, profilePic || null]
-      );
-
-      // Busca mensagens do chat (últimas 50)
+      let chats = [];
       try {
-        const rm = await fetch(`${EVO}/chat/findMessages/${INST}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', apikey: KEY },
-          body: JSON.stringify({ where: { key: { remoteJid } }, limit: 50 }),
-          signal: AbortSignal.timeout(12000)
-        });
-        if (rm.ok) {
-          const msgsRaw = await rm.json();
-          const msgs = Array.isArray(msgsRaw) ? msgsRaw
-            : (msgsRaw?.messages?.records || msgsRaw?.records || msgsRaw?.data || []);
+        const d = await r2.json();
+        chats = Array.isArray(d) ? d : (d.chats || d.data || []);
+      } catch { break; }
 
-          for (const m of msgs) {
-            const extracted = extractContent(m);
-            if (!extracted) continue;
-            const fromType = m.key?.fromMe ? 'me' : 'contact';
-            const ts = m.messageTimestamp
-              ? new Date(parseInt(String(m.messageTimestamp)) * 1000).toISOString()
-              : new Date().toISOString();
-            await query(
-              `INSERT INTO mensagens (conversa_id, from_type, type, content, created_at) VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`,
-              [conv.id, fromType, extracted.type, extracted.content, ts]
-            ).catch(() => {});
-            msgsImported++;
-          }
-        }
-      } catch (e) { /* mensagens são best-effort */ }
+      if (!chats.length) break;
 
-      imported++;
-    }
+      console.log(`IMPORT Z-API: página ${page}, ${chats.length} chats`);
 
-    // Atualiza nomes de conversas antigas que ainda têm ID como nome
-    if (Object.keys(contacts).length > 0) {
-      for (const [jid, nome] of Object.entries(contacts)) {
-        if (nome && nome.length > 2) {
-          await query(
-            `UPDATE conversas SET contact_name = $1 WHERE contact_id = $2 AND (contact_name = phone OR length(contact_name) < 5)`,
-            [nome, jid]
-          ).catch(() => {});
-        }
+      for (const chat of chats) {
+        try {
+          const phone = (chat.phone || chat.id || '').replace('@s.whatsapp.net', '').replace(/\D/g,'');
+          if (!phone || phone.length < 8) continue;
+          if (chat.isGroup || phone.endsWith('-group')) continue; // pula grupos
+
+          const contactId   = `${phone}@s.whatsapp.net`;
+          const contactName = chat.name || chat.pushName || chat.title || phone;
+          const lastMsg     = chat.lastMessage?.text || chat.snippet || '';
+          const lastMsgAt   = chat.lastMessage?.momment
+            ? new Date(chat.lastMessage.momment * 1000)
+            : new Date();
+
+          await query(`
+            INSERT INTO conversas (contact_id, phone, contact_name, channel, last_message, last_message_at, unread)
+            VALUES ($1, $2, $3, 'whatsapp', $4, $5, $6)
+            ON CONFLICT (contact_id) DO UPDATE SET
+              contact_name    = CASE WHEN length(EXCLUDED.contact_name) > 5 THEN EXCLUDED.contact_name ELSE conversas.contact_name END,
+              last_message    = EXCLUDED.last_message,
+              last_message_at = EXCLUDED.last_message_at`,
+            [contactId, phone, contactName, lastMsg.slice(0,100), lastMsgAt, chat.unreadCount || 0]
+          );
+          imported++;
+        } catch {}
       }
+
+      if (chats.length < pageSize) break;
+      page++;
+      await new Promise(r => setTimeout(r, 300)); // rate limit
     }
 
-    console.log(`IMPORT DONE: ${imported} conversas, ${msgsImported} mensagens`);
-    res.json({ ok: true, imported, msgsImported, total: chatList.length });
-  } catch (e) {
-    console.error('Import error:', e.message);
-    res.status(500).json({ error: e.message });
+    // Recarrega cache
+    convoCache.clear(); cacheReady = false;
+    await loadCache();
+
+    console.log(`IMPORT Z-API DONE: ${imported} conversas importadas`);
+    res.json({ ok: true, imported, message: `${imported} conversas importadas do Z-API` });
+  } catch (err) {
+    console.error('Import error:', err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 
