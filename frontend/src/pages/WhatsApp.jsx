@@ -18,12 +18,17 @@ export default function WhatsApp() {
 
   const stopPoll = () => { clearInterval(pollRef.current); pollRef.current = null; };
 
-  const checkStatus = async () => {
+  const checkStatus = async (autoSetup = false) => {
     try {
       const d = await api.get('/inbox/whatsapp/zapi/status');
       if (d.connected) {
         setStatus('connected'); setQrcode(null); stopPoll();
         setPhone(d.phone || null); setStep(null);
+        if (autoSetup) {
+          api.post('/inbox/whatsapp/zapi/setup-webhooks', {})
+            .then(r => setMsg(`✅ Conectado! Webhooks configurados: ${r.webhookUrl}`))
+            .catch(() => setMsg('✅ WhatsApp conectado'));
+        }
       } else {
         setStatus('disconnected');
       }
@@ -31,6 +36,27 @@ export default function WhatsApp() {
   };
 
   useEffect(() => { checkStatus(); return stopPoll; }, []);
+
+  // Auto-verifica status a cada 5s quando desconectado
+  // Detecta quando usuário conectou pelo painel Z-API diretamente
+  useEffect(() => {
+    if (status !== 'disconnected' && status !== 'error') return;
+    const iv = setInterval(async () => {
+      try {
+        const d = await api.get('/inbox/whatsapp/zapi/status');
+        if (d.connected) {
+          setStatus('connected'); setPhone(d.phone || null); setStep(null);
+          setMsg('✅ WhatsApp conectado! Configurando webhooks...');
+          stopPoll();
+          // Auto-configura webhooks
+          api.post('/inbox/whatsapp/zapi/setup-webhooks', {})
+            .then(() => setMsg('✅ WhatsApp conectado e webhooks configurados. Clique em "Importar histórico" para carregar as conversas.'))
+            .catch(() => {});
+        }
+      } catch {}
+    }, 5000);
+    return () => clearInterval(iv);
+  }, [status]);
 
   const startPoll = () => {
     stopPoll();
@@ -69,9 +95,9 @@ export default function WhatsApp() {
         setMsg('');
         startPoll();
       } else {
-        setMsg(d.error || 'Não foi possível gerar QR Code. Certifique-se de ter desconectado o aparelho no WhatsApp do celular.');
+        setMsg('zapi-fallback');
       }
-    } catch (e) { setMsg(e.message || 'Erro ao gerar QR Code.'); }
+    } catch (e) { setMsg('zapi-fallback'); }
     setBusy(false);
   };
 
@@ -177,11 +203,26 @@ export default function WhatsApp() {
               </div>
             </div>
           </div>
-          <button onClick={checkStatus} disabled={busy} className="btn btn-g btn-ico">
+          <button onClick={() => checkStatus(true)} disabled={busy} className="btn btn-g btn-ico">
             <RefreshCw size={13}/>
           </button>
         </div>
-        {msg && (
+        {msg === 'zapi-fallback' && (
+          <div style={{ marginTop:12, padding:'14px', background:'#fef3c7', borderRadius:10, border:'1px solid #fde68a' }}>
+            <div style={{ fontWeight:700, fontSize:13.5, marginBottom:6 }}>⚠️ Não foi possível gerar QR Code via API</div>
+            <p style={{ fontSize:13, color:'#92400e', marginBottom:10, lineHeight:1.5 }}>
+              O painel Z-API já está mostrando o QR Code. Acesse diretamente e escaneie de lá:
+            </p>
+            <a href="https://app.z-api.io" target="_blank" rel="noreferrer"
+              style={{ display:'inline-flex', alignItems:'center', gap:6, padding:'9px 16px', background:'#25D366', color:'#fff', borderRadius:8, fontWeight:700, fontSize:13, textDecoration:'none' }}>
+              📱 Abrir painel Z-API e escanear QR
+            </a>
+            <p style={{ fontSize:12, color:'#92400e', marginTop:10 }}>
+              Depois de escanear, volte aqui e clique no botão 🔄 para verificar a conexão.
+            </p>
+          </div>
+        )}
+        {msg && msg !== 'zapi-fallback' && (
           <div style={{ marginTop:12, padding:'9px 13px', background:'var(--bg)', borderRadius:8, fontSize:13 }}>{msg}</div>
         )}
       </div>
