@@ -1233,6 +1233,38 @@ r.get('/whatsapp/debug-zapi', async (req, res) => {
   } catch (e) { res.json({ error: e.message }); }
 });
 
+// ─── DEBUG: testar ENVIO completo de proposta (via ?k=vt24&phone=559888278736) ──
+r.get('/proposta/test-envio', async (req, res) => {
+  if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
+  const phone = req.query.phone || '559888278736';
+  try {
+    const precos = await getPrecosVittaSys();
+    const influ = precos.find(p => p.nome.toLowerCase().includes('influenza')) || { nome:'Influenza', avista:170, credito:180, parcelas:1 };
+    const t0 = Date.now();
+    const pdfBuf = await gerarPropostaPDF({
+      nomeCliente: 'Teste Envio', template: 'adulto', pacoteNome: 'Teste',
+      vacinas: [influ], desconto: 0, parcelas: 1,
+    });
+    const t1 = Date.now();
+    const b64 = pdfBuf.toString('base64');
+    let ph = phone.replace(/\D/g, '');
+    if (ph.startsWith('55') && ph.length >= 12) ph = ph.slice(2);
+    const zr = await enviarPDFZapi(`55${ph}`, b64, 'Proposta-Teste.pdf');
+    const zrBody = await zr?.text().catch(() => '');
+    res.json({
+      pdf_bytes: pdfBuf.length,
+      pdf_base64_kb: Math.round(b64.length / 1024),
+      tempo_geracao_ms: t1 - t0,
+      precos_carregados: precos.length,
+      envio_status: zr?.status,
+      envio_resposta: zrBody.slice(0, 300),
+      phone_usado: `55${ph}`,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message, stack: e.stack?.slice(0, 400) });
+  }
+});
+
 // ─── DEBUG: testar geração de PDF da proposta (via ?k=vt24) ──────────────────
 r.get('/proposta/test-pdf', async (req, res) => {
   if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
