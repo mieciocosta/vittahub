@@ -669,7 +669,7 @@ r.post('/webhook/zapi', async (req, res) => {
         const { rows: history } = await query(
           `SELECT from_type, content FROM mensagens
            WHERE conversa_id = $1 AND type = 'text'
-           ORDER BY created_at DESC LIMIT 12`,
+           ORDER BY created_at DESC LIMIT 20`,
           [conv.id]
         );
         const historyText = history.reverse()
@@ -715,12 +715,19 @@ SEU TRABALHO:
 - Preços: use a TABELA DE PREÇOS acima para informar valores reais. Se a vacina não estiver na tabela, diga que confirma com a equipe. Não invente valores.
 - Dúvidas médicas: oriente no geral e indique avaliação com a equipe quando necessário.
 
-PROPOSTA EM PDF (IMPORTANTE):
-- Quando o cliente pedir a proposta/orçamento em PDF, use a ferramenta "enviar_proposta" para gerar e enviar automaticamente.
-- Antes de enviar, confirme: o NOME do cliente e QUAIS vacinas ele quer. Se já souber pelo histórico, não pergunte de novo.
-- Use o template "infantil" se for para bebê/criança, ou "adulto" caso contrário.
-- Depois de chamar a ferramenta, confirme ao cliente que a proposta foi enviada.
-- Só chame a ferramenta quando tiver nome do cliente e ao menos uma vacina definida.
+PROPOSTA EM PDF (REGRA CRÍTICA — LEIA COM ATENÇÃO):
+- Quando o cliente pedir proposta/orçamento em PDF de uma vacina, GERE E ENVIE IMEDIATAMENTE usando a ferramenta "enviar_proposta". NÃO faça perguntas desnecessárias.
+- Você JÁ TEM o nome do cliente (está no campo "Cliente" abaixo). Use esse nome. NÃO pergunte o nome.
+- Se o cliente disse a vacina (ex: "gripe", "influenza"), use ela direto. "Gripe" = "Influenza" na tabela.
+- Escolha o template sozinha: se o contexto indica bebê/criança use "infantil", senão "adulto". NÃO pergunte isso ao cliente.
+- Se o cliente pedir "proposta de qualquer vacina" ou não especificar, use a Influenza como padrão e envie.
+- NUNCA responda com perguntas tipo "é para você?", "é adulto?", "qual vacina?" quando o cliente já pediu uma proposta. AJA.
+- Só pergunte algo se for genuinamente impossível prosseguir (ex: cliente não disse nenhuma vacina e não dá pra inferir).
+- Depois de enviar, confirme em uma linha: "Pronto, enviei sua proposta!"
+
+EXEMPLOS DO COMPORTAMENTO CERTO:
+- Cliente: "manda a proposta da vacina da gripe em PDF" → CHAME enviar_proposta com vacinas=["Influenza"], template="adulto", nomeCliente=[nome do contexto]. NÃO pergunte nada.
+- Cliente: "quero o orçamento da pneumocócica" → CHAME enviar_proposta com vacinas=["Pneumocócica"]. NÃO pergunte nada.
 
 Cliente: ${conv.contact_name || 'não identificado'}.`;
 
@@ -779,10 +786,42 @@ Cliente: ${conv.contact_name || 'não identificado'}.`;
                 try {
                   const args = toolUse.input || {};
                   const precosTabela = await getPrecosVittaSys();
-                  // Mapeia nomes de vacinas para os objetos de preço completos
-                  const vacinasObj = (args.vacinas || [])
-                    .map(nome => precosTabela.find(p => p.nome.toLowerCase().includes(String(nome).toLowerCase()) || String(nome).toLowerCase().includes(p.nome.toLowerCase())))
-                    .filter(Boolean);
+
+                  // Mapa de sinônimos comuns
+                  const sinonimos = {
+                    'gripe': 'influenza', 'influenza': 'influenza',
+                    'pneumo': 'pneumocócica', 'pneumonia': 'pneumocócica',
+                    'menin': 'meningocócica', 'meningite': 'meningocócica',
+                    'hpv': 'hpv', 'catapora': 'varicela', 'varicela': 'varicela',
+                    'hepatite': 'hepatite', 'dengue': 'dengue', 'covid': 'covid',
+                    'febre amarela': 'febre amarela', 'triplice': 'tríplice', 'tríplice': 'tríplice',
+                    'zoster': 'zóster', 'zóster': 'zóster', 'herpes': 'zóster',
+                    'rotavirus': 'rotavírus', 'rotavírus': 'rotavírus',
+                    'hexa': 'hexavalente', 'penta': 'pentavalente', 'dtpa': 'dtpa',
+                  };
+
+                  const acha = (nome) => {
+                    const n = String(nome).toLowerCase().trim();
+                    // match direto
+                    let v = precosTabela.find(p => p.nome.toLowerCase().includes(n) || n.includes(p.nome.toLowerCase()));
+                    if (v) return v;
+                    // match por sinônimo
+                    for (const [k, alvo] of Object.entries(sinonimos)) {
+                      if (n.includes(k)) {
+                        v = precosTabela.find(p => p.nome.toLowerCase().includes(alvo));
+                        if (v) return v;
+                      }
+                    }
+                    return null;
+                  };
+
+                  let vacinasObj = (args.vacinas || []).map(acha).filter(Boolean);
+
+                  // Se não achou nenhuma mas o cliente pediu proposta, usa Influenza como padrão
+                  if (!vacinasObj.length) {
+                    const influ = precosTabela.find(p => p.nome.toLowerCase().includes('influenza'));
+                    if (influ) vacinasObj = [influ];
+                  }
 
                   if (vacinasObj.length) {
                     let phoneNum = conv.phone.replace(/\D/g, '');
