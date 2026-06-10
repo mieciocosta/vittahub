@@ -10,6 +10,11 @@ import { socketEmit } from '../socketServer.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const r = express.Router();
 
+// ─── STATUS DE CONEXÃO Z-API (atualizado pelos webhooks, sem precisar de client-token) ──
+let zapiConnected = false;
+let zapiPhone = null;
+function setZapiConnected(v, phone) { zapiConnected = v; zapiPhone = phone || null; }
+
 // ─── CACHE EM MEMÓRIA: evita bater no banco para listagem de conversas ────────
 const convoCache = new Map(); // id → conversa
 let cacheReady = false;
@@ -345,14 +350,22 @@ r.post('/webhook/zapi', async (req, res) => {
     const body = req.body;
     console.log(`ZAPI_WH: ${JSON.stringify(body).slice(0, 300)}`);
 
-    // Z-API webhook payload:
-    // { phone, senderName, profilePicUrl, isFromMe, messageId,
-    //   text: { message }, image: { imageUrl, caption },
-    //   audio: { audioUrl }, video: { videoUrl, caption },
-    //   document: { documentUrl, fileName, caption },
-    //   sticker: { stickerUrl }, location: { lat, lng } }
+    // ── Eventos de conexão/desconexão (vêm do webhook "Ao conectar/desconectar") ──
+    const event = body.event || body.type || '';
+    if (event === 'connected' || body.connected === true || body.status === 'open') {
+      const ph = body.phone || body.connectedPhone || null;
+      setZapiConnected(true, ph);
+      socketEmit('zapi_status', { connected: true, phone: ph });
+      console.log(`✅ Z-API Conectado (webhook): ${ph || 'número não informado'}`);
+    }
+    if (event === 'disconnected' || body.status === 'close' || body.status === 'disconnected') {
+      setZapiConnected(false, null);
+      socketEmit('zapi_status', { connected: false });
+      console.log('❌ Z-API Desconectado (webhook)');
+    }
 
-    const phone = body.phone; // already formatted: 5511999999999
+    // Z-API webhook payload:
+    const phone = body.phone;
     if (!phone) return;
     if (body.isGroup) return; // skip groups
 
@@ -1735,29 +1748,9 @@ r.get('/whatsapp/zapi/debug-chats', async (req, res) => {
 });
 
 r.get('/whatsapp/zapi/status', async (req, res) => {
-  if (!zapiOk()) return res.json({ connected: false, error: 'Z-API não configurada' });
-  try {
-    const r2 = await zapiCall('/status', 'GET');
-    const text = await r2?.text() || '{}';
-    let d = {};
-    try { d = JSON.parse(text); } catch {}
-
-    console.log('Z-API /status HTTP:', r2?.status, '| body:', text.slice(0, 150));
-
-    // Z-API retorna connected:true OU status:"open" quando conectado
-    // Não usa r2.ok como gate pois client-token error retorna 400 mas pode estar conectado
-    const connected = d.connected === true
-      || d.status === 'open'
-      || d.status === 'connected'
-      || d.status === 'qrcode'; // qrcode = aguardando leitura, não conectado mas ativo
-
-    res.json({
-      connected: connected && d.status !== 'qrcode',
-      status: d.status,
-      phone: d.phone || d.connectedPhone || null,
-      provider: 'zapi',
-    });
-  } catch (e) { res.json({ connected: false, error: e.message }); }
+  // Retorna status baseado nos webhooks recebidos — não precisa de client-token
+  // O estado é atualizado quando Z-API dispara o webhook "Ao conectar/desconectar"
+  res.json({ connected: zapiConnected, phone: zapiPhone, provider: 'zapi' });
 });
 
 // ─── Z-API: Auto-configurar webhooks ─────────────────────────────────────────

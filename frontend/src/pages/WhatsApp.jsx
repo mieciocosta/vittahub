@@ -37,6 +37,29 @@ export default function WhatsApp() {
 
   useEffect(() => { checkStatus(); return stopPoll; }, []);
 
+  // Socket.io: recebe updates de status Z-API em tempo real via webhook
+  useEffect(() => {
+    const BASE = import.meta.env.VITE_API_URL || '';
+    const tk = localStorage.getItem('vh_token') || '';
+    if (!tk) return;
+    let socket = null;
+    import('socket.io-client').then(({ io }) => {
+      socket = io(BASE, { auth: { token: tk }, transports: ['websocket', 'polling'] });
+      socket.on('zapi_status', ({ connected, phone }) => {
+        if (connected) {
+          setStatus('connected'); setPhone(phone || null); setStep(null); stopPoll();
+          setMsg('✅ WhatsApp conectado! Configurando webhooks...');
+          api.post('/inbox/whatsapp/zapi/setup-webhooks', {})
+            .then(() => setMsg('✅ WhatsApp conectado e webhooks configurados. Importe o histórico para carregar as conversas.'))
+            .catch(() => {});
+        } else {
+          setStatus('disconnected'); setPhone(null);
+        }
+      });
+    }).catch(() => {});
+    return () => socket?.disconnect();
+  }, []);
+
   // Auto-verifica status a cada 5s quando desconectado
   // Detecta quando usuário conectou pelo painel Z-API diretamente
   useEffect(() => {
