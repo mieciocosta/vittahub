@@ -1655,15 +1655,29 @@ r.get('/whatsapp/zapi/status', async (req, res) => {
   } catch (e) { res.json({ connected: false, error: e.message }); }
 });
 
-// ─── Z-API: QR Code ───────────────────────────────────────────────────────────
+// ─── Z-API: QR Code com retry automático ──────────────────────────────────────
 r.get('/whatsapp/zapi/qrcode', async (req, res) => {
   if (!zapiOk()) return res.status(400).json({ error: 'Z-API não configurada' });
-  try {
-    const r2 = await zapiCall('/qrcode-image', 'GET');
-    if (!r2?.ok) return res.status(400).json({ error: 'Erro ao gerar QR Code' });
-    const d = await r2.json();
-    res.json({ qrcode: d.value || d.base64 || d.qrcode });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  let lastError = '';
+  // Tenta até 5x com 2s de espera (Z-API precisa de tempo após disconnect)
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      if (attempt > 0) await new Promise(r => setTimeout(r, 2000));
+      const r2 = await zapiCall('/qr-code', 'GET');
+      if (!r2) { lastError = 'sem resposta da Z-API'; continue; }
+      const text = await r2.text();
+      let qr = null;
+      try {
+        const d = JSON.parse(text);
+        qr = d.value || d.qrcode || d.base64 || d.qr || null;
+      } catch {
+        if (text && text.length > 50) qr = text;
+      }
+      if (qr) return res.json({ qrcode: qr });
+      lastError = 'QR vazio';
+    } catch (e) { lastError = e.message; }
+  }
+  res.status(400).json({ error: 'Não foi possível gerar QR Code. A instância pode já estar conectada ou reiniciando.' });
 });
 
 // ─── TROCA DE NÚMERO: limpa dados conflitantes do número anterior ─────────────

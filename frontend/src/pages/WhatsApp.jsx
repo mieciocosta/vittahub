@@ -1,244 +1,249 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Smartphone, Wifi, WifiOff, RefreshCw, CheckCircle, AlertCircle,
-         Loader2, QrCode, LogOut, RotateCcw, ArrowRightLeft } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { RefreshCw, CheckCircle, WifiOff, Loader2, QrCode,
+         LogOut, RotateCcw, ArrowRightLeft } from 'lucide-react';
 import { useApi } from '../context/AuthContext.jsx';
 
 const WA_GREEN = '#25D366';
 
 export default function WhatsApp() {
   const api = useApi();
-  const [status, setStatus] = useState('loading');
-  const [qrcode, setQrcode] = useState(null);
-  const [phone, setPhone] = useState(null);
-  const [message, setMessage] = useState('');
-  const [loading, setLoading] = useState('');
-  const [switchModal, setSwitchModal] = useState(false);
+  const [status, setStatus]   = useState('loading'); // loading|connected|disconnected|qrcode|error
+  const [qrcode, setQrcode]   = useState(null);
+  const [phone, setPhone]     = useState(null);
+  const [msg, setMsg]         = useState('');
+  const [busy, setBusy]       = useState(false);
+  const [modal, setModal]     = useState(false);
   const [clearConvs, setClearConvs] = useState(false);
   const pollRef = useRef(null);
 
-  const stopPoll = () => { if (pollRef.current) clearInterval(pollRef.current); pollRef.current = null; };
+  const stopPoll = () => { clearInterval(pollRef.current); pollRef.current = null; };
 
-  const checkStatus = useCallback(async () => {
+  const checkStatus = async (quiet = false) => {
     try {
-      const data = await api.get('/inbox/whatsapp/zapi/status');
-      if (data.connected) {
+      const d = await api.get('/inbox/whatsapp/zapi/status');
+      if (d.connected) {
         setStatus('connected'); setQrcode(null); stopPoll();
-        setPhone(data.phone || data.connectedPhone || null);
+        setPhone(d.phone || null);
+        if (!quiet) setMsg('');
       } else {
         setStatus('disconnected');
       }
     } catch { setStatus('error'); }
-  }, [api]);
+  };
 
   useEffect(() => { checkStatus(); return stopPoll; }, []);
 
-  const startQrPoll = () => {
+  // Polling de status após gerar QR
+  const startPoll = () => {
     stopPoll();
     pollRef.current = setInterval(async () => {
       try {
-        const data = await api.get('/inbox/whatsapp/zapi/status');
-        if (data.connected) {
+        const d = await api.get('/inbox/whatsapp/zapi/status');
+        if (d.connected) {
           setStatus('connected'); setQrcode(null); stopPoll();
-          setPhone(data.phone || null);
-          setMessage('✅ WhatsApp conectado com sucesso!');
+          setPhone(d.phone || null);
+          setMsg('✅ WhatsApp conectado com sucesso!');
         }
       } catch {}
     }, 3000);
   };
 
-  const getQrCode = async () => {
-    setLoading('qr');
+  // Gera QR Code (endpoint tem retry interno de 5x com 2s cada)
+  const connectQR = async () => {
+    setBusy(true);
+    setMsg('Gerando QR Code... aguarde até 12 segundos.');
     try {
-      const data = await api.get('/inbox/whatsapp/zapi/qrcode');
-      if (data.qrcode) {
-        setQrcode(data.qrcode);
+      const d = await api.get('/inbox/whatsapp/zapi/qrcode');
+      if (d.qrcode) {
+        setQrcode(d.qrcode);
         setStatus('qrcode');
-        setMessage('');
-        startQrPoll();
+        setMsg('');
+        startPoll();
       } else {
-        setMessage('Não foi possível gerar QR Code. Aguarde alguns segundos e tente novamente.');
+        setMsg(d.error || 'Não foi possível gerar QR Code.');
       }
-    } catch (e) { setMessage(e.message); }
-    setLoading('');
+    } catch (e) { setMsg(e.message); }
+    setBusy(false);
   };
 
-  // Desconectar: chama disconnect E depois restart para limpar sessão
-  // Z-API reconecta automaticamente, então o jeito é gerar novo QR imediatamente
   const disconnect = async () => {
-    if (!confirm('Desconectar o WhatsApp? O bot ficará offline até reconectar.')) return;
-    setLoading('disconnect');
+    if (!confirm('Desconectar o WhatsApp?')) return;
+    setBusy(true);
     try {
       await api.post('/inbox/whatsapp/zapi/disconnect', {});
       setStatus('disconnected'); setQrcode(null); setPhone(null); stopPoll();
-      setMessage('WhatsApp desconectado. Clique em "Conectar WhatsApp" para reconectar.');
-    } catch (e) { setMessage(e.message); }
-    setLoading('');
+      setMsg('Desconectado. Clique em "Conectar WhatsApp" para reconectar.');
+    } catch (e) { setMsg(e.message); }
+    setBusy(false);
   };
 
-  // Trocar número: desconecta e já abre QR para novo número
+  // Trocar número: limpa DB → aguarda 2s → gera QR
   const switchNumber = async () => {
-    setLoading('switch');
-    setSwitchModal(false);
+    setModal(false);
+    setBusy(true);
+    setMsg('Preparando troca de número...');
     try {
-      // Limpa dados conflitantes no backend
-      await api.post('/inbox/whatsapp/switch-number', { clearConversations: clearConvs });
-      // Desconecta Z-API
+      // 1. Desconecta Z-API
       await api.post('/inbox/whatsapp/zapi/disconnect', {}).catch(() => {});
-      setStatus('disconnected'); setPhone(null);
-      setMessage('Pronto! Agora clique em "Conectar WhatsApp" e escaneie com o novo número.');
-      // Automaticamente gera QR após 1s
-      setTimeout(getQrCode, 1000);
-    } catch (e) { setMessage(e.message); }
-    setLoading('');
+      // 2. Limpa dados do DB
+      await api.post('/inbox/whatsapp/switch-number', { clearConversations: clearConvs });
+      setPhone(null);
+      setStatus('disconnected');
+      // 3. Aguarda 3s para Z-API estabilizar e gera QR
+      setMsg('Aguardando Z-API reiniciar... (3s)');
+      await new Promise(r => setTimeout(r, 3000));
+      setMsg('');
+    } catch (e) { setMsg(e.message); }
+    setBusy(false);
+    // Abre QR automaticamente
+    connectQR();
   };
 
   const importHistory = async () => {
-    setLoading('import');
+    setBusy(true);
     try {
-      const data = await api.post('/inbox/whatsapp/import-history', {});
-      setMessage(`✅ ${data.imported || 0} conversas importadas`);
-    } catch (e) { setMessage(e.message); }
-    setLoading('');
+      const d = await api.post('/inbox/whatsapp/import-history', {});
+      setMsg(`✅ ${d.imported || 0} conversas importadas`);
+    } catch (e) { setMsg(e.message); }
+    setBusy(false);
   };
 
   const loadPhotos = async () => {
-    setLoading('photos');
+    setBusy(true);
     try {
-      const data = await api.post('/inbox/conversations/load-photos', {});
-      setMessage(`✅ ${data.updated} fotos atualizadas de ${data.total} contatos`);
-    } catch (e) { setMessage(e.message); }
-    setLoading('');
+      const d = await api.post('/inbox/conversations/load-photos', {});
+      setMsg(`✅ ${d.updated} fotos atualizadas de ${d.total} contatos`);
+    } catch (e) { setMsg(e.message); }
+    setBusy(false);
   };
 
   const ST = {
-    connected:    { label:'Conectado',         color:WA_GREEN,  bg:'#dcfce7', icon:CheckCircle },
-    disconnected: { label:'Desconectado',       color:'#dc2626', bg:'#fee2e2', icon:WifiOff },
-    qrcode:       { label:'Aguardando leitura', color:'#b45309', bg:'#fef3c7', icon:QrCode },
-    loading:      { label:'Verificando...',     color:'#6b7280', bg:'#f3f4f6', icon:Loader2 },
-    error:        { label:'Erro de conexão',    color:'#dc2626', bg:'#fee2e2', icon:AlertCircle },
+    connected:    { label:'Conectado',         color:WA_GREEN,  bg:'#dcfce7', Icon:CheckCircle },
+    disconnected: { label:'Desconectado',       color:'#dc2626', bg:'#fee2e2', Icon:WifiOff },
+    qrcode:       { label:'Aguardando leitura', color:'#b45309', bg:'#fef3c7', Icon:QrCode },
+    loading:      { label:'Carregando...',      color:'#6b7280', bg:'#f3f4f6', Icon:Loader2 },
+    error:        { label:'Erro',               color:'#dc2626', bg:'#fee2e2', Icon:WifiOff },
   };
-  const st = ST[status] || ST.loading;
-  const Icon = st.icon;
+  const { label, color, bg, Icon } = ST[status] || ST.loading;
 
   return (
-    <div style={{ padding:'32px', maxWidth:640, margin:'0 auto' }}>
+    <div style={{ padding:'32px', maxWidth:620, margin:'0 auto' }}>
       <h1 style={{ fontSize:22, fontWeight:700, marginBottom:4 }}>WhatsApp</h1>
-      <p style={{ color:'var(--muted)', fontSize:13.5, marginBottom:28 }}>
+      <p style={{ color:'var(--muted)', fontSize:13.5, marginBottom:24 }}>
         Gerencie a conexão com o WhatsApp da clínica via Z-API.
       </p>
 
-      {/* Status card */}
-      <div style={{ background:'var(--card,#fff)', borderRadius:14, padding:'22px', border:'1px solid var(--border)', marginBottom:20 }}>
+      {/* Card de status */}
+      <div style={{ background:'var(--card,#fff)', borderRadius:14, padding:'20px', border:'1px solid var(--border)', marginBottom:16 }}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
           <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-            <div style={{ width:48, height:48, borderRadius:12, background:st.bg, display:'flex', alignItems:'center', justifyContent:'center' }}>
-              <Icon size={22} color={st.color} style={status==='loading'?{animation:'spin 1s linear infinite'}:{}}/>
+            <div style={{ width:44, height:44, borderRadius:12, background:bg, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+              <Icon size={20} color={color} style={status==='loading'?{animation:'spin 1s linear infinite'}:{}}/>
             </div>
             <div>
-              <div style={{ fontWeight:700, fontSize:15 }}>Instância Z-API</div>
+              <div style={{ fontWeight:700, fontSize:14.5 }}>Instância Z-API</div>
               <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:3 }}>
-                <span style={{ display:'inline-flex', alignItems:'center', gap:4, background:st.bg, color:st.color, borderRadius:20, padding:'2px 10px', fontSize:12, fontWeight:700 }}>
-                  <Icon size={10}/> {st.label}
+                <span style={{ display:'inline-flex', alignItems:'center', gap:4, background:bg, color, borderRadius:20, padding:'2px 10px', fontSize:12, fontWeight:700 }}>
+                  <Icon size={9}/> {label}
                 </span>
                 {phone && <span style={{ fontSize:12, color:'var(--muted)' }}>+55 {phone}</span>}
               </div>
             </div>
           </div>
-          <button onClick={checkStatus} className="btn btn-g btn-ico" title="Atualizar status">
-            <RefreshCw size={14}/>
+          <button onClick={()=>checkStatus()} disabled={busy} className="btn btn-g btn-ico" title="Atualizar">
+            <RefreshCw size={13}/>
           </button>
         </div>
-        {message && (
-          <div style={{ marginTop:14, padding:'10px 14px', background:'var(--bg)', borderRadius:8, fontSize:13, color:'var(--txt)' }}>
-            {message}
+        {msg && (
+          <div style={{ marginTop:12, padding:'9px 13px', background:'var(--bg)', borderRadius:8, fontSize:13, color:'var(--txt)' }}>
+            {msg}
           </div>
         )}
       </div>
 
       {/* QR Code */}
       {status === 'qrcode' && qrcode && (
-        <div style={{ background:'var(--card,#fff)', borderRadius:14, padding:'24px', border:'1px solid var(--border)', marginBottom:20, textAlign:'center' }}>
-          <div style={{ fontSize:14, fontWeight:600, marginBottom:4 }}>Escaneie com o WhatsApp do celular</div>
-          <div style={{ fontSize:12, color:'var(--muted)', marginBottom:16 }}>
-            WhatsApp → ⋮ → Aparelhos conectados → Conectar aparelho
+        <div style={{ background:'var(--card,#fff)', borderRadius:14, padding:'22px', border:'1px solid var(--border)', marginBottom:16, textAlign:'center' }}>
+          <div style={{ fontSize:14, fontWeight:700, marginBottom:3 }}>Escaneie o QR Code</div>
+          <div style={{ fontSize:12, color:'var(--muted)', marginBottom:14 }}>
+            No celular: WhatsApp → ⋮ → Aparelhos conectados → Conectar aparelho
           </div>
           <img
             src={qrcode.startsWith('data:') ? qrcode : `data:image/png;base64,${qrcode}`}
-            alt="QR Code"
-            style={{ width:220, height:220, borderRadius:12, border:'3px solid var(--border)' }}
+            alt="QR Code WhatsApp"
+            style={{ width:200, height:200, borderRadius:10, border:'2px solid var(--border)' }}
           />
-          <div style={{ marginTop:12, display:'flex', alignItems:'center', gap:6, justifyContent:'center', color:'var(--muted)', fontSize:12 }}>
-            <Loader2 size={12} style={{animation:'spin 1s linear infinite'}}/> Aguardando leitura do QR Code...
+          <div style={{ marginTop:10, display:'flex', alignItems:'center', gap:5, justifyContent:'center', fontSize:12, color:'var(--muted)' }}>
+            <Loader2 size={11} style={{animation:'spin 1s linear infinite'}}/> Aguardando leitura...
           </div>
         </div>
       )}
 
-      {/* Ações */}
-      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:20 }}>
+      {/* Botões de ação */}
+      <div style={{ display:'grid', gap:10, marginBottom:16 }}>
+
+        {/* Conectar */}
         {(status === 'disconnected' || status === 'error') && (
-          <button onClick={getQrCode} disabled={loading==='qr'}
-            style={{ gridColumn:'1/-1', padding:'14px', borderRadius:12, background:WA_GREEN, color:'#fff', border:'none', cursor:'pointer', fontWeight:700, fontSize:14, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
-            {loading==='qr'?<Loader2 size={16} style={{animation:'spin 1s linear infinite'}}/>:<QrCode size={16}/>}
-            Conectar WhatsApp
+          <button onClick={connectQR} disabled={busy}
+            style={{ padding:'14px', borderRadius:12, background:WA_GREEN, color:'#fff', border:'none', cursor:'pointer', fontWeight:700, fontSize:14, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
+            {busy ? <Loader2 size={16} style={{animation:'spin 1s linear infinite'}}/> : <QrCode size={16}/>}
+            {busy ? 'Aguarde...' : 'Conectar WhatsApp'}
           </button>
         )}
 
+        {/* Conectado: importar histórico + fotos */}
         {status === 'connected' && (
-          <>
-            <button onClick={importHistory} disabled={!!loading}
-              style={{ padding:'12px', borderRadius:12, background:'var(--card,#fff)', border:'1.5px solid var(--border)', cursor:'pointer', fontWeight:600, fontSize:13, display:'flex', alignItems:'center', justifyContent:'center', gap:7, color:'var(--txt)' }}>
-              {loading==='import'?<Loader2 size={14} style={{animation:'spin 1s linear infinite'}}/>:<RotateCcw size={14}/>}
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+            <button onClick={importHistory} disabled={busy}
+              style={{ padding:'11px', borderRadius:11, background:'var(--card,#fff)', border:'1.5px solid var(--border)', cursor:'pointer', fontWeight:600, fontSize:13, display:'flex', alignItems:'center', justifyContent:'center', gap:7 }}>
+              {busy?<Loader2 size={13} style={{animation:'spin 1s linear infinite'}}/>:<RotateCcw size={13}/>}
               Importar histórico
             </button>
-            <button onClick={loadPhotos} disabled={!!loading}
-              style={{ padding:'12px', borderRadius:12, background:'var(--card,#fff)', border:'1.5px solid var(--border)', cursor:'pointer', fontWeight:600, fontSize:13, display:'flex', alignItems:'center', justifyContent:'center', gap:7, color:'var(--txt)' }}>
-              {loading==='photos'?<Loader2 size={14} style={{animation:'spin 1s linear infinite'}}/>:<span>👤</span>}
+            <button onClick={loadPhotos} disabled={busy}
+              style={{ padding:'11px', borderRadius:11, background:'var(--card,#fff)', border:'1.5px solid var(--border)', cursor:'pointer', fontWeight:600, fontSize:13, display:'flex', alignItems:'center', justifyContent:'center', gap:7 }}>
+              {busy?<Loader2 size={13} style={{animation:'spin 1s linear infinite'}}/>:<span>👤</span>}
               Carregar fotos
             </button>
-            <button onClick={disconnect} disabled={!!loading}
-              style={{ padding:'12px', borderRadius:12, background:'#fee2e2', border:'1.5px solid #fecaca', cursor:'pointer', fontWeight:600, fontSize:13, display:'flex', alignItems:'center', justifyContent:'center', gap:7, color:'#dc2626' }}>
-              {loading==='disconnect'?<Loader2 size={14} style={{animation:'spin 1s linear infinite'}}/>:<LogOut size={14}/>}
-              Desconectar
-            </button>
-          </>
+          </div>
         )}
 
-        <button onClick={()=>setSwitchModal(true)} disabled={!!loading}
-          style={{ padding:'12px', borderRadius:12, background:'var(--tq3)', border:'1.5px solid var(--tq)', cursor:'pointer', fontWeight:600, fontSize:13, display:'flex', alignItems:'center', justifyContent:'center', gap:7, color:'var(--tq2)' }}>
-          <ArrowRightLeft size={14}/> Trocar número
-        </button>
+        {/* Linha inferior: Desconectar + Trocar número */}
+        <div style={{ display:'grid', gridTemplateColumns: status==='connected' ? '1fr 1fr' : '1fr', gap:10 }}>
+          {status === 'connected' && (
+            <button onClick={disconnect} disabled={busy}
+              style={{ padding:'11px', borderRadius:11, background:'#fee2e2', border:'1.5px solid #fecaca', cursor:'pointer', fontWeight:600, fontSize:13, display:'flex', alignItems:'center', justifyContent:'center', gap:7, color:'#dc2626' }}>
+              {busy?<Loader2 size={13} style={{animation:'spin 1s linear infinite'}}/>:<LogOut size={13}/>}
+              Desconectar
+            </button>
+          )}
+          <button onClick={()=>setModal(true)} disabled={busy}
+            style={{ padding:'11px', borderRadius:11, background:'var(--tq3)', border:'1.5px solid var(--tq)', cursor:'pointer', fontWeight:600, fontSize:13, display:'flex', alignItems:'center', justifyContent:'center', gap:7, color:'var(--tq2)' }}>
+            <ArrowRightLeft size={13}/> Trocar número
+          </button>
+        </div>
       </div>
 
-      {/* Aviso Z-API */}
-      {status === 'disconnected' && (
-        <div style={{ background:'#fef3c7', borderRadius:12, padding:'14px', border:'1px solid #fde68a', fontSize:13, color:'#92400e', marginBottom:20 }}>
-          <strong>ℹ️ Sobre a Z-API:</strong> A Z-API mantém a sessão ativa no servidor. Para trocar de número, clique em "Trocar número" — isso gera um novo QR Code para você escanear com o novo celular, substituindo a sessão anterior.
-        </div>
-      )}
-
-      {/* Modal Trocar Número */}
-      {switchModal && (
-        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.5)', zIndex:500, display:'flex', alignItems:'center', justifyContent:'center' }}>
-          <div style={{ background:'var(--card,#fff)', borderRadius:16, padding:'28px', maxWidth:420, width:'90%', boxShadow:'0 20px 60px rgba(0,0,0,.3)' }}>
-            <div style={{ fontSize:17, fontWeight:700, marginBottom:8 }}>🔄 Trocar número WhatsApp</div>
-            <p style={{ fontSize:13.5, color:'var(--muted)', lineHeight:1.6, marginBottom:16 }}>
-              Após confirmar, o sistema vai gerar um QR Code automaticamente. Escaneie com o <strong>novo número</strong> para substituir a sessão atual.
+      {/* Modal trocar número */}
+      {modal && (
+        <div onClick={e=>e.target===e.currentTarget&&setModal(false)}
+          style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.5)', zIndex:500, display:'flex', alignItems:'center', justifyContent:'center' }}>
+          <div style={{ background:'var(--card,#fff)', borderRadius:16, padding:'26px', maxWidth:400, width:'92%', boxShadow:'0 20px 60px rgba(0,0,0,.3)' }}>
+            <div style={{ fontSize:16, fontWeight:700, marginBottom:8 }}>🔄 Trocar número WhatsApp</div>
+            <p style={{ fontSize:13.5, color:'var(--muted)', lineHeight:1.6, marginBottom:14 }}>
+              O sistema vai desconectar o número atual e abrir o QR Code para você escanear com o novo celular.
             </p>
-            <div style={{ background:'#fef3c7', borderRadius:10, padding:'12px 14px', marginBottom:18, fontSize:13, color:'#92400e' }}>
-              <strong>⚠️</strong> As conversas existentes são mantidas. Apenas a conexão do WhatsApp muda.
+            <div style={{ background:'#fef3c7', borderRadius:9, padding:'11px', marginBottom:16, fontSize:13, color:'#92400e' }}>
+              ⚠️ As conversas existentes são mantidas. Apenas a sessão WhatsApp muda.
             </div>
-            <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:13, marginBottom:22, cursor:'pointer' }}>
+            <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:13, marginBottom:20, cursor:'pointer' }}>
               <input type="checkbox" checked={clearConvs} onChange={e=>setClearConvs(e.target.checked)}/>
-              <span>Remover contatos sem nome ("Contato 1234")</span>
+              Remover contatos sem nome ("Contato 1234")
             </label>
             <div style={{ display:'flex', gap:10 }}>
-              <button onClick={()=>setSwitchModal(false)} className="btn btn-g" style={{ flex:1, padding:'10px' }}>
-                Cancelar
-              </button>
-              <button onClick={switchNumber} disabled={loading==='switch'}
+              <button onClick={()=>setModal(false)} className="btn btn-g" style={{ flex:1, padding:'10px' }}>Cancelar</button>
+              <button onClick={switchNumber}
                 style={{ flex:1, padding:'10px', borderRadius:10, background:'var(--tq)', color:'#fff', border:'none', cursor:'pointer', fontWeight:700, fontSize:13, display:'flex', alignItems:'center', justifyContent:'center', gap:6 }}>
-                {loading==='switch'?<Loader2 size={14} style={{animation:'spin 1s linear infinite'}}/>:<ArrowRightLeft size={14}/>}
-                Trocar e gerar QR
+                <ArrowRightLeft size={13}/> Trocar e gerar QR
               </button>
             </div>
           </div>
