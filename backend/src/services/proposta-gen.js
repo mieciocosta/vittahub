@@ -3,9 +3,12 @@
 // Gera o HTML da proposta (plano vacinal ou vacinas individuais) com layout
 // branded, capa, logo e benefícios. O HTML é convertido em PDF por Puppeteer.
 // ═══════════════════════════════════════════════════════════════════════════
-const fs = require('fs');
-const path = require('path');
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 const ASSETS_DIR = path.join(__dirname, '../../assets/proposta');
 
 // Carrega imagem como data URI (base64) para embutir no HTML (Puppeteer renderiza offline)
@@ -404,18 +407,23 @@ ${benef2Url ? `<section class="static-page"><img src="${benef2Url}" alt="Benefí
 </body></html>`;
 }
 
-module.exports = {
+// helper: acha vacina por nome (com sinônimos)
+function acharVacina(nome) {
+  const n = String(nome).toLowerCase().trim();
+  const sin = { 'gripe':'influenza','pneumo 20':'pneumocócica 20','pneumo 15':'pneumocócica 15','pneumo':'pneumocócica','catapora':'varicela','menin b':'meningocócica b','menin':'meningocócica','hpv':'hpv','zoster':'zóster','zóster':'zóster','herpes':'zóster','rota':'rotavírus','hexa':'hexavalente','penta':'pentavalente','tripla':'tríplice','triplice':'tríplice' };
+  let v = VACINAS.find(x => x.nome.toLowerCase().includes(n) || n.includes(x.nome.toLowerCase()));
+  if (v) return v;
+  for (const [k, alvo] of Object.entries(sin)) {
+    if (n.includes(k)) { v = VACINAS.find(x => x.nome.toLowerCase().includes(alvo)); if (v) return v; }
+  }
+  return null;
+}
+
+export {
   PLANOS, PRECOS_PLANO, VACINAS, PACOTES, PRECO,
-  gerarHtmlOrcamento, gerarHtmlPlano,
-  // helper: acha vacina por nome (com sinônimos)
-  acharVacina(nome) {
-    const n = String(nome).toLowerCase().trim();
-    const sin = { 'gripe':'influenza','pneumo 20':'pneumocócica 20','pneumo 15':'pneumocócica 15','pneumo':'pneumocócica','catapora':'varicela','menin b':'meningocócica b','menin':'meningocócica','hpv':'hpv','zoster':'zóster','zóster':'zóster','herpes':'zóster','rota':'rotavírus','hexa':'hexavalente','penta':'pentavalente','tripla':'tríplice','triplice':'tríplice' };
-    let v = VACINAS.find(x => x.nome.toLowerCase().includes(n) || n.includes(x.nome.toLowerCase()));
-    if (v) return v;
-    for (const [k, alvo] of Object.entries(sin)) {
-      if (n.includes(k)) { v = VACINAS.find(x => x.nome.toLowerCase().includes(alvo)); if (v) return v; }
-    }
-    return null;
-  },
+  gerarHtmlOrcamento, gerarHtmlPlano, acharVacina,
+};
+export default {
+  PLANOS, PRECOS_PLANO, VACINAS, PACOTES, PRECO,
+  gerarHtmlOrcamento, gerarHtmlPlano, acharVacina,
 };

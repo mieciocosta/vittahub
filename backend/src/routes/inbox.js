@@ -6,6 +6,7 @@ import { query } from '../db/pool.js';
 import { auth, SECRET } from '../middleware/auth.js';
 import jwt from 'jsonwebtoken';
 import { socketEmit } from '../socketServer.js';
+import * as propostaGen from '../services/proposta-gen.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const r = express.Router();
@@ -376,8 +377,6 @@ function formatarPrecos(precos) {
 }
 
 // Gera PDF da proposta: HTML local (módulo proposta-gen) → Puppeteer
-const propostaGen = require('../services/proposta-gen');
-
 async function htmlParaPDF(html) {
   const puppeteer = (await import('puppeteer-core')).default;
   let browser;
