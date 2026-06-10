@@ -401,10 +401,10 @@ async function htmlParaPDF(html) {
 }
 
 // Proposta de VACINAS INDIVIDUAIS (gera localmente)
-async function gerarPropostaPDF({ nomeCliente, nomeBebe, template, pacoteNome, vacinas, desconto, parcelas }) {
+async function gerarPropostaPDF({ nomeCliente, nomeBebe, template, pacoteNome, vacinas, desconto, parcelas, creditoFechado }) {
   const html = propostaGen.gerarHtmlOrcamento({
     vacinas, template: template || 'adulto', nomeCliente, nomeBebe, pacoteNome,
-    desconto: desconto || 0, parcelas: parcelas || 1,
+    desconto: desconto || 0, parcelas: parcelas || 1, creditoFechado: creditoFechado || 0,
   });
   return htmlParaPDF(html);
 }
@@ -422,6 +422,377 @@ async function enviarPDFZapi(phone, pdfBase64, fileName = 'Proposta-Vittalis.pdf
     document: `data:application/pdf;base64,${pdfBase64}`,
     fileName,
   });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// VITTA — IA com DEBOUNCE por conversa
+// Antes: cada mensagem do cliente disparava uma chamada de IA independente,
+// gerando 2-3 respostas seguidas que se contradiziam (e perdiam o lead).
+// Agora: as mensagens são agregadas por alguns segundos e a Vitta responde
+// UMA vez, lendo o histórico inteiro como turnos reais de conversa.
+// ═══════════════════════════════════════════════════════════════════════════
+const BOT_DEBOUNCE_MS = 7000;
+const botSessions = new Map(); // convId -> { timer, running, again }
+
+function agendarVitta(convId) {
+  let sess = botSessions.get(convId);
+  if (!sess) { sess = { timer: null, running: false, again: false }; botSessions.set(convId, sess); }
+  if (sess.running) { sess.again = true; return; } // chegou msg enquanto gerava → reprocessa depois
+  if (sess.timer) clearTimeout(sess.timer);
+  sess.timer = setTimeout(() => dispararVitta(convId), BOT_DEBOUNCE_MS);
+}
+
+async function dispararVitta(convId) {
+  const sess = botSessions.get(convId);
+  if (!sess) return;
+  if (sess.running) { sess.again = true; return; }
+  sess.running = true; sess.again = false; sess.timer = null;
+  try {
+    await vittaResponder(convId);
+  } catch (e) {
+    console.error('Vitta error:', e.message);
+  } finally {
+    sess.running = false;
+    // Chegaram mensagens novas enquanto a Vitta respondia → roda mais uma vez
+    if (sess.again) { sess.again = false; sess.timer = setTimeout(() => dispararVitta(convId), 1500); }
+  }
+}
+
+// Monta os textos de referência (calendário, pacotes e planos) para o prompt
+function montarConhecimentoVacinal() {
+  const completo = propostaGen.PLANOS.find(p => p.id === 'plano_completo_0_a_18_meses');
+  const calendario = completo.vacinas.map(g =>
+    `- ${g.mes}: ${g.itens.map(i => i.nome + (i.obs ? ` (${i.obs})` : '')).join(' + ')}`
+  ).join('\n');
+  const pacotes = propostaGen.PACOTES.map(p => {
+    const vacs = p.vacinas.map(i => propostaGen.VACINAS[i]?.nome).filter(Boolean).join(' + ');
+    return `- ${p.label} [pacoteId: ${p.id}] (${vacs}): R$ ${p.avista} à vista ou R$ ${p.credito} no crédito em até ${p.parcelas}x sem juros`;
+  }).join('\n');
+  const planos = propostaGen.PLANOS.map(p => {
+    const pr = propostaGen.PRECOS_PLANO[p.id] || {};
+    return `- ${p.nome} [planoId: ${p.id}]: R$ ${pr.avista} à vista ou R$ ${pr.credito} no crédito em até ${pr.parcelas}x sem juros`;
+  }).join('\n');
+  return { calendario, pacotes, planos };
+}
+
+async function vittaResponder(convId) {
+  // Estado mais recente — o humano pode ter assumido (bot_ativo=false) nesse meio-tempo
+  const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [convId]);
+  if (!conv || !conv.bot_ativo) return;
+  const { rows: [cfgRow] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'");
+  const cfg = cfgRow?.valor || {};
+  if (cfg.ativo === false) return;
+
+  // Histórico em ordem cronológica: textos + documentos (a Vitta precisa saber
+  // que JÁ enviou um PDF para não oferecer de novo)
+  const { rows: histRows } = await query(
+    `SELECT from_type, type, content, filename FROM mensagens
+     WHERE conversa_id = $1 AND type IN ('text','document') AND from_type <> 'system'
+     ORDER BY created_at DESC LIMIT 30`,
+    [convId]
+  );
+  const hist = histRows.reverse();
+  if (!hist.length) return;
+
+  // Só responde se a ÚLTIMA mensagem é do cliente (evita resposta dupla)
+  if (hist[hist.length - 1].from_type !== 'contact') return;
+
+  let phoneNum = String(conv.phone || '').replace(/\D/g, '');
+  if (phoneNum.startsWith('55') && phoneNum.length >= 12) phoneNum = phoneNum.slice(2);
+
+  // Sem API key: só uma saudação simples na primeira mensagem, sem inventar
+  if (!process.env.ANTHROPIC_API_KEY) {
+    const jaRespondeu = hist.some(m => m.from_type === 'bot' || m.from_type === 'me');
+    if (!jaRespondeu && zapiOk()) {
+      const saud = 'Oi! Sou a Vitta, da Vittalis Saúde. Como posso te ajudar?';
+      await zapiCall('/send-text', 'POST', { phone: `55${phoneNum}`, message: saud });
+      const { rows: [botMsg] } = await query(
+        `INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome)
+         VALUES ($1,'bot','text',$2,'Vitta') RETURNING *`, [convId, saud]);
+      if (botMsg) socketEmit('new_message', { convId, message: botMsg, conv });
+    }
+    return;
+  }
+
+  // Turnos reais user/assistant (mensagens seguidas do mesmo lado viram um turno)
+  const turns = [];
+  for (const m of hist) {
+    const role = m.from_type === 'contact' ? 'user' : 'assistant';
+    const txt = m.type === 'document'
+      ? `[Enviei o PDF: ${m.filename || m.content || 'documento'}]`
+      : String(m.content || '').slice(0, 600);
+    if (!txt.trim()) continue;
+    if (turns.length && turns[turns.length - 1].role === role) turns[turns.length - 1].content += '\n' + txt;
+    else turns.push({ role, content: txt });
+  }
+  while (turns.length && turns[0].role !== 'user') turns.shift();
+  if (!turns.length || turns[turns.length - 1].role !== 'user') return;
+
+  const { default: fetch } = await import('node-fetch');
+  const botInstrucoes = process.env.BOT_INSTRUCOES || cfg.instrucoes || '';
+  const precos = await getPrecosVittaSys();
+  const tabelaPrecos = formatarPrecos(precos);
+  const conhecimento = montarConhecimentoVacinal();
+
+  const sysPrompt = `Você é uma atendente experiente da Vittalis Saúde, atendendo pelo WhatsApp. Você já fez milhares de atendimentos e é uma das que mais convertem. Você NÃO é um robô de FAQ — você conversa como uma pessoa de verdade, com calor e inteligência comercial. Nunca diga que é uma IA, a menos que perguntem diretamente.
+
+SOBRE A VITTALIS:
+- Clínica de pediatria, vacinação e especialidades em São Luís, MA
+- Atendimentos: pediatria, vacinação infantil e adulto (em clínica ou domiciliar), planos vacinais, pneumologia, psicologia, neuropsicologia, psicopedagogia, terapias e especialidades médicas
+- Endereço: Business Center Renascença, Av. Coronel Colares Moreira 3, salas 36 e 37 — no térreo, logo na entrada principal, em frente à Clínica Só Gastro. Maps: https://g.co/kgs/Qo2jucT
+- Horário: seg a sex 8h-18h, sáb 8h-12h
+- WhatsApp: (98) 98422-1002 | Site: vittalissaude.com.br
+- Pagamento: Pix, espécie, ou parcelado no crédito sem juros
+- Bônus dos planos: isenção da taxa domiciliar, imunização simultânea (2 vacinadoras), Buzzy (aparelho europeu que ameniza até 90% da dor), brinquedo musical, cineminha em casa, presente personalizado
+${botInstrucoes ? `\nINFORMAÇÕES ADICIONAIS:\n${botInstrucoes}` : ''}${tabelaPrecos}
+
+CALENDÁRIO VACINAL OFICIAL DA CLÍNICA (por idade — NUNCA invente o esquema, use exatamente isto):
+${conhecimento.calendario}
+
+PACOTES MENSAIS (preço fechado, mais vantajoso que avulso — quando o cliente pede "as vacinas de X meses", é ISTO):
+${conhecimento.pacotes}
+
+PLANOS VACINAIS COMPLETOS (cronograma inteiro em PDF com capa e benefícios):
+${conhecimento.planos}
+
+REGRAS DE OURO (a falha mais grave que existe é re-perguntar o que o cliente JÁ disse — isso perde a venda):
+1. LEIA O HISTÓRICO antes de responder. Se o cliente já informou idade, nome ou o que quer, USE essa informação. NUNCA pergunte de novo.
+2. Mensagens curtas (1 a 4 frases) e no máximo UMA pergunta por mensagem.
+3. "Vacinas de X meses" = o PACOTE MENSAL de X meses do calendário acima, com as vacinas exatas daquele mês e o preço fechado. Não confunda com o plano completo.
+4. Se o cliente quer só as vacinas do mês, ofereça o plano completo no máximo UMA vez como alternativa — se ele não quiser, siga com o que ele pediu.
+5. Nunca peça desculpas mais de uma vez. Nunca repita uma pergunta já respondida. Se você se confundiu, corrija e avance direto.
+6. Quando já tiver o essencial (para quem é + o que quer), AJA: informe valores, envie a proposta ou conduza pro agendamento. Não enrole.
+
+SEU JEITO DE ATENDER (baseado nas melhores atendentes reais da clínica):
+
+DESCUBRA ANTES DE OFERECER, mas só o que falta. Se não souber para quem é, pergunte "Seria para adulto ou criança?". Se já souber, vá direto ao ponto.
+
+NUNCA RESPONDA COMO FAQ. Nada de "Consultas: temos. Horários: seg a sex." Fale como gente, em texto fluido.
+
+CONDUZA, não fique esperando. Sempre puxe a próxima etapa. Cliente: "Vocês têm pediatra?" → "Temos sim, um time de pediatras. A consulta seria de rotina ou há alguma queixa específica?"
+
+GERE VALOR ANTES DO PREÇO, em uma frase só. Ex: "Essa é a proteção contra meningite, uma das mais importantes dessa fase. O pacote dos 5 meses fica R$ 1.200 à vista."
+
+VENDA EXPERIÊNCIA: segurança, tranquilidade, proteção e cuidado com a família. Mencione os diferenciais (Buzzy, vacinação simultânea, atendimento domiciliar) quando fizer sentido.
+
+ACOLHA COM NATURALIDADE. Com bebês, pode chamar de "princesa" ou "príncipe" — com moderação, sem exagero.
+
+NÃO DEIXE A CONVERSA MORRER. "Vou pensar" / "tá caro" / "vou ver com meu marido" → acolha e mantenha a porta aberta: "Claro, converse com ele! Será um prazer cuidar da princesa. Qualquer dúvida estou aqui." Ofereça agendar um retorno.
+
+PROIBIDO:
+- Responder como FAQ, central de atendimento ou chatbot
+- Listas e tópicos desnecessários (prefira texto corrido)
+- Títulos em maiúsculas tipo "CONSULTAS", "VALORES"
+- Excesso de emojis (no máximo 1 por mensagem, às vezes nenhum)
+- Inventar preços, esquemas vacinais, horários ou disponibilidade
+- Dar diagnóstico médico ou prescrever remédio (em urgência, oriente atendimento presencial)
+- Respostas de uma palavra só
+
+FERRAMENTAS (PDF e equipe):
+- Cliente quer orçamento das vacinas de um MÊS específico → "enviar_proposta" com pacoteId (ex: 5 meses → pacoteId "5m"). O PDF sai com o preço fechado do pacote.
+- Cliente quer vacinas avulsas específicas → "enviar_proposta" com a lista em vacinas (mapeie: "gripe"=Influenza, "pneumo 20"=Pneumocócica 20, "catapora"=Varicela).
+- Bebê + calendário/plano completo → "enviar_plano" com o planoId conforme a idade. Descubra a idade antes (se ainda não souber).
+- Use o nome que já está no histórico, não pergunte de novo. Template "infantil" para criança, "adulto" para o resto.
+- Depois de enviar o PDF, faça follow-up curto e conduza pro fechamento/agendamento.
+- Lead quente (quer fechar, agendar, confirmar pagamento) → "passar_para_equipe". Agendamento de data/horário é sempre com a equipe humana.
+
+Cliente atual: ${conv.contact_name || 'não identificado'}.`;
+
+  const tools = [{
+    name: 'enviar_proposta',
+    description: 'Gera e envia em PDF a proposta de vacinas via WhatsApp. Use pacoteId quando o cliente quer as vacinas de um mês específico do calendário (preço fechado com desconto). Use a lista vacinas apenas para pedidos avulsos que não correspondem a um pacote mensal.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        nomeCliente: { type: 'string', description: 'Nome do cliente ou responsável (do histórico)' },
+        nomeBebe: { type: 'string', description: 'Nome do bebê/paciente, se aplicável' },
+        template: { type: 'string', enum: ['infantil', 'adulto'], description: 'infantil para bebês/crianças, adulto para o resto' },
+        pacoteId: { type: 'string', enum: propostaGen.PACOTES.map(p => p.id), description: 'Pacote mensal fechado (ex: "5m" = vacinas de 5 meses). Tem prioridade sobre a lista de vacinas.' },
+        vacinas: { type: 'array', description: 'Nomes das vacinas avulsas (somente se não for pacote mensal)', items: { type: 'string' } },
+        parcelas: { type: 'number', description: 'Número de parcelas no cartão (padrão 1)' },
+      },
+      required: ['nomeCliente'],
+    },
+  }, {
+    name: 'enviar_plano',
+    description: 'Gera e envia em PDF um PLANO VACINAL completo (cronograma por idade, com capa e benefícios). Use quando o cliente quer o calendário/plano completo, em vez de vacinas de um único mês.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        planoId: {
+          type: 'string',
+          enum: ['plano_0_a_6_meses','plano_0_a_9_meses','plano_2_a_6_meses','plano_2_a_9_meses','plano_2_a_18_meses','plano_completo_0_a_18_meses'],
+          description: 'Escolha conforme a idade atual do bebê e até quando quer o calendário',
+        },
+      },
+      required: ['planoId'],
+    },
+  }, {
+    name: 'passar_para_equipe',
+    description: 'Marca o lead como qualificado e sinaliza que a equipe humana deve assumir. Use quando o cliente quer agendar data/horário, fechar, confirmar pagamento, ou tem questão que exige humano.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        motivo: { type: 'string', description: 'Por que está passando (ex: quer agendar, quer fechar a compra)' },
+        resumo: { type: 'string', description: 'Resumo do interesse (vacinas, paciente, contexto)' },
+      },
+      required: ['motivo'],
+    },
+  }];
+
+  const aiResp = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': process.env.ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 450,
+      system: sysPrompt,
+      tools,
+      messages: turns,
+    }),
+  });
+  const aiData = await aiResp.json();
+  if (aiData.error) { console.error('Vitta (Claude) erro:', JSON.stringify(aiData.error)); return; }
+
+  const toolUse = aiData.content?.find(c => c.type === 'tool_use' && c.name === 'enviar_proposta');
+  const toolPlano = aiData.content?.find(c => c.type === 'tool_use' && c.name === 'enviar_plano');
+  const toolPassar = aiData.content?.find(c => c.type === 'tool_use' && c.name === 'passar_para_equipe');
+  const textBlock = aiData.content?.find(c => c.type === 'text');
+  let botReply = textBlock?.text?.trim() || '';
+
+  // ── Enviar PLANO VACINAL completo ──
+  if (toolPlano) {
+    try {
+      const planoId = toolPlano.input?.planoId;
+      console.log('IA chamou enviar_plano:', planoId);
+      const pdfBuf = await gerarPlanoPDF({ planoId });
+      console.log('PDF plano gerado:', pdfBuf.length, 'bytes');
+      const planoNome = (propostaGen.PLANOS.find(p => p.id === planoId) || {}).nome || 'Plano Vacinal';
+      const zr = await enviarPDFZapi(`55${phoneNum}`, pdfBuf.toString('base64'), `${planoNome.replace(/\s+/g,'-')}.pdf`);
+      if (zr?.ok) {
+        const { rows: [pmsg] } = await query(
+          `INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, filename, created_at)
+           VALUES ($1,'bot','Vitta','document',$2,$3,NOW()) RETURNING *`,
+          [convId, `📎 ${planoNome}`, `${planoNome}.pdf`]
+        ).catch(() => ({ rows: [null] }));
+        if (pmsg) socketEmit('new_message', { convId, message: pmsg, conv });
+        if (!botReply) botReply = `Acabei de enviar o ${planoNome} em PDF. Qualquer dúvida me chama!`;
+      } else if (!botReply) {
+        botReply = 'Estou finalizando seu plano, a equipe envia em instantes.';
+      }
+    } catch (e) { console.error('Erro enviar_plano:', e.message); ultimoPropostaDebug = { etapa:'plano', erro:e.message }; }
+  }
+
+  // ── Qualificou o lead → passa para a equipe humana ──
+  if (toolPassar) {
+    try {
+      const info = toolPassar.input || {};
+      console.log('IA qualificou lead:', JSON.stringify(info));
+      await query('UPDATE conversas SET bot_ativo = false WHERE id = $1', [convId]);
+      await query(
+        `INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, created_at)
+         VALUES ($1,'system','Sistema','text',$2,NOW())`,
+        [convId, `🔔 Lead qualificado pela Vitta — ${info.motivo}${info.resumo ? `. ${info.resumo}` : ''}`]
+      ).catch(() => {});
+      socketEmit('bot_status', { convId, bot_ativo: false });
+      socketEmit('lead_qualificado', { convId, motivo: info.motivo, resumo: info.resumo });
+      if (!botReply) botReply = 'Vou passar você para um especialista da nossa equipe que vai finalizar seu atendimento. Um instante!';
+    } catch (e) { console.error('Erro passar_para_equipe:', e.message); }
+  }
+
+  // ── Enviar PROPOSTA (pacote mensal ou vacinas avulsas) ──
+  if (toolUse) {
+    console.log('IA chamou enviar_proposta:', JSON.stringify(toolUse.input));
+    try {
+      const args = toolUse.input || {};
+      let vacinasObj = [];
+      let desconto = 0;
+      let parcelas = args.parcelas || 1;
+      let pacoteNome = 'Proposta de Vacinas';
+      let template = args.template || 'adulto';
+      let creditoFechado = 0;
+
+      // Pacote mensal fechado (preço com desconto correto)
+      if (args.pacoteId) {
+        const mp = propostaGen.montarPacote(args.pacoteId);
+        if (mp) {
+          vacinasObj = mp.vacinas;
+          desconto = mp.desconto;
+          parcelas = mp.parcelas;
+          pacoteNome = mp.label;
+          template = 'infantil';
+          creditoFechado = mp.credito;
+        }
+      }
+
+      // Vacinas avulsas (usa o catálogo + sinônimos do proposta-gen)
+      if (!vacinasObj.length) {
+        vacinasObj = (args.vacinas || []).map(n => propostaGen.acharVacina(n)).filter(Boolean);
+      }
+
+      if (vacinasObj.length) {
+        console.log('Vacinas mapeadas:', vacinasObj.map(v => v.nome).join(', '), desconto ? `(pacote, desconto R$${desconto})` : '');
+        let pdfBuf;
+        try {
+          pdfBuf = await gerarPropostaPDF({
+            nomeCliente: args.nomeCliente || conv.contact_name || 'Cliente',
+            nomeBebe: args.nomeBebe,
+            template,
+            pacoteNome,
+            vacinas: vacinasObj,
+            desconto,
+            parcelas,
+            creditoFechado,
+          });
+          console.log('PDF gerado:', pdfBuf.length, 'bytes');
+        } catch (pdfErr) {
+          console.error('ERRO ao gerar PDF:', pdfErr.message);
+          ultimoPropostaDebug = { etapa: 'gerar_pdf', erro: pdfErr.message, at: new Date().toISOString() };
+          throw pdfErr;
+        }
+
+        const zr = await enviarPDFZapi(`55${phoneNum}`, pdfBuf.toString('base64'), `Proposta-Vittalis.pdf`);
+        const zrBody = await zr?.text().catch(() => '');
+        console.log('Envio Z-API PDF:', zr?.status, zrBody.slice(0, 200));
+        ultimoPropostaDebug = { etapa: 'enviar_zapi', status: zr?.status, body: zrBody.slice(0, 200), pdfBytes: pdfBuf.length, at: new Date().toISOString() };
+
+        if (zr?.ok) {
+          const { rows: [pmsg] } = await query(
+            `INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, filename, created_at)
+             VALUES ($1,'bot','Vitta','document',$2,$3,NOW()) RETURNING *`,
+            [convId, `📎 ${pacoteNome}`, 'Proposta-Vittalis.pdf']
+          ).catch(() => ({ rows: [null] }));
+          if (pmsg) socketEmit('new_message', { convId, message: pmsg, conv });
+          if (!botReply) botReply = 'Pronto! Acabei de enviar sua proposta em PDF. Qualquer dúvida me chama!';
+        } else {
+          console.error('Z-API rejeitou o PDF:', zr?.status, zrBody);
+          botReply = 'Tive um problema técnico ao enviar o PDF. Já avisei a equipe, que envia em instantes.';
+        }
+      } else if (!botReply) {
+        // Sem fallback de Influenza: enviar a vacina errada é pior que perguntar
+        botReply = 'Só me confirma qual vacina você gostaria no orçamento?';
+      }
+    } catch (e) {
+      console.error('Erro tool proposta:', e.message);
+      if (!botReply) botReply = 'Estou preparando sua proposta, a equipe finaliza o envio em instantes.';
+    }
+  }
+
+  if (botReply && zapiOk()) {
+    await zapiCall('/send-text', 'POST', { phone: `55${phoneNum}`, message: botReply });
+    const { rows: [botMsg] } = await query(
+      `INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome)
+       VALUES ($1,'bot','text',$2,'Vitta') RETURNING *`,
+      [convId, botReply]
+    );
+    await query('UPDATE conversas SET last_message=$1, last_message_at=NOW() WHERE id=$2',
+      [botReply.slice(0, 100), convId]);
+    if (botMsg) socketEmit('new_message', { convId, message: botMsg, conv });
+  }
 }
 
 
@@ -634,323 +1005,12 @@ r.post('/webhook/zapi', async (req, res) => {
     }
 
     // ─── VITTA — IA CONVERSACIONAL COM CLAUDE ─────────────────────────────────
-    // Responde a texto real OU áudio transcrito
+    // Responde a texto real OU áudio transcrito.
+    // DEBOUNCE: mensagens em sequência são agregadas e a Vitta responde UMA
+    // única vez lendo o histórico completo — corrige as respostas triplicadas
+    // que se contradiziam e re-perguntavam o que o cliente já tinha dito.
     if (conv.bot_ativo && textoParaIA) {
-      try {
-        const msgCliente = textoParaIA; // texto digitado ou áudio transcrito
-        const { rows: [cfgRow] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'");
-        const cfg = cfgRow?.valor || {};
-        if (cfg.ativo === false) throw new Error('bot desabilitado');
-
-        // Histórico da conversa para contexto
-        const { rows: history } = await query(
-          `SELECT from_type, content FROM mensagens
-           WHERE conversa_id = $1 AND type = 'text'
-           ORDER BY created_at DESC LIMIT 20`,
-          [conv.id]
-        );
-        const historyText = history.reverse()
-          .filter(m => m.content && m.content.length < 500)
-          .map(m => `${m.from_type === 'me' || m.from_type === 'bot' ? 'Vitta' : 'Cliente'}: ${m.content}`)
-          .join('\n');
-
-        let botReply = '';
-
-        // ── CLAUDE AI (quando ANTHROPIC_API_KEY está configurada) ──────────────
-        if (process.env.ANTHROPIC_API_KEY) {
-          try {
-            const { default: fetch } = await import('node-fetch');
-            const botInstrucoes = process.env.BOT_INSTRUCOES || cfg.instrucoes || '';
-
-            // Busca preços reais do VittaSys para a IA usar
-            const precos = await getPrecosVittaSys();
-            const tabelaPrecos = formatarPrecos(precos);
-
-            const sysPrompt = `Você é uma atendente experiente da Vittalis Saúde, atendendo pelo WhatsApp. Você já fez milhares de atendimentos e é uma das que mais convertem. Você NÃO é um robô de FAQ — você conversa como uma pessoa de verdade, com calor e inteligência comercial. Nunca diga que é uma IA, a menos que perguntem diretamente.
-
-SOBRE A VITTALIS:
-- Clínica de pediatria, vacinação e especialidades em São Luís, MA
-- Atendimentos: pediatria, vacinação infantil e adulto, planos vacinais, pneumologia, psicologia, neuropsicologia, psicopedagogia, terapias e especialidades médicas
-- Endereço: Business Center, Av. Coronel Colares Moreira 3, Salas 36-37, Jardim Renascença
-- Horário: seg a sex 8h-18h, sáb 8h-12h
-- WhatsApp: (98) 98422-1002 | Site: vittalissaude.com.br
-- Pagamento: Pix, espécie, ou parcelado no crédito
-- Bônus dos planos: isenção da taxa domiciliar, imunização simultânea (2 vacinadoras), Buzzy (aparelho europeu que ameniza até 90% da dor), brinquedo musical, cineminha em casa, presente personalizado
-${botInstrucoes ? `\nINFORMAÇÕES ADICIONAIS:\n${botInstrucoes}` : ''}${tabelaPrecos}
-
-SEU JEITO DE ATENDER (baseado nas melhores atendentes):
-
-DESCUBRA ANTES DE OFERECER. Nunca responda de imediato com informação solta. Primeiro entenda o contexto. Para quem é (adulto ou criança)? Qual a idade? Qual o motivo? Ex: cliente diz "tenho interesse em vacinação" → você responde "Seria para adulto ou criança?" antes de qualquer coisa.
-
-NUNCA RESPONDA COMO FAQ. Nada de "Consultas: temos. Horários: seg a sex." Isso parece robô. Fale como gente, em texto fluido. Ex ruim: "Vacinas: trabalhamos com Influenza." Ex bom: "Trabalhamos sim com a vacina da gripe. É para você ou para alguma criança?"
-
-CONDUZA, não fique esperando. Sempre puxe a próxima etapa. Cliente: "Vocês têm pediatra?" → "Temos sim, um time de pediatras. A consulta seria de rotina ou há alguma queixa específica que gostaria de avaliar?"
-
-GERE VALOR ANTES DO PREÇO. Nunca jogue só o número. Primeiro o benefício, depois o valor. Ex: "Essa vacina é importante porque protege contra doenças que podem trazer complicações sérias na infância. O valor dela é R$X."
-
-VENDA EXPERIÊNCIA, não só consulta. Em pediatria e vacinação, o que se vende é segurança, tranquilidade, proteção e o cuidado com a família.
-
-ACOLHA COM NATURALIDADE. Com bebês, você pode chamar de "princesa" ou "príncipe" — mas com moderação, ocasionalmente, sem exagero. Seja carinhosa sem parecer artificial.
-
-NÃO DEIXE A CONVERSA MORRER. Se o cliente disser "vou pensar", "tá caro" ou "vou ver com meu marido", não encerre. Acolha e continue conduzindo. Ex: "Claro, converse com ele! Será um prazer cuidar da princesa. Ela já tem pediatra?" Ofereça agendar um retorno.
-
-USE A MEMÓRIA. Lembre o nome, a idade da criança, o que já foi conversado. Nunca aja como se cada mensagem fosse uma conversa nova. Leia o histórico.
-
-PROIBIDO:
-- Responder como FAQ, central de atendimento ou chatbot
-- Listas e tópicos desnecessários (prefira texto corrido)
-- Títulos em maiúsculas tipo "CONSULTAS", "VALORES", "HORÁRIOS"
-- Excesso de emojis ou asteriscos (no máximo 1 emoji por mensagem, às vezes nenhum)
-- Inventar preços, horários ou disponibilidade
-- Dar diagnóstico médico ou prescrever remédio (em urgência, oriente atendimento presencial)
-- Respostas de uma palavra só
-
-ENVIAR PROPOSTA/PLANO EM PDF:
-- Vacina avulsa pedida → use "enviar_proposta" e envie na hora (mapeie: "gripe"=Influenza, "pneumo 20"=Pneumocócica 20, "catapora"=Varicela)
-- Bebê + calendário/plano por idade → use "enviar_plano" (planos: 0-6m, 0-9m, 2-6m, 2-9m, 2-18m, completo 0-18m). Antes de enviar, descubra a idade do bebê para escolher o plano certo.
-- Use o nome do contexto, não pergunte de novo. Template "infantil" para criança, "adulto" para o resto.
-- Depois de enviar, faça follow-up: "Deu uma olhadinha no plano? Posso tirar qualquer dúvida." E conduza pro fechamento/agendamento.
-- Lead quente (quer fechar, agendar, confirmar) → use "passar_para_equipe".
-
-Cliente atual: ${conv.contact_name || 'não identificado'}.`;
-
-            // Ferramenta de proposta — a IA chama quando o cliente quer o PDF
-            const tools = [{
-              name: 'enviar_proposta',
-              description: 'Gera e envia a proposta de vacinas em PDF para o cliente via WhatsApp. Use quando o cliente pedir orçamento/proposta em PDF e você já souber o nome dele e quais vacinas deseja.',
-              input_schema: {
-                type: 'object',
-                properties: {
-                  nomeCliente: { type: 'string', description: 'Nome do cliente ou responsável' },
-                  nomeBebe: { type: 'string', description: 'Nome do bebê/paciente, se aplicável' },
-                  template: { type: 'string', enum: ['infantil', 'adulto'], description: 'infantil para bebês/crianças, adulto para o resto' },
-                  vacinas: {
-                    type: 'array',
-                    description: 'Lista de nomes das vacinas que o cliente quer (devem existir na tabela de preços)',
-                    items: { type: 'string' }
-                  },
-                  parcelas: { type: 'number', description: 'Número de parcelas no cartão (padrão 1)' },
-                },
-                required: ['nomeCliente', 'vacinas'],
-              },
-            }, {
-              name: 'enviar_plano',
-              description: 'Gera e envia em PDF um PLANO VACINAL completo (cronograma de vacinas por idade do bebê/criança, com capa e benefícios). Use quando o cliente tem um bebê e quer o calendário/plano completo por faixa de idade, em vez de vacinas avulsas.',
-              input_schema: {
-                type: 'object',
-                properties: {
-                  planoId: {
-                    type: 'string',
-                    enum: ['plano_0_a_6_meses','plano_0_a_9_meses','plano_2_a_6_meses','plano_2_a_9_meses','plano_2_a_18_meses','plano_completo_0_a_18_meses'],
-                    description: 'Qual plano: escolha conforme a idade atual do bebê e até quando quer o calendário'
-                  },
-                },
-                required: ['planoId'],
-              },
-            }, {
-              name: 'passar_para_equipe',
-              description: 'Marca o lead como qualificado e sinaliza que a equipe humana deve assumir. Use quando o cliente quer agendar, fechar, confirmar pagamento, ou tem uma questão que exige um atendente humano.',
-              input_schema: {
-                type: 'object',
-                properties: {
-                  motivo: { type: 'string', description: 'Por que está passando (ex: quer agendar, quer fechar a compra, dúvida médica complexa)' },
-                  resumo: { type: 'string', description: 'Resumo do interesse do cliente para a equipe (vacinas, paciente, contexto)' },
-                },
-                required: ['motivo'],
-              },
-            }];
-
-            const aiResp = await fetch('https://api.anthropic.com/v1/messages', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'x-api-key': process.env.ANTHROPIC_API_KEY,
-                'anthropic-version': '2023-06-01',
-              },
-              body: JSON.stringify({
-                model: 'claude-sonnet-4-6',
-                max_tokens: 400,
-                system: sysPrompt,
-                tools,
-                messages: [
-                  ...(historyText ? [
-                    { role: 'user', content: historyText },
-                    { role: 'assistant', content: 'Entendido.' }
-                  ] : []),
-                  { role: 'user', content: msgCliente },
-                ],
-              }),
-            });
-            const aiData = await aiResp.json();
-            if (aiData.error) {
-              console.error('Vitta (Claude) erro:', JSON.stringify(aiData.error));
-            } else {
-              // Verifica se a IA quer usar alguma ferramenta
-              const toolUse = aiData.content?.find(c => c.type === 'tool_use' && c.name === 'enviar_proposta');
-              const toolPlano = aiData.content?.find(c => c.type === 'tool_use' && c.name === 'enviar_plano');
-              const toolPassar = aiData.content?.find(c => c.type === 'tool_use' && c.name === 'passar_para_equipe');
-              const textBlock = aiData.content?.find(c => c.type === 'text');
-              botReply = textBlock?.text?.trim() || '';
-
-              // ── Enviar PLANO VACINAL completo ──
-              if (toolPlano) {
-                try {
-                  const planoId = toolPlano.input?.planoId;
-                  console.log('IA chamou enviar_plano:', planoId);
-                  let phoneNum = conv.phone.replace(/\D/g, '');
-                  if (phoneNum.startsWith('55') && phoneNum.length >= 12) phoneNum = phoneNum.slice(2);
-                  const pdfBuf = await gerarPlanoPDF({ planoId });
-                  console.log('PDF plano gerado:', pdfBuf.length, 'bytes');
-                  const planoNome = (propostaGen.PLANOS.find(p => p.id === planoId) || {}).nome || 'Plano Vacinal';
-                  const zr = await enviarPDFZapi(`55${phoneNum}`, pdfBuf.toString('base64'), `${planoNome.replace(/\s+/g,'-')}.pdf`);
-                  if (zr?.ok) {
-                    const { rows: [pmsg] } = await query(
-                      `INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, filename, created_at)
-                       VALUES ($1,'bot','Vitta','document',$2,$3,NOW()) RETURNING *`,
-                      [conv.id, `📎 ${planoNome}`, `${planoNome}.pdf`]
-                    ).catch(() => ({ rows: [null] }));
-                    if (pmsg) socketEmit('new_message', { convId: conv.id, message: pmsg, conv });
-                    if (!botReply) botReply = `Enviei o ${planoNome} em PDF. Quer que eu reserve um horário com nossa equipe para começar?`;
-                  } else if (!botReply) {
-                    botReply = 'Estou finalizando seu plano, a equipe envia em instantes.';
-                  }
-                } catch (e) { console.error('Erro enviar_plano:', e.message); ultimoPropostaDebug = { etapa:'plano', erro:e.message }; }
-              }
-
-              // ── Qualificou o lead → passa para a equipe humana ──
-              if (toolPassar) {
-                try {
-                  const info = toolPassar.input || {};
-                  console.log('IA qualificou lead:', JSON.stringify(info));
-                  // Desliga o bot nesta conversa para o humano assumir
-                  await query('UPDATE conversas SET bot_ativo = false WHERE id = $1', [conv.id]);
-                  // Marca como lead quente (se houver coluna) e registra nota interna
-                  await query(
-                    `INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, created_at)
-                     VALUES ($1,'system','Sistema','text',$2,NOW())`,
-                    [conv.id, `🔔 Lead qualificado pela Vitta — ${info.motivo}${info.resumo ? `. ${info.resumo}` : ''}`]
-                  ).catch(() => {});
-                  socketEmit('bot_status', { convId: conv.id, bot_ativo: false });
-                  socketEmit('lead_qualificado', { convId: conv.id, motivo: info.motivo, resumo: info.resumo });
-                  if (!botReply) botReply = 'Vou passar você para um especialista da nossa equipe que vai finalizar seu atendimento. Um instante!';
-                } catch (e) { console.error('Erro passar_para_equipe:', e.message); }
-              }
-
-              if (toolUse) {
-                console.log('IA chamou enviar_proposta:', JSON.stringify(toolUse.input));
-                try {
-                  const args = toolUse.input || {};
-                  const precosTabela = await getPrecosVittaSys();
-                  console.log('Preços carregados:', precosTabela.length, 'itens');
-
-                  // Mapa de sinônimos comuns
-                  const sinonimos = {
-                    'gripe': 'influenza', 'influenza': 'influenza',
-                    'pneumo': 'pneumocócica', 'pneumonia': 'pneumocócica',
-                    'menin': 'meningocócica', 'meningite': 'meningocócica',
-                    'hpv': 'hpv', 'catapora': 'varicela', 'varicela': 'varicela',
-                    'hepatite': 'hepatite', 'dengue': 'dengue', 'covid': 'covid',
-                    'febre amarela': 'febre amarela', 'triplice': 'tríplice', 'tríplice': 'tríplice',
-                    'zoster': 'zóster', 'zóster': 'zóster', 'herpes': 'zóster',
-                    'rotavirus': 'rotavírus', 'rotavírus': 'rotavírus',
-                    'hexa': 'hexavalente', 'penta': 'pentavalente', 'dtpa': 'dtpa',
-                  };
-
-                  const acha = (nome) => {
-                    const n = String(nome).toLowerCase().trim();
-                    // match direto
-                    let v = precosTabela.find(p => p.nome.toLowerCase().includes(n) || n.includes(p.nome.toLowerCase()));
-                    if (v) return v;
-                    // match por sinônimo
-                    for (const [k, alvo] of Object.entries(sinonimos)) {
-                      if (n.includes(k)) {
-                        v = precosTabela.find(p => p.nome.toLowerCase().includes(alvo));
-                        if (v) return v;
-                      }
-                    }
-                    return null;
-                  };
-
-                  let vacinasObj = (args.vacinas || []).map(acha).filter(Boolean);
-
-                  // Se não achou nenhuma mas o cliente pediu proposta, usa Influenza como padrão
-                  if (!vacinasObj.length) {
-                    const influ = precosTabela.find(p => p.nome.toLowerCase().includes('influenza'));
-                    if (influ) vacinasObj = [influ];
-                  }
-
-                  if (vacinasObj.length) {
-                    console.log('Vacinas mapeadas:', vacinasObj.map(v => v.nome).join(', '));
-                    let phoneNum = conv.phone.replace(/\D/g, '');
-                    if (phoneNum.startsWith('55') && phoneNum.length >= 12) phoneNum = phoneNum.slice(2);
-                    let pdfBuf;
-                    try {
-                      pdfBuf = await gerarPropostaPDF({
-                        nomeCliente: args.nomeCliente || conv.contact_name || 'Cliente',
-                        nomeBebe: args.nomeBebe,
-                        template: args.template || 'adulto',
-                        pacoteNome: 'Proposta de Vacinas',
-                        vacinas: vacinasObj,
-                        desconto: 0,
-                        parcelas: args.parcelas || 1,
-                      });
-                      console.log('PDF gerado:', pdfBuf.length, 'bytes');
-                    } catch (pdfErr) {
-                      console.error('ERRO ao gerar PDF:', pdfErr.message);
-                      ultimoPropostaDebug = { etapa: 'gerar_pdf', erro: pdfErr.message, at: new Date().toISOString() };
-                      throw pdfErr;
-                    }
-
-                    const zr = await enviarPDFZapi(`55${phoneNum}`, pdfBuf.toString('base64'), `Proposta-Vittalis.pdf`);
-                    const zrBody = await zr?.text().catch(() => '');
-                    console.log('Envio Z-API PDF:', zr?.status, zrBody.slice(0, 200));
-                    ultimoPropostaDebug = { etapa: 'enviar_zapi', status: zr?.status, body: zrBody.slice(0, 200), pdfBytes: pdfBuf.length, at: new Date().toISOString() };
-
-                    if (zr?.ok) {
-                      const { rows: [pmsg] } = await query(
-                        `INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, filename, created_at)
-                         VALUES ($1,'bot','Vitta','document','📎 Proposta enviada',$2,NOW()) RETURNING *`,
-                        [conv.id, 'Proposta-Vittalis.pdf']
-                      ).catch(() => ({ rows: [null] }));
-                      if (pmsg) socketEmit('new_message', { convId: conv.id, message: pmsg, conv });
-                      botReply = 'Pronto! Acabei de enviar sua proposta em PDF.';
-                    } else {
-                      console.error('Z-API rejeitou o PDF:', zr?.status, zrBody);
-                      botReply = 'Tive um problema técnico ao enviar o PDF. Já avisei a equipe, que envia em instantes.';
-                    }
-                  } else {
-                    botReply = 'Para qual vacina você gostaria da proposta?';
-                  }
-                } catch (e) {
-                  console.error('Erro tool proposta:', e.message);
-                  if (!botReply) botReply = 'Estou preparando sua proposta, a equipe finaliza o envio em instantes.';
-                }
-              }
-            }
-          } catch (e) { console.error('Vitta bot error:', e.message); }
-        }
-
-        // ── FALLBACK (só se a IA Claude falhar) ────────────────────────────────
-        // Sem API key ou erro: responde apenas uma saudação simples, sem inventar
-        if (!botReply) {
-          const isFirstMsg = history.length <= 1;
-          if (isFirstMsg) {
-            botReply = `Oi! Sou a Vitta, da Vittalis Saúde. Como posso te ajudar?`;
-          }
-        }
-
-        if (botReply && zapiOk()) {
-          await zapiCall('/send-text', 'POST', { phone: `55${displayPhone}`, message: botReply });
-          const { rows: [botMsg] } = await query(
-            `INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome)
-             VALUES ($1,'bot','text',$2,'Vitta') RETURNING *`,
-            [conv.id, botReply]
-          );
-          await query('UPDATE conversas SET last_message=$1, last_message_at=NOW() WHERE id=$2',
-            [botReply.slice(0, 100), conv.id]);
-          if (botMsg) socketEmit('new_message', { convId: conv.id, message: botMsg, conv });
-        }
-      } catch (e) { if (e.message !== 'bot desabilitado') console.error('Vitta error:', e.message); }
+      agendarVitta(conv.id);
     }
   } catch (err) { console.error('ZAPI_ERROR:', err.message); }
 });

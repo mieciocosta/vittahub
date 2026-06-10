@@ -23,6 +23,40 @@ function imgDataUri(nomeArquivo) {
 }
 
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+
+// ─── ÍCONES SVG INLINE ───────────────────────────────────────────────────────
+// O Chromium do Railway NÃO tem fonte de emoji: emojis viram "quadradinhos" no
+// PDF. Por isso todos os ícones são SVG embutidos (estilo Lucide, traço limpo).
+const ICONS = {
+  bee: '<path d="m8 2 1.88 1.88M14.12 3.88 16 2M9 7.13v-1a3 3 0 1 1 6 0v1"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6"/><path d="M12 20v-9M6.53 9C4.6 8.8 3 7.1 3 5M6 13H2M3 21c0-2.1 1.7-3.9 3.8-4M17.47 9c1.93-.2 3.53-1.9 3.53-4M22 13h-4M17.2 17c2.1.1 3.8 1.9 3.8 4"/>',
+  doctor: '<path d="M5 3a2 2 0 0 0-2 2v4a6 6 0 0 0 12 0V5a2 2 0 0 0-2-2h-1"/><path d="M9 15v1a6 6 0 0 0 6 6 6 6 0 0 0 5-5.7V13"/><circle cx="20" cy="10" r="2"/><path d="M5 3v2M11 3v2"/>',
+  hand: '<path d="M18 11V6a2 2 0 0 0-4 0v5"/><path d="M14 10V4a2 2 0 0 0-4 0v2"/><path d="M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/>',
+  speaker: '<path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a9 9 0 0 1 0 14"/>',
+  music: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
+  syringe: '<path d="m18 2 4 4M17 7l3-3M19 9 9.7 18.3a2.4 2.4 0 0 1-3.4 0l-1.6-1.6a2.4 2.4 0 0 1 0-3.4L14 4"/><path d="m9 11 4 4M5 19l-3 3M14 4l6 6"/>',
+  idcard: '<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M16 10h2M16 14h2M6.2 15a3 3 0 0 1 5.6 0"/><circle cx="9" cy="11" r="2"/>',
+  flag: '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22v-7"/>',
+  shield: '<path d="M12 22s8-3.5 8-10V5l-8-3-8 3v7c0 6.5 8 10 8 10z"/>',
+  shieldcheck: '<path d="M12 22s8-3.5 8-10V5l-8-3-8 3v7c0 6.5 8 10 8 10z"/><path d="m9 12 2 2 4-4"/>',
+  heart: '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>',
+  zap: '<path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/>',
+  users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
+  baby: '<circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><path d="M9 9h.01M15 9h.01"/>',
+  user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  lock: '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+  phone: '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/>',
+  globe: '<circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>',
+  camera: '<rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="4"/><path d="M17.5 6.5h.01"/>',
+  sparkle: '<path d="M12 3l1.9 5.8 5.8 1.9-5.8 1.9L12 18.4l-1.9-5.8-5.8-1.9 5.8-1.9z"/>',
+  calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
+  card: '<rect x="1" y="4" width="22" height="16" rx="2"/><path d="M1 10h22"/>',
+  gift: '<path d="M20 12v10H4V12M2 7h20v5H2zM12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7zM12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/>',
+};
+function svgIcon(name, color = '#0d3b6e', size = 18, extraStyle = '') {
+  const d = ICONS[name];
+  if (!d) return '';
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;${extraStyle}">${d}</svg>`;
+}
 const fmtPreco = (v) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const _brlOrc = (v) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
@@ -102,13 +136,19 @@ const PLANOS = [
   ]},
 ];
 
+// Valores fechados dos planos. ÂNCORA REAL: o PDF oficial do "Plano Vacinal
+// completo 2 a 9 meses" (abr/2026) mostra Valor Normal R$ 8.760 → R$ 6.200 à
+// vista ou R$ 6.500 no crédito em 10x. A soma do catálogo PRECO bate exatamente
+// com os R$ 8.760 do PDF real, então o catálogo está correto.
+// Os planos marcados como (ESTIMADO ~29% off) seguem a mesma proporção do real
+// — *** Sr. Miécio: CONFIRMAR esses valores antes de divulgar ***
 const PRECOS_PLANO = {
-  'plano_0_a_6_meses':           { avista:1500, credito:1590, parcelas:6 },
-  'plano_0_a_9_meses':           { avista:1750, credito:1850, parcelas:6 },
-  'plano_2_a_6_meses':           { avista:1500, credito:1590, parcelas:6 },
-  'plano_2_a_9_meses':           { avista:1750, credito:1850, parcelas:6 },
-  'plano_2_a_18_meses':          { avista:5500, credito:5800, parcelas:12 },
-  'plano_completo_0_a_18_meses': { avista:6000, credito:6300, parcelas:12 },
+  'plano_0_a_6_meses':           { avista:5900, credito:6200, parcelas:10 }, // ESTIMADO (~29% off de R$ 8.330)
+  'plano_0_a_9_meses':           { avista:6200, credito:6500, parcelas:10 }, // REAL (PDF abr/2026)
+  'plano_2_a_6_meses':           { avista:5900, credito:6200, parcelas:10 }, // ESTIMADO (~29% off de R$ 8.330)
+  'plano_2_a_9_meses':           { avista:6200, credito:6500, parcelas:10 }, // REAL (PDF abr/2026)
+  'plano_2_a_18_meses':          { avista:9600, credito:9900, parcelas:12 }, // ESTIMADO (~29% off de R$ 13.570)
+  'plano_completo_0_a_18_meses': { avista:9600, credito:9900, parcelas:12 }, // ESTIMADO (~29% off de R$ 13.570)
 };
 
 // ─── VACINAS INDIVIDUAIS (com descrição, para orçamento avulso) ──────────────
@@ -152,10 +192,11 @@ const PACOTES = [
 // ═══════════════════════════════════════════════════════════════════════════
 // TEMPLATE 1 — ORÇAMENTO DE VACINAS INDIVIDUAIS (infantil/adulto)
 // ═══════════════════════════════════════════════════════════════════════════
-function gerarHtmlOrcamento({ vacinas, template = 'adulto', nomeCliente, nomeBebe, pacoteNome, desconto = 0, parcelas = 1 }) {
+function gerarHtmlOrcamento({ vacinas, template = 'adulto', nomeCliente, nomeBebe, pacoteNome, desconto = 0, parcelas = 1, creditoFechado = 0 }) {
   const isInfantil = template === 'infantil';
   const brutoAvista = vacinas.reduce((s, v) => s + Number(v.avista || 0), 0);
-  const totalCredito = vacinas.reduce((s, v) => s + Number(v.credito || 0), 0);
+  // creditoFechado: preço de cartão fechado do pacote (senão, soma das avulsas)
+  const totalCredito = creditoFechado > 0 ? Number(creditoFechado) : vacinas.reduce((s, v) => s + Number(v.credito || 0), 0);
   const totalAvista = Math.max(0, brutoAvista - (desconto || 0));
   const temDesconto = desconto > 0 && brutoAvista > 0;
   const pct = temDesconto ? Math.round(desconto / brutoAvista * 100) : 0;
@@ -174,22 +215,22 @@ function gerarHtmlOrcamento({ vacinas, template = 'adulto', nomeCliente, nomeBeb
   const tituloDoc = pacoteNome || (isInfantil ? 'Vacinas Infantis' : 'Vacinas');
 
   const benefInfantil = [
-    { icon:'🐝', t:'Buzzy', d:'Aparelho da Europa que ameniza até 90% da dor da picada' },
-    { icon:'👩‍⚕️', t:'Pós Vacinal', d:'Com Médica da Clínica' },
-    { icon:'🤲', t:'Massagem', d:'Para as mamães durante a vacinação' },
-    { icon:'🔊', t:'Ruído Branco', d:'Acalma o bebê no procedimento' },
-    { icon:'🧸', t:'Brinquedos', d:'Distração e conforto na consulta' },
-    { icon:'💉', t:'2 Vacinas simultâneas', d:'Menos visitas, menos dor' },
-    { icon:'📖', t:'Carteira', d:'Personalizada no fechamento do plano' },
-    { icon:'🇺🇸', t:'Vacinas EUA', d:'Maior eficácia e mais cepas' },
+    { icon:'bee',     t:'Buzzy', d:'Aparelho da Europa que ameniza até 90% da dor da picada' },
+    { icon:'doctor',  t:'Pós Vacinal', d:'Com Médica da Clínica' },
+    { icon:'hand',    t:'Massagem', d:'Para as mamães durante a vacinação' },
+    { icon:'speaker', t:'Ruído Branco', d:'Acalma o bebê no procedimento' },
+    { icon:'music',   t:'Brinquedos', d:'Distração e conforto na consulta' },
+    { icon:'syringe', t:'2 Vacinas simultâneas', d:'Menos visitas, menos dor' },
+    { icon:'idcard',  t:'Carteira', d:'Personalizada no fechamento do plano' },
+    { icon:'flag',    t:'Vacinas EUA', d:'Maior eficácia e mais cepas' },
   ];
   const benefAdulto = [
-    { icon:'🛡️', t:'Qualidade', d:'Vacinas importadas e de alta procedência' },
-    { icon:'👩‍⚕️', t:'Equipe', d:'Profissionais especializados em imunização' },
-    { icon:'⚡', t:'Agilidade', d:'Agendamento rápido e eficiente' },
-    { icon:'🔒', t:'Segurança', d:'Ambiente seguro, ético e humanizado' },
-    { icon:'💉', t:'Simultânea', d:'Até 2 vacinas na mesma visita' },
-    { icon:'🇺🇸', t:'Vacinas EUA', d:'Maior cobertura vacinal' },
+    { icon:'shield',  t:'Qualidade', d:'Vacinas importadas e de alta procedência' },
+    { icon:'doctor',  t:'Equipe', d:'Profissionais especializados em imunização' },
+    { icon:'zap',     t:'Agilidade', d:'Agendamento rápido e eficiente' },
+    { icon:'lock',    t:'Segurança', d:'Ambiente seguro, ético e humanizado' },
+    { icon:'syringe', t:'Simultânea', d:'Até 2 vacinas na mesma visita' },
+    { icon:'flag',    t:'Vacinas EUA', d:'Maior cobertura vacinal' },
   ];
   const beneficios = isInfantil ? benefInfantil : benefAdulto;
 
@@ -209,7 +250,7 @@ function gerarHtmlOrcamento({ vacinas, template = 'adulto', nomeCliente, nomeBeb
 
   const cardsHtml = beneficios.map(c => `
     <div style="background:rgba(255,255,255,.88);border:1px solid rgba(0,184,192,.18);border-radius:8px;padding:9px 7px;text-align:center;">
-      <div style="font-size:1.25rem;margin-bottom:3px;">${c.icon}</div>
+      <div style="margin-bottom:4px;">${svgIcon(c.icon, isInfantil ? '#e91e8c' : '#00B8C0', 22)}</div>
       <div style="font-weight:700;color:#0d3b6e;font-size:.66rem;margin-bottom:2px;">${c.t}</div>
       <div style="font-size:.6rem;color:#666;line-height:1.3;">${c.d}</div>
     </div>`).join('');
@@ -220,14 +261,14 @@ function gerarHtmlOrcamento({ vacinas, template = 'adulto', nomeCliente, nomeBeb
     bgPara:'linear-gradient(135deg,#1565c0,#0d47a1)', corPrim:'#1565c0', corAcento:'#e91e8c',
     corTotal:'#e91e8c', bgTotal:'linear-gradient(135deg,#e91e8c,#ad1457)', bgCred:'linear-gradient(135deg,#1565c0,#1976d2)',
     bgBenef:'linear-gradient(135deg,#fce4ec,#f8f9ff)', bgRodape:'linear-gradient(135deg,#1a237e,#1565c0)',
-    decoColor1:'rgba(233,30,140,.12)', decoColor2:'rgba(21,101,192,.10)', logoFilter:'', avatarIcon:'👶',
+    decoColor1:'rgba(233,30,140,.12)', decoColor2:'rgba(21,101,192,.10)', logoFilter:'', avatarIcon:'baby',
   } : {
     bgPage:'linear-gradient(160deg,#eceff1 0%,#f5f7fa 40%,#e8edf4 100%)',
     bgHeader:'linear-gradient(135deg,#0d3b6e,#1565c0)', bgPara:'linear-gradient(135deg,#0d3b6e,#1a3a5c)',
     corPrim:'#0d3b6e', corAcento:'#00B8C0', corTotal:'#00B8C0', bgTotal:'linear-gradient(135deg,#0d3b6e,#1565c0)',
     bgCred:'linear-gradient(135deg,#00838f,#00B8C0)', bgBenef:'linear-gradient(135deg,#eceff1,#f5f7fa)',
     bgRodape:'linear-gradient(135deg,#060f1a,#0d3b6e)', decoColor1:'rgba(0,184,192,.08)', decoColor2:'rgba(13,59,110,.06)',
-    logoFilter:'brightness(0) invert(1)', avatarIcon:'👤',
+    logoFilter:'brightness(0) invert(1)', avatarIcon:'user',
   };
 
   const descontoBox = temDesconto ? `
@@ -288,7 +329,7 @@ thead th{background:${C.bgPara};color:#fff;padding:7px;font-size:.68rem;text-tra
     </div>
   </div>
   <div class="para-box">
-    <div class="para-av">${C.avatarIcon}</div>
+    <div class="para-av">${svgIcon(C.avatarIcon, '#fff', 20)}</div>
     <div class="para-info"><div class="para-label">Proposta para</div><div class="para-nome">${propostaPara || '—'}</div></div>
   </div>
   <div class="tabela-wrap">
@@ -302,18 +343,18 @@ thead th{background:${C.bgPara};color:#fff;padding:7px;font-size:.68rem;text-tra
     <div class="cred-box"><div style="font-size:.66rem;opacity:.85;">No cartão</div><div class="v">${parcLabel}</div></div>
   </div>
   <div class="validade">Proposta válida por <b>2 dias</b> — até <b>${fmtData(dataValidade)}</b>. Garanta agora a saúde da sua família!</div>
-  <div class="benef-titulo">✨ Benefícios Exclusivos da Nossa Clínica</div>
+  <div class="benef-titulo">${svgIcon('sparkle', C.corAcento, 15, 'margin-right:4px;')}Benefícios Exclusivos da Nossa Clínica</div>
   <div class="benef-grid">${cardsHtml}</div>
   <div class="selos">
-    <div class="selo"><div class="si">🛡️</div><div class="st">Qualidade</div></div>
-    <div class="selo"><div class="si">🤝</div><div class="st">Confiança</div></div>
-    <div class="selo"><div class="si">💚</div><div class="st">Cuidado</div></div>
-    <div class="selo"><div class="si">⚡</div><div class="st">Agilidade</div></div>
-    <div class="selo"><div class="si">🇺🇸</div><div class="st">Vacinas EUA</div></div>
+    <div class="selo"><div class="si">${svgIcon('shield', C.corPrim, 19)}</div><div class="st">Qualidade</div></div>
+    <div class="selo"><div class="si">${svgIcon('users', C.corPrim, 19)}</div><div class="st">Confiança</div></div>
+    <div class="selo"><div class="si">${svgIcon('heart', C.corPrim, 19)}</div><div class="st">Cuidado</div></div>
+    <div class="selo"><div class="si">${svgIcon('zap', C.corPrim, 19)}</div><div class="st">Agilidade</div></div>
+    <div class="selo"><div class="si">${svgIcon('flag', C.corPrim, 19)}</div><div class="st">Vacinas EUA</div></div>
   </div>
   <div class="rodape">
     <div class="re"><strong>Vittalis Saúde</strong><br>Edifício Business Center — Renascença<br>Av. Cel. Colares Moreira, 3A, Térreo — São Luís, MA</div>
-    <div class="rd">📱 (98) 98422-1002<br>🌐 www.vittalissaude.com.br<br>📸 @vittalissaudeslz</div>
+    <div class="rd">${svgIcon('phone', '#fff', 11, 'margin-right:5px;')}(98) 98422-1002<br>${svgIcon('globe', '#fff', 11, 'margin-right:5px;')}www.vittalissaude.com.br<br>${svgIcon('camera', '#fff', 11, 'margin-right:5px;')}@vittalissaudeslz</div>
   </div>
 </div>
 </body></html>`;
@@ -343,7 +384,7 @@ function gerarHtmlPlano({ planoId, desconto = 0, parcelas, bonus = 'Atendimento 
   const vN = fmtPreco(bruto);
   const vD = avista < bruto ? fmtPreco(avista) : '';
   const vCredLabel = fmtPreco(credito);
-  const vP = parcQtd > 1 ? `${parcQtd}x de ${fmtPreco(credito / parcQtd)} sem juros` : '';
+  const vP = parcQtd > 1 ? `${parcQtd}x de ${fmtPreco(Math.ceil(credito / parcQtd))} sem juros` : '';
 
   const ativos = plano.vacinas.map(g => ({ mes: g.mes, itens: g.itens.filter(i => i.ativo) })).filter(g => g.itens.length);
   let vacH = '';
@@ -388,15 +429,15 @@ ${capaUrl ? `<section class="static-page"><img src="${capaUrl}" alt="Capa"/></se
     ${logoUrl ? `<img src="${logoUrl}" class="vac-logo" alt="Vittalis Saúde"/>` : ''}
     <div class="vac-tagline">C U I D A R &nbsp; É &nbsp; O &nbsp; N O S S O &nbsp; P R O P Ó S I T O</div>
     <div class="vac-title">${esc(plano.nome)}</div>
-    <div class="vac-pill">📅 ${esc(plano.periodo)}</div>
+    <div class="vac-pill">${svgIcon('calendar', '#fff', 16, 'margin-right:6px;margin-top:-2px;')}${esc(plano.periodo)}</div>
   </div>
   <div class="vac-card">${vacH}</div>
   <div class="vac-values">
     <div class="vv-normal">Valor Normal sem desconto: <span>${esc(vN)}</span></div>
     ${vD ? `<div class="vv-destaque"><span>Valor com desconto:</span><span class="vv-destaque-valor">${esc(vD)}</span><span>à vista</span></div>` : ''}
-    <div class="vv-parc">💳 Ou ${esc(vCredLabel)} no cartão${vP ? ' em ' + esc(vP) : ''}</div>
+    <div class="vv-parc">${svgIcon('card', '#fff', 13, 'margin-right:5px;margin-top:-2px;')}Ou ${esc(vCredLabel)} no cartão${vP ? ' em ' + esc(vP) : ''}</div>
   </div>
-  <div class="vac-bonus">🎁 Bônus: ${esc(bonus)}</div>
+  <div class="vac-bonus">${svgIcon('gift', '#1a8a7d', 14, 'margin-right:5px;margin-top:-2px;')}Bônus: ${esc(bonus)}</div>
   <footer class="vac-footer">
     <div><strong>NOSSO ENDEREÇO:</strong><br/>Edifício Business Center - Renascença<br/>Av. Coronel Colares Moreira, 3A, Térreo.</div>
     <div>(98) 98422 - 1002<br/>(98) 98423 - 3616<br/>www.vittalissaude.com.br<br/>vittalissaudeslz</div>
@@ -405,6 +446,25 @@ ${capaUrl ? `<section class="static-page"><img src="${capaUrl}" alt="Capa"/></se
 ${benef1Url ? `<section class="static-page"><img src="${benef1Url}" alt="Benefícios"/></section>` : ''}
 ${benef2Url ? `<section class="static-page"><img src="${benef2Url}" alt="Benefícios"/></section>` : ''}
 </body></html>`;
+}
+
+// helper: monta um pacote mensal fechado para o template de orçamento.
+// O desconto é a diferença entre a soma das vacinas avulsas e o preço fechado
+// do pacote — assim o PDF mostra "De R$X por R$Y" com valores corretos.
+function montarPacote(pacoteId) {
+  const id = String(pacoteId || '').toLowerCase().trim();
+  const p = PACOTES.find(x => x.id === id) || PACOTES.find(x => x.id === id.replace(/\D/g, '') + 'm');
+  if (!p) return null;
+  const vacs = p.vacinas.map(i => VACINAS[i]).filter(Boolean);
+  const bruto = vacs.reduce((s, v) => s + Number(v.avista || 0), 0);
+  return {
+    pacote: p,
+    vacinas: vacs,
+    desconto: Math.max(0, bruto - p.avista),
+    credito: p.credito,
+    parcelas: p.parcelas,
+    label: p.label,
+  };
 }
 
 // helper: acha vacina por nome (com sinônimos)
@@ -421,9 +481,9 @@ function acharVacina(nome) {
 
 export {
   PLANOS, PRECOS_PLANO, VACINAS, PACOTES, PRECO,
-  gerarHtmlOrcamento, gerarHtmlPlano, acharVacina,
+  gerarHtmlOrcamento, gerarHtmlPlano, acharVacina, montarPacote,
 };
 export default {
   PLANOS, PRECOS_PLANO, VACINAS, PACOTES, PRECO,
-  gerarHtmlOrcamento, gerarHtmlPlano, acharVacina,
+  gerarHtmlOrcamento, gerarHtmlPlano, acharVacina, montarPacote,
 };
