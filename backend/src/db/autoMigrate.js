@@ -150,8 +150,8 @@ export default async function runMigrate() {
             cor = EXCLUDED.cor, cpf = COALESCE(EXCLUDED.cpf, usuarios.cpf), ativo = true`,
           [nome, email, HASH, role, cor, cpf]);
       };
-      await upsert('miecio@vittalissaude.com.br',   'Miécio Costa',   'master',    '#207898', null);
-      await upsert('nagila@vittalissaude.com.br',   'Nágila Santos',  'master',    '#C4973B', null);
+      await upsert('miecio@vittalissaude.com.br',   'Miécio Costa',   'master',    '#207898', '02914270305');
+      await upsert('nagila@vittalissaude.com.br',   'Nágila Santos',  'master',    '#C4973B', '35411272874');
       await upsert('danielle@vittalissaude.com.br', 'Danielle Silva', 'atendente', '#8b5cf6', '61867382300');
       await upsert('raylane@vittalissaude.com.br',  'Raylane Moraes', 'atendente', '#00B8C0', '63358210367');
       // Desativa usuários de demonstração
@@ -159,6 +159,10 @@ export default async function runMigrate() {
       await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_producao_v1', '{"ok":true}') ON CONFLICT DO NOTHING`);
       console.log('🌱 Seed de produção aplicado (usuários reais, senha Vittalis@2026)');
     }
+
+    // ── CPFs dos masters (idempotente — corrige bancos onde o seed v1 já rodou) ──
+    await query(`UPDATE usuarios SET cpf = '02914270305' WHERE email = 'miecio@vittalissaude.com.br' AND cpf IS DISTINCT FROM '02914270305'`).catch(() => {});
+    await query(`UPDATE usuarios SET cpf = '35411272874' WHERE email = 'nagila@vittalissaude.com.br' AND cpf IS DISTINCT FROM '35411272874'`).catch(() => {});
 
     console.log('✅ Auto-migrate complete');
   } catch (err) {
