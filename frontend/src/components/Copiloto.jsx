@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Sparkles, X, FileText, Target, Lightbulb, PenLine, RefreshCw, ArrowUpLeft, AlertCircle, TrendingUp, TrendingDown, ChevronRight, MessageCircle, Paperclip, Send, ImageIcon, Mic, Square } from 'lucide-react';
 
 /* ─── Copiloto Vittalis ───────────────────────────────────────────────────────
@@ -32,6 +32,24 @@ function comprimirImagem(file, maxDim = 1600) {
     img.onerror = reject;
     img.src = URL.createObjectURL(file);
   });
+}
+
+
+
+async function arquivoParaBase64(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(String(r.result).split(',')[1]);
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+}
+
+function pedidoPareceImagem(texto, temImagem) {
+  const t = String(texto || '').toLowerCase();
+  const termosGerar = /(ger(a|e|ar)|cri(a|e|ar)|faz(er)?|mont(a|e|ar)|desenh(a|e|ar)|render|imagem|arte|folder|flyer|post|story|banner|layout|card)/i;
+  const termosEditar = /(deixa|troca|muda|alter(a|e|ar)|edita|ajusta|melhora|refina|remove|retira|coloca|azul|cor|fundo|texto|logo)/i;
+  return termosGerar.test(t) || (temImagem && termosEditar.test(t));
 }
 
 const INTENCAO_CFG = {
@@ -130,24 +148,31 @@ export default function Copiloto({ conv, onUse, onClose }) {
   const chatFileRef = useRef(null);
   const chatEndRef = useRef(null);
 
-  const anexarArquivo = async (e) => {
-    const f = e.target.files?.[0];
-    e.target.value = '';
+  const anexarArquivoDireto = async (f) => {
     if (!f) return;
     if (f.type === 'application/pdf') {
       if (f.size > 8 * 1024 * 1024) return; // PDF até 8MB
-      const data = await new Promise((res, rej) => {
-        const r = new FileReader();
-        r.onload = () => res(String(r.result).split(',')[1]);
-        r.onerror = rej;
-        r.readAsDataURL(f);
-      });
+      const data = await arquivoParaBase64(f);
       setChatPdf({ name: f.name.slice(0, 80), data });
       setChatImg(null);
       return;
     }
     if (!f.type.startsWith('image/')) return;
     try { setChatImg(await comprimirImagem(f)); setChatPdf(null); } catch {}
+  };
+
+  const anexarArquivo = async (e) => {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    await anexarArquivoDireto(f);
+  };
+
+  const colarArquivoNoChat = async (e) => {
+    const item = Array.from(e.clipboardData?.items || []).find(i => i.kind === 'file');
+    const f = item?.getAsFile?.();
+    if (!f) return;
+    e.preventDefault();
+    await anexarArquivoDireto(f);
   };
 
   // Gravação de áudio: a atendente fala, o Whisper transcreve e a IA responde
@@ -191,7 +216,8 @@ export default function Copiloto({ conv, onUse, onClose }) {
     try {
       const BASE = import.meta.env.VITE_API_URL || '';
       const tk = localStorage.getItem('vh_token') || '';
-      const resp = await fetch(`${BASE}/api/inbox/ai-chat`, {
+      const gerarImagem = !extra.audio && !pdf && pedidoPareceImagem(texto, !!img);
+      const resp = await fetch(`${BASE}/api/inbox/${gerarImagem ? 'ai-image' : 'ai-chat'}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}` },
         body: JSON.stringify({
@@ -205,7 +231,7 @@ export default function Copiloto({ conv, onUse, onClose }) {
       if (!resp.ok) throw new Error(d.error || `HTTP ${resp.status}`);
       // Áudio: troca o rótulo pela transcrição real (a equipe vê o que a IA entendeu)
       if (d.transcricao) setChatMsgs(p => p.map(m => m.id === idTmp ? { ...m, content: `🎤 ${d.transcricao}` } : m));
-      setChatMsgs(p => [...p, { role: 'assistant', content: d.texto }]);
+      setChatMsgs(p => [...p, { role: 'assistant', content: d.texto || 'Pronto.', image: d.image }]);
     } catch (e2) {
       setChatMsgs(p => [...p, { role: 'assistant', content: `Não consegui responder: ${e2.message}` }]);
     } finally {
@@ -260,9 +286,11 @@ export default function Copiloto({ conv, onUse, onClose }) {
               <div key={i} style={{ alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '88%' }}>
                 {m.preview && <img src={m.preview} alt="anexo" style={{ maxWidth: 160, borderRadius: 10, display: 'block', marginBottom: 4, border: `1px solid ${P.cardBorder}` }} />}
                 {m.pdfName && <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 9px', marginBottom: 4, borderRadius: 8, background: P.card, border: `1px solid ${P.cardBorder}`, fontSize: 10.5, color: P.txt2 }}><FileText size={11} color={P.tq} />{m.pdfName}</div>}
+                {m.image && <img src={m.image} alt="imagem gerada pela IA" style={{ maxWidth: '100%', borderRadius: 12, display: 'block', marginBottom: 6, border: `1px solid ${P.cardBorder}` }} />}
                 <div style={{ background: m.role === 'user' ? P.tqDim : P.card, border: `1px solid ${m.role === 'user' ? 'rgba(0,184,192,.35)' : P.cardBorder}`, borderRadius: m.role === 'user' ? '12px 12px 3px 12px' : '12px 12px 12px 3px', padding: '8px 11px', fontSize: 12.5, color: P.txt, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
                   {m.content}
                 </div>
+                {m.image && <a href={m.image} download={`imagem-vittalis-${Date.now()}.png`} style={{ marginTop: 5, display: 'inline-block', fontSize: 10.5, color: P.tq, fontWeight: 700, textDecoration: 'none' }}>Baixar imagem</a>}
                 {m.role === 'assistant' && !m.content.startsWith('Não consegui') && (
                   <button onClick={() => onUse?.(m.content)} style={{ marginTop: 4, display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 9px', borderRadius: 7, background: 'transparent', border: `1px solid ${P.cardBorder}`, color: P.txt3, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>
                     <ArrowUpLeft size={9} /> Usar no chat
@@ -309,7 +337,7 @@ export default function Copiloto({ conv, onUse, onClose }) {
               style={{ width: 32, height: 32, borderRadius: 9, background: gravando ? '#e84040' : P.card, border: `1px solid ${gravando ? '#e84040' : P.cardBorder}`, color: gravando ? '#fff' : P.txt2, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
               {gravando ? <Square size={12} /> : <Mic size={13} />}
             </button>
-            <textarea value={chatInput} onChange={e => setChatInput(e.target.value)} rows={1} placeholder="Pergunte, anexe ou fale com a IA…"
+            <textarea value={chatInput} onPaste={colarArquivoNoChat} onChange={e => setChatInput(e.target.value)} rows={1} placeholder="Pergunte, cole uma imagem, anexe ou fale com a IA…"
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviarChat(); } }}
               style={{ flex: 1, resize: 'none', padding: '8px 11px', borderRadius: 10, background: 'rgba(255,255,255,.07)', border: `1px solid ${P.cardBorder}`, color: P.txt, fontSize: 12.5, outline: 'none', lineHeight: 1.5, maxHeight: 90, fontFamily: 'inherit' }} />
             <button onClick={() => enviarChat()} disabled={chatLoading || (!chatInput.trim() && !chatImg && !chatPdf)}

@@ -96,6 +96,58 @@ async function transcreverAudio(base64, mime = 'audio/webm') {
   return (d.text || '').trim();
 }
 
+
+
+// Gera ou edita imagem com OpenAI Images API — usado pelo chat do Copiloto
+async function gerarImagemOpenAI({ prompt, image }) {
+  const { default: fetch } = await import('node-fetch');
+  const KEY = process.env.OPENAI_API_KEY;
+  if (!KEY) throw new Error('IA não configurada (OPENAI_API_KEY ausente)');
+
+  const texto = String(prompt || '').trim();
+  if (!texto && !image?.data) throw new Error('Informe uma descrição ou anexe uma imagem');
+
+  // Se veio imagem, usamos edição para preservar o material original e aplicar o pedido.
+  if (image?.data && image?.media_type) {
+    const FormData = (await import('form-data')).default;
+    const form = new FormData();
+    const ext = image.media_type.includes('jpeg') || image.media_type.includes('jpg') ? 'jpg' : 'png';
+    const buf = Buffer.from(image.data, 'base64');
+
+    form.append('model', process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1');
+    form.append('image', buf, { filename: `referencia.${ext}`, contentType: image.media_type });
+    form.append('prompt', texto || 'Melhore esta imagem mantendo a identidade visual original.');
+    form.append('size', process.env.OPENAI_IMAGE_SIZE || '1024x1024');
+
+    const resp = await fetch('https://api.openai.com/v1/images/edits', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${KEY}`, ...form.getHeaders() },
+      body: form,
+    });
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error.message || 'Erro ao editar imagem');
+    const b64 = data.data?.[0]?.b64_json;
+    if (!b64) throw new Error('A OpenAI não retornou a imagem gerada');
+    return `data:image/png;base64,${b64}`;
+  }
+
+  // Sem imagem anexada, gera do zero.
+  const resp = await fetch('https://api.openai.com/v1/images/generations', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${KEY}` },
+    body: JSON.stringify({
+      model: process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1',
+      prompt: texto,
+      size: process.env.OPENAI_IMAGE_SIZE || '1024x1024',
+    }),
+  });
+  const data = await resp.json();
+  if (data.error) throw new Error(data.error.message || 'Erro ao gerar imagem');
+  const b64 = data.data?.[0]?.b64_json;
+  if (!b64) throw new Error('A OpenAI não retornou a imagem gerada');
+  return `data:image/png;base64,${b64}`;
+}
+
 function cacheGetList({ channel, search, unread_only, waiting, page = 1, limit = 100, extraIds = null }) {
   let list = Array.from(convoCache.values())
     .sort((a, b) => new Date(b.last_message_at || 0) - new Date(a.last_message_at || 0));
@@ -2202,12 +2254,46 @@ r.post('/proposta/enviar', async (req, res) => {
   }
 });
 
+
+// ─── AI IMAGE — gera/edita imagens no chat do Copiloto ───────────────────────
+r.post('/ai-image', async (req, res) => {
+  try {
+    const KEY = process.env.OPENAI_API_KEY;
+    if (!KEY) return res.status(503).json({ error: 'IA não configurada (OPENAI_API_KEY ausente)' });
+
+    const { convId, message = '', image } = req.body;
+    let contexto = '';
+
+    if (convId) {
+      const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [convId]);
+      if (conv) {
+        contexto = `\n\nContexto comercial: imagem para uso interno da equipe Vittalis Saúde. Conversa aberta com ${conv.contact_name || 'cliente'}.`;
+      }
+    }
+
+    const promptBase = String(message || '').trim() || 'Crie uma imagem profissional para divulgação da Vittalis Saúde.';
+    const prompt = `${promptBase}${contexto}\n\nDireção visual: material de clínica de saúde premium, limpo, profissional, cores alinhadas à Vittalis Saúde, boa legibilidade, sem poluição visual. Se houver imagem anexada, preserve ao máximo o conteúdo principal e aplique somente a alteração solicitada.`;
+
+    const imageDataUrl = await gerarImagemOpenAI({ prompt, image });
+
+    res.json({
+      texto: 'Imagem gerada. Confira abaixo.',
+      image: imageDataUrl,
+    });
+  } catch (err) {
+    console.error('ai-image:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 r.post('/ai-chat', async (req, res) => {
   try {
     const KEY = process.env.OPENAI_API_KEY;
     if (!KEY) return res.status(503).json({ error: 'IA não configurada' });
     const { convId, history = [], message = '', image } = req.body;
-    if (!message.trim() && !image) return res.status(400).json({ error: 'Mensagem vazia' });
+    if (!String(message || '').trim() && !image && !req.body.pdf && !req.body.audio) {
+      return res.status(400).json({ error: 'Mensagem vazia' });
+    }
 
     // Contexto opcional: a conversa do WhatsApp aberta ao lado
     let contexto = '';
