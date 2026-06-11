@@ -45,25 +45,28 @@ async function arquivoParaBase64(file) {
   });
 }
 
-function detectarIntencaoChat(texto, temImagem, temPdf, temAudio) {
-  const t = String(texto || '')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .trim();
+function imagemDataUrlParaPayload(dataUrl) {
+  if (!dataUrl || typeof dataUrl !== 'string') return null;
+  const m = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+  if (!m) return null;
+  return { media_type: m[1], data: m[2], preview: dataUrl };
+}
 
-  if (temAudio) return 'chat';
-  if (temPdf) return 'chat';
+function pedidoPareceGeracaoImagem(texto) {
+  const t = String(texto || '').toLowerCase();
+  return /(ger(a|e|ar)|cri(a|e|ar)|faz(er)?|mont(a|e|ar)|desenh(a|e|ar)|renderiz(a|e|ar)).*(imagem|arte|folder|flyer|post|story|banner|layout|card)|^(imagem|arte|folder|flyer|post|story|banner|layout|card)\b/i.test(t);
+}
 
-  const pedePlano = /(plano personalizado|plano racional|plano vacinal|calendario vacinal|proposta|orcamento|pacote|vacinas|carteira de vacinacao|caderneta|monta.*plano|cria.*plano|fazer.*plano)/i.test(t);
-  if (pedePlano) return 'chat';
+function pedidoPareceEdicaoVisual(texto, temImagemDisponivel) {
+  const t = String(texto || '').toLowerCase();
+  if (!temImagemDisponivel) return false;
+  return /(inclu(a|ir)|adicione?|coloca(r)?|bota(r)?|retira(r)?|remove(r)?|troca(r)?|muda(r)?|alter(a|e|ar)|edita(r)?|ajusta(r)?|melhora(r)?|refina(r)?|corrige|corrigir|aumenta(r)?|diminui(r)?|deixa(r)?|mais azul|azul|tiffany|cor|fundo|texto|logo|bal(ã|a)o|bal(õ|o)es|corta|cortou|topo|rodap(e|é)|informa(ç|c)(õ|o)es|mant(e|é)m|preserva(r)?|igual)/i.test(t);
+}
 
-  const termosVisuais = /(imagem|arte|folder|flyer|post|story|banner|layout|card|criativo|design|thumbnail|carrossel)/i.test(t);
-  const acoesImagem = /(gerar|gere|criar|crie|fazer|faz|monte|montar|desenhar|renderizar|render|editar|edite|ajustar|ajuste|melhorar|melhore|refinar|refine|alterar|altere|trocar|troque|mudar|mude|remover|remove|retirar|retire|colocar|coloque|adicionar|adicione)/i.test(t);
-  const edicaoVisualComImagem = temImagem && /(deixa|troca|muda|altera|edita|ajusta|melhora|refina|remove|retira|coloca|adiciona|azul|tiffany|cor|fundo|texto|logo|balao|baloes|cortar|corte|sem cortar|completa|inteira|igual|topo|rodape|beb[eê]|preco|valor|whatsapp|instagram)/i.test(t);
-
-  if ((termosVisuais && acoesImagem) || edicaoVisualComImagem) return 'imagem';
-
+function decidirDestinoIA(texto, temImagemDisponivel, temPdf, temAudio) {
+  if (temAudio || temPdf) return 'chat';
+  if (pedidoPareceEdicaoVisual(texto, temImagemDisponivel)) return 'image';
+  if (pedidoPareceGeracaoImagem(texto)) return 'image';
   return 'chat';
 }
 
@@ -162,6 +165,8 @@ export default function Copiloto({ conv, onUse, onClose }) {
   const recRef = useRef(null);
   const chatFileRef = useRef(null);
   const chatEndRef = useRef(null);
+  const ultimaImagemOriginalRef = useRef(null);
+  const ultimaImagemGeradaRef = useRef(null);
 
   const anexarArquivoDireto = async (f) => {
     if (!f) return;
@@ -189,24 +194,6 @@ export default function Copiloto({ conv, onUse, onClose }) {
     e.preventDefault();
     await anexarArquivoDireto(f);
   };
-
-  // Permite colar imagem no painel inteiro quando a aba Chat está aberta,
-  // mesmo que o cursor não esteja exatamente dentro do textarea.
-  useEffect(() => {
-    if (mode !== 'chat') return;
-    const onPaste = async (e) => {
-      const target = e.target;
-      const estaDigitando = target?.tagName === 'TEXTAREA' || target?.tagName === 'INPUT' || target?.isContentEditable;
-      if (estaDigitando) return;
-      const item = Array.from(e.clipboardData?.items || []).find(i => i.kind === 'file');
-      const f = item?.getAsFile?.();
-      if (!f) return;
-      e.preventDefault();
-      await anexarArquivoDireto(f);
-    };
-    window.addEventListener('paste', onPaste);
-    return () => window.removeEventListener('paste', onPaste);
-  }, [mode]);
 
   // Gravação de áudio: a atendente fala, o Whisper transcreve e a IA responde
   const toggleGravacao = async () => {
@@ -249,27 +236,29 @@ export default function Copiloto({ conv, onUse, onClose }) {
     try {
       const BASE = import.meta.env.VITE_API_URL || '';
       const tk = localStorage.getItem('vh_token') || '';
-      const intencao = detectarIntencaoChat(texto, !!img, !!pdf, !!extra.audio);
-      const endpoint = intencao === 'imagem' ? 'ai-image' : 'ai-chat';
-      const resp = await fetch(`${BASE}/api/inbox/${endpoint}`, {
+
+      if (img) ultimaImagemOriginalRef.current = img;
+
+      const imagemParaEditar = img || ultimaImagemOriginalRef.current || imagemDataUrlParaPayload(ultimaImagemGeradaRef.current);
+      const destino = decidirDestinoIA(texto, !!imagemParaEditar, !!pdf, !!extra.audio);
+
+      const resp = await fetch(`${BASE}/api/inbox/${destino === 'image' ? 'ai-image' : 'ai-chat'}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}` },
         body: JSON.stringify({
           convId, history: historico, message: texto,
-          image: img ? { media_type: img.media_type, data: img.data } : undefined,
+          image: destino === 'image' && imagemParaEditar ? { media_type: imagemParaEditar.media_type, data: imagemParaEditar.data } : (img ? { media_type: img.media_type, data: img.data } : undefined),
           pdf: pdf ? { name: pdf.name, data: pdf.data } : undefined,
           audio: extra.audio,
+          preserveOriginal: destino === 'image' && !!imagemParaEditar,
         }),
       });
       const d = await resp.json();
       if (!resp.ok) throw new Error(d.error || `HTTP ${resp.status}`);
       // Áudio: troca o rótulo pela transcrição real (a equipe vê o que a IA entendeu)
       if (d.transcricao) setChatMsgs(p => p.map(m => m.id === idTmp ? { ...m, content: `🎤 ${d.transcricao}` } : m));
-      setChatMsgs(p => [...p, {
-        role: 'assistant',
-        content: d.texto || (d.image ? 'Imagem gerada. Confira abaixo.' : 'Pronto.'),
-        image: d.image,
-      }]);
+      if (d.image) ultimaImagemGeradaRef.current = d.image;
+      setChatMsgs(p => [...p, { role: 'assistant', content: d.texto || (d.image ? 'Imagem gerada. Confira abaixo.' : 'Pronto.'), image: d.image }]);
     } catch (e2) {
       setChatMsgs(p => [...p, { role: 'assistant', content: `Não consegui responder: ${e2.message}` }]);
     } finally {
@@ -329,7 +318,7 @@ export default function Copiloto({ conv, onUse, onClose }) {
                   {m.content}
                 </div>
                 {m.image && <a href={m.image} download={`imagem-vittalis-${Date.now()}.png`} style={{ marginTop: 5, display: 'inline-block', fontSize: 10.5, color: P.tq, fontWeight: 700, textDecoration: 'none' }}>Baixar imagem</a>}
-                {m.role === 'assistant' && !m.content.startsWith('Não consegui') && (
+                {m.role === 'assistant' && !m.image && !m.content.startsWith('Não consegui') && (
                   <button onClick={() => onUse?.(m.content)} style={{ marginTop: 4, display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 9px', borderRadius: 7, background: 'transparent', border: `1px solid ${P.cardBorder}`, color: P.txt3, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>
                     <ArrowUpLeft size={9} /> Usar no chat
                   </button>

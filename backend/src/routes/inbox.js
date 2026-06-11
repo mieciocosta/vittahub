@@ -96,58 +96,6 @@ async function transcreverAudio(base64, mime = 'audio/webm') {
   return (d.text || '').trim();
 }
 
-
-
-// Gera ou edita imagem com OpenAI Images API — usado pelo chat do Copiloto
-async function gerarImagemOpenAI({ prompt, image }) {
-  const { default: fetch } = await import('node-fetch');
-  const KEY = process.env.OPENAI_API_KEY;
-  if (!KEY) throw new Error('IA não configurada (OPENAI_API_KEY ausente)');
-
-  const texto = String(prompt || '').trim();
-  if (!texto && !image?.data) throw new Error('Informe uma descrição ou anexe uma imagem');
-
-  // Se veio imagem, usamos edição para preservar o material original e aplicar o pedido.
-  if (image?.data && image?.media_type) {
-    const FormData = (await import('form-data')).default;
-    const form = new FormData();
-    const ext = image.media_type.includes('jpeg') || image.media_type.includes('jpg') ? 'jpg' : 'png';
-    const buf = Buffer.from(image.data, 'base64');
-
-    form.append('model', process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1');
-    form.append('image', buf, { filename: `referencia.${ext}`, contentType: image.media_type });
-    form.append('prompt', texto || 'Melhore esta imagem mantendo a identidade visual original.');
-    form.append('size', process.env.OPENAI_IMAGE_SIZE || '1024x1024');
-
-    const resp = await fetch('https://api.openai.com/v1/images/edits', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${KEY}`, ...form.getHeaders() },
-      body: form,
-    });
-    const data = await resp.json();
-    if (data.error) throw new Error(data.error.message || 'Erro ao editar imagem');
-    const b64 = data.data?.[0]?.b64_json;
-    if (!b64) throw new Error('A OpenAI não retornou a imagem gerada');
-    return `data:image/png;base64,${b64}`;
-  }
-
-  // Sem imagem anexada, gera do zero.
-  const resp = await fetch('https://api.openai.com/v1/images/generations', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${KEY}` },
-    body: JSON.stringify({
-      model: process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1',
-      prompt: texto,
-      size: process.env.OPENAI_IMAGE_SIZE || '1024x1024',
-    }),
-  });
-  const data = await resp.json();
-  if (data.error) throw new Error(data.error.message || 'Erro ao gerar imagem');
-  const b64 = data.data?.[0]?.b64_json;
-  if (!b64) throw new Error('A OpenAI não retornou a imagem gerada');
-  return `data:image/png;base64,${b64}`;
-}
-
 function cacheGetList({ channel, search, unread_only, waiting, page = 1, limit = 100, extraIds = null }) {
   let list = Array.from(convoCache.values())
     .sort((a, b) => new Date(b.last_message_at || 0) - new Date(a.last_message_at || 0));
@@ -2255,31 +2203,72 @@ r.post('/proposta/enviar', async (req, res) => {
 });
 
 
-// ─── AI IMAGE — gera/edita imagens no chat do Copiloto ───────────────────────
 r.post('/ai-image', async (req, res) => {
   try {
     const KEY = process.env.OPENAI_API_KEY;
     if (!KEY) return res.status(503).json({ error: 'IA não configurada (OPENAI_API_KEY ausente)' });
 
-    const { convId, message = '', image } = req.body;
-    let contexto = '';
+    const { message = '', image } = req.body;
+    const promptUsuario = String(message || '').trim();
+    if (!promptUsuario && !image?.data) return res.status(400).json({ error: 'Descreva a imagem que deseja gerar ou editar' });
 
-    if (convId) {
-      const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [convId]);
-      if (conv) {
-        contexto = `\n\nContexto comercial: imagem para uso interno da equipe Vittalis Saúde. Conversa aberta com ${conv.contact_name || 'cliente'}.`;
+    const { default: fetch } = await import('node-fetch');
+    const FormData = (await import('form-data')).default;
+
+    const size = process.env.OPENAI_IMAGE_SIZE || '1024x1536';
+    const model = process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1';
+
+    const promptBase = `Você é um designer profissional da Vittalis Saúde, clínica de saúde, pediatria, vacinação e terapias.
+
+Tarefa do usuário:
+${promptUsuario || 'Melhore a imagem anexada mantendo a proposta original.'}
+
+REGRAS OBRIGATÓRIAS:
+- Se houver imagem anexada, edite a própria imagem. Não transforme em conselho de design.
+- Preserve a arte inteira, sem cortar topo, rodapé, preço, contatos, logo, benefícios, texto, bebê/pessoa ou informações importantes.
+- Mantenha o enquadramento vertical completo quando a imagem for folder/story.
+- Ao adicionar balões, ícones ou elementos decorativos, use poucos elementos, com acabamento profissional, sem cobrir textos ou valores.
+- Se o usuário reclamar que cortou algo, corrija mantendo a imagem completa e adicionando apenas o ajuste pedido.
+- Preserve a identidade visual da Vittalis Saúde, usando azul/tiffany, branco e tons limpos quando fizer sentido.
+- Entregue uma imagem pronta para WhatsApp/Instagram, com boa legibilidade e aparência comercial.`;
+
+    let data;
+
+    if (image?.data && image?.media_type) {
+      const form = new FormData();
+      const buf = Buffer.from(String(image.data), 'base64');
+      const ext = image.media_type.includes('png') ? 'png' : image.media_type.includes('webp') ? 'webp' : 'jpg';
+      form.append('model', model);
+      form.append('image', buf, { filename: `imagem.${ext}`, contentType: image.media_type });
+      form.append('prompt', promptBase);
+      form.append('size', size);
+
+      const resp = await fetch('https://api.openai.com/v1/images/edits', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${KEY}`, ...form.getHeaders() },
+        body: form,
+      });
+      data = await resp.json();
+      if (!resp.ok || data.error) {
+        throw new Error(data.error?.message || `Erro ao editar imagem (${resp.status})`);
+      }
+    } else {
+      const resp = await fetch('https://api.openai.com/v1/images/generations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${KEY}` },
+        body: JSON.stringify({ model, prompt: promptBase, size }),
+      });
+      data = await resp.json();
+      if (!resp.ok || data.error) {
+        throw new Error(data.error?.message || `Erro ao gerar imagem (${resp.status})`);
       }
     }
 
-    const promptBase = String(message || '').trim() || 'Crie uma imagem profissional para divulgação da Vittalis Saúde.';
-    const prompt = `${promptBase}${contexto}\n\nDireção visual: material de clínica de saúde premium, limpo, profissional, cores alinhadas à Vittalis Saúde, boa legibilidade, sem poluição visual. Se houver imagem anexada, preserve ao máximo o conteúdo principal e aplique somente a alteração solicitada.`;
+    const item = data.data?.[0] || {};
+    const imageOut = item.b64_json ? `data:image/png;base64,${item.b64_json}` : item.url;
+    if (!imageOut) throw new Error('A OpenAI não retornou a imagem');
 
-    const imageDataUrl = await gerarImagemOpenAI({ prompt, image });
-
-    res.json({
-      texto: 'Imagem gerada. Confira abaixo.',
-      image: imageDataUrl,
-    });
+    res.json({ texto: 'Imagem gerada. Confira abaixo.', image: imageOut });
   } catch (err) {
     console.error('ai-image:', err.message);
     res.status(500).json({ error: err.message });
@@ -2291,9 +2280,7 @@ r.post('/ai-chat', async (req, res) => {
     const KEY = process.env.OPENAI_API_KEY;
     if (!KEY) return res.status(503).json({ error: 'IA não configurada' });
     const { convId, history = [], message = '', image } = req.body;
-    if (!String(message || '').trim() && !image && !req.body.pdf && !req.body.audio) {
-      return res.status(400).json({ error: 'Mensagem vazia' });
-    }
+    if (!message.trim() && !image) return res.status(400).json({ error: 'Mensagem vazia' });
 
     // Contexto opcional: a conversa do WhatsApp aberta ao lado
     let contexto = '';
@@ -2317,7 +2304,7 @@ r.post('/ai-chat', async (req, res) => {
     const tabelaPrecos = formatarPrecos(await getPrecosVittaSys());
     const sysPrompt = `Você é o Copiloto da equipe da Vittalis Saúde (clínica de pediatria, vacinação e especialidades em São Luís-MA). Quem fala com você é a ATENDENTE, não o cliente. Ajude com o que ela pedir: analisar carteiras de vacinação em foto, dizer quais vacinas faltam por idade, calcular valores, sugerir abordagens de venda, redigir mensagens, tirar dúvidas do calendário.
 
-Seja direto, prático e específico. Sem emojis. Quando analisar uma carteira de vacinação, liste o que JÁ foi aplicado (se legível), o que FALTA segundo o calendário da clínica para a idade, e o valor (pacote ou avulsas). Se a imagem estiver ilegível em algum ponto, diga exatamente o que não deu pra ler em vez de inventar.
+Seja direto, prático e específico. Sem emojis. Quando analisar uma carteira de vacinação, liste o que JÁ foi aplicado (se legível), o que FALTA segundo o calendário da clínica para a idade, e o valor (pacote ou avulsas). Se a imagem estiver ilegível em algum ponto, diga exatamente o que não deu pra ler em vez de inventar. Se a atendente pedir edição visual, folder, flyer, post, story, balões, cor, layout ou geração de imagem, responda no máximo que a edição será feita pela ferramenta de imagem; não dê tutorial de Canva/Photoshop.
 
 CALENDÁRIO VACINAL OFICIAL:
 ${conhecimento.calendario}
