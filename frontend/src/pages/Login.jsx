@@ -46,8 +46,8 @@ export default function Login() {
         </svg>
 
         <div>
-          <img src="/logos/logo-h-white.png" alt="Vittalis Saúde" style={{ height:38, objectFit:'contain' }} />
-          <div style={{ marginTop:6, display:'inline-flex', alignItems:'center', gap:6, background:'rgba(0,184,192,0.18)', borderRadius:20, padding:'4px 12px' }}>
+          <img src="/logos/logo-icon-white.png" alt="" style={{ height:44, objectFit:'contain', display:'block' }} />
+          <div style={{ marginTop:10, display:'inline-flex', alignItems:'center', gap:6, background:'rgba(0,184,192,0.18)', borderRadius:20, padding:'4px 12px' }}>
             <span style={{ width:6, height:6, borderRadius:'50%', background:'var(--tq)', display:'inline-block', boxShadow:'0 0 8px var(--tq)' }} />
             <span style={{ color:'rgba(255,255,255,0.75)', fontSize:11.5, fontWeight:600, letterSpacing:1.2 }}>VITTAHUB CRM</span>
           </div>
@@ -75,8 +75,9 @@ export default function Login() {
       {/* Right — login */}
       <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', padding:'40px 48px', background:'#fafcfe' }}>
         <div style={{ width:'100%', maxWidth:380 }} className="anim">
-          <h1 style={{ fontSize:30, fontWeight:800, marginBottom:4, color:'var(--txt)' }}>Bem-vindo</h1>
-          <p style={{ color:'var(--muted)', fontSize:14, marginBottom:30 }}>Acesse com seu CPF e senha</p>
+          <img src="/logos/logo-v-color.png" alt="Vittalis Saúde" style={{ height:92, display:'block', margin:'0 auto 24px' }} />
+          <h1 style={{ fontSize:28, fontWeight:800, marginBottom:4, color:'var(--txt)', textAlign:'center' }}>Bem-vindo</h1>
+          <p style={{ color:'var(--muted)', fontSize:14, marginBottom:28, textAlign:'center' }}>Acesse com seu CPF e senha</p>
 
           <form onSubmit={e=>{e.preventDefault();doLogin();}} style={{display:'flex',flexDirection:'column',gap:14}}>
             <div className="field">

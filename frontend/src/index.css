@@ -201,6 +201,8 @@ h1 { letter-spacing: -0.7px; }
 .avatar-clickable { cursor: pointer; transition: transform .12s, box-shadow .15s; }
 .avatar-clickable:hover { transform: scale(1.05); box-shadow: 0 0 0 3px var(--tq3); border-radius: 50%; }
 
+.brand-card:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(0,184,192,.3) !important; }
+
 /* ─── DARK THEME ─────────────────────────────────────────────────────────── */
 [data-theme="dark"] {
   --bg:     #0f1923;
