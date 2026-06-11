@@ -165,7 +165,7 @@ export default function Funil() {
         <div>
           <h1 style={{ fontSize: 27, fontWeight: 800 }}>Funil de Vendas</h1>
           <p style={{ color: 'var(--muted)', fontSize: 12.5, marginTop: 2 }}>
-            Arraste os cards entre etapas · arraste o cabeçalho para reordenar colunas · clique no lápis para renomear
+            {isMaster ? 'Arraste os cards entre etapas · arraste o cabeçalho para reordenar colunas · clique no lápis para renomear' : 'Arraste os cards entre as etapas do funil'}
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -209,11 +209,11 @@ export default function Funil() {
               <div style={{ height: 4, background: col.cor, flexShrink: 0 }} />
 
               {/* cabeçalho da coluna */}
-              <div draggable={!editing}
-                onDragStart={e => { e.stopPropagation(); setDragCol(col.nome); }}
+              <div draggable={isMaster && !editing}
+                onDragStart={e => { if (!isMaster) return; e.stopPropagation(); setDragCol(col.nome); }}
                 onDragEnd={() => setDragCol(null)}
-                style={{ padding: '10px 10px 8px', display: 'flex', alignItems: 'center', gap: 5, cursor: editing ? 'default' : 'grab', flexShrink: 0 }}>
-                <GripVertical size={13} color="var(--light)" style={{ flexShrink: 0 }} />
+                style={{ padding: '10px 10px 8px', display: 'flex', alignItems: 'center', gap: 5, cursor: editing ? 'default' : isMaster ? 'grab' : 'default', flexShrink: 0 }}>
+                {isMaster && <GripVertical size={13} color="var(--light)" style={{ flexShrink: 0 }} />}
                 {editing ? (
                   <>
                     <input autoFocus value={editCol.nome}
@@ -225,16 +225,16 @@ export default function Funil() {
                   </>
                 ) : (
                   <>
-                    <span title={col.fixa ? 'Etapa fixa (usada nos relatórios)' : 'Duplo clique para renomear'}
-                      onDoubleClick={() => !col.fixa && setEditCol({ id: col.id, nome: col.nome })}
+                    <span title={!isMaster ? '' : col.fixa ? 'Etapa fixa (usada nos relatórios)' : 'Duplo clique para renomear'}
+                      onDoubleClick={() => isMaster && !col.fixa && setEditCol({ id: col.id, nome: col.nome })}
                       style={{ fontWeight: 800, fontSize: 13, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
                       {col.nome}
                     </span>
                     <span style={{ background: `${col.cor}14`, borderRadius: 9, padding: '1px 8px', fontSize: 11.5, fontWeight: 800, color: col.cor, flexShrink: 0 }}>{items.length}</span>
-                    {!col.fixa && (
+                    {isMaster && !col.fixa && (
                       <button className="fk-iconbtn" title="Renomear etapa" onClick={() => setEditCol({ id: col.id, nome: col.nome })}><Pencil size={12} /></button>
                     )}
-                    <div style={{ position: 'relative' }}>
+                    {isMaster && <div style={{ position: 'relative' }}>
                       <button className="fk-iconbtn" title="Cor da etapa" onClick={() => setPaletteFor(paletteFor === col.id ? null : col.id)}>
                         <span style={{ width: 11, height: 11, borderRadius: '50%', background: col.cor, display: 'block', border: '2px solid var(--card)', boxShadow: '0 0 0 1.5px var(--bord2)' }} />
                       </button>
@@ -246,8 +246,8 @@ export default function Funil() {
                           ))}
                         </div>
                       )}
-                    </div>
-                    {!col.fixa && items.length === 0 && (
+                    </div>}
+                    {isMaster && !col.fixa && items.length === 0 && (
                       <button className="fk-iconbtn" title="Excluir etapa vazia" onClick={() => excluirColuna(col)}><Trash2 size={12} /></button>
                     )}
                   </>
@@ -328,8 +328,8 @@ export default function Funil() {
           );
         })}
 
-        {/* nova etapa */}
-        <div style={{ minWidth: 218, flex: '0 0 218px' }}>
+        {/* nova etapa (só master) */}
+        {isMaster && <div style={{ minWidth: 218, flex: '0 0 218px' }}>
           {novaCol ? (
             <div style={{ background: 'var(--card)', borderRadius: 14, border: '1.5px solid var(--tq)', padding: 10 }}>
               <input autoFocus value={novaColNome} onChange={e => setNovaColNome(e.target.value)}
@@ -347,7 +347,7 @@ export default function Funil() {
               <Plus size={15} /> Nova etapa
             </button>
           )}
-        </div>
+        </div>}
       </div>
 
       {modal && (

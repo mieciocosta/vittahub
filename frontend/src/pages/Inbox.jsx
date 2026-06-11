@@ -20,7 +20,7 @@ const STATUS_CFG = {
   em_atendimento:  { label: 'Em atend.',    color: '#0ea5e9', bg: '#e0f2fe', icon: Clock },
   resolvido:       { label: 'Resolvido',    color: '#6b7280', bg: '#f3f4f6', icon: CheckCircle2 },
 };
-const ITEM_HEIGHT = 74;
+const ITEM_HEIGHT = 80;
 
 /* ── Avatar ─────────────────────────────────────────────────────────────────── */
 const Avatar = React.memo(function Avatar({ conv, size = 38, fontSize = 13 }) {
@@ -63,7 +63,7 @@ const StatusBadge = ({ status, size = 'sm' }) => {
 };
 
 /* ── VirtualList ─────────────────────────────────────────────────────────────── */
-function VirtualList({ items, selectedId, onSelect, containerHeight, loadMore, hasMore, loadingMore }) {
+function VirtualList({ items, selectedId, onSelect, containerHeight, loadMore, hasMore, loadingMore, usersById }) {
   const scrollRef = useRef(null);
   const [scrollTop, setScrollTop] = useState(0);
 
@@ -86,7 +86,7 @@ function VirtualList({ items, selectedId, onSelect, containerHeight, loadMore, h
       <div style={{ height: totalHeight, position: 'relative' }}>
         <div style={{ position: 'absolute', top: visibleStart * ITEM_HEIGHT, left: 0, right: 0 }}>
           {visibleItems.map(c => (
-            <ConvoRow key={c.id} conv={c} selected={selectedId === c.id} onSelect={onSelect} />
+            <ConvoRow key={c.id} conv={c} selected={selectedId === c.id} onSelect={onSelect} usersById={usersById} />
           ))}
         </div>
       </div>
@@ -100,40 +100,50 @@ function VirtualList({ items, selectedId, onSelect, containerHeight, loadMore, h
 }
 
 /* ── ConvoRow ────────────────────────────────────────────────────────────────── */
-const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect }) {
+const MEDIA_PREVIEW = {
+  '[image]': 'Foto', '[video]': 'Vídeo', '[audio]': 'Áudio',
+  '[document]': 'Documento', '[sticker]': 'Figurinha',
+};
+const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect, usersById }) {
   const st = STATUS_CFG[conv.status_atend] || STATUS_CFG.aberto;
+  const hasUnread = conv.unread > 0;
+  const resp = conv.responsavel_id ? usersById?.[conv.responsavel_id] : null;
+  const preview = MEDIA_PREVIEW[conv.last_message] || conv.last_message || '…';
   return (
-    <div onClick={() => onSelect(conv)}
+    <div onClick={() => onSelect(conv)} className={`conv-row${selected ? ' sel' : ''}`}
       style={{
-        display: 'flex', gap: 10, padding: '10px 13px', cursor: 'pointer',
+        display: 'flex', gap: 11, padding: '0 13px', cursor: 'pointer',
         height: ITEM_HEIGHT, alignItems: 'center',
         borderBottom: '1px solid var(--border)',
-        borderLeft: `3px solid ${selected ? 'var(--tq)' : st.color}`,
-        background: selected ? 'var(--tq4)' : 'transparent',
-        transition: 'background .1s',
-      }}
-      onMouseEnter={e => { if (!selected) e.currentTarget.style.background = 'var(--bg)'; }}
-      onMouseLeave={e => { if (!selected) e.currentTarget.style.background = 'transparent'; }}>
-      <Avatar conv={conv} size={38} fontSize={13} />
+        borderLeft: `3px solid ${selected ? 'var(--tq)' : hasUnread ? st.color : 'transparent'}`,
+      }}>
+      <Avatar conv={conv} size={44} fontSize={14} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
-          <span style={{ fontWeight: 600, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, marginRight: 6 }}>
-            {conv.contact_name || conv.phone || '…'}
+          <span style={{ fontWeight: hasUnread ? 800 : 600, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, marginRight: 6 }}>
+            {conv.contact_name || fmt.phone(conv.phone) || '…'}
           </span>
-          <span style={{ fontSize: 10, color: 'var(--light)', flexShrink: 0 }}>
+          <span style={{ fontSize: 10.5, fontWeight: hasUnread ? 800 : 500, color: hasUnread ? 'var(--tq)' : 'var(--light)', flexShrink: 0 }}>
             {fmt.relTime(conv.last_message_at)}
           </span>
         </div>
-        <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 4 }}>
-          {conv.last_message || '…'}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+          <span style={{ fontSize: 12, color: hasUnread ? 'var(--txt2)' : 'var(--muted)', fontWeight: hasUnread ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+            {preview}
+          </span>
+          {hasUnread && (
+            <span style={{ background: 'var(--tq)', color: '#fff', borderRadius: 10, padding: '1px 7px', fontSize: 10, fontWeight: 800, flexShrink: 0, boxShadow: '0 1px 4px rgba(0,184,192,.4)' }}>
+              {conv.unread > 99 ? '99+' : conv.unread}
+            </span>
+          )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
           <StatusBadge status={conv.status_atend} size="xs" />
-          {conv.bot_ativo && <span style={{ fontSize: 9, color: 'var(--ok)', fontWeight: 700, background: 'var(--ok2)', padding: '1px 5px', borderRadius: 8 }}>BOT</span>}
-          {conv.lead_id   && <span style={{ fontSize: 9, color: 'var(--tq)', fontWeight: 700, background: 'var(--tq3)', padding: '1px 5px', borderRadius: 8 }}>LEAD</span>}
-          {conv.unread > 0 && (
-            <span style={{ background: 'var(--tq)', color: '#fff', borderRadius: 10, padding: '1px 6px', fontSize: 10, fontWeight: 800, marginLeft: 'auto', boxShadow: '0 1px 4px rgba(0,184,192,.4)' }}>
-              {conv.unread > 99 ? '99+' : conv.unread}
+          {conv.bot_ativo && <span style={{ fontSize: 9, color: 'var(--ok)', fontWeight: 800, background: 'var(--ok2)', padding: '1.5px 6px', borderRadius: 8, letterSpacing: .4 }}>BOT</span>}
+          {conv.lead_id   && <span style={{ fontSize: 9, color: 'var(--tq)', fontWeight: 800, background: 'var(--tq3)', padding: '1.5px 6px', borderRadius: 8, letterSpacing: .4 }}>LEAD</span>}
+          {resp && (
+            <span title={`Responsável: ${resp.nome}`} style={{ marginLeft: 'auto', width: 18, height: 18, borderRadius: '50%', background: resp.cor || 'var(--tq)', color: '#fff', fontSize: 8, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, border: '1.5px solid var(--card)' }}>
+              {fmt.initials(resp.nome)}
             </span>
           )}
         </div>
@@ -256,25 +266,20 @@ const MsgItem = React.memo(function MsgItem({ m, prevMsg, contactName, channel, 
   const lazyMatch = m.content?.match(/^\[media:([a-f0-9-]+)\]$/);
   const isLazy = !!lazyMatch;
   const lazyId = lazyMatch?.[1] || m.id;
-  const senderColor = useMemo(() => {
-    if (!isMe && !isBot) return null;
+  // Paleta por classe CSS (.bub-pN) — tem versão clara E escura no index.css,
+  // resolvendo o contraste ruim do modo escuro (texto claro em pastel claro)
+  const bubClass = useMemo(() => {
+    if (isBot) return 'bub bub-bot';
+    if (!isMe) return 'bub bub-contact';
     const name = m.sender_nome || 'Equipe';
-    if (isBot) return { bg:'#e8faf4', border:'#a7f3d0', tag:'#0f9a60' };
-    const colors = [
-      { bg:'#dcfce7', border:'#bbf7d0', tag:'#15803d' },
-      { bg:'#dbeafe', border:'#bfdbfe', tag:'#1d4ed8' },
-      { bg:'#f3e8ff', border:'#e9d5ff', tag:'#7c3aed' },
-      { bg:'#fef3c7', border:'#fde68a', tag:'#b45309' },
-      { bg:'#fee2e2', border:'#fecaca', tag:'#b91c1c' },
-    ];
     let h = 0; for (let c of name) h = ((h << 5) - h) + c.charCodeAt(0);
-    return colors[Math.abs(h) % colors.length];
+    return `bub bub-p${Math.abs(h) % 5}`;
   }, [m.sender_nome, isMe, isBot]);
   return (
     <React.Fragment>
       {showDate && (
         <div style={{ textAlign:'center', margin:'10px 0 6px' }}>
-          <span style={{ background:'rgba(0,0,0,.06)', color:'var(--muted)', borderRadius:20, padding:'3px 14px', fontSize:10.5, fontWeight:500 }}>
+          <span className="msg-date-pill" style={{ borderRadius:20, padding:'3px 14px', fontSize:10.5, fontWeight:500 }}>
             {new Date(m.created_at).toLocaleDateString('pt-BR', { weekday:'long', day:'2-digit', month:'short' })}
           </span>
         </div>
@@ -285,13 +290,12 @@ const MsgItem = React.memo(function MsgItem({ m, prevMsg, contactName, channel, 
         </div>
       ) : (
         <div style={{ display:'flex', justifyContent:isMe||isBot?'flex-end':'flex-start', marginBottom:2 }}>
-          <div style={{ maxWidth:'72%', background:isMe||isBot?senderColor?.bg:'var(--card,#fff)',
-            border:`1px solid ${isMe||isBot?senderColor?.border:'var(--border)'}`,
+          <div className={bubClass} style={{ maxWidth:'72%',
             borderRadius:isMe||isBot?'14px 14px 3px 14px':'14px 14px 14px 3px',
             padding:'8px 11px', boxShadow:'0 1px 2px rgba(0,0,0,.05)' }}>
             {(isBot||showSender) && (
-              <div style={{ fontSize:10, color:senderColor?.tag, fontWeight:700, marginBottom:3 }}>
-                {isBot ? '🤖 Bot Vittalis' : m.sender_nome?.split(' ')[0]}
+              <div className="bub-tag" style={{ fontSize:10, fontWeight:700, marginBottom:3 }}>
+                {isBot ? 'Vitta · IA' : m.sender_nome?.split(' ')[0]}
               </div>
             )}
             {isLazy && <LazyMedia msgId={lazyId} type={m.type} filename={m.filename} token={token} onLightbox={onLightbox}/>}
@@ -362,6 +366,9 @@ export default function Inbox({ onUnreadChange }) {
   const [lightbox, setLightbox] = useState(null);
   const [showProposta, setShowProposta] = useState(false);
   const [leadData, setLeadData] = useState(null);
+  const [users, setUsers] = useState([]);
+  const usersById = useMemo(() => Object.fromEntries(users.map(u => [u.id, u])), [users]);
+  useEffect(() => { api.get('/leads/meta').then(m => setUsers(m.users || [])).catch(() => {}); }, []);
   const [listH, setListH]       = useState(500);
 
   const endRef           = useRef(null);
@@ -594,6 +601,15 @@ export default function Inbox({ onUnreadChange }) {
   useEffect(() => { api.get('/inbox/quick-replies').then(setQr).catch(() => {}); }, []);
 
   // ── Abre conversa ─────────────────────────────────────────────────────────
+  // Trocar o responsável pela conversa (auto-assign acontece ao abrir; aqui troca manual)
+  const changeResp = async (respId) => {
+    if (!sel) return;
+    const u = usersById[respId] || null;
+    setSel(prev => ({ ...prev, responsavel_id: respId || null, responsavel_nome: u?.nome || null, responsavel_cor: u?.cor || null }));
+    setConvos(prev => prev.map(x => x.id === sel.id ? { ...x, responsavel_id: respId || null } : x));
+    try { await api.patch(`/inbox/conversations/${sel.id}/assign`, { responsavel_id: respId || null }); } catch {}
+  };
+
   const openConvo = async (c) => {
     setSel(c); setMsgs([]); setMsgsHasMore(false); setMsgsTotal(0);
     setShowAI(false); setShowProposta(false); setLeadData(null);
@@ -603,8 +619,24 @@ export default function Inbox({ onUnreadChange }) {
       setMsgs(data.messages || []);
       setMsgsTotal(data.messages_total || data.messages?.length || 0);
       setMsgsHasMore(!!data.has_more);
-      setSel(prev => ({ ...prev, ...(data.profile_pic ? { profile_pic: data.profile_pic } : {}), status_atend: data.status_atend || 'aberto' }));
+      setSel(prev => ({ ...prev, ...(data.profile_pic ? { profile_pic: data.profile_pic } : {}),
+        status_atend: data.status_atend || 'aberto',
+        responsavel_id: data.responsavel_id || null,
+        responsavel_nome: data.responsavel_nome || null,
+        responsavel_cor: data.responsavel_cor || null }));
+      if (data.responsavel_id) setConvos(prev => prev.map(x => x.id === c.id ? { ...x, responsavel_id: data.responsavel_id } : x));
       if (data.lead_id) api.get(`/leads/${data.lead_id}`).then(setLeadData).catch(() => {});
+      // Sem foto de perfil? Busca na Z-API em segundo plano e atualiza ao vivo
+      if (!c.profile_pic && !data.profile_pic) {
+        api.post(`/inbox/conversations/${c.id}/load-from-zapi`).then(() =>
+          api.get(`/inbox/conversations/${c.id}`).then(d2 => {
+            if (d2.profile_pic) {
+              setSel(prev => prev?.id === c.id ? { ...prev, profile_pic: d2.profile_pic } : prev);
+              setConvos(prev => prev.map(x => x.id === c.id ? { ...x, profile_pic: d2.profile_pic } : x));
+            }
+          })
+        ).catch(() => {});
+      }
       const lastTs = data.messages?.[data.messages.length - 1]?.created_at;
       if (lastTs) lastMsgTs.current = lastTs;
       setTimeout(() => { if (msgAreaRef.current) msgAreaRef.current.scrollTop = msgAreaRef.current.scrollHeight; }, 80);
@@ -751,7 +783,7 @@ export default function Inbox({ onUnreadChange }) {
           totalUnread={totalUnread} unreadOnly={unreadOnly} setUnreadOnly={setUnreadOnly}/>
 
         <div ref={listContainerRef} style={{ flex:1, minHeight:0 }}>
-          <VirtualList items={convos} selectedId={sel?.id} onSelect={openConvo}
+          <VirtualList items={convos} selectedId={sel?.id} onSelect={openConvo} usersById={usersById}
             containerHeight={listH-118} loadMore={loadMore} hasMore={hasMore} loadingMore={loadingMore}/>
         </div>
       </div>
@@ -794,6 +826,21 @@ export default function Inbox({ onUnreadChange }) {
                 {leadData && <span style={{ display:'inline-flex', alignItems:'center', gap:2, background:'var(--tq3)', color:'var(--tq2)', borderRadius:6, padding:'1px 6px', fontSize:9.5, fontWeight:700, flexShrink:0 }}>◆ Lead</span>}
               </div>
               {sel.phone && <div style={{ fontSize:10.5, color:'var(--muted)' }}>{fmt.phone(sel.phone)}</div>}
+            </div>
+
+            {/* Responsável pela conversa */}
+            <div style={{ display:'flex', alignItems:'center', gap:5, flexShrink:0 }}>
+              <span title={sel.responsavel_nome ? `Responsável: ${sel.responsavel_nome}` : 'Sem responsável'}
+                style={{ width:22, height:22, borderRadius:'50%', background:sel.responsavel_cor||'var(--bord2)', color:'#fff', fontSize:9, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                {sel.responsavel_nome ? fmt.initials(sel.responsavel_nome) : '—'}
+              </span>
+              <select value={sel.responsavel_id || ''} onChange={e=>changeResp(e.target.value)} title="Responsável pela conversa"
+                style={{ padding:'4px 22px 4px 8px', borderRadius:20, fontSize:11, fontWeight:700, cursor:'pointer',
+                  border:'1.5px solid var(--border)', background:'var(--bg2)', color:'var(--txt2)',
+                  outline:'none', appearance:'none', maxWidth:120, overflow:'hidden', textOverflow:'ellipsis' }}>
+                <option value="">Sem responsável</option>
+                {users.map(u => <option key={u.id} value={u.id}>{u.nome.split(' ')[0]}</option>)}
+              </select>
             </div>
 
             {/* Status de atendimento */}
@@ -871,6 +918,20 @@ export default function Inbox({ onUnreadChange }) {
                       style={{ padding:'5px 12px', background:'#25D366', color:'#fff', borderRadius:8, fontSize:11.5, fontWeight:700, textDecoration:'none', display:'flex', alignItems:'center', gap:4 }}>
                       <WA s={11}/> WhatsApp
                     </a>
+                    <button onClick={async()=>{
+                        try {
+                          await api.post(`/inbox/conversations/${sel.id}/load-from-zapi`);
+                          const d = await api.get(`/inbox/conversations/${sel.id}`);
+                          if (d.profile_pic) {
+                            setSel(prev=>({ ...prev, profile_pic:d.profile_pic }));
+                            setConvos(prev=>prev.map(x=>x.id===sel.id?{...x, profile_pic:d.profile_pic}:x));
+                          }
+                        } catch {}
+                      }}
+                      title="Buscar foto e dados atualizados do contato no WhatsApp"
+                      style={{ padding:'5px 12px', background:'var(--tq3)', color:'var(--tq2)', borderRadius:8, fontSize:11.5, fontWeight:700, border:'none', cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}>
+                      <RefreshCw size={11}/> Atualizar
+                    </button>
                   </div>
                 </div>
                 {leadData ? (

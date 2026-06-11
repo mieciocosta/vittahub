@@ -1,24 +1,28 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext.jsx';
 
-const DEMOS = [
-  { label:'Miecio Costa',   sub:'Master · Acesso total', email:'miecio@vittalissaude.com.br',  role:'master' },
-  { label:'Nágila Santos',  sub:'Atendente',              email:'nagila@vittalissaude.com.br',   role:'att' },
-  { label:'Raquel Ferreira',sub:'Atendente',              email:'raquel@vittalissaude.com.br',   role:'att' },
-  { label:'Thales Oliveira',sub:'Atendente',              email:'thales@vittalissaude.com.br',   role:'att' },
-];
-
 export default function Login() {
   const { login } = useAuth();
-  const [email, setEmail] = useState('');
+  const [cpf, setCpf] = useState('');
   const [senha, setSenha] = useState('');
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const doLogin = async (e, s) => {
-    setError(''); setLoading(e);
-    try { await login(e, s); }
-    catch(err) { setError(err.message); setLoading(''); }
+  // Máscara de CPF enquanto digita (aceita e-mail também, sem máscara)
+  const onCpfChange = (v) => {
+    if (v.includes('@') || /[a-zA-Z]/.test(v)) { setCpf(v); return; }
+    const d = v.replace(/\D/g, '').slice(0, 11);
+    let out = d;
+    if (d.length > 9) out = `${d.slice(0,3)}.${d.slice(3,6)}.${d.slice(6,9)}-${d.slice(9)}`;
+    else if (d.length > 6) out = `${d.slice(0,3)}.${d.slice(3,6)}.${d.slice(6)}`;
+    else if (d.length > 3) out = `${d.slice(0,3)}.${d.slice(3)}`;
+    setCpf(out);
+  };
+
+  const doLogin = async () => {
+    setError(''); setLoading(true);
+    try { await login(cpf, senha); }
+    catch(err) { setError(err.message); setLoading(false); }
   };
 
   return (
@@ -70,65 +74,33 @@ export default function Login() {
 
       {/* Right — login */}
       <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', padding:'40px 48px', background:'#fafcfe' }}>
-        <div style={{ width:'100%', maxWidth:400 }} className="anim">
+        <div style={{ width:'100%', maxWidth:380 }} className="anim">
           <h1 style={{ fontSize:32, fontWeight:600, marginBottom:4, color:'var(--txt)' }}>Entrar</h1>
-          <p style={{ color:'var(--muted)', fontSize:14, marginBottom:36 }}>Acesse o painel comercial</p>
+          <p style={{ color:'var(--muted)', fontSize:14, marginBottom:34 }}>Acesse com seu CPF e senha</p>
 
-          {/* Quick access */}
-          <div style={{ marginBottom:28 }}>
-            <div style={{ fontSize:11, fontWeight:700, color:'var(--muted)', textTransform:'uppercase', letterSpacing:.8, marginBottom:12 }}>Acesso rápido</div>
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-              {DEMOS.map(d => (
-                <button key={d.email} onClick={() => doLogin(d.email, 'vittalis123')} disabled={!!loading}
-                  style={{
-                    padding:'12px 14px', borderRadius:10, textAlign:'left', cursor:'pointer',
-                    background: loading===d.email ? 'var(--tq)' : d.role==='master' ? 'var(--pet2)' : '#fff',
-                    border: `1.5px solid ${d.role==='master' ? 'var(--pet2)' : 'var(--border)'}`,
-                    transition:'all .15s', fontFamily:'DM Sans, sans-serif',
-                    boxShadow: d.role==='master' ? '0 3px 10px rgba(13,61,82,.2)' : 'var(--s1)',
-                  }}
-                  onMouseEnter={e => { if(!loading) e.currentTarget.style.transform = 'translateY(-2px)'; }}
-                  onMouseLeave={e => { e.currentTarget.style.transform = ''; }}>
-                  {loading===d.email
-                    ? <div style={{display:'flex',alignItems:'center',gap:7,color:d.role==='master'?'#fff':'var(--tq)'}}><span className="spin" style={{borderColor:d.role==='master'?'rgba(255,255,255,.3)':'var(--border)',borderTopColor:d.role==='master'?'#fff':'var(--tq)',width:13,height:13}}/><span style={{fontSize:12.5}}>Entrando…</span></div>
-                    : <>
-                        <div style={{ fontSize:13, fontWeight:700, color: d.role==='master'?'#fff':'var(--txt)', marginBottom:1 }}>{d.label}</div>
-                        <div style={{ fontSize:11, color: d.role==='master'?'rgba(255,255,255,.5)':'var(--light)' }}>{d.sub}</div>
-                      </>
-                  }
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Divider */}
-          <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:24 }}>
-            <div style={{ flex:1, height:1, background:'var(--border)' }}/>
-            <span style={{ fontSize:12, color:'var(--light)', fontWeight:500 }}>ou entre com e-mail</span>
-            <div style={{ flex:1, height:1, background:'var(--border)' }}/>
-          </div>
-
-          <form onSubmit={e=>{e.preventDefault();doLogin(email,senha);}} style={{display:'flex',flexDirection:'column',gap:14}}>
+          <form onSubmit={e=>{e.preventDefault();doLogin();}} style={{display:'flex',flexDirection:'column',gap:14}}>
             <div className="field">
-              <label>E-mail</label>
-              <input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="seu@email.com" />
+              <label>CPF</label>
+              <input inputMode="numeric" autoComplete="username" value={cpf} onChange={e=>onCpfChange(e.target.value)}
+                placeholder="000.000.000-00" autoFocus
+                style={{ fontSize:15, letterSpacing:.5 }} />
             </div>
             <div className="field">
               <label>Senha</label>
-              <input type="password" value={senha} onChange={e=>setSenha(e.target.value)} placeholder="••••••••" />
+              <input type="password" autoComplete="current-password" value={senha} onChange={e=>setSenha(e.target.value)} placeholder="••••••••" />
             </div>
             {error && (
               <div style={{background:'var(--err2)',color:'var(--err)',padding:'10px 14px',borderRadius:8,fontSize:13,fontWeight:500,borderLeft:'3px solid var(--err)'}}>
                 {error}
               </div>
             )}
-            <button type="submit" className="btn btn-p" disabled={!email||!senha||!!loading} style={{width:'100%',padding:'12px',fontSize:14}}>
-              {loading==='form'?<span className="spin"/>:'Entrar'}
+            <button type="submit" className="btn btn-p" disabled={!cpf||!senha||loading} style={{width:'100%',padding:'13px',fontSize:14.5}}>
+              {loading?<span className="spin"/>:'Entrar'}
             </button>
           </form>
 
-          <p style={{ marginTop:20, textAlign:'center', fontSize:12, color:'var(--light)' }}>
-            Senha padrão demo: <code style={{fontFamily:'DM Mono',background:'var(--bg2)',padding:'2px 7px',borderRadius:5}}>vittalis123</code>
+          <p style={{ marginTop:22, textAlign:'center', fontSize:12, color:'var(--light)', lineHeight:1.6 }}>
+            Esqueceu a senha? Fale com a gestão da Vittalis.
           </p>
         </div>
       </div>

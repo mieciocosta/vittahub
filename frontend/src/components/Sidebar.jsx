@@ -81,6 +81,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
 
         <div style={{ height:1, background:'rgba(255,255,255,0.07)', margin:'8px 12px' }}/>
 
+        {isMaster && (
         <NavLink to="/whatsapp" title={collapsed ? 'WhatsApp' : ''} style={({ isActive }) => ({
           display:'flex', alignItems:'center', gap: collapsed ? 0 : 10,
           padding: collapsed ? '10px 0' : '9px 12px',
@@ -95,6 +96,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
           <Smartphone size={16} strokeWidth={1.8} />
           {!collapsed && <span>WhatsApp</span>}
         </NavLink>
+        )}
 
         {isMaster && (
           <NavLink to="/configuracoes" title={collapsed ? 'Configurações' : ''} style={({ isActive }) => ({

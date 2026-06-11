@@ -13,6 +13,8 @@ export default async function runMigrate() {
       role TEXT NOT NULL DEFAULT 'atendente', cor TEXT DEFAULT '#00B8C0',
       ativo BOOLEAN DEFAULT true, created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()
     )`);
+    await query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS cpf TEXT`).catch(() => {});
+    await query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_usuarios_cpf ON usuarios(cpf) WHERE cpf IS NOT NULL`).catch(() => {});
 
     await query(`CREATE TABLE IF NOT EXISTS leads (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
@@ -130,6 +132,32 @@ export default async function runMigrate() {
 
       await query(`INSERT INTO configuracoes (chave,valor) VALUES ('bot','{"ativo":true,"mensagemBoasVindas":"Olá! 💎 Sou a assistente da Vittalis Saúde!\\n\\n1️⃣ Vacinas avulsas\\n2️⃣ Plano Vacinal\\n3️⃣ Consultas\\n4️⃣ Falar com atendente","respostas":{"1":"Um atendente enviará os valores! 💉","2":"Planos completos! Um atendente irá te ajudar! 👶","3":"Consultas especializadas 🩺","4":"Já chamo um atendente! 😊","default":"Vou chamar um atendente 😊"},"transferirApos":1}') ON CONFLICT DO NOTHING`);
       console.log('🌱 Initial seed complete');
+    }
+
+    // ── SEED DE PRODUÇÃO (roda uma única vez — flag em configuracoes) ────────
+    // Usuários reais: Miécio e Nágila (master), Danielle e Raylane (atendente).
+    // Login por CPF, senha padrão Vittalis@2026. Demos são desativados.
+    const { rows: [seedFlag] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_producao_v1'");
+    if (!seedFlag) {
+      const bcrypt = await import('bcryptjs');
+      const HASH = await bcrypt.default.hash('Vittalis@2026', 10);
+      const upsert = async (email, nome, role, cor, cpf) => {
+        await query(`
+          INSERT INTO usuarios (nome, email, senha, role, cor, cpf, ativo)
+          VALUES ($1, $2, $3, $4, $5, $6, true)
+          ON CONFLICT (email) DO UPDATE SET
+            nome = EXCLUDED.nome, senha = EXCLUDED.senha, role = EXCLUDED.role,
+            cor = EXCLUDED.cor, cpf = COALESCE(EXCLUDED.cpf, usuarios.cpf), ativo = true`,
+          [nome, email, HASH, role, cor, cpf]);
+      };
+      await upsert('miecio@vittalissaude.com.br',   'Miécio Costa',   'master',    '#207898', null);
+      await upsert('nagila@vittalissaude.com.br',   'Nágila Santos',  'master',    '#C4973B', null);
+      await upsert('danielle@vittalissaude.com.br', 'Danielle Silva', 'atendente', '#8b5cf6', '61867382300');
+      await upsert('raylane@vittalissaude.com.br',  'Raylane Moraes', 'atendente', '#00B8C0', '63358210367');
+      // Desativa usuários de demonstração
+      await query(`UPDATE usuarios SET ativo = false WHERE email IN ('raquel@vittalissaude.com.br','thales@vittalissaude.com.br')`).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_producao_v1', '{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🌱 Seed de produção aplicado (usuários reais, senha Vittalis@2026)');
     }
 
     console.log('✅ Auto-migrate complete');

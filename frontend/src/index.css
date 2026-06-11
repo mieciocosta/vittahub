@@ -246,3 +246,38 @@ a { text-decoration: none; color: inherit; }
   from { opacity:0; transform:translateX(60px); }
   to   { opacity:1; transform:translateX(0); }
 }
+
+/* ─── BALÕES DE MENSAGEM — paletas com versão clara e escura ────────────────
+   Antes os balões usavam pastéis claros fixos e o modo escuro forçava o texto
+   para claro → texto claro sobre fundo claro, sem contraste. Agora cada paleta
+   tem variante escura e o texto acompanha. */
+.bub{background:var(--bub-bg);border:1px solid var(--bub-bd);color:var(--bub-txt,#16242f)}
+.bub, .bub div{color:var(--bub-txt,#16242f)}
+.bub .bub-tag, [data-theme="dark"] .bub .bub-tag{color:var(--bub-tag,var(--tq2))}
+.bub-contact{--bub-bg:var(--card);--bub-bd:var(--border)}
+.bub-bot{--bub-bg:#e8faf4;--bub-bd:#a7f3d0;--bub-tag:#0f9a60}
+.bub-p0{--bub-bg:#dcfce7;--bub-bd:#bbf7d0;--bub-tag:#15803d}
+.bub-p1{--bub-bg:#dbeafe;--bub-bd:#bfdbfe;--bub-tag:#1d4ed8}
+.bub-p2{--bub-bg:#f3e8ff;--bub-bd:#e9d5ff;--bub-tag:#7c3aed}
+.bub-p3{--bub-bg:#fef3c7;--bub-bd:#fde68a;--bub-tag:#b45309}
+.bub-p4{--bub-bg:#fee2e2;--bub-bd:#fecaca;--bub-tag:#b91c1c}
+[data-theme="dark"] .bub{--bub-txt:#e9f1f7}
+[data-theme="dark"] .bub, [data-theme="dark"] .bub div{color:var(--bub-txt)}
+[data-theme="dark"] .bub-contact{--bub-bg:#1d2a3c;--bub-bd:#2b3d55}
+[data-theme="dark"] .bub-bot{--bub-bg:#0d2e26;--bub-bd:#175144;--bub-tag:#34d399}
+[data-theme="dark"] .bub-p0{--bub-bg:#142f1f;--bub-bd:#1f4a31;--bub-tag:#4ade80}
+[data-theme="dark"] .bub-p1{--bub-bg:#152740;--bub-bd:#214066;--bub-tag:#60a5fa}
+[data-theme="dark"] .bub-p2{--bub-bg:#281941;--bub-bd:#3e2a63;--bub-tag:#c084fc}
+[data-theme="dark"] .bub-p3{--bub-bg:#33260f;--bub-bd:#52401c;--bub-tag:#fbbf24}
+[data-theme="dark"] .bub-p4{--bub-bg:#3a1619;--bub-bd:#5b2329;--bub-tag:#f87171}
+
+/* pílula de data entre mensagens */
+.msg-date-pill{background:rgba(0,0,0,.06);color:var(--muted)}
+[data-theme="dark"] .msg-date-pill{background:rgba(255,255,255,.08);color:var(--txt2)}
+
+/* linha da lista de conversas */
+.conv-row{transition:background .12s}
+.conv-row:hover{background:var(--bg)}
+.conv-row.sel{background:var(--tq4)}
+[data-theme="dark"] .conv-row:hover{background:var(--bg2)}
+[data-theme="dark"] .conv-row.sel{background:rgba(0,184,192,.1)}

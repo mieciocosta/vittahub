@@ -1,6 +1,6 @@
 import express from 'express';
 import { query } from '../db/pool.js';
-import { auth } from '../middleware/auth.js';
+import { auth, masterOnly } from '../middleware/auth.js';
 import { socketEmit } from '../socketServer.js';
 
 const r = express.Router();
@@ -94,7 +94,7 @@ r.get('/colunas', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-r.post('/colunas', async (req, res) => {
+r.post('/colunas', masterOnly, async (req, res) => {
   try {
     const nome = String(req.body.nome || '').trim();
     const cor = req.body.cor || '#3b82f6';
@@ -112,7 +112,7 @@ r.post('/colunas', async (req, res) => {
 });
 
 // Reordenar (antes de /colunas/:id para não casar "reorder" com :id)
-r.patch('/colunas/reorder', async (req, res) => {
+r.patch('/colunas/reorder', masterOnly, async (req, res) => {
   try {
     const ids = req.body.ids || [];
     for (let i = 0; i < ids.length; i++) {
@@ -123,7 +123,7 @@ r.patch('/colunas/reorder', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-r.put('/colunas/:id', async (req, res) => {
+r.put('/colunas/:id', masterOnly, async (req, res) => {
   try {
     const { rows: [col] } = await query('SELECT * FROM funil_colunas WHERE id = $1', [req.params.id]);
     if (!col) return res.status(404).json({ error: 'Etapa não encontrada' });
@@ -152,7 +152,7 @@ r.put('/colunas/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-r.delete('/colunas/:id', async (req, res) => {
+r.delete('/colunas/:id', masterOnly, async (req, res) => {
   try {
     const { rows: [col] } = await query('SELECT * FROM funil_colunas WHERE id = $1', [req.params.id]);
     if (!col) return res.status(404).json({ error: 'Etapa não encontrada' });

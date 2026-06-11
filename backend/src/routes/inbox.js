@@ -3,7 +3,7 @@ import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { query } from '../db/pool.js';
-import { auth, SECRET } from '../middleware/auth.js';
+import { auth, masterOnly, SECRET } from '../middleware/auth.js';
 import jwt from 'jsonwebtoken';
 import { socketEmit } from '../socketServer.js';
 import * as propostaGen from '../services/proposta-gen.js';
@@ -1565,6 +1565,17 @@ r.get('/conversations/:id', async (req, res) => {
       WHERE c.id = $1`, [req.params.id]);
     if (!conv) return res.status(404).json({ error: 'Não encontrado' });
 
+    // Auto-assign: quem abre uma conversa sem responsável assume o atendimento
+    // (pode ser trocado depois no cabeçalho do chat)
+    if (!conv.responsavel_id && req.user?.id) {
+      await query('UPDATE conversas SET responsavel_id = $1 WHERE id = $2 AND responsavel_id IS NULL', [req.user.id, conv.id]).catch(() => {});
+      conv.responsavel_id = req.user.id;
+      conv.responsavel_nome = req.user.nome;
+      conv.responsavel_cor = req.user.cor;
+      const cached = convoCache.get(conv.id);
+      if (cached) cacheUpdate({ ...cached, responsavel_id: req.user.id });
+    }
+
     const MSG_LIMIT = 15;
     const beforeTs = req.query.before_ts ? new Date(req.query.before_ts).toISOString() : null;
 
@@ -1697,8 +1708,14 @@ r.patch('/conversations/:id/read', async (req, res) => {
 // ─── ASSIGN ────────────────────────────────────────────────────────────────────
 r.patch('/conversations/:id/assign', async (req, res) => {
   try {
-    await query('UPDATE conversas SET responsavel_id = $1 WHERE id = $2', [req.body.responsavel_id, req.params.id]);
-    res.json({ ok: true });
+    const respId = req.body.responsavel_id || null;
+    await query('UPDATE conversas SET responsavel_id = $1 WHERE id = $2', [respId, req.params.id]);
+    const cached = convoCache.get(req.params.id);
+    if (cached) cacheUpdate({ ...cached, responsavel_id: respId });
+    const { rows: [conv] } = await query(`
+      SELECT c.id, c.responsavel_id, u.nome AS responsavel_nome, u.cor AS responsavel_cor
+      FROM conversas c LEFT JOIN usuarios u ON u.id = c.responsavel_id WHERE c.id = $1`, [req.params.id]);
+    res.json({ ok: true, ...conv });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -2208,7 +2225,7 @@ r.post('/notifications/read-all', async (req, res) => {
 });
 
 // ─── UPDATE NAMES + PROFILE PICS ─────────────────────────────────────────────
-r.post('/whatsapp/update-contacts', async (req, res) => {
+r.post('/whatsapp/update-contacts', masterOnly, async (req, res) => {
   const EVO = EVO_URL(), KEY = EVO_KEY(), INST = EVO_INST();
   const zapiBase = zapiOk() ? `https://api.z-api.io/instances/${process.env.ZAPI_INSTANCE}/token/${process.env.ZAPI_TOKEN}` : null;
 
@@ -2339,7 +2356,7 @@ r.get('/whatsapp/status', async (req, res) => {
 });
 
 // ─── IMPORT WHATSAPP HISTORY (via Z-API) ──────────────────────────────────────
-r.post('/whatsapp/import-history', async (req, res) => {
+r.post('/whatsapp/import-history', masterOnly, async (req, res) => {
   if (!zapiOk()) return res.status(400).json({ error: 'Z-API não configurada' });
   try {
     let imported = 0;
@@ -2459,7 +2476,7 @@ r.get('/whatsapp/qrcode', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-r.post('/whatsapp/create-instance', async (req, res) => {
+r.post('/whatsapp/create-instance', masterOnly, async (req, res) => {
   const EVO = process.env.EVOLUTION_API_URL;
   const KEY = process.env.EVOLUTION_API_KEY;
   const INST = process.env.EVOLUTION_INSTANCE || 'vittalis';
@@ -2477,7 +2494,7 @@ r.post('/whatsapp/create-instance', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-r.post('/whatsapp/disconnect', async (req, res) => {
+r.post('/whatsapp/disconnect', masterOnly, async (req, res) => {
   const EVO = process.env.EVOLUTION_API_URL;
   const KEY = process.env.EVOLUTION_API_KEY;
   const INST = process.env.EVOLUTION_INSTANCE || 'vittalis';
@@ -2490,7 +2507,7 @@ r.post('/whatsapp/disconnect', async (req, res) => {
 });
 
 // ─── Z-API: disconnect ─────────────────────────────────────────────────────────
-r.post('/whatsapp/zapi/disconnect', async (req, res) => {
+r.post('/whatsapp/zapi/disconnect', masterOnly, async (req, res) => {
   if (!zapiOk()) return res.status(400).json({ error: 'Z-API não configurada' });
   try {
     const r2 = await zapiCall('/disconnect', 'POST');
@@ -2556,14 +2573,14 @@ r.get('/whatsapp/zapi/status', async (req, res) => {
 });
 
 // Marca conexão manualmente (quando usuário confirma que conectou no painel Z-API)
-r.post('/whatsapp/zapi/mark-connected', async (req, res) => {
+r.post('/whatsapp/zapi/mark-connected', masterOnly, async (req, res) => {
   setZapiConnected(true, req.body?.phone || null);
   socketEmit('zapi_status', { connected: true, phone: req.body?.phone || null });
   res.json({ ok: true, connected: true });
 });
 
 // ─── Z-API: Auto-configurar webhooks ─────────────────────────────────────────
-r.post('/whatsapp/zapi/setup-webhooks', async (req, res) => {
+r.post('/whatsapp/zapi/setup-webhooks', masterOnly, async (req, res) => {
   if (!zapiOk()) return res.status(400).json({ error: 'Z-API não configurada' });
   // URL do backend (corrige precedência de operador)
   const BACKEND = process.env.BACKEND_URL

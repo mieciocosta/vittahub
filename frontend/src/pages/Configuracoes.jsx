@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Bot, MessageSquare, Plus, Trash2, Save, Users, ExternalLink } from 'lucide-react';
+import { Bot, MessageSquare, Plus, Trash2, Save, Users, ExternalLink, Pencil, X, Check } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 
 export default function Configuracoes() {
@@ -11,6 +11,21 @@ export default function Configuracoes() {
   const [newQR, setNewQR] = useState({ titulo:'', texto:'' });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  // edição de usuário (master): CPF, nova senha, ativo
+  const [editUser, setEditUser] = useState(null); // { id, cpf, senha, ativo }
+  const [userErr, setUserErr] = useState('');
+  const maskCpf = v => v.replace(/\D/g,'').slice(0,11).replace(/(\d{3})(\d)/,'$1.$2').replace(/(\d{3})\.(\d{3})(\d)/,'$1.$2.$3').replace(/\.(\d{3})(\d{1,2})$/,'.$1-$2');
+  const salvarUsuario = async () => {
+    if (!editUser) return;
+    setUserErr('');
+    try {
+      const payload = { cpf: editUser.cpf, ativo: editUser.ativo };
+      if (editUser.senha) payload.senha = editUser.senha;
+      const upd = await api.put(`/auth/usuarios/${editUser.id}`, payload);
+      setUsers(prev => prev.map(u => u.id === upd.id ? { ...u, ...upd } : u));
+      setEditUser(null);
+    } catch (e) { setUserErr(e.message); }
+  };
 
   useEffect(() => {
     api.get('/inbox/quick-replies').then(setQr);
@@ -108,17 +123,48 @@ export default function Configuracoes() {
             <div><h2 style={{ fontSize:16, fontWeight:800 }}>Usuários</h2><p style={{ fontSize:12, color:'var(--muted)', marginTop:1 }}>Equipe ativa no VittaHub</p></div>
           </div>
           {users.map(u=>(
-            <div key={u.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 0', borderBottom:'1px solid var(--border)' }}>
-              <div style={{ width:34, height:34, borderRadius:'50%', background:u.cor||'var(--tq)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:800, color:'#fff', flexShrink:0 }}>
-                {u.nome.split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase()}
+            <div key={u.id} style={{ borderBottom:'1px solid var(--border)' }}>
+              <div style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 0', opacity:u.ativo?1:.5 }}>
+                <div style={{ width:34, height:34, borderRadius:'50%', background:u.cor||'var(--tq)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:800, color:'#fff', flexShrink:0 }}>
+                  {u.nome.split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase()}
+                </div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontWeight:700, fontSize:13 }}>{u.nome}{!u.ativo && <span style={{ fontSize:10, color:'var(--err)', fontWeight:800, marginLeft:6 }}>INATIVO</span>}</div>
+                  <div style={{ fontSize:11.5, color:'var(--muted)' }}>{u.cpf ? `CPF ${maskCpf(u.cpf)}` : 'Sem CPF cadastrado — entra pelo e-mail'}</div>
+                </div>
+                <span style={{ fontSize:11, fontWeight:700, padding:'3px 9px', borderRadius:12, background:u.role==='master'?'var(--gold2)':'var(--tq3)', color:u.role==='master'?'var(--gold)':'var(--tq)', flexShrink:0 }}>
+                  {u.role==='master'?'Master':'Atendente'}
+                </span>
+                {isMaster && (
+                  <button onClick={()=>{setUserErr('');setEditUser(editUser?.id===u.id?null:{ id:u.id, cpf:maskCpf(u.cpf||''), senha:'', ativo:u.ativo });}}
+                    style={{ width:26, height:26, borderRadius:8, border:'1.5px solid var(--border)', background:'var(--card)', color:'var(--muted)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                    {editUser?.id===u.id?<X size={12}/>:<Pencil size={12}/>}
+                  </button>
+                )}
               </div>
-              <div style={{ flex:1 }}>
-                <div style={{ fontWeight:700, fontSize:13 }}>{u.nome}</div>
-                <div style={{ fontSize:12, color:'var(--muted)' }}>{u.email}</div>
-              </div>
-              <span style={{ fontSize:11, fontWeight:700, padding:'3px 9px', borderRadius:12, background:u.role==='master'?'#fdf5e8':'var(--tq3)', color:u.role==='master'?'var(--gold)':'var(--tq)' }}>
-                {u.role==='master'?'👑 Master':'Atendente'}
-              </span>
+              {editUser?.id===u.id && (
+                <div style={{ padding:'4px 0 13px 44px', display:'flex', flexDirection:'column', gap:9 }}>
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:9 }}>
+                    <div className="field">
+                      <label>CPF (login)</label>
+                      <input inputMode="numeric" value={editUser.cpf} onChange={e=>setEditUser({...editUser, cpf:maskCpf(e.target.value)})} placeholder="000.000.000-00" />
+                    </div>
+                    <div className="field">
+                      <label>Nova senha (opcional)</label>
+                      <input type="password" value={editUser.senha} onChange={e=>setEditUser({...editUser, senha:e.target.value})} placeholder="mín. 8 caracteres" />
+                    </div>
+                  </div>
+                  <label style={{ display:'flex', alignItems:'center', gap:7, fontSize:12.5, fontWeight:600, color:'var(--txt2)', cursor:'pointer' }}>
+                    <input type="checkbox" checked={editUser.ativo} onChange={e=>setEditUser({...editUser, ativo:e.target.checked})} style={{ width:15, height:15 }} />
+                    Usuário ativo (pode entrar no sistema)
+                  </label>
+                  {userErr && <div style={{ fontSize:12, color:'var(--err)', fontWeight:600 }}>{userErr}</div>}
+                  <div style={{ display:'flex', gap:8 }}>
+                    <button onClick={salvarUsuario} className="btn btn-p btn-sm"><Check size={13}/> Salvar usuário</button>
+                    <button onClick={()=>setEditUser(null)} className="btn btn-s btn-sm">Cancelar</button>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </div>

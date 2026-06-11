@@ -62,7 +62,7 @@ export default function App() {
           <Route path="/leads"        element={<Leads />} />
           <Route path="/funil"        element={<Funil />} />
           <Route path="/relatorios"   element={<Relatorios />} />
-          <Route path="/whatsapp"     element={<WhatsApp />} />
+          <Route path="/whatsapp"     element={user.role === 'master' ? <WhatsApp /> : <Navigate to="/" />} />
           <Route path="/configuracoes" element={<Configuracoes />} />
           <Route path="*"             element={<Navigate to="/" />} />
         </Routes>
