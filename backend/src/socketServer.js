@@ -21,6 +21,7 @@ export function createSocketServer(httpServer, frontendUrl) {
         'http://localhost:3000',
         'http://localhost:5173',
         /\.railway\.app$/,
+        /\.vittalissaude\.com\.br$/,
       ].filter(Boolean),
       methods: ['GET', 'POST'],
       credentials: true,
