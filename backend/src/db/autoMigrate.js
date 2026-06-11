@@ -160,6 +160,30 @@ export default async function runMigrate() {
       console.log('🌱 Seed de produção aplicado (usuários reais, senha Vittalis@2026)');
     }
 
+    // ── Textos humanizados do bot e respostas rápidas (idempotente: só troca
+    //    quem ainda está com o texto padrão antigo — edições da equipe ficam) ──
+    await query(`UPDATE configuracoes
+      SET valor = jsonb_set(valor, '{mensagemBoasVindas}',
+        to_jsonb('Olá! Que alegria ter você por aqui 💙 Sou a Vitta, assistente da Vittalis Saúde. Me conta: é vacina, plano vacinal ou consulta? Pode falar à vontade que eu te ajudo!'::text))
+      WHERE chave = 'bot' AND valor->>'mensagemBoasVindas' LIKE 'Olá! 💎 Sou a assistente%'`).catch(() => {});
+    const qrFix = [
+      ['Boas-vindas', 'Olá! 👋 Seja bem-vindo(a) à *Vittalis Saúde* 💎 Como posso te ajudar?',
+        'Oi! Que bom falar com você 😊 Aqui é da Vittalis Saúde. Como posso te ajudar hoje?'],
+      ['Horário', 'Atendemos seg-sáb 8h-18h. Dom e feriados 8h-12h 📅',
+        'Nosso atendimento é de segunda a sábado, das 8h às 18h, e aos domingos e feriados das 8h às 12h. Quer que eu já verifique um horário pra você?'],
+      ['Solicitar valores', 'Qual vacina ou serviço você precisa? 💉',
+        'Claro! Me conta qual vacina ou serviço você procura, e se é para adulto ou criança, que eu te passo os valores certinhos 😊'],
+      ['Plano Vacinal', 'Temos planos vacinais completos para adultos e crianças! Posso enviar os detalhes? 📋',
+        'Temos planos vacinais completos que acompanham cada fase do bebê, com vários benefícios exclusivos. Quer que eu envie o plano ideal para a idade dele(a)?'],
+      ['Agendamento', 'Ótimo! Qual o melhor horário? (manhã ou tarde?) 📅',
+        'Perfeito! Você prefere de manhã ou à tarde? Vou verificar as melhores opções de horário pra você 😊'],
+      ['Fechar', 'Muito obrigado(a) pelo contato! 🙏 Cuide-se!',
+        'Foi um prazer falar com você! Qualquer coisa estamos por aqui. Cuide-se! 💙'],
+    ];
+    for (const [titulo, antigo, novo] of qrFix) {
+      await query('UPDATE respostas_rapidas SET texto = $1 WHERE titulo = $2 AND texto = $3', [novo, titulo, antigo]).catch(() => {});
+    }
+
     // ── CPFs dos masters (idempotente — corrige bancos onde o seed v1 já rodou) ──
     await query(`UPDATE usuarios SET cpf = '02914270305' WHERE email = 'miecio@vittalissaude.com.br' AND cpf IS DISTINCT FROM '02914270305'`).catch(() => {});
     await query(`UPDATE usuarios SET cpf = '35411272874' WHERE email = 'nagila@vittalissaude.com.br' AND cpf IS DISTINCT FROM '35411272874'`).catch(() => {});

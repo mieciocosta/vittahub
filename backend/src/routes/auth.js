@@ -48,6 +48,31 @@ r.get('/usuarios', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Criar usuário (master): login por CPF + senha inicial
+r.post('/usuarios', auth, async (req, res) => {
+  if (req.user.role !== 'master') return res.status(403).json({ error: 'Acesso negado' });
+  try {
+    const nome = String(req.body.nome || '').trim().slice(0, 80);
+    const cpf = String(req.body.cpf || '').replace(/\D/g, '');
+    const senha = String(req.body.senha || '');
+    const role = ['master', 'atendente'].includes(req.body.role) ? req.body.role : 'atendente';
+    const cor = req.body.cor || '#00B8C0';
+    if (!nome) return res.status(400).json({ error: 'Informe o nome' });
+    if (cpf.length !== 11) return res.status(400).json({ error: 'CPF inválido — precisa de 11 dígitos' });
+    if (senha.length < 8) return res.status(400).json({ error: 'A senha precisa de pelo menos 8 caracteres' });
+    const { rows: [dup] } = await query('SELECT 1 FROM usuarios WHERE cpf = $1', [cpf]);
+    if (dup) return res.status(409).json({ error: 'Este CPF já está cadastrado' });
+    const hash = await bcrypt.hash(senha, 10);
+    const email = `${cpf}@vittahub.local`; // e-mail é NOT NULL/único no schema; login é pelo CPF
+    const { rows: [u] } = await query(
+      `INSERT INTO usuarios (id, nome, email, cpf, senha, role, cor, ativo)
+       VALUES (gen_random_uuid()::text, $1, $2, $3, $4, $5, $6, true)
+       RETURNING id, nome, email, cpf, role, cor, ativo`,
+      [nome, email, cpf, hash, role, cor]);
+    res.status(201).json(u);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Editar usuário (master): cadastrar CPF, trocar senha, ativar/desativar, papel, cor
 r.put('/usuarios/:id', auth, async (req, res) => {
   if (req.user.role !== 'master') return res.status(403).json({ error: 'Acesso negado' });

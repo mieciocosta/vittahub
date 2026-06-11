@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Bot, MessageSquare, Plus, Trash2, Save, Users, ExternalLink, Pencil, X, Check } from 'lucide-react';
+import { Bot, MessageSquare, Plus, Trash2, Save, Users, ExternalLink, Pencil, X, Check, UserPlus } from 'lucide-react';
+import { mask } from '../hooks/utils.js';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 
 export default function Configuracoes() {
@@ -14,6 +15,15 @@ export default function Configuracoes() {
   // edição de usuário (master): CPF, nova senha, ativo
   const [editUser, setEditUser] = useState(null); // { id, cpf, senha, ativo }
   const [userErr, setUserErr] = useState('');
+  const [novoUser, setNovoUser] = useState(null); // { nome, cpf, senha, role }
+  const criarUsuario = async () => {
+    setUserErr('');
+    try {
+      const u = await api.post('/auth/usuarios', { ...novoUser, cpf: mask.digits(novoUser.cpf) });
+      setUsers(p => [...p, u].sort((a,b)=>a.nome.localeCompare(b.nome)));
+      setNovoUser(null);
+    } catch (e) { setUserErr(e.message); }
+  };
   const maskCpf = v => v.replace(/\D/g,'').slice(0,11).replace(/(\d{3})(\d)/,'$1.$2').replace(/(\d{3})\.(\d{3})(\d)/,'$1.$2.$3').replace(/\.(\d{3})(\d{1,2})$/,'.$1-$2');
   const salvarUsuario = async () => {
     if (!editUser) return;
@@ -63,7 +73,7 @@ export default function Configuracoes() {
         <div className="card" style={{ padding:'22px' }}>
           <div style={{ display:'flex', alignItems:'center', gap:9, marginBottom:18 }}>
             <div style={{ width:36, height:36, borderRadius:10, background:'var(--ok2)', display:'flex', alignItems:'center', justifyContent:'center' }}><Bot size={18} color="var(--ok)"/></div>
-            <div><h2 style={{ fontSize:16, fontWeight:800 }}>Bot de Atendimento</h2><p style={{ fontSize:12, color:'var(--muted)', marginTop:1 }}>Configurações do assistente virtual</p></div>
+            <div><h2 style={{ fontSize:16, fontWeight:800 }}>Bot de Atendimento</h2><p style={{ fontSize:12, color:'var(--muted)', marginTop:1 }}>A Vitta responde sozinha enquanto a equipe não assume — desligue por conversa no botão Bot do chat</p></div>
           </div>
 
           {bot && (
@@ -94,7 +104,7 @@ export default function Configuracoes() {
         <div className="card" style={{ padding:'22px' }}>
           <div style={{ display:'flex', alignItems:'center', gap:9, marginBottom:18 }}>
             <div style={{ width:36, height:36, borderRadius:10, background:'var(--tq3)', display:'flex', alignItems:'center', justifyContent:'center' }}><MessageSquare size={18} color="var(--tq)"/></div>
-            <div><h2 style={{ fontSize:16, fontWeight:800 }}>Respostas Rápidas</h2><p style={{ fontSize:12, color:'var(--muted)', marginTop:1 }}>{qr.length} templates cadastrados</p></div>
+            <div><h2 style={{ fontSize:16, fontWeight:800 }}>Respostas Rápidas</h2><p style={{ fontSize:12, color:'var(--muted)', marginTop:1 }}>{qr.length} atalhos — aparecem no botão de respostas do chat</p></div>
           </div>
 
           <div style={{ maxHeight:280, overflowY:'auto', marginBottom:14 }}>
@@ -120,8 +130,48 @@ export default function Configuracoes() {
         <div className="card" style={{ padding:'22px' }}>
           <div style={{ display:'flex', alignItems:'center', gap:9, marginBottom:18 }}>
             <div style={{ width:36, height:36, borderRadius:10, background:'var(--pet)', display:'flex', alignItems:'center', justifyContent:'center' }}><Users size={18} color="#fff"/></div>
-            <div><h2 style={{ fontSize:16, fontWeight:800 }}>Usuários</h2><p style={{ fontSize:12, color:'var(--muted)', marginTop:1 }}>Equipe ativa no VittaHub</p></div>
+            <div style={{ flex:1 }}><h2 style={{ fontSize:16, fontWeight:800 }}>Usuários</h2><p style={{ fontSize:12, color:'var(--muted)', marginTop:1 }}>Login por CPF · somente o master cria usuários e troca senhas</p></div>
+            {isMaster && (
+              <button onClick={()=>{setUserErr('');setNovoUser(novoUser?null:{ nome:'', cpf:'', senha:'', role:'atendente' });}} className="btn btn-p btn-sm" style={{ gap:5 }}>
+                {novoUser ? <X size={12}/> : <UserPlus size={12}/>}{novoUser ? 'Cancelar' : 'Novo usuário'}
+              </button>
+            )}
           </div>
+          {novoUser && (
+            <div style={{ padding:'12px 0 14px', borderBottom:'1px solid var(--border)', display:'flex', flexDirection:'column', gap:9 }}>
+              <div className="field">
+                <label>Nome completo</label>
+                <input value={novoUser.nome} maxLength={80} onChange={e=>setNovoUser({...novoUser, nome:e.target.value})} placeholder="Ex: Maria Souza" />
+              </div>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:9 }}>
+                <div className="field">
+                  <label>CPF (login)</label>
+                  <input inputMode="numeric" value={novoUser.cpf} onChange={e=>setNovoUser({...novoUser, cpf:mask.cpf(e.target.value)})} placeholder="000.000.000-00" />
+                </div>
+                <div className="field">
+                  <label>Senha inicial</label>
+                  <input type="password" value={novoUser.senha} onChange={e=>setNovoUser({...novoUser, senha:e.target.value})} placeholder="mín. 8 caracteres" />
+                </div>
+              </div>
+              <div style={{ display:'flex', gap:7, alignItems:'center' }}>
+                {['atendente','master'].map(rr=>(
+                  <button key={rr} onClick={()=>setNovoUser({...novoUser, role:rr})}
+                    style={{ padding:'5px 13px', borderRadius:9, fontSize:12, fontWeight:700, cursor:'pointer',
+                      border:`1.5px solid ${novoUser.role===rr?'var(--tq)':'var(--border)'}`,
+                      background: novoUser.role===rr?'var(--tq3)':'var(--card)',
+                      color: novoUser.role===rr?'var(--tq2)':'var(--muted)' }}>
+                    {rr==='master'?'Master':'Atendente'}
+                  </button>
+                ))}
+              </div>
+              {userErr && <div style={{ fontSize:12, color:'var(--err)', fontWeight:600 }}>{userErr}</div>}
+              <button onClick={criarUsuario} disabled={!novoUser.nome.trim()||mask.digits(novoUser.cpf).length!==11||novoUser.senha.length<8}
+                className="btn btn-p btn-sm" style={{ alignSelf:'flex-start', gap:5, opacity:(!novoUser.nome.trim()||mask.digits(novoUser.cpf).length!==11||novoUser.senha.length<8)?.5:1 }}>
+                <Check size={13}/> Criar usuário
+              </button>
+            </div>
+          )}
+
           {users.map(u=>(
             <div key={u.id} style={{ borderBottom:'1px solid var(--border)' }}>
               <div style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 0', opacity:u.ativo?1:.5 }}>

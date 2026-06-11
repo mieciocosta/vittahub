@@ -46,8 +46,8 @@ export default function Login() {
         </svg>
 
         <div>
-          <img src="/logos/logo-icon-white.png" alt="" style={{ height:44, objectFit:'contain', display:'block' }} />
-          <div style={{ marginTop:10, display:'inline-flex', alignItems:'center', gap:6, background:'rgba(0,184,192,0.18)', borderRadius:20, padding:'4px 12px' }}>
+          <img src="/logos/logo-v-white.png" alt="Vittalis Saúde" style={{ height:96, objectFit:'contain', display:'block' }} />
+          <div style={{ marginTop:12, display:'inline-flex', alignItems:'center', gap:6, background:'rgba(0,184,192,0.18)', borderRadius:20, padding:'4px 12px' }}>
             <span style={{ width:6, height:6, borderRadius:'50%', background:'var(--tq)', display:'inline-block', boxShadow:'0 0 8px var(--tq)' }} />
             <span style={{ color:'rgba(255,255,255,0.75)', fontSize:11.5, fontWeight:600, letterSpacing:1.2 }}>VITTAHUB CRM</span>
           </div>
@@ -55,15 +55,15 @@ export default function Login() {
 
         <div>
           <p style={{ fontFamily:'Fraunces', fontSize:38, fontWeight:300, color:'#fff', lineHeight:1.2, marginBottom:20 }}>
-            Sua vida é<br/><em style={{ fontWeight:600, color:'var(--tq)' }}>preciosa.</em>
+            Cada conversa é uma<br/><em style={{ fontWeight:600, color:'var(--tq)' }}>venda esperando.</em>
           </p>
           <p style={{ color:'rgba(255,255,255,0.45)', fontSize:13.5, lineHeight:1.7, maxWidth:340 }}>
-            Plataforma comercial integrada para a equipe Vittalis Saúde. Gerencie leads, atendimentos e propostas em um só lugar.
+            WhatsApp, leads, funil e propostas em um só lugar — com a Vitta, nossa IA, qualificando leads e ajudando a equipe a fechar mais rápido.
           </p>
         </div>
 
         <div style={{ display:'flex', gap:28 }}>
-          {[['Missão','Promover qualidade de vida e longevidade'],['Visão','Referência em atendimento humanizado'],['Propósito','Cuidar das pessoas para que vivam bem']].map(([t,d])=>(
+          {[['Atendimento ágil','Inbox em tempo real, sem perder lead'],['Funil visual','Cada etapa da venda sob controle'],['Copiloto IA','Score, estratégia e respostas prontas']].map(([t,d])=>(
             <div key={t}>
               <div style={{ color:'var(--tq)', fontSize:10.5, fontWeight:700, letterSpacing:1, textTransform:'uppercase', marginBottom:3 }}>{t}</div>
               <div style={{ color:'rgba(255,255,255,0.45)', fontSize:11.5, lineHeight:1.5 }}>{d}</div>

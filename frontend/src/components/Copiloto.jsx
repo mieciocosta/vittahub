@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback } from 'react';
-import { Sparkles, X, FileText, Target, Lightbulb, PenLine, RefreshCw, ArrowUpLeft, AlertCircle, TrendingUp, TrendingDown, ChevronRight } from 'lucide-react';
+import { Sparkles, X, FileText, Target, Lightbulb, PenLine, RefreshCw, ArrowUpLeft, AlertCircle, TrendingUp, TrendingDown, ChevronRight, MessageCircle, Paperclip, Send, ImageIcon } from 'lucide-react';
 
 /* ─── Copiloto Vittalis ───────────────────────────────────────────────────────
    Painel lateral de inteligência comercial para a equipe.
@@ -11,7 +11,28 @@ const MODES = [
   { k: 'score',      l: 'Score',      Icon: Target },
   { k: 'estrategia', l: 'Estratégia', Icon: Lightbulb },
   { k: 'resposta',   l: 'Resposta',   Icon: PenLine },
+  { k: 'chat',       l: 'Chat',       Icon: MessageCircle },
 ];
+
+/* Reduz a imagem no navegador antes de enviar (carteiras fotografadas têm 3-5MB;
+   a IA aceita até ~5MB e não precisa de mais que 1600px pra ler) */
+function comprimirImagem(file, maxDim = 1600) {
+  return new Promise((resolve, reject) => {
+    const img = new window.Image();
+    img.onload = () => {
+      const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+      const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
+      const cv = document.createElement('canvas');
+      cv.width = w; cv.height = h;
+      cv.getContext('2d').drawImage(img, 0, 0, w, h);
+      const dataUrl = cv.toDataURL('image/jpeg', 0.85);
+      resolve({ media_type: 'image/jpeg', data: dataUrl.split(',')[1], preview: dataUrl });
+      URL.revokeObjectURL(img.src);
+    };
+    img.onerror = reject;
+    img.src = URL.createObjectURL(file);
+  });
+}
 
 const INTENCAO_CFG = {
   alta:  { label: 'Intenção alta',  c: '#2dd4a8' },
@@ -98,8 +119,52 @@ export default function Copiloto({ conv, onUse, onClose }) {
   const convId = conv?.id;
   const data = cache.current[convId]?.[mode] || null;
 
+  // ── Chat livre com a IA (com anexo de imagem) ──
+  const [chatMsgs, setChatMsgs] = useState([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatImg, setChatImg] = useState(null); // { media_type, data, preview }
+  const [chatLoading, setChatLoading] = useState(false);
+  const chatFileRef = useRef(null);
+  const chatEndRef = useRef(null);
+
+  const anexarImagem = async (e) => {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f) return;
+    if (!f.type.startsWith('image/')) return;
+    try { setChatImg(await comprimirImagem(f)); } catch {}
+  };
+
+  const enviarChat = async () => {
+    const texto = chatInput.trim();
+    if ((!texto && !chatImg) || chatLoading) return;
+    const minha = { role: 'user', content: texto || '(imagem anexada)', preview: chatImg?.preview };
+    const historico = chatMsgs.map(m => ({ role: m.role, content: m.content }));
+    setChatMsgs(p => [...p, minha]);
+    setChatInput(''); const img = chatImg; setChatImg(null);
+    setChatLoading(true);
+    try {
+      const BASE = import.meta.env.VITE_API_URL || '';
+      const tk = localStorage.getItem('vh_token') || '';
+      const resp = await fetch(`${BASE}/api/inbox/ai-chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}` },
+        body: JSON.stringify({ convId, history: historico, message: texto, image: img ? { media_type: img.media_type, data: img.data } : undefined }),
+      });
+      const d = await resp.json();
+      if (!resp.ok) throw new Error(d.error || `HTTP ${resp.status}`);
+      setChatMsgs(p => [...p, { role: 'assistant', content: d.texto }]);
+    } catch (e2) {
+      setChatMsgs(p => [...p, { role: 'assistant', content: `Não consegui responder: ${e2.message}` }]);
+    } finally {
+      setChatLoading(false);
+      setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 60);
+    }
+  };
+
   const run = useCallback(async (m, fresh = false) => {
     if (!convId) return;
+    if (m === 'chat') { setMode('chat'); setError(''); return; }
     if (!fresh && cache.current[convId]?.[m]) { setMode(m); setError(''); return; }
     setMode(m); setError(''); setLoading(true);
     const seq = ++reqSeq.current;
@@ -128,6 +193,64 @@ export default function Copiloto({ conv, onUse, onClose }) {
   if (convId && booted.current !== convId) { booted.current = convId; setTimeout(() => run('resumo'), 0); }
 
   const renderBody = () => {
+    /* ── CHAT LIVRE ── */
+    if (mode === 'chat') {
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 8 }}>
+          <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, paddingBottom: 4 }}>
+            {chatMsgs.length === 0 && (
+              <div style={{ textAlign: 'center', padding: '28px 10px', color: P.txt3, fontSize: 12, lineHeight: 1.65 }}>
+                Converse com o Copiloto sobre esta conversa.<br />
+                Anexe a foto de uma carteira de vacinação e pergunte<br />quais vacinas faltam e quanto fica.
+              </div>
+            )}
+            {chatMsgs.map((m, i) => (
+              <div key={i} style={{ alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '88%' }}>
+                {m.preview && <img src={m.preview} alt="anexo" style={{ maxWidth: 160, borderRadius: 10, display: 'block', marginBottom: 4, border: `1px solid ${P.cardBorder}` }} />}
+                <div style={{ background: m.role === 'user' ? P.tqDim : P.card, border: `1px solid ${m.role === 'user' ? 'rgba(0,184,192,.35)' : P.cardBorder}`, borderRadius: m.role === 'user' ? '12px 12px 3px 12px' : '12px 12px 12px 3px', padding: '8px 11px', fontSize: 12.5, color: P.txt, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+                  {m.content}
+                </div>
+                {m.role === 'assistant' && !m.content.startsWith('Não consegui') && (
+                  <button onClick={() => onUse?.(m.content)} style={{ marginTop: 4, display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 9px', borderRadius: 7, background: 'transparent', border: `1px solid ${P.cardBorder}`, color: P.txt3, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>
+                    <ArrowUpLeft size={9} /> Usar no chat
+                  </button>
+                )}
+              </div>
+            ))}
+            {chatLoading && (
+              <div style={{ alignSelf: 'flex-start', display: 'flex', gap: 4, padding: '10px 12px' }}>
+                {[0, 1, 2].map(i => <span key={i} className="cop-pulse" style={{ width: 6, height: 6, borderRadius: '50%', background: P.tq, animationDelay: `${i * .15}s`, display: 'block' }} />)}
+              </div>
+            )}
+            <div ref={chatEndRef} />
+          </div>
+
+          {chatImg && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', background: P.card, borderRadius: 10, border: `1px solid ${P.cardBorder}` }}>
+              <ImageIcon size={13} color={P.tq} />
+              <span style={{ flex: 1, fontSize: 11, color: P.txt2 }}>Imagem anexada</span>
+              <button onClick={() => setChatImg(null)} style={{ background: 'none', border: 'none', color: P.txt3, cursor: 'pointer', padding: 2 }}><X size={12} /></button>
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end', flexShrink: 0 }}>
+            <input ref={chatFileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={anexarImagem} />
+            <button onClick={() => chatFileRef.current?.click()} title="Anexar imagem (carteira de vacinação, exame...)"
+              style={{ width: 32, height: 32, borderRadius: 9, background: P.card, border: `1px solid ${P.cardBorder}`, color: P.txt2, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <Paperclip size={13} />
+            </button>
+            <textarea value={chatInput} onChange={e => setChatInput(e.target.value)} rows={1} placeholder="Pergunte ao Copiloto…"
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviarChat(); } }}
+              style={{ flex: 1, resize: 'none', padding: '8px 11px', borderRadius: 10, background: 'rgba(255,255,255,.07)', border: `1px solid ${P.cardBorder}`, color: P.txt, fontSize: 12.5, outline: 'none', lineHeight: 1.5, maxHeight: 90, fontFamily: 'inherit' }} />
+            <button onClick={enviarChat} disabled={chatLoading || (!chatInput.trim() && !chatImg)}
+              style={{ width: 32, height: 32, borderRadius: 9, background: P.tq, border: 'none', color: '#04252b', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, opacity: chatLoading || (!chatInput.trim() && !chatImg) ? .45 : 1 }}>
+              <Send size={13} />
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     if (loading) return <Skeleton />;
     if (error) return (
       <Card style={{ borderColor: 'rgba(248,113,113,.35)' }}>
@@ -340,7 +463,7 @@ export default function Copiloto({ conv, onUse, onClose }) {
       </div>
 
       {/* body */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '4px 12px 14px' }}>
+      <div style={{ flex: 1, overflowY: mode === 'chat' ? 'hidden' : 'auto', padding: '4px 12px 14px', display: mode === 'chat' ? 'flex' : 'block', flexDirection: 'column' }}>
         {renderBody()}
       </div>
     </div>

@@ -4,7 +4,7 @@ import {
   UserPlus, Hash, Bot, FileText, Volume2, File, Tag,
   Smile, PanelLeftClose, PanelLeftOpen, Play, ChevronUp, Loader2,
   CheckCircle2, Clock, MessageCircle, Phone, Image,
-} from 'lucide-react';
+  MailOpen, VolumeX } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt, openWA, avatarGrad } from '../hooks/utils.js';
 import PropostaModal from '../components/PropostaModal.jsx';
@@ -332,6 +332,26 @@ const MsgItem = React.memo(function MsgItem({ m, prevMsg, contactName, channel, 
 /* ═══════════════════════════════════════════════════════════════
    MAIN INBOX
 ═══════════════════════════════════════════════════════════════ */
+// Chime suave de notificação (WebAudio — dois tons, sem arquivo de áudio = leve)
+let _audioCtx = null;
+function playChime() {
+  try {
+    _audioCtx = _audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = _audioCtx;
+    if (ctx.state === 'suspended') ctx.resume();
+    const t0 = ctx.currentTime;
+    [[880, 0], [1175, 0.09]].forEach(([freq, dt]) => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'sine'; o.frequency.value = freq;
+      g.gain.setValueAtTime(0, t0 + dt);
+      g.gain.linearRampToValueAtTime(0.18, t0 + dt + 0.015);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dt + 0.35);
+      o.connect(g); g.connect(ctx.destination);
+      o.start(t0 + dt); o.stop(t0 + dt + 0.4);
+    });
+  } catch {}
+}
+
 export default function Inbox({ onUnreadChange }) {
   const api   = useApi();
   const { user } = useAuth();
@@ -370,6 +390,9 @@ export default function Inbox({ onUnreadChange }) {
   const [showQR, setShowQR]     = useState(false);
   const [qr, setQr]             = useState([]);
   const [lightbox, setLightbox] = useState(null);
+  const [somAtivo, setSomAtivo] = useState(() => localStorage.getItem('vh_sound') !== 'off');
+  const somRef = useRef(true);
+  useEffect(() => { somRef.current = somAtivo; localStorage.setItem('vh_sound', somAtivo ? 'on' : 'off'); }, [somAtivo]);
   const [showProposta, setShowProposta] = useState(false);
   const [leadData, setLeadData] = useState(null);
   const [users, setUsers] = useState([]);
@@ -440,6 +463,13 @@ export default function Inbox({ onUnreadChange }) {
       });
 
       socket.on('new_message', ({ convId, message, conv: updConv }) => {
+        // Som de notificação: só para mensagem de cliente, e só se a conversa
+        // não estiver aberta na tela (ou a aba estiver em segundo plano)
+        if (somRef.current && message?.from_type === 'contact' &&
+            (selRef.current?.id !== convId || document.hidden)) {
+          playChime();
+        }
+
         // Atualiza lista de conversas — move para o topo
         setConvos(prev => {
           const ex = prev.find(c => c.id === convId);
@@ -671,6 +701,17 @@ export default function Inbox({ onUnreadChange }) {
   };
 
   // ── Enviar mensagem ────────────────────────────────────────────────────────
+  // Marcar como não lida: devolve o badge e fecha a conversa pra não re-zerar
+  const marcarNaoLida = async () => {
+    if (!sel) return;
+    const id = sel.id;
+    try {
+      await api.patch(`/inbox/conversations/${id}/unread`, {});
+      setConvos(prev => prev.map(c => c.id === id ? { ...c, unread: Math.max(1, c.unread || 0) } : c));
+      setSel(null);
+    } catch (e) { console.error(e.message); }
+  };
+
   const send = async (text) => {
     const t = (text || input).trim();
     if (!t || !sel || sending) return; // guard: bloqueia double-send
@@ -799,7 +840,20 @@ export default function Inbox({ onUnreadChange }) {
 
         <div ref={listContainerRef} style={{ flex:1, minHeight:0 }}>
           <VirtualList items={convos} selectedId={sel?.id} onSelect={openConvo} usersById={usersById}
-            containerHeight={listH-118} loadMore={loadMore} hasMore={hasMore} loadingMore={loadingMore}/>
+            containerHeight={listH-156} loadMore={loadMore} hasMore={hasMore} loadingMore={loadingMore}/>
+        </div>
+
+        {/* Rodapé da lista: resumo do dia + controle de som (ocupa o espaço ocioso) */}
+        <div style={{ flexShrink:0, borderTop:'1px solid var(--border)', padding:'8px 12px', display:'flex', alignItems:'center', justifyContent:'space-between', gap:8, background:'var(--card,#fff)' }}>
+          <div style={{ fontSize:11, color:'var(--muted)', fontWeight:600, display:'flex', gap:10, flexWrap:'wrap' }}>
+            <span>{total.toLocaleString()} conversas</span>
+            <span style={{ color: totalUnread>0 ? 'var(--tq2)' : 'var(--light)' }}>{totalUnread} não lida{totalUnread===1?'':'s'}</span>
+            <span style={{ color:'var(--light)' }}>{convos.filter(c=>c.bot_ativo).length} com bot</span>
+          </div>
+          <button onClick={()=>setSomAtivo(v=>!v)} title={somAtivo?'Som de notificação ligado':'Som de notificação desligado'}
+            style={{ width:26, height:26, borderRadius:8, border:'1.5px solid var(--border)', background: somAtivo?'var(--tq3)':'var(--bg2)', color: somAtivo?'var(--tq2)':'var(--light)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+            {somAtivo ? <Volume2 size={13}/> : <VolumeX size={13}/>}
+          </button>
         </div>
       </div>
 
@@ -876,6 +930,9 @@ export default function Inbox({ onUnreadChange }) {
             </div>
 
             <div style={{ display:'flex', gap:4, flexShrink:0 }}>
+              <button onClick={marcarNaoLida} title="Marcar como não lida (volta o badge e fecha a conversa)" className="btn btn-sm" style={{ background:'var(--bg2)', color:'var(--muted)', border:'1.5px solid var(--border)', fontSize:11, padding:'4px 8px' }}>
+                <MailOpen size={11}/>
+              </button>
               <button onClick={toggleBot} className="btn btn-sm" style={{ background:sel.bot_ativo?'var(--ok2)':'var(--bg2)', color:sel.bot_ativo?'var(--ok)':'var(--muted)', border:`1.5px solid ${sel.bot_ativo?'var(--ok)':'var(--border)'}`, fontSize:11, padding:'4px 9px' }}>
                 <Bot size={10}/>{sel.bot_ativo?'Bot ON':'Bot'}
               </button>

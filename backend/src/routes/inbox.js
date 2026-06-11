@@ -2016,6 +2016,93 @@ const AI_ASSIST_MODES = {
   },
 };
 
+// Marcar conversa como NÃO lida (a atendente leu/ouviu mas quer voltar depois)
+r.patch('/conversations/:id/unread', async (req, res) => {
+  try {
+    const { rows: [conv] } = await query(
+      'UPDATE conversas SET unread = GREATEST(unread, 1) WHERE id = $1 RETURNING *', [req.params.id]);
+    if (!conv) return res.status(404).json({ error: 'Não encontrada' });
+    cacheUpdate(conv);
+    socketEmit('conv_updated', { convId: conv.id, unread: conv.unread });
+    res.json({ ok: true, unread: conv.unread });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── COPILOTO CHAT — conversa livre com a IA, com anexo de imagem (vision) ───
+// Caso de uso real: a mãe manda a foto da carteira de vacinação, a atendente
+// anexa aqui e pergunta "quais vacinas faltam?" — a IA lê a imagem e responde
+// com base no calendário oficial da clínica.
+r.post('/ai-chat', async (req, res) => {
+  try {
+    const KEY = process.env.ANTHROPIC_API_KEY;
+    if (!KEY) return res.status(503).json({ error: 'IA não configurada' });
+    const { convId, history = [], message = '', image } = req.body;
+    if (!message.trim() && !image) return res.status(400).json({ error: 'Mensagem vazia' });
+
+    // Contexto opcional: a conversa do WhatsApp aberta ao lado
+    let contexto = '';
+    if (convId) {
+      const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [convId]);
+      if (conv) {
+        const { rows: histRows } = await query(
+          `SELECT from_type, type, content, filename FROM mensagens
+           WHERE conversa_id = $1 AND type IN ('text','document') AND from_type <> 'system'
+           ORDER BY created_at DESC LIMIT 20`, [convId]);
+        const transcript = histRows.reverse().map(m => {
+          const quem = m.from_type === 'contact' ? (conv.contact_name || 'Cliente') : m.from_type === 'bot' ? 'Vitta' : 'Atendente';
+          const txt = m.type === 'document' ? `[PDF: ${m.filename || 'documento'}]` : String(m.content || '').slice(0, 300);
+          return `${quem}: ${txt}`;
+        }).join('\n');
+        contexto = `\n\nCONVERSA ABERTA NO MOMENTO (${conv.contact_name || 'cliente'}):\n${transcript}`;
+      }
+    }
+
+    const conhecimento = montarConhecimentoVacinal();
+    const tabelaPrecos = formatarPrecos(await getPrecosVittaSys());
+    const sysPrompt = `Você é o Copiloto da equipe da Vittalis Saúde (clínica de pediatria, vacinação e especialidades em São Luís-MA). Quem fala com você é a ATENDENTE, não o cliente. Ajude com o que ela pedir: analisar carteiras de vacinação em foto, dizer quais vacinas faltam por idade, calcular valores, sugerir abordagens de venda, redigir mensagens, tirar dúvidas do calendário.
+
+Seja direto, prático e específico. Sem emojis. Quando analisar uma carteira de vacinação, liste o que JÁ foi aplicado (se legível), o que FALTA segundo o calendário da clínica para a idade, e o valor (pacote ou avulsas). Se a imagem estiver ilegível em algum ponto, diga exatamente o que não deu pra ler em vez de inventar.
+
+CALENDÁRIO VACINAL OFICIAL:
+${conhecimento.calendario}
+
+PACOTES MENSAIS (preço fechado):
+${conhecimento.pacotes}
+
+PLANOS COMPLETOS:
+${conhecimento.planos}
+${tabelaPrecos}${contexto}`;
+
+    // Histórico do chat (turnos alternados, máx 12) + turno atual com imagem opcional
+    const msgs = [];
+    for (const h of history.slice(-12)) {
+      if (!h?.content) continue;
+      const role = h.role === 'assistant' ? 'assistant' : 'user';
+      if (msgs.length && msgs[msgs.length - 1].role === role) msgs[msgs.length - 1].content += '\n' + String(h.content).slice(0, 1500);
+      else msgs.push({ role, content: String(h.content).slice(0, 1500) });
+    }
+    const userContent = [];
+    if (image?.data && image?.media_type) {
+      userContent.push({ type: 'image', source: { type: 'base64', media_type: image.media_type, data: image.data } });
+    }
+    userContent.push({ type: 'text', text: message.trim() || 'Analise a imagem.' });
+    if (msgs.length && msgs[msgs.length - 1].role === 'user') msgs.pop(); // garante alternância
+    msgs.push({ role: 'user', content: userContent });
+    while (msgs.length && msgs[0].role !== 'user') msgs.shift();
+
+    const { default: fetch } = await import('node-fetch');
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': KEY, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 1000, system: sysPrompt, messages: msgs }),
+    });
+    const data = await resp.json();
+    if (data.error) return res.status(502).json({ error: data.error.message || 'Erro na IA' });
+    const texto = (data.content?.find(c => c.type === 'text')?.text || '').trim();
+    res.json({ texto });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.post('/ai-assist', async (req, res) => {
   try {
     const { prompt, convId, mode } = req.body;
