@@ -1,7 +1,7 @@
 /**
  * Socket.io — real-time server
  * 
- * Substitui o WebSocket caseiro (ws.js) por Socket.io que:
+ * Substitui o WebSocket caseiro (ws.js) por Socket.io  que:
  * - Negocia automaticamente WebSocket → HTTP long-poll fallback
  * - Reconexão automática no cliente
  * - Funciona através de qualquer proxy (Railway, nginx, Cloudflare)

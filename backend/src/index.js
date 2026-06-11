@@ -19,7 +19,7 @@ const app    = express();
 const PORT   = process.env.PORT || 8080;
 const ORIGIN = process.env.FRONTEND_URL || 'http://localhost:5173';
 
-// ─── CORS: nunca lança erro 500 (Z-API chama o webhook de servidor para servidor) ──
+// ─── CORS: nunca lança erro 500  (Z-API chama o webhook de servidor para servidor) ──
 app.use(cors({
   origin: (origin, cb) => {
     // cb(null, false) em vez de Error evita o 500 que bloqueava os webhooks da Z-API
