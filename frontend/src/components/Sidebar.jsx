@@ -89,7 +89,31 @@ function BellPanel({ collapsed }) {
 const initials = n => (n||'?').split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase();
 
 export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, collapsed = false, onToggleCollapse }) {
-  const { user, logout, isMaster } = useAuth();
+  const { user, setUser, logout, isMaster } = useAuth();
+  const avatarFileRef = useRef(null);
+  // Foto de perfil: reduz no navegador (128px jpeg) e salva no próprio usuário
+  const trocarAvatar = (e) => {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f || !f.type.startsWith('image/')) return;
+    const img = new window.Image();
+    img.onload = async () => {
+      const d = 128, m = Math.min(img.width, img.height);
+      const cv = document.createElement('canvas');
+      cv.width = d; cv.height = d;
+      cv.getContext('2d').drawImage(img, (img.width-m)/2, (img.height-m)/2, m, m, 0, 0, d, d);
+      const dataUrl = cv.toDataURL('image/jpeg', 0.82);
+      URL.revokeObjectURL(img.src);
+      try {
+        const r = await api.patch('/auth/me/avatar', { avatar: dataUrl });
+        setUser?.({ ...user, avatar: r.avatar });
+      } catch {}
+    };
+    img.src = URL.createObjectURL(f);
+  };
+  const UserAvatar = ({ size }) => user?.avatar
+    ? <img src={user.avatar} alt="" style={{ width:size, height:size, borderRadius:'50%', objectFit:'cover', flexShrink:0, display:'block' }} />
+    : <div style={{ width:size, height:size, borderRadius:'50%', background:`linear-gradient(135deg, var(--tq), var(--pet))`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:size*0.36, fontWeight:700, color:'#fff', letterSpacing:.5, flexShrink:0 }}>{initials(user?.nome)}</div>;
   const api = useApi();
   const w = collapsed ? '56px' : '230px';
   // Retornos vencidos: badge vermelho no menu (atualiza a cada 60s)
@@ -225,9 +249,9 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
         {/* User card */}
         {collapsed ? (
           <div style={{ display:'flex', flexDirection:'column', gap:6, alignItems:'center' }}>
-            <div style={{ width:32, height:32, borderRadius:'50%', background:`linear-gradient(135deg, var(--tq), var(--pet))`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:11.5, fontWeight:700, color:'#fff', letterSpacing:.5, flexShrink:0 }}>
-              {initials(user?.nome)}
-            </div>
+            <button onClick={()=>avatarFileRef.current?.click()} title="Trocar foto de perfil" style={{ background:'none', border:'none', cursor:'pointer', padding:0 }}>
+              <UserAvatar size={32} />
+            </button>
             <button onClick={onToggleTheme} title={theme === 'dark' ? 'Modo claro' : 'Modo escuro'} style={{ padding:5, background:'none', color:'rgba(255,255,255,0.3)', borderRadius:6, cursor:'pointer', border:'none' }}
               onMouseEnter={e=>e.currentTarget.style.color='rgba(255,255,255,.7)'}
               onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,.3)'}>
@@ -241,9 +265,9 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
           </div>
         ) : (
           <div style={{ display:'flex', alignItems:'center', gap:9, padding:'10px 10px', borderRadius:10, background:'rgba(255,255,255,0.05)' }}>
-            <div style={{ width:32, height:32, borderRadius:'50%', background:`linear-gradient(135deg, var(--tq), var(--pet))`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:11.5, fontWeight:700, color:'#fff', flexShrink:0, letterSpacing:.5 }}>
-              {initials(user?.nome)}
-            </div>
+            <button onClick={()=>avatarFileRef.current?.click()} title="Trocar foto de perfil" style={{ background:'none', border:'none', cursor:'pointer', padding:0 }}>
+              <UserAvatar size={34} />
+            </button>
             <div style={{ flex:1, minWidth:0 }}>
               <div style={{ color:'#fff', fontSize:13, fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{user?.nome?.split(' ')[0]}</div>
               <div style={{ color:'rgba(255,255,255,0.32)', fontSize:10.5 }}>{user?.role === 'master' ? '◆ Master' : 'Atendente'}</div>
@@ -261,6 +285,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
           </div>
         )}
       </div>
+      <input ref={avatarFileRef} type="file" accept="image/*" style={{ display:'none' }} onChange={trocarAvatar} />
     </aside>
   );
 }

@@ -1829,7 +1829,12 @@ r.post('/conversations/:id/send', async (req, res) => {
         // ── Z-API ─────────────────────────────────────────────────────────────
         if (!sent && zapiOk()) {
           let zr;
-          if (type === 'text')     zr = await zapiCall('/send-text',     'POST', { phone: phone55, message: content });
+          // Identifica a atendente pro cliente (padrão da equipe: "*Raylane:*")
+          // — só no WhatsApp; no sistema a mensagem fica limpa com o rótulo visual
+          const primeiroNome = (req.user?.nome || '').trim().split(' ')[0];
+          const comAssinatura = (type === 'text' && primeiroNome && !content.trimStart().startsWith('*'))
+            ? `*${primeiroNome}:*\n${content}` : content;
+          if (type === 'text')     zr = await zapiCall('/send-text',     'POST', { phone: phone55, message: comAssinatura });
           else if (type === 'audio')    zr = await zapiCall('/send-audio',    'POST', { phone: phone55, audio: content });
           else if (type === 'sticker')  zr = await zapiCall('/send-sticker',  'POST', { phone: phone55, sticker: content });
           else if (type === 'image')    zr = await zapiCall('/send-image',    'POST', { phone: phone55, image: content, caption: '' });

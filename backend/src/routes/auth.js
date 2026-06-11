@@ -25,7 +25,7 @@ r.post('/login', async (req, res) => {
     const ok = await bcrypt.compare(senha, u.senha);
     if (!ok) return res.status(401).json({ error: 'Senha incorreta' });
     const token = jwt.sign({ id: u.id, nome: u.nome, email: u.email, role: u.role, cor: u.cor }, SECRET, { expiresIn: '30d' });
-    res.json({ token, user: { id: u.id, nome: u.nome, email: u.email, cpf: u.cpf, role: u.role, cor: u.cor } });
+    res.json({ token, user: { id: u.id, nome: u.nome, email: u.email, cpf: u.cpf, role: u.role, cor: u.cor, avatar: u.avatar || null } });
   } catch (err) {
     console.error('Login error:', err.message);
     res.status(500).json({ error: 'Erro interno: ' + err.message });
@@ -34,16 +34,31 @@ r.post('/login', async (req, res) => {
 
 r.get('/me', auth, async (req, res) => {
   try {
-    const { rows } = await query('SELECT id,nome,email,cpf,role,cor FROM usuarios WHERE id=$1', [req.user.id]);
+    const { rows } = await query('SELECT id,nome,email,cpf,role,cor,avatar FROM usuarios WHERE id=$1', [req.user.id]);
     if (!rows[0]) return res.status(404).json({ error: 'Não encontrado' });
     res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Foto de perfil do PRÓPRIO usuário (qualquer perfil) — imagem pequena em data URL
+r.patch('/me/avatar', auth, async (req, res) => {
+  try {
+    const { avatar } = req.body; // null remove
+    if (avatar != null) {
+      if (typeof avatar !== 'string' || !/^data:image\/(jpeg|png|webp);base64,/.test(avatar)) {
+        return res.status(400).json({ error: 'Imagem inválida' });
+      }
+      if (avatar.length > 200_000) return res.status(400).json({ error: 'Imagem muito grande — tente outra foto' });
+    }
+    const { rows: [u] } = await query('UPDATE usuarios SET avatar = $1, updated_at = NOW() WHERE id = $2 RETURNING id, avatar', [avatar || null, req.user.id]);
+    res.json({ ok: true, avatar: u.avatar });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 r.get('/usuarios', auth, async (req, res) => {
   if (req.user.role !== 'master') return res.status(403).json({ error: 'Acesso negado' });
   try {
-    const { rows } = await query("SELECT id,nome,email,cpf,role,cor,ativo FROM usuarios WHERE role!='bot' ORDER BY nome");
+    const { rows } = await query("SELECT id,nome,email,cpf,role,cor,ativo,avatar FROM usuarios WHERE role!='bot' ORDER BY nome");
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

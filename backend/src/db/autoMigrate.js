@@ -160,6 +160,9 @@ export default async function runMigrate() {
       console.log('🌱 Seed de produção aplicado (usuários reais, senha Vittalis@2026)');
     }
 
+    // ── Avatar de perfil (foto pequena em data URL) ──────────────────────────
+    await query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS avatar TEXT`).catch(() => {});
+
     // ── Busca e fila de atendimento ───────────────────────────────────────────
     // last_from: quem mandou a última mensagem (filtro "Aguardando resposta")
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS last_from TEXT`).catch(() => {});

@@ -166,10 +166,10 @@ function SearchBar({ value, onChange, filter, setFilter, totalUnread, unreadOnly
               color: filter === ch ? (ch === 'whatsapp' ? 'var(--wa)' : ch === 'instagram' ? 'var(--ig)' : 'var(--tq)') : 'var(--muted)',
               borderColor: filter === ch ? 'currentColor' : 'var(--border)' }}>{l}</button>
         ))}
-        <button onClick={() => setWaiting(p => !p)} title="Conversas em que o cliente mandou a última mensagem e ainda não foi respondido"
+        <button onClick={() => setWaiting(p => !p)} title="Fila de atendimento: clientes que mandaram a última mensagem e ainda esperam resposta"
           style={{ padding: '4px 8px', borderRadius: 8, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', border: '1.5px solid',
             background: waiting ? 'var(--warn)' : 'var(--card,#fff)', color: waiting ? '#fff' : 'var(--warn)', borderColor: waiting ? 'var(--warn)' : 'var(--border)' }}>
-          <Clock size={10} style={{ verticalAlign:'-1px', marginRight:3 }}/>Fila
+          <Clock size={10} style={{ verticalAlign:'-1px', marginRight:3 }}/>Sem resposta
         </button>
         {totalUnread > 0 && (
           <button onClick={() => setUnreadOnly(p => !p)}

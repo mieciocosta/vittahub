@@ -179,9 +179,13 @@ export default function Configuracoes() {
           {users.map(u=>(
             <div key={u.id} style={{ borderBottom:'1px solid var(--border)' }}>
               <div style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 0', opacity:u.ativo?1:.5 }}>
-                <div style={{ width:34, height:34, borderRadius:'50%', background:u.cor||'var(--tq)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:800, color:'#fff', flexShrink:0 }}>
-                  {u.nome.split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase()}
-                </div>
+                {u.avatar ? (
+                  <img src={u.avatar} alt="" style={{ width:34, height:34, borderRadius:'50%', objectFit:'cover', flexShrink:0 }} />
+                ) : (
+                  <div style={{ width:34, height:34, borderRadius:'50%', background:u.cor||'var(--tq)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:800, color:'#fff', flexShrink:0 }}>
+                    {u.nome.split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase()}
+                  </div>
+                )}
                 <div style={{ flex:1, minWidth:0 }}>
                   <div style={{ fontWeight:700, fontSize:13 }}>{u.nome}{!u.ativo && <span style={{ fontSize:10, color:'var(--err)', fontWeight:800, marginLeft:6 }}>INATIVO</span>}</div>
                   <div style={{ fontSize:11.5, color:'var(--muted)' }}>{u.cpf ? `CPF ${maskCpf(u.cpf)}` : 'Sem CPF cadastrado — entra pelo e-mail'}</div>

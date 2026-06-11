@@ -200,8 +200,8 @@ h1 { letter-spacing: -0.7px; }
 /* Fundo da área de mensagens: gradiente suave + pontilhado discreto da marca */
 .chat-bg {
   background:
-    radial-gradient(rgba(13,61,82,.055) 1px, transparent 1.4px) 0 0 / 22px 22px,
-    linear-gradient(168deg, #edf3f7 0%, #e6eef3 55%, #e9f2f4 100%);
+    radial-gradient(rgba(13,61,82,.07) 1px, transparent 1.4px) 0 0 / 22px 22px,
+    linear-gradient(168deg, #e9f0f5 0%, #e0eaf0 55%, #e4eef1 100%);
 }
 [data-theme="dark"] .chat-bg {
   background:
