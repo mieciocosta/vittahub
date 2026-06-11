@@ -119,7 +119,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
             <img src="/logos/logo-icon-white.png" alt="Vittalis Saúde" style={{ height:28, objectFit:'contain', display:'block', margin:'0 auto' }} />
           ) : (
             <>
-              <img src="/logos/logo-v-white.png" alt="Vittalis Saúde" style={{ height:74, objectFit:'contain', display:'block', margin:'0 auto' }} />
+              <img src="/logos/logo-v-white.png" alt="Vittalis Saúde" style={{ width:'72%', maxWidth:152, height:'auto', objectFit:'contain', display:'block', margin:'0 auto' }} />
               <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:5, marginTop:9 }}>
                 <div style={{ width:5, height:5, borderRadius:'50%', background:'var(--tq)', boxShadow:'0 0 6px var(--tq)' }}/>
                 <span style={{ fontSize:10, fontWeight:700, letterSpacing:1.8, color:'rgba(255,255,255,0.3)', textTransform:'uppercase' }}>VittaHub CRM</span>

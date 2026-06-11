@@ -963,7 +963,7 @@ export default function Inbox({ onUnreadChange }) {
           {/* Área de mensagens + info panel */}
           <div style={{ flex:1, display:'flex', minHeight:0, overflow:'hidden' }}>
             {/* Mensagens */}
-            <div ref={msgAreaRef} style={{ flex:1, overflowY:'auto', padding:'12px 14px', display:'flex', flexDirection:'column', gap:3, background:'var(--bg)' }}>
+            <div ref={msgAreaRef} className="chat-bg" style={{ flex:1, overflowY:'auto', padding:'12px 14px', display:'flex', flexDirection:'column', gap:3 }}>
               {msgsHasMore && (
                 <div style={{ textAlign:'center', marginBottom:8 }}>
                   <button onClick={loadOlderMsgs} disabled={loadingOlderMsgs}

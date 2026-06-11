@@ -196,7 +196,18 @@ h1 { letter-spacing: -0.7px; }
 .chat-header { box-shadow: 0 1px 0 var(--border), 0 4px 14px rgba(10,21,32,.04); position: relative; z-index: 5; }
 .chat-input-bar { box-shadow: 0 -4px 16px rgba(10,21,32,.04); }
 .chat-input-bar textarea, .chat-input-bar input[type="text"] { border-radius: 14px !important; }
-.bub { box-shadow: 0 1px 2px rgba(10,21,32,.06) !important; }
+.bub { box-shadow: 0 1px 3px rgba(10,21,32,.10), 0 1px 1px rgba(10,21,32,.05) !important; }
+/* Fundo da área de mensagens: gradiente suave + pontilhado discreto da marca */
+.chat-bg {
+  background:
+    radial-gradient(rgba(13,61,82,.055) 1px, transparent 1.4px) 0 0 / 22px 22px,
+    linear-gradient(168deg, #edf3f7 0%, #e6eef3 55%, #e9f2f4 100%);
+}
+[data-theme="dark"] .chat-bg {
+  background:
+    radial-gradient(rgba(0,184,192,.05) 1px, transparent 1.4px) 0 0 / 22px 22px,
+    linear-gradient(168deg, #0b1521 0%, #0d1b29 60%, #0c1824 100%);
+}
 .msg-sticker { width: 150px; height: auto; display: block; cursor: pointer; filter: drop-shadow(0 2px 6px rgba(0,0,0,.12)); }
 .avatar-clickable { cursor: pointer; transition: transform .12s, box-shadow .15s; }
 .avatar-clickable:hover { transform: scale(1.05); box-shadow: 0 0 0 3px var(--tq3); border-radius: 50%; }

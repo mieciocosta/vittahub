@@ -2051,6 +2051,101 @@ r.patch('/conversations/:id/unread', async (req, res) => {
 // Caso de uso real: a mãe manda a foto da carteira de vacinação, a atendente
 // anexa aqui e pergunta "quais vacinas faltam?" — a IA lê a imagem e responde
 // com base no calendário oficial da clínica.
+// ─── PROPOSTA MANUAL (modal do Inbox) ─────────────────────────────────────────
+// Catálogo REAL (mesmo da Vitta): planos com preço fechado, pacotes por idade
+// e vacinas avulsas — substitui o catálogo fake que estava chumbado no modal.
+r.get('/proposta/catalogo', async (req, res) => {
+  try {
+    const planos = propostaGen.PLANOS.map(pl => {
+      const pr = propostaGen.PRECOS_PLANO[pl.id] || {};
+      return { id: pl.id, nome: pl.nome, periodo: pl.periodo, avista: pr.avista, credito: pr.credito, parcelas: pr.parcelas };
+    });
+    const pacotes = propostaGen.PACOTES.map(pc => ({
+      id: pc.id, label: pc.label, avista: pc.avista, credito: pc.credito, parcelas: pc.parcelas,
+      vacinas: pc.vacinas.map(i => propostaGen.VACINAS[i]?.nome).filter(Boolean),
+    }));
+    const vacinas = propostaGen.VACINAS.map((v, idx) => ({ idx, nome: v.nome, avista: v.avista, credito: v.credito, descricao: v.descricao }));
+    res.json({ planos, pacotes, vacinas });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Gera o PDF real (mesmos templates da Vitta) e envia pelo WhatsApp da conversa
+r.post('/proposta/enviar', async (req, res) => {
+  try {
+    const { convId, tipo, planoId, pacoteId, vacinasIdx, nomeCliente, nomeBebe, template, parcelas } = req.body;
+    if (!convId) return res.status(400).json({ error: 'convId é obrigatório' });
+    const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [convId]);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
+    if (!zapiOk()) return res.status(503).json({ error: 'Z-API não configurada' });
+
+    let phoneNum = String(conv.phone || '').replace(/\D/g, '');
+    if (phoneNum.startsWith('55') && phoneNum.length >= 12) phoneNum = phoneNum.slice(2);
+
+    let pdfBuf, fileName, descricao;
+
+    if (tipo === 'plano') {
+      const plano = propostaGen.PLANOS.find(pl => pl.id === planoId);
+      if (!plano) return res.status(400).json({ error: 'Plano inválido' });
+      pdfBuf = await gerarPlanoPDF({ planoId });
+      fileName = `${plano.nome.replace(/\s+/g, '-')}.pdf`;
+      descricao = plano.nome;
+    } else if (tipo === 'pacote') {
+      const mp = propostaGen.montarPacote(pacoteId);
+      if (!mp) return res.status(400).json({ error: 'Pacote inválido' });
+      pdfBuf = await gerarPropostaPDF({
+        nomeCliente: String(nomeCliente || conv.contact_name || 'Cliente').slice(0, 60),
+        nomeBebe: String(nomeBebe || '').slice(0, 60) || undefined,
+        template: 'infantil',
+        pacoteNome: mp.label,
+        vacinas: mp.vacinas,
+        desconto: mp.desconto,
+        parcelas: mp.parcelas,
+        creditoFechado: mp.credito,
+      });
+      fileName = 'Proposta-Vittalis.pdf';
+      descricao = mp.label;
+    } else { // avulsas
+      const idxs = Array.isArray(vacinasIdx) ? vacinasIdx.map(Number).filter(n => Number.isInteger(n) && propostaGen.VACINAS[n]) : [];
+      const vacs = idxs.map(n => propostaGen.VACINAS[n]);
+      if (!vacs.length) return res.status(400).json({ error: 'Selecione pelo menos uma vacina' });
+      const parc = Math.min(Math.max(parseInt(parcelas) || 1, 1), 12);
+      pdfBuf = await gerarPropostaPDF({
+        nomeCliente: String(nomeCliente || conv.contact_name || 'Cliente').slice(0, 60),
+        nomeBebe: String(nomeBebe || '').slice(0, 60) || undefined,
+        template: template === 'infantil' ? 'infantil' : 'adulto',
+        pacoteNome: 'Proposta de Vacinas',
+        vacinas: vacs,
+        desconto: 0,
+        parcelas: parc,
+      });
+      fileName = 'Proposta-Vittalis.pdf';
+      descricao = `Proposta: ${vacs.map(v => v.nome).join(', ')}`.slice(0, 90);
+    }
+
+    const zr = await enviarPDFZapi(`55${phoneNum}`, pdfBuf.toString('base64'), fileName);
+    const zrBody = await zr?.text().catch(() => '');
+    if (!zr?.ok) {
+      console.error('Proposta manual Z-API falhou:', zr?.status, zrBody.slice(0, 200));
+      return res.status(502).json({ error: 'O WhatsApp recusou o envio do PDF. Tente novamente.' });
+    }
+
+    const { rows: [pmsg] } = await query(
+      `INSERT INTO mensagens (conversa_id, from_type, sender_id, sender_nome, type, content, filename, status, created_at)
+       VALUES ($1,'me',$2,$3,'document',$4,$5,'delivered',NOW()) RETURNING *`,
+      [convId, req.user?.id || null, req.user?.nome || 'Atendente', `📎 ${descricao}`, fileName]
+    );
+    await query("UPDATE conversas SET last_message = $1, last_from = 'me', last_message_at = NOW() WHERE id = $2", [`📎 ${descricao}`.slice(0, 100), convId]);
+    const cached = convoCache.get(convId);
+    if (cached) cacheUpdate({ ...cached, last_message: `📎 ${descricao}`.slice(0, 100), last_from: 'me', last_message_at: new Date().toISOString() });
+    if (pmsg) socketEmit('new_message', { convId, message: pmsg, conv });
+
+    res.json({ ok: true, descricao });
+  } catch (err) {
+    console.error('proposta/enviar:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 r.post('/ai-chat', async (req, res) => {
   try {
     const KEY = process.env.ANTHROPIC_API_KEY;
