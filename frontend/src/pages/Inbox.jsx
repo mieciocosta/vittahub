@@ -292,9 +292,11 @@ const MsgItem = React.memo(function MsgItem({ m, prevMsg, contactName, channel, 
         </div>
       ) : (
         <div style={{ display:'flex', justifyContent:isMe||isBot?'flex-end':'flex-start', marginBottom:2 }}>
-          <div className={bubClass} style={{ maxWidth:'72%',
-            borderRadius:isMe||isBot?'14px 14px 3px 14px':'14px 14px 14px 3px',
-            padding:'8px 11px', boxShadow:'0 1px 2px rgba(0,0,0,.05)' }}>
+          <div className={m.type==='sticker' ? '' : bubClass} style={{ maxWidth:'72%',
+            borderRadius:isMe||isBot?'16px 16px 4px 16px':'16px 16px 16px 4px',
+            padding: m.type==='sticker' ? '2px' : '8px 11px',
+            background: m.type==='sticker' ? 'transparent' : undefined,
+            boxShadow: m.type==='sticker' ? 'none' : '0 1px 2px rgba(0,0,0,.05)' }}>
             {(isBot||showSender) && (
               <div className="bub-tag" style={{ fontSize:10, fontWeight:700, marginBottom:3 }}>
                 {isBot ? 'Vitta · IA' : m.sender_nome?.split(' ')[0]}
@@ -303,6 +305,8 @@ const MsgItem = React.memo(function MsgItem({ m, prevMsg, contactName, channel, 
             {isLazy && <LazyMedia msgId={lazyId} type={m.type} filename={m.filename} token={token} onLightbox={onLightbox}/>}
             {!isLazy && m.type==='text'     && <div style={{ fontSize:13.5, lineHeight:1.55, whiteSpace:'pre-wrap', wordBreak:'break-word' }}>{m.content}</div>}
             {!isLazy && m.type==='image'    && <img onClick={()=>onLightbox(m.content)} src={m.content} alt="img" loading="lazy" style={{ maxWidth:220, maxHeight:220, borderRadius:8, display:'block', objectFit:'cover', cursor:'pointer' }} onError={e=>e.target.style.display='none'}/>}
+            {!isLazy && m.type==='sticker'  && <img onClick={()=>onLightbox(m.content)} src={m.content} alt="figurinha" loading="lazy" className="msg-sticker" onError={e=>e.target.style.display='none'}/>}
+            {!isLazy && m.type==='gif'      && <video autoPlay loop muted playsInline src={m.content} style={{ maxWidth:220, borderRadius:10, display:'block' }} onError={e=>e.target.style.display='none'}/>}
             {!isLazy && m.type==='audio'    && <div style={{ display:'flex', alignItems:'center', gap:8, minWidth:200 }}><Volume2 size={14} color="var(--tq)"/><audio controls src={m.content} style={{ flex:1, height:28, minWidth:150 }}/></div>}
             {!isLazy && m.type==='video'    && <video controls src={m.content} style={{ maxWidth:260, borderRadius:8, display:'block' }}/>}
             {!isLazy && m.type==='document' && (
@@ -676,7 +680,15 @@ export default function Inbox({ onUnreadChange }) {
     const tmp = { id:`tmp-${Date.now()}`, from_type:'me', type:'text', content:t, created_at:now, status:'sent', sender_nome:user?.nome };
     setMsgs(p => [...p, tmp]);
     setConvos(p => p.map(c => c.id===sel.id ? {...c, last_message:t, last_message_at:now} : c));
-    try { await api.post(`/inbox/conversations/${sel.id}/send`, { content:t }); }
+    try {
+      const r = await api.post(`/inbox/conversations/${sel.id}/send`, { content:t });
+      // Responsável automático: regra das 2 respostas (vem do backend)
+      if (r?.autoAssign?.responsavel_id) {
+        const u = usersById[r.autoAssign.responsavel_id];
+        setSel(prev => prev?.id === sel.id ? { ...prev, responsavel_id: r.autoAssign.responsavel_id, responsavel_nome: u?.nome || r.autoAssign.responsavel_nome, responsavel_cor: u?.cor || null } : prev);
+        setConvos(prev => prev.map(c => c.id === sel.id ? { ...c, responsavel_id: r.autoAssign.responsavel_id } : c));
+      }
+    }
     catch(e) { console.error('send error:', e.message); }
     finally { setSending(false); }
   };
@@ -685,7 +697,8 @@ export default function Inbox({ onUnreadChange }) {
   const handleFile = async (e) => {
     const f = e.target.files[0]; if (!f || !sel) return;
     // Detectar tipo corretamente (GIF é imagem, não vídeo)
-    const type = f.type==='image/gif'    ? 'image'
+    const type = f.type==='image/webp'   ? 'sticker'
+               : f.type==='image/gif'    ? 'image'
                : f.type.startsWith('image/')   ? 'image'
                : f.type.startsWith('video/')   ? 'video'
                : f.type.startsWith('audio/')   ? 'audio'
@@ -814,13 +827,15 @@ export default function Inbox({ onUnreadChange }) {
         <div style={{ flex:1, display:'flex', flexDirection:'column', minWidth:0 }}>
 
           {/* Header do chat */}
-          <div style={{ background:'var(--card,#fff)', padding:'10px 14px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', gap:9, flexShrink:0 }}>
+          <div className="chat-header" style={{ background:'var(--card,#fff)', padding:'11px 14px', display:'flex', alignItems:'center', gap:9, flexShrink:0 }}>
             {listCollapsed && (
               <button onClick={()=>setListCollapsed(false)} style={{ padding:'5px 7px', borderRadius:8, background:'var(--bg2)', border:'1.5px solid var(--border)', cursor:'pointer', color:'var(--muted)', display:'flex', alignItems:'center', flexShrink:0 }}>
                 <PanelLeftOpen size={13}/>
               </button>
             )}
-            <Avatar conv={sel} size={32} fontSize={11}/>
+            <div className={sel.profile_pic ? 'avatar-clickable' : ''} onClick={()=>sel.profile_pic && setLightbox(sel.profile_pic)} title={sel.profile_pic ? 'Ver foto de perfil' : ''}>
+              <Avatar conv={sel} size={34} fontSize={11}/>
+            </div>
             <div style={{ flex:1, minWidth:0 }}>
               <div style={{ fontWeight:600, fontSize:13.5, display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
                 <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{sel.contact_name}</span>
@@ -911,7 +926,9 @@ export default function Inbox({ onUnreadChange }) {
                   <button onClick={()=>setShowInfo(false)} style={{ padding:4, background:'none', border:'none', cursor:'pointer', color:'var(--muted)' }}>✕</button>
                 </div>
                 <div style={{ padding:'16px 14px', textAlign:'center', borderBottom:'1px solid var(--border)' }}>
-                  <Avatar conv={sel} size={64} fontSize={20}/>
+                  <div className={sel.profile_pic ? 'avatar-clickable' : ''} style={{ display:'inline-block' }} onClick={()=>sel.profile_pic && setLightbox(sel.profile_pic)} title={sel.profile_pic ? 'Ver foto de perfil' : ''}>
+                    <Avatar conv={sel} size={72} fontSize={22}/>
+                  </div>
                   <div style={{ fontWeight:700, fontSize:15, marginBottom:3, marginTop:10 }}>{sel.contact_name}</div>
                   {sel.phone && <div style={{ fontSize:12.5, color:'var(--muted)', marginBottom:8 }}>+{sel.phone}</div>}
                   <StatusBadge status={sel.status_atend} size="sm"/>
@@ -1028,7 +1045,7 @@ export default function Inbox({ onUnreadChange }) {
           )}
 
           {/* Input bar */}
-          <div style={{ background:'var(--card,#fff)', padding:'8px 12px', borderTop:'1px solid var(--border)', flexShrink:0 }}>
+          <div className="chat-input-bar" style={{ background:'var(--card,#fff)', padding:'9px 12px', borderTop:'1px solid var(--border)', flexShrink:0 }}>
             <div style={{ display:'flex', gap:5, alignItems:'flex-end' }}>
               <button onClick={()=>fileRef.current?.click()} className="btn btn-g btn-ico"><Paperclip size={15}/></button>
               <button onClick={()=>{setShowEmoji(p=>!p);setShowQR(false);}} className="btn btn-ico" style={{ background:showEmoji?'var(--tq3)':'transparent', color:showEmoji?'var(--tq)':'var(--muted)', borderRadius:8 }}><Smile size={15}/></button>

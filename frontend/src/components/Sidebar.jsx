@@ -131,18 +131,19 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
       </div>
 
       {/* Nav */}
-      <nav style={{ flex:1, padding: collapsed ? '14px 6px' : '14px 10px', display:'flex', flexDirection:'column', gap:2, overflowY:'auto', overflowX:'hidden' }}>
+      <nav style={{ flex:1, padding: collapsed ? '14px 6px' : '14px 10px', display:'flex', flexDirection:'column', gap:3, overflowY:'auto', overflowX:'hidden' }}>
+        {!collapsed && <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:1.6, color:'rgba(255,255,255,0.22)', padding:'0 12px 6px', textTransform:'uppercase' }}>Menu</div>}
         {NAV.map(({ to, icon:Icon, label, unread:showU, retornos:retBadge }) => (
           <NavLink key={to} to={to} end={to==='/'} title={collapsed ? label : ''} style={({ isActive }) => ({
             display:'flex', alignItems:'center', gap: collapsed ? 0 : 10,
             padding: collapsed ? '10px 0' : '9px 12px',
             justifyContent: collapsed ? 'center' : 'flex-start',
-            borderRadius:10, textDecoration:'none',
-            color: isActive ? '#fff' : 'rgba(255,255,255,0.45)',
-            background: isActive ? 'rgba(0,184,192,0.15)' : 'transparent',
-            fontWeight: isActive ? 600 : 400, fontSize:13.5,
-            borderLeft: collapsed ? 'none' : `2px solid ${isActive ? 'var(--tq)' : 'transparent'}`,
-            transition: 'all .13s',
+            borderRadius:12, textDecoration:'none',
+            color: isActive ? '#fff' : 'rgba(255,255,255,0.48)',
+            background: isActive ? 'linear-gradient(135deg, rgba(0,184,192,0.22), rgba(0,184,192,0.08))' : 'transparent',
+            boxShadow: isActive ? 'inset 0 0 0 1px rgba(0,184,192,0.35), 0 4px 12px rgba(0,184,192,0.12)' : 'none',
+            fontWeight: isActive ? 700 : 500, fontSize:13.5,
+            transition: 'all .15s',
             position:'relative',
           })}>
             <Icon size={16} strokeWidth={1.8} />

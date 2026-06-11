@@ -52,7 +52,7 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
-  font-family: 'DM Sans', system-ui, sans-serif;
+  font-family: 'Plus Jakarta Sans', 'DM Sans', system-ui, sans-serif;
   background: var(--bg);
   color: var(--txt);
   font-size: 14px;
@@ -184,6 +184,22 @@ a { text-decoration: none; color: inherit; }
 }
 .typing-dot:nth-child(2) { animation-delay: .2s; }
 .typing-dot:nth-child(3) { animation-delay: .4s; }
+
+/* ─── Tipografia (Plus Jakarta Sans — visual moderno) ───────────────────── */
+h1, h2, h3 { font-family: 'Plus Jakarta Sans', 'DM Sans', sans-serif; font-weight: 800; letter-spacing: -0.4px; }
+h1 { letter-spacing: -0.7px; }
+
+/* ─── Chat — refinos visuais ─────────────────────────────────────────────── */
+.conv-row { border-bottom: none !important; }
+.conv-row + .conv-row { box-shadow: inset 0 1px 0 var(--border); }
+.conv-row.sel { box-shadow: inset 3px 0 0 var(--tq); }
+.chat-header { box-shadow: 0 1px 0 var(--border), 0 4px 14px rgba(10,21,32,.04); position: relative; z-index: 5; }
+.chat-input-bar { box-shadow: 0 -4px 16px rgba(10,21,32,.04); }
+.chat-input-bar textarea, .chat-input-bar input[type="text"] { border-radius: 14px !important; }
+.bub { box-shadow: 0 1px 2px rgba(10,21,32,.06) !important; }
+.msg-sticker { width: 150px; height: auto; display: block; cursor: pointer; filter: drop-shadow(0 2px 6px rgba(0,0,0,.12)); }
+.avatar-clickable { cursor: pointer; transition: transform .12s, box-shadow .15s; }
+.avatar-clickable:hover { transform: scale(1.05); box-shadow: 0 0 0 3px var(--tq3); border-radius: 50%; }
 
 /* ─── DARK THEME ─────────────────────────────────────────────────────────── */
 [data-theme="dark"] {

@@ -1567,8 +1567,9 @@ r.get('/conversations/:id', async (req, res) => {
 
     // Auto-assign: quem abre uma conversa sem responsável assume o atendimento
     // (pode ser trocado depois no cabeçalho do chat)
-    if (!conv.responsavel_id && req.user?.id) {
-      await query('UPDATE conversas SET responsavel_id = $1 WHERE id = $2 AND responsavel_id IS NULL', [req.user.id, conv.id]).catch(() => {});
+    // (Removido o auto-assign no clique — agora a atendente só vira responsável
+    // automaticamente depois de RESPONDER 2 mensagens; ver POST /send)
+    if (false && !conv.responsavel_id && req.user?.id) {
       conv.responsavel_id = req.user.id;
       conv.responsavel_nome = req.user.nome;
       conv.responsavel_cor = req.user.cor;
@@ -1756,9 +1757,28 @@ r.post('/conversations/:id/send', async (req, res) => {
       [req.params.id, type, content, req.user.id, req.user.nome]
     );
 
-    const preview = type === 'text' ? content : type === 'audio' ? '🎵 Áudio' : type === 'image' ? '📷 Imagem' : `📎 Arquivo`;
+    const preview = type === 'text' ? content : type === 'audio' ? '🎵 Áudio' : type === 'image' ? '📷 Imagem' : type === 'sticker' ? '🎭 Figurinha' : `📎 Arquivo`;
     const { rows: [convUpd] } = await query('UPDATE conversas SET last_message = $1, last_message_at = NOW() WHERE id = $2 RETURNING *', [preview, req.params.id]);
     if (convUpd) cacheUpdate(convUpd);
+
+    // ── Responsável automático: só depois da 2ª resposta da MESMA atendente ──
+    // (a pedido do Sr. Miécio: clicar pra ler não pode "roubar" a conversa)
+    let autoAssign = null;
+    if (!conv.responsavel_id && req.user?.id) {
+      const { rows: [{ count }] } = await query(
+        `SELECT COUNT(*) AS count FROM mensagens WHERE conversa_id = $1 AND from_type = 'me' AND sender_id = $2`,
+        [req.params.id, req.user.id]);
+      if (parseInt(count) >= 2) {
+        const { rows: [c2] } = await query(
+          `UPDATE conversas SET responsavel_id = $1 WHERE id = $2 AND responsavel_id IS NULL RETURNING *`,
+          [req.user.id, req.params.id]);
+        if (c2) {
+          cacheUpdate(c2);
+          autoAssign = { responsavel_id: req.user.id, responsavel_nome: req.user.nome };
+          socketEmit('conv_assigned', { convId: req.params.id, ...autoAssign });
+        }
+      }
+    }
 
     socketEmit('new_message', { convId: req.params.id, message: msg, conv: convUpd || conv });
     await query(`SELECT pg_notify('vittahub', $1)`, [
@@ -1792,6 +1812,7 @@ r.post('/conversations/:id/send', async (req, res) => {
           let zr;
           if (type === 'text')     zr = await zapiCall('/send-text',     'POST', { phone: phone55, message: content });
           else if (type === 'audio')    zr = await zapiCall('/send-audio',    'POST', { phone: phone55, audio: content });
+          else if (type === 'sticker')  zr = await zapiCall('/send-sticker',  'POST', { phone: phone55, sticker: content });
           else if (type === 'image')    zr = await zapiCall('/send-image',    'POST', { phone: phone55, image: content, caption: '' });
           else if (type === 'video')    zr = await zapiCall('/send-video',    'POST', { phone: phone55, video: content, caption: '' });
           else if (type === 'document') zr = await zapiCall('/send-document', 'POST', { phone: phone55, document: content, fileName: msg.filename || 'arquivo' });
@@ -1815,7 +1836,7 @@ r.post('/conversations/:id/send', async (req, res) => {
       } catch (e) { console.error('WA send error:', e.message); }
     }
 
-    res.json(msg);
+    res.json({ ...msg, autoAssign });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1826,6 +1847,7 @@ r.post('/conversations/:id/upload', upload.single('file'), async (req, res) => {
     if (!f) return res.status(400).json({ error: 'Arquivo não enviado' });
 
     const type = f.mimetype.startsWith('audio/') ? 'audio'
+               : f.mimetype === 'image/webp' ? 'sticker'   // figurinha do WhatsApp
                : f.mimetype.startsWith('image/') ? 'image'
                : f.mimetype.startsWith('video/') ? 'video'
                : 'document';
@@ -1835,6 +1857,7 @@ r.post('/conversations/:id/upload', upload.single('file'), async (req, res) => {
     const dataUrl = `data:${f.mimetype};base64,${base64}`;
 
     const preview = type === 'audio' ? '🎵 Áudio'
+                  : type === 'sticker' ? '🎭 Figurinha'
                   : type === 'image' ? '📷 Imagem'
                   : type === 'video' ? '🎥 Vídeo'
                   : `📎 ${f.originalname}`;
@@ -1849,31 +1872,58 @@ r.post('/conversations/:id/upload', upload.single('file'), async (req, res) => {
 
     // Envia via Evolution API usando base64
     const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
-    if (conv && EVO_URL() && EVO_KEY() && conv.channel === 'whatsapp') {
+    if (conv && conv.channel === 'whatsapp') {
       try {
         const waNumber = conv.contact_id
           ? conv.contact_id.replace('@s.whatsapp.net', '')
           : `55${conv.phone}`;
+        const phone55 = waNumber.startsWith('55') ? waNumber : `55${waNumber}`;
+        let sent = false;
 
-        if (type === 'audio') {
-          await evoFetch(`/message/sendWhatsAppAudio/${EVO_INST()}`, 'POST', {
-            number: waNumber,
-            audio: base64,
-            encoding: true
-          });
-        } else {
-          const mediatype = type === 'image' ? 'image' : type === 'video' ? 'video' : 'document';
-          await evoFetch(`/message/sendMedia/${EVO_INST()}`, 'POST', {
-            number: waNumber,
-            mediatype,
-            mimetype: f.mimetype,
-            media: base64,
-            fileName: f.originalname,
-            caption: ''
-          });
+        // ── Z-API (caminho principal em produção) ──────────────────────────────
+        if (zapiOk()) {
+          let zr;
+          if (type === 'audio')        zr = await zapiCall('/send-audio',   'POST', { phone: phone55, audio: dataUrl });
+          else if (type === 'sticker') zr = await zapiCall('/send-sticker', 'POST', { phone: phone55, sticker: dataUrl });
+          else if (type === 'image')   zr = await zapiCall('/send-image',   'POST', { phone: phone55, image: dataUrl, caption: '' });
+          else if (type === 'video')   zr = await zapiCall('/send-video',   'POST', { phone: phone55, video: dataUrl, caption: '' });
+          else {
+            const ext = (f.originalname.split('.').pop() || 'bin').toLowerCase().slice(0, 5);
+            zr = await zapiCall(`/send-document/${ext}`, 'POST', { phone: phone55, document: dataUrl, fileName: f.originalname });
+          }
+          if (zr?.ok) {
+            const zd = await zr.json().catch(() => ({}));
+            if (zd.zaapId || zd.messageId) {
+              await query("UPDATE mensagens SET status = 'delivered', wa_msg_id = $1 WHERE id = $2", [zd.messageId || zd.zaapId, msg.id]);
+              sent = true;
+            }
+          } else if (zr) {
+            console.error('Z-API media send falhou:', zr.status, (await zr.text().catch(() => '')).slice(0, 200));
+          }
         }
-        await query("UPDATE mensagens SET status = 'delivered' WHERE id = $1", [msg.id]);
-      } catch (e) { console.error('EVO media send error:', e.message); }
+
+        // ── Evolution (fallback legado) ────────────────────────────────────────
+        if (!sent && EVO_URL() && EVO_KEY()) {
+          if (type === 'audio') {
+            await evoFetch(`/message/sendWhatsAppAudio/${EVO_INST()}`, 'POST', {
+              number: waNumber,
+              audio: base64,
+              encoding: true
+            });
+          } else {
+            const mediatype = type === 'image' || type === 'sticker' ? 'image' : type === 'video' ? 'video' : 'document';
+            await evoFetch(`/message/sendMedia/${EVO_INST()}`, 'POST', {
+              number: waNumber,
+              mediatype,
+              mimetype: f.mimetype,
+              media: base64,
+              fileName: f.originalname,
+              caption: ''
+            });
+          }
+          await query("UPDATE mensagens SET status = 'delivered' WHERE id = $1", [msg.id]);
+        }
+      } catch (e) { console.error('Media send error:', e.message); }
     }
 
     res.json(msg);

@@ -75,8 +75,9 @@ export default function Login() {
       {/* Right — login */}
       <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', padding:'40px 48px', background:'#fafcfe' }}>
         <div style={{ width:'100%', maxWidth:380 }} className="anim">
-          <h1 style={{ fontSize:32, fontWeight:600, marginBottom:4, color:'var(--txt)' }}>Entrar</h1>
-          <p style={{ color:'var(--muted)', fontSize:14, marginBottom:34 }}>Acesse com seu CPF e senha</p>
+          <img src="/logos/logo-v-color.png" alt="Vittalis Saúde" style={{ height:88, display:'block', margin:'0 auto 26px' }} />
+          <h1 style={{ fontSize:30, fontWeight:800, marginBottom:4, color:'var(--txt)', textAlign:'center' }}>Bem-vindo</h1>
+          <p style={{ color:'var(--muted)', fontSize:14, marginBottom:30, textAlign:'center' }}>Acesse com seu CPF e senha</p>
 
           <form onSubmit={e=>{e.preventDefault();doLogin();}} style={{display:'flex',flexDirection:'column',gap:14}}>
             <div className="field">

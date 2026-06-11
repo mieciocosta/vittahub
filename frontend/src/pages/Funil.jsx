@@ -132,10 +132,16 @@ export default function Funil() {
     } catch (err) { flash(err.message); }
   };
   const excluirColuna = async (col) => {
-    if (!window.confirm(`Excluir a etapa "${col.nome}"?`)) return;
+    const qtd = leads.filter(l => l.status === col.nome).length;
+    const destino = colunas.find(c => c.id !== col.id)?.nome;
+    const aviso = qtd > 0
+      ? `A etapa "${col.nome}" tem ${qtd} lead${qtd > 1 ? 's' : ''}.\nEles serão movidos para "${destino}". Excluir mesmo assim?`
+      : `Excluir a etapa "${col.nome}"?`;
+    if (!window.confirm(aviso)) return;
     try {
       await api.del(`/leads/colunas/${col.id}`);
       setColunas(p => p.filter(c => c.id !== col.id));
+      if (qtd > 0) load(true);
     } catch (err) { flash(err.message); }
   };
 

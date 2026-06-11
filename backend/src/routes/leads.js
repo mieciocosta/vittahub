@@ -217,13 +217,36 @@ r.delete('/colunas/:id', masterOnly, async (req, res) => {
     const { rows: [col] } = await query('SELECT * FROM funil_colunas WHERE id = $1', [req.params.id]);
     if (!col) return res.status(404).json({ error: 'Etapa não encontrada' });
     if (col.fixa) return res.status(403).json({ error: `A etapa "${col.nome}" é usada nos relatórios e não pode ser excluída` });
+
     const { rows: [{ count }] } = await query('SELECT COUNT(*) AS count FROM leads WHERE status = $1', [col.nome]);
-    if (parseInt(count) > 0) {
-      return res.status(409).json({ error: `Há ${count} lead(s) nesta etapa. Mova-os antes de excluir.` });
+    const qtd = parseInt(count);
+
+    // Etapa com leads: move todos para a etapa indicada (?moveTo=) ou a primeira
+    let destino = null;
+    if (qtd > 0) {
+      const moveTo = String(req.query.moveTo || '').trim();
+      if (moveTo) {
+        const { rows: [d] } = await query('SELECT nome FROM funil_colunas WHERE nome = $1 AND id <> $2', [moveTo, col.id]);
+        destino = d?.nome || null;
+      }
+      if (!destino) {
+        const { rows: [d] } = await query('SELECT nome FROM funil_colunas WHERE id <> $1 ORDER BY ordem LIMIT 1', [col.id]);
+        destino = d?.nome;
+      }
+      if (!destino) return res.status(409).json({ error: 'Não há outra etapa para receber os leads' });
     }
-    await query('DELETE FROM funil_colunas WHERE id = $1', [col.id]);
+
+    await query('BEGIN');
+    try {
+      if (qtd > 0) {
+        await query('UPDATE leads SET status = $1, status_changed_at = NOW() WHERE status = $2', [destino, col.nome]);
+      }
+      await query('DELETE FROM funil_colunas WHERE id = $1', [col.id]);
+      await query('COMMIT');
+    } catch (e) { await query('ROLLBACK'); throw e; }
+
     socketEmit('funil_update', { tipo: 'coluna' });
-    res.json({ ok: true });
+    res.json({ ok: true, movidos: qtd, destino });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

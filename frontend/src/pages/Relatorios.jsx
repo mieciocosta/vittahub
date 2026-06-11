@@ -35,6 +35,7 @@ function gerarPDF(data) {
 </head>
 <body>
 <div class="header">
+    <img src="${window.location.origin}/logos/logo-v-black.png" alt="Vittalis Saúde" style="height:74px;display:block;margin:0 auto 12px;" />
   <div class="brand">
     <div class="nome">VittaHub · Vittalis Saúde</div>
     <div class="sub">Relatório Comercial — ${data.periodo}</div>

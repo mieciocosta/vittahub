@@ -37,10 +37,10 @@ export default function App() {
   const toggleNav = () => setNavCollapsed(p => !p);
 
   if (loading) return (
-    <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', background:'linear-gradient(135deg,#0d3d52,#207898)' }}>
+    <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', background:'linear-gradient(160deg,#f7fbfc,#e8f4f6)' }}>
       <div style={{ textAlign:'center' }}>
-        <img src="/logos/logo-v-white.png" alt="VittaHub" style={{ height:80, marginBottom:20, opacity:.8 }} />
-        <div><span className="spin" style={{ width:28, height:28, borderColor:'rgba(255,255,255,0.3)', borderTopColor:'#fff' }} /></div>
+        <img src="/logos/logo-v-color.png" alt="Vittalis Saúde" style={{ height:110, marginBottom:24 }} />
+        <div><span className="spin" style={{ width:26, height:26, borderColor:'rgba(0,184,192,0.2)', borderTopColor:'var(--tq)' }} /></div>
       </div>
     </div>
   );
