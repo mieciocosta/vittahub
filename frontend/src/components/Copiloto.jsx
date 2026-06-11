@@ -505,7 +505,7 @@ export default function Copiloto({ conv, onUse, onClose }) {
           </div>
           <div>
             <div style={{ fontSize: 12.5, fontWeight: 800, color: '#fff', letterSpacing: .2 }}>Copiloto</div>
-            <div style={{ fontSize: 9.5, color: P.txt3, fontWeight: 600, letterSpacing: .6 }}>VITTALIS · CLAUDE</div>
+            <div style={{ fontSize: 9.5, color: P.txt3, fontWeight: 600, letterSpacing: .6 }}>VITTALIS · GPT</div>
           </div>
         </div>
         <div style={{ display: 'flex', gap: 4 }}>
