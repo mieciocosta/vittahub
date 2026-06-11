@@ -82,8 +82,9 @@ export default function Relatorios() {
   const { isMaster } = useAuth();
   const [data, setData] = useState(null);
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [dias, setDias] = useState(7); // período dos gráficos diários: 7 | 30 | 90
 
-  useEffect(() => { api.get('/reports/dashboard').then(setData); }, []);
+  useEffect(() => { setData(null); api.get(`/reports/dashboard?days=${dias}`).then(setData); }, [dias]); // eslint-disable-line
 
   const handlePDF = async () => {
     setPdfLoading(true);
@@ -91,13 +92,35 @@ export default function Relatorios() {
     finally { setPdfLoading(false); }
   };
 
+  // Exporta os leads em CSV (Excel abre direto) — separador ; e BOM p/ acentuação
+  const handleCSV = async () => {
+    const d = await api.get('/leads?limit=1000');
+    const rows = d.data || [];
+    const cab = ['Nome','Telefone','E-mail','Origem','Interesse','Etapa','Responsável','Valor proposta','Serviço','Entrada','Retorno','Tags','Observações'];
+    const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const linhas = rows.map(l => [
+      l.nome, l.telefone, l.email, l.origem, l.interesse, l.status,
+      l.responsavel_nome || '', l.valor_proposta ?? '', l.servico || '',
+      String(l.data_entrada || '').slice(0, 10), String(l.data_retorno || '').slice(0, 10),
+      (l.tags || []).join(' '), l.observacoes || '',
+    ].map(esc).join(';'));
+    const csv = '\ufeff' + [cab.map(esc).join(';'), ...linhas].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `leads-vittahub-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
   if (!data) return <div style={{padding:40,display:'flex',justifyContent:'center'}}><span className="spin" style={{width:28,height:28}}/></div>;
 
   const { resumo, porOrigem, porStatus, motivosPerda, porResponsavel } = data;
-  const origemData = Object.entries(porOrigem||{}).map(([k,v])=>({name:k,...v,taxa:v.total>0?+(v.fechados/v.total*100).toFixed(0):0}));
-  const statusData = Object.entries(porStatus||{}).map(([k,v])=>({name:k,value:v}));
-  const respData = porResponsavel?Object.values(porResponsavel).sort((a,b)=>b.valor-a.valor):[];
-  const perdaData = Object.entries(motivosPerda||{}).map(([k,v])=>({name:k,value:v}));
+  // API devolve arrays (não objetos) — leitura corrigida
+  const origemData = (porOrigem||[]).map(v=>({name:v.origem||'—', total:+v.total, fechados:+v.fechados, taxa:v.total>0?+((v.fechados/v.total)*100).toFixed(0):0}));
+  const statusData = (porStatus||[]).map(v=>({name:v.status, value:+v.n}));
+  const respData   = (porResponsavel||[]).map(v=>({...v, leads:+v.leads, fechados:+v.fechados, valor:+v.valor||0})).sort((a,b)=>b.valor-a.valor);
+  const perdaData  = (motivosPerda||[]).map(v=>({name:v.motivo_perda, value:+v.n}));
 
   return (
     <div style={{ padding:'28px' }}>
@@ -106,12 +129,24 @@ export default function Relatorios() {
           <h1 style={{ fontSize:30 }}>Relatórios</h1>
           <p style={{ color:'var(--muted)', fontSize:13, marginTop:2 }}>Análise completa do funil comercial</p>
         </div>
+        <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+          <div style={{ display:'flex', background:'var(--card)', borderRadius:10, border:'1.5px solid var(--border)', overflow:'hidden' }}>
+            {[[7,'7 dias'],[30,'30 dias'],[90,'90 dias']].map(([d,l])=>(
+              <button key={d} onClick={()=>setDias(d)}
+                style={{ padding:'7px 13px', fontSize:12, fontWeight:700, border:'none', cursor:'pointer',
+                  background: dias===d?'var(--tq)':'transparent', color: dias===d?'#fff':'var(--muted)' }}>{l}</button>
+            ))}
+          </div>
+          <button onClick={handleCSV} className="btn btn-s" style={{ gap:7 }}>
+            <Download size={14}/> CSV
+          </button>
         {isMaster && (
           <button onClick={handlePDF} disabled={pdfLoading} className="btn btn-p" style={{ gap:7 }}>
             {pdfLoading?<span className="spin" style={{width:15,height:15}}/>:<Download size={15}/>}
             Exportar PDF
           </button>
         )}
+        </div>
       </div>
 
       {/* KPIs */}

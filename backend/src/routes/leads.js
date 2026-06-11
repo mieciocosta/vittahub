@@ -11,17 +11,32 @@ const guard = (row, role) => role === 'master' ? row : { ...row, valor_proposta:
 
 // Helper: aceita payload em camelCase OU snake_case (o LeadModal envia camelCase;
 // antes disso, responsável/valor/retorno/motivo NUNCA eram salvos — bug silencioso)
-const normBody = (b = {}) => ({
-  nome: b.nome, telefone: b.telefone, email: b.email,
-  origem: b.origem, interesse: b.interesse, status: b.status,
-  responsavel_id: b.responsavel_id ?? b.responsavelId,
-  valor_proposta: b.valor_proposta ?? b.valorProposta,
-  servico: b.servico,
-  data_retorno: b.data_retorno ?? b.dataRetorno,
-  observacoes: b.observacoes,
-  motivo_perda: b.motivo_perda ?? b.motivoPerda,
-  tags: b.tags,
-});
+const cut = (v, n) => v === undefined ? undefined : String(v).trim().slice(0, n);
+const normBody = (b = {}) => {
+  let valor = b.valor_proposta ?? b.valorProposta;
+  if (valor !== undefined) {
+    valor = parseFloat(String(valor).replace(',', '.'));
+    valor = Number.isFinite(valor) ? Math.min(Math.max(valor, 0), 999999.99) : 0;
+  }
+  let tel = b.telefone;
+  if (tel !== undefined) tel = String(tel).replace(/\D/g, '').slice(0, 13); // só dígitos
+  let retorno = b.data_retorno ?? b.dataRetorno;
+  if (retorno !== undefined && retorno) {
+    retorno = String(retorno).slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(retorno)) retorno = null;
+  }
+  return {
+    nome: cut(b.nome, 80), telefone: tel, email: cut(b.email, 120),
+    origem: cut(b.origem, 30), interesse: cut(b.interesse, 40), status: cut(b.status, 40),
+    responsavel_id: b.responsavel_id ?? b.responsavelId,
+    valor_proposta: valor,
+    servico: cut(b.servico, 80),
+    data_retorno: retorno,
+    observacoes: cut(b.observacoes, 600),
+    motivo_perda: cut(b.motivo_perda ?? b.motivoPerda, 40),
+    tags: Array.isArray(b.tags) ? b.tags.slice(0, 10).map(t => String(t).slice(0, 20)) : b.tags,
+  };
+};
 
 // ─── LIST (with pagination + search + filters) ────────────────────────────────
 r.get('/', async (req, res) => {
@@ -81,6 +96,51 @@ r.get('/meta', async (req, res) => {
       tags:        ['urgente','quente','plano','vip','infantil','retorno','casal','gestante','indicação','frio'],
       users,
     });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── RETORNOS: agenda de follow-up ────────────────────────────────────────────
+// Vencidos / hoje / próximos 7 dias — só leads em aberto (fora Fechado/Perdido)
+r.get('/retornos', async (req, res) => {
+  try {
+    const uFilter = req.user.role === 'master' ? '' : ` AND l.responsavel_id = '${req.user.id}'`;
+    const { rows } = await query(`
+      SELECT l.*, u.nome AS responsavel_nome, u.cor AS responsavel_cor,
+        CASE
+          WHEN l.data_retorno <  CURRENT_DATE THEN 'vencido'
+          WHEN l.data_retorno =  CURRENT_DATE THEN 'hoje'
+          ELSE 'proximo'
+        END AS grupo
+      FROM leads l
+      LEFT JOIN usuarios u ON u.id = l.responsavel_id
+      WHERE l.data_retorno IS NOT NULL
+        AND l.status NOT IN ('Fechado','Perdido')
+        AND l.data_retorno <= CURRENT_DATE + INTERVAL '7 days'
+        ${uFilter}
+      ORDER BY l.data_retorno, l.nome`);
+    const guardRow = (row) => req.user.role === 'master' ? row : { ...row, valor_proposta: null };
+    res.json({
+      vencidos: rows.filter(r2 => r2.grupo === 'vencido').map(guardRow),
+      hoje:     rows.filter(r2 => r2.grupo === 'hoje').map(guardRow),
+      proximos: rows.filter(r2 => r2.grupo === 'proximo').map(guardRow),
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Concluir o retorno (limpa a data) ou reagendar
+r.patch('/:id/retorno', async (req, res) => {
+  try {
+    let { data_retorno } = req.body; // null = concluído
+    if (data_retorno && !/^\d{4}-\d{2}-\d{2}$/.test(String(data_retorno).slice(0, 10))) {
+      return res.status(400).json({ error: 'Data inválida' });
+    }
+    const { rows } = await query(
+      'UPDATE leads SET data_retorno = $1, updated_at = NOW() WHERE id = $2 RETURNING id, data_retorno',
+      [data_retorno ? String(data_retorno).slice(0, 10) : null, req.params.id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Não encontrado' });
+    socketEmit('funil_update', { tipo: 'lead', leadId: rows[0].id });
+    res.json(rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

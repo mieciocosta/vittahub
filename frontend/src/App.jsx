@@ -7,6 +7,7 @@ import Dashboard from './pages/Dashboard.jsx';
 import Inbox from './pages/Inbox.jsx';
 import Leads from './pages/Leads.jsx';
 import Funil from './pages/Funil.jsx';
+import Retornos from './pages/Retornos.jsx';
 import Relatorios from './pages/Relatorios.jsx';
 import Configuracoes from './pages/Configuracoes.jsx';
 import WhatsApp from './pages/WhatsApp.jsx';
@@ -61,6 +62,7 @@ export default function App() {
           <Route path="/inbox"        element={<Inbox onUnreadChange={setUnread} />} />
           <Route path="/leads"        element={<Leads />} />
           <Route path="/funil"        element={<Funil />} />
+          <Route path="/retornos"     element={<Retornos />} />
           <Route path="/relatorios"   element={<Relatorios />} />
           <Route path="/whatsapp"     element={user.role === 'master' ? <WhatsApp /> : <Navigate to="/" />} />
           <Route path="/configuracoes" element={<Configuracoes />} />

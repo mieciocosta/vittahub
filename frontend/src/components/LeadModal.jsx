@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, UserPlus } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
+import { mask } from '../hooks/utils.js';
 
 const ORIGENS = ['Instagram','Google','WhatsApp','Indicação','Facebook','Tráfego Pago','Orgânico','Outro'];
 const INTERESSES = ['Vacina','Plano Vacinal','Consulta','Terapia','Plano Infantil','Gestante','Outro'];
@@ -18,8 +19,9 @@ export default function LeadModal({ lead, onClose, onSave, prefill = {} }) {
   // (antes disso, responsável/valor/retorno/motivo apareciam vazios na edição)
   const hidratar = (l) => !l ? {} : {
     ...l,
+    telefone: mask.phone(l.telefone || ''),
     responsavelId: l.responsavelId ?? l.responsavel_id ?? '',
-    valorProposta: l.valorProposta ?? l.valor_proposta ?? '',
+    valorProposta: (l.valorProposta ?? l.valor_proposta) ? mask.moneyBR(String(Math.round(parseFloat(l.valorProposta ?? l.valor_proposta) * 100))) : '',
     dataRetorno:   (l.dataRetorno ?? l.data_retorno ?? '') ? String(l.dataRetorno ?? l.data_retorno).slice(0,10) : '',
     motivoPerda:   l.motivoPerda ?? l.motivo_perda ?? '',
     tags: l.tags || [],
@@ -30,11 +32,19 @@ export default function LeadModal({ lead, onClose, onSave, prefill = {} }) {
   const set = (k,v) => setF(p=>({...p,[k]:v}));
   const toggleTag = t => set('tags', f.tags.includes(t)?f.tags.filter(x=>x!==t):[...f.tags,t]);
 
+  const [err, setErr] = useState('');
   const save = async (e) => {
     e.preventDefault();
-    if (!f.nome.trim()||!f.telefone.trim()) return alert('Nome e telefone são obrigatórios');
+    setErr('');
+    if (!f.nome.trim()) return setErr('Informe o nome do lead.');
+    const tel = mask.digits(f.telefone);
+    if (tel.length < 10) return setErr('Telefone incompleto — informe DDD + número.');
+    if (f.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.email)) return setErr('E-mail inválido.');
     setSaving(true);
-    try { await onSave({...f, valorProposta:parseFloat(f.valorProposta)||0}); onClose(); }
+    try {
+      await onSave({ ...f, nome: f.nome.trim(), telefone: tel, valorProposta: mask.moneyToNumber(f.valorProposta) });
+      onClose();
+    } catch (e2) { setErr(e2.message); }
     finally { setSaving(false); }
   };
 
@@ -70,15 +80,15 @@ export default function LeadModal({ lead, onClose, onSave, prefill = {} }) {
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
             <div className="field" style={{ gridColumn:'1/-1' }}>
               <label>Nome completo *</label>
-              <input value={f.nome} onChange={e=>set('nome',e.target.value)} placeholder="Ex: Ana Beatriz Sousa" required />
+              <input value={f.nome} maxLength={80} onChange={e=>set('nome',e.target.value)} placeholder="Ex: Ana Beatriz Sousa" required />
             </div>
             <div className="field">
               <label>WhatsApp *</label>
-              <input value={f.telefone} onChange={e=>set('telefone',e.target.value)} placeholder="(98) 99999-9999" required />
+              <input value={f.telefone} inputMode="numeric" maxLength={16} onChange={e=>set('telefone', mask.phone(e.target.value))} placeholder="(98) 99999-9999" required />
             </div>
             <div className="field">
               <label>E-mail</label>
-              <input type="email" value={f.email||''} onChange={e=>set('email',e.target.value)} placeholder="email@exemplo.com" />
+              <input type="email" value={f.email||''} maxLength={120} onChange={e=>set('email',e.target.value)} placeholder="email@exemplo.com" />
             </div>
           </div>
 
@@ -120,24 +130,26 @@ export default function LeadModal({ lead, onClose, onSave, prefill = {} }) {
             </div>
             <div className="field">
               <label>Data de retorno</label>
-              <input type="date" value={f.dataRetorno||''} onChange={e=>set('dataRetorno',e.target.value)} />
+              <input type="date" min={new Date().toISOString().slice(0,10)} value={f.dataRetorno||''} onChange={e=>set('dataRetorno',e.target.value)} />
             </div>
             {isMaster && (
               <div className="field">
                 <label>Valor proposta (R$)</label>
-                <input type="number" step="0.01" min="0" value={f.valorProposta||''} onChange={e=>set('valorProposta',e.target.value)} placeholder="0,00" />
+                <input inputMode="numeric" value={f.valorProposta||''} onChange={e=>set('valorProposta', mask.moneyBR(e.target.value))} placeholder="R$ 0,00" />
               </div>
             )}
             <div className="field" style={!isMaster?{gridColumn:'1/-1'}:{}}>
               <label>Serviço / Produto</label>
-              <input value={f.servico||''} onChange={e=>set('servico',e.target.value)} placeholder="Ex: Plano Vacinal Adulto" />
+              <input value={f.servico||''} maxLength={80} onChange={e=>set('servico',e.target.value)} placeholder="Ex: Plano Vacinal Adulto" />
             </div>
             <div className="field" style={{ gridColumn:'1/-1' }}>
               <label>Observações</label>
-              <textarea value={f.observacoes||''} onChange={e=>set('observacoes',e.target.value)} rows={2} placeholder="Anotações sobre o lead..." style={{ resize:'vertical' }} />
+              <textarea value={f.observacoes||''} maxLength={600} onChange={e=>set('observacoes',e.target.value)} rows={2} placeholder="Anotações sobre o lead..." style={{ resize:'vertical' }} />
+              <div style={{ fontSize:10.5, color:'var(--light)', textAlign:'right', marginTop:2 }}>{(f.observacoes||'').length}/600</div>
             </div>
           </div>
 
+          {err && <div style={{ padding:'8px 13px', borderRadius:9, background:'var(--err2)', color:'var(--err)', fontSize:12.5, fontWeight:600 }}>{err}</div>}
           <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
             <button type="button" onClick={onClose} className="btn btn-s">Cancelar</button>
             <button type="submit" className="btn btn-p" disabled={saving}>

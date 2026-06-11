@@ -216,7 +216,7 @@ export default function Funil() {
                 {isMaster && <GripVertical size={13} color="var(--light)" style={{ flexShrink: 0 }} />}
                 {editing ? (
                   <>
-                    <input autoFocus value={editCol.nome}
+                    <input autoFocus value={editCol.nome} maxLength={32}
                       onChange={e => setEditCol({ ...editCol, nome: e.target.value })}
                       onKeyDown={e => { if (e.key === 'Enter') salvarNomeColuna(); if (e.key === 'Escape') setEditCol(null); }}
                       onBlur={salvarNomeColuna}
@@ -332,7 +332,7 @@ export default function Funil() {
         {isMaster && <div style={{ minWidth: 218, flex: '0 0 218px' }}>
           {novaCol ? (
             <div style={{ background: 'var(--card)', borderRadius: 14, border: '1.5px solid var(--tq)', padding: 10 }}>
-              <input autoFocus value={novaColNome} onChange={e => setNovaColNome(e.target.value)}
+              <input autoFocus value={novaColNome} maxLength={32} onChange={e => setNovaColNome(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') criarColuna(); if (e.key === 'Escape') { setNovaCol(false); setNovaColNome(''); } }}
                 placeholder="Nome da etapa"
                 style={{ width: '100%', padding: '7px 10px', borderRadius: 9, border: '1.5px solid var(--border)', fontSize: 13, fontWeight: 600, outline: 'none' }} />

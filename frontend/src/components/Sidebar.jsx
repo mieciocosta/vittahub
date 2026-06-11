@@ -1,24 +1,104 @@
-import React from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, MessageSquare, Users, Kanban, BarChart2,
   LogOut, Settings, Smartphone, Sun, Moon, ChevronLeft, ChevronRight,
+  CalendarClock, Bell, CheckCheck, UserPlus,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
+import { useApi } from '../context/AuthContext.jsx';
+import { fmt } from '../hooks/utils.js';
 
 const NAV = [
   { to:'/',           icon:LayoutDashboard, label:'Dashboard' },
   { to:'/inbox',      icon:MessageSquare,   label:'Inbox',     unread:true },
   { to:'/leads',      icon:Users,           label:'Leads' },
   { to:'/funil',      icon:Kanban,          label:'Funil' },
+  { to:'/retornos',   icon:CalendarClock,   label:'Retornos',  retornos:true },
   { to:'/relatorios', icon:BarChart2,       label:'Relatórios' },
 ];
+
+/* ── Sino de notificações (novo lead, lead qualificado pela Vitta etc.) ────── */
+function BellPanel({ collapsed }) {
+  const api = useApi();
+  const [open, setOpen] = useState(false);
+  const [notifs, setNotifs] = useState([]);
+  const ref = useRef(null);
+  const naoLidas = notifs.filter(n => !n.lida).length;
+
+  const load = () => api.get('/inbox/notifications').then(d => setNotifs(Array.isArray(d) ? d : [])).catch(() => {});
+  useEffect(() => { load(); const t = setInterval(load, 30000); return () => clearInterval(t); }, []); // eslint-disable-line
+  useEffect(() => {
+    const fn = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', fn);
+    return () => document.removeEventListener('mousedown', fn);
+  }, []);
+
+  const lerTodas = async () => {
+    setNotifs(p => p.map(n => ({ ...n, lida: true })));
+    try { await api.post('/inbox/notifications/read-all'); } catch {}
+  };
+
+  return (
+    <div ref={ref} style={{ position:'relative' }}>
+      <button onClick={() => setOpen(o => !o)} title="Notificações"
+        style={{ width:'100%', display:'flex', alignItems:'center', justifyContent: collapsed ? 'center' : 'flex-start', gap: collapsed ? 0 : 10,
+          padding: collapsed ? '10px 0' : '9px 12px', borderRadius:10, background: open ? 'rgba(0,184,192,0.15)' : 'transparent',
+          color: open ? 'var(--tq)' : 'rgba(255,255,255,0.45)', border:'none', cursor:'pointer', fontSize:13.5, position:'relative' }}>
+        <Bell size={16} strokeWidth={1.8} />
+        {!collapsed && <span style={{ flex:1, textAlign:'left' }}>Notificações</span>}
+        {naoLidas > 0 && (collapsed
+          ? <span style={{ position:'absolute', top:4, right:4, width:8, height:8, borderRadius:'50%', background:'var(--gold)', border:'2px solid var(--pet3)' }} />
+          : <span style={{ background:'var(--gold)', color:'#fff', borderRadius:10, padding:'1px 7px', fontSize:10.5, fontWeight:800, minWidth:20, textAlign:'center' }}>{naoLidas > 99 ? '99+' : naoLidas}</span>)}
+      </button>
+
+      {open && (
+        <div style={{ position:'fixed', left:'calc(var(--sw) + 8px)', bottom:88, width:312, maxHeight:420, zIndex:400,
+          background:'var(--card)', borderRadius:14, boxShadow:'var(--s4)', border:'1px solid var(--border)',
+          display:'flex', flexDirection:'column', overflow:'hidden' }}>
+          <div style={{ padding:'12px 14px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+            <span style={{ fontWeight:800, fontSize:13.5, color:'var(--txt)' }}>Notificações</span>
+            {naoLidas > 0 && (
+              <button onClick={lerTodas} style={{ display:'flex', alignItems:'center', gap:4, padding:'4px 9px', borderRadius:8, background:'var(--tq3)', color:'var(--tq2)', fontSize:11, fontWeight:700, border:'none', cursor:'pointer' }}>
+                <CheckCheck size={11} /> Ler todas
+              </button>
+            )}
+          </div>
+          <div style={{ flex:1, overflowY:'auto' }}>
+            {notifs.length === 0 && <div style={{ padding:'26px 14px', textAlign:'center', fontSize:12.5, color:'var(--muted)' }}>Nenhuma notificação ainda.</div>}
+            {notifs.map(n => (
+              <div key={n.id} style={{ padding:'10px 14px', borderBottom:'1px solid var(--border)', display:'flex', gap:9, background: n.lida ? 'transparent' : 'var(--tq4)' }}>
+                <div style={{ width:28, height:28, borderRadius:9, background: n.lida ? 'var(--bg2)' : 'var(--tq3)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, marginTop:1 }}>
+                  <UserPlus size={13} color={n.lida ? 'var(--muted)' : 'var(--tq2)'} />
+                </div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontWeight:700, fontSize:12.5, color:'var(--txt)' }}>{n.titulo}</div>
+                  <div style={{ fontSize:11.5, color:'var(--muted)', lineHeight:1.45 }}>{n.texto}</div>
+                  <div style={{ fontSize:10, color:'var(--light)', marginTop:2 }}>{fmt.relTime(n.created_at)}</div>
+                </div>
+                {!n.lida && <span style={{ width:7, height:7, borderRadius:'50%', background:'var(--tq)', flexShrink:0, marginTop:5 }} />}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 const initials = n => (n||'?').split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase();
 
 export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, collapsed = false, onToggleCollapse }) {
   const { user, logout, isMaster } = useAuth();
+  const api = useApi();
   const w = collapsed ? '56px' : '230px';
+  // Retornos vencidos: badge vermelho no menu (atualiza a cada 60s)
+  const [vencidos, setVencidos] = useState(0);
+  useEffect(() => {
+    const load = () => api.get('/leads/retornos').then(d => setVencidos(d.vencidos?.length || 0)).catch(() => {});
+    load(); const t = setInterval(load, 60000);
+    return () => clearInterval(t);
+  }, []); // eslint-disable-line
 
   return (
     <aside style={{
@@ -52,7 +132,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
 
       {/* Nav */}
       <nav style={{ flex:1, padding: collapsed ? '14px 6px' : '14px 10px', display:'flex', flexDirection:'column', gap:2, overflowY:'auto', overflowX:'hidden' }}>
-        {NAV.map(({ to, icon:Icon, label, unread:showU }) => (
+        {NAV.map(({ to, icon:Icon, label, unread:showU, retornos:retBadge }) => (
           <NavLink key={to} to={to} end={to==='/'} title={collapsed ? label : ''} style={({ isActive }) => ({
             display:'flex', alignItems:'center', gap: collapsed ? 0 : 10,
             padding: collapsed ? '10px 0' : '9px 12px',
@@ -72,6 +152,14 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                 {unread > 99 ? '99+' : unread}
               </span>
             )}
+            {!collapsed && retBadge && vencidos > 0 && (
+              <span style={{ background:'var(--err)', color:'#fff', borderRadius:10, padding:'1px 7px', fontSize:10.5, fontWeight:800, minWidth:20, textAlign:'center' }}>
+                {vencidos > 99 ? '99+' : vencidos}
+              </span>
+            )}
+            {collapsed && retBadge && vencidos > 0 && (
+              <span style={{ position:'absolute', top:4, right:4, width:8, height:8, borderRadius:'50%', background:'var(--err)', border:'2px solid var(--pet3)' }} />
+            )}
             {/* Badge no ícone quando colapsado */}
             {collapsed && showU && unread > 0 && (
               <span style={{ position:'absolute', top:4, right:4, width:8, height:8, borderRadius:'50%', background:'var(--tq)', border:'2px solid var(--pet3)' }} />
@@ -80,6 +168,8 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
         ))}
 
         <div style={{ height:1, background:'rgba(255,255,255,0.07)', margin:'8px 12px' }}/>
+
+        <BellPanel collapsed={collapsed} />
 
         {isMaster && (
         <NavLink to="/whatsapp" title={collapsed ? 'WhatsApp' : ''} style={({ isActive }) => ({

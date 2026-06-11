@@ -10,7 +10,8 @@ r.get('/dashboard', async (req, res) => {
     const isMaster = req.user.role === 'master';
     const uid = req.user.id;
     const uFilter = isMaster ? '' : `AND l.responsavel_id = '${uid}'`;
-    const today = new Date().toISOString().split('T')[0];
+    // Período dos gráficos: ?days=7|30|90 (validado — nunca interpola entrada crua)
+    const days = [7, 30, 90].includes(parseInt(req.query.days)) ? parseInt(req.query.days) : 7;
 
     const [totals, porStatus, porOrigem, porResp, porDia, unread, retornos, perdas] = await Promise.all([
       query(`SELECT
@@ -22,12 +23,14 @@ r.get('/dashboard', async (req, res) => {
         ${isMaster ? 'SUM(CASE WHEN status=\'Fechado\' THEN valor_proposta ELSE 0 END) total_vendido,' : ''}
         ${isMaster ? 'AVG(CASE WHEN status=\'Fechado\' THEN valor_proposta END) ticket_medio,' : ''}
         COUNT(*) FILTER (WHERE data_retorno = CURRENT_DATE) retornos_hoje,
-        COUNT(*) FILTER (WHERE data_retorno < CURRENT_DATE AND status NOT IN ('Fechado','Perdido')) retornos_vencidos
+        COUNT(*) FILTER (WHERE data_retorno < CURRENT_DATE AND status NOT IN ('Fechado','Perdido')) retornos_vencidos,
+        ${isMaster ? "SUM(CASE WHEN status NOT IN ('Fechado','Perdido') THEN valor_proposta ELSE 0 END) pipeline," : ''}
+        COUNT(*) FILTER (WHERE status NOT IN ('Fechado','Perdido')) abertos
         FROM leads l WHERE 1=1 ${uFilter}`),
       query(`SELECT status, COUNT(*) n FROM leads l WHERE 1=1 ${uFilter} GROUP BY status`),
       query(`SELECT origem, COUNT(*) total, COUNT(*) FILTER (WHERE status='Fechado') fechados FROM leads l WHERE 1=1 ${uFilter} GROUP BY origem ORDER BY total DESC`),
       isMaster ? query(`SELECT u.id, u.nome, u.cor, COUNT(l.id) leads, COUNT(l.id) FILTER (WHERE l.status='Fechado') fechados, SUM(CASE WHEN l.status='Fechado' THEN l.valor_proposta ELSE 0 END) valor FROM usuarios u LEFT JOIN leads l ON l.responsavel_id = u.id WHERE u.role = 'atendente' GROUP BY u.id ORDER BY valor DESC`) : Promise.resolve({ rows: [] }),
-      query(`SELECT data_entrada::text data, COUNT(*) leads, COUNT(*) FILTER (WHERE status='Fechado') fechados FROM leads l WHERE data_entrada >= CURRENT_DATE - INTERVAL '7 days' ${uFilter} GROUP BY data_entrada ORDER BY data_entrada`),
+      query(`SELECT data_entrada::text data, COUNT(*) leads, COUNT(*) FILTER (WHERE status='Fechado') fechados FROM leads l WHERE data_entrada >= CURRENT_DATE - INTERVAL '${days} days' ${uFilter} GROUP BY data_entrada ORDER BY data_entrada`),
       query('SELECT SUM(unread) unread FROM conversas'),
       query(`SELECT COUNT(*) n FROM leads WHERE data_retorno = CURRENT_DATE ${uFilter.replace('l.', '')}`),
       query(`SELECT motivo_perda, COUNT(*) n FROM leads WHERE status = 'Perdido' AND motivo_perda IS NOT NULL ${uFilter} GROUP BY motivo_perda ORDER BY n DESC`),
@@ -45,7 +48,10 @@ r.get('/dashboard', async (req, res) => {
         retornosHoje: parseInt(t.retornos_hoje),
         retornosVencidos: parseInt(t.retornos_vencidos),
         totalUnread: parseInt(unread.rows[0]?.unread)||0,
+        pipeline: isMaster ? parseFloat(t.pipeline)||0 : null,
+        abertos: parseInt(t.abertos)||0,
       },
+      dias: days,
       porStatus: porStatus.rows,
       porOrigem: porOrigem.rows,
       porResponsavel: isMaster ? porResp.rows : [],

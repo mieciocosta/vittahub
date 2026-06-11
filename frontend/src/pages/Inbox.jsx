@@ -6,7 +6,7 @@ import {
   CheckCircle2, Clock, MessageCircle, Phone, Image,
 } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
-import { fmt, openWA } from '../hooks/utils.js';
+import { fmt, openWA, avatarGrad } from '../hooks/utils.js';
 import PropostaModal from '../components/PropostaModal.jsx';
 import Copiloto from '../components/Copiloto.jsx';
 
@@ -25,14 +25,16 @@ const ITEM_HEIGHT = 80;
 /* ── Avatar ─────────────────────────────────────────────────────────────────── */
 const Avatar = React.memo(function Avatar({ conv, size = 38, fontSize = 13 }) {
   const initials = (conv.contact_name || conv.phone || '?').split(' ').slice(0, 2).map(w => w[0] || '?').join('').toUpperCase();
-  const bg    = conv.channel === 'whatsapp' ? '#d4f7e0' : '#fce4ef';
-  const color = conv.channel === 'whatsapp' ? '#0a7a40' : '#9a1050';
+  // Gradiente determinístico por contato (referência WhatsApp/Telegram):
+  // cada pessoa tem sempre a mesma cor, iniciais brancas com bom contraste
+  const bg = avatarGrad(conv.contact_id || conv.phone || conv.contact_name);
   const badge = Math.round(size * 0.37);
   const icon  = Math.round(size * 0.18);
   return (
     <div style={{ width: size, height: size, borderRadius: '50%', flexShrink: 0, background: bg,
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontWeight: 700, fontSize, color, position: 'relative', overflow: 'hidden' }}>
+      fontWeight: 800, fontSize, color: '#fff', letterSpacing: .3,
+      textShadow: '0 1px 2px rgba(0,0,0,.18)', position: 'relative', overflow: 'hidden' }}>
       {conv.profile_pic
         ? <img src={conv.profile_pic} alt="" loading="lazy"
             style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover', position: 'absolute', inset: 0 }}
