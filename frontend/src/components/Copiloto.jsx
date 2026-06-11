@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback } from 'react';
-import { Sparkles, X, FileText, Target, Lightbulb, PenLine, RefreshCw, ArrowUpLeft, AlertCircle, TrendingUp, TrendingDown, ChevronRight, MessageCircle, Paperclip, Send, ImageIcon } from 'lucide-react';
+import { Sparkles, X, FileText, Target, Lightbulb, PenLine, RefreshCw, ArrowUpLeft, AlertCircle, TrendingUp, TrendingDown, ChevronRight, MessageCircle, Paperclip, Send, ImageIcon, Mic, Square } from 'lucide-react';
 
 /* ─── Copiloto Vittalis ───────────────────────────────────────────────────────
    Painel lateral de inteligência comercial para a equipe.
@@ -123,25 +123,70 @@ export default function Copiloto({ conv, onUse, onClose }) {
   const [chatMsgs, setChatMsgs] = useState([]);
   const [chatInput, setChatInput] = useState('');
   const [chatImg, setChatImg] = useState(null); // { media_type, data, preview }
+  const [chatPdf, setChatPdf] = useState(null); // { name, data }
   const [chatLoading, setChatLoading] = useState(false);
+  const [gravando, setGravando] = useState(false);
+  const recRef = useRef(null);
   const chatFileRef = useRef(null);
   const chatEndRef = useRef(null);
 
-  const anexarImagem = async (e) => {
+  const anexarArquivo = async (e) => {
     const f = e.target.files?.[0];
     e.target.value = '';
     if (!f) return;
+    if (f.type === 'application/pdf') {
+      if (f.size > 8 * 1024 * 1024) return; // PDF até 8MB
+      const data = await new Promise((res, rej) => {
+        const r = new FileReader();
+        r.onload = () => res(String(r.result).split(',')[1]);
+        r.onerror = rej;
+        r.readAsDataURL(f);
+      });
+      setChatPdf({ name: f.name.slice(0, 80), data });
+      setChatImg(null);
+      return;
+    }
     if (!f.type.startsWith('image/')) return;
-    try { setChatImg(await comprimirImagem(f)); } catch {}
+    try { setChatImg(await comprimirImagem(f)); setChatPdf(null); } catch {}
   };
 
-  const enviarChat = async () => {
+  // Gravação de áudio: a atendente fala, o Whisper transcreve e a IA responde
+  const toggleGravacao = async () => {
+    if (gravando) { recRef.current?.stop(); return; }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const rec = new MediaRecorder(stream, { mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm' });
+      const chunks = [];
+      rec.ondataavailable = (ev) => ev.data.size && chunks.push(ev.data);
+      rec.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        setGravando(false);
+        const blob = new Blob(chunks, { type: 'audio/webm' });
+        if (blob.size < 800) return; // gravação vazia
+        const data = await new Promise((res) => {
+          const r = new FileReader();
+          r.onload = () => res(String(r.result).split(',')[1]);
+          r.readAsDataURL(blob);
+        });
+        enviarChat({ audio: { media_type: 'audio/webm', data } });
+      };
+      recRef.current = rec;
+      rec.start();
+      setGravando(true);
+    } catch { setGravando(false); }
+  };
+
+  const enviarChat = async (extra = {}) => {
     const texto = chatInput.trim();
-    if ((!texto && !chatImg) || chatLoading) return;
-    const minha = { role: 'user', content: texto || '(imagem anexada)', preview: chatImg?.preview };
+    if ((!texto && !chatImg && !chatPdf && !extra.audio) || chatLoading) return;
+    const idTmp = Date.now();
+    const rotulo = extra.audio ? '🎤 Áudio enviado' : texto || (chatPdf ? `📄 ${chatPdf.name}` : '(imagem anexada)');
+    const minha = { id: idTmp, role: 'user', content: rotulo, preview: chatImg?.preview, pdfName: chatPdf?.name };
     const historico = chatMsgs.map(m => ({ role: m.role, content: m.content }));
     setChatMsgs(p => [...p, minha]);
-    setChatInput(''); const img = chatImg; setChatImg(null);
+    setChatInput('');
+    const img = chatImg; setChatImg(null);
+    const pdf = chatPdf; setChatPdf(null);
     setChatLoading(true);
     try {
       const BASE = import.meta.env.VITE_API_URL || '';
@@ -149,10 +194,17 @@ export default function Copiloto({ conv, onUse, onClose }) {
       const resp = await fetch(`${BASE}/api/inbox/ai-chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}` },
-        body: JSON.stringify({ convId, history: historico, message: texto, image: img ? { media_type: img.media_type, data: img.data } : undefined }),
+        body: JSON.stringify({
+          convId, history: historico, message: texto,
+          image: img ? { media_type: img.media_type, data: img.data } : undefined,
+          pdf: pdf ? { name: pdf.name, data: pdf.data } : undefined,
+          audio: extra.audio,
+        }),
       });
       const d = await resp.json();
       if (!resp.ok) throw new Error(d.error || `HTTP ${resp.status}`);
+      // Áudio: troca o rótulo pela transcrição real (a equipe vê o que a IA entendeu)
+      if (d.transcricao) setChatMsgs(p => p.map(m => m.id === idTmp ? { ...m, content: `🎤 ${d.transcricao}` } : m));
       setChatMsgs(p => [...p, { role: 'assistant', content: d.texto }]);
     } catch (e2) {
       setChatMsgs(p => [...p, { role: 'assistant', content: `Não consegui responder: ${e2.message}` }]);
@@ -201,12 +253,13 @@ export default function Copiloto({ conv, onUse, onClose }) {
             {chatMsgs.length === 0 && (
               <div style={{ textAlign: 'center', padding: '28px 10px', color: P.txt3, fontSize: 12, lineHeight: 1.65 }}>
                 Converse com o Copiloto sobre esta conversa.<br />
-                Anexe a foto de uma carteira de vacinação e pergunte<br />quais vacinas faltam e quanto fica.
+                Anexe foto ou PDF (carteira de vacinação, exame, proposta)<br />ou aperte o microfone e fale — a IA transcreve e responde.
               </div>
             )}
             {chatMsgs.map((m, i) => (
               <div key={i} style={{ alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '88%' }}>
                 {m.preview && <img src={m.preview} alt="anexo" style={{ maxWidth: 160, borderRadius: 10, display: 'block', marginBottom: 4, border: `1px solid ${P.cardBorder}` }} />}
+                {m.pdfName && <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 9px', marginBottom: 4, borderRadius: 8, background: P.card, border: `1px solid ${P.cardBorder}`, fontSize: 10.5, color: P.txt2 }}><FileText size={11} color={P.tq} />{m.pdfName}</div>}
                 <div style={{ background: m.role === 'user' ? P.tqDim : P.card, border: `1px solid ${m.role === 'user' ? 'rgba(0,184,192,.35)' : P.cardBorder}`, borderRadius: m.role === 'user' ? '12px 12px 3px 12px' : '12px 12px 12px 3px', padding: '8px 11px', fontSize: 12.5, color: P.txt, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
                   {m.content}
                 </div>
@@ -232,18 +285,35 @@ export default function Copiloto({ conv, onUse, onClose }) {
               <button onClick={() => setChatImg(null)} style={{ background: 'none', border: 'none', color: P.txt3, cursor: 'pointer', padding: 2 }}><X size={12} /></button>
             </div>
           )}
+          {chatPdf && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', background: P.card, borderRadius: 10, border: `1px solid ${P.cardBorder}` }}>
+              <FileText size={13} color={P.tq} />
+              <span style={{ flex: 1, fontSize: 11, color: P.txt2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{chatPdf.name}</span>
+              <button onClick={() => setChatPdf(null)} style={{ background: 'none', border: 'none', color: P.txt3, cursor: 'pointer', padding: 2 }}><X size={12} /></button>
+            </div>
+          )}
+          {gravando && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: 'rgba(232,64,64,.12)', borderRadius: 10, border: '1px solid rgba(232,64,64,.4)' }}>
+              <span className="cop-pulse" style={{ width: 8, height: 8, borderRadius: '50%', background: '#e84040', display: 'block' }} />
+              <span style={{ flex: 1, fontSize: 11, color: P.txt2 }}>Gravando… clique no quadrado para enviar</span>
+            </div>
+          )}
 
           <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end', flexShrink: 0 }}>
-            <input ref={chatFileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={anexarImagem} />
-            <button onClick={() => chatFileRef.current?.click()} title="Anexar imagem (carteira de vacinação, exame...)"
+            <input ref={chatFileRef} type="file" accept="image/*,application/pdf" style={{ display: 'none' }} onChange={anexarArquivo} />
+            <button onClick={() => chatFileRef.current?.click()} title="Anexar imagem ou PDF (carteira de vacinação, exame, proposta...)"
               style={{ width: 32, height: 32, borderRadius: 9, background: P.card, border: `1px solid ${P.cardBorder}`, color: P.txt2, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
               <Paperclip size={13} />
             </button>
-            <textarea value={chatInput} onChange={e => setChatInput(e.target.value)} rows={1} placeholder="Pergunte ao Copiloto…"
+            <button onClick={toggleGravacao} title={gravando ? 'Parar e enviar' : 'Falar com a IA (transcrição automática)'}
+              style={{ width: 32, height: 32, borderRadius: 9, background: gravando ? '#e84040' : P.card, border: `1px solid ${gravando ? '#e84040' : P.cardBorder}`, color: gravando ? '#fff' : P.txt2, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              {gravando ? <Square size={12} /> : <Mic size={13} />}
+            </button>
+            <textarea value={chatInput} onChange={e => setChatInput(e.target.value)} rows={1} placeholder="Pergunte, anexe ou fale com a IA…"
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviarChat(); } }}
               style={{ flex: 1, resize: 'none', padding: '8px 11px', borderRadius: 10, background: 'rgba(255,255,255,.07)', border: `1px solid ${P.cardBorder}`, color: P.txt, fontSize: 12.5, outline: 'none', lineHeight: 1.5, maxHeight: 90, fontFamily: 'inherit' }} />
-            <button onClick={enviarChat} disabled={chatLoading || (!chatInput.trim() && !chatImg)}
-              style={{ width: 32, height: 32, borderRadius: 9, background: P.tq, border: 'none', color: '#04252b', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, opacity: chatLoading || (!chatInput.trim() && !chatImg) ? .45 : 1 }}>
+            <button onClick={() => enviarChat()} disabled={chatLoading || (!chatInput.trim() && !chatImg && !chatPdf)}
+              style={{ width: 32, height: 32, borderRadius: 9, background: P.tq, border: 'none', color: '#04252b', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, opacity: chatLoading || (!chatInput.trim() && !chatImg && !chatPdf) ? .45 : 1 }}>
               <Send size={13} />
             </button>
           </div>

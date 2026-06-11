@@ -46,6 +46,56 @@ function cacheUpdate(conv) {
   convoCache.set(conv.id, conv);
 }
 
+/* ─── OpenAI (motor de IA do sistema) ─────────────────────────────────────────
+   Adaptador: chama a Chat Completions e devolve { content:[{type:'text'},
+   {type:'tool_use',name,input}] } — mesmo formato que o código já consumia,
+   então a lógica da Vitta/Copiloto não muda, só o provedor.                 */
+async function openaiMessages({ model = 'gpt-4o-mini', max_tokens = 800, system, messages, tools = null, json = false }) {
+  const { default: fetch } = await import('node-fetch');
+  const body = {
+    model,
+    max_tokens,
+    messages: [{ role: 'system', content: system }, ...messages],
+  };
+  if (tools) body.tools = tools.map(t => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema } }));
+  if (json) body.response_format = { type: 'json_object' };
+  const r = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+    body: JSON.stringify(body),
+  });
+  const d = await r.json();
+  if (d.error) return { error: d.error };
+  const msg = d.choices?.[0]?.message || {};
+  const content = [];
+  if (msg.content) content.push({ type: 'text', text: msg.content });
+  for (const tc of (msg.tool_calls || [])) {
+    let input = {};
+    try { input = JSON.parse(tc.function?.arguments || '{}'); } catch {}
+    content.push({ type: 'tool_use', name: tc.function?.name, input });
+  }
+  return { content };
+}
+
+// Transcreve áudio (base64) com Whisper — usado no chat do Copiloto
+async function transcreverAudio(base64, mime = 'audio/webm') {
+  const { default: fetch } = await import('node-fetch');
+  const FormData = (await import('form-data')).default;
+  const buf = Buffer.from(base64, 'base64');
+  const form = new FormData();
+  form.append('file', buf, { filename: mime.includes('ogg') ? 'audio.ogg' : 'audio.webm', contentType: mime });
+  form.append('model', 'whisper-1');
+  form.append('language', 'pt');
+  const r = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, ...form.getHeaders() },
+    body: form,
+  });
+  const d = await r.json();
+  if (d.error) throw new Error(d.error.message || 'Falha na transcrição');
+  return (d.text || '').trim();
+}
+
 function cacheGetList({ channel, search, unread_only, waiting, page = 1, limit = 100, extraIds = null }) {
   let list = Array.from(convoCache.values())
     .sort((a, b) => new Date(b.last_message_at || 0) - new Date(a.last_message_at || 0));
@@ -505,7 +555,7 @@ async function vittaResponder(convId) {
   if (phoneNum.startsWith('55') && phoneNum.length >= 12) phoneNum = phoneNum.slice(2);
 
   // Sem API key: só uma saudação simples na primeira mensagem, sem inventar
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!process.env.OPENAI_API_KEY) {
     const jaRespondeu = hist.some(m => m.from_type === 'bot' || m.from_type === 'me');
     if (!jaRespondeu && zapiOk()) {
       const saud = 'Oi! Sou a Vitta, da Vittalis Saúde. Como posso te ajudar?';
@@ -644,23 +694,14 @@ Cliente atual: ${conv.contact_name || 'não identificado'}.`;
     },
   }];
 
-  const aiResp = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': process.env.ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 450,
-      system: sysPrompt,
-      tools,
-      messages: turns,
-    }),
+  const aiData = await openaiMessages({
+    model: 'gpt-4o',
+    max_tokens: 450,
+    system: sysPrompt,
+    tools,
+    messages: turns,
   });
-  const aiData = await aiResp.json();
-  if (aiData.error) { console.error('Vitta (Claude) erro:', JSON.stringify(aiData.error)); return; }
+  if (aiData.error) { console.error('Vitta (OpenAI) erro:', JSON.stringify(aiData.error)); return; }
 
   const toolUse = aiData.content?.find(c => c.type === 'tool_use' && c.name === 'enviar_proposta');
   const toolPlano = aiData.content?.find(c => c.type === 'tool_use' && c.name === 'enviar_plano');
@@ -829,8 +870,19 @@ r.post('/webhook/zapi', async (req, res) => {
     // Z-API webhook payload:
     const phone = body.phone;
     if (!phone) return;
-    // Ignora eventos que não são mensagens (presença, digitando, etc)
-    if (body.type === 'PresenceChatCallback' || body.type === 'MessageStatusCallback') return;
+    // Ignora TODO callback que não é mensagem recebida (status de entrega,
+    // leitura, envio, presença...) — eram eles que viravam "[mensagem]" no chat
+    if (body.type && body.type !== 'ReceivedCallback') {
+      if (body.type === 'MessageStatusCallback' && (body.ids?.length || body.messageId)) {
+        const stIds = body.ids || [body.messageId];
+        const st = String(body.status || '').toUpperCase();
+        const novo = st.includes('READ') ? 'read' : 'delivered';
+        for (const sid of stIds) {
+          await query('UPDATE mensagens SET status = $1 WHERE wa_msg_id = $2', [novo, sid]).catch(() => {});
+        }
+      }
+      return;
+    }
     if (body.isGroup === true || body.isGroup === 'true') return;
     if (body.isNewsletter || body.isStatusReply) return;
     if (String(phone).includes('@lid') || String(phone).includes('broadcast') || String(phone).includes('status')) return;
@@ -915,6 +967,9 @@ r.post('/webhook/zapi', async (req, res) => {
     console.log(`ZAPI_MSG: from="${contactName}" phone="${displayPhone}" type="${type}"`);
 
     // Upsert conversa
+    // Eco/callback sem conteúdo reconhecível e sem mídia → ignora (era o "[mensagem]")
+    if (content === '[mensagem]' && !mediaData) return;
+
     const { rows: [conv] } = await query(`
       INSERT INTO conversas (channel, contact_name, contact_id, phone, unread, last_message, last_message_at, profile_pic)
       VALUES ('whatsapp', $1, $2, $3, 1, $4, $5, $6)
@@ -962,7 +1017,7 @@ r.post('/webhook/zapi', async (req, res) => {
     ).catch(() => {});
 
     // ─── TRANSCRIÇÃO DE ÁUDIO via Whisper (OpenAI) ────────────────────────────
-    // A API da Anthropic NÃO transcreve áudio. Usamos Whisper, que aceita ogg/opus direto.
+    // Transcrição via Whisper (aceita ogg/opus direto).
     const isTextoReal = type === 'text' && content && content !== '[mensagem]' && !content.startsWith('[') && content.trim().length > 0;
     let textoParaIA = isTextoReal ? content : null;
     if (conv.bot_ativo && type === 'audio' && mediaData && process.env.OPENAI_API_KEY) {
@@ -1214,18 +1269,14 @@ export async function sendViaMeta(phone, type, content) {
 // ─── DEBUG: testar IA Claude (via ?k=vt24) ──────────────────────────────────
 r.get('/whatsapp/test-ia', async (req, res) => {
   if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
-  if (!process.env.ANTHROPIC_API_KEY) return res.json({ error: 'ANTHROPIC_API_KEY não configurada' });
+  if (!process.env.OPENAI_API_KEY) return res.json({ error: 'OPENAI_API_KEY não configurada' });
   try {
     const { default: fetch } = await import('node-fetch');
-    const r2 = await fetch('https://api.anthropic.com/v1/messages', {
+    const r2 = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-      },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
       body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
+        model: 'gpt-4o-mini',
         max_tokens: 100,
         messages: [{ role: 'user', content: 'Diga apenas: IA funcionando!' }],
       }),
@@ -1233,9 +1284,9 @@ r.get('/whatsapp/test-ia', async (req, res) => {
     const d = await r2.json();
     res.json({
       http_status: r2.status,
-      resposta: d.content?.[0]?.text || null,
+      resposta: d.choices?.[0]?.message?.content || null,
       erro: d.error || null,
-      key_prefix: process.env.ANTHROPIC_API_KEY.slice(0, 15) + '...',
+      key_prefix: (process.env.OPENAI_API_KEY || '').slice(0, 12) + '...',
     });
   } catch (e) { res.json({ error: e.message }); }
 });
@@ -2153,7 +2204,7 @@ r.post('/proposta/enviar', async (req, res) => {
 
 r.post('/ai-chat', async (req, res) => {
   try {
-    const KEY = process.env.ANTHROPIC_API_KEY;
+    const KEY = process.env.OPENAI_API_KEY;
     if (!KEY) return res.status(503).json({ error: 'IA não configurada' });
     const { convId, history = [], message = '', image } = req.body;
     if (!message.trim() && !image) return res.status(400).json({ error: 'Mensagem vazia' });
@@ -2192,59 +2243,71 @@ PLANOS COMPLETOS:
 ${conhecimento.planos}
 ${tabelaPrecos}${contexto}`;
 
-    // Histórico do chat (turnos alternados, máx 12) + turno atual com imagem opcional
-    const msgs = [];
-    for (const h of history.slice(-12)) {
+    // Áudio da atendente? Transcreve primeiro (Whisper) e usa como pergunta
+    let pergunta = String(message || '').trim();
+    let transcricao = null;
+    if (req.body.audio?.data) {
+      transcricao = await transcreverAudio(req.body.audio.data, req.body.audio.media_type || 'audio/webm');
+      pergunta = pergunta ? `${pergunta}\n${transcricao}` : transcricao;
+      if (!pergunta) return res.status(400).json({ error: 'Não entendi o áudio — tente de novo' });
+    }
+
+    // Histórico (turnos texto) no formato da Responses API
+    const input = [];
+    for (const h of (history || []).slice(-12)) {
       if (!h?.content) continue;
       const role = h.role === 'assistant' ? 'assistant' : 'user';
-      if (msgs.length && msgs[msgs.length - 1].role === role) msgs[msgs.length - 1].content += '\n' + String(h.content).slice(0, 1500);
-      else msgs.push({ role, content: String(h.content).slice(0, 1500) });
+      input.push({ role, content: [{ type: role === 'assistant' ? 'output_text' : 'input_text', text: String(h.content).slice(0, 1500) }] });
     }
+    // Turno atual: texto + imagem e/ou PDF anexados
     const userContent = [];
     if (image?.data && image?.media_type) {
-      userContent.push({ type: 'image', source: { type: 'base64', media_type: image.media_type, data: image.data } });
+      userContent.push({ type: 'input_image', image_url: `data:${image.media_type};base64,${image.data}` });
     }
-    userContent.push({ type: 'text', text: message.trim() || 'Analise a imagem.' });
-    if (msgs.length && msgs[msgs.length - 1].role === 'user') msgs.pop(); // garante alternância
-    msgs.push({ role: 'user', content: userContent });
-    while (msgs.length && msgs[0].role !== 'user') msgs.shift();
+    if (req.body.pdf?.data) {
+      userContent.push({ type: 'input_file', filename: String(req.body.pdf.name || 'documento.pdf').slice(0, 80), file_data: `data:application/pdf;base64,${req.body.pdf.data}` });
+    }
+    userContent.push({ type: 'input_text', text: pergunta || 'Analise o arquivo anexado.' });
+    input.push({ role: 'user', content: userContent });
 
     const { default: fetch } = await import('node-fetch');
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+    const resp = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': KEY, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 1000, system: sysPrompt, messages: msgs }),
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+      body: JSON.stringify({ model: 'gpt-4o', max_output_tokens: 1000, instructions: sysPrompt, input }),
     });
     const data = await resp.json();
     if (data.error) return res.status(502).json({ error: data.error.message || 'Erro na IA' });
-    const texto = (data.content?.find(c => c.type === 'text')?.text || '').trim();
-    res.json({ texto });
+    const texto = (data.output_text
+      || data.output?.flatMap(o => o.content || []).find(c => c.type === 'output_text')?.text
+      || '').trim();
+    res.json({ texto, transcricao });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 r.post('/ai-assist', async (req, res) => {
   try {
     const { prompt, convId, mode } = req.body;
-    const KEY = process.env.ANTHROPIC_API_KEY;
+    const KEY = process.env.OPENAI_API_KEY;
     const { default: fetch } = await import('node-fetch');
 
     // ── Modo legado: repassa o prompt cru (compatibilidade) ──────────────────
     if (prompt && !mode) {
-      if (!KEY) return res.json({ text: 'IA não configurada (ANTHROPIC_API_KEY ausente).' });
-      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      if (!KEY) return res.json({ text: 'IA não configurada (OPENAI_API_KEY ausente).' });
+      const resp = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': KEY, 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 500, messages: [{ role: 'user', content: prompt }] })
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${KEY}` },
+        body: JSON.stringify({ model: 'gpt-4o-mini', max_tokens: 500, messages: [{ role: 'user', content: prompt }] })
       });
       const data = await resp.json();
-      return res.json({ text: data.content?.[0]?.text || 'Sem resposta' });
+      return res.json({ text: data.choices?.[0]?.message?.content || 'Sem resposta' });
     }
 
     // ── Modo estruturado ──────────────────────────────────────────────────────
     const cfgMode = AI_ASSIST_MODES[mode];
     if (!cfgMode) return res.status(400).json({ error: 'Modo inválido' });
     if (!convId) return res.status(400).json({ error: 'convId é obrigatório' });
-    if (!KEY) return res.status(503).json({ error: 'IA não configurada (ANTHROPIC_API_KEY ausente)' });
+    if (!KEY) return res.status(503).json({ error: 'IA não configurada (OPENAI_API_KEY ausente)' });
 
     const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [convId]);
     if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
@@ -2313,17 +2376,13 @@ ${transcript}
 Devolva exatamente este JSON:
 ${cfgMode.schema}`;
 
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': KEY, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 800,
-        system: sysPrompt,
-        messages: [{ role: 'user', content: userPrompt }],
-      })
+    const data = await openaiMessages({
+      model: 'gpt-4o',
+      max_tokens: 800,
+      system: sysPrompt,
+      json: true,
+      messages: [{ role: 'user', content: userPrompt }],
     });
-    const data = await resp.json();
     if (data.error) return res.status(502).json({ error: data.error.message || 'Erro na IA' });
 
     const raw = (data.content?.find(c => c.type === 'text')?.text || '').trim();
