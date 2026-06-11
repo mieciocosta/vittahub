@@ -28,8 +28,12 @@ export default function Configuracoes() {
   const salvarUsuario = async () => {
     if (!editUser) return;
     setUserErr('');
+    // Mesmas validações do cadastro: CPF completo e senha mínima
+    const cpfDig = mask.digits(editUser.cpf);
+    if (editUser.cpf && cpfDig.length !== 11) return setUserErr('CPF incompleto — precisa de 11 dígitos.');
+    if (editUser.senha && editUser.senha.length < 8) return setUserErr('A nova senha precisa de pelo menos 8 caracteres.');
     try {
-      const payload = { cpf: editUser.cpf, ativo: editUser.ativo };
+      const payload = { cpf: cpfDig, ativo: editUser.ativo };
       if (editUser.senha) payload.senha = editUser.senha;
       const upd = await api.put(`/auth/usuarios/${editUser.id}`, payload);
       setUsers(prev => prev.map(u => u.id === upd.id ? { ...u, ...upd } : u));

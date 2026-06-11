@@ -46,16 +46,19 @@ function cacheUpdate(conv) {
   convoCache.set(conv.id, conv);
 }
 
-function cacheGetList({ channel, search, unread_only, page = 1, limit = 100 }) {
+function cacheGetList({ channel, search, unread_only, waiting, page = 1, limit = 100, extraIds = null }) {
   let list = Array.from(convoCache.values())
     .sort((a, b) => new Date(b.last_message_at || 0) - new Date(a.last_message_at || 0));
   if (channel && channel !== 'all') list = list.filter(c => c.channel === channel);
   if (unread_only === 'true') list = list.filter(c => (c.unread || 0) > 0);
+  // Aguardando resposta: a última mensagem é do CLIENTE (fila de quem espera)
+  if (waiting === 'true') list = list.filter(c => c.last_from === 'contact');
   if (search) {
     const s = search.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
     list = list.filter(c =>
       (c.contact_name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').includes(s) ||
-      (c.phone || '').includes(s)
+      (c.phone || '').includes(s) ||
+      (extraIds && extraIds.has(c.id))   // bateu no CONTEÚDO/documento de alguma mensagem
     );
   }
   const total = list.length;
@@ -251,6 +254,7 @@ r.post('/webhook/whatsapp', async (req, res) => {
             ELSE conversas.contact_name
           END,
           unread = conversas.unread + 1,
+          last_from = 'contact',
           last_message = EXCLUDED.last_message,
           last_message_at = EXCLUDED.last_message_at
         RETURNING *`,
@@ -289,7 +293,7 @@ r.post('/webhook/whatsapp', async (req, res) => {
             if (botReply && EVO_URL() && EVO_KEY()) {
               await evoFetch(`/message/sendText/${EVO_INST()}`, 'POST', { number: rawPhone, text: botReply });
               await query(`INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome) VALUES ($1,'me','text',$2,'Bot Vittalis')`, [conv.id, botReply]);
-              await query('UPDATE conversas SET last_message=$1, last_message_at=NOW() WHERE id=$2', [botReply.slice(0, 100), conv.id]);
+              await query("UPDATE conversas SET last_message=$1, last_from='bot', last_message_at=NOW() WHERE id=$2", [botReply.slice(0, 100), conv.id]);
             }
           }
         } catch (e) { console.error('Bot error:', e.message); }
@@ -310,7 +314,7 @@ r.post('/webhook/instagram', async (req, res) => {
         const { rows: [conv] } = await query(`
           INSERT INTO conversas (channel, contact_name, contact_id, unread, last_message, last_message_at)
           VALUES ('instagram', $1, $2, 1, $3, NOW())
-          ON CONFLICT (contact_id) DO UPDATE SET unread = conversas.unread + 1, last_message = $3, last_message_at = NOW()
+          ON CONFLICT (contact_id) DO UPDATE SET unread = conversas.unread + 1, last_from = 'contact', last_message = $3, last_message_at = NOW()
           RETURNING *`, [`@${sid}`, sid, content]);
         await query(`INSERT INTO mensagens (conversa_id, from_type, type, content) VALUES ($1,'contact','text',$2)`, [conv.id, content]);
       }
@@ -789,7 +793,7 @@ Cliente atual: ${conv.contact_name || 'não identificado'}.`;
        VALUES ($1,'bot','text',$2,'Vitta') RETURNING *`,
       [convId, botReply]
     );
-    await query('UPDATE conversas SET last_message=$1, last_message_at=NOW() WHERE id=$2',
+    await query("UPDATE conversas SET last_message=$1, last_from='bot', last_message_at=NOW() WHERE id=$2",
       [botReply.slice(0, 100), convId]);
     if (botMsg) socketEmit('new_message', { convId, message: botMsg, conv });
   }
@@ -922,6 +926,7 @@ r.post('/webhook/zapi', async (req, res) => {
         END,
         profile_pic = COALESCE(EXCLUDED.profile_pic, conversas.profile_pic),
         unread = conversas.unread + 1,
+        last_from = 'contact',
         last_message = EXCLUDED.last_message,
         last_message_at = EXCLUDED.last_message_at
       RETURNING *`,
@@ -1496,6 +1501,20 @@ r.post('/conversations/load-photos', async (req, res) => {
 
 r.get('/conversations', async (req, res) => {
   res.set('Cache-Control', 'no-store, no-cache');
+  // Busca estendida: com 3+ caracteres, procura também no CONTEÚDO das
+  // mensagens e no NOME de documentos (índice trigram — não pesa o banco)
+  let extraIds = null;
+  const termo = String(req.query.search || '').trim();
+  if (termo.length >= 3) {
+    try {
+      const { rows } = await query(
+        `SELECT DISTINCT conversa_id FROM mensagens
+         WHERE (type = 'text' AND content ILIKE $1 AND length(content) < 2000)
+            OR (filename IS NOT NULL AND filename ILIKE $1)
+         LIMIT 60`, [`%${termo}%`]);
+      extraIds = new Set(rows.map(r2 => r2.conversa_id));
+    } catch { extraIds = null; }
+  }
   if (!cacheReady) {
     // Cache ainda não carregou — cai para o banco
     try {
@@ -1517,7 +1536,7 @@ r.get('/conversations', async (req, res) => {
       return res.json({ data: dataRes.rows, total, page: parseInt(page) });
     } catch (err) { return res.status(500).json({ error: err.message }); }
   }
-  const result = cacheGetList(req.query);
+  const result = cacheGetList({ ...req.query, extraIds });
   res.json(result);
 });
 
@@ -1758,7 +1777,7 @@ r.post('/conversations/:id/send', async (req, res) => {
     );
 
     const preview = type === 'text' ? content : type === 'audio' ? '🎵 Áudio' : type === 'image' ? '📷 Imagem' : type === 'sticker' ? '🎭 Figurinha' : `📎 Arquivo`;
-    const { rows: [convUpd] } = await query('UPDATE conversas SET last_message = $1, last_message_at = NOW() WHERE id = $2 RETURNING *', [preview, req.params.id]);
+    const { rows: [convUpd] } = await query("UPDATE conversas SET last_message = $1, last_from = 'me', last_message_at = NOW() WHERE id = $2 RETURNING *", [preview, req.params.id]);
     if (convUpd) cacheUpdate(convUpd);
 
     // ── Responsável automático: só depois da 2ª resposta da MESMA atendente ──
@@ -1868,7 +1887,7 @@ r.post('/conversations/:id/upload', upload.single('file'), async (req, res) => {
       [req.params.id, type, dataUrl, f.originalname, f.mimetype, f.size, req.user.id, req.user.nome]
     );
 
-    await query('UPDATE conversas SET last_message = $1, last_message_at = NOW() WHERE id = $2', [preview, req.params.id]);
+    await query("UPDATE conversas SET last_message = $1, last_from = 'me', last_message_at = NOW() WHERE id = $2", [preview, req.params.id]);
 
     // Envia via Evolution API usando base64
     const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);

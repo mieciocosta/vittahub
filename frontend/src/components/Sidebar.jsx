@@ -112,22 +112,21 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
       overflow:'hidden',
     }}>
 
-      {/* Logo / Brand */}
-      <div style={{ padding: collapsed ? '18px 0' : '22px 18px 18px', borderBottom:'1px solid rgba(255,255,255,0.07)', display:'flex', alignItems:'center', justifyContent: collapsed ? 'center' : 'flex-start', flexShrink:0 }}>
-        {collapsed ? (
-          /* Ícone pequeno quando colapsado */
-          <div style={{ width:28, height:28, borderRadius:8, background:'var(--tq)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-            <span style={{ color:'#fff', fontSize:13, fontWeight:900, letterSpacing:-1 }}>V</span>
-          </div>
-        ) : (
-          <div>
-            <img src="/logos/logo-h-white.png" alt="Vittalis" style={{ height:30, objectFit:'contain', width:'100%', maxWidth:150, display:'block' }} />
-            <div style={{ display:'flex', alignItems:'center', gap:5, marginTop:8 }}>
-              <div style={{ width:5, height:5, borderRadius:'50%', background:'var(--tq)', boxShadow:'0 0 6px var(--tq)' }}/>
-              <span style={{ fontFamily:'DM Sans', fontSize:10, fontWeight:700, letterSpacing:1.8, color:'rgba(255,255,255,0.28)', textTransform:'uppercase' }}>VittaHub CRM</span>
-            </div>
-          </div>
-        )}
+      {/* Logo / Brand — vertical branca oficial, clicável pro Dashboard */}
+      <div style={{ padding: collapsed ? '14px 0' : '18px 14px 14px', borderBottom:'1px solid rgba(255,255,255,0.07)', flexShrink:0 }}>
+        <NavLink to="/" title="Ir para o Dashboard" className="brand-link" style={{ textDecoration:'none', display:'block' }}>
+          {collapsed ? (
+            <img src="/logos/logo-icon-white.png" alt="Vittalis Saúde" style={{ height:28, objectFit:'contain', display:'block', margin:'0 auto' }} />
+          ) : (
+            <>
+              <img src="/logos/logo-v-white.png" alt="Vittalis Saúde" style={{ height:74, objectFit:'contain', display:'block', margin:'0 auto' }} />
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:5, marginTop:9 }}>
+                <div style={{ width:5, height:5, borderRadius:'50%', background:'var(--tq)', boxShadow:'0 0 6px var(--tq)' }}/>
+                <span style={{ fontSize:10, fontWeight:700, letterSpacing:1.8, color:'rgba(255,255,255,0.3)', textTransform:'uppercase' }}>VittaHub CRM</span>
+              </div>
+            </>
+          )}
+        </NavLink>
       </div>
 
       {/* Nav */}

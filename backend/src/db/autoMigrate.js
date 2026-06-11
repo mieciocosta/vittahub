@@ -160,6 +160,18 @@ export default async function runMigrate() {
       console.log('🌱 Seed de produção aplicado (usuários reais, senha Vittalis@2026)');
     }
 
+    // ── Busca e fila de atendimento ───────────────────────────────────────────
+    // last_from: quem mandou a última mensagem (filtro "Aguardando resposta")
+    await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS last_from TEXT`).catch(() => {});
+    // backfill único: deduz da última mensagem existente
+    await query(`UPDATE conversas c SET last_from = sub.from_type
+      FROM (SELECT DISTINCT ON (conversa_id) conversa_id, from_type
+            FROM mensagens ORDER BY conversa_id, created_at DESC) sub
+      WHERE sub.conversa_id = c.id AND c.last_from IS NULL`).catch(() => {});
+    // Índices trigram: busca por trecho de mensagem e por nome de documento
+    await query(`CREATE INDEX IF NOT EXISTS idx_msg_content_trgm ON mensagens USING gin (content gin_trgm_ops)`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS idx_msg_filename_trgm ON mensagens USING gin (filename gin_trgm_ops)`).catch(() => {});
+
     // ── Textos humanizados do bot e respostas rápidas (idempotente: só troca
     //    quem ainda está com o texto padrão antigo — edições da equipe ficam) ──
     await query(`UPDATE configuracoes

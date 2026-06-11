@@ -155,7 +155,7 @@ const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect, usersB
 });
 
 /* ── SearchBar ───────────────────────────────────────────────────────────────── */
-function SearchBar({ value, onChange, filter, setFilter, totalUnread, unreadOnly, setUnreadOnly }) {
+function SearchBar({ value, onChange, filter, setFilter, totalUnread, unreadOnly, setUnreadOnly, waiting, setWaiting }) {
   return (
     <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
       <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
@@ -166,6 +166,11 @@ function SearchBar({ value, onChange, filter, setFilter, totalUnread, unreadOnly
               color: filter === ch ? (ch === 'whatsapp' ? 'var(--wa)' : ch === 'instagram' ? 'var(--ig)' : 'var(--tq)') : 'var(--muted)',
               borderColor: filter === ch ? 'currentColor' : 'var(--border)' }}>{l}</button>
         ))}
+        <button onClick={() => setWaiting(p => !p)} title="Conversas em que o cliente mandou a última mensagem e ainda não foi respondido"
+          style={{ padding: '4px 8px', borderRadius: 8, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', border: '1.5px solid',
+            background: waiting ? 'var(--warn)' : 'var(--card,#fff)', color: waiting ? '#fff' : 'var(--warn)', borderColor: waiting ? 'var(--warn)' : 'var(--border)' }}>
+          <Clock size={10} style={{ verticalAlign:'-1px', marginRight:3 }}/>Fila
+        </button>
         {totalUnread > 0 && (
           <button onClick={() => setUnreadOnly(p => !p)}
             style={{ padding: '4px 7px', borderRadius: 8, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', border: '1.5px solid',
@@ -177,7 +182,7 @@ function SearchBar({ value, onChange, filter, setFilter, totalUnread, unreadOnly
       <div style={{ position: 'relative' }}>
         <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)', pointerEvents: 'none' }} />
         <input value={value} onChange={e => onChange(e.target.value)}
-          placeholder="Buscar por nome, número…"
+          placeholder="Nome, número, trecho de mensagem ou documento…"
           style={{ width: '100%', padding: '7px 30px 7px 27px', border: '1.5px solid var(--border)', borderRadius: 8, outline: 'none', fontSize: 12.5, background: 'var(--bg)', color: 'var(--txt)' }}
           onFocus={e => e.target.style.borderColor = 'var(--tq)'} onBlur={e => e.target.style.borderColor = 'var(--border)'} />
         {value && <button onClick={() => onChange('')} style={{ position: 'absolute', right: 7, top: '50%', transform: 'translateY(-50%)', background: 'none', padding: 3, color: 'var(--muted)', cursor: 'pointer', border: 'none' }}><X size={11} /></button>}
@@ -390,6 +395,7 @@ export default function Inbox({ onUnreadChange }) {
   const [showQR, setShowQR]     = useState(false);
   const [qr, setQr]             = useState([]);
   const [lightbox, setLightbox] = useState(null);
+  const [waiting, setWaiting] = useState(false);
   const [somAtivo, setSomAtivo] = useState(() => localStorage.getItem('vh_sound') !== 'off');
   const somRef = useRef(true);
   useEffect(() => { somRef.current = somAtivo; localStorage.setItem('vh_sound', somAtivo ? 'on' : 'off'); }, [somAtivo]);
@@ -413,14 +419,16 @@ export default function Inbox({ onUnreadChange }) {
   // Evita janela onde WebSocket chega e selRef ainda aponta para conversa anterior
   selRef.current = sel;
 
-  // ── Mede altura da lista ───────────────────────────────────────────────────
+  // ── Mede altura da lista (ResizeObserver: reage a QUALQUER mudança de layout) ──
   useEffect(() => {
-    const measure = () => {
-      if (listContainerRef.current) setListH(listContainerRef.current.getBoundingClientRect().height || 500);
-    };
+    const el = listContainerRef.current;
+    if (!el) return;
+    const measure = () => setListH(el.getBoundingClientRect().height || 500);
     measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
     window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
+    return () => { ro.disconnect(); window.removeEventListener('resize', measure); };
   }, []);
 
   // ── Tab ativa? ─────────────────────────────────────────────────────────────
@@ -575,7 +583,7 @@ export default function Inbox({ onUnreadChange }) {
       } catch {}
     }, 5000);
     return () => clearInterval(iv);
-  }, [filter, search, unreadOnly]);
+  }, [filter, search, unreadOnly, waiting]);
 
   // ── Auto-scroll ao chegar novas mensagens ─────────────────────────────────
   // Só rola se o usuário já estava perto do fim (não interrompe quem lê mensagens antigas)
@@ -595,6 +603,7 @@ export default function Inbox({ onUnreadChange }) {
       if (filter !== 'all') params.set('channel', filter);
       if (search) params.set('search', search);
       if (unreadOnly) params.set('unread_only', 'true');
+      if (waiting) params.set('waiting', 'true');
       const data = await api.get(`/inbox/conversations?${params}`);
       const list = data.data || data;
       const tot  = data.total ?? list.length;
@@ -602,7 +611,7 @@ export default function Inbox({ onUnreadChange }) {
       lastPollTs.current = new Date().toISOString();
       onUnreadChange?.(list.reduce((s, c) => s + (c.unread || 0), 0));
     } catch(err) { console.error('loadConvos:', err.message); }
-  }, [filter, search, unreadOnly]);
+  }, [filter, search, unreadOnly, waiting]);
 
   // ── Infinite scroll ────────────────────────────────────────────────────────
   const loadMore = useCallback(async () => {
@@ -614,6 +623,7 @@ export default function Inbox({ onUnreadChange }) {
       if (filter !== 'all') params.set('channel', filter);
       if (search) params.set('search', search);
       if (unreadOnly) params.set('unread_only', 'true');
+      if (waiting) params.set('waiting', 'true');
       const data = await api.get(`/inbox/conversations?${params}`);
       const list = data.data || [];
       setConvos(prev => {
@@ -836,11 +846,12 @@ export default function Inbox({ onUnreadChange }) {
         </div>
 
         <SearchBar value={search} onChange={setSearch} filter={filter} setFilter={setFilter}
-          totalUnread={totalUnread} unreadOnly={unreadOnly} setUnreadOnly={setUnreadOnly}/>
+          totalUnread={totalUnread} unreadOnly={unreadOnly} setUnreadOnly={setUnreadOnly}
+          waiting={waiting} setWaiting={setWaiting}/>
 
         <div ref={listContainerRef} style={{ flex:1, minHeight:0 }}>
           <VirtualList items={convos} selectedId={sel?.id} onSelect={openConvo} usersById={usersById}
-            containerHeight={listH-156} loadMore={loadMore} hasMore={hasMore} loadingMore={loadingMore}/>
+            containerHeight={listH} loadMore={loadMore} hasMore={hasMore} loadingMore={loadingMore}/>
         </div>
 
         {/* Rodapé da lista: resumo do dia + controle de som (ocupa o espaço ocioso) */}
