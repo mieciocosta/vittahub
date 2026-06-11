@@ -29,6 +29,31 @@ export default async function runMigrate() {
     await query(`CREATE INDEX IF NOT EXISTS idx_leads_resp ON leads(responsavel_id)`);
     await query(`CREATE INDEX IF NOT EXISTS idx_leads_nome ON leads USING gin(nome gin_trgm_ops)`);
 
+    // ── Funil Kanban: colunas dinâmicas (título/cor/ordem editáveis) ──────────
+    // "Fechado" e "Perdido" são fixas (fixa=true): relatórios dependem desses
+    // nomes — podem mudar cor/ordem, mas não nome, e não podem ser excluídas.
+    await query(`CREATE TABLE IF NOT EXISTS funil_colunas (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      nome TEXT UNIQUE NOT NULL,
+      cor TEXT DEFAULT '#3b82f6',
+      ordem INT DEFAULT 0,
+      fixa BOOLEAN DEFAULT false,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )`);
+    await query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS status_changed_at TIMESTAMPTZ DEFAULT NOW()`).catch(() => {});
+    const { rows: fcCount } = await query('SELECT COUNT(*) FROM funil_colunas');
+    if (parseInt(fcCount[0].count) === 0) {
+      await query(`INSERT INTO funil_colunas (nome, cor, ordem, fixa) VALUES
+        ('Novo lead','#3b82f6',0,false),
+        ('Em atendimento','#f97316',1,false),
+        ('Orçamento enviado','#8b5cf6',2,false),
+        ('Aguardando retorno','#f59e0b',3,false),
+        ('Fechado','#10b981',4,true),
+        ('Perdido','#ef4444',5,true)
+        ON CONFLICT DO NOTHING`);
+      console.log('🌱 Funil: colunas padrão criadas');
+    }
+
     await query(`CREATE TABLE IF NOT EXISTS conversas (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
       channel TEXT NOT NULL, contact_name TEXT, contact_id TEXT UNIQUE,

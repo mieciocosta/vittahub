@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { X, UserPlus } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 
-const STATUS = ['Novo lead','Em atendimento','Orçamento enviado','Aguardando retorno','Fechado','Perdido'];
 const ORIGENS = ['Instagram','Google','WhatsApp','Indicação','Facebook','Tráfego Pago','Orgânico','Outro'];
 const INTERESSES = ['Vacina','Plano Vacinal','Consulta','Terapia','Plano Infantil','Gestante','Outro'];
 const MOTIVOS = ['Preço','Concorrência','Sem interesse','Sem retorno','Adiou','Outro'];
@@ -13,10 +12,21 @@ export default function LeadModal({ lead, onClose, onSave, prefill = {} }) {
   const { isMaster } = useAuth();
   const api = useApi();
   const [users, setUsers] = useState([]);
+  const [statusList, setStatusList] = useState(['Novo lead','Em atendimento','Orçamento enviado','Aguardando retorno','Fechado','Perdido']);
   const [saving, setSaving] = useState(false);
-  const [f, setF] = useState({ nome:'', telefone:'', email:'', origem:'Instagram', interesse:'Vacina', status:'Novo lead', responsavelId:'', valorProposta:'', servico:'', dataRetorno:'', observacoes:'', motivoPerda:'', tags:[], ...lead, ...prefill });
+  // O backend devolve snake_case — hidrata os campos camelCase do formulário
+  // (antes disso, responsável/valor/retorno/motivo apareciam vazios na edição)
+  const hidratar = (l) => !l ? {} : {
+    ...l,
+    responsavelId: l.responsavelId ?? l.responsavel_id ?? '',
+    valorProposta: l.valorProposta ?? l.valor_proposta ?? '',
+    dataRetorno:   (l.dataRetorno ?? l.data_retorno ?? '') ? String(l.dataRetorno ?? l.data_retorno).slice(0,10) : '',
+    motivoPerda:   l.motivoPerda ?? l.motivo_perda ?? '',
+    tags: l.tags || [],
+  };
+  const [f, setF] = useState({ nome:'', telefone:'', email:'', origem:'Instagram', interesse:'Vacina', status:'Novo lead', responsavelId:'', valorProposta:'', servico:'', dataRetorno:'', observacoes:'', motivoPerda:'', tags:[], ...hidratar(lead), ...prefill });
 
-  useEffect(() => { api.get('/leads/meta').then(m => setUsers(m.users)); }, []);
+  useEffect(() => { api.get('/leads/meta').then(m => { setUsers(m.users); if (m.statusList?.length) setStatusList(m.statusList); }); }, []);
   const set = (k,v) => setF(p=>({...p,[k]:v}));
   const toggleTag = t => set('tags', f.tags.includes(t)?f.tags.filter(x=>x!==t):[...f.tags,t]);
 
@@ -77,7 +87,7 @@ export default function LeadModal({ lead, onClose, onSave, prefill = {} }) {
 
           {isEdit && (
             <>
-              <ChipGroup label="Status" field="status" options={STATUS} colorActive="var(--pet2)" />
+              <ChipGroup label="Status" field="status" options={statusList} colorActive="var(--pet2)" />
               {f.status==='Perdido' && (
                 <div className="field">
                   <label>Motivo da perda</label>

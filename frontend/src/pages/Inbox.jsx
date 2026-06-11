@@ -8,6 +8,7 @@ import {
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt, openWA } from '../hooks/utils.js';
 import PropostaModal from '../components/PropostaModal.jsx';
+import Copiloto from '../components/Copiloto.jsx';
 
 /* ── Icons ──────────────────────────────────────────────────────────────────── */
 const WA = ({s=13})=><svg width={s} height={s} viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.124.556 4.118 1.523 5.847L0 24l6.302-1.496A11.934 11.934 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.818a9.807 9.807 0 01-5.032-1.388l-.361-.214-3.741.888.948-3.651-.235-.374A9.786 9.786 0 012.182 12C2.182 6.58 6.58 2.182 12 2.182S21.818 6.58 21.818 12 17.42 21.818 12 21.818z"/></svg>;
@@ -169,59 +170,6 @@ function SearchBar({ value, onChange, filter, setFilter, totalUnread, unreadOnly
           onFocus={e => e.target.style.borderColor = 'var(--tq)'} onBlur={e => e.target.style.borderColor = 'var(--border)'} />
         {value && <button onClick={() => onChange('')} style={{ position: 'absolute', right: 7, top: '50%', transform: 'translateY(-50%)', background: 'none', padding: 3, color: 'var(--muted)', cursor: 'pointer', border: 'none' }}><X size={11} /></button>}
       </div>
-    </div>
-  );
-}
-
-/* ── AIPanel ─────────────────────────────────────────────────────────────────── */
-function AIPanel({ messages, contactName, token, convId, onUseSuggestion, onClose }) {
-  const [mode, setMode] = useState(null);
-  const [result, setResult] = useState('');
-  const [loading, setLoading] = useState(false);
-  const run = async (m) => {
-    setMode(m); setResult(''); setLoading(true);
-    const transcript = (messages||[]).filter(x=>x.type==='text'&&x.from_type!=='system').slice(-20)
-      .map(x=>`${x.from_type==='me'?`Atendente(${x.sender_nome||'Equipe'})`:x.from_type==='bot'?'Bot':contactName}: ${x.content}`).join('\n');
-    const sys=`Você é assistente comercial da Vittalis Saúde (clínica de vacinas, São Luís-MA). Tom: humano, empático, leve. Slogan: "Sua vida é preciosa."`;
-    const prompts={
-      summary:`${sys}\n\nAnalise e gere resumo: interesse, objeções, intenção (baixa/média/alta🔥), próximo passo.\n\nConversa:\n${transcript}\n\npt-BR, markdown, máx 180 palavras.`,
-      qualify:`${sys}\n\nScore 1-10 para ${contactName}: potencial, urgência, budget, next step.\n\nConversa:\n${transcript}`,
-      suggest:`${sys}\n\nMelhor estratégia de fechamento agora. Específico: qual produto, qual objeção, qual gatilho.\n\nConversa:\n${transcript}`,
-      reply:  `${sys}\n\nEscreva a próxima mensagem perfeita para ${contactName}. Tom acolhedor. APENAS O TEXTO, sem explicações.\n\nConversa:\n${transcript}`,
-    };
-    try {
-      const BASE=import.meta.env.VITE_API_URL||'';
-      const tk=localStorage.getItem('vh_token')||'';
-      const resp=await fetch(`${BASE}/api/inbox/ai-assist`,{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${tk}`},body:JSON.stringify({prompt:prompts[m],convId})});
-      const d=await resp.json();
-      setResult(d.text||d.error||'Sem resposta');
-    } catch(e){setResult('Erro: '+e.message);}
-    setLoading(false);
-  };
-  return (
-    <div style={{ background:'#071e2c', padding:'10px 14px', flexShrink:0 }}>
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
-        <div style={{ display:'flex', alignItems:'center', gap:5 }}>
-          <Sparkles size={11} color="#00B8C0"/>
-          <span style={{ color:'#00B8C0', fontWeight:700, fontSize:11.5 }}>IA Vittalis · Claude</span>
-        </div>
-        <div style={{ display:'flex', gap:4 }}>
-          {[['summary','📋 Resumo'],['qualify','⭐ Score'],['suggest','💡 Estratégia'],['reply','✍️ Resposta']].map(([k,l])=>(
-            <button key={k} onClick={()=>run(k)} disabled={loading}
-              style={{ padding:'3px 8px', borderRadius:20, fontSize:10.5, fontWeight:600, cursor:'pointer', border:`1px solid ${mode===k&&result?'#00B8C0':'rgba(255,255,255,0.12)'}`, background:mode===k&&result?'rgba(0,184,192,.2)':'rgba(255,255,255,.06)', color:mode===k&&result?'#00B8C0':'rgba(255,255,255,.55)' }}>
-              {loading&&mode===k?<span className="spin" style={{width:9,height:9,borderColor:'rgba(255,255,255,.2)',borderTopColor:'#fff'}}/>:l}
-            </button>
-          ))}
-          <button onClick={onClose} style={{ padding:'2px 5px', background:'none', color:'rgba(255,255,255,0.3)', borderRadius:6, cursor:'pointer', border:'none' }}><X size={11}/></button>
-        </div>
-      </div>
-      {result&&(
-        <div style={{ background:'rgba(255,255,255,.06)', borderRadius:8, padding:'9px 11px', fontSize:11.5, color:'rgba(255,255,255,.82)', lineHeight:1.6, whiteSpace:'pre-wrap', maxHeight:110, overflowY:'auto' }}>
-          {result}
-          {mode==='reply'&&<button onClick={()=>{onUseSuggestion(result);onClose();}} style={{ display:'block', marginTop:7, padding:'4px 11px', background:'var(--tq)', color:'#fff', borderRadius:7, fontSize:11.5, fontWeight:700, cursor:'pointer', border:'none' }}>↑ Usar esta resposta</button>}
-        </div>
-      )}
-      {!result&&!loading&&<div style={{ fontSize:10.5, color:'rgba(255,255,255,.22)', fontStyle:'italic' }}>Clique em uma opção para analisar com IA</div>}
     </div>
   );
 }
@@ -871,17 +819,14 @@ export default function Inbox({ onUnreadChange }) {
                 <FileText size={10}/> Proposta
               </button>
               <button onClick={toLead} className="btn btn-s btn-sm" style={{ fontSize:11, padding:'4px 9px' }}><UserPlus size={10}/> Lead</button>
-              <button onClick={()=>setShowAI(p=>!p)} className="btn btn-sm" style={{ background:showAI?'#071e2c':'var(--bg2)', color:showAI?'#00B8C0':'var(--muted)', border:`1.5px solid ${showAI?'rgba(0,184,192,.4)':'var(--border)'}`, fontSize:11, padding:'4px 9px' }}>
+              <button onClick={()=>{setShowAI(p=>!p);setShowInfo(false);}} className="btn btn-sm" style={{ background:showAI?'#071e2c':'var(--bg2)', color:showAI?'#00B8C0':'var(--muted)', border:`1.5px solid ${showAI?'rgba(0,184,192,.4)':'var(--border)'}`, fontSize:11, padding:'4px 9px' }}>
                 <Sparkles size={10}/> IA
               </button>
-              <button onClick={()=>setShowInfo(p=>!p)} className="btn btn-sm" style={{ background:showInfo?'var(--tq3)':'var(--bg2)', color:showInfo?'var(--tq2)':'var(--muted)', border:`1.5px solid ${showInfo?'var(--tq)':'var(--border)'}`, fontSize:11, padding:'4px 9px' }}>
+              <button onClick={()=>{setShowInfo(p=>!p);setShowAI(false);}} className="btn btn-sm" style={{ background:showInfo?'var(--tq3)':'var(--bg2)', color:showInfo?'var(--tq2)':'var(--muted)', border:`1.5px solid ${showInfo?'var(--tq)':'var(--border)'}`, fontSize:11, padding:'4px 9px' }}>
                 <Tag size={10}/> Info
               </button>
             </div>
           </div>
-
-          {showAI && <AIPanel messages={msgs} contactName={sel.contact_name} token={token} convId={sel.id}
-            onUseSuggestion={t=>{setInput(t);textRef.current?.focus();}} onClose={()=>setShowAI(false)}/>}
 
           {/* Área de mensagens + info panel */}
           <div style={{ flex:1, display:'flex', minHeight:0, overflow:'hidden' }}>
@@ -901,6 +846,13 @@ export default function Inbox({ onUnreadChange }) {
               ))}
               <div ref={endRef}/>
             </div>
+
+            {/* Copiloto IA — painel lateral */}
+            {showAI && sel && (
+              <Copiloto key={sel.id} conv={sel}
+                onUse={t=>{setInput(t);textRef.current?.focus();}}
+                onClose={()=>setShowAI(false)} />
+            )}
 
             {/* Info panel */}
             {showInfo && (

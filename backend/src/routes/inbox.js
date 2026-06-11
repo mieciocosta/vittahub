@@ -1900,31 +1900,170 @@ r.post('/conversations/:id/to-lead', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ─── AI ASSIST ────────────────────────────────────────────────────────────────
+// ─── AI ASSIST — Copiloto da equipe (análise estruturada) ────────────────────
+// v2: o frontend manda só { convId, mode } e o backend monta o contexto inteiro
+// (conversa + lead + catálogo/calendário/preços da clínica) e devolve JSON
+// estruturado — sem emojis, sem markdown cru. O modo legado { prompt } continua
+// funcionando para compatibilidade.
+const AI_ASSIST_MODES = {
+  resumo: {
+    instrucao: `Analise a conversa e devolva um diagnóstico comercial preciso e específico (nada de generalidades).`,
+    schema: `{
+  "resumo": "2 a 3 frases objetivas sobre onde esta conversa está e o que importa agora",
+  "paciente": "para quem é o atendimento (nome e idade se houver) ou null",
+  "interesse": "o que o cliente quer, específico (ex: Pacote de 5 meses para a Antonella)",
+  "estagio": "descoberta | consideracao | negociacao | fechamento | pos_venda",
+  "intencao": "baixa | media | alta",
+  "objecoes": ["objeções reais detectadas na conversa, vazio se nenhuma"],
+  "sinais": ["sinais de compra ou de risco observados, citando o que o cliente disse"],
+  "proximo_passo": "a UMA ação concreta que a equipe deve fazer agora"
+}`,
+  },
+  score: {
+    instrucao: `Avalie o potencial deste lead com rigor de gestor comercial. Score baixo se a conversa esfriou ou não há intenção real; alto somente com sinais concretos.`,
+    schema: `{
+  "score": 0,
+  "classificacao": "frio | morno | quente",
+  "urgencia": "baixa | media | alta",
+  "justificativa": "1 a 2 frases diretas explicando o score com base no que foi dito",
+  "fatores": [{ "fator": "descrição curta", "impacto": "positivo | negativo" }],
+  "recomendacao": "o que fazer com este lead agora, em 1 frase"
+}`,
+  },
+  estrategia: {
+    instrucao: `Defina a melhor estratégia de fechamento AGORA, específica para esta conversa: qual produto/pacote oferecer (use o catálogo), qual objeção atacar, qual gatilho usar. Proibido conselho genérico.`,
+    schema: `{
+  "leitura": "1 a 2 frases sobre o momento do cliente e o que está travando",
+  "produto_alvo": "produto/pacote/plano específico do catálogo a oferecer, com valor",
+  "objecao_principal": "a principal barreira a vencer ou null",
+  "passos": ["sequência de 2 a 4 passos concretos, na ordem"],
+  "frase_pronta": "uma mensagem pronta para a atendente enviar agora, no tom das melhores atendentes"
+}`,
+  },
+  resposta: {
+    instrucao: `Escreva a próxima mensagem perfeita para a atendente enviar a este cliente. Curta (1 a 4 frases), tom acolhedor e humano das melhores atendentes da clínica, no máximo uma pergunta, conduzindo para a próxima etapa. Sem emojis.`,
+    schema: `{
+  "texto": "a mensagem pronta para enviar",
+  "racional": "1 frase explicando por que essa abordagem"
+}`,
+  },
+};
+
 r.post('/ai-assist', async (req, res) => {
   try {
-    const { prompt } = req.body;
+    const { prompt, convId, mode } = req.body;
     const KEY = process.env.ANTHROPIC_API_KEY;
-    if (!KEY) {
-      const mocks = {
-        summary: '📋 **Resumo**\n\n◆ **Interesse:** Plano Vacinal / Vacinas\n◆ **Intenção:** Alta 🔥\n◆ **Objeções:** Preço (possível)\n◆ **Próximo passo:** Enviar proposta personalizada com condições',
-        qualify: '⭐ **Score: 8/10**\n\nAlto potencial. Cliente demonstra interesse real, está comparando opções. Urgência média-alta. Recomendo proposta imediata com desconto de fidelidade.',
-        suggest: '💡 **Estratégia:** Envie a proposta do Plano Adulto agora. Destaque o valor preventivo e mencione parcelamento. Crie urgência: "temos agenda disponível esta semana".',
-      };
-      const isReply = prompt?.includes('próxima mensagem');
-      const isSuggest = prompt?.includes('estratégia') || prompt?.includes('consultor');
-      const isScore = prompt?.includes('Score') || prompt?.includes('score');
-      if (isReply) return res.json({ text: 'Olá! 😊 Preparei uma proposta personalizada para você — posso enviar agora? Temos condições especiais esta semana! 💎' });
-      return res.json({ text: isScore ? mocks.qualify : isSuggest ? mocks.suggest : mocks.summary });
-    }
     const { default: fetch } = await import('node-fetch');
+
+    // ── Modo legado: repassa o prompt cru (compatibilidade) ──────────────────
+    if (prompt && !mode) {
+      if (!KEY) return res.json({ text: 'IA não configurada (ANTHROPIC_API_KEY ausente).' });
+      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': KEY, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 500, messages: [{ role: 'user', content: prompt }] })
+      });
+      const data = await resp.json();
+      return res.json({ text: data.content?.[0]?.text || 'Sem resposta' });
+    }
+
+    // ── Modo estruturado ──────────────────────────────────────────────────────
+    const cfgMode = AI_ASSIST_MODES[mode];
+    if (!cfgMode) return res.status(400).json({ error: 'Modo inválido' });
+    if (!convId) return res.status(400).json({ error: 'convId é obrigatório' });
+    if (!KEY) return res.status(503).json({ error: 'IA não configurada (ANTHROPIC_API_KEY ausente)' });
+
+    const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [convId]);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
+
+    // Lead vinculado (se houver) dá contexto extra
+    let leadInfo = '';
+    if (conv.lead_id) {
+      const { rows: [lead] } = await query('SELECT * FROM leads WHERE id = $1', [conv.lead_id]);
+      if (lead) {
+        leadInfo = `\nLEAD NO FUNIL: etapa "${lead.status}", interesse ${lead.interesse}` +
+          (lead.valor_proposta > 0 ? `, proposta de R$ ${lead.valor_proposta}` : '') +
+          (lead.tags?.length ? `, tags: ${lead.tags.join(', ')}` : '') +
+          (lead.observacoes ? `\nObservações da equipe: ${lead.observacoes}` : '');
+      }
+    }
+
+    // Conversa em ordem cronológica (texto + documentos enviados)
+    const { rows: histRows } = await query(
+      `SELECT from_type, type, content, filename, sender_nome, created_at FROM mensagens
+       WHERE conversa_id = $1 AND type IN ('text','document') AND from_type <> 'system'
+       ORDER BY created_at DESC LIMIT 40`, [convId]);
+    const hist = histRows.reverse();
+    if (!hist.length) return res.status(400).json({ error: 'Conversa sem mensagens para analisar' });
+
+    const transcript = hist.map(m => {
+      const quem = m.from_type === 'contact' ? (conv.contact_name || 'Cliente')
+        : m.from_type === 'bot' ? 'Vitta (IA)'
+        : `Atendente${m.sender_nome ? ` (${m.sender_nome})` : ''}`;
+      const txt = m.type === 'document' ? `[enviou PDF: ${m.filename || m.content || 'documento'}]` : String(m.content || '').slice(0, 500);
+      const hora = new Date(m.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+      return `[${hora}] ${quem}: ${txt}`;
+    }).join('\n');
+
+    const conhecimento = montarConhecimentoVacinal();
+    const tabelaPrecos = formatarPrecos(await getPrecosVittaSys());
+
+    const sysPrompt = `Você é o copiloto comercial da equipe da Vittalis Saúde (clínica de pediatria, vacinação e especialidades em São Luís-MA). Quem lê sua análise é a ATENDENTE, não o cliente. Seja específico, direto e útil — análise rasa ou genérica não tem valor.
+
+CONTEXTO DA CLÍNICA:
+- Serviços: vacinação infantil/adulto (clínica ou domiciliar), planos vacinais, pediatria, pneumologia, psicologia, neuropsicologia, psicopedagogia, terapias
+- Pagamento: Pix, espécie, crédito parcelado sem juros. Sinal de R$ 60 para consultas de especialidade (abatido no valor)
+- Diferenciais: Buzzy (reduz até 90% da dor), vacinação simultânea com 2 vacinadoras, atendimento domiciliar, brinquedo musical, carteira personalizada, cineminha
+${tabelaPrecos}
+
+CALENDÁRIO VACINAL OFICIAL:
+${conhecimento.calendario}
+
+PACOTES MENSAIS (preço fechado):
+${conhecimento.pacotes}
+
+PLANOS COMPLETOS:
+${conhecimento.planos}
+${leadInfo}
+
+REGRAS DE SAÍDA (obrigatórias):
+- Responda APENAS com o JSON pedido. Nada antes, nada depois, sem cercas de código.
+- PROIBIDO usar emojis em qualquer campo.
+- Português do Brasil, frases curtas e concretas. Cite o que o cliente disse quando relevante.
+- Ancore valores e produtos no catálogo acima — nunca invente preço.`;
+
+    const userPrompt = `${cfgMode.instrucao}
+
+CONVERSA (${conv.contact_name || 'cliente'}):
+${transcript}
+
+Devolva exatamente este JSON:
+${cfgMode.schema}`;
+
     const resp = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': KEY, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 500, messages: [{ role: 'user', content: prompt }] })
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 800,
+        system: sysPrompt,
+        messages: [{ role: 'user', content: userPrompt }],
+      })
     });
     const data = await resp.json();
-    res.json({ text: data.content?.[0]?.text || 'Sem resposta' });
+    if (data.error) return res.status(502).json({ error: data.error.message || 'Erro na IA' });
+
+    const raw = (data.content?.find(c => c.type === 'text')?.text || '').trim();
+    let parsed = null;
+    try {
+      parsed = JSON.parse(raw.replace(/^```json\s*/i, '').replace(/^```\s*/, '').replace(/```\s*$/, '').trim());
+    } catch {
+      // Fallback: devolve como texto para o painel não quebrar
+      parsed = mode === 'resposta' ? { texto: raw, racional: '' } : null;
+    }
+    if (!parsed) return res.status(502).json({ error: 'A IA devolveu um formato inesperado. Tente novamente.' });
+
+    res.json({ mode, data: parsed });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
