@@ -14,6 +14,8 @@ export default defineConfig({
   preview: {
     host: '0.0.0.0',
     port: process.env.PORT || 4173,
-    allowedHosts: ['.up.railway.app', 'localhost']
+    // '.vittalissaude.com.br' libera vittahub.vittalissaude.com.br e qualquer
+    // outro subdomínio futuro (www, app, etc.)
+    allowedHosts: ['.up.railway.app', '.vittalissaude.com.br', 'localhost']
   }
 });
