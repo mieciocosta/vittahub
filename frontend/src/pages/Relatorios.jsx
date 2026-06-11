@@ -9,66 +9,82 @@ function gerarPDF(data) {
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8"/>
-<title>Relatório VittaHub — ${data.periodo}</title>
+<title>Relatório Comercial — Vittalis Saúde</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;600;700&family=Syne:wght@700;800&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap');
   *{box-sizing:border-box;margin:0;padding:0;}
-  body{font-family:'Instrument Sans',sans-serif;color:#0c1a27;background:#fff;padding:40px;}
-  .header{display:flex;justify-content:space-between;align-items:center;padding-bottom:24px;border-bottom:3px solid #00B8C0;margin-bottom:32px;}
-  .brand{display:flex;flex-direction:column;}
-  .brand .nome{font-family:'Syne',sans-serif;font-size:28px;font-weight:800;color:#207898;}
-  .brand .sub{font-size:13px;color:#607080;margin-top:2px;}
-  .badge{background:#00B8C0;color:#fff;padding:5px 14px;border-radius:20px;font-size:12px;font-weight:700;}
-  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:32px;}
-  .kpi{background:#f2f5f8;border-radius:12px;padding:18px;border-left:4px solid #00B8C0;}
-  .kpi .val{font-family:'Syne',sans-serif;font-size:24px;font-weight:800;color:#0c1a27;}
-  .kpi .lbl{font-size:12px;color:#607080;margin-top:3px;font-weight:600;}
-  .section{margin-bottom:28px;}
-  .section h2{font-family:'Syne',sans-serif;font-size:15px;font-weight:800;color:#207898;text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px;padding-bottom:6px;border-bottom:2px solid #e1e8ee;}
-  table{width:100%;border-collapse:collapse;}
-  th{background:#e1e8ee;padding:9px 12px;text-align:left;font-size:11.5px;font-weight:700;color:#607080;text-transform:uppercase;letter-spacing:.4px;}
-  td{padding:10px 12px;border-bottom:1px solid #f2f5f8;font-size:13px;}
-  tr:hover td{background:#f8fafb;}
-  .ok{color:#10b981;font-weight:700;}
-  .footer{margin-top:40px;padding-top:16px;border-top:2px solid #e1e8ee;font-size:11.5px;color:#8fa0b0;display:flex;justify-content:space-between;}
+  body{font-family:'Plus Jakarta Sans',sans-serif;color:#0a1520;background:#fff;}
+  .faixa{height:7px;background:linear-gradient(90deg,#00B8C0,#207898);}
+  .pagina{padding:36px 44px;}
+  .header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;}
+  .header img{height:92px;}
+  .header .tit{text-align:right;}
+  .header .tit h1{font-size:23px;font-weight:800;letter-spacing:-.5px;color:#0d3d52;}
+  .header .tit .sub{font-size:13px;color:#5a7285;margin-top:3px;font-weight:600;}
+  .header .tit .quando{display:inline-block;margin-top:8px;background:#e5f8f9;color:#007d83;padding:4px 13px;border-radius:20px;font-size:11px;font-weight:700;}
+  .divisor{height:1.5px;background:#e3ebf1;margin:20px 0 26px;}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:30px;}
+  .kpi{background:linear-gradient(165deg,#f7fbfc,#eef5f8);border:1px solid #e3ebf1;border-radius:14px;padding:16px 18px;}
+  .kpi .val{font-size:25px;font-weight:800;letter-spacing:-.5px;color:#0d3d52;}
+  .kpi .lbl{font-size:11px;color:#5a7285;margin-top:4px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;}
+  .kpi.destaque{background:linear-gradient(135deg,#0d3d52,#207898);border:none;}
+  .kpi.destaque .val{color:#fff;}
+  .kpi.destaque .lbl{color:rgba(255,255,255,.65);}
+  .kpi.destaque .val{font-size:19px;white-space:nowrap;}
+  .section{margin-bottom:26px;}
+  .section h2{font-size:14px;font-weight:800;letter-spacing:-.2px;color:#0d3d52;margin-bottom:11px;display:flex;align-items:center;gap:8px;}
+  .section h2::before{content:'';width:4px;height:15px;border-radius:3px;background:#00B8C0;display:inline-block;}
+  table{width:100%;border-collapse:separate;border-spacing:0;border:1px solid #e3ebf1;border-radius:12px;overflow:hidden;}
+  th{background:#0d3d52;color:#fff;padding:9px 14px;text-align:left;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;}
+  td{padding:10px 14px;font-size:12.5px;border-top:1px solid #eef3f7;}
+  tr:nth-child(even) td{background:#f8fbfc;}
+  td.num{font-weight:700;}
+  .ok{color:#0fb07a;font-weight:800;}
+  .gold{color:#C4973B;font-weight:800;}
+  .footer{margin-top:36px;padding-top:14px;border-top:1.5px solid #e3ebf1;font-size:10.5px;color:#8fa3b3;display:flex;justify-content:space-between;font-weight:600;}
+  @media print{.pagina{padding:24px 30px;}}
 </style>
 </head>
 <body>
-<div class="header">
-    <img src="${window.location.origin}/logos/logo-v-black.png" alt="Vittalis Saúde" style="height:74px;display:block;margin:0 auto 12px;" />
-  <div class="brand">
-    <div class="nome">VittaHub · Vittalis Saúde</div>
-    <div class="sub">Relatório Comercial — ${data.periodo}</div>
+<div class="faixa"></div>
+<div class="pagina">
+  <div class="header">
+    <img src="${window.location.origin}/logos/logo-v-color.png" alt="Vittalis Saúde" />
+    <div class="tit">
+      <h1>Relatório Comercial</h1>
+      <div class="sub">VittaHub CRM — ${data.periodo}</div>
+      <div class="quando">Gerado em ${data.geradoEm}</div>
+    </div>
   </div>
-  <div class="badge">Gerado em ${data.geradoEm}</div>
-</div>
+  <div class="divisor"></div>
 
-<div class="kpis">
-  <div class="kpi"><div class="val">${data.totalLeads}</div><div class="lbl">Total de Leads</div></div>
-  <div class="kpi"><div class="val">${data.fechados}</div><div class="lbl">Fechados</div></div>
-  <div class="kpi"><div class="val">${data.totalLeads>0?((data.fechados/data.totalLeads)*100).toFixed(1):0}%</div><div class="lbl">Taxa de Conversão</div></div>
-  <div class="kpi" style="border-color:#C4973B"><div class="val" style="color:#C4973B">${fmt.brl(data.totalVendido)}</div><div class="lbl">Total Faturado</div></div>
-</div>
+  <div class="kpis">
+    <div class="kpi"><div class="val">${data.totalLeads}</div><div class="lbl">Total de leads</div></div>
+    <div class="kpi"><div class="val">${data.fechados}</div><div class="lbl">Fechados</div></div>
+    <div class="kpi"><div class="val">${data.totalLeads>0?((data.fechados/data.totalLeads)*100).toFixed(1):0}%</div><div class="lbl">Conversão</div></div>
+    <div class="kpi destaque"><div class="val">${fmt.brl(data.totalVendido)}</div><div class="lbl">Faturado</div></div>
+  </div>
 
-<div class="section">
-  <h2>Leads por Canal de Origem</h2>
-  <table>
-    <tr><th>Canal</th><th>Total</th><th>Fechados</th><th>Taxa %</th></tr>
-    ${Object.entries(data.porOrigem||{}).map(([k,v])=>`<tr><td>${k}</td><td>${v.total}</td><td class="ok">${v.fechados}</td><td>${v.total>0?((v.fechados/v.total)*100).toFixed(0):0}%</td></tr>`).join('')}
-  </table>
-</div>
+  <div class="section">
+    <h2>Leads por canal de origem</h2>
+    <table>
+      <tr><th>Canal</th><th>Total</th><th>Fechados</th><th>Taxa</th></tr>
+      ${Object.entries(data.porOrigem||{}).map(([k,v])=>`<tr><td>${k}</td><td class="num">${v.total}</td><td class="ok">${v.fechados}</td><td class="num">${v.total>0?((v.fechados/v.total)*100).toFixed(0):0}%</td></tr>`).join('')}
+    </table>
+  </div>
 
-<div class="section">
-  <h2>Desempenho por Atendente</h2>
-  <table>
-    <tr><th>Atendente</th><th>Leads</th><th>Fechados</th><th>Faturado</th><th>Taxa %</th></tr>
-    ${Object.entries(data.porResponsavel||{}).sort((a,b)=>b[1].valor-a[1].valor).map(([k,v])=>`<tr><td>${k}</td><td>${v.leads}</td><td class="ok">${v.fechados}</td><td class="ok">${fmt.brl(v.valor)}</td><td>${v.leads>0?((v.fechados/v.leads)*100).toFixed(0):0}%</td></tr>`).join('')}
-  </table>
-</div>
+  <div class="section">
+    <h2>Desempenho por atendente</h2>
+    <table>
+      <tr><th>Atendente</th><th>Leads</th><th>Fechados</th><th>Faturado</th><th>Taxa</th></tr>
+      ${Object.entries(data.porResponsavel||{}).sort((a,b)=>b[1].valor-a[1].valor).map(([k,v])=>`<tr><td>${k}</td><td class="num">${v.leads}</td><td class="ok">${v.fechados}</td><td class="gold">${fmt.brl(v.valor)}</td><td class="num">${v.leads>0?((v.fechados/v.leads)*100).toFixed(0):0}%</td></tr>`).join('')}
+    </table>
+  </div>
 
-<div class="footer">
-  <span>VittaHub CRM · Vittalis Saúde · São Luís, MA</span>
-  <span>Relatório gerado automaticamente pelo sistema</span>
+  <div class="footer">
+    <span>Vittalis Saúde · Business Center Renascença · São Luís, MA</span>
+    <span>vittalissaude.com.br · (98) 98422-1002</span>
+  </div>
 </div>
 </body>
 </html>`;
