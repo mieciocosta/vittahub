@@ -505,19 +505,19 @@ const SETORES = {
 
 function detectarSetor(texto) {
   const t = String(texto || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  if (/^\s*1\b/.test(t) || t.includes('consult')) return 'consultas';
-  if (/^\s*2\b/.test(t) || t.includes('vacin'))   return 'vacinas';
+  if (/^\s*1\b/.test(t) || t.includes('vacin'))   return 'vacinas';
+  if (/^\s*2\b/.test(t) || t.includes('consult')) return 'consultas';
   if (/^\s*3\b/.test(t) || t.includes('terap'))   return 'terapias';
   return null;
 }
 
 const MENU_TRIAGEM = `Olá! Seja bem-vindo(a) à *Vittalis Saúde* 💙
 
-Para agilizar seu atendimento, me diga o que você procura:
+Para agilizar seu atendimento, escolha uma das opções abaixo:
 
-1️⃣ Consultas
-2️⃣ Vacinas
-3️⃣ Terapias
+1️⃣ 💉 Vacinas
+2️⃣ 🩺 Consultas
+3️⃣ 🧩 Terapias
 
 É só responder com o número ou o nome da opção 😊`;
 
@@ -570,9 +570,13 @@ async function triagemSetor(conv, texto, phoneNum) {
     return false;
   }
 
-  // Consultas/Terapias: confirma, passa pra fila humana e notifica a equipe
-  const nomeAt = atendente ? atendente.nome.split(' ')[0] : 'nossa equipe';
-  const confirma = `Perfeito! Você está na fila de *${SETORES[escolha].rotulo}* e será atendido(a) por *${nomeAt}* 💙 Já estamos te chamando!`;
+  // Consultas/Terapias: saudação por turno + apresentação da atendente (espec da gestão)
+  const h = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: 'numeric', hour12: false });
+  const saud = parseInt(h) < 12 ? 'Bom dia' : parseInt(h) < 18 ? 'Boa tarde' : 'Boa noite';
+  const nomeAt = atendente ? atendente.nome.split(' ')[0] : null;
+  const confirma = nomeAt
+    ? `${saud}! 😊\n\nEu me chamo *${nomeAt}* e será um prazer receber você aqui na Vittalis Saúde 💙\n\nPara que eu possa oferecer um atendimento personalizado, com toda atenção e cuidado que você merece, poderia me confirmar seu nome, por gentileza?`
+    : `${saud}! Você está na fila de *${SETORES[escolha].rotulo}* — nossa equipe já vai te atender 💙`;
   if (zapiOk()) await zapiCall('/send-text', 'POST', { phone: `55${phoneNum}`, message: confirma });
   await query('UPDATE conversas SET bot_ativo = false, last_from = $2, last_message = $3 WHERE id = $1',
     [conv.id, 'bot', confirma.slice(0, 100)]).catch(() => {});
@@ -2134,9 +2138,9 @@ r.post('/conversations/:id/to-lead', async (req, res) => {
 
     // Create new lead
     const { rows: [lead] } = await query(`
-      INSERT INTO leads (nome, telefone, origem, interesse, status, responsavel_id, observacoes)
-      VALUES ($1,$2,$3,'Consulta','Novo lead',$4,$5) RETURNING *`,
-      [conv.contact_name, conv.phone || '', conv.channel === 'instagram' ? 'Instagram' : 'WhatsApp', conv.responsavel_id || req.user.id, `Lead automático via ${conv.channel}`]
+      INSERT INTO leads (nome, telefone, origem, interesse, status, responsavel_id, observacoes, setor)
+      VALUES ($1,$2,$3,'Consulta','Novo lead',$4,$5, $6) RETURNING *`,
+      [conv.contact_name, conv.phone || '', conv.channel === 'instagram' ? 'Instagram' : 'WhatsApp', conv.responsavel_id || req.user.id, `Lead automático via ${conv.channel}`, conv.setor || 'vacinas']
     );
 
     await query('UPDATE conversas SET lead_id = $1 WHERE id = $2', [lead.id, conv.id]);

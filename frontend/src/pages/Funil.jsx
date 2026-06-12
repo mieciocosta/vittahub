@@ -44,18 +44,22 @@ export default function Funil() {
 
   const flash = (m) => { setErro(m); setTimeout(() => setErro(''), 4000); };
 
+  const setorInicial = user?.role === 'atendente' && user?.setor ? user.setor : 'vacinas';
+  const [setorAtivo, setSetorAtivo] = useState(setorInicial);
+  const podeEscolherSetor = user?.role !== 'atendente' || !user?.setor;
+
   const load = useCallback(async (silent = false) => {
     try {
       const [cols, ls, meta] = await Promise.all([
-        api.get('/leads/colunas'),
-        api.get('/leads?limit=400'),
+        api.get(`/leads/colunas?setor=${setorAtivo}`),
+        api.get(`/leads?limit=400&setor=${setorAtivo}`),
         users.length ? Promise.resolve(null) : api.get('/leads/meta'),
       ]);
       setColunas(cols || []);
       setLeads(ls.data || []);
       if (meta) setUsers(meta.users || []);
     } catch (e) { if (!silent) flash(e.message); }
-  }, [users.length]); // eslint-disable-line
+  }, [users.length, setorAtivo]); // eslint-disable-line
 
   useEffect(() => { load(); }, []); // eslint-disable-line
   // Atualização leve: polling 20s + ao voltar para a aba
@@ -185,7 +189,17 @@ export default function Funil() {
       {/* cabeçalho */}
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 14, marginBottom: 16, flexWrap: 'wrap' }}>
         <div>
-          <h1 style={{ fontSize: 27, fontWeight: 800 }}>Funil de Vendas</h1>
+          <h1 style={{ fontSize: 27, fontWeight: 800 }}>Organização</h1>
+          {podeEscolherSetor && (
+            <div style={{ display:'inline-flex', gap:4, marginLeft:14, verticalAlign:'middle', background:'var(--bg2)', padding:4, borderRadius:12, border:'1px solid var(--border)' }}>
+              {[['vacinas','💉 Vacinas'],['consultas','🩺 Consultas'],['terapias','🧩 Terapias']].map(([k,l])=>(
+                <button key={k} onClick={()=>setSetorAtivo(k)}
+                  style={{ padding:'6px 14px', borderRadius:9, fontSize:12.5, fontWeight:700, cursor:'pointer', border:'none',
+                    background: setorAtivo===k?'var(--tq)':'transparent', color: setorAtivo===k?'#fff':'var(--muted)',
+                    boxShadow: setorAtivo===k?'0 2px 8px rgba(0,184,192,.3)':'none', transition:'all .15s' }}>{l}</button>
+              ))}
+            </div>
+          )}
           <p style={{ color: 'var(--muted)', fontSize: 12.5, marginTop: 2 }}>
             {isMaster ? 'Arraste os cards entre etapas · arraste o cabeçalho para reordenar colunas · clique no lápis para renomear' : 'Arraste os cards entre as etapas do funil'}
           </p>

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext.jsx';
 import Sidebar from './components/Sidebar.jsx';
+import CelebracaoGlobal from './components/CelebracaoGlobal.jsx';
 import Login from './pages/Login.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Inbox from './pages/Inbox.jsx';
@@ -49,6 +50,7 @@ export default function App() {
 
   return (
     <div style={{ display:'flex', minHeight:'100vh' }}>
+      <CelebracaoGlobal />
       <Sidebar
         unread={unread}
         theme={theme}

@@ -187,6 +187,57 @@ export default async function runMigrate() {
       console.log('🌱 Seed setores/papéis aplicado');
     }
 
+    // ── FUNIS POR SETOR (etapas próprias p/ Vacinas, Consultas e Terapias) ──
+    await query(`ALTER TABLE funil_colunas ADD COLUMN IF NOT EXISTS setor TEXT DEFAULT 'vacinas'`).catch(() => {});
+    const { rows: [flagFunis] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_funis_v1'");
+    if (!flagFunis) {
+      await query(`UPDATE funil_colunas SET setor = 'vacinas' WHERE setor IS NULL`).catch(() => {});
+      await query(`UPDATE leads SET setor = 'vacinas' WHERE setor IS NULL`).catch(() => {});
+      const FUNIS = {
+        vacinas:   [['Novo Lead','#00B8C0'],['Em Atendimento','#0E8C96'],['Orçamento Enviado','#C4973B'],['Negociação','#e8671a'],['Venda Fechada','#0fb07a'],['Agendado','#3b82f6'],['Vacinado','#7c5cbf'],['Pós-Vacinal','#ec4899'],['Reagendamento Futuro','#64748b']],
+        consultas: [['Novo Lead','#00B8C0'],['Em Atendimento','#0E8C96'],['Agendamento Pendente','#C4973B'],['Agendado','#3b82f6'],['Consulta Confirmada','#e8671a'],['Consulta Realizada','#0fb07a'],['Retorno','#7c5cbf'],['Finalizado','#64748b']],
+        terapias:  [['Novo Lead','#00B8C0'],['Triagem','#0E8C96'],['Avaliação','#C4973B'],['Plano Terapêutico','#e8671a'],['Em Tratamento','#3b82f6'],['Renovação','#7c5cbf'],['Finalizado','#0fb07a']],
+      };
+      for (const [setorF, etapas] of Object.entries(FUNIS)) {
+        let ordem = 0;
+        for (const [nome, cor] of etapas) {
+          await query(`INSERT INTO funil_colunas (nome, cor, ordem, fixa, setor)
+            SELECT $1, $2, $3, false, $4
+            WHERE NOT EXISTS (SELECT 1 FROM funil_colunas WHERE nome = $1 AND setor = $4)`,
+            [nome, cor, ordem++, setorF]).catch(() => {});
+        }
+        // Perdido sempre existe em todo setor (motivo de perda obrigatório)
+        await query(`INSERT INTO funil_colunas (nome, cor, ordem, fixa, setor)
+          SELECT 'Perdido', '#e84040', 99, true, $1
+          WHERE NOT EXISTS (SELECT 1 FROM funil_colunas WHERE nome = 'Perdido' AND setor = $1)`, [setorF]).catch(() => {});
+      }
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_funis_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🌱 Funis por setor criados');
+    }
+
+    // ── KIT DE MENSAGENS PRONTAS (espec. da gestão) ──────────────────────────
+    const { rows: [flagQR2] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_qr_v2'");
+    if (!flagQR2) {
+      const KIT = [
+        ['Solicitar endereço', 'Pra eu organizar tudo certinho: pode me passar seu endereço completo com bairro, por gentileza? 😊'],
+        ['Solicitar documentos', 'Perfeito! Pra finalizar, me envia por aqui uma foto do documento do responsável e o cartão de vacinação, por favor 📄'],
+        ['Confirmar agendamento', 'Prontinho! Seu horário está confirmado 🗓️ Qualquer imprevisto é só me avisar por aqui que a gente reorganiza, combinado?'],
+        ['Confirmar pagamento', 'Recebido! Pagamento confirmado ✅ Muito obrigada pela confiança — vamos cuidar de tudo com muito carinho 💙'],
+        ['Enviar orçamento', 'Preparei seu orçamento com todo cuidado — vou te enviar agora em PDF. Qualquer dúvida sobre valores ou formas de pagamento, estou por aqui! 📋'],
+        ['Pós-vacinal', 'Oi! Passando pra saber como está o(a) pequeno(a) depois da vacina de ontem 💙 Teve febre ou alguma reação? Estamos por aqui pra qualquer orientação.'],
+        ['Reagendamento', 'Sem problema nenhum! Vamos achar um novo horário que fique melhor pra você. Prefere de manhã ou à tarde? 😊'],
+        ['Cliente sem resposta', 'Oi! Tudo bem por aí? Ficou alguma dúvida que eu possa esclarecer? Sigo à disposição pra te ajudar no que precisar 💙'],
+        ['Cliente achou caro', 'Eu entendo perfeitamente! E é justamente por isso que temos condições especiais: parcelamento sem juros e pacotes com desconto. Posso montar uma condição que caiba no seu momento? 😊'],
+        ['Cliente pediu para pensar', 'Claro, decisão importante merece calma! Vou deixar sua proposta garantida por alguns dias. Posso te chamar daqui a 2 dias pra saber se ficou alguma dúvida?'],
+      ];
+      for (const [titulo, texto] of KIT) {
+        await query(`INSERT INTO respostas_rapidas (titulo, texto)
+          SELECT $1, $2 WHERE NOT EXISTS (SELECT 1 FROM respostas_rapidas WHERE titulo = $1)`,
+          [titulo, texto]).catch(() => {});
+      }
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_qr_v2','{"ok":true}') ON CONFLICT DO NOTHING`);
+    }
+
     // ── Avatar de perfil (foto pequena em data URL) ──────────────────────────
     await query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS avatar TEXT`).catch(() => {});
 

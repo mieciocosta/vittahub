@@ -11,11 +11,11 @@ import { fmt } from '../hooks/utils.js';
 
 const NAV = [
   { to:'/',           icon:LayoutDashboard, label:'Dashboard' },
-  { to:'/inbox',      icon:MessageSquare,   label:'Inbox',     unread:true },
-  { to:'/leads',      icon:Users,           label:'Leads' },
-  { to:'/funil',      icon:Kanban,          label:'Funil' },
-  { to:'/retornos',   icon:CalendarClock,   label:'Retornos',  retornos:true },
-  { to:'/relatorios', icon:BarChart2,       label:'Relatórios' },
+  { to:'/inbox',      icon:MessageSquare,   label:'💬 Chat',     unread:true },
+  { to:'/leads',      icon:Users,           label:'👥 Clientes' },
+  { to:'/funil',      icon:Kanban,          label:'📋 Organização' },
+  { to:'/retornos',   icon:CalendarClock,   label:'🔔 Follow-up',  retornos:true },
+  { to:'/relatorios', icon:BarChart2,       label:'📊 Relatórios' },
 ];
 
 /* ── Sino de notificações (novo lead, lead qualificado pela Vitta etc.) ────── */
@@ -44,11 +44,11 @@ function BellPanel({ collapsed }) {
       <button onClick={() => setOpen(o => !o)} title="Notificações"
         style={{ width:'100%', display:'flex', alignItems:'center', justifyContent: collapsed ? 'center' : 'flex-start', gap: collapsed ? 0 : 10,
           padding: collapsed ? '10px 0' : '9px 12px', borderRadius:10, background: open ? 'rgba(0,184,192,0.15)' : 'transparent',
-          color: open ? 'var(--tq)' : 'rgba(255,255,255,0.45)', border:'none', cursor:'pointer', fontSize:13.5, position:'relative' }}>
+          color: open ? 'var(--tq)' : 'var(--muted)', border:'none', cursor:'pointer', fontSize:13.5, position:'relative' }}>
         <Bell size={16} strokeWidth={1.8} />
         {!collapsed && <span style={{ flex:1, textAlign:'left' }}>Notificações</span>}
         {naoLidas > 0 && (collapsed
-          ? <span style={{ position:'absolute', top:4, right:4, width:8, height:8, borderRadius:'50%', background:'var(--gold)', border:'2px solid var(--pet3)' }} />
+          ? <span style={{ position:'absolute', top:4, right:4, width:8, height:8, borderRadius:'50%', background:'var(--gold)', border:'2px solid #fff' }} />
           : <span style={{ background:'var(--gold)', color:'#fff', borderRadius:10, padding:'1px 7px', fontSize:10.5, fontWeight:800, minWidth:20, textAlign:'center' }}>{naoLidas > 99 ? '99+' : naoLidas}</span>)}
       </button>
 
@@ -128,25 +128,25 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
     <aside style={{
       width: w,
       minHeight:'100vh', position:'fixed', left:0, top:0, bottom:0, zIndex:100,
-      background:'var(--pet3)',
+      background:'#ffffff',
       display:'flex', flexDirection:'column',
-      borderRight:'1px solid rgba(255,255,255,0.06)',
-      boxShadow:'4px 0 24px rgba(0,0,0,.18)',
+      borderRight:'1px solid var(--border)',
+      boxShadow:'2px 0 16px rgba(7,30,44,.05)',
       transition:'width .2s ease',
       overflow:'hidden',
     }}>
 
       {/* Logo / Brand — vertical branca oficial, clicável pro Dashboard */}
-      <div style={{ padding: collapsed ? '14px 0' : '18px 14px 14px', borderBottom:'1px solid rgba(255,255,255,0.07)', flexShrink:0 }}>
+      <div style={{ padding: collapsed ? '14px 0' : '18px 14px 14px', borderBottom:'1px solid var(--border)', flexShrink:0 }}>
         <NavLink to="/" title="Ir para o Dashboard" className="brand-link" style={{ textDecoration:'none', display:'block' }}>
           {collapsed ? (
-            <img src="/logos/logo-icon-white.png" alt="Vittalis Saúde" style={{ height:28, objectFit:'contain', display:'block', margin:'0 auto' }} />
+            <img src="/logos/logo-icon-color.png" alt="Vittalis Saúde" style={{ height:28, objectFit:'contain', display:'block', margin:'0 auto' }} />
           ) : (
             <>
-              <img src="/logos/logo-v-white.png" alt="Vittalis Saúde" style={{ width:'72%', maxWidth:152, height:'auto', objectFit:'contain', display:'block', margin:'0 auto' }} />
+              <img src="/logos/logo-v-color.png" alt="Vittalis Saúde" style={{ width:'72%', maxWidth:152, height:'auto', objectFit:'contain', display:'block', margin:'0 auto' }} />
               <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:5, marginTop:9 }}>
                 <div style={{ width:5, height:5, borderRadius:'50%', background:'var(--tq)', boxShadow:'0 0 6px var(--tq)' }}/>
-                <span style={{ fontSize:10, fontWeight:700, letterSpacing:1.8, color:'rgba(255,255,255,0.3)', textTransform:'uppercase' }}>VittaHub CRM</span>
+                <span style={{ fontSize:10, fontWeight:700, letterSpacing:1.8, color:'var(--light)', textTransform:'uppercase' }}>VittaHub CRM</span>
               </div>
             </>
           )}
@@ -155,16 +155,16 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
 
       {/* Nav */}
       <nav style={{ flex:1, padding: collapsed ? '14px 6px' : '14px 10px', display:'flex', flexDirection:'column', gap:3, overflowY:'auto', overflowX:'hidden' }}>
-        {!collapsed && <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:1.6, color:'rgba(255,255,255,0.22)', padding:'0 12px 6px', textTransform:'uppercase' }}>Menu</div>}
+        {!collapsed && <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:1.6, color:'var(--light)', padding:'0 12px 6px', textTransform:'uppercase' }}>Menu</div>}
         {NAV.map(({ to, icon:Icon, label, unread:showU, retornos:retBadge }) => (
           <NavLink key={to} to={to} end={to==='/'} title={collapsed ? label : ''} style={({ isActive }) => ({
             display:'flex', alignItems:'center', gap: collapsed ? 0 : 10,
             padding: collapsed ? '10px 0' : '9px 12px',
             justifyContent: collapsed ? 'center' : 'flex-start',
             borderRadius:12, textDecoration:'none',
-            color: isActive ? '#fff' : 'rgba(255,255,255,0.48)',
-            background: isActive ? 'linear-gradient(135deg, rgba(0,184,192,0.22), rgba(0,184,192,0.08))' : 'transparent',
-            boxShadow: isActive ? 'inset 0 0 0 1px rgba(0,184,192,0.35), 0 4px 12px rgba(0,184,192,0.12)' : 'none',
+            color: isActive ? '#fff' : 'var(--muted)',
+            background: isActive ? 'linear-gradient(135deg, var(--tq), #0aa6ae)' : 'transparent',
+            boxShadow: isActive ? '0 4px 14px rgba(0,184,192,.32)' : 'none',
             fontWeight: isActive ? 700 : 500, fontSize:13.5,
             transition: 'all .15s',
             position:'relative',
@@ -182,16 +182,16 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
               </span>
             )}
             {collapsed && retBadge && vencidos > 0 && (
-              <span style={{ position:'absolute', top:4, right:4, width:8, height:8, borderRadius:'50%', background:'var(--err)', border:'2px solid var(--pet3)' }} />
+              <span style={{ position:'absolute', top:4, right:4, width:8, height:8, borderRadius:'50%', background:'var(--err)', border:'2px solid #fff' }} />
             )}
             {/* Badge no ícone quando colapsado */}
             {collapsed && showU && unread > 0 && (
-              <span style={{ position:'absolute', top:4, right:4, width:8, height:8, borderRadius:'50%', background:'var(--tq)', border:'2px solid var(--pet3)' }} />
+              <span style={{ position:'absolute', top:4, right:4, width:8, height:8, borderRadius:'50%', background:'var(--tq)', border:'2px solid #fff' }} />
             )}
           </NavLink>
         ))}
 
-        <div style={{ height:1, background:'rgba(255,255,255,0.07)', margin:'8px 12px' }}/>
+        <div style={{ height:1, background:'var(--border)', margin:'8px 12px' }}/>
 
         <BellPanel collapsed={collapsed} />
 
@@ -201,7 +201,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
           padding: collapsed ? '10px 0' : '9px 12px',
           justifyContent: collapsed ? 'center' : 'flex-start',
           borderRadius:10, textDecoration:'none',
-          color: isActive ? '#25D366' : 'rgba(255,255,255,0.45)',
+          color: isActive ? '#25D366' : 'var(--muted)',
           background: isActive ? 'rgba(37,211,102,0.1)' : 'transparent',
           fontWeight: isActive ? 600 : 400, fontSize:13.5,
           borderLeft: collapsed ? 'none' : `2px solid ${isActive ? '#25D366' : 'transparent'}`,
@@ -218,8 +218,8 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
             padding: collapsed ? '10px 0' : '9px 12px',
             justifyContent: collapsed ? 'center' : 'flex-start',
             borderRadius:10, textDecoration:'none',
-            color: isActive ? '#fff' : 'rgba(255,255,255,0.28)',
-            background: isActive ? 'rgba(255,255,255,0.08)' : 'transparent',
+            color: isActive ? '#fff' : 'var(--light)',
+            background: isActive ? 'var(--bg2)' : 'transparent',
             fontWeight:400, fontSize:13,
             borderLeft: collapsed ? 'none' : '2px solid transparent',
           })}>
@@ -230,18 +230,18 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
       </nav>
 
       {/* User + toggle */}
-      <div style={{ padding: collapsed ? '10px 6px 14px' : '12px 10px 16px', borderTop:'1px solid rgba(255,255,255,0.07)', flexShrink:0 }}>
+      <div style={{ padding: collapsed ? '10px 6px 14px' : '12px 10px 16px', borderTop:'1px solid var(--border)', flexShrink:0 }}>
         {/* Botão colapsar/expandir */}
         <button onClick={onToggleCollapse}
           title={collapsed ? 'Expandir menu' : 'Recolher menu'}
           style={{
             width:'100%', display:'flex', alignItems:'center', justifyContent:'center', gap:6,
-            padding:'8px', borderRadius:8, background:'rgba(255,255,255,0.06)',
-            color:'rgba(255,255,255,0.4)', border:'none', cursor:'pointer',
+            padding:'8px', borderRadius:8, background:'var(--border)',
+            color:'var(--muted)', border:'none', cursor:'pointer',
             marginBottom:8, transition:'all .15s', fontSize:11.5, fontWeight:600,
           }}
           onMouseEnter={e => { e.currentTarget.style.background='rgba(0,184,192,0.15)'; e.currentTarget.style.color='var(--tq)'; }}
-          onMouseLeave={e => { e.currentTarget.style.background='rgba(255,255,255,0.06)'; e.currentTarget.style.color='rgba(255,255,255,0.4)'; }}
+          onMouseLeave={e => { e.currentTarget.style.background='var(--border)'; e.currentTarget.style.color='var(--muted)'; }}
         >
           {collapsed ? <ChevronRight size={14}/> : <><ChevronLeft size={14}/><span>Recolher</span></>}
         </button>
@@ -252,34 +252,34 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
             <button onClick={()=>avatarFileRef.current?.click()} title="Trocar foto de perfil" style={{ background:'none', border:'none', cursor:'pointer', padding:0 }}>
               <UserAvatar size={32} />
             </button>
-            <button onClick={onToggleTheme} title={theme === 'dark' ? 'Modo claro' : 'Modo escuro'} style={{ padding:5, background:'none', color:'rgba(255,255,255,0.3)', borderRadius:6, cursor:'pointer', border:'none' }}
-              onMouseEnter={e=>e.currentTarget.style.color='rgba(255,255,255,.7)'}
-              onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,.3)'}>
+            <button onClick={onToggleTheme} title={theme === 'dark' ? 'Modo claro' : 'Modo escuro'} style={{ padding:5, background:'none', color:'var(--light)', borderRadius:6, cursor:'pointer', border:'none' }}
+              onMouseEnter={e=>e.currentTarget.style.color='var(--txt2)'}
+              onMouseLeave={e=>e.currentTarget.style.color='var(--muted)'}>
               {theme === 'dark' ? <Sun size={13} /> : <Moon size={13} />}
             </button>
-            <button onClick={logout} title="Sair" style={{ padding:5, background:'none', color:'rgba(255,255,255,0.3)', borderRadius:6, cursor:'pointer', border:'none' }}
-              onMouseEnter={e=>e.currentTarget.style.color='rgba(255,255,255,.7)'}
-              onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,.3)'}>
+            <button onClick={logout} title="Sair" style={{ padding:5, background:'none', color:'var(--light)', borderRadius:6, cursor:'pointer', border:'none' }}
+              onMouseEnter={e=>e.currentTarget.style.color='var(--txt2)'}
+              onMouseLeave={e=>e.currentTarget.style.color='var(--muted)'}>
               <LogOut size={13} />
             </button>
           </div>
         ) : (
-          <div style={{ display:'flex', alignItems:'center', gap:9, padding:'10px 10px', borderRadius:10, background:'rgba(255,255,255,0.05)' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:9, padding:'10px 10px', borderRadius:10, background:'var(--muted)' }}>
             <button onClick={()=>avatarFileRef.current?.click()} title="Trocar foto de perfil" style={{ background:'none', border:'none', cursor:'pointer', padding:0 }}>
               <UserAvatar size={34} />
             </button>
             <div style={{ flex:1, minWidth:0 }}>
               <div style={{ color:'#fff', fontSize:13, fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{user?.nome?.split(' ')[0]}</div>
-              <div style={{ color:'rgba(255,255,255,0.32)', fontSize:10.5 }}>{user?.role === 'master' ? '◆ Master' : user?.role === 'supervisor' ? '◆ Supervisora' : 'Atendente'}</div>
+              <div style={{ color:'var(--muted)', fontSize:10.5 }}>{user?.role === 'master' ? '◆ Master' : user?.role === 'supervisor' ? '◆ Supervisora' : 'Atendente'}</div>
             </div>
-            <button onClick={onToggleTheme} title={theme === 'dark' ? 'Modo claro' : 'Modo escuro'} style={{ padding:6, background:'none', color:'rgba(255,255,255,0.3)', borderRadius:6, transition:'color .15s', cursor:'pointer', border:'none' }}
-              onMouseEnter={e=>e.currentTarget.style.color='rgba(255,255,255,.7)'}
-              onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,.3)'}>
+            <button onClick={onToggleTheme} title={theme === 'dark' ? 'Modo claro' : 'Modo escuro'} style={{ padding:6, background:'none', color:'var(--light)', borderRadius:6, transition:'color .15s', cursor:'pointer', border:'none' }}
+              onMouseEnter={e=>e.currentTarget.style.color='var(--txt2)'}
+              onMouseLeave={e=>e.currentTarget.style.color='var(--muted)'}>
               {theme === 'dark' ? <Sun size={13} /> : <Moon size={13} />}
             </button>
-            <button onClick={logout} title="Sair" style={{ padding:6, background:'none', color:'rgba(255,255,255,0.3)', borderRadius:6, transition:'color .15s', cursor:'pointer', border:'none' }}
-              onMouseEnter={e=>e.currentTarget.style.color='rgba(255,255,255,.7)'}
-              onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,.3)'}>
+            <button onClick={logout} title="Sair" style={{ padding:6, background:'none', color:'var(--light)', borderRadius:6, transition:'color .15s', cursor:'pointer', border:'none' }}
+              onMouseEnter={e=>e.currentTarget.style.color='var(--txt2)'}
+              onMouseLeave={e=>e.currentTarget.style.color='var(--muted)'}>
               <LogOut size={13} />
             </button>
           </div>

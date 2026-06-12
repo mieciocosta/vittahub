@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { TrendingUp, Users, CheckCircle, XCircle, DollarSign, Target, MessageSquare, Calendar, AlertTriangle, ArrowRight } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
+import BoasVindas from '../components/BoasVindas.jsx';
 import { fmt, COLORS, STATUS_CLR } from '../hooks/utils.js';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, Legend, LineChart, Line, CartesianGrid, AreaChart, Area } from 'recharts';
 import { useNavigate } from 'react-router-dom';
@@ -31,6 +32,7 @@ export default function Dashboard() {
 
   return (
     <div style={{ padding:'28px' }}>
+      <BoasVindas />
       {/* Header */}
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:24 }}>
         <div>
@@ -41,6 +43,58 @@ export default function Dashboard() {
           {new Date().toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long'})}
         </div>
       </div>
+
+      {/* Metas do mês (espec da gestão: meta, %, falta, projeção, consultas/dia) */}
+      {data?.metas && (
+        <div style={{ display:'grid', gridTemplateColumns:'2fr 1fr', gap:14, marginBottom:18 }}>
+          <div className="card" style={{ padding:'16px 20px' }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:10 }}>
+              <div style={{ fontWeight:800, fontSize:14 }}>💉 Meta de Vacinas — {new Date().toLocaleDateString('pt-BR',{month:'long'})}</div>
+              <div style={{ fontSize:12.5, fontWeight:700, color:'var(--tq2)' }}>{data.metas.vacinas.pct}%</div>
+            </div>
+            <div style={{ height:14, borderRadius:8, background:'var(--tq4)', overflow:'hidden', position:'relative' }}>
+              <div style={{ width:`${Math.min(data.metas.vacinas.pct,100)}%`, height:'100%', borderRadius:8,
+                background:'linear-gradient(90deg, var(--tq), var(--pet))', transition:'width .8s' }} />
+              {[25,50,75].map(m=>(
+                <div key={m} style={{ position:'absolute', left:`${m}%`, top:0, bottom:0, width:1.5, background:'rgba(255,255,255,.7)' }} />
+              ))}
+            </div>
+            <div style={{ display:'flex', justifyContent:'space-between', marginTop:9, fontSize:12, color:'var(--muted)', flexWrap:'wrap', gap:6 }}>
+              <span>Vendido: <b style={{ color:'var(--ok)' }}>{fmt.brl(data.metas.vacinas.vendido)}</b> de {fmt.brl(data.metas.vacinas.meta)}</span>
+              <span>Falta: <b>{fmt.brl(data.metas.vacinas.falta)}</b></span>
+              <span>Projeção do mês: <b style={{ color: data.metas.vacinas.projecao >= data.metas.vacinas.meta ? 'var(--ok)' : 'var(--warn)' }}>{fmt.brl(data.metas.vacinas.projecao)}</b></span>
+            </div>
+          </div>
+          <div className="card" style={{ padding:'16px 20px', display:'flex', flexDirection:'column', justifyContent:'center' }}>
+            <div style={{ fontWeight:800, fontSize:14, marginBottom:8 }}>🩺 Consultas hoje</div>
+            <div style={{ display:'flex', alignItems:'baseline', gap:6 }}>
+              <span style={{ fontSize:34, fontWeight:800, color: data.metas.consultas.confirmadasHoje >= data.metas.consultas.metaDia ? 'var(--ok)' : 'var(--txt)' }}>{data.metas.consultas.confirmadasHoje}</span>
+              <span style={{ fontSize:15, color:'var(--muted)', fontWeight:700 }}>/ {data.metas.consultas.metaDia} confirmadas</span>
+            </div>
+            <div style={{ height:8, borderRadius:6, background:'var(--tq4)', overflow:'hidden', marginTop:8 }}>
+              <div style={{ width:`${Math.min((data.metas.consultas.confirmadasHoje/data.metas.consultas.metaDia)*100,100)}%`, height:'100%', background:'var(--tq)', borderRadius:6 }} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Painel de Impacto (conecta a equipe ao propósito) */}
+      {data?.impacto && isMaster && (
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))', gap:12, marginBottom:18 }}>
+          {[['👨‍👩‍👧','Famílias atendidas',data.impacto.familias],
+            ['💉','Crianças vacinadas',data.impacto.criancasVacinadas],
+            ['🩺','Consultas realizadas',data.impacto.consultasRealizadas],
+            ['🧩','Terapias iniciadas',data.impacto.terapiasIniciadas]].map(([ic,l,v])=>(
+            <div key={l} className="card" style={{ padding:'13px 16px', display:'flex', alignItems:'center', gap:11 }}>
+              <span style={{ fontSize:24 }}>{ic}</span>
+              <div>
+                <div style={{ fontSize:20, fontWeight:800 }}>{v}</div>
+                <div style={{ fontSize:11, color:'var(--muted)', fontWeight:600 }}>{l}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Alerts */}
       {(resumo.retornosHoje>0 || resumo.retornosVencidos>0) && (
@@ -152,7 +206,9 @@ export default function Dashboard() {
             {respData.slice(0,4).map((rv,i) => (
               <div key={rv.nome} style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 0', borderBottom:i<3?'1px solid var(--border)':'none' }}>
                 <div style={{ fontFamily:'Syne', fontWeight:800, fontSize:18, color:i===0?'var(--gold)':i===1?'var(--muted)':'var(--light)', minWidth:24 }}>{i+1}°</div>
-                <div style={{ width:28, height:28, borderRadius:'50%', background:rv.cor||'var(--tq)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:800, color:'#fff' }}>{fmt.initials(rv.nome)}</div>
+                {rv.avatar
+                  ? <img src={rv.avatar} alt="" style={{ width:28, height:28, borderRadius:'50%', objectFit:'cover' }} />
+                  : <div style={{ width:28, height:28, borderRadius:'50%', background:rv.cor||'var(--tq)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:800, color:'#fff' }}>{fmt.initials(rv.nome)}</div>}
                 <div style={{ flex:1 }}>
                   <div style={{ fontWeight:700, fontSize:13 }}>{rv.nome}</div>
                   <div style={{ fontSize:11.5, color:'var(--muted)' }}>{rv.leads} leads · {rv.taxa}% conv.</div>
