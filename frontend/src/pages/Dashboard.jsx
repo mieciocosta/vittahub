@@ -1,261 +1,358 @@
 import React, { useEffect, useState } from 'react';
-import { TrendingUp, Users, CheckCircle, XCircle, DollarSign, Target, MessageSquare, Calendar, AlertTriangle, ArrowRight } from 'lucide-react';
+import { MessageSquare, HeartPulse, CalendarCheck, CircleDollarSign, Bell, ChevronRight, Plus, Syringe, UserPlus, ClipboardList, Send, Phone } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
-import BoasVindas from '../components/BoasVindas.jsx';
-import { fmt, COLORS, STATUS_CLR } from '../hooks/utils.js';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, Legend, LineChart, Line, CartesianGrid, AreaChart, Area } from 'recharts';
+import { fmt } from '../hooks/utils.js';
 import { useNavigate } from 'react-router-dom';
+
+/* ─── Dashboard Vittalis — layout aprovado pela gestão ────────────────────────
+   Tudo aqui é DADO REAL do CRM. A "Agenda — Hoje" usa os retornos/follow-ups
+   com data de hoje (o módulo de Agenda dedicado entra na próxima fase e este
+   card já está pronto pra recebê-lo).                                        */
+
+const VERSICULOS = [
+  ['Entrega o teu caminho ao Senhor; confia nele, e ele o fará.', 'Salmos 37:5'],
+  ['Tudo posso naquele que me fortalece.', 'Filipenses 4:13'],
+  ['O Senhor é o meu pastor; nada me faltará.', 'Salmos 23:1'],
+  ['Não temas, porque eu sou contigo.', 'Isaías 41:10'],
+  ['Em tudo dai graças, porque esta é a vontade de Deus.', '1 Tessalonicenses 5:18'],
+  ['O coração alegre é como o bom remédio.', 'Provérbios 17:22'],
+  ['Confia no Senhor de todo o teu coração.', 'Provérbios 3:5'],
+  ['O choro pode durar uma noite, mas a alegria vem pela manhã.', 'Salmos 30:5'],
+  ['Sede fortes e corajosos; não temais.', 'Deuteronômio 31:6'],
+  ['As misericórdias do Senhor se renovam a cada manhã.', 'Lamentações 3:22-23'],
+  ['Buscai primeiro o Reino de Deus.', 'Mateus 6:33'],
+  ['Aquietai-vos e sabei que eu sou Deus.', 'Salmos 46:10'],
+  ['Tudo o que fizerem, façam de todo o coração, como para o Senhor.', 'Colossenses 3:23'],
+  ['A tua palavra é lâmpada para os meus pés.', 'Salmos 119:105'],
+  ['Porque para Deus nada é impossível.', 'Lucas 1:37'],
+  ['Este é o dia que o Senhor fez; regozijemo-nos nele.', 'Salmos 118:24'],
+  ['Deleita-te também no Senhor.', 'Salmos 37:4'],
+  ['Sê forte e corajoso; o Senhor teu Deus é contigo.', 'Josué 1:9'],
+  ['Grandes coisas fez o Senhor por nós.', 'Salmos 126:3'],
+  ['O amor é paciente, o amor é bondoso.', '1 Coríntios 13:4'],
+];
+const MOTIVACIONAIS = [
+  'Você está indo muito bem hoje! Cada atendimento representa uma família confiando na Vittalis. Continue assim, você faz a diferença! 💙',
+  'Cada mensagem respondida com carinho hoje é uma família mais protegida amanhã. 💙',
+  'Seu cuidado no atendimento é o que transforma clientes em famílias da Vittalis. ✨',
+  'Por trás de cada conversa existe uma mãe ou um pai buscando o melhor pro filho — e encontrando você. 💙',
+  'A diferença entre um atendimento comum e um atendimento Vittalis é o seu toque humano. ✨',
+  'Cada proposta enviada hoje é uma semente. Continue plantando! 🌱',
+  'Atendimento humanizado não é técnica — é o que você faz naturalmente todos os dias. 💙',
+  'Cada criança vacinada começou com uma conversa como as que você está tendo agora. 💉',
+  'Hoje alguém vai escolher a Vittalis por causa do SEU atendimento. 🏆',
+  'Constância vence talento. E você tem os dois! ✨',
+];
+
+const ETAPAS_VACINAS = ['Novo Lead', 'Em Atendimento', 'Orçamento Enviado', 'Negociação', 'Venda Fechada', 'Agendado', 'Vacinado', 'Pós-Vacinal', 'Reagendamento Futuro'];
+const CORES_FUNIL = ['#00B8C0', '#0E8C96', '#3b82f6', '#7c5cbf', '#0fb07a', '#C4973B', '#f59e0b', '#ec4899', '#e84040'];
 
 export default function Dashboard() {
   const api = useApi();
-  const { isMaster, user } = useAuth();
+  const { user, isMaster } = useAuth();
   const nav = useNavigate();
   const [data, setData] = useState(null);
 
-  const [colunas, setColunas] = useState([]);
-  useEffect(() => {
-    api.get('/reports/dashboard').then(setData);
-    api.get('/leads/colunas').then(setColunas).catch(()=>{});
-  }, []);
-  if (!data) return <div style={{padding:40,display:'flex',justifyContent:'center'}}><span className="spin" style={{width:28,height:28}} /></div>;
+  useEffect(() => { api.get('/reports/dashboard').then(setData).catch(() => {}); }, []); // eslint-disable-line
 
-  const { resumo, porOrigem, porResponsavel, porStatus, motivosPerda, porDia } = data;
-  // A API devolve ARRAYS ({origem,total,fechados}...) — antes era lido com
-  // Object.entries e os gráficos saíam com "0, 1, 2" no lugar dos nomes
-  const origemData = (porOrigem||[]).map(v=>({name:v.origem||'—', total:+v.total, fechados:+v.fechados, taxa:v.total>0?+((v.fechados/v.total)*100).toFixed(0):0}));
-  const statusData = (porStatus||[]).map(v=>({name:v.status, value:+v.n}));
-  const respData   = (porResponsavel||[]).map(v=>({...v, leads:+v.leads, fechados:+v.fechados, valor:+v.valor||0})).sort((a,b)=>b.valor-a.valor);
-  const diaData    = (porDia||[]).map(d=>({...d, leads:+d.leads, fechados:+d.fechados, name:new Date(d.data+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})}));
-  const corDaEtapa = (nome) => colunas.find(c=>c.nome===nome)?.cor || 'var(--tq)';
-  const funilTotal = statusData.reduce((sum,x)=>sum+x.value,0);
-  const saudacao = (() => { const h = new Date().getHours(); return h<12?'Bom dia':h<18?'Boa tarde':'Boa noite'; })();
+  const hoje = new Date();
+  const hora = hoje.getHours();
+  const saud = hora < 12 ? 'Bom dia' : hora < 18 ? 'Boa tarde' : 'Boa noite';
+  const diaAno = Math.floor((hoje - new Date(hoje.getFullYear(), 0, 0)) / 86400000);
+  const [verso, ref] = VERSICULOS[diaAno % VERSICULOS.length];
+  const motivacional = MOTIVACIONAIS[diaAno % MOTIVACIONAIS.length];
+  const nome = (user?.nome || '').split(' ')[0];
+  const papel = user?.role === 'master' ? 'Master' : user?.role === 'supervisor' ? 'Supervisora' : 'Atendente';
+
+  if (!data) return <div style={{ padding: 40, color: 'var(--muted)' }}>Carregando seu dia…</div>;
+
+  const { resumo = {}, porStatus = [], followups = [], porResponsavel = [], metas, impacto } = data;
+  const stCount = (nomeS) => parseInt((porStatus.find(x => x.status === nomeS) || {}).n) || 0;
+  const fupsHoje = followups.filter(f => f.data_retorno === hoje.toISOString().slice(0, 10));
+  const fupsVencidos = followups.filter(f => f.data_retorno < hoje.toISOString().slice(0, 10));
+  const proxMarco = metas ? [25, 50, 75, 100].find(m => m > metas.vacinas.pct) : null;
+  const maxFunil = Math.max(...ETAPAS_VACINAS.map(stCount), 1);
+
+  const kpis = [
+    { Icon: MessageSquare, label: 'Conversas pendentes', valor: resumo.totalUnread || 0, sub: 'Precisam de atenção', go: '/inbox' },
+    { Icon: HeartPulse, label: 'Pós-vacinais', valor: stCount('Pós-Vacinal'), sub: 'Acompanhamentos', go: '/funil' },
+    { Icon: CalendarCheck, label: 'Agendados', valor: stCount('Agendado'), sub: 'No funil de vacinas', go: '/funil' },
+    { Icon: CircleDollarSign, label: 'Orçamentos aguardando', valor: stCount('Orçamento Enviado'), sub: 'Aguardam retorno', go: '/funil' },
+    { Icon: Bell, label: 'Follow-ups pendentes', valor: followups.length, sub: 'Retornos programados', go: '/retornos' },
+  ];
+
+  const acoes = [
+    { Icon: MessageSquare, label: 'Nova conversa', go: '/inbox' },
+    { Icon: UserPlus, label: 'Novo cliente', go: '/leads' },
+    { Icon: Send, label: 'Enviar orçamento', go: '/inbox' },
+    { Icon: Syringe, label: 'Registrar vacina', href: 'https://vittasys.vittalissaude.com.br' },
+    { Icon: ClipboardList, label: 'Nova tarefa', go: '/retornos' },
+  ];
 
   return (
-    <div style={{ padding:'28px' }}>
-      <BoasVindas />
-      {/* Header */}
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:24 }}>
-        <div>
-          <h1 style={{ fontSize:30 }}>{isMaster ? 'Dashboard' : `${saudacao}, ${user?.nome?.split(' ')[0]}`}</h1>
-          <p style={{ color:'var(--muted)', fontSize:13.5, marginTop:3 }}>{isMaster?'Visão geral do comercial Vittalis':'Seus leads e conversas de hoje'}</p>
+    <div style={{ padding: '0 0 28px' }}>
+
+      {/* ── Faixa superior: saudação + versículo + meta mini + perfil ── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap',
+        padding: '16px 28px', background: '#fff', borderBottom: '1px solid var(--border)', marginBottom: 22 }}>
+        <div style={{ minWidth: 200 }}>
+          <div style={{ fontWeight: 800, fontSize: 21 }}>{saud}, {nome}! {hora < 12 ? '☀️' : hora < 18 ? '🌤️' : '🌙'}</div>
+          <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Que seu dia seja abençoado e produtivo!</div>
         </div>
-        <div style={{ fontSize:12, color:'var(--muted)', background:'var(--card)', padding:'7px 14px', borderRadius:8, boxShadow:'var(--sh1)' }}>
-          {new Date().toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long'})}
+        <div style={{ flex: 1, minWidth: 260, display: 'flex', alignItems: 'center', gap: 10,
+          padding: '10px 16px', borderRadius: 13, background: 'var(--tq4)', border: '1px solid var(--tq3)' }}>
+          <span style={{ fontSize: 17, color: 'var(--tq)', fontWeight: 900, lineHeight: 1 }}>“</span>
+          <div style={{ fontSize: 12.5, color: 'var(--txt2)' }}>
+            {verso} <b style={{ color: 'var(--tq2)' }}>{ref}</b>
+          </div>
+        </div>
+        {metas && (
+          <div style={{ minWidth: 190 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, fontWeight: 700, marginBottom: 4 }}>
+              <span style={{ color: 'var(--muted)' }}>Meta do mês — Vacinas</span>
+              <span style={{ color: 'var(--tq2)', fontSize: 14 }}>{Math.round(metas.vacinas.pct)}%</span>
+            </div>
+            <div style={{ height: 7, borderRadius: 6, background: 'var(--tq4)', overflow: 'hidden' }}>
+              <div style={{ width: `${Math.min(metas.vacinas.pct, 100)}%`, height: '100%', background: 'linear-gradient(90deg,var(--tq),var(--pet))', borderRadius: 6 }} />
+            </div>
+            <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 3 }}>{fmt.brl(metas.vacinas.vendido)} / {fmt.brl(metas.vacinas.meta)}</div>
+          </div>
+        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {user?.avatar
+            ? <img src={user.avatar} alt="" style={{ width: 40, height: 40, borderRadius: '50%', objectFit: 'cover', border: '2px solid var(--tq)' }} />
+            : <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'linear-gradient(135deg,var(--tq),var(--pet))', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 800, fontSize: 14 }}>{fmt.initials(user?.nome)}</div>}
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 13.5 }}>{nome}</div>
+            <div style={{ fontSize: 11, color: 'var(--muted)' }}>{papel}</div>
+          </div>
         </div>
       </div>
 
-      {/* Metas do mês (espec da gestão: meta, %, falta, projeção, consultas/dia) */}
-      {data?.metas && (
-        <div style={{ display:'grid', gridTemplateColumns:'2fr 1fr', gap:14, marginBottom:18 }}>
-          <div className="card" style={{ padding:'16px 20px' }}>
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:10 }}>
-              <div style={{ fontWeight:800, fontSize:14 }}>💉 Meta de Vacinas — {new Date().toLocaleDateString('pt-BR',{month:'long'})}</div>
-              <div style={{ fontSize:12.5, fontWeight:700, color:'var(--tq2)' }}>{data.metas.vacinas.pct}%</div>
-            </div>
-            <div style={{ height:14, borderRadius:8, background:'var(--tq4)', overflow:'hidden', position:'relative' }}>
-              <div style={{ width:`${Math.min(data.metas.vacinas.pct,100)}%`, height:'100%', borderRadius:8,
-                background:'linear-gradient(90deg, var(--tq), var(--pet))', transition:'width .8s' }} />
-              {[25,50,75].map(m=>(
-                <div key={m} style={{ position:'absolute', left:`${m}%`, top:0, bottom:0, width:1.5, background:'rgba(255,255,255,.7)' }} />
-              ))}
-            </div>
-            <div style={{ display:'flex', justifyContent:'space-between', marginTop:9, fontSize:12, color:'var(--muted)', flexWrap:'wrap', gap:6 }}>
-              <span>Vendido: <b style={{ color:'var(--ok)' }}>{fmt.brl(data.metas.vacinas.vendido)}</b> de {fmt.brl(data.metas.vacinas.meta)}</span>
-              <span>Falta: <b>{fmt.brl(data.metas.vacinas.falta)}</b></span>
-              <span>Projeção do mês: <b style={{ color: data.metas.vacinas.projecao >= data.metas.vacinas.meta ? 'var(--ok)' : 'var(--warn)' }}>{fmt.brl(data.metas.vacinas.projecao)}</b></span>
-            </div>
-          </div>
-          <div className="card" style={{ padding:'16px 20px', display:'flex', flexDirection:'column', justifyContent:'center' }}>
-            <div style={{ fontWeight:800, fontSize:14, marginBottom:8 }}>🩺 Consultas hoje</div>
-            <div style={{ display:'flex', alignItems:'baseline', gap:6 }}>
-              <span style={{ fontSize:34, fontWeight:800, color: data.metas.consultas.confirmadasHoje >= data.metas.consultas.metaDia ? 'var(--ok)' : 'var(--txt)' }}>{data.metas.consultas.confirmadasHoje}</span>
-              <span style={{ fontSize:15, color:'var(--muted)', fontWeight:700 }}>/ {data.metas.consultas.metaDia} confirmadas</span>
-            </div>
-            <div style={{ height:8, borderRadius:6, background:'var(--tq4)', overflow:'hidden', marginTop:8 }}>
-              <div style={{ width:`${Math.min((data.metas.consultas.confirmadasHoje/data.metas.consultas.metaDia)*100,100)}%`, height:'100%', background:'var(--tq)', borderRadius:6 }} />
-            </div>
-          </div>
-        </div>
-      )}
+      <div style={{ padding: '0 28px' }}>
 
-      {/* Painel de Impacto (conecta a equipe ao propósito) */}
-      {data?.impacto && isMaster && (
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))', gap:12, marginBottom:18 }}>
-          {[['👨‍👩‍👧','Famílias atendidas',data.impacto.familias],
-            ['💉','Crianças vacinadas',data.impacto.criancasVacinadas],
-            ['🩺','Consultas realizadas',data.impacto.consultasRealizadas],
-            ['🧩','Terapias iniciadas',data.impacto.terapiasIniciadas]].map(([ic,l,v])=>(
-            <div key={l} className="card" style={{ padding:'13px 16px', display:'flex', alignItems:'center', gap:11 }}>
-              <span style={{ fontSize:24 }}>{ic}</span>
-              <div>
-                <div style={{ fontSize:20, fontWeight:800 }}>{v}</div>
-                <div style={{ fontSize:11, color:'var(--muted)', fontWeight:600 }}>{l}</div>
+        {/* ── KPIs ── */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(190px,1fr))', gap: 13, marginBottom: 20 }}>
+          {kpis.map(({ Icon, label, valor, sub, go }) => (
+            <button key={label} onClick={() => nav(go)} className="card" style={{ display: 'flex', alignItems: 'center', gap: 13, padding: '15px 17px', cursor: 'pointer', border: '1px solid var(--border)', textAlign: 'left', background: '#fff' }}>
+              <div style={{ width: 42, height: 42, borderRadius: 13, background: 'var(--tq4)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Icon size={19} color="var(--tq2)" />
               </div>
-            </div>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt2)' }}>{label}</div>
+                <div style={{ fontSize: 22, fontWeight: 800, lineHeight: 1.1 }}>{valor}</div>
+                <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>{sub}</div>
+              </div>
+            </button>
           ))}
         </div>
-      )}
 
-      {/* Alerts */}
-      {(resumo.retornosHoje>0 || resumo.retornosVencidos>0) && (
-        <div style={{ display:'flex', gap:10, marginBottom:18, flexWrap:'wrap' }}>
-          {resumo.retornosVencidos>0 && (
-            <div onClick={()=>nav('/retornos')} style={{ display:'flex', alignItems:'center', gap:9, padding:'10px 16px', borderRadius:10, background:'#fff7ed', border:'1.5px solid #fed7aa', cursor:'pointer' }}>
-              <AlertTriangle size={15} color="#f97316" />
-              <span style={{ fontSize:13, fontWeight:600, color:'#c2410c' }}>{resumo.retornosVencidos} retorno{resumo.retornosVencidos>1?'s':''} vencido{resumo.retornosVencidos>1?'s':''}</span>
-              <ArrowRight size={13} color="#f97316" />
+        {/* ── Linha principal: Meta grande · Funil · Agenda-Hoje ── */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px,1.1fr) minmax(260px,1fr) minmax(300px,1.3fr)', gap: 16, marginBottom: 16 }}>
+
+          {/* Meta de Vacinas — card turquesa */}
+          {metas && (
+            <div style={{ borderRadius: 18, padding: '20px 22px', color: '#fff', position: 'relative', overflow: 'hidden',
+              background: 'linear-gradient(135deg, #00B8C0 0%, #0E8C96 100%)', boxShadow: '0 8px 28px rgba(0,184,192,.3)' }}>
+              <div style={{ position: 'absolute', right: -30, top: -30, width: 140, height: 140, borderRadius: '50%', background: 'rgba(255,255,255,.08)' }} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 800, fontSize: 14, marginBottom: 12 }}>
+                <span style={{ fontSize: 18 }}>🏆</span> Meta de Vacinas — Mês
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                <div>
+                  <div style={{ fontSize: 34, fontWeight: 800, lineHeight: 1 }}>{fmt.brl(metas.vacinas.vendido)}</div>
+                  <div style={{ fontSize: 13, opacity: .85, marginTop: 3 }}>de {fmt.brl(metas.vacinas.meta)}</div>
+                </div>
+                <div style={{ width: 74, height: 74, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  background: `conic-gradient(#fff ${Math.min(metas.vacinas.pct, 100) * 3.6}deg, rgba(255,255,255,.22) 0deg)` }}>
+                  <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'rgba(14,140,150,.92)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 16 }}>
+                    {Math.round(metas.vacinas.pct)}%
+                  </div>
+                </div>
+              </div>
+              <div style={{ height: 9, borderRadius: 6, background: 'rgba(255,255,255,.25)', overflow: 'hidden', margin: '14px 0 10px' }}>
+                <div style={{ width: `${Math.min(metas.vacinas.pct, 100)}%`, height: '100%', background: '#fff', borderRadius: 6 }} />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, fontWeight: 600, opacity: .92, flexWrap: 'wrap', gap: 6 }}>
+                <span>Faltam {fmt.brl(metas.vacinas.falta)} para a meta!</span>
+                {proxMarco && <span>🚩 Próximo marco: {proxMarco}%</span>}
+              </div>
+              <div style={{ fontSize: 11, marginTop: 6, opacity: .8 }}>Projeção do mês: <b>{fmt.brl(metas.vacinas.projecao)}</b></div>
             </div>
           )}
-          {resumo.retornosHoje>0 && (
-            <div onClick={()=>nav('/retornos')} style={{ display:'flex', alignItems:'center', gap:9, padding:'10px 16px', borderRadius:10, background:'var(--warn2)', border:'1.5px solid #fcd34d', cursor:'pointer' }}>
-              <Calendar size={15} color="var(--warn)" />
-              <span style={{ fontSize:13, fontWeight:600, color:'#92400e' }}>{resumo.retornosHoje} retorno{resumo.retornosHoje>1?'s':''} para hoje</span>
-              <ArrowRight size={13} color="var(--warn)" />
+
+          {/* Funil de Vacinas — barras */}
+          <div className="card" style={{ padding: '17px 19px', background: '#fff' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 800, fontSize: 14, marginBottom: 13 }}>
+              <span style={{ fontSize: 16 }}>💉</span> Funil de Vacinas
             </div>
-          )}
-        </div>
-      )}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+              {ETAPAS_VACINAS.map((etapa, i) => {
+                const n = stCount(etapa);
+                return (
+                  <div key={etapa} style={{ display: 'grid', gridTemplateColumns: '128px 1fr 26px', alignItems: 'center', gap: 8 }}>
+                    <div style={{ fontSize: 11, color: 'var(--txt2)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{etapa}</div>
+                    <div style={{ height: 9, borderRadius: 6, background: 'var(--bg2)', overflow: 'hidden' }}>
+                      <div style={{ width: `${(n / maxFunil) * 100}%`, height: '100%', borderRadius: 6, background: CORES_FUNIL[i], transition: 'width .6s' }} />
+                    </div>
+                    <div style={{ fontSize: 11.5, fontWeight: 800, color: 'var(--txt2)', textAlign: 'right' }}>{n}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
 
-      {/* KPIs */}
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(165px,1fr))', gap:12, marginBottom:22 }}>
-        <KPI icon={Users}        label="Total Leads"    value={resumo.totalLeads}           color="var(--pet)" />
-        <KPI icon={TrendingUp}   label="Hoje"           value={resumo.leadsHoje}             color="var(--tq)" />
-        <KPI icon={CheckCircle}  label="Fechados"       value={resumo.fechados}              color="var(--ok)" />
-        <KPI icon={Target}       label="Conversão"      value={`${resumo.taxaConversao}%`}   color="var(--pet)" />
-        {isMaster && <KPI icon={DollarSign}  label="Faturado"     value={fmt.brl(resumo.totalVendido)} color="var(--gold)" large />}
-        {isMaster && <KPI icon={TrendingUp}  label="Pipeline em aberto" value={fmt.brl(resumo.pipeline)} color="var(--pet)" />}
-        {isMaster && resumo.ticket && <KPI icon={ArrowRight} label="Ticket Médio" value={fmt.brl(resumo.ticket)} color="var(--gold)" />}
-        <KPI icon={MessageSquare} label="Msgs. Novas"   value={resumo.totalUnread}           color={resumo.totalUnread>0?'var(--wa)':'var(--muted)'} onClick={()=>nav('/inbox')} />
-        <KPI icon={Calendar}     label="Retornos Hoje"  value={resumo.retornosHoje}          color={resumo.retornosHoje>0?'var(--warn)':'var(--muted)'} />
-      </div>
-
-      {/* Funil visual — etapas com as cores reais do Kanban */}
-      {funilTotal > 0 && (
-        <div className="card" style={{ padding:'18px 20px', marginBottom:16 }}>
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
-            <h2 style={{ fontSize:14.5, fontWeight:800 }}>Funil agora</h2>
-            <button onClick={()=>nav('/funil')} style={{ display:'flex', alignItems:'center', gap:4, padding:'4px 11px', borderRadius:8, background:'var(--tq3)', color:'var(--tq2)', fontSize:11.5, fontWeight:700, border:'none', cursor:'pointer' }}>
-              Abrir Kanban <ArrowRight size={11}/>
+          {/* Agenda — Hoje (retornos/follow-ups do dia) */}
+          <div className="card" style={{ padding: 0, overflow: 'hidden', background: '#fff', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ padding: '13px 17px', background: 'linear-gradient(90deg,var(--tq),#0aa6ae)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ fontWeight: 800, fontSize: 14, display: 'flex', alignItems: 'center', gap: 8 }}>📅 Agenda — Hoje</div>
+              <button onClick={() => nav('/retornos')} style={{ padding: '5px 12px', borderRadius: 9, background: 'rgba(255,255,255,.92)', color: 'var(--tq2)', fontSize: 11, fontWeight: 800, border: 'none', cursor: 'pointer' }}>
+                Ver completa
+              </button>
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto', maxHeight: 280 }}>
+              {fupsHoje.length === 0 && (
+                <div style={{ padding: '30px 17px', textAlign: 'center', fontSize: 12.5, color: 'var(--muted)' }}>
+                  Nenhum retorno marcado pra hoje 🎉<br />
+                  <span style={{ fontSize: 11 }}>Os agendamentos do dia aparecem aqui.</span>
+                </div>
+              )}
+              {fupsHoje.map((f, i) => (
+                <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '11px 17px', borderBottom: i < fupsHoje.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                  <div style={{ width: 36, height: 36, borderRadius: '50%', flexShrink: 0, background: ['#e0f4f5', '#ede4f7', '#fdeede', '#fde4ee'][i % 4], display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15 }}>
+                    {f.setor === 'consultas' ? '🩺' : f.setor === 'terapias' ? '🧩' : '💉'}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.nome}</div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)' }}>{f.servico || f.status}{f.resp_nome ? ` · ${f.resp_nome.split(' ')[0]}` : ''}</div>
+                  </div>
+                  {f.conv_id && (
+                    <button onClick={() => nav('/inbox')} title="Abrir conversa"
+                      style={{ width: 28, height: 28, borderRadius: 8, border: '1px solid var(--tq3)', background: 'var(--tq4)', color: 'var(--tq2)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <MessageSquare size={13} />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+            <button onClick={() => nav('/retornos')} style={{ margin: 13, padding: '9px 0', borderRadius: 11, border: '1.5px dashed var(--tq)', background: 'var(--tq4)', color: 'var(--tq2)', fontWeight: 800, fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+              <Plus size={13} /> Novo agendamento
             </button>
           </div>
-          <div style={{ display:'flex', flexDirection:'column', gap:9 }}>
-            {(colunas.length ? colunas.map(c=>({ name:c.nome, cor:c.cor, value: statusData.find(x=>x.name===c.nome)?.value || 0 })) : statusData.map(x=>({ ...x, cor:'var(--tq)' })))
-              .map(et => (
-              <div key={et.name} style={{ display:'flex', alignItems:'center', gap:10 }}>
-                <div style={{ width:138, fontSize:12, fontWeight:700, color:'var(--txt2)', textAlign:'right', flexShrink:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{et.name}</div>
-                <div style={{ flex:1, height:20, background:'var(--bg2)', borderRadius:7, overflow:'hidden' }}>
-                  <div style={{ width:`${funilTotal>0?Math.max(et.value/funilTotal*100, et.value>0?4:0):0}%`, height:'100%', background:et.cor, borderRadius:7, transition:'width .4s ease' }}/>
+        </div>
+
+        {/* ── Segunda linha: Equipe hoje · Atividades · Mensagem ── */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px,1.1fr) minmax(260px,1fr) minmax(300px,1.3fr)', gap: 16, marginBottom: 16 }}>
+
+          {/* Desempenho da Equipe — Hoje */}
+          <div className="card" style={{ padding: '17px 19px', background: '#fff' }}>
+            <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 13, display: 'flex', alignItems: 'center', gap: 8 }}>👏 Desempenho da Equipe — Hoje</div>
+            {(porResponsavel || []).slice(0, 5).map((u2, i) => {
+              const metaDia = 10;
+              const at = parseInt(u2.atend_hoje) || 0;
+              const pct = Math.min((at / metaDia) * 100, 100);
+              return (
+                <div key={u2.id || i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: i < 4 ? '1px solid var(--border)' : 'none' }}>
+                  {u2.avatar
+                    ? <img src={u2.avatar} alt="" style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover' }} />
+                    : <div style={{ width: 32, height: 32, borderRadius: '50%', background: u2.cor || 'var(--tq)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800 }}>{fmt.initials(u2.nome)}</div>}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+                      <span style={{ fontWeight: 700, fontSize: 12.5 }}>{(u2.nome || '').split(' ')[0]}</span>
+                      <span style={{ fontSize: 11, color: 'var(--muted)' }}>{at} hoje</span>
+                    </div>
+                    <div style={{ height: 6, borderRadius: 5, background: 'var(--bg2)', overflow: 'hidden' }}>
+                      <div style={{ width: `${pct}%`, height: '100%', borderRadius: 5, background: pct >= 100 ? 'var(--ok)' : 'var(--tq)' }} />
+                    </div>
+                  </div>
+                  <span style={{ fontSize: 12.5, fontWeight: 800, color: pct >= 100 ? 'var(--ok)' : 'var(--tq2)', minWidth: 38, textAlign: 'right' }}>{Math.round(pct)}%</span>
                 </div>
-                <div style={{ width:34, fontSize:12.5, fontWeight:800, color:et.value>0?'var(--txt)':'var(--light)', flexShrink:0 }}>{et.value}</div>
+              );
+            })}
+            {(porResponsavel || []).length === 0 && <div style={{ fontSize: 12, color: 'var(--muted)' }}>Visível para a gestão.</div>}
+          </div>
+
+          {/* Atividades de Follow-up */}
+          <div className="card" style={{ padding: '17px 19px', background: '#fff', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 13, display: 'flex', alignItems: 'center', gap: 8 }}>🔔 Atividades de Follow-up</div>
+            <div style={{ flex: 1 }}>
+              {followups.slice(0, 4).map((f, i) => {
+                const vencido = f.data_retorno < hoje.toISOString().slice(0, 10);
+                return (
+                  <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: i < Math.min(followups.length, 4) - 1 ? '1px solid var(--border)' : 'none' }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, fontSize: 12.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.nome}</div>
+                      <div style={{ fontSize: 11, color: 'var(--muted)' }}>{f.status}{vencido ? ` · desde ${fmt.date(f.data_retorno)}` : ' · para hoje'}</div>
+                    </div>
+                    <span style={{ padding: '3px 10px', borderRadius: 8, fontSize: 10, fontWeight: 800,
+                      background: vencido ? 'var(--err2)' : '#fff7e0', color: vencido ? 'var(--err)' : '#a07514' }}>
+                      {vencido ? 'Urgente' : 'Hoje'}
+                    </span>
+                  </div>
+                );
+              })}
+              {followups.length === 0 && <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 0' }}>Tudo em dia por aqui! 🎉</div>}
+            </div>
+            <button onClick={() => nav('/retornos')} style={{ marginTop: 10, alignSelf: 'flex-end', display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', color: 'var(--tq2)', fontWeight: 800, fontSize: 12, cursor: 'pointer' }}>
+              Ver todos <ChevronRight size={13} />
+            </button>
+          </div>
+
+          {/* Mensagem da Tarde / Ações rápidas empilhadas */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div className="card" style={{ padding: '16px 19px', background: 'linear-gradient(120deg,#eef9fa,#fff 65%,#f0fbfc)', border: '1.5px solid var(--tq3)', display: 'flex', gap: 13, alignItems: 'center' }}>
+              <div style={{ fontSize: 36, flexShrink: 0 }}>{hora < 12 ? '🌅' : '💙'}</div>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 13.5, marginBottom: 3 }}>{hora < 12 ? 'Mensagem da Manhã' : 'Mensagem da Tarde'}</div>
+                <div style={{ fontSize: 12.5, color: 'var(--txt2)', lineHeight: 1.5 }}>{motivacional}</div>
               </div>
-            ))}
+            </div>
+            <div className="card" style={{ padding: '15px 19px', background: '#fff' }}>
+              <div style={{ fontWeight: 800, fontSize: 13.5, marginBottom: 11 }}>⚡ Ações rápidas</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 8 }}>
+                {acoes.map(({ Icon, label, go, href }) => (
+                  <button key={label} onClick={() => href ? window.open(href, '_blank') : nav(go)}
+                    style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: '11px 4px', borderRadius: 12, border: '1px solid var(--tq3)', background: 'var(--tq4)', cursor: 'pointer', transition: 'transform .12s' }}
+                    onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'}
+                    onMouseLeave={e => e.currentTarget.style.transform = 'none'}>
+                    <Icon size={17} color="var(--tq2)" />
+                    <span style={{ fontSize: 9.5, fontWeight: 700, color: 'var(--txt2)', textAlign: 'center', lineHeight: 1.25 }}>{label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
-      )}
 
-      {/* Charts row 1 */}
-      <div style={{ display:'grid', gridTemplateColumns:'2fr 1fr', gap:16, marginBottom:16 }}>
-        <Card title="Leads × Fechados — Últimos 7 dias">
-          <ResponsiveContainer width="100%" height={185}>
-            <AreaChart data={diaData}>
-              <defs>
-                <linearGradient id="gl" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="var(--tq)" stopOpacity={0.18} />
-                  <stop offset="95%" stopColor="var(--tq)" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-              <XAxis dataKey="name" tick={{fontSize:11.5}} />
-              <YAxis tick={{fontSize:11}} />
-              <Tooltip contentStyle={{borderRadius:8,fontSize:12}} />
-              <Area type="monotone" dataKey="leads" stroke="var(--tq)" fill="url(#gl)" name="Leads" strokeWidth={2} />
-              <Line type="monotone" dataKey="fechados" stroke="var(--ok)" strokeWidth={2} name="Fechados" dot={{r:3}} />
-            </AreaChart>
-          </ResponsiveContainer>
-        </Card>
-
-        <Card title="Status atual">
-          <ResponsiveContainer width="100%" height={185}>
-            <PieChart>
-              <Pie data={statusData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={70} innerRadius={35}>
-                {statusData.map((_,i)=><Cell key={i} fill={COLORS[i%COLORS.length]} />)}
-              </Pie>
-              <Tooltip contentStyle={{borderRadius:8,fontSize:12}} />
-              <Legend iconType="circle" iconSize={8} wrapperStyle={{fontSize:11}} />
-            </PieChart>
-          </ResponsiveContainer>
-        </Card>
-      </div>
-
-      {/* Charts row 2 */}
-      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16, marginBottom:16 }}>
-        <Card title="Por canal de origem">
-          <ResponsiveContainer width="100%" height={180}>
-            <BarChart data={origemData}>
-              <XAxis dataKey="name" tick={{fontSize:11}} />
-              <YAxis tick={{fontSize:11}} />
-              <Tooltip contentStyle={{borderRadius:8,fontSize:12}} />
-              <Bar dataKey="total" fill="var(--pet)" radius={[4,4,0,0]} name="Total" />
-              <Bar dataKey="fechados" fill="var(--tq)" radius={[4,4,0,0]} name="Fechados" />
-            </BarChart>
-          </ResponsiveContainer>
-        </Card>
-
-        {isMaster && respData.length>0 ? (
-          <Card title="🏆 Ranking de atendentes">
-            {respData.slice(0,4).map((rv,i) => (
-              <div key={rv.nome} style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 0', borderBottom:i<3?'1px solid var(--border)':'none' }}>
-                <div style={{ fontFamily:'Syne', fontWeight:800, fontSize:18, color:i===0?'var(--gold)':i===1?'var(--muted)':'var(--light)', minWidth:24 }}>{i+1}°</div>
-                {rv.avatar
-                  ? <img src={rv.avatar} alt="" style={{ width:28, height:28, borderRadius:'50%', objectFit:'cover' }} />
-                  : <div style={{ width:28, height:28, borderRadius:'50%', background:rv.cor||'var(--tq)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:800, color:'#fff' }}>{fmt.initials(rv.nome)}</div>}
-                <div style={{ flex:1 }}>
-                  <div style={{ fontWeight:700, fontSize:13 }}>{rv.nome}</div>
-                  <div style={{ fontSize:11.5, color:'var(--muted)' }}>{rv.leads} leads · {rv.taxa}% conv.</div>
+        {/* ── Painel de Impacto ── */}
+        {impacto && (
+          <div className="card" style={{ padding: '17px 22px', background: '#fff' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 13 }}>
+              <div style={{ fontWeight: 800, fontSize: 14 }}>💙 Painel de Impacto — Este Mês</div>
+              {isMaster && (
+                <button onClick={() => nav('/relatorios')} style={{ padding: '6px 14px', borderRadius: 9, background: 'var(--tq4)', border: '1px solid var(--tq3)', color: 'var(--tq2)', fontSize: 11.5, fontWeight: 800, cursor: 'pointer' }}>
+                  Ver relatório completo
+                </button>
+              )}
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 12 }}>
+              {[['👨‍👩‍👧', impacto.familias, 'Famílias atendidas'],
+                ['💉', impacto.criancasVacinadas, 'Crianças vacinadas'],
+                ['🩺', impacto.consultasRealizadas, 'Consultas realizadas'],
+                ['🧩', impacto.terapiasIniciadas, 'Terapias iniciadas'],
+                ['❤️', `${resumo.taxaConversao || 0}%`, 'Taxa de conversão']].map(([ic, v, l]) => (
+                <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 26 }}>{ic}</span>
+                  <div>
+                    <div style={{ fontSize: 21, fontWeight: 800, lineHeight: 1.1 }}>{v}</div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>{l}</div>
+                  </div>
                 </div>
-                <div style={{ fontWeight:800, color:'var(--ok)', fontSize:13 }}>{fmt.brl(rv.valor)}</div>
-              </div>
-            ))}
-          </Card>
-        ) : (
-          <Card title="Conversão por canal">
-            {origemData.map(o=>(
-              <div key={o.name} style={{ marginBottom:12 }}>
-                <div style={{ display:'flex', justifyContent:'space-between', fontSize:13, marginBottom:4 }}>
-                  <span style={{ fontWeight:600 }}>{o.name}</span>
-                  <span style={{ color:'var(--muted)' }}>{o.fechados}/{o.total} · <strong style={{ color:o.taxa>=50?'var(--ok)':o.taxa>=25?'var(--warn)':'var(--err)' }}>{o.taxa}%</strong></span>
-                </div>
-                <div style={{ height:6, background:'var(--bg2)', borderRadius:4, overflow:'hidden' }}>
-                  <div style={{ height:'100%', width:`${o.taxa}%`, background:o.taxa>=50?'var(--ok)':o.taxa>=25?'var(--warn)':'var(--err)', borderRadius:4, transition:'width .6s' }} />
-                </div>
-              </div>
-            ))}
-          </Card>
+              ))}
+            </div>
+          </div>
         )}
       </div>
-    </div>
-  );
-}
-
-function KPI({ icon:Icon, label, value, color, large, onClick }) {
-  return (
-    <div className="card" onClick={onClick} style={{ padding:'15px 17px', display:'flex', alignItems:'center', gap:11, cursor:onClick?'pointer':'default', transition:'transform .15s' }}
-      onMouseEnter={e=>{if(onClick)e.currentTarget.style.transform='translateY(-2px)'}}
-      onMouseLeave={e=>{if(onClick)e.currentTarget.style.transform=''}}>
-      <div style={{ background:`${color}18`, borderRadius:10, padding:9, flexShrink:0 }}><Icon size={17} color={color} /></div>
-      <div style={{ minWidth:0 }}>
-        <div style={{ fontSize:large?17:21, fontWeight:800, lineHeight:1.1, fontFamily:'Syne', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{value}</div>
-        <div style={{ color:'var(--muted)', fontSize:11.5, marginTop:1 }}>{label}</div>
-      </div>
-    </div>
-  );
-}
-
-function Card({ title, children }) {
-  return (
-    <div className="card" style={{ padding:'18px 20px' }}>
-      <h3 style={{ fontSize:11.5, fontWeight:700, color:'var(--muted)', marginBottom:14, textTransform:'uppercase', letterSpacing:.5 }}>{title}</h3>
-      {children}
     </div>
   );
 }

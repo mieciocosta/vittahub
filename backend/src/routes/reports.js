@@ -14,14 +14,14 @@ r.get('/dashboard', async (req, res) => {
     // Período dos gráficos: ?days=7|30|90 (validado — nunca interpola entrada crua)
     const days = [7, 30, 90].includes(parseInt(req.query.days)) ? parseInt(req.query.days) : 7;
 
-    const [totals, porStatus, porOrigem, porResp, porDia, unread, retornos, perdas, metaVac, consHoje, cfgMetas, impacto] = await Promise.all([
+    const [totals, porStatus, porOrigem, porResp, porDia, unread, retornos, perdas, followups, metaVac, consHoje, cfgMetas, impacto] = await Promise.all([
       query(`SELECT
         COUNT(*) total,
         COUNT(*) FILTER (WHERE data_entrada = CURRENT_DATE) hoje,
         COUNT(*) FILTER (WHERE status IN ('Fechado','Venda Fechada')) fechados,
         COUNT(*) FILTER (WHERE status = 'Perdido') perdidos,
         COUNT(*) FILTER (WHERE status = 'Em atendimento') em_atendimento,
-        ${isMaster ? 'SUM(CASE WHEN status=\'Fechado\' THEN valor_proposta ELSE 0 END) total_vendido,' : ''}
+        ${isMaster ? 'SUM(CASE WHEN status IN (\'Fechado\',\'Venda Fechada\') THEN valor_proposta ELSE 0 END) total_vendido,' : ''}
         ${isMaster ? 'AVG(CASE WHEN status=\'Fechado\' THEN valor_proposta END) ticket_medio,' : ''}
         COUNT(*) FILTER (WHERE data_retorno = CURRENT_DATE) retornos_hoje,
         COUNT(*) FILTER (WHERE data_retorno < CURRENT_DATE AND status NOT IN ('Fechado','Venda Fechada','Perdido')) retornos_vencidos,
@@ -30,11 +30,21 @@ r.get('/dashboard', async (req, res) => {
         FROM leads l WHERE 1=1 ${uFilter}`),
       query(`SELECT status, COUNT(*) n FROM leads l WHERE 1=1 ${uFilter} GROUP BY status`),
       query(`SELECT origem, COUNT(*) total, COUNT(*) FILTER (WHERE status IN ('Fechado','Venda Fechada')) fechados FROM leads l WHERE 1=1 ${uFilter} GROUP BY origem ORDER BY total DESC`),
-      isMaster ? query(`SELECT u.id, u.nome, u.cor, u.avatar, COUNT(l.id) leads, COUNT(l.id) FILTER (WHERE l.status IN ('Fechado','Venda Fechada')) fechados, SUM(CASE WHEN l.status IN ('Fechado','Venda Fechada') THEN l.valor_proposta ELSE 0 END) valor FROM usuarios u LEFT JOIN leads l ON l.responsavel_id = u.id WHERE u.role IN ('atendente','supervisor') AND u.ativo = true GROUP BY u.id ORDER BY valor DESC`) : Promise.resolve({ rows: [] }),
+      isMaster ? query(`SELECT u.id, u.nome, u.cor, u.avatar, u.setor, COUNT(l.id) leads, COUNT(l.id) FILTER (WHERE l.status_changed_at::date = CURRENT_DATE) atend_hoje, COUNT(l.id) FILTER (WHERE l.status IN ('Fechado','Venda Fechada')) fechados, SUM(CASE WHEN l.status IN ('Fechado','Venda Fechada') THEN l.valor_proposta ELSE 0 END) valor FROM usuarios u LEFT JOIN leads l ON l.responsavel_id = u.id WHERE u.role IN ('atendente','supervisor') AND u.ativo = true GROUP BY u.id ORDER BY valor DESC`) : Promise.resolve({ rows: [] }),
       query(`SELECT data_entrada::text data, COUNT(*) leads, COUNT(*) FILTER (WHERE status IN ('Fechado','Venda Fechada')) fechados FROM leads l WHERE data_entrada >= CURRENT_DATE - INTERVAL '${days} days' ${uFilter} GROUP BY data_entrada ORDER BY data_entrada`),
       query('SELECT SUM(unread) unread FROM conversas'),
       query(`SELECT COUNT(*) n FROM leads WHERE data_retorno = CURRENT_DATE ${uFilter.replace('l.', '')}`),
       query(`SELECT motivo_perda, COUNT(*) n FROM leads WHERE status = 'Perdido' AND motivo_perda IS NOT NULL ${uFilter} GROUP BY motivo_perda ORDER BY n DESC`),
+      // Follow-ups: vencidos e de hoje (alimenta Agenda-Hoje e Atividades)
+      query(`SELECT l.id, l.nome, l.status, l.servico, l.data_retorno::text, l.setor,
+                    u.nome resp_nome, u.avatar resp_avatar, c.id conv_id
+             FROM leads l
+             LEFT JOIN usuarios u ON u.id = l.responsavel_id
+             LEFT JOIN conversas c ON c.lead_id = l.id
+             WHERE l.data_retorno <= CURRENT_DATE
+               AND l.status NOT IN ('Fechado','Venda Fechada','Perdido','Finalizado')
+               ${uFilter}
+             ORDER BY l.data_retorno ASC LIMIT 8`),
       // Metas: vendido no mês (vacinas) e consultas confirmadas hoje
       query(`SELECT COALESCE(SUM(valor_proposta),0) vendido FROM leads
              WHERE status IN ('Fechado','Venda Fechada') AND COALESCE(setor,'vacinas')='vacinas'
@@ -72,6 +82,7 @@ r.get('/dashboard', async (req, res) => {
       porResponsavel: isMaster ? porResp.rows : [],
       porDia: porDia.rows,
       motivosPerda: perdas.rows,
+      followups: followups.rows,
       metas: (() => {
         const metaMes = parseFloat(cfgMetas.rows[0]?.valor?.vacinas_mensal) || 200000;
         const metaDiaCons = parseInt(cfgMetas.rows[0]?.valor?.consultas_dia) || 10;

@@ -56,25 +56,25 @@ function BellPanel({ collapsed }) {
         <div style={{ position:'fixed', left:'calc(var(--sw) + 8px)', bottom:88, width:312, maxHeight:420, zIndex:400,
           background:'var(--card)', borderRadius:14, boxShadow:'var(--s4)', border:'1px solid var(--border)',
           display:'flex', flexDirection:'column', overflow:'hidden' }}>
-          <div style={{ padding:'12px 14px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-            <span style={{ fontWeight:800, fontSize:13.5, color:'var(--txt)' }}>Notificações</span>
+          <div style={{ padding:'12px 14px', borderBottom:'1px solid rgba(255,255,255,.16)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+            <span style={{ fontWeight:800, fontSize:13.5, color:'#ffffff' }}>Notificações</span>
             {naoLidas > 0 && (
-              <button onClick={lerTodas} style={{ display:'flex', alignItems:'center', gap:4, padding:'4px 9px', borderRadius:8, background:'var(--tq3)', color:'var(--tq2)', fontSize:11, fontWeight:700, border:'none', cursor:'pointer' }}>
+              <button onClick={lerTodas} style={{ display:'flex', alignItems:'center', gap:4, padding:'4px 9px', borderRadius:8, background:'rgba(255,255,255,.16)', color:'var(--tq2)', fontSize:11, fontWeight:700, border:'none', cursor:'pointer' }}>
                 <CheckCheck size={11} /> Ler todas
               </button>
             )}
           </div>
           <div style={{ flex:1, overflowY:'auto' }}>
-            {notifs.length === 0 && <div style={{ padding:'26px 14px', textAlign:'center', fontSize:12.5, color:'var(--muted)' }}>Nenhuma notificação ainda.</div>}
+            {notifs.length === 0 && <div style={{ padding:'26px 14px', textAlign:'center', fontSize:12.5, color:'rgba(255,255,255,.85)' }}>Nenhuma notificação ainda.</div>}
             {notifs.map(n => (
-              <div key={n.id} style={{ padding:'10px 14px', borderBottom:'1px solid var(--border)', display:'flex', gap:9, background: n.lida ? 'transparent' : 'var(--tq4)' }}>
+              <div key={n.id} style={{ padding:'10px 14px', borderBottom:'1px solid rgba(255,255,255,.16)', display:'flex', gap:9, background: n.lida ? 'transparent' : 'var(--tq4)' }}>
                 <div style={{ width:28, height:28, borderRadius:9, background: n.lida ? 'var(--bg2)' : 'var(--tq3)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, marginTop:1 }}>
                   <UserPlus size={13} color={n.lida ? 'var(--muted)' : 'var(--tq2)'} />
                 </div>
                 <div style={{ flex:1, minWidth:0 }}>
-                  <div style={{ fontWeight:700, fontSize:12.5, color:'var(--txt)' }}>{n.titulo}</div>
-                  <div style={{ fontSize:11.5, color:'var(--muted)', lineHeight:1.45 }}>{n.texto}</div>
-                  <div style={{ fontSize:10, color:'var(--light)', marginTop:2 }}>{fmt.relTime(n.created_at)}</div>
+                  <div style={{ fontWeight:700, fontSize:12.5, color:'#ffffff' }}>{n.titulo}</div>
+                  <div style={{ fontSize:11.5, color:'rgba(255,255,255,.85)', lineHeight:1.45 }}>{n.texto}</div>
+                  <div style={{ fontSize:10, color:'rgba(255,255,255,.62)', marginTop:2 }}>{fmt.relTime(n.created_at)}</div>
                 </div>
                 {!n.lida && <span style={{ width:7, height:7, borderRadius:'50%', background:'var(--tq)', flexShrink:0, marginTop:5 }} />}
               </div>
@@ -128,25 +128,25 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
     <aside style={{
       width: w,
       minHeight:'100vh', position:'fixed', left:0, top:0, bottom:0, zIndex:100,
-      background:'#ffffff',
+      background:'linear-gradient(178deg, #00B8C0 0%, #0AA0AA 55%, #0E8C96 100%)',
       display:'flex', flexDirection:'column',
-      borderRight:'1px solid var(--border)',
-      boxShadow:'2px 0 16px rgba(7,30,44,.05)',
+      borderRight:'none',
+      boxShadow:'4px 0 20px rgba(0,140,150,.18)',
       transition:'width .2s ease',
       overflow:'hidden',
     }}>
 
       {/* Logo / Brand — vertical branca oficial, clicável pro Dashboard */}
-      <div style={{ padding: collapsed ? '14px 0' : '18px 14px 14px', borderBottom:'1px solid var(--border)', flexShrink:0 }}>
+      <div style={{ padding: collapsed ? '14px 0' : '18px 14px 14px', borderBottom:'1px solid rgba(255,255,255,.16)', flexShrink:0 }}>
         <NavLink to="/" title="Ir para o Dashboard" className="brand-link" style={{ textDecoration:'none', display:'block' }}>
           {collapsed ? (
-            <img src="/logos/logo-icon-color.png" alt="Vittalis Saúde" style={{ height:28, objectFit:'contain', display:'block', margin:'0 auto' }} />
+            <img src="/logos/logo-icon-white.png" alt="Vittalis Saúde" style={{ height:28, objectFit:'contain', display:'block', margin:'0 auto' }} />
           ) : (
             <>
-              <img src="/logos/logo-v-color.png" alt="Vittalis Saúde" style={{ width:'72%', maxWidth:152, height:'auto', objectFit:'contain', display:'block', margin:'0 auto' }} />
+              <img src="/logos/logo-v-white.png" alt="Vittalis Saúde" style={{ width:'72%', maxWidth:152, height:'auto', objectFit:'contain', display:'block', margin:'0 auto' }} />
               <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:5, marginTop:9 }}>
                 <div style={{ width:5, height:5, borderRadius:'50%', background:'var(--tq)', boxShadow:'0 0 6px var(--tq)' }}/>
-                <span style={{ fontSize:10, fontWeight:700, letterSpacing:1.8, color:'var(--light)', textTransform:'uppercase' }}>VittaHub CRM</span>
+                <span style={{ fontSize:10, fontWeight:700, letterSpacing:1.8, color:'rgba(255,255,255,.62)', textTransform:'uppercase' }}>VittaHub CRM</span>
               </div>
             </>
           )}
@@ -155,16 +155,16 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
 
       {/* Nav */}
       <nav style={{ flex:1, padding: collapsed ? '14px 6px' : '14px 10px', display:'flex', flexDirection:'column', gap:3, overflowY:'auto', overflowX:'hidden' }}>
-        {!collapsed && <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:1.6, color:'var(--light)', padding:'0 12px 6px', textTransform:'uppercase' }}>Menu</div>}
+        {!collapsed && <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:1.6, color:'rgba(255,255,255,.62)', padding:'0 12px 6px', textTransform:'uppercase' }}>Menu</div>}
         {NAV.map(({ to, icon:Icon, label, unread:showU, retornos:retBadge }) => (
           <NavLink key={to} to={to} end={to==='/'} title={collapsed ? label : ''} style={({ isActive }) => ({
             display:'flex', alignItems:'center', gap: collapsed ? 0 : 10,
             padding: collapsed ? '10px 0' : '9px 12px',
             justifyContent: collapsed ? 'center' : 'flex-start',
             borderRadius:12, textDecoration:'none',
-            color: isActive ? '#fff' : 'var(--muted)',
-            background: isActive ? 'linear-gradient(135deg, var(--tq), #0aa6ae)' : 'transparent',
-            boxShadow: isActive ? '0 4px 14px rgba(0,184,192,.32)' : 'none',
+            color: isActive ? 'var(--tq2)' : 'rgba(255,255,255,.85)',
+            background: isActive ? '#ffffff' : 'transparent',
+            boxShadow: isActive ? '0 4px 16px rgba(3,43,48,.22)' : 'none',
             fontWeight: isActive ? 700 : 500, fontSize:13.5,
             transition: 'all .15s',
             position:'relative',
@@ -172,7 +172,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
             <Icon size={16} strokeWidth={1.8} />
             {!collapsed && <span style={{ flex:1 }}>{label}</span>}
             {!collapsed && showU && unread > 0 && (
-              <span style={{ background:'var(--tq)', color:'#fff', borderRadius:10, padding:'1px 7px', fontSize:10.5, fontWeight:800, minWidth:20, textAlign:'center', boxShadow:'0 2px 6px rgba(0,184,192,.4)' }}>
+              <span style={{ background:'#fff', color:'var(--tq2)', borderRadius:10, padding:'1px 7px', fontSize:10.5, fontWeight:800, minWidth:20, textAlign:'center', boxShadow:'0 2px 6px rgba(3,43,48,.18)' }}>
                 {unread > 99 ? '99+' : unread}
               </span>
             )}
@@ -191,7 +191,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
           </NavLink>
         ))}
 
-        <div style={{ height:1, background:'var(--border)', margin:'8px 12px' }}/>
+        <div style={{ height:1, background:'rgba(255,255,255,.14)', margin:'8px 12px' }}/>
 
         <BellPanel collapsed={collapsed} />
 
@@ -219,7 +219,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
             justifyContent: collapsed ? 'center' : 'flex-start',
             borderRadius:10, textDecoration:'none',
             color: isActive ? '#fff' : 'var(--light)',
-            background: isActive ? 'var(--bg2)' : 'transparent',
+            background: isActive ? 'rgba(255,255,255,.18)' : 'transparent',
             fontWeight:400, fontSize:13,
             borderLeft: collapsed ? 'none' : '2px solid transparent',
           })}>
@@ -230,14 +230,14 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
       </nav>
 
       {/* User + toggle */}
-      <div style={{ padding: collapsed ? '10px 6px 14px' : '12px 10px 16px', borderTop:'1px solid var(--border)', flexShrink:0 }}>
+      <div style={{ padding: collapsed ? '10px 6px 14px' : '12px 10px 16px', borderTop:'1px solid rgba(255,255,255,.16)', flexShrink:0 }}>
         {/* Botão colapsar/expandir */}
         <button onClick={onToggleCollapse}
           title={collapsed ? 'Expandir menu' : 'Recolher menu'}
           style={{
             width:'100%', display:'flex', alignItems:'center', justifyContent:'center', gap:6,
-            padding:'8px', borderRadius:8, background:'var(--border)',
-            color:'var(--muted)', border:'none', cursor:'pointer',
+            padding:'8px', borderRadius:8, background:'rgba(255,255,255,.14)',
+            color:'rgba(255,255,255,.85)', border:'none', cursor:'pointer',
             marginBottom:8, transition:'all .15s', fontSize:11.5, fontWeight:600,
           }}
           onMouseEnter={e => { e.currentTarget.style.background='rgba(0,184,192,0.15)'; e.currentTarget.style.color='var(--tq)'; }}
@@ -252,12 +252,12 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
             <button onClick={()=>avatarFileRef.current?.click()} title="Trocar foto de perfil" style={{ background:'none', border:'none', cursor:'pointer', padding:0 }}>
               <UserAvatar size={32} />
             </button>
-            <button onClick={onToggleTheme} title={theme === 'dark' ? 'Modo claro' : 'Modo escuro'} style={{ padding:5, background:'none', color:'var(--light)', borderRadius:6, cursor:'pointer', border:'none' }}
+            <button onClick={onToggleTheme} title={theme === 'dark' ? 'Modo claro' : 'Modo escuro'} style={{ padding:5, background:'none', color:'rgba(255,255,255,.62)', borderRadius:6, cursor:'pointer', border:'none' }}
               onMouseEnter={e=>e.currentTarget.style.color='var(--txt2)'}
               onMouseLeave={e=>e.currentTarget.style.color='var(--muted)'}>
               {theme === 'dark' ? <Sun size={13} /> : <Moon size={13} />}
             </button>
-            <button onClick={logout} title="Sair" style={{ padding:5, background:'none', color:'var(--light)', borderRadius:6, cursor:'pointer', border:'none' }}
+            <button onClick={logout} title="Sair" style={{ padding:5, background:'none', color:'rgba(255,255,255,.62)', borderRadius:6, cursor:'pointer', border:'none' }}
               onMouseEnter={e=>e.currentTarget.style.color='var(--txt2)'}
               onMouseLeave={e=>e.currentTarget.style.color='var(--muted)'}>
               <LogOut size={13} />
@@ -270,14 +270,14 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
             </button>
             <div style={{ flex:1, minWidth:0 }}>
               <div style={{ color:'#fff', fontSize:13, fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{user?.nome?.split(' ')[0]}</div>
-              <div style={{ color:'var(--muted)', fontSize:10.5 }}>{user?.role === 'master' ? '◆ Master' : user?.role === 'supervisor' ? '◆ Supervisora' : 'Atendente'}</div>
+              <div style={{ color:'rgba(255,255,255,.85)', fontSize:10.5 }}>{user?.role === 'master' ? '◆ Master' : user?.role === 'supervisor' ? '◆ Supervisora' : 'Atendente'}</div>
             </div>
-            <button onClick={onToggleTheme} title={theme === 'dark' ? 'Modo claro' : 'Modo escuro'} style={{ padding:6, background:'none', color:'var(--light)', borderRadius:6, transition:'color .15s', cursor:'pointer', border:'none' }}
+            <button onClick={onToggleTheme} title={theme === 'dark' ? 'Modo claro' : 'Modo escuro'} style={{ padding:6, background:'none', color:'rgba(255,255,255,.62)', borderRadius:6, transition:'color .15s', cursor:'pointer', border:'none' }}
               onMouseEnter={e=>e.currentTarget.style.color='var(--txt2)'}
               onMouseLeave={e=>e.currentTarget.style.color='var(--muted)'}>
               {theme === 'dark' ? <Sun size={13} /> : <Moon size={13} />}
             </button>
-            <button onClick={logout} title="Sair" style={{ padding:6, background:'none', color:'var(--light)', borderRadius:6, transition:'color .15s', cursor:'pointer', border:'none' }}
+            <button onClick={logout} title="Sair" style={{ padding:6, background:'none', color:'rgba(255,255,255,.62)', borderRadius:6, transition:'color .15s', cursor:'pointer', border:'none' }}
               onMouseEnter={e=>e.currentTarget.style.color='var(--txt2)'}
               onMouseLeave={e=>e.currentTarget.style.color='var(--muted)'}>
               <LogOut size={13} />
@@ -285,6 +285,16 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
           </div>
         )}
       </div>
+      {!collapsed && (
+        <div style={{ margin:'0 12px 10px', padding:'13px 14px', borderRadius:14, background:'rgba(255,255,255,.14)', border:'1px solid rgba(255,255,255,.22)' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:4 }}>
+            <span style={{ fontSize:18 }}>🎁</span>
+            <span style={{ fontWeight:800, fontSize:12.5, color:'#fff' }}>Indique e ganhe</span>
+          </div>
+          <div style={{ fontSize:10.5, color:'rgba(255,255,255,.75)', lineHeight:1.4 }}>Convide amigos e seja recompensado!</div>
+          <div style={{ marginTop:8, padding:'5px 0', borderRadius:8, background:'rgba(255,255,255,.92)', color:'var(--tq2)', fontSize:11, fontWeight:800, textAlign:'center' }}>Em breve ✨</div>
+        </div>
+      )}
       <input ref={avatarFileRef} type="file" accept="image/*" style={{ display:'none' }} onChange={trocarAvatar} />
     </aside>
   );
