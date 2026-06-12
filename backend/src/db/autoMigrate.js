@@ -187,6 +187,12 @@ export default async function runMigrate() {
       console.log('🌱 Seed setores/papéis aplicado');
     }
 
+    // ── TRIAGEM DIÁRIA: menu de boas-vindas reaparece a cada novo dia ───────
+    await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS triagem_data DATE`).catch(() => {});
+    // Conversas movimentadas HOJE não recebem menu no meio do papo após o deploy
+    await query(`UPDATE conversas SET triagem_data = CURRENT_DATE
+                 WHERE triagem_data IS NULL AND last_message_at::date = CURRENT_DATE`).catch(() => {});
+
     // ── FICHA DO PACIENTE (dados do cliente no painel da conversa) ──────────
     await query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS nascimento DATE`).catch(() => {});
     await query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS endereco TEXT`).catch(() => {});

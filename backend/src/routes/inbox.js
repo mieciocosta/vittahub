@@ -575,8 +575,8 @@ async function distribuirSetor(convId, setor) {
 
 // Devolve true se a mensagem foi consumida pela triagem (Vitta não responde)
 async function triagemSetor(conv, texto, phoneNum) {
-  if (conv.setor) return false;                     // já triado
-  if (!conv.bot_ativo) return false;                // equipe assumiu
+  if (conv.setor && conv.menu_enviado) return false; // já triado neste ciclo
+  if (!conv.bot_ativo) return false;                 // equipe assumiu
   const escolha = detectarSetor(texto);
 
   if (!escolha) {
@@ -609,7 +609,7 @@ async function triagemSetor(conv, texto, phoneNum) {
   }
 
   // Escolheu: grava setor + rodízio
-  await query('UPDATE conversas SET setor = $1 WHERE id = $2', [escolha, conv.id]);
+  await query('UPDATE conversas SET setor = $1, menu_enviado = true WHERE id = $2', [escolha, conv.id]);
   const cached = convoCache.get(conv.id);
   if (cached) cacheUpdate({ ...cached, setor: escolha });
   const atendente = await distribuirSetor(conv.id, escolha);
@@ -1231,6 +1231,20 @@ r.post('/webhook/zapi', async (req, res) => {
     // DEBOUNCE: mensagens em sequência são agregadas e a Vitta responde UMA
     // única vez lendo o histórico completo — corrige as respostas triplicadas
     // que se contradiziam e re-perguntavam o que o cliente já tinha dito.
+    // ── TRIAGEM DIÁRIA: a cada dia diferente, o fluxo de boas-vindas recomeça ──
+    // (menu com botões + novo sorteio). Religa o bot só pra essa abertura.
+    const hojeSP = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+    const ultimaTriagem = conv.triagem_data ? String(conv.triagem_data).slice(0, 10) : null;
+    if (textoParaIA && ultimaTriagem !== hojeSP) {
+      await query(
+        `UPDATE conversas SET bot_ativo = true, menu_enviado = false, triagem_data = $2 WHERE id = $1`,
+        [conv.id, hojeSP]).catch(() => {});
+      conv.bot_ativo = true; conv.menu_enviado = false; conv.triagem_data = hojeSP;
+      const cachedT = convoCache.get(conv.id);
+      if (cachedT) cacheUpdate({ ...cachedT, bot_ativo: true });
+      socketEmit('bot_status', { convId: conv.id, bot_ativo: true });
+    }
+
     if (conv.bot_ativo && textoParaIA) {
       // Triagem de setor primeiro (menu inicial / rodízio); se consumiu, para aqui
       const convAtual = (await query('SELECT * FROM conversas WHERE id = $1', [conv.id])).rows[0] || conv;
