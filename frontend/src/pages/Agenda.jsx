@@ -39,7 +39,9 @@ export default function Agenda() {
     if (!/^\d{2}:\d{2}$/.test(m.hora || '')) return setErro('Hora no formato HH:MM.');
     setSalvando(true);
     try {
-      const body = { paciente: m.paciente.trim(), responsavel_nome: m.responsavel_nome || '', servico: m.servico || '', data: m.data || data, hora: m.hora, profissional: m.profissional || '', telefone: m.telefone || '', observacoes: m.observacoes || '', setor: m.setor || 'vacinas' };
+      if (m.local_link && !/^https?:\/\//i.test(m.local_link.trim())) { setErro('O link da localização precisa começar com http:// ou https://'); setSalvando(false); return; }
+      if (m.email && !/.+@.+\..+/.test(m.email.trim())) { setErro('E-mail inválido.'); setSalvando(false); return; }
+      const body = { paciente: m.paciente.trim(), responsavel_nome: m.responsavel_nome || '', servico: m.servico || '', data: m.data || data, hora: m.hora, profissional: m.profissional || '', telefone: m.telefone || '', observacoes: m.observacoes || '', setor: m.setor || 'vacinas', endereco: m.endereco || '', local_link: (m.local_link || '').trim(), email: (m.email || '').trim() };
       if (m.id) await api.put(`/extras/agenda/${m.id}`, body);
       else await api.post('/extras/agenda', body);
       setModal(null); load();
@@ -105,6 +107,16 @@ export default function Agenda() {
                 <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
                   {ev.servico || 'Atendimento'}{ev.responsavel_nome ? ` · Resp.: ${ev.responsavel_nome}` : ''}{ev.profissional ? ` · ${ev.profissional}` : ''}
                 </div>
+                {(ev.endereco || ev.email || ev.local_link) && (
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    {ev.endereco && <span title="Atendimento domiciliar">📍 {ev.endereco}</span>}
+                    {ev.email && <span>✉️ {ev.email}</span>}
+                    {ev.local_link && (
+                      <a href={ev.local_link} target="_blank" rel="noreferrer"
+                        style={{ color: 'var(--tq2)', fontWeight: 800, textDecoration: 'none' }}>🗺️ Abrir localização</a>
+                    )}
+                  </div>
+                )}
               </div>
               <div style={{ fontSize: 11.5, color: 'var(--muted)', minWidth: 70, textAlign: 'center' }}>{ev.resp_nome ? ev.resp_nome.split(' ')[0] : ''}</div>
               <span style={{ padding: '3px 10px', borderRadius: 8, fontSize: 10.5, fontWeight: 800, background: bg, color: cor, minWidth: 86, textAlign: 'center' }}>{ev.status}</span>
@@ -147,6 +159,12 @@ export default function Agenda() {
               </div>
               <div className="field"><label>Responsável (família)</label>
                 <input value={modal.responsavel_nome || ''} maxLength={80} onChange={e => setModal({ ...modal, responsavel_nome: e.target.value })} placeholder="Ex: Maria Silva" /></div>
+              <div className="field"><label>E-mail</label>
+                <input type="email" value={modal.email || ''} maxLength={120} onChange={e => setModal({ ...modal, email: e.target.value })} placeholder="email@exemplo.com" /></div>
+              <div className="field" style={{ gridColumn: '1 / -1' }}><label>Endereço (atendimento domiciliar)</label>
+                <input value={modal.endereco || ''} maxLength={160} onChange={e => setModal({ ...modal, endereco: e.target.value })} placeholder="Rua, nº, bairro — São Luís/MA" /></div>
+              <div className="field" style={{ gridColumn: '1 / -1' }}><label>Link da localização (Google Maps)</label>
+                <input value={modal.local_link || ''} maxLength={300} onChange={e => setModal({ ...modal, local_link: e.target.value })} placeholder="https://maps.app.goo.gl/…" /></div>
               <div className="field"><label>Telefone</label>
                 <input value={modal.telefone || ''} maxLength={15} onChange={e => setModal({ ...modal, telefone: e.target.value.replace(/[^\d() -]/g, '') })} placeholder="(98) 9...." /></div>
               <div className="field"><label>Data *</label>

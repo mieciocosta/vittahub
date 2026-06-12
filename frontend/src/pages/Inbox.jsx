@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import {
   Send, Paperclip, Mic, MicOff, Sparkles, Search, RefreshCw, X,
   UserPlus, Hash, Bot, FileText, Volume2, File, Tag,
-  Smile, PanelLeftClose, PanelLeftOpen, Play, ChevronUp, Loader2,
+  Smile, PanelLeftClose, PanelLeftOpen, Play, ChevronUp, Loader2, Zap, Plus,
   CheckCircle2, Clock, MessageCircle, Phone, Image,
   MailOpen, VolumeX } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
@@ -678,6 +678,16 @@ export default function Inbox({ onUnreadChange }) {
   }, [search, filter, unreadOnly]);
 
   useEffect(() => { api.get('/inbox/quick-replies').then(setQr).catch(() => {}); }, []);
+  const [qrNovo, setQrNovo] = useState(null);
+  const salvarQrNovo = async () => {
+    if (!qrNovo?.titulo.trim() || !qrNovo?.texto.trim()) return;
+    try {
+      const nova = await api.post('/inbox/quick-replies', { titulo: qrNovo.titulo.trim(), texto: qrNovo.texto.trim() });
+      setQr(p => [...p, nova]);
+      setQrNovo(null);
+      Toast.show('Mensagem automática cadastrada! ⚡', 'success');
+    } catch (e) { Toast.show(e.message, 'error'); }
+  };
 
   // ── Abre conversa ─────────────────────────────────────────────────────────
   // Trocar o responsável pela conversa (auto-assign acontece ao abrir; aqui troca manual)
@@ -982,15 +992,7 @@ export default function Inbox({ onUnreadChange }) {
               <button onClick={toggleBot} className="btn btn-sm" style={{ background:sel.bot_ativo?'var(--ok2)':'var(--bg2)', color:sel.bot_ativo?'var(--ok)':'var(--muted)', border:`1.5px solid ${sel.bot_ativo?'var(--ok)':'var(--border)'}`, fontSize:11, padding:'4px 9px' }}>
                 <Bot size={10}/>{sel.bot_ativo?'Bot ON':'Bot'}
               </button>
-              <button onClick={()=>setShowAgendar(true)} className="btn btn-sm" style={{ background:'var(--card,#fff)', color:'var(--tq2)', border:'1.5px solid var(--tq)', fontSize:11, padding:'4px 9px' }}>
-                📅 Agendar
-              </button>
-              <button onClick={()=>setShowProposta(true)} className="btn btn-sm" style={{ background:'linear-gradient(135deg,#032B30,#0E8C96)', color:'#fff', fontSize:11, padding:'4px 9px' }}>
-                <FileText size={10}/> Proposta
-              </button>
-              <button onClick={()=>setShowIndicar(true)} className="btn btn-s btn-sm" style={{ fontSize:11, padding:'4px 9px' }}>
-                🎁 Indicação
-              </button>
+
               <button onClick={toLead} className="btn btn-s btn-sm" style={{ fontSize:11, padding:'4px 9px' }}><UserPlus size={10}/> Lead</button>
               <button onClick={()=>{setShowAI(p=>!p);setShowInfo(false);}} className="btn btn-sm" style={{ background:showAI?'#032B30':'var(--bg2)', color:showAI?'#00B8C0':'var(--muted)', border:`1.5px solid ${showAI?'rgba(0,184,192,.4)':'var(--border)'}`, fontSize:11, padding:'4px 9px' }}>
                 <Sparkles size={10}/> IA
@@ -1121,8 +1123,25 @@ export default function Inbox({ onUnreadChange }) {
 
           {/* Quick replies */}
           {showQR && (
-            <div style={{ background:'var(--card,#fff)', borderTop:'1px solid var(--border)', padding:'8px 12px', display:'flex', gap:5, flexWrap:'wrap', maxHeight:95, overflowY:'auto', flexShrink:0 }}>
-              {qr.map(q=><button key={q.id} onClick={()=>{setInput(q.texto);setShowQR(false);textRef.current?.focus();}} style={{ padding:'4px 11px', borderRadius:8, background:'var(--tq3)', color:'var(--tq2)', border:'1px solid var(--tq3)', fontSize:12, fontWeight:600, cursor:'pointer' }}>{q.titulo}</button>)}
+            <div style={{ background:'var(--card,#fff)', borderTop:'1px solid var(--border)', padding:'8px 12px', flexShrink:0 }}>
+              <div style={{ display:'flex', gap:5, flexWrap:'wrap', maxHeight:78, overflowY:'auto' }}>
+                <button onClick={()=>setQrNovo(p => p ? null : { titulo:'', texto:'' })}
+                  style={{ padding:'4px 11px', borderRadius:8, background: qrNovo ? 'var(--tq)' : 'var(--card,#fff)', color: qrNovo ? '#fff' : 'var(--tq2)', border:'1.5px dashed var(--tq)', fontSize:12, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}>
+                  <Plus size={11}/> Cadastrar mensagem
+                </button>
+                {qr.map(q=><button key={q.id} onClick={()=>{setInput(q.texto);setShowQR(false);textRef.current?.focus();}} style={{ padding:'4px 11px', borderRadius:8, background:'var(--tq3)', color:'var(--tq2)', border:'1px solid var(--tq3)', fontSize:12, fontWeight:600, cursor:'pointer' }}>{q.titulo}</button>)}
+              </div>
+              {qrNovo && (
+                <div style={{ display:'flex', gap:6, marginTop:8, alignItems:'center', flexWrap:'wrap' }}>
+                  <input value={qrNovo.titulo} maxLength={60} onChange={e=>setQrNovo({...qrNovo, titulo:e.target.value})} placeholder="Título (ex: Endereço da clínica)"
+                    style={{ width:200, padding:'6px 10px', borderRadius:9, border:'1.5px solid var(--border)', fontSize:12, outline:'none', background:'var(--bg)', color:'var(--txt)' }} />
+                  <input value={qrNovo.texto} maxLength={1000} onChange={e=>setQrNovo({...qrNovo, texto:e.target.value})} placeholder="Mensagem que será enviada…"
+                    onKeyDown={e=>{ if(e.key==='Enter') salvarQrNovo(); }}
+                    style={{ flex:1, minWidth:220, padding:'6px 10px', borderRadius:9, border:'1.5px solid var(--border)', fontSize:12, outline:'none', background:'var(--bg)', color:'var(--txt)' }} />
+                  <button onClick={salvarQrNovo} disabled={!qrNovo.titulo.trim() || !qrNovo.texto.trim()} className="btn btn-p btn-sm"
+                    style={{ opacity: (!qrNovo.titulo.trim() || !qrNovo.texto.trim()) ? .5 : 1, fontSize:11.5 }}>Salvar</button>
+                </div>
+              )}
             </div>
           )}
 
@@ -1184,7 +1203,7 @@ export default function Inbox({ onUnreadChange }) {
             <div style={{ display:'flex', gap:5, alignItems:'flex-end' }}>
               <button onClick={()=>fileRef.current?.click()} className="btn btn-g btn-ico"><Paperclip size={15}/></button>
               <button onClick={()=>{setShowEmoji(p=>!p);setShowQR(false);}} className="btn btn-ico" style={{ background:showEmoji?'var(--tq3)':'transparent', color:showEmoji?'var(--tq)':'var(--muted)', borderRadius:8 }}><Smile size={15}/></button>
-              <button onClick={()=>{setShowQR(p=>!p);setShowEmoji(false);}} className="btn btn-ico" style={{ background:showQR?'var(--tq3)':'transparent', color:showQR?'var(--tq)':'var(--muted)', borderRadius:8 }}><Hash size={15}/></button>
+              <button onClick={()=>{setShowQR(p=>!p);setShowEmoji(false);}} title="Mensagens automáticas" className="btn btn-ico" style={{ background:showQR?'var(--tq3)':'transparent', color:showQR?'var(--tq)':'var(--muted)', borderRadius:8 }}><Zap size={15}/></button>
               <button onClick={()=>setShowBib(true)} title="Biblioteca de Experiências (fotos, vídeos, figurinhas)" className="btn btn-ico" style={{ background:'transparent', color:'var(--muted)', borderRadius:8, fontSize:15, lineHeight:1 }}>🖼️</button>
               <input ref={fileRef} type="file" accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.gif" style={{ display:'none' }} onChange={handleFile}/>
               <textarea ref={textRef} value={input} onChange={e=>setInput(e.target.value)}
@@ -1372,34 +1391,85 @@ function FaixaContexto({ sel, leadInfo, setLeadInfo, api, scoreChip, setScoreChi
 /* ── Modal Agendar dentro da conversa (mock): cria evento + funil + confirmação ── */
 function AgendarModal({ sel, api, onClose }) {
   const hoje = new Date().toISOString().slice(0, 10);
-  const [m, setM] = React.useState({ paciente: sel?.contact_name || '', servico: '', profissional: '', data: hoje, hora: '', observacoes: '', confirmar: true });
+  const [m, setM] = React.useState({ paciente: sel?.contact_name || '', responsavel: '', email: '', endereco: '', local_link: '', servico: '', profissional: '', data: hoje, hora: '', observacoes: '', confirmar: true });
   const [erro, setErro] = React.useState('');
   const [salvando, setSalvando] = React.useState(false);
+  const [extraindo, setExtraindo] = React.useState(false);
+  const [leadBase, setLeadBase] = React.useState(null);
+
+  // Pré-preenche com a ficha do lead, se existir
+  React.useEffect(() => {
+    if (!sel?.lead_id) return;
+    api.get(`/leads/${sel.lead_id}`).then(l => {
+      setLeadBase(l);
+      setM(prev => ({ ...prev,
+        paciente: prev.paciente || l.nome || '',
+        responsavel: prev.responsavel || l.responsavel_cliente || '',
+        email: prev.email || l.email || '',
+        endereco: prev.endereco || [l.endereco, l.bairro].filter(Boolean).join(', '),
+      }));
+    }).catch(() => {});
+  }, []); // eslint-disable-line
+
+  // IA lê a conversa e preenche o que o cliente já informou (só campos vazios)
+  const puxarDaConversa = async () => {
+    if (extraindo) return;
+    setExtraindo(true); setErro('');
+    try {
+      const d = await api.post('/inbox/ai-extrair', { convId: sel.id });
+      let achou = 0;
+      setM(prev => {
+        const nx = { ...prev };
+        const põe = (campo, valor) => { if (valor && !String(prev[campo] || '').trim()) { nx[campo] = String(valor); achou++; } };
+        põe('paciente', d.paciente); põe('responsavel', d.responsavel);
+        põe('endereco', d.endereco); põe('email', d.email);
+        if (d.observacao) nx.observacoes = prev.observacoes ? prev.observacoes : String(d.observacao).slice(0, 300);
+        if (d.nascimento) nx._nascimento = d.nascimento;
+        return nx;
+      });
+      Toast.show(achou ? `A IA encontrou ${achou} dado(s) na conversa ✨` : 'Não achei dados novos na conversa.', achou ? 'success' : 'error');
+    } catch (e) { setErro(e.message); }
+    finally { setExtraindo(false); }
+  };
 
   const salvar = async () => {
     setErro('');
     if (!m.paciente.trim()) return setErro('Informe o paciente.');
     if (!/^\d{2}:\d{2}$/.test(m.hora || '')) return setErro('Informe a hora (HH:MM).');
+    if (m.local_link && !/^https?:\/\//i.test(m.local_link.trim())) return setErro('O link da localização precisa começar com http:// ou https://');
+    if (m.email && !/.+@.+\..+/.test(m.email.trim())) return setErro('E-mail inválido.');
     setSalvando(true);
     try {
-      // 1) Evento na Agenda
+      // 1) Evento na Agenda geral (com endereço, link e e-mail)
       await api.post('/extras/agenda', {
-        paciente: m.paciente.trim(), servico: m.servico, profissional: m.profissional,
+        paciente: m.paciente.trim(), responsavel_nome: m.responsavel.trim(),
+        servico: m.servico, profissional: m.profissional,
         data: m.data, hora: m.hora, observacoes: m.observacoes,
+        endereco: m.endereco.trim(), local_link: m.local_link.trim(), email: m.email.trim(),
         telefone: String(sel.phone || '').replace(/\D/g, ''), setor: sel.setor || 'vacinas', lead_id: sel.lead_id || null,
       });
-      // 2) Funil: lead vai pra "Agendado" (se existir lead)
+      // 2) Funil: lead vai pra "Agendado" + ficha sincronizada
       if (sel.lead_id) {
         await api.patch(`/leads/${sel.lead_id}/status`, { status: 'Agendado' }).catch(() => {});
-        await api.put(`/leads/${sel.lead_id}`, { data_retorno: m.data }).catch(() => {});
+        const ficha = { data_retorno: m.data };
+        if (m.responsavel.trim() && !leadBase?.responsavel_cliente) ficha.responsavel_cliente = m.responsavel.trim();
+        if (m.endereco.trim() && !leadBase?.endereco) ficha.endereco = m.endereco.trim();
+        if (m.email.trim() && !leadBase?.email) ficha.email = m.email.trim();
+        if (m._nascimento && !leadBase?.nascimento) ficha.nascimento = m._nascimento;
+        await api.put(`/leads/${sel.lead_id}`, ficha).catch(() => {});
       }
-      // 3) Confirmação automática pro cliente
+      // 3) Confirmação automática pro cliente (com local quando for domiciliar)
       if (m.confirmar) {
         const dataBr = m.data.split('-').reverse().join('/');
-        await api.post(`/inbox/conversations/${sel.id}/send`, {
-          type: 'text',
-          content: `Prontinho! Seu agendamento está confirmado 🗓️\n\n👶 ${m.paciente.trim()}${m.servico ? `\n💉 ${m.servico}` : ''}\n📅 ${dataBr} às ${m.hora}${m.profissional ? `\n👩‍⚕️ ${m.profissional}` : ''}\n\nQualquer imprevisto é só me avisar por aqui 💙`,
-        }).catch(() => {});
+        const linhas = [`Prontinho! Seu agendamento está confirmado 🗓️`, '',
+          `👶 ${m.paciente.trim()}${m.responsavel.trim() ? ` (resp.: ${m.responsavel.trim()})` : ''}`];
+        if (m.servico) linhas.push(`💉 ${m.servico}`);
+        linhas.push(`📅 ${dataBr} às ${m.hora}`);
+        if (m.profissional) linhas.push(`👩‍⚕️ ${m.profissional}`);
+        if (m.endereco.trim()) linhas.push(`📍 ${m.endereco.trim()}`);
+        if (m.local_link.trim()) linhas.push(`🗺️ Localização: ${m.local_link.trim()}`);
+        linhas.push('', 'Qualquer imprevisto é só me avisar por aqui 💙');
+        await api.post(`/inbox/conversations/${sel.id}/send`, { type: 'text', content: linhas.join('\n') }).catch(() => {});
       }
       onClose(true);
     } catch (e) { setErro(e.message); }
@@ -1409,15 +1479,27 @@ function AgendarModal({ sel, api, onClose }) {
   return (
     <div onClick={e => e.target === e.currentTarget && onClose(false)}
       style={{ position:'fixed', inset:0, background:'rgba(3,43,48,.55)', zIndex:520, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
-      <div style={{ width:'100%', maxWidth:440, background:'var(--card)', borderRadius:16, boxShadow:'var(--s4)', padding:'18px 22px' }}>
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:13 }}>
+      <div style={{ width:'100%', maxWidth:480, maxHeight:'92vh', overflowY:'auto', background:'var(--card)', borderRadius:16, boxShadow:'var(--s4)', padding:'18px 22px' }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
           <div style={{ fontWeight:800, fontSize:15 }}>📅 Agendar pra {sel?.contact_name?.split(' ')[0] || 'cliente'}</div>
           <button onClick={() => onClose(false)} style={{ width:28, height:28, borderRadius:8, border:'1px solid var(--border)', background:'var(--bg2)', color:'var(--muted)', cursor:'pointer' }}><X size={14}/></button>
         </div>
+        <button onClick={puxarDaConversa} disabled={extraindo}
+          style={{ width:'100%', marginBottom:12, padding:'8px 0', borderRadius:11, border:'1.5px dashed var(--tq)', background:'var(--tq4)', color:'var(--tq2)', fontWeight:800, fontSize:12, cursor:'pointer', opacity:extraindo?.6:1 }}>
+          {extraindo ? 'Lendo a conversa…' : '✨ Puxar dados que o cliente já enviou na conversa'}
+        </button>
         {erro && <div style={{ marginBottom:10, padding:'8px 12px', borderRadius:9, background:'var(--err2)', color:'var(--err)', fontSize:12, fontWeight:600 }}>{erro}</div>}
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
-          <div className="field" style={{ gridColumn:'1 / -1' }}><label>Paciente *</label>
+          <div className="field"><label>Responsável (família)</label>
+            <input value={m.responsavel} maxLength={80} onChange={e=>setM({...m, responsavel:e.target.value})} placeholder="Ex: Maria Silva" /></div>
+          <div className="field"><label>Paciente *</label>
             <input value={m.paciente} maxLength={80} onChange={e=>setM({...m, paciente:e.target.value})} /></div>
+          <div className="field" style={{ gridColumn:'1 / -1' }}><label>E-mail</label>
+            <input type="email" value={m.email} maxLength={120} onChange={e=>setM({...m, email:e.target.value})} placeholder="email@exemplo.com" /></div>
+          <div className="field" style={{ gridColumn:'1 / -1' }}><label>Endereço (atendimento domiciliar)</label>
+            <input value={m.endereco} maxLength={160} onChange={e=>setM({...m, endereco:e.target.value})} placeholder="Rua, nº, bairro — São Luís/MA" /></div>
+          <div className="field" style={{ gridColumn:'1 / -1' }}><label>Link da localização (Google Maps)</label>
+            <input value={m.local_link} maxLength={300} onChange={e=>setM({...m, local_link:e.target.value})} placeholder="https://maps.app.goo.gl/…" /></div>
           <div className="field"><label>Serviço</label>
             <input value={m.servico} maxLength={80} onChange={e=>setM({...m, servico:e.target.value})} placeholder="Ex: Vacina 6 meses" /></div>
           <div className="field"><label>Profissional</label>

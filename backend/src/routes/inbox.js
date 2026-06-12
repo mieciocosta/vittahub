@@ -2228,6 +2228,31 @@ r.patch('/conversations/:id/unread', async (req, res) => {
 // Caso de uso real: a mãe manda a foto da carteira de vacinação, a atendente
 // anexa aqui e pergunta "quais vacinas faltam?" — a IA lê a imagem e responde
 // com base no calendário oficial da clínica.
+// ─── IA EXTRAI DADOS DA CONVERSA (pré-preenche o agendamento/ficha) ──────────
+r.post('/ai-extrair', async (req, res) => {
+  try {
+    if (!process.env.OPENAI_API_KEY) return res.status(503).json({ error: 'IA não configurada' });
+    const { convId } = req.body;
+    if (!convId) return res.status(400).json({ error: 'convId é obrigatório' });
+    const { rows: msgs } = await query(
+      `SELECT from_type, content FROM mensagens
+       WHERE conversa_id = $1 AND type = 'text' AND length(content) > 1
+       ORDER BY created_at DESC LIMIT 50`, [convId]);
+    if (!msgs.length) return res.json({});
+    const texto = msgs.reverse().map(m => `${m.from_type === 'contact' ? 'CLIENTE' : 'ATENDENTE'}: ${m.content.slice(0, 400)}`).join('\n');
+    const data = await openaiMessages({
+      model: 'gpt-4o-mini', max_tokens: 350, json: true,
+      system: `Extraia da conversa abaixo os dados cadastrais que o CLIENTE informou. Devolva APENAS um JSON com as chaves: paciente (nome do paciente/bebê), responsavel (nome do responsável/mãe/pai), endereco (endereço completo com bairro), email, nascimento (data de nascimento do paciente no formato YYYY-MM-DD), telefone_extra (outro telefone citado), observacao (preferências relevantes, ex: atendimento domiciliar). Use null quando o dado não foi informado. Não invente nada.`,
+      messages: [{ role: 'user', content: texto.slice(0, 8000) }],
+    });
+    if (data.error) return res.status(502).json({ error: data.error.message || 'Erro na IA' });
+    const raw = (data.content?.find(c => c.type === 'text')?.text || '{}').trim();
+    let extraido = {};
+    try { extraido = JSON.parse(raw.replace(/^```json|```$/g, '')); } catch {}
+    res.json(extraido);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ─── BIBLIOTECA → CONVERSA: envia a mídia escolhida pelo WhatsApp ────────────
 r.post('/conversations/:id/send-midia', async (req, res) => {
   try {
