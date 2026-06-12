@@ -187,6 +187,12 @@ export default async function runMigrate() {
       console.log('🌱 Seed setores/papéis aplicado');
     }
 
+    // ── FICHA DO PACIENTE (dados do cliente no painel da conversa) ──────────
+    await query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS nascimento DATE`).catch(() => {});
+    await query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS endereco TEXT`).catch(() => {});
+    await query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS bairro TEXT`).catch(() => {});
+    await query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS responsavel_cliente TEXT`).catch(() => {});
+
     // ── FERRAMENTAS: Agenda, Indicações, Biblioteca, Ligações ───────────────
     await query(`CREATE TABLE IF NOT EXISTS agenda_eventos (
       id SERIAL PRIMARY KEY, paciente TEXT NOT NULL, responsavel_nome TEXT,

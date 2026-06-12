@@ -34,6 +34,10 @@ const normBody = (b = {}) => {
     data_retorno: retorno,
     observacoes: cut(b.observacoes, 600),
     motivo_perda: cut(b.motivo_perda ?? b.motivoPerda, 40),
+    nascimento: b.nascimento === '' ? null : b.nascimento,
+    endereco: cut(b.endereco, 160),
+    bairro: cut(b.bairro, 60),
+    responsavel_cliente: cut(b.responsavel_cliente ?? b.responsavelCliente, 80),
     setor: ['vacinas','consultas','terapias'].includes(b.setor) ? b.setor : undefined,
     tags: Array.isArray(b.tags) ? b.tags.slice(0, 10).map(t => String(t).slice(0, 20)) : b.tags,
   };
@@ -307,7 +311,7 @@ r.post('/', async (req, res) => {
 // ─── UPDATE ────────────────────────────────────────────────────────────────────
 r.put('/:id', async (req, res) => {
   try {
-    const { nome, telefone, email, origem, interesse, status, responsavel_id, valor_proposta, servico, data_retorno, observacoes, motivo_perda, tags } = normBody(req.body);
+    const { nome, telefone, email, origem, interesse, status, responsavel_id, valor_proposta, servico, data_retorno, observacoes, motivo_perda, tags, nascimento, endereco, bairro, responsavel_cliente } = normBody(req.body);
     const valor = req.user.role === 'master' && valor_proposta !== undefined ? parseFloat(valor_proposta) || 0 : undefined;
 
     const updates = [];
@@ -316,6 +320,7 @@ r.put('/:id', async (req, res) => {
     let statusIdx = null;
     const set = (col, val) => { if (val !== undefined) { updates.push(`${col} = $${pi}`); params.push(val); if (col === 'status') statusIdx = pi; pi++; } };
     set('nome', nome); set('telefone', telefone); set('email', email);
+    set('nascimento', nascimento); set('endereco', endereco); set('bairro', bairro); set('responsavel_cliente', responsavel_cliente);
     set('origem', origem); set('interesse', interesse); set('status', status);
     set('responsavel_id', responsavel_id); set('servico', servico);
     set('data_retorno', data_retorno || null); set('observacoes', observacoes);

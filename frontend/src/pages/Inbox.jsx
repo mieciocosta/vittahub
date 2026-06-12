@@ -155,17 +155,21 @@ const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect, usersB
 });
 
 /* ── SearchBar ───────────────────────────────────────────────────────────────── */
-function SearchBar({ value, onChange, filter, setFilter, totalUnread, unreadOnly, setUnreadOnly, waiting, setWaiting, setor, setSetor, mostraSetores }) {
+function SearchBar({ value, onChange, filter, setFilter, totalUnread, unreadOnly, setUnreadOnly, waiting, setWaiting, setor, setSetor, mostraSetores, modo, setModo, counts }) {
   return (
     <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
       <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
-        {[['all','Todos'],['whatsapp','WA'],['instagram','IG']].map(([ch, l]) => (
-          <button key={ch} onClick={() => setFilter(ch)}
-            style={{ flex: 1, padding: '5px', borderRadius: 8, fontSize: 11, fontWeight: 600, cursor: 'pointer', border: '1.5px solid',
-              background: filter === ch ? (ch === 'whatsapp' ? 'var(--wa2)' : ch === 'instagram' ? 'var(--ig2)' : 'var(--tq3)') : 'var(--card,#fff)',
-              color: filter === ch ? (ch === 'whatsapp' ? 'var(--wa)' : ch === 'instagram' ? 'var(--ig)' : 'var(--tq)') : 'var(--muted)',
-              borderColor: filter === ch ? 'currentColor' : 'var(--border)' }}>{l}</button>
-        ))}
+        {[['todas','Todas','todas'],['minhas','Minhas','minhas'],['naolidas','Não lidas','naoLidas'],['grupos','Grupos','grupos']].map(([k, l, ck]) => {
+          const ativo = modo === k;
+          return (
+            <button key={k} onClick={() => setModo(k)}
+              style={{ flex: 1, padding: '5px 3px', borderRadius: 8, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', border: '1.5px solid',
+                background: ativo ? 'var(--tq)' : 'var(--card,#fff)', color: ativo ? '#fff' : 'var(--muted)',
+                borderColor: ativo ? 'var(--tq)' : 'var(--border)', whiteSpace: 'nowrap' }}>
+              {l}{counts?.[ck] != null ? ` ${counts[ck]}` : ''}
+            </button>
+          );
+        })}
         <button onClick={() => setWaiting(p => !p)} title="Fila de atendimento: clientes que mandaram a última mensagem e ainda esperam resposta"
           style={{ padding: '4px 8px', borderRadius: 8, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', border: '1.5px solid',
             background: waiting ? 'var(--warn)' : 'var(--card,#fff)', color: waiting ? '#fff' : 'var(--warn)', borderColor: waiting ? 'var(--warn)' : 'var(--border)' }}>
@@ -407,11 +411,18 @@ export default function Inbox({ onUnreadChange }) {
   const [lightbox, setLightbox] = useState(null);
   const [waiting, setWaiting] = useState(false);
   const [setorFiltro, setSetorFiltro] = useState('all');
+  const [modo, setModo] = useState('todas');
+  const [counts, setCounts] = useState(null);
   const [somAtivo, setSomAtivo] = useState(() => localStorage.getItem('vh_sound') !== 'off');
   const somRef = useRef(true);
   useEffect(() => { somRef.current = somAtivo; localStorage.setItem('vh_sound', somAtivo ? 'on' : 'off'); }, [somAtivo]);
   const [showProposta, setShowProposta] = useState(false);
   const [showBib, setShowBib] = useState(false);
+  const [bibAba, setBibAba] = useState('foto');
+  const [showAgendar, setShowAgendar] = useState(false);
+  const [showIndicar, setShowIndicar] = useState(false);
+  const [scoreChip, setScoreChip] = useState(null); // null | 'calc' | número
+  const [leadInfo, setLeadInfo] = useState(null);   // lead vinculado (faixa de contexto)
   const [leadData, setLeadData] = useState(null);
   const [users, setUsers] = useState([]);
   const usersById = useMemo(() => Object.fromEntries(users.map(u => [u.id, u])), [users]);
@@ -595,7 +606,7 @@ export default function Inbox({ onUnreadChange }) {
       } catch {}
     }, 5000);
     return () => clearInterval(iv);
-  }, [filter, search, unreadOnly, waiting, setorFiltro]);
+  }, [filter, search, unreadOnly, waiting, setorFiltro, modo]);
 
   // ── Auto-scroll ao chegar novas mensagens ─────────────────────────────────
   // Só rola se o usuário já estava perto do fim (não interrompe quem lê mensagens antigas)
@@ -617,14 +628,18 @@ export default function Inbox({ onUnreadChange }) {
       if (unreadOnly) params.set('unread_only', 'true');
       if (waiting) params.set('waiting', 'true');
       if (setorFiltro !== 'all') params.set('setor', setorFiltro);
+      if (modo === 'minhas') params.set('minhas', 'true');
+      if (modo === 'naolidas') params.set('unread_only', 'true');
+      if (modo === 'grupos') params.set('grupos', 'true');
       const data = await api.get(`/inbox/conversations?${params}`);
+      if (data.counts) setCounts(data.counts);
       const list = data.data || data;
       const tot  = data.total ?? list.length;
       setConvos(list); setTotal(tot); setPage(1); setHasMore(list.length < tot);
       lastPollTs.current = new Date().toISOString();
       onUnreadChange?.(list.reduce((s, c) => s + (c.unread || 0), 0));
     } catch(err) { console.error('loadConvos:', err.message); }
-  }, [filter, search, unreadOnly, waiting, setorFiltro]);
+  }, [filter, search, unreadOnly, waiting, setorFiltro, modo]);
 
   // ── Infinite scroll ────────────────────────────────────────────────────────
   const loadMore = useCallback(async () => {
@@ -638,7 +653,11 @@ export default function Inbox({ onUnreadChange }) {
       if (unreadOnly) params.set('unread_only', 'true');
       if (waiting) params.set('waiting', 'true');
       if (setorFiltro !== 'all') params.set('setor', setorFiltro);
+      if (modo === 'minhas') params.set('minhas', 'true');
+      if (modo === 'naolidas') params.set('unread_only', 'true');
+      if (modo === 'grupos') params.set('grupos', 'true');
       const data = await api.get(`/inbox/conversations?${params}`);
+      if (data.counts) setCounts(data.counts);
       const list = data.data || [];
       setConvos(prev => {
         const ids = new Set(prev.map(c => c.id));
@@ -862,7 +881,8 @@ export default function Inbox({ onUnreadChange }) {
         <SearchBar value={search} onChange={setSearch} filter={filter} setFilter={setFilter}
           totalUnread={totalUnread} unreadOnly={unreadOnly} setUnreadOnly={setUnreadOnly}
           waiting={waiting} setWaiting={setWaiting}
-          setor={setorFiltro} setSetor={setSetorFiltro} mostraSetores={user?.role !== 'atendente'}/>
+          setor={setorFiltro} setSetor={setSetorFiltro} mostraSetores={user?.role !== 'atendente'}
+          modo={modo} setModo={setModo} counts={counts}/>
 
         <div ref={listContainerRef} style={{ flex:1, minHeight:0 }}>
           <VirtualList items={convos} selectedId={sel?.id} onSelect={openConvo} usersById={usersById}
@@ -962,8 +982,14 @@ export default function Inbox({ onUnreadChange }) {
               <button onClick={toggleBot} className="btn btn-sm" style={{ background:sel.bot_ativo?'var(--ok2)':'var(--bg2)', color:sel.bot_ativo?'var(--ok)':'var(--muted)', border:`1.5px solid ${sel.bot_ativo?'var(--ok)':'var(--border)'}`, fontSize:11, padding:'4px 9px' }}>
                 <Bot size={10}/>{sel.bot_ativo?'Bot ON':'Bot'}
               </button>
+              <button onClick={()=>setShowAgendar(true)} className="btn btn-sm" style={{ background:'var(--card,#fff)', color:'var(--tq2)', border:'1.5px solid var(--tq)', fontSize:11, padding:'4px 9px' }}>
+                📅 Agendar
+              </button>
               <button onClick={()=>setShowProposta(true)} className="btn btn-sm" style={{ background:'linear-gradient(135deg,#032B30,#0E8C96)', color:'#fff', fontSize:11, padding:'4px 9px' }}>
                 <FileText size={10}/> Proposta
+              </button>
+              <button onClick={()=>setShowIndicar(true)} className="btn btn-s btn-sm" style={{ fontSize:11, padding:'4px 9px' }}>
+                🎁 Indicação
               </button>
               <button onClick={toLead} className="btn btn-s btn-sm" style={{ fontSize:11, padding:'4px 9px' }}><UserPlus size={10}/> Lead</button>
               <button onClick={()=>{setShowAI(p=>!p);setShowInfo(false);}} className="btn btn-sm" style={{ background:showAI?'#032B30':'var(--bg2)', color:showAI?'#00B8C0':'var(--muted)', border:`1.5px solid ${showAI?'rgba(0,184,192,.4)':'var(--border)'}`, fontSize:11, padding:'4px 9px' }}>
@@ -974,6 +1000,10 @@ export default function Inbox({ onUnreadChange }) {
               </button>
             </div>
           </div>
+
+          {/* Faixa de contexto (mock): Interesse · Responsável · Etapa · Score */}
+          <FaixaContexto sel={sel} leadInfo={leadInfo} setLeadInfo={setLeadInfo} api={api}
+            scoreChip={scoreChip} setScoreChip={setScoreChip} usersById={usersById} />
 
           {/* Área de mensagens + info panel */}
           <div style={{ flex:1, display:'flex', minHeight:0, overflow:'hidden' }}>
@@ -1008,6 +1038,7 @@ export default function Inbox({ onUnreadChange }) {
                   <span style={{ fontWeight:700, fontSize:13 }}>Informações</span>
                   <button onClick={()=>setShowInfo(false)} style={{ padding:4, background:'none', border:'none', cursor:'pointer', color:'var(--muted)' }}>✕</button>
                 </div>
+                {sel.lead_id && <FichaPaciente leadId={sel.lead_id} api={api} setor={sel.setor} />}
                 <div style={{ padding:'16px 14px', textAlign:'center', borderBottom:'1px solid var(--border)' }}>
                   <div className={sel.profile_pic ? 'avatar-clickable' : ''} style={{ display:'inline-block' }} onClick={()=>sel.profile_pic && setLightbox(sel.profile_pic)} title={sel.profile_pic ? 'Ver foto de perfil' : ''}>
                     <Avatar conv={sel} size={72} fontSize={22}/>
@@ -1052,7 +1083,28 @@ export default function Inbox({ onUnreadChange }) {
                     <button onClick={toLead} className="btn btn-p btn-sm" style={{ width:'100%', justifyContent:'center' }}><UserPlus size={12}/> Adicionar ao funil</button>
                   </div>
                 )}
-                <div style={{ padding:'12px 14px' }}>
+                {/* Barra de ações (mock): atalhos pra tudo dentro da conversa */}
+            <div style={{ display:'flex', gap:6, padding:'8px 14px 0', overflowX:'auto', flexShrink:0 }}>
+              {[
+                ['📅','Agendar', ()=>setShowAgendar(true)],
+                ['💰','Orçamento', ()=>setShowProposta(true)],
+                ['📷','Experiência', ()=>{setBibAba('foto');setShowBib(true);}],
+                ['🎁','Indicação', ()=>setShowIndicar(true)],
+                ['📋','Dados', ()=>{setShowInfo(p=>!p);setShowAI(false);}],
+                ['🤖','IA', ()=>{setShowAI(p=>!p);setShowInfo(false);}],
+                ['📞','Ligar', ()=>{ if(sel?.phone) window.open(`tel:+55${String(sel.phone).replace(/\D/g,'')}`); }],
+                ['📄','Modelos', ()=>{setShowQR(p=>!p);setShowEmoji(false);}],
+                ['😊','Figurinhas', ()=>{setBibAba('figurinha');setShowBib(true);}],
+                ['📎','Anexos', ()=>fileRef.current?.click()],
+              ].map(([ic,l,fn])=>(
+                <button key={l} onClick={fn}
+                  style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:2, padding:'7px 11px', borderRadius:11, border:'1px solid var(--border)', background:'var(--card,#fff)', cursor:'pointer', flexShrink:0, minWidth:62 }}>
+                  <span style={{ fontSize:15, lineHeight:1 }}>{ic}</span>
+                  <span style={{ fontSize:9, fontWeight:700, color:'var(--muted)' }}>{l}</span>
+                </button>
+              ))}
+            </div>
+            <div style={{ padding:'12px 14px' }}>
                   <div style={{ fontSize:10.5, fontWeight:700, color:'var(--muted)', textTransform:'uppercase', letterSpacing:.6, marginBottom:9 }}>Estatísticas</div>
                   <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:7 }}>
                     {[['Mensagens',msgsTotal||msgs.length],['Não lidas',sel.unread||0],['Canal',sel.channel==='whatsapp'?'WhatsApp':'Instagram'],['Bot',sel.bot_ativo?'✅ Ativo':'⏸ Inativo']].map(([k,v])=>(
@@ -1160,8 +1212,14 @@ export default function Inbox({ onUnreadChange }) {
         </div>
       )}
 
+      {showAgendar && sel && (
+        <AgendarModal sel={sel} api={api} onClose={(ok) => { setShowAgendar(false); if (ok) Toast.show('Agendamento criado! 📅', 'success'); }} />
+      )}
+      {showIndicar && sel && (
+        <IndicarModal sel={sel} api={api} onClose={() => setShowIndicar(false)} />
+      )}
       {showBib && sel && (
-        <BibliotecaPicker convId={sel.id} setor={sel.setor} api={api} onClose={() => setShowBib(false)} />
+        <BibliotecaPicker convId={sel.id} setor={sel.setor} api={api} abaInicial={bibAba} onClose={() => setShowBib(false)} />
       )}
 
       {showProposta && sel && (
@@ -1174,8 +1232,8 @@ export default function Inbox({ onUnreadChange }) {
 
 
 /* ── Picker da Biblioteca: envia foto/vídeo/figurinha na conversa ──────────── */
-function BibliotecaPicker({ convId, setor, api, onClose }) {
-  const [aba, setAba] = React.useState('foto');
+function BibliotecaPicker({ convId, setor, api, onClose, abaInicial = 'foto' }) {
+  const [aba, setAba] = React.useState(abaInicial);
   const [itens, setItens] = React.useState([]);
   const [previews, setPreviews] = React.useState({});
   const [enviando, setEnviando] = React.useState(null);
@@ -1250,5 +1308,323 @@ function BibliotecaPicker({ convId, setor, api, onClose }) {
         </div>
       </div>
     </div>
+  );
+}
+
+
+/* ── Faixa de contexto sob o header (Interesse · Responsável · Etapa · Score) ── */
+function FaixaContexto({ sel, leadInfo, setLeadInfo, api, scoreChip, setScoreChip, usersById }) {
+  React.useEffect(() => {
+    setLeadInfo(null); setScoreChip(null);
+    if (!sel?.lead_id) return;
+    api.get(`/leads/${sel.lead_id}`).then(setLeadInfo).catch(() => {});
+  }, [sel?.id]); // eslint-disable-line
+
+  const calcularScore = async () => {
+    if (scoreChip === 'calc') return;
+    setScoreChip('calc');
+    try {
+      const d = await api.post('/inbox/ai-assist', { convId: sel.id, mode: 'score' });
+      const n = parseInt(d?.score ?? d?.nota ?? d?.pontuacao);
+      setScoreChip(Number.isFinite(n) ? Math.min(Math.max(n, 0), 100) : null);
+    } catch { setScoreChip(null); }
+  };
+
+  const resp = sel?.responsavel_id ? usersById?.[sel.responsavel_id]?.nome?.split(' ')[0] : null;
+  const Item = ({ ic, label, valor }) => (
+    <div style={{ display:'flex', alignItems:'center', gap:8, padding:'0 14px', borderRight:'1px solid var(--tq3)' }}>
+      <span style={{ fontSize:14 }}>{ic}</span>
+      <div>
+        <div style={{ fontSize:9.5, fontWeight:800, color:'var(--tq2)', textTransform:'uppercase', letterSpacing:.4 }}>{label}</div>
+        <div style={{ fontSize:12, fontWeight:700, color:'var(--txt)', maxWidth:140, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{valor || '—'}</div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ display:'flex', alignItems:'center', padding:'7px 6px', background:'var(--tq4)', borderBottom:'1px solid var(--tq3)', overflowX:'auto', flexShrink:0 }}>
+      <Item ic="💉" label="Interesse" valor={leadInfo?.interesse || sel?.setor} />
+      <Item ic="👤" label="Responsável" valor={resp || 'Sem responsável'} />
+      <Item ic="👶" label="Paciente" valor={leadInfo?.nome || sel?.contact_name} />
+      <Item ic="📋" label="Etapa" valor={leadInfo?.status || (sel?.lead_id ? '' : 'Sem lead')} />
+      <div style={{ display:'flex', alignItems:'center', gap:8, padding:'0 14px' }}>
+        <span style={{ fontSize:14 }}>❤️</span>
+        <div>
+          <div style={{ fontSize:9.5, fontWeight:800, color:'var(--tq2)', textTransform:'uppercase', letterSpacing:.4 }}>Score do atendimento</div>
+          {typeof scoreChip === 'number' ? (
+            <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+              <span style={{ fontSize:13, fontWeight:800, color: scoreChip >= 80 ? 'var(--ok)' : scoreChip >= 50 ? '#a07514' : 'var(--err)' }}>{scoreChip}%</span>
+              <div style={{ width:54, height:5, borderRadius:4, background:'#fff', overflow:'hidden' }}>
+                <div style={{ width:`${scoreChip}%`, height:'100%', background:'var(--tq)' }} />
+              </div>
+            </div>
+          ) : (
+            <button onClick={calcularScore} style={{ border:'none', background:'none', color:'var(--tq2)', fontSize:11.5, fontWeight:800, cursor:'pointer', padding:0 }}>
+              {scoreChip === 'calc' ? 'Analisando…' : 'Calcular ✨'}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Modal Agendar dentro da conversa (mock): cria evento + funil + confirmação ── */
+function AgendarModal({ sel, api, onClose }) {
+  const hoje = new Date().toISOString().slice(0, 10);
+  const [m, setM] = React.useState({ paciente: sel?.contact_name || '', servico: '', profissional: '', data: hoje, hora: '', observacoes: '', confirmar: true });
+  const [erro, setErro] = React.useState('');
+  const [salvando, setSalvando] = React.useState(false);
+
+  const salvar = async () => {
+    setErro('');
+    if (!m.paciente.trim()) return setErro('Informe o paciente.');
+    if (!/^\d{2}:\d{2}$/.test(m.hora || '')) return setErro('Informe a hora (HH:MM).');
+    setSalvando(true);
+    try {
+      // 1) Evento na Agenda
+      await api.post('/extras/agenda', {
+        paciente: m.paciente.trim(), servico: m.servico, profissional: m.profissional,
+        data: m.data, hora: m.hora, observacoes: m.observacoes,
+        telefone: String(sel.phone || '').replace(/\D/g, ''), setor: sel.setor || 'vacinas', lead_id: sel.lead_id || null,
+      });
+      // 2) Funil: lead vai pra "Agendado" (se existir lead)
+      if (sel.lead_id) {
+        await api.patch(`/leads/${sel.lead_id}/status`, { status: 'Agendado' }).catch(() => {});
+        await api.put(`/leads/${sel.lead_id}`, { data_retorno: m.data }).catch(() => {});
+      }
+      // 3) Confirmação automática pro cliente
+      if (m.confirmar) {
+        const dataBr = m.data.split('-').reverse().join('/');
+        await api.post(`/inbox/conversations/${sel.id}/send`, {
+          type: 'text',
+          content: `Prontinho! Seu agendamento está confirmado 🗓️\n\n👶 ${m.paciente.trim()}${m.servico ? `\n💉 ${m.servico}` : ''}\n📅 ${dataBr} às ${m.hora}${m.profissional ? `\n👩‍⚕️ ${m.profissional}` : ''}\n\nQualquer imprevisto é só me avisar por aqui 💙`,
+        }).catch(() => {});
+      }
+      onClose(true);
+    } catch (e) { setErro(e.message); }
+    finally { setSalvando(false); }
+  };
+
+  return (
+    <div onClick={e => e.target === e.currentTarget && onClose(false)}
+      style={{ position:'fixed', inset:0, background:'rgba(3,43,48,.55)', zIndex:520, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+      <div style={{ width:'100%', maxWidth:440, background:'var(--card)', borderRadius:16, boxShadow:'var(--s4)', padding:'18px 22px' }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:13 }}>
+          <div style={{ fontWeight:800, fontSize:15 }}>📅 Agendar pra {sel?.contact_name?.split(' ')[0] || 'cliente'}</div>
+          <button onClick={() => onClose(false)} style={{ width:28, height:28, borderRadius:8, border:'1px solid var(--border)', background:'var(--bg2)', color:'var(--muted)', cursor:'pointer' }}><X size={14}/></button>
+        </div>
+        {erro && <div style={{ marginBottom:10, padding:'8px 12px', borderRadius:9, background:'var(--err2)', color:'var(--err)', fontSize:12, fontWeight:600 }}>{erro}</div>}
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+          <div className="field" style={{ gridColumn:'1 / -1' }}><label>Paciente *</label>
+            <input value={m.paciente} maxLength={80} onChange={e=>setM({...m, paciente:e.target.value})} /></div>
+          <div className="field"><label>Serviço</label>
+            <input value={m.servico} maxLength={80} onChange={e=>setM({...m, servico:e.target.value})} placeholder="Ex: Vacina 6 meses" /></div>
+          <div className="field"><label>Profissional</label>
+            <input value={m.profissional} maxLength={80} onChange={e=>setM({...m, profissional:e.target.value})} /></div>
+          <div className="field"><label>Data *</label>
+            <input type="date" value={m.data} onChange={e=>setM({...m, data:e.target.value})} /></div>
+          <div className="field"><label>Hora *</label>
+            <input type="time" value={m.hora} onChange={e=>setM({...m, hora:e.target.value})} /></div>
+          <div className="field" style={{ gridColumn:'1 / -1' }}><label>Observação</label>
+            <input value={m.observacoes} maxLength={300} onChange={e=>setM({...m, observacoes:e.target.value})} /></div>
+        </div>
+        <label style={{ display:'flex', alignItems:'center', gap:7, fontSize:12, fontWeight:600, color:'var(--txt2)', marginTop:10, cursor:'pointer' }}>
+          <input type="checkbox" checked={m.confirmar} onChange={e=>setM({...m, confirmar:e.target.checked})} />
+          Enviar confirmação automática no WhatsApp 💙
+        </label>
+        <div style={{ display:'flex', justifyContent:'flex-end', gap:8, marginTop:13 }}>
+          <button onClick={() => onClose(false)} className="btn btn-s">Cancelar</button>
+          <button onClick={salvar} disabled={salvando} className="btn btn-p" style={{ opacity:salvando?.6:1 }}>{salvando ? 'Agendando…' : 'Confirmar agendamento'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Modal Indicação dentro da conversa: o cliente atual indica alguém ── */
+function IndicarModal({ sel, api, onClose }) {
+  const [m, setM] = React.useState({ indicado_nome: '', indicado_telefone: '' });
+  const [erro, setErro] = React.useState('');
+  const salvar = async () => {
+    setErro('');
+    if (!m.indicado_nome.trim()) return setErro('Informe quem foi indicado.');
+    try {
+      await api.post('/extras/indicacoes', {
+        indicador_nome: sel?.contact_name || 'Cliente',
+        indicador_telefone: String(sel?.phone || '').replace(/\D/g, ''),
+        indicado_nome: m.indicado_nome.trim(),
+        indicado_telefone: String(m.indicado_telefone || '').replace(/\D/g, ''),
+      });
+      Toast.show('Indicação registrada! 🎁', 'success');
+      onClose();
+    } catch (e) { setErro(e.message); }
+  };
+  return (
+    <div onClick={e => e.target === e.currentTarget && onClose()}
+      style={{ position:'fixed', inset:0, background:'rgba(3,43,48,.55)', zIndex:520, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+      <div style={{ width:'100%', maxWidth:380, background:'var(--card)', borderRadius:16, boxShadow:'var(--s4)', padding:'18px 22px' }}>
+        <div style={{ fontWeight:800, fontSize:15, marginBottom:3 }}>🎁 Registrar indicação</div>
+        <div style={{ fontSize:12, color:'var(--muted)', marginBottom:13 }}><b>{sel?.contact_name}</b> está indicando alguém — pontos e prêmios na página Indicações.</div>
+        {erro && <div style={{ marginBottom:10, padding:'8px 12px', borderRadius:9, background:'var(--err2)', color:'var(--err)', fontSize:12, fontWeight:600 }}>{erro}</div>}
+        <div className="field" style={{ marginBottom:10 }}><label>Nome do indicado *</label>
+          <input value={m.indicado_nome} maxLength={80} onChange={e=>setM({...m, indicado_nome:e.target.value})} autoFocus /></div>
+        <div className="field"><label>Telefone do indicado</label>
+          <input value={m.indicado_telefone} maxLength={15} onChange={e=>setM({...m, indicado_telefone:e.target.value.replace(/[^\d() -]/g,'')})} placeholder="(98) 9...." /></div>
+        <div style={{ display:'flex', justifyContent:'flex-end', gap:8, marginTop:13 }}>
+          <button onClick={onClose} className="btn btn-s">Cancelar</button>
+          <button onClick={salvar} className="btn btn-p">Registrar 🎁</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+/* ── Ficha do paciente (mock): dados, funil em bolinhas e próximas etapas ──── */
+const MARCOS_VACINAIS = [2, 3, 4, 5, 6, 7, 9, 12, 15, 16, 18]; // meses
+
+function FichaPaciente({ leadId, api, setor }) {
+  const [lead, setLead] = React.useState(null);
+  const [colunas, setColunas] = React.useState([]);
+  const [editando, setEditando] = React.useState(false);
+  const [form, setForm] = React.useState({});
+  const [salvando, setSalvando] = React.useState(false);
+
+  const carrega = React.useCallback(() => {
+    api.get(`/leads/${leadId}`).then(l => { setLead(l); setForm(l); }).catch(() => {});
+    api.get(`/leads/colunas?setor=${setor || 'vacinas'}`).then(c => setColunas((c || []).filter(x => x.ordem < 99))).catch(() => {});
+  }, [leadId]); // eslint-disable-line
+  React.useEffect(carrega, [carrega]);
+
+  if (!lead) return null;
+
+  // Próxima vacina: calculada do nascimento pelo calendário 2→18 meses
+  const proximaVacina = (() => {
+    if (!lead.nascimento) return null;
+    const nasc = new Date(String(lead.nascimento).slice(0, 10) + 'T12:00:00');
+    if (isNaN(nasc)) return null;
+    const hoje = new Date();
+    for (const meses of MARCOS_VACINAIS) {
+      const alvo = new Date(nasc); alvo.setMonth(alvo.getMonth() + meses);
+      if (alvo > hoje) return { meses, data: alvo.toLocaleDateString('pt-BR') };
+    }
+    return null;
+  })();
+
+  const idade = (() => {
+    if (!lead.nascimento) return '';
+    const nasc = new Date(String(lead.nascimento).slice(0, 10) + 'T12:00:00');
+    const meses = Math.floor((Date.now() - nasc) / (30.44 * 86400000));
+    return meses < 24 ? ` (${meses} meses)` : ` (${Math.floor(meses / 12)} anos)`;
+  })();
+
+  const salvar = async () => {
+    if (salvando) return;
+    setSalvando(true);
+    try {
+      const upd = await api.put(`/leads/${leadId}`, {
+        nome: form.nome, responsavel_cliente: form.responsavel_cliente,
+        nascimento: form.nascimento ? String(form.nascimento).slice(0, 10) : '',
+        endereco: form.endereco, bairro: form.bairro, observacoes: form.observacoes,
+      });
+      setLead(upd); setEditando(false);
+    } catch (e) { Toast.show(e.message, 'error'); }
+    finally { setSalvando(false); }
+  };
+
+  const mudaEtapa = async (status) => {
+    try {
+      const upd = await api.patch(`/leads/${leadId}/status`, { status });
+      setLead(upd);
+    } catch (e) {
+      if (/motivo/i.test(e.message)) Toast.show('Mover pra Perdido pede o motivo — use o Kanban da Organização.', 'error');
+      else Toast.show(e.message, 'error');
+    }
+  };
+
+  const Linha = ({ label, campo, tipo = 'text', placeholder = '—', mask }) => (
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '4px 0', fontSize: 11.5 }}>
+      <span style={{ color: 'var(--muted)', fontWeight: 600, flexShrink: 0 }}>{label}</span>
+      {editando ? (
+        <input type={tipo} value={form[campo] ? (tipo === 'date' ? String(form[campo]).slice(0, 10) : form[campo]) : ''} maxLength={tipo === 'date' ? undefined : 160}
+          onChange={e => setForm({ ...form, [campo]: mask ? mask(e.target.value) : e.target.value })}
+          style={{ flex: 1, minWidth: 0, padding: '2px 7px', borderRadius: 7, border: '1px solid var(--border)', fontSize: 11.5, textAlign: 'right', background: 'var(--bg)', color: 'var(--txt)' }} />
+      ) : (
+        <span style={{ fontWeight: 700, textAlign: 'right', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {campo === 'nascimento' && lead.nascimento ? fmt.date(String(lead.nascimento).slice(0, 10)) + idade : (lead[campo] || placeholder)}
+        </span>
+      )}
+    </div>
+  );
+
+  const idxAtual = colunas.findIndex(c => c.nome === lead.status);
+
+  return (
+    <>
+      {/* Dados do cliente */}
+      <div style={{ padding: '13px 14px', borderBottom: '1px solid var(--border)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 7 }}>
+          <span style={{ fontWeight: 800, fontSize: 13 }}>Dados do cliente</span>
+          {editando ? (
+            <button onClick={salvar} disabled={salvando} style={{ border: 'none', background: 'var(--tq)', color: '#fff', borderRadius: 8, padding: '3px 11px', fontSize: 10.5, fontWeight: 800, cursor: 'pointer', opacity: salvando ? .6 : 1 }}>{salvando ? '…' : 'Salvar'}</button>
+          ) : (
+            <button onClick={() => { setForm(lead); setEditando(true); }} style={{ border: 'none', background: 'none', color: 'var(--tq2)', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>✏️ Editar</button>
+          )}
+        </div>
+        <Linha label="Responsável" campo="responsavel_cliente" placeholder="Quem responde pela família" />
+        <Linha label="Paciente" campo="nome" />
+        <Linha label="Nascimento" campo="nascimento" tipo="date" />
+        <Linha label="Endereço" campo="endereco" />
+        <Linha label="Bairro" campo="bairro" />
+        <Linha label="Observações" campo="observacoes" />
+      </div>
+
+      {/* Funil em bolinhas */}
+      {colunas.length > 0 && (
+        <div style={{ padding: '13px 14px', borderBottom: '1px solid var(--border)' }}>
+          <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 8 }}>Funil de {setor === 'consultas' ? 'Consultas' : setor === 'terapias' ? 'Terapias' : 'Vacinas'}</div>
+          <select value={lead.status || ''} onChange={e => mudaEtapa(e.target.value)}
+            style={{ width: '100%', padding: '7px 10px', borderRadius: 10, border: '1.5px solid var(--border)', fontSize: 12, fontWeight: 700, background: 'var(--card)', color: 'var(--txt)', marginBottom: 10 }}>
+            {colunas.map(c => <option key={c.id} value={c.nome}>{c.nome}</option>)}
+            <option value="Perdido">Perdido</option>
+          </select>
+          <div style={{ display: 'flex', alignItems: 'flex-start', overflowX: 'auto', paddingBottom: 2 }}>
+            {colunas.map((c, i) => (
+              <div key={c.id} style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+                <div style={{ textAlign: 'center', width: 46 }}>
+                  <div style={{ width: 18, height: 18, borderRadius: '50%', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    background: i < idxAtual ? 'var(--tq3)' : i === idxAtual ? 'var(--tq)' : 'var(--bg2)',
+                    border: `2px solid ${i <= idxAtual ? 'var(--tq)' : 'var(--border)'}`, fontSize: 9, color: i < idxAtual ? 'var(--tq2)' : '#fff', fontWeight: 800 }}>
+                    {i < idxAtual ? '✓' : ''}
+                  </div>
+                  <div style={{ fontSize: 7.5, fontWeight: 700, color: i === idxAtual ? 'var(--tq2)' : 'var(--light)', marginTop: 3, lineHeight: 1.15 }}>{c.nome.split(' ').slice(0, 2).join(' ')}</div>
+                </div>
+                {i < colunas.length - 1 && <div style={{ width: 14, height: 2, background: i < idxAtual ? 'var(--tq)' : 'var(--border)', marginTop: -12, flexShrink: 0 }} />}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Próximas etapas automáticas */}
+      <div style={{ padding: '13px 14px', borderBottom: '1px solid var(--border)' }}>
+        <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 8 }}>Próximas etapas</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 11.5 }}>
+          {proximaVacina && (
+            <div style={{ display: 'flex', gap: 8 }}><span>💉</span><span>Próxima vacina: <b>{proximaVacina.data}</b> ({proximaVacina.meses} meses)</span></div>
+          )}
+          {lead.data_retorno && (
+            <div style={{ display: 'flex', gap: 8 }}><span>🔔</span><span>Follow-up: <b>{fmt.date(String(lead.data_retorno).slice(0, 10))}</b></span></div>
+          )}
+          {lead.status === 'Vacinado' && (
+            <div style={{ display: 'flex', gap: 8 }}><span>❤️</span><span>Pós-vacinal: <b>contato em 24h</b></span></div>
+          )}
+          {!proximaVacina && !lead.data_retorno && lead.status !== 'Vacinado' && (
+            <div style={{ color: 'var(--muted)' }}>Preencha o nascimento pra eu calcular o calendário vacinal 2→18 meses. ✨</div>
+          )}
+        </div>
+      </div>
+    </>
   );
 }

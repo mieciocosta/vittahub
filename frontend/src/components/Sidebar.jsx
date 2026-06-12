@@ -121,6 +121,18 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
     };
     img.src = URL.createObjectURL(f);
   };
+  const [metaMini, setMetaMini] = useState(null);
+  useEffect(() => {
+    api.get('/reports/dashboard').then(d => d?.metas && setMetaMini(d.metas.vacinas)).catch(() => {});
+  }, []); // eslint-disable-line
+
+  const VERS_DIA = (() => {
+    const V = [['Entrega o teu caminho ao Senhor; confia nele, e ele o fará.','Salmos 37:5'],['Tudo posso naquele que me fortalece.','Filipenses 4:13'],['O Senhor é o meu pastor; nada me faltará.','Salmos 23:1'],['Não temas, porque eu sou contigo.','Isaías 41:10'],['O coração alegre é como o bom remédio.','Provérbios 17:22'],['Confia no Senhor de todo o teu coração.','Provérbios 3:5'],['As misericórdias do Senhor se renovam a cada manhã.','Lamentações 3:22'],['Este é o dia que o Senhor fez.','Salmos 118:24'],['Porque para Deus nada é impossível.','Lucas 1:37'],['Sê forte e corajoso.','Josué 1:9']];
+    const dia = Math.floor((new Date() - new Date(new Date().getFullYear(), 0, 0)) / 86400000);
+    return V[dia % V.length];
+  })();
+  const saudDia = (() => { const h = new Date().getHours(); return h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite'; })();
+
   const UserAvatar = ({ size }) => user?.avatar
     ? <img src={user.avatar} alt="" style={{ width:size, height:size, borderRadius:'50%', objectFit:'cover', flexShrink:0, display:'block' }} />
     : <div style={{ width:size, height:size, borderRadius:'50%', background:`linear-gradient(135deg, var(--tq), var(--pet))`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:size*0.36, fontWeight:700, color:'#fff', letterSpacing:.5, flexShrink:0 }}>{initials(user?.nome)}</div>;
@@ -300,7 +312,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
             </button>
             <div style={{ flex:1, minWidth:0 }}>
               <div style={{ color:'#fff', fontSize:13, fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{user?.nome?.split(' ')[0]}</div>
-              <div style={{ color:'rgba(255,255,255,.85)', fontSize:10.5 }}>{user?.role === 'master' ? '◆ Master' : user?.role === 'supervisor' ? '◆ Supervisora' : 'Atendente'}</div>
+              <div style={{ color:'rgba(255,255,255,.85)', fontSize:10.5 }}>{user?.role === 'master' ? '◆ Master' : user?.role === 'supervisor' ? '◆ Supervisora' : 'Atendente'}<span style={{ marginLeft:6 }}><span style={{ display:'inline-block', width:6, height:6, borderRadius:'50%', background:'#3ef58f', marginRight:3, verticalAlign:'1px' }}/>Online</span></div>
             </div>
             <button onClick={onToggleTheme} title={theme === 'dark' ? 'Modo claro' : 'Modo escuro'} style={{ padding:6, background:'none', color:'rgba(255,255,255,.62)', borderRadius:6, transition:'color .15s', cursor:'pointer', border:'none' }}
               onMouseEnter={e=>e.currentTarget.style.color='var(--txt2)'}
@@ -315,14 +327,25 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
           </div>
         )}
       </div>
-      {!collapsed && (
-        <div style={{ margin:'0 12px 10px', padding:'13px 14px', borderRadius:14, background:'rgba(255,255,255,.14)', border:'1px solid rgba(255,255,255,.22)' }}>
-          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:4 }}>
-            <span style={{ fontSize:18 }}>🎁</span>
-            <span style={{ fontWeight:800, fontSize:12.5, color:'#fff' }}>Indique e ganhe</span>
+      {!collapsed && metaMini && (
+        <div style={{ margin:'0 12px 8px', padding:'10px 13px', borderRadius:13, background:'rgba(255,255,255,.14)', border:'1px solid rgba(255,255,255,.22)' }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:5 }}>
+            <span style={{ fontSize:10.5, fontWeight:800, color:'#fff' }}>Meta do mês — Vacinas</span>
+            <span style={{ fontSize:13, fontWeight:800, color:'#fff' }}>{Math.round(metaMini.pct)}%</span>
           </div>
-          <div style={{ fontSize:10.5, color:'rgba(255,255,255,.75)', lineHeight:1.4 }}>Convide amigos e seja recompensado!</div>
-          <NavLink to="/indicacoes" style={{ display:'block', marginTop:8, padding:'5px 0', borderRadius:8, background:'rgba(255,255,255,.92)', color:'var(--tq2)', fontSize:11, fontWeight:800, textAlign:'center', textDecoration:'none' }}>Ver programa</NavLink>
+          <div style={{ height:7, borderRadius:6, background:'rgba(255,255,255,.25)', overflow:'hidden' }}>
+            <div style={{ width:`${Math.min(metaMini.pct,100)}%`, height:'100%', background:'#fff', borderRadius:6 }} />
+          </div>
+          <div style={{ fontSize:9.5, color:'rgba(255,255,255,.75)', marginTop:4 }}>
+            {Number(metaMini.vendido).toLocaleString('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:0})} / {Number(metaMini.meta).toLocaleString('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:0})}
+          </div>
+        </div>
+      )}
+      {!collapsed && (
+        <div style={{ margin:'0 12px 10px', padding:'10px 13px', borderRadius:13, background:'rgba(255,255,255,.14)', border:'1px solid rgba(255,255,255,.22)' }}>
+          <div style={{ fontSize:11.5, fontWeight:800, color:'#fff', marginBottom:3 }}>{saudDia}, {(user?.nome||'').split(' ')[0]}! ☀️</div>
+          <div style={{ fontSize:9.5, color:'rgba(255,255,255,.85)', lineHeight:1.45, fontStyle:'italic' }}>“{VERS_DIA[0]}”</div>
+          <div style={{ fontSize:9, color:'rgba(255,255,255,.6)', marginTop:2, fontWeight:700 }}>{VERS_DIA[1]}</div>
         </div>
       )}
       <input ref={avatarFileRef} type="file" accept="image/*" style={{ display:'none' }} onChange={trocarAvatar} />

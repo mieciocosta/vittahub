@@ -96,7 +96,9 @@ async function transcreverAudio(base64, mime = 'audio/webm') {
   return (d.text || '').trim();
 }
 
-function cacheGetList({ channel, search, unread_only, waiting, setor, page = 1, limit = 100, extraIds = null, viewer = null }) {
+const ehGrupo = (c) => String(c.contact_id || '').includes('g.us') || String(c.phone || '').replace(/\D/g, '').length > 13;
+
+function cacheGetList({ channel, search, unread_only, waiting, minhas, grupos, setor, page = 1, limit = 100, extraIds = null, viewer = null }) {
   let list = Array.from(convoCache.values())
     .sort((a, b) => new Date(b.last_message_at || 0) - new Date(a.last_message_at || 0));
   if (channel && channel !== 'all') list = list.filter(c => c.channel === channel);
@@ -108,6 +110,9 @@ function cacheGetList({ channel, search, unread_only, waiting, setor, page = 1, 
   if (unread_only === 'true') list = list.filter(c => (c.unread || 0) > 0);
   // Aguardando resposta: a última mensagem é do CLIENTE (fila de quem espera)
   if (waiting === 'true') list = list.filter(c => c.last_from === 'contact');
+  // Filtros do mock: Minhas (sou a responsável) e Grupos (conversas de grupo)
+  if (minhas === 'true' && viewer) list = list.filter(c => c.responsavel_id === viewer.id);
+  if (grupos === 'true') list = list.filter(c => ehGrupo(c));
   if (search) {
     const s = search.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
     list = list.filter(c =>
@@ -1696,6 +1701,14 @@ r.get('/conversations', async (req, res) => {
     } catch (err) { return res.status(500).json({ error: err.message }); }
   }
   const result = cacheGetList({ ...req.query, extraIds, viewer: req.user });
+  // Contadores dos chips (Todas/Minhas/Não lidas/Grupos) — direto do cache, custo zero
+  const tudo = Array.from(convoCache.values());
+  result.counts = {
+    todas: tudo.length,
+    minhas: tudo.filter(c => c.responsavel_id === req.user.id).length,
+    naoLidas: tudo.filter(c => (c.unread || 0) > 0).length,
+    grupos: tudo.filter(c => ehGrupo(c)).length,
+  };
   res.json(result);
 });
 
