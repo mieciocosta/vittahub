@@ -513,18 +513,44 @@ function detectarSetor(texto) {
   if (/^\s*1\b/.test(t) || t.includes('vacin'))   return 'vacinas';
   if (/^\s*2\b/.test(t) || t.includes('consult')) return 'consultas';
   if (/^\s*3\b/.test(t) || t.includes('terap'))   return 'terapias';
+  if (/^\s*4\b/.test(t) || t.includes('outro') || t.includes('assunto')) return 'outros';
   return null;
 }
 
-const MENU_TRIAGEM = `Olá! Seja bem-vindo(a) à *Vittalis Saúde* 💙
+const MENU_TITULO = `Olá! 👋
+Seja muito bem-vindo(a) à *Vittalis Saúde!* 💙
 
-Para agilizar seu atendimento, escolha uma das opções abaixo:
+Para te direcionar ao setor correto e oferecer o melhor atendimento, escolha uma das opções abaixo:`;
 
-1️⃣ 💉 Vacinas
+const MENU_TRIAGEM = `${MENU_TITULO}
+
+1️⃣ 💉 Vacinação
 2️⃣ 🩺 Consultas
 3️⃣ 🧩 Terapias
+4️⃣ 💬 Outros Assuntos
 
 É só responder com o número ou o nome da opção 😊`;
+
+// Menu com BOTÕES (como o mock); se a Z-API recusar, cai pro menu numerado
+async function enviarMenuTriagem(phoneNum) {
+  if (!zapiOk()) return MENU_TRIAGEM;
+  try {
+    const r = await zapiCall('/send-button-list', 'POST', {
+      phone: `55${phoneNum}`,
+      message: MENU_TITULO,
+      buttonList: { buttons: [
+        { id: 'vacinas',   label: '💉 Vacinação' },
+        { id: 'consultas', label: '🩺 Consultas' },
+        { id: 'terapias',  label: '🧩 Terapias' },
+        { id: 'outros',    label: '💬 Outros Assuntos' },
+      ] },
+    });
+    if (r?.ok) return `${MENU_TITULO}\n\n[💉 Vacinação] [🩺 Consultas] [🧩 Terapias] [💬 Outros Assuntos]`;
+    console.error('send-button-list recusado:', r?.status, (await r?.text().catch(() => ''))?.slice(0, 120));
+  } catch (e) { console.error('send-button-list erro:', e.message); }
+  await zapiCall('/send-text', 'POST', { phone: `55${phoneNum}`, message: MENU_TRIAGEM });
+  return MENU_TRIAGEM;
+}
 
 // Rodízio: pega a próxima atendente ativa do setor (contador em configuracoes)
 async function distribuirSetor(convId, setor) {
@@ -556,11 +582,29 @@ async function triagemSetor(conv, texto, phoneNum) {
   if (!escolha) {
     if (conv.menu_enviado) return false;            // já perguntou; deixa a Vitta seguir
     await query('UPDATE conversas SET menu_enviado = true WHERE id = $1', [conv.id]);
-    if (zapiOk()) await zapiCall('/send-text', 'POST', { phone: `55${phoneNum}`, message: MENU_TRIAGEM });
+    const registrado = await enviarMenuTriagem(phoneNum);
     const { rows: [m] } = await query(
       `INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, created_at)
-       VALUES ($1,'bot','Vitta','text',$2,NOW()) RETURNING *`, [conv.id, MENU_TRIAGEM]).catch(() => ({ rows: [null] }));
+       VALUES ($1,'bot','Vitta','text',$2,NOW()) RETURNING *`, [conv.id, registrado]).catch(() => ({ rows: [null] }));
     if (m) socketEmit('new_message', { convId: conv.id, message: m, conv });
+    return true;
+  }
+
+  // "Outros Assuntos": confirma, desliga o bot e chama a equipe (triagem humana)
+  if (escolha === 'outros') {
+    const confOutros = `Perfeito! 😊\nVou te direcionar para nossa equipe.\nUm momento, por favor.`;
+    if (zapiOk()) await zapiCall('/send-text', 'POST', { phone: `55${phoneNum}`, message: confOutros });
+    await query('UPDATE conversas SET bot_ativo = false, menu_enviado = true WHERE id = $1', [conv.id]).catch(() => {});
+    const cachedO = convoCache.get(conv.id);
+    if (cachedO) cacheUpdate({ ...cachedO, bot_ativo: false });
+    const { rows: [mo] } = await query(
+      `INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, created_at)
+       VALUES ($1,'bot','Vitta','text',$2,NOW()) RETURNING *`, [conv.id, confOutros]).catch(() => ({ rows: [null] }));
+    if (mo) socketEmit('new_message', { convId: conv.id, message: mo, conv });
+    socketEmit('bot_status', { convId: conv.id, bot_ativo: false });
+    await query(
+      `INSERT INTO notificacoes (tipo, titulo, texto, conv_id) VALUES ('novo_lead',$1,$2,$3)`,
+      [`Outros assuntos: ${conv.contact_name || phoneNum}`, 'Cliente escolheu "Outros Assuntos" — atendimento humano na fila geral.', conv.id]).catch(() => {});
     return true;
   }
 
@@ -570,12 +614,16 @@ async function triagemSetor(conv, texto, phoneNum) {
   if (cached) cacheUpdate({ ...cached, setor: escolha });
   const atendente = await distribuirSetor(conv.id, escolha);
 
-  if (escolha === 'vacinas') {
-    // Vacinas: a Vitta atende na sequência (ela domina calendário e preços)
-    return false;
-  }
+  // Sorteio feito (vacinas → Danielle/Raylane · consultas → Fabiane/Taíse).
+  // Automação SÓ no início: confirma, apresenta a sorteada e o humano assume.
+  const confirmaCurta = `Perfeito! 😊\nVou te direcionar para nossa equipe.\nUm momento, por favor.`;
+  if (zapiOk()) await zapiCall('/send-text', 'POST', { phone: `55${phoneNum}`, message: confirmaCurta });
+  const { rows: [mc] } = await query(
+    `INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, created_at)
+     VALUES ($1,'bot','Vitta','text',$2,NOW()) RETURNING *`, [conv.id, confirmaCurta]).catch(() => ({ rows: [null] }));
+  if (mc) socketEmit('new_message', { convId: conv.id, message: mc, conv });
 
-  // Consultas/Terapias: saudação por turno + apresentação da atendente (espec da gestão)
+  // Saudação por turno + apresentação da atendente sorteada (espec da gestão)
   const h = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: 'numeric', hour12: false });
   const saud = parseInt(h) < 12 ? 'Bom dia' : parseInt(h) < 18 ? 'Boa tarde' : 'Boa noite';
   const nomeAt = atendente ? atendente.nome.split(' ')[0] : null;
@@ -1027,6 +1075,10 @@ r.post('/webhook/zapi', async (req, res) => {
 
     // Texto: vários formatos possíveis
     const textMsg = body.text?.message
+      || body.buttonsResponseMessage?.message      // clique em botão (menu de boas-vindas)
+      || body.buttonReply?.message
+      || body.listResponseMessage?.title
+      || body.listResponseMessage?.message
       || body.message?.text
       || body.text
       || body.body
