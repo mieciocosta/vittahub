@@ -155,7 +155,7 @@ const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect, usersB
 });
 
 /* ── SearchBar ───────────────────────────────────────────────────────────────── */
-function SearchBar({ value, onChange, filter, setFilter, totalUnread, unreadOnly, setUnreadOnly, waiting, setWaiting }) {
+function SearchBar({ value, onChange, filter, setFilter, totalUnread, unreadOnly, setUnreadOnly, waiting, setWaiting, setor, setSetor, mostraSetores }) {
   return (
     <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
       <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
@@ -179,6 +179,16 @@ function SearchBar({ value, onChange, filter, setFilter, totalUnread, unreadOnly
           </button>
         )}
       </div>
+      {mostraSetores && (
+        <div style={{ display:'flex', gap:4, marginBottom:8 }}>
+          {[['all','Todos'],['vacinas','Vacinas'],['consultas','Consultas'],['terapias','Terapias']].map(([k,l])=>(
+            <button key={k} onClick={()=>setSetor(k)}
+              style={{ flex:1, padding:'4px 2px', borderRadius:8, fontSize:10.5, fontWeight:700, cursor:'pointer', border:'1.5px solid',
+                background: setor===k?'var(--pet)':'var(--card,#fff)', color: setor===k?'#fff':'var(--muted)',
+                borderColor: setor===k?'var(--pet)':'var(--border)' }}>{l}</button>
+          ))}
+        </div>
+      )}
       <div style={{ position: 'relative' }}>
         <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)', pointerEvents: 'none' }} />
         <input value={value} onChange={e => onChange(e.target.value)}
@@ -396,6 +406,7 @@ export default function Inbox({ onUnreadChange }) {
   const [qr, setQr]             = useState([]);
   const [lightbox, setLightbox] = useState(null);
   const [waiting, setWaiting] = useState(false);
+  const [setorFiltro, setSetorFiltro] = useState('all');
   const [somAtivo, setSomAtivo] = useState(() => localStorage.getItem('vh_sound') !== 'off');
   const somRef = useRef(true);
   useEffect(() => { somRef.current = somAtivo; localStorage.setItem('vh_sound', somAtivo ? 'on' : 'off'); }, [somAtivo]);
@@ -583,7 +594,7 @@ export default function Inbox({ onUnreadChange }) {
       } catch {}
     }, 5000);
     return () => clearInterval(iv);
-  }, [filter, search, unreadOnly, waiting]);
+  }, [filter, search, unreadOnly, waiting, setorFiltro]);
 
   // ── Auto-scroll ao chegar novas mensagens ─────────────────────────────────
   // Só rola se o usuário já estava perto do fim (não interrompe quem lê mensagens antigas)
@@ -604,6 +615,7 @@ export default function Inbox({ onUnreadChange }) {
       if (search) params.set('search', search);
       if (unreadOnly) params.set('unread_only', 'true');
       if (waiting) params.set('waiting', 'true');
+      if (setorFiltro !== 'all') params.set('setor', setorFiltro);
       const data = await api.get(`/inbox/conversations?${params}`);
       const list = data.data || data;
       const tot  = data.total ?? list.length;
@@ -611,7 +623,7 @@ export default function Inbox({ onUnreadChange }) {
       lastPollTs.current = new Date().toISOString();
       onUnreadChange?.(list.reduce((s, c) => s + (c.unread || 0), 0));
     } catch(err) { console.error('loadConvos:', err.message); }
-  }, [filter, search, unreadOnly, waiting]);
+  }, [filter, search, unreadOnly, waiting, setorFiltro]);
 
   // ── Infinite scroll ────────────────────────────────────────────────────────
   const loadMore = useCallback(async () => {
@@ -624,6 +636,7 @@ export default function Inbox({ onUnreadChange }) {
       if (search) params.set('search', search);
       if (unreadOnly) params.set('unread_only', 'true');
       if (waiting) params.set('waiting', 'true');
+      if (setorFiltro !== 'all') params.set('setor', setorFiltro);
       const data = await api.get(`/inbox/conversations?${params}`);
       const list = data.data || [];
       setConvos(prev => {
@@ -847,7 +860,8 @@ export default function Inbox({ onUnreadChange }) {
 
         <SearchBar value={search} onChange={setSearch} filter={filter} setFilter={setFilter}
           totalUnread={totalUnread} unreadOnly={unreadOnly} setUnreadOnly={setUnreadOnly}
-          waiting={waiting} setWaiting={setWaiting}/>
+          waiting={waiting} setWaiting={setWaiting}
+          setor={setorFiltro} setSetor={setSetorFiltro} mostraSetores={user?.role !== 'atendente'}/>
 
         <div ref={listContainerRef} style={{ flex:1, minHeight:0 }}>
           <VirtualList items={convos} selectedId={sel?.id} onSelect={openConvo} usersById={usersById}
@@ -947,11 +961,11 @@ export default function Inbox({ onUnreadChange }) {
               <button onClick={toggleBot} className="btn btn-sm" style={{ background:sel.bot_ativo?'var(--ok2)':'var(--bg2)', color:sel.bot_ativo?'var(--ok)':'var(--muted)', border:`1.5px solid ${sel.bot_ativo?'var(--ok)':'var(--border)'}`, fontSize:11, padding:'4px 9px' }}>
                 <Bot size={10}/>{sel.bot_ativo?'Bot ON':'Bot'}
               </button>
-              <button onClick={()=>setShowProposta(true)} className="btn btn-sm" style={{ background:'linear-gradient(135deg,#071e2c,#207898)', color:'#fff', fontSize:11, padding:'4px 9px' }}>
+              <button onClick={()=>setShowProposta(true)} className="btn btn-sm" style={{ background:'linear-gradient(135deg,#032B30,#0E8C96)', color:'#fff', fontSize:11, padding:'4px 9px' }}>
                 <FileText size={10}/> Proposta
               </button>
               <button onClick={toLead} className="btn btn-s btn-sm" style={{ fontSize:11, padding:'4px 9px' }}><UserPlus size={10}/> Lead</button>
-              <button onClick={()=>{setShowAI(p=>!p);setShowInfo(false);}} className="btn btn-sm" style={{ background:showAI?'#071e2c':'var(--bg2)', color:showAI?'#00B8C0':'var(--muted)', border:`1.5px solid ${showAI?'rgba(0,184,192,.4)':'var(--border)'}`, fontSize:11, padding:'4px 9px' }}>
+              <button onClick={()=>{setShowAI(p=>!p);setShowInfo(false);}} className="btn btn-sm" style={{ background:showAI?'#032B30':'var(--bg2)', color:showAI?'#00B8C0':'var(--muted)', border:`1.5px solid ${showAI?'rgba(0,184,192,.4)':'var(--border)'}`, fontSize:11, padding:'4px 9px' }}>
                 <Sparkles size={10}/> IA
               </button>
               <button onClick={()=>{setShowInfo(p=>!p);setShowAI(false);}} className="btn btn-sm" style={{ background:showInfo?'var(--tq3)':'var(--bg2)', color:showInfo?'var(--tq2)':'var(--muted)', border:`1.5px solid ${showInfo?'var(--tq)':'var(--border)'}`, fontSize:11, padding:'4px 9px' }}>

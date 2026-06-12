@@ -25,7 +25,7 @@ r.post('/login', async (req, res) => {
     const ok = await bcrypt.compare(senha, u.senha);
     if (!ok) return res.status(401).json({ error: 'Senha incorreta' });
     const token = jwt.sign({ id: u.id, nome: u.nome, email: u.email, role: u.role, cor: u.cor }, SECRET, { expiresIn: '30d' });
-    res.json({ token, user: { id: u.id, nome: u.nome, email: u.email, cpf: u.cpf, role: u.role, cor: u.cor, avatar: u.avatar || null } });
+    res.json({ token, user: { id: u.id, nome: u.nome, email: u.email, cpf: u.cpf, role: u.role, cor: u.cor, avatar: u.avatar || null, setor: u.setor || null } });
   } catch (err) {
     console.error('Login error:', err.message);
     res.status(500).json({ error: 'Erro interno: ' + err.message });
@@ -34,7 +34,7 @@ r.post('/login', async (req, res) => {
 
 r.get('/me', auth, async (req, res) => {
   try {
-    const { rows } = await query('SELECT id,nome,email,cpf,role,cor,avatar FROM usuarios WHERE id=$1', [req.user.id]);
+    const { rows } = await query('SELECT id,nome,email,cpf,role,cor,avatar,setor FROM usuarios WHERE id=$1', [req.user.id]);
     if (!rows[0]) return res.status(404).json({ error: 'Não encontrado' });
     res.json(rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -58,7 +58,7 @@ r.patch('/me/avatar', auth, async (req, res) => {
 r.get('/usuarios', auth, async (req, res) => {
   if (req.user.role !== 'master') return res.status(403).json({ error: 'Acesso negado' });
   try {
-    const { rows } = await query("SELECT id,nome,email,cpf,role,cor,ativo,avatar FROM usuarios WHERE role!='bot' ORDER BY nome");
+    const { rows } = await query("SELECT id,nome,email,cpf,role,cor,ativo,avatar,setor FROM usuarios WHERE role!='bot' ORDER BY nome");
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -70,8 +70,9 @@ r.post('/usuarios', auth, async (req, res) => {
     const nome = String(req.body.nome || '').trim().slice(0, 80);
     const cpf = String(req.body.cpf || '').replace(/\D/g, '');
     const senha = String(req.body.senha || '');
-    const role = ['master', 'atendente'].includes(req.body.role) ? req.body.role : 'atendente';
+    const role = ['master', 'supervisor', 'atendente'].includes(req.body.role) ? req.body.role : 'atendente';
     const cor = req.body.cor || '#00B8C0';
+    const setor = ['vacinas','consultas','terapias'].includes(req.body.setor) ? req.body.setor : null;
     if (!nome) return res.status(400).json({ error: 'Informe o nome' });
     if (cpf.length !== 11) return res.status(400).json({ error: 'CPF inválido — precisa de 11 dígitos' });
     if (senha.length < 8) return res.status(400).json({ error: 'A senha precisa de pelo menos 8 caracteres' });
@@ -80,10 +81,10 @@ r.post('/usuarios', auth, async (req, res) => {
     const hash = await bcrypt.hash(senha, 10);
     const email = `${cpf}@vittahub.local`; // e-mail é NOT NULL/único no schema; login é pelo CPF
     const { rows: [u] } = await query(
-      `INSERT INTO usuarios (id, nome, email, cpf, senha, role, cor, ativo)
-       VALUES (gen_random_uuid()::text, $1, $2, $3, $4, $5, $6, true)
-       RETURNING id, nome, email, cpf, role, cor, ativo`,
-      [nome, email, cpf, hash, role, cor]);
+      `INSERT INTO usuarios (id, nome, email, cpf, senha, role, cor, ativo, setor)
+       VALUES (gen_random_uuid()::text, $1, $2, $3, $4, $5, $6, true, $7)
+       RETURNING id, nome, email, cpf, role, cor, ativo, setor`,
+      [nome, email, cpf, hash, role, cor, setor]);
     res.status(201).json(u);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -92,14 +93,15 @@ r.post('/usuarios', auth, async (req, res) => {
 r.put('/usuarios/:id', auth, async (req, res) => {
   if (req.user.role !== 'master') return res.status(403).json({ error: 'Acesso negado' });
   try {
-    const { nome, cpf, role, cor, ativo, senha } = req.body;
+    const { nome, cpf, role, cor, ativo, senha, setor } = req.body;
     const updates = [], params = [];
     let pi = 1;
     const set = (col, val) => { if (val !== undefined) { updates.push(`${col} = $${pi++}`); params.push(val); } };
     set('nome', nome);
     if (cpf !== undefined) set('cpf', String(cpf).replace(/\D/g, '') || null);
-    if (role !== undefined && ['master', 'atendente'].includes(role)) set('role', role);
+    if (role !== undefined && ['master', 'supervisor', 'atendente'].includes(role)) set('role', role);
     set('cor', cor);
+    if (setor !== undefined) set('setor', ['vacinas','consultas','terapias'].includes(setor) ? setor : null);
     set('ativo', ativo);
     if (senha) {
       if (String(senha).length < 8) return res.status(400).json({ error: 'A senha precisa de pelo menos 8 caracteres' });
@@ -109,7 +111,7 @@ r.put('/usuarios/:id', auth, async (req, res) => {
     if (!updates.length) return res.status(400).json({ error: 'Nada para atualizar' });
     params.push(req.params.id);
     const { rows } = await query(
-      `UPDATE usuarios SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${pi} RETURNING id,nome,email,cpf,role,cor,ativo`,
+      `UPDATE usuarios SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${pi} RETURNING id,nome,email,cpf,role,cor,ativo,setor`,
       params
     );
     if (!rows[0]) return res.status(404).json({ error: 'Usuário não encontrado' });

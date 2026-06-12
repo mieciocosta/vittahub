@@ -160,6 +160,33 @@ export default async function runMigrate() {
       console.log('🌱 Seed de produção aplicado (usuários reais, senha Vittalis@2026)');
     }
 
+    // ── SETORES E PAPÉIS (estrutura da equipe: admin / supervisora / atendente) ──
+    await query(`ALTER TABLE usuarios  ADD COLUMN IF NOT EXISTS setor TEXT`).catch(() => {});
+    await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS setor TEXT`).catch(() => {});
+    await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS menu_enviado BOOLEAN DEFAULT false`).catch(() => {});
+    await query(`ALTER TABLE leads     ADD COLUMN IF NOT EXISTS setor TEXT`).catch(() => {});
+
+    const { rows: [flagSetores] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_setores_v1'");
+    if (!flagSetores) {
+      const bcrypt2 = await import('bcryptjs');
+      const HASH2 = await bcrypt2.default.hash('Vittalis@2026', 10);
+      // Supervisoras (e atendentes do setor de Vacinas)
+      await query(`UPDATE usuarios SET role = 'supervisor', setor = 'vacinas' WHERE cpf IN ('61867382300','63358210367')`).catch(() => {});
+      // Setor de Consultas: Fabiane (CPF do cadastro) e Taíse (CPF a cadastrar pelo master)
+      await query(`INSERT INTO usuarios (id, nome, email, cpf, senha, role, cor, ativo, setor)
+        VALUES (gen_random_uuid()::text, 'Fabiane Santos', 'fabiane@vittahub.local', '02607997348', $1, 'atendente', '#0fb07a', true, 'consultas')
+        ON CONFLICT (email) DO NOTHING`, [HASH2]).catch(() => {});
+      await query(`INSERT INTO usuarios (id, nome, email, senha, role, cor, ativo, setor)
+        VALUES (gen_random_uuid()::text, 'Taíse', 'taise@vittahub.local', $1, 'atendente', '#7c5cbf', true, 'consultas')
+        ON CONFLICT (email) DO NOTHING`, [HASH2]).catch(() => {});
+      // Conversas antigas (pré-setores) são do negócio principal: vacinas.
+      // Novas conversas nascem sem setor e recebem o menu de triagem.
+      await query(`UPDATE conversas SET setor = 'vacinas' WHERE setor IS NULL`).catch(() => {});
+      await query(`UPDATE conversas SET menu_enviado = true WHERE menu_enviado IS NOT true`).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_setores_v1', '{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🌱 Seed setores/papéis aplicado');
+    }
+
     // ── Avatar de perfil (foto pequena em data URL) ──────────────────────────
     await query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS avatar TEXT`).catch(() => {});
 

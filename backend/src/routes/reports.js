@@ -9,7 +9,8 @@ r.get('/dashboard', async (req, res) => {
   try {
     const isMaster = req.user.role === 'master';
     const uid = req.user.id;
-    const uFilter = isMaster ? '' : `AND l.responsavel_id = '${uid}'`;
+    const verTudo = isMaster || req.user.role === 'supervisor';
+    const uFilter = verTudo ? '' : `AND l.responsavel_id = '${uid}'`;
     // Período dos gráficos: ?days=7|30|90 (validado — nunca interpola entrada crua)
     const days = [7, 30, 90].includes(parseInt(req.query.days)) ? parseInt(req.query.days) : 7;
 

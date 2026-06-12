@@ -96,10 +96,15 @@ async function transcreverAudio(base64, mime = 'audio/webm') {
   return (d.text || '').trim();
 }
 
-function cacheGetList({ channel, search, unread_only, waiting, page = 1, limit = 100, extraIds = null }) {
+function cacheGetList({ channel, search, unread_only, waiting, setor, page = 1, limit = 100, extraIds = null, viewer = null }) {
   let list = Array.from(convoCache.values())
     .sort((a, b) => new Date(b.last_message_at || 0) - new Date(a.last_message_at || 0));
   if (channel && channel !== 'all') list = list.filter(c => c.channel === channel);
+  // Filtro de setor: chips da gestão (?setor=) ou trava da atendente (vê só o dela)
+  if (setor && setor !== 'all') list = list.filter(c => c.setor === setor);
+  if (viewer && viewer.role === 'atendente' && viewer.setor) {
+    list = list.filter(c => c.setor === viewer.setor);
+  }
   if (unread_only === 'true') list = list.filter(c => (c.unread || 0) > 0);
   // Aguardando resposta: a última mensagem é do CLIENTE (fila de quem espera)
   if (waiting === 'true') list = list.filter(c => c.last_from === 'contact');
@@ -487,6 +492,102 @@ async function enviarPDFZapi(phone, pdfBase64, fileName = 'Proposta-Vittalis.pdf
 // ═══════════════════════════════════════════════════════════════════════════
 const BOT_DEBOUNCE_MS = 7000;
 const botSessions = new Map(); // convId -> { timer, running, again }
+
+/* ─── TRIAGEM POR SETOR (menu inicial + distribuição alternada) ───────────────
+   Primeira mensagem de um contato novo → menu Consultas/Vacinas/Terapias.
+   Na escolha: define o setor da conversa e distribui em rodízio entre as
+   atendentes do setor (Lead 1 → A, Lead 2 → B, Lead 3 → A...).             */
+const SETORES = {
+  vacinas:   { rotulo: 'Vacinas' },
+  consultas: { rotulo: 'Consultas' },
+  terapias:  { rotulo: 'Terapias' },
+};
+
+function detectarSetor(texto) {
+  const t = String(texto || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (/^\s*1\b/.test(t) || t.includes('consult')) return 'consultas';
+  if (/^\s*2\b/.test(t) || t.includes('vacin'))   return 'vacinas';
+  if (/^\s*3\b/.test(t) || t.includes('terap'))   return 'terapias';
+  return null;
+}
+
+const MENU_TRIAGEM = `Olá! Seja bem-vindo(a) à *Vittalis Saúde* 💙
+
+Para agilizar seu atendimento, me diga o que você procura:
+
+1️⃣ Consultas
+2️⃣ Vacinas
+3️⃣ Terapias
+
+É só responder com o número ou o nome da opção 😊`;
+
+// Rodízio: pega a próxima atendente ativa do setor (contador em configuracoes)
+async function distribuirSetor(convId, setor) {
+  const { rows: equipe } = await query(
+    `SELECT id, nome FROM usuarios
+     WHERE setor = $1 AND ativo = true AND role IN ('atendente','supervisor')
+     ORDER BY nome`, [setor]);
+  if (!equipe.length) return null;
+  const chave = `rr_${setor}`;
+  const { rows: [cfg] } = await query('SELECT valor FROM configuracoes WHERE chave = $1', [chave]);
+  const atual = parseInt(cfg?.valor?.i ?? -1);
+  const prox = (atual + 1) % equipe.length;
+  await query(
+    `INSERT INTO configuracoes (chave, valor) VALUES ($1, $2)
+     ON CONFLICT (chave) DO UPDATE SET valor = $2, updated_at = NOW()`,
+    [chave, JSON.stringify({ i: prox })]);
+  const escolhida = equipe[prox];
+  await query('UPDATE conversas SET responsavel_id = $1 WHERE id = $2', [escolhida.id, convId]);
+  socketEmit('conv_assigned', { convId, responsavel_id: escolhida.id, responsavel_nome: escolhida.nome });
+  return escolhida;
+}
+
+// Devolve true se a mensagem foi consumida pela triagem (Vitta não responde)
+async function triagemSetor(conv, texto, phoneNum) {
+  if (conv.setor) return false;                     // já triado
+  if (!conv.bot_ativo) return false;                // equipe assumiu
+  const escolha = detectarSetor(texto);
+
+  if (!escolha) {
+    if (conv.menu_enviado) return false;            // já perguntou; deixa a Vitta seguir
+    await query('UPDATE conversas SET menu_enviado = true WHERE id = $1', [conv.id]);
+    if (zapiOk()) await zapiCall('/send-text', 'POST', { phone: `55${phoneNum}`, message: MENU_TRIAGEM });
+    const { rows: [m] } = await query(
+      `INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, created_at)
+       VALUES ($1,'bot','Vitta','text',$2,NOW()) RETURNING *`, [conv.id, MENU_TRIAGEM]).catch(() => ({ rows: [null] }));
+    if (m) socketEmit('new_message', { convId: conv.id, message: m, conv });
+    return true;
+  }
+
+  // Escolheu: grava setor + rodízio
+  await query('UPDATE conversas SET setor = $1 WHERE id = $2', [escolha, conv.id]);
+  const cached = convoCache.get(conv.id);
+  if (cached) cacheUpdate({ ...cached, setor: escolha });
+  const atendente = await distribuirSetor(conv.id, escolha);
+
+  if (escolha === 'vacinas') {
+    // Vacinas: a Vitta atende na sequência (ela domina calendário e preços)
+    return false;
+  }
+
+  // Consultas/Terapias: confirma, passa pra fila humana e notifica a equipe
+  const nomeAt = atendente ? atendente.nome.split(' ')[0] : 'nossa equipe';
+  const confirma = `Perfeito! Você está na fila de *${SETORES[escolha].rotulo}* e será atendido(a) por *${nomeAt}* 💙 Já estamos te chamando!`;
+  if (zapiOk()) await zapiCall('/send-text', 'POST', { phone: `55${phoneNum}`, message: confirma });
+  await query('UPDATE conversas SET bot_ativo = false, last_from = $2, last_message = $3 WHERE id = $1',
+    [conv.id, 'bot', confirma.slice(0, 100)]).catch(() => {});
+  const { rows: [m2] } = await query(
+    `INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, created_at)
+     VALUES ($1,'bot','Vitta','text',$2,NOW()) RETURNING *`, [conv.id, confirma]).catch(() => ({ rows: [null] }));
+  if (m2) socketEmit('new_message', { convId: conv.id, message: m2, conv });
+  socketEmit('bot_status', { convId: conv.id, bot_ativo: false });
+  await query(
+    `INSERT INTO notificacoes (tipo, titulo, texto, conv_id) VALUES ('novo_lead',$1,$2,$3)`,
+    [`${SETORES[escolha].rotulo}: ${conv.contact_name || phoneNum}`,
+     `Novo cliente na fila de ${SETORES[escolha].rotulo}${atendente ? ` — distribuído para ${atendente.nome}` : ''}`,
+     conv.id]).catch(() => {});
+  return true;
+}
 
 function agendarVitta(convId) {
   let sess = botSessions.get(convId);
@@ -1070,7 +1171,10 @@ r.post('/webhook/zapi', async (req, res) => {
     // única vez lendo o histórico completo — corrige as respostas triplicadas
     // que se contradiziam e re-perguntavam o que o cliente já tinha dito.
     if (conv.bot_ativo && textoParaIA) {
-      agendarVitta(conv.id);
+      // Triagem de setor primeiro (menu inicial / rodízio); se consumiu, para aqui
+      const convAtual = (await query('SELECT * FROM conversas WHERE id = $1', [conv.id])).rows[0] || conv;
+      const consumido = await triagemSetor(convAtual, textoParaIA, phoneDigits.startsWith('55') ? phoneDigits.slice(2) : phoneDigits);
+      if (!consumido) agendarVitta(conv.id);
     }
   } catch (err) { console.error('ZAPI_ERROR:', err.message); }
 });
@@ -1587,7 +1691,7 @@ r.get('/conversations', async (req, res) => {
       return res.json({ data: dataRes.rows, total, page: parseInt(page) });
     } catch (err) { return res.status(500).json({ error: err.message }); }
   }
-  const result = cacheGetList({ ...req.query, extraIds });
+  const result = cacheGetList({ ...req.query, extraIds, viewer: req.user });
   res.json(result);
 });
 

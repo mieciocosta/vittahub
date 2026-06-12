@@ -33,7 +33,7 @@ export default function Configuracoes() {
     if (editUser.cpf && cpfDig.length !== 11) return setUserErr('CPF incompleto — precisa de 11 dígitos.');
     if (editUser.senha && editUser.senha.length < 8) return setUserErr('A nova senha precisa de pelo menos 8 caracteres.');
     try {
-      const payload = { cpf: cpfDig, ativo: editUser.ativo };
+      const payload = { cpf: cpfDig, ativo: editUser.ativo, setor: editUser.setor || null };
       if (editUser.senha) payload.senha = editUser.senha;
       const upd = await api.put(`/auth/usuarios/${editUser.id}`, payload);
       setUsers(prev => prev.map(u => u.id === upd.id ? { ...u, ...upd } : u));
@@ -157,16 +157,20 @@ export default function Configuracoes() {
                   <input type="password" value={novoUser.senha} onChange={e=>setNovoUser({...novoUser, senha:e.target.value})} placeholder="mín. 8 caracteres" />
                 </div>
               </div>
-              <div style={{ display:'flex', gap:7, alignItems:'center' }}>
-                {['atendente','master'].map(rr=>(
+              <div style={{ display:'flex', gap:7, alignItems:'center', flexWrap:'wrap' }}>
+                {['atendente','supervisor','master'].map(rr=>(
                   <button key={rr} onClick={()=>setNovoUser({...novoUser, role:rr})}
                     style={{ padding:'5px 13px', borderRadius:9, fontSize:12, fontWeight:700, cursor:'pointer',
                       border:`1.5px solid ${novoUser.role===rr?'var(--tq)':'var(--border)'}`,
                       background: novoUser.role===rr?'var(--tq3)':'var(--card)',
                       color: novoUser.role===rr?'var(--tq2)':'var(--muted)' }}>
-                    {rr==='master'?'Master':'Atendente'}
+                    {rr==='master'?'Master':rr==='supervisor'?'Supervisora':'Atendente'}
                   </button>
                 ))}
+                <select value={novoUser.setor||''} onChange={e=>setNovoUser({...novoUser, setor:e.target.value})}
+                  style={{ padding:'6px 10px', borderRadius:9, border:'1.5px solid var(--border)', fontSize:12, fontWeight:600, background:'var(--card)', color:'var(--txt)' }}>
+                  {[['','—'],['vacinas','Vacinas'],['consultas','Consultas'],['terapias','Terapias']].map(([v,l])=><option key={v} value={v}>{v?`Setor: ${l}`:'Sem setor'}</option>)}
+                </select>
               </div>
               {userErr && <div style={{ fontSize:12, color:'var(--err)', fontWeight:600 }}>{userErr}</div>}
               <button onClick={criarUsuario} disabled={!novoUser.nome.trim()||mask.digits(novoUser.cpf).length!==11||novoUser.senha.length<8}
@@ -188,13 +192,13 @@ export default function Configuracoes() {
                 )}
                 <div style={{ flex:1, minWidth:0 }}>
                   <div style={{ fontWeight:700, fontSize:13 }}>{u.nome}{!u.ativo && <span style={{ fontSize:10, color:'var(--err)', fontWeight:800, marginLeft:6 }}>INATIVO</span>}</div>
-                  <div style={{ fontSize:11.5, color:'var(--muted)' }}>{u.cpf ? `CPF ${maskCpf(u.cpf)}` : 'Sem CPF cadastrado — entra pelo e-mail'}</div>
+                  <div style={{ fontSize:11.5, color:'var(--muted)' }}>{u.cpf ? `CPF ${maskCpf(u.cpf)}` : 'Sem CPF cadastrado — entra pelo e-mail'}{u.setor ? ` · ${u.setor[0].toUpperCase()+u.setor.slice(1)}` : ''}</div>
                 </div>
                 <span style={{ fontSize:11, fontWeight:700, padding:'3px 9px', borderRadius:12, background:u.role==='master'?'var(--gold2)':'var(--tq3)', color:u.role==='master'?'var(--gold)':'var(--tq)', flexShrink:0 }}>
-                  {u.role==='master'?'Master':'Atendente'}
+                  {u.role==='master'?'Master':u.role==='supervisor'?'Supervisora':'Atendente'}
                 </span>
                 {isMaster && (
-                  <button onClick={()=>{setUserErr('');setEditUser(editUser?.id===u.id?null:{ id:u.id, cpf:maskCpf(u.cpf||''), senha:'', ativo:u.ativo });}}
+                  <button onClick={()=>{setUserErr('');setEditUser(editUser?.id===u.id?null:{ id:u.id, cpf:maskCpf(u.cpf||''), senha:'', ativo:u.ativo, setor:u.setor||'' });}}
                     style={{ width:26, height:26, borderRadius:8, border:'1.5px solid var(--border)', background:'var(--card)', color:'var(--muted)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
                     {editUser?.id===u.id?<X size={12}/>:<Pencil size={12}/>}
                   </button>
@@ -211,6 +215,13 @@ export default function Configuracoes() {
                       <label>Nova senha (opcional)</label>
                       <input type="password" value={editUser.senha} onChange={e=>setEditUser({...editUser, senha:e.target.value})} placeholder="mín. 8 caracteres" />
                     </div>
+                  </div>
+                  <div className="field">
+                    <label>Setor</label>
+                    <select value={editUser.setor||''} onChange={e=>setEditUser({...editUser, setor:e.target.value})}
+                      style={{ width:'100%', padding:'8px 10px', borderRadius:10, border:'1.5px solid var(--border)', fontSize:12.5, background:'var(--card)', color:'var(--txt)' }}>
+                      {[['','—'],['vacinas','Vacinas'],['consultas','Consultas'],['terapias','Terapias']].map(([v,l])=><option key={v} value={v}>{l}</option>)}
+                    </select>
                   </div>
                   <label style={{ display:'flex', alignItems:'center', gap:7, fontSize:12.5, fontWeight:600, color:'var(--txt2)', cursor:'pointer' }}>
                     <input type="checkbox" checked={editUser.ativo} onChange={e=>setEditUser({...editUser, ativo:e.target.checked})} style={{ width:15, height:15 }} />

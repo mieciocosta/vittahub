@@ -10,7 +10,7 @@ import LeadModal from '../components/LeadModal.jsx';
    "Fechado" e "Perdido" são fixas (relatórios dependem do nome).             */
 
 const COL_W = 264;
-const PALETA = ['#3b82f6', '#f97316', '#8b5cf6', '#f59e0b', '#10b981', '#ef4444', '#00B8C0', '#207898', '#C4973B', '#ec4899'];
+const PALETA = ['#3b82f6', '#f97316', '#8b5cf6', '#f59e0b', '#10b981', '#ef4444', '#00B8C0', '#0E8C96', '#C4973B', '#ec4899'];
 
 /* tempo na etapa: "hoje" / "3d" — acima de 7 dias sinaliza estagnação */
 function tempoEtapa(iso) {
@@ -77,14 +77,30 @@ export default function Funil() {
   }, [leads, busca, fResp]);
 
   /* ── mover lead ── */
+  const [perdaModal, setPerdaModal] = useState(null); // { id, nome, motivo, outro }
+  const MOTIVOS_PERDA = ['Preço', 'Vai pensar', 'Fez em outra clínica', 'Sem interesse', 'Convênio', 'Sem retorno', 'Outro'];
+
   const dropLead = async (e, colNome) => {
     e.preventDefault(); setOverCol(null);
     if (dragCol) return dropColuna(colNome);
     if (!dragLead || dragLead.status === colNome) { setDragLead(null); return; }
-    const id = dragLead.id;
-    setLeads(prev => prev.map(l => l.id === id ? { ...l, status: colNome, status_changed_at: new Date().toISOString() } : l));
+    const lead = dragLead;
     setDragLead(null);
-    try { await api.patch(`/leads/${id}/status`, { status: colNome }); }
+    // Perdido exige motivo — abre o seletor antes de mover (relatório de perdas)
+    if (colNome === 'Perdido') { setPerdaModal({ id: lead.id, nome: lead.nome, motivo: '', outro: '' }); return; }
+    setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, status: colNome, status_changed_at: new Date().toISOString() } : l));
+    try { await api.patch(`/leads/${lead.id}/status`, { status: colNome }); }
+    catch (err) { flash(err.message); load(true); }
+  };
+
+  const confirmarPerda = async () => {
+    if (!perdaModal) return;
+    const motivo = perdaModal.motivo === 'Outro' ? (perdaModal.outro.trim() || 'Outro') : perdaModal.motivo;
+    if (!motivo) return;
+    const { id } = perdaModal;
+    setPerdaModal(null);
+    setLeads(prev => prev.map(l => l.id === id ? { ...l, status: 'Perdido', motivo_perda: motivo, status_changed_at: new Date().toISOString() } : l));
+    try { await api.patch(`/leads/${id}/status`, { status: 'Perdido', motivo_perda: motivo }); }
     catch (err) { flash(err.message); load(true); }
   };
 
@@ -355,6 +371,36 @@ export default function Funil() {
           )}
         </div>}
       </div>
+
+      {perdaModal && (
+        <div onClick={e => e.target === e.currentTarget && setPerdaModal(null)}
+          style={{ position:'fixed', inset:0, background:'rgba(3,43,48,.55)', zIndex:600, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+          <div style={{ width:'100%', maxWidth:400, background:'var(--card)', borderRadius:16, boxShadow:'var(--s4)', padding:'18px 20px' }}>
+            <div style={{ fontWeight:800, fontSize:15, marginBottom:3 }}>Por que perdemos este lead?</div>
+            <div style={{ fontSize:12, color:'var(--muted)', marginBottom:13 }}>{perdaModal.nome} · o motivo alimenta o relatório de perdas</div>
+            <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginBottom:11 }}>
+              {MOTIVOS_PERDA.map(m => (
+                <button key={m} onClick={() => setPerdaModal({ ...perdaModal, motivo: m })}
+                  style={{ padding:'6px 13px', borderRadius:9, fontSize:12, fontWeight:700, cursor:'pointer',
+                    border:`1.5px solid ${perdaModal.motivo === m ? 'var(--err)' : 'var(--border)'}`,
+                    background: perdaModal.motivo === m ? 'var(--err2)' : 'var(--card)',
+                    color: perdaModal.motivo === m ? 'var(--err)' : 'var(--muted)' }}>{m}</button>
+              ))}
+            </div>
+            {perdaModal.motivo === 'Outro' && (
+              <input autoFocus value={perdaModal.outro} maxLength={60} onChange={e => setPerdaModal({ ...perdaModal, outro: e.target.value })}
+                placeholder="Descreva o motivo…" style={{ width:'100%', padding:'8px 11px', borderRadius:10, border:'1.5px solid var(--border)', fontSize:12.5, outline:'none', marginBottom:11, background:'var(--bg)' }} />
+            )}
+            <div style={{ display:'flex', justifyContent:'flex-end', gap:8 }}>
+              <button onClick={() => setPerdaModal(null)} className="btn btn-s btn-sm">Cancelar</button>
+              <button onClick={confirmarPerda} disabled={!perdaModal.motivo || (perdaModal.motivo === 'Outro' && !perdaModal.outro.trim())}
+                className="btn btn-sm" style={{ background:'var(--err)', color:'#fff', opacity:(!perdaModal.motivo || (perdaModal.motivo === 'Outro' && !perdaModal.outro.trim())) ? .5 : 1 }}>
+                Confirmar perda
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {modal && (
         <LeadModal

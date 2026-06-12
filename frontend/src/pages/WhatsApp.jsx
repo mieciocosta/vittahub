@@ -250,7 +250,7 @@ export default function WhatsApp() {
               } catch (e) { setMsg(e.message); }
               setBusy(false);
             }} disabled={busy}
-              style={{ display:'block', marginTop:10, padding:'9px 16px', background:'#207898', color:'#fff', borderRadius:8, fontWeight:700, fontSize:13, border:'none', cursor:'pointer' }}>
+              style={{ display:'block', marginTop:10, padding:'9px 16px', background:'#0E8C96', color:'#fff', borderRadius:8, fontWeight:700, fontSize:13, border:'none', cursor:'pointer' }}>
               ✅ Já escaneei — marcar como conectado
             </button>
             <p style={{ fontSize:12, color:'#92400e', marginTop:10 }}>

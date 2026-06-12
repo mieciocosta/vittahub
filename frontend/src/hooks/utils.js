@@ -6,7 +6,7 @@ export const STATUS_CLR = {
   'Novo lead':'#3b82f6','Em atendimento':'#f97316','Orçamento enviado':'#8b5cf6',
   'Aguardando retorno':'#f59e0b','Fechado':'#10b981','Perdido':'#ef4444'
 };
-export const COLORS = ['#00B8C0','#207898','#C4973B','#10b981','#ef4444','#8b5cf6','#f97316','#3b82f6'];
+export const COLORS = ['#00B8C0','#0E8C96','#C4973B','#10b981','#ef4444','#8b5cf6','#f97316','#3b82f6'];
 
 export const fmt = {
   brl: v => v==null?'—':new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(v),
@@ -59,7 +59,7 @@ export const mask = {
 
 /* Gradiente determinístico por contato (estilo WhatsApp/Telegram) */
 const AV_GRADS = [
-  ['#00B8C0', '#207898'], ['#7c5cbf', '#4c3a8f'], ['#e8671a', '#c2410c'],
+  ['#00B8C0', '#0E8C96'], ['#7c5cbf', '#4c3a8f'], ['#e8671a', '#c2410c'],
   ['#0fb07a', '#047857'], ['#e84040', '#b91c1c'], ['#C4973B', '#92660f'],
   ['#3b82f6', '#1d4ed8'], ['#ec4899', '#be185d'],
 ];

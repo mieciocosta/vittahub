@@ -82,7 +82,7 @@ const ESTAGIO_LABEL = {
 
 /* paleta do painel (petróleo profundo da marca) */
 const P = {
-  bg: '#071e2c', card: 'rgba(255,255,255,.045)', cardBorder: 'rgba(255,255,255,.07)',
+  bg: '#032B30', card: 'rgba(255,255,255,.045)', cardBorder: 'rgba(255,255,255,.07)',
   txt: 'rgba(255,255,255,.88)', txt2: 'rgba(255,255,255,.6)', txt3: 'rgba(255,255,255,.38)',
   tq: '#00B8C0', tqDim: 'rgba(0,184,192,.16)',
 };

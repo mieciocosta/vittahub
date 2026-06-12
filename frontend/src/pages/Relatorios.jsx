@@ -14,28 +14,28 @@ function gerarPDF(data) {
   @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap');
   *{box-sizing:border-box;margin:0;padding:0;}
   body{font-family:'Plus Jakarta Sans',sans-serif;color:#0a1520;background:#fff;}
-  .faixa{height:7px;background:linear-gradient(90deg,#00B8C0,#207898);}
+  .faixa{height:7px;background:linear-gradient(90deg,#00B8C0,#0E8C96);}
   .pagina{padding:36px 44px;}
   .header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;}
   .header img{height:92px;}
   .header .tit{text-align:right;}
-  .header .tit h1{font-size:23px;font-weight:800;letter-spacing:-.5px;color:#0d3d52;}
+  .header .tit h1{font-size:23px;font-weight:800;letter-spacing:-.5px;color:#06424A;}
   .header .tit .sub{font-size:13px;color:#5a7285;margin-top:3px;font-weight:600;}
   .header .tit .quando{display:inline-block;margin-top:8px;background:#e5f8f9;color:#007d83;padding:4px 13px;border-radius:20px;font-size:11px;font-weight:700;}
   .divisor{height:1.5px;background:#e3ebf1;margin:20px 0 26px;}
   .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:30px;}
   .kpi{background:linear-gradient(165deg,#f7fbfc,#eef5f8);border:1px solid #e3ebf1;border-radius:14px;padding:16px 18px;}
-  .kpi .val{font-size:25px;font-weight:800;letter-spacing:-.5px;color:#0d3d52;}
+  .kpi .val{font-size:25px;font-weight:800;letter-spacing:-.5px;color:#06424A;}
   .kpi .lbl{font-size:11px;color:#5a7285;margin-top:4px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;}
-  .kpi.destaque{background:linear-gradient(135deg,#0d3d52,#207898);border:none;}
+  .kpi.destaque{background:linear-gradient(135deg,#06424A,#0E8C96);border:none;}
   .kpi.destaque .val{color:#fff;}
   .kpi.destaque .lbl{color:rgba(255,255,255,.65);}
   .kpi.destaque .val{font-size:19px;white-space:nowrap;}
   .section{margin-bottom:26px;}
-  .section h2{font-size:14px;font-weight:800;letter-spacing:-.2px;color:#0d3d52;margin-bottom:11px;display:flex;align-items:center;gap:8px;}
+  .section h2{font-size:14px;font-weight:800;letter-spacing:-.2px;color:#06424A;margin-bottom:11px;display:flex;align-items:center;gap:8px;}
   .section h2::before{content:'';width:4px;height:15px;border-radius:3px;background:#00B8C0;display:inline-block;}
   table{width:100%;border-collapse:separate;border-spacing:0;border:1px solid #e3ebf1;border-radius:12px;overflow:hidden;}
-  th{background:#0d3d52;color:#fff;padding:9px 14px;text-align:left;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;}
+  th{background:#06424A;color:#fff;padding:9px 14px;text-align:left;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;}
   td{padding:10px 14px;font-size:12.5px;border-top:1px solid #eef3f7;}
   tr:nth-child(even) td{background:#f8fbfc;}
   td.num{font-weight:700;}

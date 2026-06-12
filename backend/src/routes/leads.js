@@ -56,7 +56,7 @@ r.get('/', async (req, res) => {
       params.push(`%${search}%`); pi++;
     }
     // Atendente only sees their own leads
-    if (req.user.role !== 'master') {
+    if (!['master', 'supervisor'].includes(req.user.role)) {
       conditions.push(`l.responsavel_id = $${pi++}`);
       params.push(req.user.id);
     }
@@ -103,7 +103,7 @@ r.get('/meta', async (req, res) => {
 // Vencidos / hoje / próximos 7 dias — só leads em aberto (fora Fechado/Perdido)
 r.get('/retornos', async (req, res) => {
   try {
-    const uFilter = req.user.role === 'master' ? '' : ` AND l.responsavel_id = '${req.user.id}'`;
+    const uFilter = ['master','supervisor'].includes(req.user.role) ? '' : ` AND l.responsavel_id = '${req.user.id}'`;
     const { rows } = await query(`
       SELECT l.*, u.nome AS responsavel_nome, u.cor AS responsavel_cor,
         CASE
@@ -334,13 +334,22 @@ r.put('/:id', async (req, res) => {
 // ─── PATCH STATUS ─────────────────────────────────────────────────────────────
 r.patch('/:id/status', async (req, res) => {
   try {
-    const { status, motivo_perda } = req.body;
+    const { status } = req.body;
+    let motivo = cut(req.body.motivo_perda, 60) || null;
+    // Motivo de perda OBRIGATÓRIO: sem ele não se perde lead — é daqui que
+    // sai o relatório de por que a clínica está perdendo vendas
+    if (status === 'Perdido' && !motivo) {
+      const { rows: [atual] } = await query('SELECT motivo_perda FROM leads WHERE id = $1', [req.params.id]);
+      if (!atual?.motivo_perda) return res.status(400).json({ error: 'Informe o motivo da perda' });
+      motivo = atual.motivo_perda;
+    }
+    if (status !== 'Perdido') motivo = null; // reativou: limpa o motivo antigo
     const { rows } = await query(
       `UPDATE leads SET status = $1, motivo_perda = $2,
          status_changed_at = CASE WHEN status IS DISTINCT FROM $1 THEN NOW() ELSE status_changed_at END,
          updated_at = NOW()
        WHERE id = $3 RETURNING *`,
-      [status, motivo_perda || null, req.params.id]
+      [status, motivo, req.params.id]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Não encontrado' });
     socketEmit('funil_update', { tipo: 'lead', leadId: rows[0].id });

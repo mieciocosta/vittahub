@@ -110,7 +110,7 @@ export default function PropostaModal({ convId, token, contactName, atendente, o
 
         {/* Header */}
         <div style={{ padding: '16px 20px 13px', display: 'flex', alignItems: 'center', gap: 12, borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
-          <div style={{ width: 38, height: 38, borderRadius: 11, background: 'linear-gradient(135deg,#0d3d52,#00B8C0)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ width: 38, height: 38, borderRadius: 11, background: 'linear-gradient(135deg,#06424A,#00B8C0)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <FileText size={17} color="#fff" />
           </div>
           <div style={{ flex: 1 }}>
@@ -222,7 +222,7 @@ export default function PropostaModal({ convId, token, contactName, atendente, o
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   {/* Resumo */}
                   <div style={{ borderRadius: 13, border: '1.5px solid var(--border)', overflow: 'hidden' }}>
-                    <div style={{ padding: '11px 15px', background: 'linear-gradient(90deg,#0d3d52,#207898)', color: '#fff' }}>
+                    <div style={{ padding: '11px 15px', background: 'linear-gradient(90deg,#06424A,#0E8C96)', color: '#fff' }}>
                       <div style={{ fontWeight: 800, fontSize: 13.5 }}>{resumo.titulo}</div>
                       <div style={{ fontSize: 11, opacity: .75, marginTop: 1 }}>{resumo.sub}</div>
                     </div>
