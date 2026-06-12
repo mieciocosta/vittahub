@@ -3,7 +3,8 @@ import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, MessageSquare, Users, Kanban, BarChart2,
   LogOut, Settings, Smartphone, Sun, Moon, ChevronLeft, ChevronRight,
-  CalendarClock, Bell, CheckCheck, UserPlus,
+  CalendarClock, CalendarDays, Bell, CheckCheck, UserPlus,
+  Gift, Bot, Image, FileText, Smile, Phone,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useApi } from '../context/AuthContext.jsx';
@@ -11,21 +12,21 @@ import { fmt } from '../hooks/utils.js';
 
 const NAV = [
   { to:'/',           icon:LayoutDashboard, label:'Dashboard' },
-  { to:'/inbox',      icon:MessageSquare,   label:'💬 Chat',     unread:true },
-  { to:'/leads',      icon:Users,           label:'👥 Clientes' },
-  { to:'/funil',      icon:Kanban,          label:'📋 Organização' },
-  { to:'/retornos',   icon:CalendarClock,   label:'🔔 Follow-up',  retornos:true },
-  { to:'/agenda',     icon:CalendarClock,   label:'📅 Agenda' },
-  { to:'/relatorios', icon:BarChart2,       label:'📊 Relatórios' },
-  { to:'/indicacoes', icon:Users,           label:'🎁 Indicações' },
-  { to:'/ia',         icon:MessageSquare,   label:'🤖 IA Assistente' },
+  { to:'/inbox',      icon:MessageSquare,   label:'Chat',     unread:true },
+  { to:'/leads',      icon:Users,           label:'Clientes' },
+  { to:'/funil',      icon:Kanban,          label:'Organização' },
+  { to:'/retornos',   icon:Bell,            label:'Follow-up',  retornos:true },
+  { to:'/agenda',     icon:CalendarDays,    label:'Agenda' },
+  { to:'/relatorios', icon:BarChart2,       label:'Relatórios' },
+  { to:'/indicacoes', icon:Gift,            label:'Indicações' },
+  { to:'/ia',         icon:Bot,             label:'IA Assistente' },
 ];
 
 const NAV_FERRAMENTAS = [
-  { to:'/biblioteca', icon:Users,           label:'🖼️ Biblioteca' },
-  { to:'/modelos',    icon:MessageSquare,   label:'💬 Modelos de Mensagens' },
-  { to:'/figurinhas', icon:Users,           label:'💟 Figurinhas' },
-  { to:'/ligacoes',   icon:MessageSquare,   label:'📞 Ligações' },
+  { to:'/biblioteca', icon:Image,           label:'Biblioteca' },
+  { to:'/modelos',    icon:FileText,        label:'Modelos de Mensagens' },
+  { to:'/figurinhas', icon:Smile,           label:'Figurinhas' },
+  { to:'/ligacoes',   icon:Phone,           label:'Ligações' },
 ];
 
 /* ── Sino de notificações (novo lead, lead qualificado pela Vitta etc.) ────── */
@@ -53,8 +54,8 @@ function BellPanel({ collapsed }) {
     <div ref={ref} style={{ position:'relative' }}>
       <button onClick={() => setOpen(o => !o)} title="Notificações"
         style={{ width:'100%', display:'flex', alignItems:'center', justifyContent: collapsed ? 'center' : 'flex-start', gap: collapsed ? 0 : 10,
-          padding: collapsed ? '10px 0' : '9px 12px', borderRadius:10, background: open ? 'rgba(0,184,192,0.15)' : 'transparent',
-          color: open ? 'var(--tq)' : 'var(--muted)', border:'none', cursor:'pointer', fontSize:13.5, position:'relative' }}>
+          padding: collapsed ? '10px 0' : '9px 12px', borderRadius:10, background: open ? 'rgba(255,255,255,.18)' : 'transparent',
+          color: open ? '#ffffff' : 'rgba(255,255,255,.85)', border:'none', cursor:'pointer', fontSize:13.5, fontWeight:500, position:'relative' }}>
         <Bell size={16} strokeWidth={1.8} />
         {!collapsed && <span style={{ flex:1, textAlign:'left' }}>Notificações</span>}
         {naoLidas > 0 && (collapsed
@@ -243,10 +244,10 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
           padding: collapsed ? '10px 0' : '9px 12px',
           justifyContent: collapsed ? 'center' : 'flex-start',
           borderRadius:10, textDecoration:'none',
-          color: isActive ? '#25D366' : 'var(--muted)',
-          background: isActive ? 'rgba(37,211,102,0.1)' : 'transparent',
-          fontWeight: isActive ? 600 : 400, fontSize:13.5,
-          borderLeft: collapsed ? 'none' : `2px solid ${isActive ? '#25D366' : 'transparent'}`,
+          color: isActive ? '#aef5c8' : 'rgba(255,255,255,.85)',
+          background: isActive ? 'rgba(37,211,102,0.25)' : 'transparent',
+          fontWeight: isActive ? 700 : 500, fontSize:13.5,
+          borderLeft: 'none',
           transition: 'all .13s',
         })}>
           <Smartphone size={16} strokeWidth={1.8} />
@@ -260,10 +261,10 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
             padding: collapsed ? '10px 0' : '9px 12px',
             justifyContent: collapsed ? 'center' : 'flex-start',
             borderRadius:10, textDecoration:'none',
-            color: isActive ? '#fff' : 'var(--light)',
-            background: isActive ? 'rgba(255,255,255,.18)' : 'transparent',
-            fontWeight:400, fontSize:13,
-            borderLeft: collapsed ? 'none' : '2px solid transparent',
+            color: isActive ? 'var(--tq2)' : 'rgba(255,255,255,.85)',
+            background: isActive ? '#ffffff' : 'transparent',
+            boxShadow: isActive ? '0 4px 16px rgba(3,43,48,.22)' : 'none',
+            fontWeight: isActive ? 700 : 500, fontSize:13.5,
           })}>
             <Settings size={15} strokeWidth={1.6} />
             {!collapsed && <span>Configurações</span>}
@@ -282,8 +283,8 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
             color:'rgba(255,255,255,.85)', border:'none', cursor:'pointer',
             marginBottom:8, transition:'all .15s', fontSize:11.5, fontWeight:600,
           }}
-          onMouseEnter={e => { e.currentTarget.style.background='rgba(0,184,192,0.15)'; e.currentTarget.style.color='var(--tq)'; }}
-          onMouseLeave={e => { e.currentTarget.style.background='var(--border)'; e.currentTarget.style.color='var(--muted)'; }}
+          onMouseEnter={e => { e.currentTarget.style.background='rgba(255,255,255,.26)'; e.currentTarget.style.color='#ffffff'; }}
+          onMouseLeave={e => { e.currentTarget.style.background='rgba(255,255,255,.14)'; e.currentTarget.style.color='rgba(255,255,255,.85)'; }}
         >
           {collapsed ? <ChevronRight size={14}/> : <><ChevronLeft size={14}/><span>Recolher</span></>}
         </button>
@@ -295,18 +296,18 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
               <UserAvatar size={32} />
             </button>
             <button onClick={onToggleTheme} title={theme === 'dark' ? 'Modo claro' : 'Modo escuro'} style={{ padding:5, background:'none', color:'rgba(255,255,255,.62)', borderRadius:6, cursor:'pointer', border:'none' }}
-              onMouseEnter={e=>e.currentTarget.style.color='var(--txt2)'}
-              onMouseLeave={e=>e.currentTarget.style.color='var(--muted)'}>
+              onMouseEnter={e=>e.currentTarget.style.color='#ffffff'}
+              onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,.62)'}>
               {theme === 'dark' ? <Sun size={13} /> : <Moon size={13} />}
             </button>
             <button onClick={logout} title="Sair" style={{ padding:5, background:'none', color:'rgba(255,255,255,.62)', borderRadius:6, cursor:'pointer', border:'none' }}
-              onMouseEnter={e=>e.currentTarget.style.color='var(--txt2)'}
-              onMouseLeave={e=>e.currentTarget.style.color='var(--muted)'}>
+              onMouseEnter={e=>e.currentTarget.style.color='#ffffff'}
+              onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,.62)'}>
               <LogOut size={13} />
             </button>
           </div>
         ) : (
-          <div style={{ display:'flex', alignItems:'center', gap:9, padding:'10px 10px', borderRadius:10, background:'var(--muted)' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:9, padding:'10px 10px', borderRadius:12, background:'rgba(255,255,255,.14)', border:'1px solid rgba(255,255,255,.2)' }}>
             <button onClick={()=>avatarFileRef.current?.click()} title="Trocar foto de perfil" style={{ background:'none', border:'none', cursor:'pointer', padding:0 }}>
               <UserAvatar size={34} />
             </button>
@@ -315,13 +316,13 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
               <div style={{ color:'rgba(255,255,255,.85)', fontSize:10.5 }}>{user?.role === 'master' ? '◆ Master' : user?.role === 'supervisor' ? '◆ Supervisora' : 'Atendente'}<span style={{ marginLeft:6 }}><span style={{ display:'inline-block', width:6, height:6, borderRadius:'50%', background:'#3ef58f', marginRight:3, verticalAlign:'1px' }}/>Online</span></div>
             </div>
             <button onClick={onToggleTheme} title={theme === 'dark' ? 'Modo claro' : 'Modo escuro'} style={{ padding:6, background:'none', color:'rgba(255,255,255,.62)', borderRadius:6, transition:'color .15s', cursor:'pointer', border:'none' }}
-              onMouseEnter={e=>e.currentTarget.style.color='var(--txt2)'}
-              onMouseLeave={e=>e.currentTarget.style.color='var(--muted)'}>
+              onMouseEnter={e=>e.currentTarget.style.color='#ffffff'}
+              onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,.62)'}>
               {theme === 'dark' ? <Sun size={13} /> : <Moon size={13} />}
             </button>
             <button onClick={logout} title="Sair" style={{ padding:6, background:'none', color:'rgba(255,255,255,.62)', borderRadius:6, transition:'color .15s', cursor:'pointer', border:'none' }}
-              onMouseEnter={e=>e.currentTarget.style.color='var(--txt2)'}
-              onMouseLeave={e=>e.currentTarget.style.color='var(--muted)'}>
+              onMouseEnter={e=>e.currentTarget.style.color='#ffffff'}
+              onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,.62)'}>
               <LogOut size={13} />
             </button>
           </div>
