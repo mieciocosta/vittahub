@@ -191,9 +191,12 @@ export default async function runMigrate() {
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS triagem_data DATE`).catch(() => {});
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS triagem_ts TIMESTAMPTZ`).catch(() => {});
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS captura_etapa TEXT`).catch(() => {});
-    // Conversas ativas nas últimas 24h não recebem menu no meio do papo após o deploy
+    // Proteção do deploy: só atendimento ATIVO (equipe respondeu nas últimas 24h)
+    // fica protegido do menu; cliente falando sozinho recebe boas-vindas normalmente
     await query(`UPDATE conversas SET triagem_ts = NOW()
-                 WHERE triagem_ts IS NULL AND last_message_at > NOW() - interval '24 hours'`).catch(() => {});
+                 WHERE triagem_ts IS NULL AND id IN (
+                   SELECT DISTINCT conversa_id FROM mensagens
+                   WHERE from_type = 'me' AND created_at > NOW() - interval '24 hours')`).catch(() => {});
 
     // ── FICHA DO PACIENTE (dados do cliente no painel da conversa) ──────────
     await query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS nascimento DATE`).catch(() => {});
@@ -212,6 +215,8 @@ export default async function runMigrate() {
     await query(`ALTER TABLE agenda_eventos ADD COLUMN IF NOT EXISTS endereco TEXT`).catch(() => {});
     await query(`ALTER TABLE agenda_eventos ADD COLUMN IF NOT EXISTS local_link TEXT`).catch(() => {});
     await query(`ALTER TABLE agenda_eventos ADD COLUMN IF NOT EXISTS email TEXT`).catch(() => {});
+    await query(`ALTER TABLE agenda_eventos ADD COLUMN IF NOT EXISTS valor NUMERIC(10,2)`).catch(() => {});
+    await query(`ALTER TABLE agenda_eventos ADD COLUMN IF NOT EXISTS forma_pagamento TEXT`).catch(() => {});
 
     await query(`CREATE TABLE IF NOT EXISTS indicacoes (
       id SERIAL PRIMARY KEY, indicador_nome TEXT NOT NULL, indicador_telefone TEXT,

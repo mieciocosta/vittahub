@@ -788,6 +788,16 @@ export default function Inbox({ onUnreadChange }) {
   };
 
   // ── Arquivo ───────────────────────────────────────────────────────────────
+  // Colar imagem (Ctrl+V / print screen) direto no composer
+  const handlePaste = (e) => {
+    const item = Array.from(e.clipboardData?.items || []).find(i => i.type.startsWith('image/'));
+    if (!item) return; // texto cola normal
+    const f = item.getAsFile();
+    if (!f || !sel) return;
+    e.preventDefault();
+    handleFile({ target: { files: [f] } });
+  };
+
   const handleFile = async (e) => {
     const f = e.target.files[0]; if (!f || !sel) return;
     // Detectar tipo corretamente (GIF é imagem, não vídeo)
@@ -1215,7 +1225,7 @@ export default function Inbox({ onUnreadChange }) {
               <button onClick={()=>{setShowQR(p=>!p);setShowEmoji(false);}} title="Mensagens automáticas" className="btn btn-ico" style={{ background:showQR?'var(--tq3)':'transparent', color:showQR?'var(--tq)':'var(--muted)', borderRadius:8 }}><Zap size={15}/></button>
               <button onClick={()=>setShowBib(true)} title="Biblioteca de Experiências (fotos, vídeos, figurinhas)" className="btn btn-ico" style={{ background:'transparent', color:'var(--muted)', borderRadius:8, fontSize:15, lineHeight:1 }}>🖼️</button>
               <input ref={fileRef} type="file" accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.gif" style={{ display:'none' }} onChange={handleFile}/>
-              <textarea ref={textRef} value={input} onChange={e=>setInput(e.target.value)}
+              <textarea ref={textRef} onPaste={handlePaste} value={input} onChange={e=>setInput(e.target.value)}
                 onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}}}
                 placeholder="Mensagem… (Enter envia)" rows={1}
                 style={{ flex:1, padding:'8px 12px', border:'1.5px solid var(--border)', borderRadius:10, fontSize:13, resize:'none', outline:'none', maxHeight:100, overflowY:'auto', lineHeight:1.55, fontFamily:'DM Sans, sans-serif', transition:'border-color .15s', background:'var(--card,#fff)', color:'var(--txt)' }}
@@ -1400,7 +1410,7 @@ function FaixaContexto({ sel, leadInfo, setLeadInfo, api, scoreChip, setScoreChi
 /* ── Modal Agendar dentro da conversa (mock): cria evento + funil + confirmação ── */
 function AgendarModal({ sel, api, onClose }) {
   const hoje = new Date().toISOString().slice(0, 10);
-  const [m, setM] = React.useState({ paciente: sel?.contact_name || '', responsavel: '', email: '', endereco: '', local_link: '', servico: '', profissional: '', data: hoje, hora: '', observacoes: '', confirmar: true });
+  const [m, setM] = React.useState({ paciente: sel?.contact_name || '', responsavel: '', email: '', endereco: '', local_link: '', servico: '', profissional: '', data: hoje, hora: '', observacoes: '', valor: '', forma_pagamento: '', confirmar: true });
   const [erro, setErro] = React.useState('');
   const [salvando, setSalvando] = React.useState(false);
   const [extraindo, setExtraindo] = React.useState(false);
@@ -1455,6 +1465,7 @@ function AgendarModal({ sel, api, onClose }) {
         servico: m.servico, profissional: m.profissional,
         data: m.data, hora: m.hora, observacoes: m.observacoes,
         endereco: m.endereco.trim(), local_link: m.local_link.trim(), email: m.email.trim(),
+        valor: m.valor, forma_pagamento: m.forma_pagamento,
         telefone: String(sel.phone || '').replace(/\D/g, ''), setor: sel.setor || 'vacinas', lead_id: sel.lead_id || null,
       });
       // 2) Funil: lead vai pra "Agendado" + ficha sincronizada
@@ -1475,6 +1486,7 @@ function AgendarModal({ sel, api, onClose }) {
         if (m.servico) linhas.push(`💉 ${m.servico}`);
         linhas.push(`📅 ${dataBr} às ${m.hora}`);
         if (m.profissional) linhas.push(`👩‍⚕️ ${m.profissional}`);
+        if (m.valor && !isNaN(parseFloat(m.valor))) linhas.push(`💰 Valor: ${parseFloat(m.valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}${m.forma_pagamento ? ` — ${m.forma_pagamento}` : ''}`);
         if (m.endereco.trim()) linhas.push(`📍 ${m.endereco.trim()}`);
         if (m.local_link.trim()) linhas.push(`🗺️ Localização: ${m.local_link.trim()}`);
         linhas.push('', 'Qualquer imprevisto é só me avisar por aqui 💙');
@@ -1509,6 +1521,13 @@ function AgendarModal({ sel, api, onClose }) {
             <input value={m.endereco} maxLength={160} onChange={e=>setM({...m, endereco:e.target.value})} placeholder="Rua, nº, bairro — São Luís/MA" /></div>
           <div className="field" style={{ gridColumn:'1 / -1' }}><label>Link da localização (Google Maps)</label>
             <input value={m.local_link} maxLength={300} onChange={e=>setM({...m, local_link:e.target.value})} placeholder="https://maps.app.goo.gl/…" /></div>
+          <div className="field"><label>Valor (R$)</label>
+            <input type="number" min="0" step="0.01" value={m.valor} onChange={e=>setM({...m, valor:e.target.value})} placeholder="0,00" /></div>
+          <div className="field"><label>Pagamento</label>
+            <select value={m.forma_pagamento} onChange={e=>setM({...m, forma_pagamento:e.target.value})}
+              style={{ width:'100%', padding:'8px 10px', borderRadius:10, border:'1.5px solid var(--border)', fontSize:12.5, background:'var(--card)', color:'var(--txt)' }}>
+              <option value="">—</option><option>À vista</option><option>Pix</option><option>Débito</option><option>Crédito</option>
+            </select></div>
           <div className="field"><label>Serviço</label>
             <input value={m.servico} maxLength={80} onChange={e=>setM({...m, servico:e.target.value})} placeholder="Ex: Vacina 6 meses" /></div>
           <div className="field"><label>Profissional</label>
