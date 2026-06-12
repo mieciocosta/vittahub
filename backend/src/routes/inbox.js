@@ -2215,6 +2215,47 @@ r.patch('/conversations/:id/unread', async (req, res) => {
 // Caso de uso real: a mãe manda a foto da carteira de vacinação, a atendente
 // anexa aqui e pergunta "quais vacinas faltam?" — a IA lê a imagem e responde
 // com base no calendário oficial da clínica.
+// ─── BIBLIOTECA → CONVERSA: envia a mídia escolhida pelo WhatsApp ────────────
+r.post('/conversations/:id/send-midia', async (req, res) => {
+  try {
+    const { midiaId } = req.body;
+    const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
+    const { rows: [m] } = await query('SELECT * FROM biblioteca_midias WHERE id = $1', [midiaId]);
+    if (!m) return res.status(404).json({ error: 'Mídia não encontrada' });
+    if (!zapiOk()) return res.status(503).json({ error: 'Z-API não configurada' });
+
+    let phoneNum = String(conv.phone || '').replace(/\D/g, '');
+    if (phoneNum.startsWith('55') && phoneNum.length >= 12) phoneNum = phoneNum.slice(2);
+    const dataUrl = `data:${m.mime || 'image/jpeg'};base64,${m.data}`;
+
+    let zr, tipoMsg = 'image', preview = `🖼️ ${m.titulo}`;
+    if (m.tipo === 'video') {
+      zr = await zapiCall('/send-video', 'POST', { phone: `55${phoneNum}`, video: dataUrl });
+      tipoMsg = 'video'; preview = `🎥 ${m.titulo}`;
+    } else if (m.tipo === 'figurinha') {
+      zr = await zapiCall('/send-sticker', 'POST', { phone: `55${phoneNum}`, sticker: dataUrl });
+      tipoMsg = 'sticker'; preview = '💟 Figurinha';
+    } else {
+      zr = await zapiCall('/send-image', 'POST', { phone: `55${phoneNum}`, image: dataUrl, caption: m.tipo === 'depoimento' ? '⭐' : '' });
+    }
+    if (!zr?.ok) {
+      const corpo = await zr?.text().catch(() => '');
+      console.error('send-midia falhou:', zr?.status, corpo.slice(0, 150));
+      return res.status(502).json({ error: 'O WhatsApp recusou o envio. Tente de novo.' });
+    }
+    const { rows: [pm] } = await query(
+      `INSERT INTO mensagens (conversa_id, from_type, sender_id, sender_nome, type, content, media_data, status, created_at)
+       VALUES ($1,'me',$2,$3,$4,$5,$6,'delivered',NOW()) RETURNING *`,
+      [conv.id, req.user?.id || null, req.user?.nome || 'Atendente', tipoMsg, preview, dataUrl]);
+    await query("UPDATE conversas SET last_message = $1, last_from = 'me', last_message_at = NOW() WHERE id = $2", [preview, conv.id]);
+    const cached = convoCache.get(conv.id);
+    if (cached) cacheUpdate({ ...cached, last_message: preview, last_from: 'me', last_message_at: new Date().toISOString() });
+    if (pm) socketEmit('new_message', { convId: conv.id, message: pm, conv });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ─── PROPOSTA MANUAL (modal do Inbox) ─────────────────────────────────────────
 // Catálogo REAL (mesmo da Vitta): planos com preço fechado, pacotes por idade
 // e vacinas avulsas — substitui o catálogo fake que estava chumbado no modal.
@@ -2388,7 +2429,7 @@ r.post('/ai-chat', async (req, res) => {
     const KEY = process.env.OPENAI_API_KEY;
     if (!KEY) return res.status(503).json({ error: 'IA não configurada' });
     const { convId, history = [], message = '', image } = req.body;
-    if (!message.trim() && !image) return res.status(400).json({ error: 'Mensagem vazia' });
+    if (!message.trim() && !image && !req.body.pdf && !req.body.audio) return res.status(400).json({ error: 'Mensagem vazia' });
 
     // Contexto opcional: a conversa do WhatsApp aberta ao lado
     let contexto = '';
@@ -2591,6 +2632,17 @@ r.get('/quick-replies', async (req, res) => {
 r.post('/quick-replies', async (req, res) => {
   try {
     const { rows: [qr] } = await query('INSERT INTO respostas_rapidas (titulo,texto) VALUES ($1,$2) RETURNING *', [req.body.titulo, req.body.texto]);
+    res.json(qr);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.put('/quick-replies/:id', async (req, res) => {
+  try {
+    const titulo = String(req.body.titulo || '').trim().slice(0, 60);
+    const texto = String(req.body.texto || '').trim().slice(0, 1000);
+    if (!titulo || !texto) return res.status(400).json({ error: 'Título e texto são obrigatórios' });
+    const { rows: [qr] } = await query('UPDATE respostas_rapidas SET titulo=$1, texto=$2 WHERE id=$3 RETURNING *', [titulo, texto, req.params.id]);
+    if (!qr) return res.status(404).json({ error: 'Modelo não encontrado' });
     res.json(qr);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

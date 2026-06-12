@@ -15,7 +15,17 @@ const NAV = [
   { to:'/leads',      icon:Users,           label:'👥 Clientes' },
   { to:'/funil',      icon:Kanban,          label:'📋 Organização' },
   { to:'/retornos',   icon:CalendarClock,   label:'🔔 Follow-up',  retornos:true },
+  { to:'/agenda',     icon:CalendarClock,   label:'📅 Agenda' },
   { to:'/relatorios', icon:BarChart2,       label:'📊 Relatórios' },
+  { to:'/indicacoes', icon:Users,           label:'🎁 Indicações' },
+  { to:'/ia',         icon:MessageSquare,   label:'🤖 IA Assistente' },
+];
+
+const NAV_FERRAMENTAS = [
+  { to:'/biblioteca', icon:Users,           label:'🖼️ Biblioteca' },
+  { to:'/modelos',    icon:MessageSquare,   label:'💬 Modelos de Mensagens' },
+  { to:'/figurinhas', icon:Users,           label:'💟 Figurinhas' },
+  { to:'/ligacoes',   icon:MessageSquare,   label:'📞 Ligações' },
 ];
 
 /* ── Sino de notificações (novo lead, lead qualificado pela Vitta etc.) ────── */
@@ -191,6 +201,26 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
           </NavLink>
         ))}
 
+        {/* ── Ferramentas ── */}
+        {!collapsed && <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:1.6, color:'rgba(255,255,255,.62)', padding:'12px 12px 6px', textTransform:'uppercase', borderTop:'1px solid rgba(255,255,255,.16)', marginTop:10 }}>Ferramentas</div>}
+        {collapsed && <div style={{ borderTop:'1px solid rgba(255,255,255,.16)', margin:'10px 8px' }} />}
+        {NAV_FERRAMENTAS.map(({ to, icon:Icon, label }) => (
+          <NavLink key={to} to={to} title={collapsed ? label : ''} style={({ isActive }) => ({
+            display:'flex', alignItems:'center', gap: collapsed ? 0 : 10,
+            padding: collapsed ? '10px 0' : '8px 12px',
+            justifyContent: collapsed ? 'center' : 'flex-start',
+            borderRadius:12, textDecoration:'none',
+            color: isActive ? 'var(--tq2)' : 'rgba(255,255,255,.85)',
+            background: isActive ? '#ffffff' : 'transparent',
+            boxShadow: isActive ? '0 4px 16px rgba(3,43,48,.22)' : 'none',
+            fontWeight: isActive ? 700 : 500, fontSize:13,
+            transition:'all .15s',
+          })}>
+            <Icon size={15} strokeWidth={1.8} />
+            {!collapsed && <span style={{ flex:1 }}>{label}</span>}
+          </NavLink>
+        ))}
+
         <div style={{ height:1, background:'rgba(255,255,255,.14)', margin:'8px 12px' }}/>
 
         <BellPanel collapsed={collapsed} />
@@ -292,7 +322,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
             <span style={{ fontWeight:800, fontSize:12.5, color:'#fff' }}>Indique e ganhe</span>
           </div>
           <div style={{ fontSize:10.5, color:'rgba(255,255,255,.75)', lineHeight:1.4 }}>Convide amigos e seja recompensado!</div>
-          <div style={{ marginTop:8, padding:'5px 0', borderRadius:8, background:'rgba(255,255,255,.92)', color:'var(--tq2)', fontSize:11, fontWeight:800, textAlign:'center' }}>Em breve ✨</div>
+          <NavLink to="/indicacoes" style={{ display:'block', marginTop:8, padding:'5px 0', borderRadius:8, background:'rgba(255,255,255,.92)', color:'var(--tq2)', fontSize:11, fontWeight:800, textAlign:'center', textDecoration:'none' }}>Ver programa</NavLink>
         </div>
       )}
       <input ref={avatarFileRef} type="file" accept="image/*" style={{ display:'none' }} onChange={trocarAvatar} />

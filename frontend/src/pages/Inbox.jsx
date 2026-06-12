@@ -411,6 +411,7 @@ export default function Inbox({ onUnreadChange }) {
   const somRef = useRef(true);
   useEffect(() => { somRef.current = somAtivo; localStorage.setItem('vh_sound', somAtivo ? 'on' : 'off'); }, [somAtivo]);
   const [showProposta, setShowProposta] = useState(false);
+  const [showBib, setShowBib] = useState(false);
   const [leadData, setLeadData] = useState(null);
   const [users, setUsers] = useState([]);
   const usersById = useMemo(() => Object.fromEntries(users.map(u => [u.id, u])), [users]);
@@ -1132,6 +1133,7 @@ export default function Inbox({ onUnreadChange }) {
               <button onClick={()=>fileRef.current?.click()} className="btn btn-g btn-ico"><Paperclip size={15}/></button>
               <button onClick={()=>{setShowEmoji(p=>!p);setShowQR(false);}} className="btn btn-ico" style={{ background:showEmoji?'var(--tq3)':'transparent', color:showEmoji?'var(--tq)':'var(--muted)', borderRadius:8 }}><Smile size={15}/></button>
               <button onClick={()=>{setShowQR(p=>!p);setShowEmoji(false);}} className="btn btn-ico" style={{ background:showQR?'var(--tq3)':'transparent', color:showQR?'var(--tq)':'var(--muted)', borderRadius:8 }}><Hash size={15}/></button>
+              <button onClick={()=>setShowBib(true)} title="Biblioteca de Experiências (fotos, vídeos, figurinhas)" className="btn btn-ico" style={{ background:'transparent', color:'var(--muted)', borderRadius:8, fontSize:15, lineHeight:1 }}>🖼️</button>
               <input ref={fileRef} type="file" accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.gif" style={{ display:'none' }} onChange={handleFile}/>
               <textarea ref={textRef} value={input} onChange={e=>setInput(e.target.value)}
                 onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}}}
@@ -1158,10 +1160,95 @@ export default function Inbox({ onUnreadChange }) {
         </div>
       )}
 
+      {showBib && sel && (
+        <BibliotecaPicker convId={sel.id} setor={sel.setor} api={api} onClose={() => setShowBib(false)} />
+      )}
+
       {showProposta && sel && (
         <PropostaModal convId={sel.id} token={token} contactName={sel.contact_name} atendente={user?.nome}
           onClose={txt=>{setShowProposta(false);if(txt)setMsgs(p=>[...p,{id:Date.now(),from_type:'me',type:'text',content:txt,created_at:new Date().toISOString(),status:'sent',sender_nome:user?.nome}]);}}/>
       )}
+    </div>
+  );
+}
+
+
+/* ── Picker da Biblioteca: envia foto/vídeo/figurinha na conversa ──────────── */
+function BibliotecaPicker({ convId, setor, api, onClose }) {
+  const [aba, setAba] = React.useState('foto');
+  const [itens, setItens] = React.useState([]);
+  const [previews, setPreviews] = React.useState({});
+  const [enviando, setEnviando] = React.useState(null);
+  const ABAS = [['foto','📷 Fotos'],['video','🎥 Vídeos'],['depoimento','⭐ Depoimentos'],['apresentacao','📋 Apresentações'],['figurinha','💟 Figurinhas']];
+
+  React.useEffect(() => {
+    const q = new URLSearchParams({ tipo: aba });
+    api.get(`/extras/biblioteca?${q}`).then(d => {
+      const lista = Array.isArray(d) ? d : [];
+      // prioriza o setor da conversa, depois geral, depois o resto
+      lista.sort((a, b) => (a.setor === setor ? 0 : a.setor === 'geral' ? 1 : 2) - (b.setor === setor ? 0 : b.setor === 'geral' ? 1 : 2));
+      setItens(lista);
+    }).catch(() => {});
+  }, [aba]); // eslint-disable-line
+
+  React.useEffect(() => {
+    (async () => {
+      for (const it of itens.slice(0, 18)) {
+        if (previews[it.id] || it.tipo === 'video') continue;
+        try {
+          const m = await api.get(`/extras/biblioteca/${it.id}`);
+          setPreviews(p => ({ ...p, [it.id]: `data:${m.mime};base64,${m.data}` }));
+        } catch {}
+      }
+    })();
+  }, [itens]); // eslint-disable-line
+
+  const enviar = async (it) => {
+    if (enviando) return;
+    setEnviando(it.id);
+    try {
+      await api.post(`/inbox/conversations/${convId}/send-midia`, { midiaId: it.id });
+      onClose();
+    } catch (e) { Toast.show(e.message, 'error'); }
+    finally { setEnviando(null); }
+  };
+
+  return (
+    <div onClick={e => e.target === e.currentTarget && onClose()}
+      style={{ position:'fixed', inset:0, background:'rgba(3,43,48,.55)', zIndex:520, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+      <div style={{ width:'100%', maxWidth:640, maxHeight:'80vh', background:'var(--card)', borderRadius:16, boxShadow:'var(--s4)', display:'flex', flexDirection:'column', overflow:'hidden' }}>
+        <div style={{ padding:'13px 18px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', gap:10 }}>
+          <span style={{ fontSize:17 }}>🖼️</span>
+          <div style={{ flex:1 }}>
+            <div style={{ fontWeight:800, fontSize:14 }}>Biblioteca de Experiências</div>
+            <div style={{ fontSize:11, color:'var(--muted)' }}>Clique pra enviar direto na conversa{setor ? ` · setor ${setor}` : ''}</div>
+          </div>
+          <button onClick={onClose} style={{ width:28, height:28, borderRadius:8, border:'1px solid var(--border)', background:'var(--bg2)', color:'var(--muted)', cursor:'pointer' }}><X size={14}/></button>
+        </div>
+        <div style={{ display:'flex', gap:5, padding:'10px 18px 0', flexWrap:'wrap' }}>
+          {ABAS.map(([k, l]) => (
+            <button key={k} onClick={() => setAba(k)}
+              style={{ padding:'5px 12px', borderRadius:9, fontSize:11.5, fontWeight:700, cursor:'pointer',
+                border:`1.5px solid ${aba===k?'var(--tq)':'var(--border)'}`,
+                background: aba===k?'var(--tq)':'var(--card)', color: aba===k?'#fff':'var(--muted)' }}>{l}</button>
+          ))}
+        </div>
+        <div style={{ flex:1, overflowY:'auto', padding:'14px 18px', display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(135px,1fr))', gap:10 }}>
+          {itens.length === 0 && <div style={{ gridColumn:'1 / -1', textAlign:'center', padding:'26px 0', fontSize:12.5, color:'var(--muted)' }}>Nada nesta categoria ainda — alimente na página 🖼️ Biblioteca.</div>}
+          {itens.map(it => (
+            <button key={it.id} onClick={() => enviar(it)} disabled={!!enviando}
+              style={{ borderRadius:12, overflow:'hidden', border:'1.5px solid var(--border)', background:'var(--card)', cursor:'pointer', padding:0, opacity: enviando && enviando!==it.id ? .5 : 1 }}>
+              <div style={{ height:88, background:'var(--bg2)', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden' }}>
+                {enviando === it.id ? <Loader2 size={18} className="spin" color="var(--tq)"/>
+                  : it.tipo === 'video' ? <span style={{ fontSize:24 }}>🎥</span>
+                  : previews[it.id] ? <img src={previews[it.id]} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }}/>
+                  : <span style={{ fontSize:22 }}>🖼️</span>}
+              </div>
+              <div style={{ padding:'6px 8px', fontSize:10.5, fontWeight:700, color:'var(--txt2)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', textAlign:'left' }}>{it.titulo}</div>
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

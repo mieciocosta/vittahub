@@ -9,6 +9,7 @@ import authRouter    from './routes/auth.js';
 import leadsRouter   from './routes/leads.js';
 import reportsRouter from './routes/reports.js';
 import inboxRouter   from './routes/inbox.js';
+import extrasRouter  from './routes/extras.js';
 
 import { createSocketServer, socketEmit } from './socketServer.js';
 import { startPgListener, onNotify }       from './db/pgListener.js';
@@ -45,6 +46,7 @@ app.use('/api/auth',    authRouter);
 app.use('/api/leads',   leadsRouter);
 app.use('/api/reports', reportsRouter);
 app.use('/api/inbox',   inboxRouter);
+app.use('/api/extras',  extrasRouter);
 
 app.use((err, req, res, next) => {
   console.error('❌', err.message);

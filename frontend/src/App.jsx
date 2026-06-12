@@ -11,6 +11,13 @@ import Funil from './pages/Funil.jsx';
 import Retornos from './pages/Retornos.jsx';
 import Relatorios from './pages/Relatorios.jsx';
 import Configuracoes from './pages/Configuracoes.jsx';
+import Agenda from './pages/Agenda.jsx';
+import Indicacoes from './pages/Indicacoes.jsx';
+import Biblioteca from './pages/Biblioteca.jsx';
+import Figurinhas from './pages/Figurinhas.jsx';
+import Modelos from './pages/Modelos.jsx';
+import Ligacoes from './pages/Ligacoes.jsx';
+import IAssistente from './pages/IAssistente.jsx';
 import WhatsApp from './pages/WhatsApp.jsx';
 
 export default function App() {
@@ -66,6 +73,13 @@ export default function App() {
           <Route path="/funil"        element={<Funil />} />
           <Route path="/retornos"     element={<Retornos />} />
           <Route path="/relatorios"   element={<Relatorios />} />
+          <Route path="/agenda" element={<Agenda />} />
+          <Route path="/indicacoes" element={<Indicacoes />} />
+          <Route path="/biblioteca" element={<Biblioteca />} />
+          <Route path="/figurinhas" element={<Figurinhas />} />
+          <Route path="/modelos" element={<Modelos />} />
+          <Route path="/ligacoes" element={<Ligacoes />} />
+          <Route path="/ia" element={<IAssistente />} />
           <Route path="/whatsapp"     element={user.role === 'master' ? <WhatsApp /> : <Navigate to="/" />} />
           <Route path="/configuracoes" element={<Configuracoes />} />
           <Route path="*"             element={<Navigate to="/" />} />

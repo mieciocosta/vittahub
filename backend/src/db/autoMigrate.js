@@ -187,6 +187,32 @@ export default async function runMigrate() {
       console.log('🌱 Seed setores/papéis aplicado');
     }
 
+    // ── FERRAMENTAS: Agenda, Indicações, Biblioteca, Ligações ───────────────
+    await query(`CREATE TABLE IF NOT EXISTS agenda_eventos (
+      id SERIAL PRIMARY KEY, paciente TEXT NOT NULL, responsavel_nome TEXT,
+      servico TEXT, data DATE NOT NULL, hora TEXT NOT NULL, profissional TEXT,
+      telefone TEXT, observacoes TEXT, status TEXT DEFAULT 'Agendado',
+      setor TEXT DEFAULT 'vacinas', responsavel_id TEXT, lead_id INT,
+      created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS idx_agenda_data ON agenda_eventos (data)`).catch(() => {});
+
+    await query(`CREATE TABLE IF NOT EXISTS indicacoes (
+      id SERIAL PRIMARY KEY, indicador_nome TEXT NOT NULL, indicador_telefone TEXT,
+      indicado_nome TEXT NOT NULL, indicado_telefone TEXT,
+      status TEXT DEFAULT 'Cadastrada', tipo_conversao TEXT, pontos INT DEFAULT 0,
+      premio TEXT, premio_entregue BOOLEAN DEFAULT false, observacoes TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
+
+    await query(`CREATE TABLE IF NOT EXISTS biblioteca_midias (
+      id SERIAL PRIMARY KEY, titulo TEXT NOT NULL, tipo TEXT NOT NULL,
+      setor TEXT DEFAULT 'geral', categoria TEXT, mime TEXT, data TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
+
+    await query(`CREATE TABLE IF NOT EXISTS ligacoes (
+      id SERIAL PRIMARY KEY, contato_nome TEXT NOT NULL, telefone TEXT NOT NULL,
+      usuario_id TEXT, direcao TEXT DEFAULT 'realizada', status TEXT DEFAULT 'Atendida',
+      duracao_min INT DEFAULT 0, observacoes TEXT, created_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
+
     // ── FUNIS POR SETOR (etapas próprias p/ Vacinas, Consultas e Terapias) ──
     await query(`ALTER TABLE funil_colunas ADD COLUMN IF NOT EXISTS setor TEXT DEFAULT 'vacinas'`).catch(() => {});
     const { rows: [flagFunis] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_funis_v1'");

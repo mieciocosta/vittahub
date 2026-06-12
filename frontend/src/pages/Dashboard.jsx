@@ -53,7 +53,11 @@ export default function Dashboard() {
   const nav = useNavigate();
   const [data, setData] = useState(null);
 
-  useEffect(() => { api.get('/reports/dashboard').then(setData).catch(() => {}); }, []); // eslint-disable-line
+  const [agendaHoje, setAgendaHoje] = useState([]);
+  useEffect(() => {
+    api.get('/reports/dashboard').then(setData).catch(() => {});
+    api.get(`/extras/agenda?data=${new Date().toISOString().slice(0, 10)}`).then(d => setAgendaHoje(Array.isArray(d) ? d : [])).catch(() => {});
+  }, []); // eslint-disable-line
 
   const hoje = new Date();
   const hora = hoje.getHours();
@@ -206,18 +210,31 @@ export default function Dashboard() {
           <div className="card" style={{ padding: 0, overflow: 'hidden', background: '#fff', display: 'flex', flexDirection: 'column' }}>
             <div style={{ padding: '13px 17px', background: 'linear-gradient(90deg,var(--tq),#0aa6ae)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div style={{ fontWeight: 800, fontSize: 14, display: 'flex', alignItems: 'center', gap: 8 }}>📅 Agenda — Hoje</div>
-              <button onClick={() => nav('/retornos')} style={{ padding: '5px 12px', borderRadius: 9, background: 'rgba(255,255,255,.92)', color: 'var(--tq2)', fontSize: 11, fontWeight: 800, border: 'none', cursor: 'pointer' }}>
+              <button onClick={() => nav('/agenda')} style={{ padding: '5px 12px', borderRadius: 9, background: 'rgba(255,255,255,.92)', color: 'var(--tq2)', fontSize: 11, fontWeight: 800, border: 'none', cursor: 'pointer' }}>
                 Ver completa
               </button>
             </div>
             <div style={{ flex: 1, overflowY: 'auto', maxHeight: 280 }}>
-              {fupsHoje.length === 0 && (
+              {agendaHoje.map((ev, i) => (
+                <div key={`ag-${ev.id}`} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '11px 17px', borderBottom: '1px solid var(--border)', opacity: ev.status === 'Cancelado' ? .5 : 1 }}>
+                  <div style={{ fontWeight: 800, fontSize: 12.5, color: 'var(--tq2)', minWidth: 42 }}>{ev.hora}</div>
+                  <div style={{ width: 34, height: 34, borderRadius: '50%', flexShrink: 0, background: ['#e0f4f5', '#ede4f7', '#fdeede', '#fde4ee'][i % 4], display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>
+                    {ev.setor === 'consultas' ? '🩺' : ev.setor === 'terapias' ? '🧩' : '💉'}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.paciente}</div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)' }}>{ev.servico || ev.status}{ev.resp_nome ? ` · ${ev.resp_nome.split(' ')[0]}` : ''}</div>
+                  </div>
+                  <span style={{ fontSize: 10, fontWeight: 800, color: ev.status === 'Confirmado' ? 'var(--ok)' : 'var(--muted)' }}>{ev.status}</span>
+                </div>
+              ))}
+              {agendaHoje.length === 0 && fupsHoje.length === 0 && (
                 <div style={{ padding: '30px 17px', textAlign: 'center', fontSize: 12.5, color: 'var(--muted)' }}>
                   Nenhum retorno marcado pra hoje 🎉<br />
                   <span style={{ fontSize: 11 }}>Os agendamentos do dia aparecem aqui.</span>
                 </div>
               )}
-              {fupsHoje.map((f, i) => (
+              {agendaHoje.length === 0 && fupsHoje.map((f, i) => (
                 <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '11px 17px', borderBottom: i < fupsHoje.length - 1 ? '1px solid var(--border)' : 'none' }}>
                   <div style={{ width: 36, height: 36, borderRadius: '50%', flexShrink: 0, background: ['#e0f4f5', '#ede4f7', '#fdeede', '#fde4ee'][i % 4], display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15 }}>
                     {f.setor === 'consultas' ? '🩺' : f.setor === 'terapias' ? '🧩' : '💉'}
@@ -235,7 +252,7 @@ export default function Dashboard() {
                 </div>
               ))}
             </div>
-            <button onClick={() => nav('/retornos')} style={{ margin: 13, padding: '9px 0', borderRadius: 11, border: '1.5px dashed var(--tq)', background: 'var(--tq4)', color: 'var(--tq2)', fontWeight: 800, fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+            <button onClick={() => nav('/agenda')} style={{ margin: 13, padding: '9px 0', borderRadius: 11, border: '1.5px dashed var(--tq)', background: 'var(--tq4)', color: 'var(--tq2)', fontWeight: 800, fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
               <Plus size={13} /> Novo agendamento
             </button>
           </div>
