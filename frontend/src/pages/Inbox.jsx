@@ -279,7 +279,12 @@ function LazyMedia({ msgId, type, filename, token, onLightbox }) {
 }
 
 
-const MsgItem = React.memo(function MsgItem({ m, prevMsg, contactName, channel, onLightbox, token }) {
+const estiloAcoesMsg = `.msg-row:hover .msg-acoes { opacity: 1 !important; }`;
+if (typeof document !== 'undefined' && !document.getElementById('msg-acoes-css')) {
+  const st = document.createElement('style'); st.id = 'msg-acoes-css'; st.textContent = estiloAcoesMsg; document.head.appendChild(st);
+}
+
+const MsgItem = React.memo(function MsgItem({ m, prevMsg, contactName, channel, onLightbox, token, onEditar, onApagar }) {
   const isMe = m.from_type==='me', isBot=m.from_type==='bot', isSys=m.from_type==='system';
   // Usa prevMsg em vez do array msgs inteiro — React.memo agora é eficaz
   const showDate = !prevMsg || new Date(prevMsg.created_at).toDateString() !== new Date(m.created_at).toDateString();
@@ -310,7 +315,19 @@ const MsgItem = React.memo(function MsgItem({ m, prevMsg, contactName, channel, 
           <span style={{ background:'var(--ok2)', color:'var(--ok)', borderRadius:8, padding:'3px 14px', fontSize:10.5, fontWeight:600 }}>✓ {m.content}</span>
         </div>
       ) : (
-        <div style={{ display:'flex', justifyContent:isMe||isBot?'flex-end':'flex-start', marginBottom:2 }}>
+        <div className="msg-row" style={{ display:'flex', alignItems:'center', gap:5, justifyContent:isMe||isBot?'flex-end':'flex-start', marginBottom:2 }}>
+          {isMe && !isBot && m.status !== 'deleted' && (onEditar || onApagar) && (
+            <span className="msg-acoes" style={{ display:'flex', gap:3, opacity:0, transition:'opacity .15s' }}>
+              {onEditar && m.type === 'text' && (Date.now() - new Date(m.created_at).getTime()) <= 15*60*1000 && (
+                <button onClick={() => onEditar(m)} title="Editar (até 15 min)"
+                  style={{ width:24, height:24, borderRadius:8, border:'1px solid var(--border)', background:'var(--card,#fff)', color:'var(--muted)', cursor:'pointer', fontSize:11, display:'flex', alignItems:'center', justifyContent:'center' }}>✏️</button>
+              )}
+              {onApagar && (
+                <button onClick={() => onApagar(m)} title="Apagar pra todos"
+                  style={{ width:24, height:24, borderRadius:8, border:'1px solid var(--border)', background:'var(--card,#fff)', color:'var(--err)', cursor:'pointer', fontSize:11, display:'flex', alignItems:'center', justifyContent:'center' }}>🗑</button>
+              )}
+            </span>
+          )}
           <div className={m.type==='sticker' ? '' : bubClass} style={{ maxWidth:'72%',
             borderRadius:isMe||isBot?'16px 16px 4px 16px':'16px 16px 16px 4px',
             padding: m.type==='sticker' ? '2px' : '8px 11px',
@@ -322,7 +339,11 @@ const MsgItem = React.memo(function MsgItem({ m, prevMsg, contactName, channel, 
               </div>
             )}
             {isLazy && <LazyMedia msgId={lazyId} type={m.type} filename={m.filename} token={token} onLightbox={onLightbox}/>}
-            {!isLazy && m.type==='text'     && <div style={{ fontSize:13.5, lineHeight:1.55, whiteSpace:'pre-wrap', wordBreak:'break-word' }}>{m.content}</div>}
+            {!isLazy && m.type==='text'     && (
+              m.status === 'deleted'
+                ? <div style={{ fontSize:13, fontStyle:'italic', color:'var(--light)' }}>🚫 Mensagem apagada</div>
+                : <div style={{ fontSize:13.5, lineHeight:1.55, whiteSpace:'pre-wrap', wordBreak:'break-word' }}>{m.content}{m.editada ? <span style={{ fontSize:10, color:'var(--light)', marginLeft:6 }}>(editada)</span> : null}</div>
+            )}
             {!isLazy && m.type==='image'    && <img onClick={()=>onLightbox(m.content)} src={m.content} alt="img" loading="lazy" style={{ maxWidth:220, maxHeight:220, borderRadius:8, display:'block', objectFit:'cover', cursor:'pointer' }} onError={e=>e.target.style.display='none'}/>}
             {!isLazy && m.type==='sticker'  && <img onClick={()=>onLightbox(m.content)} src={m.content} alt="figurinha" loading="lazy" className="msg-sticker" onError={e=>e.target.style.display='none'}/>}
             {!isLazy && m.type==='gif'      && <video autoPlay loop muted playsInline src={m.content} style={{ maxWidth:220, borderRadius:10, display:'block' }} onError={e=>e.target.style.display='none'}/>}
@@ -491,6 +512,13 @@ export default function Inbox({ onUnreadChange }) {
 
       socket.on('connect_error', (err) => {
         console.warn('Socket.io erro:', err.message);
+      });
+
+      socket.on('message_updated', ({ convId, messageId, content, editada, status }) => {
+        if (selRef.current?.id !== convId) return;
+        setMsgs(prev => prev.map(x => x.id === messageId
+          ? { ...x, ...(content !== undefined ? { content } : {}), ...(editada !== undefined ? { editada } : {}), ...(status !== undefined ? { status } : {}) }
+          : x));
       });
 
       socket.on('new_message', ({ convId, message, conv: updConv }) => {
@@ -789,6 +817,37 @@ export default function Inbox({ onUnreadChange }) {
 
   // ── Arquivo ───────────────────────────────────────────────────────────────
   // Colar imagem (Ctrl+V / print screen) direto no composer
+  // Editar mensagem enviada (WhatsApp permite até ~15 min)
+  const editarMensagem = async (m) => {
+    const novo = window.prompt('Editar mensagem (o cliente verá como editada):', m.content);
+    if (novo == null || !novo.trim() || novo.trim() === m.content) return;
+    try {
+      await api.put(`/inbox/conversations/${sel.id}/messages/${m.id}`, { content: novo.trim() });
+      setMsgs(prev => prev.map(x => x.id === m.id ? { ...x, content: novo.trim(), editada: true } : x));
+    } catch (e) { Toast.show(e.message, 'error'); }
+  };
+
+  // Apagar pra todos
+  const apagarMensagem = async (m) => {
+    if (!window.confirm('Apagar esta mensagem pra todos? O cliente verá "mensagem apagada".')) return;
+    try {
+      await api.delete(`/inbox/conversations/${sel.id}/messages/${m.id}`);
+      setMsgs(prev => prev.map(x => x.id === m.id ? { ...x, content: '🚫 Mensagem apagada', status: 'deleted' } : x));
+    } catch (e) { Toast.show(e.message, 'error'); }
+  };
+
+  // ✨ Corretor: arruma ortografia do rascunho sem mudar o tom
+  const [corrigindo, setCorrigindo] = useState(false);
+  const corrigirTexto = async () => {
+    if (!input.trim() || corrigindo) return;
+    setCorrigindo(true);
+    try {
+      const d = await api.post('/inbox/ai-assist', { mode: 'corrigir', texto: input });
+      if (d?.texto) setInput(d.texto);
+    } catch (e) { Toast.show(e.message, 'error'); }
+    finally { setCorrigindo(false); textRef.current?.focus(); }
+  };
+
   const handlePaste = (e) => {
     const item = Array.from(e.clipboardData?.items || []).find(i => i.type.startsWith('image/'));
     if (!item) return; // texto cola normal
@@ -1040,7 +1099,7 @@ export default function Inbox({ onUnreadChange }) {
                 </div>
               )}
               {msgs.map((m, i) => (
-                <MsgItem key={m.id||i} m={m} prevMsg={msgs[i-1] || null} contactName={sel.contact_name} channel={sel.channel} onLightbox={setLightbox} token={token}/>
+                <MsgItem key={m.id||i} m={m} prevMsg={msgs[i-1] || null} contactName={sel.contact_name} channel={sel.channel} onLightbox={setLightbox} token={token} onEditar={editarMensagem} onApagar={apagarMensagem}/>
               ))}
               <div ref={endRef}/>
             </div>
@@ -1220,12 +1279,16 @@ export default function Inbox({ onUnreadChange }) {
           {/* Input bar */}
           <div className="chat-input-bar" style={{ background:'var(--card,#fff)', padding:'9px 12px', borderTop:'1px solid var(--border)', flexShrink:0 }}>
             <div style={{ display:'flex', gap:5, alignItems:'flex-end' }}>
+              <button onClick={corrigirTexto} disabled={!input.trim() || corrigindo} title="Corrigir ortografia (✨ IA — não muda o tom)"
+                className="btn btn-ico" style={{ background:'transparent', color: corrigindo ? 'var(--tq)' : 'var(--muted)', borderRadius:8, opacity:!input.trim()?.45:1, fontSize:14, lineHeight:1 }}>
+                {corrigindo ? <Loader2 size={15} className="spin"/> : '✨'}
+              </button>
               <button onClick={()=>fileRef.current?.click()} className="btn btn-g btn-ico"><Paperclip size={15}/></button>
               <button onClick={()=>{setShowEmoji(p=>!p);setShowQR(false);}} className="btn btn-ico" style={{ background:showEmoji?'var(--tq3)':'transparent', color:showEmoji?'var(--tq)':'var(--muted)', borderRadius:8 }}><Smile size={15}/></button>
               <button onClick={()=>{setShowQR(p=>!p);setShowEmoji(false);}} title="Mensagens automáticas" className="btn btn-ico" style={{ background:showQR?'var(--tq3)':'transparent', color:showQR?'var(--tq)':'var(--muted)', borderRadius:8 }}><Zap size={15}/></button>
               <button onClick={()=>setShowBib(true)} title="Biblioteca de Experiências (fotos, vídeos, figurinhas)" className="btn btn-ico" style={{ background:'transparent', color:'var(--muted)', borderRadius:8, fontSize:15, lineHeight:1 }}>🖼️</button>
               <input ref={fileRef} type="file" accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.gif" style={{ display:'none' }} onChange={handleFile}/>
-              <textarea ref={textRef} onPaste={handlePaste} value={input} onChange={e=>setInput(e.target.value)}
+              <textarea ref={textRef} onPaste={handlePaste} spellCheck lang="pt-BR" value={input} onChange={e=>setInput(e.target.value)}
                 onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}}}
                 placeholder="Mensagem… (Enter envia)" rows={1}
                 style={{ flex:1, padding:'8px 12px', border:'1.5px solid var(--border)', borderRadius:10, fontSize:13, resize:'none', outline:'none', maxHeight:100, overflowY:'auto', lineHeight:1.55, fontFamily:'DM Sans, sans-serif', transition:'border-color .15s', background:'var(--card,#fff)', color:'var(--txt)' }}
@@ -1465,7 +1528,7 @@ function AgendarModal({ sel, api, onClose }) {
         servico: m.servico, profissional: m.profissional,
         data: m.data, hora: m.hora, observacoes: m.observacoes,
         endereco: m.endereco.trim(), local_link: m.local_link.trim(), email: m.email.trim(),
-        valor: m.valor, forma_pagamento: m.forma_pagamento,
+        valor: m.valor, forma_pagamento: m.forma_pagamento, parcelas: m.parcelas,
         telefone: String(sel.phone || '').replace(/\D/g, ''), setor: sel.setor || 'vacinas', lead_id: sel.lead_id || null,
       });
       // 2) Funil: lead vai pra "Agendado" + ficha sincronizada
@@ -1486,7 +1549,11 @@ function AgendarModal({ sel, api, onClose }) {
         if (m.servico) linhas.push(`💉 ${m.servico}`);
         linhas.push(`📅 ${dataBr} às ${m.hora}`);
         if (m.profissional) linhas.push(`👩‍⚕️ ${m.profissional}`);
-        if (m.valor && !isNaN(parseFloat(m.valor))) linhas.push(`💰 Valor: ${parseFloat(m.valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}${m.forma_pagamento ? ` — ${m.forma_pagamento}` : ''}`);
+        if (m.valor && !isNaN(parseFloat(m.valor))) {
+          const pc = m.forma_pagamento === 'Crédito' && parseInt(m.parcelas) > 1
+            ? ` ${m.parcelas}x de ${(parseFloat(m.valor)/parseInt(m.parcelas)).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}` : '';
+          linhas.push(`💰 Valor: ${parseFloat(m.valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}${m.forma_pagamento ? ` — ${m.forma_pagamento}${pc}` : ''}`);
+        }
         if (m.endereco.trim()) linhas.push(`📍 ${m.endereco.trim()}`);
         if (m.local_link.trim()) linhas.push(`🗺️ Localização: ${m.local_link.trim()}`);
         linhas.push('', 'Qualquer imprevisto é só me avisar por aqui 💙');
@@ -1524,10 +1591,19 @@ function AgendarModal({ sel, api, onClose }) {
           <div className="field"><label>Valor (R$)</label>
             <input type="number" min="0" step="0.01" value={m.valor} onChange={e=>setM({...m, valor:e.target.value})} placeholder="0,00" /></div>
           <div className="field"><label>Pagamento</label>
-            <select value={m.forma_pagamento} onChange={e=>setM({...m, forma_pagamento:e.target.value})}
+            <select value={m.forma_pagamento} onChange={e=>setM({...m, forma_pagamento:e.target.value, parcelas: e.target.value==='Crédito' ? (m.parcelas||'1') : ''})}
               style={{ width:'100%', padding:'8px 10px', borderRadius:10, border:'1.5px solid var(--border)', fontSize:12.5, background:'var(--card)', color:'var(--txt)' }}>
               <option value="">—</option><option>À vista</option><option>Pix</option><option>Débito</option><option>Crédito</option>
             </select></div>
+          {m.forma_pagamento === 'Crédito' && (
+            <div className="field" style={{ gridColumn:'1 / -1' }}><label>Parcelamento</label>
+              <select value={m.parcelas || '1'} onChange={e=>setM({...m, parcelas:e.target.value})}
+                style={{ width:'100%', padding:'8px 10px', borderRadius:10, border:'1.5px solid var(--border)', fontSize:12.5, background:'var(--card)', color:'var(--txt)' }}>
+                {Array.from({length:12},(_,i)=>i+1).map(n=>(
+                  <option key={n} value={n}>{n}x{m.valor && !isNaN(parseFloat(m.valor)) ? ` de ${(parseFloat(m.valor)/n).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}` : ''}</option>
+                ))}
+              </select></div>
+          )}
           <div className="field"><label>Serviço</label>
             <input value={m.servico} maxLength={80} onChange={e=>setM({...m, servico:e.target.value})} placeholder="Ex: Vacina 6 meses" /></div>
           <div className="field"><label>Profissional</label>

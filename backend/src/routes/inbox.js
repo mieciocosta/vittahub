@@ -2461,6 +2461,69 @@ r.patch('/conversations/:id/unread', async (req, res) => {
 // Caso de uso real: a mãe manda a foto da carteira de vacinação, a atendente
 // anexa aqui e pergunta "quais vacinas faltam?" — a IA lê a imagem e responde
 // com base no calendário oficial da clínica.
+// ─── EDITAR mensagem enviada (limite do WhatsApp: ~15 min) ───────────────────
+r.put('/conversations/:id/messages/:msgId', async (req, res) => {
+  try {
+    const novo = String(req.body.content || '').trim().slice(0, 4000);
+    if (!novo) return res.status(400).json({ error: 'Mensagem vazia' });
+    const { rows: [m] } = await query('SELECT * FROM mensagens WHERE id = $1 AND conversa_id = $2', [req.params.msgId, req.params.id]);
+    if (!m) return res.status(404).json({ error: 'Mensagem não encontrada' });
+    if (m.from_type !== 'me') return res.status(403).json({ error: 'Só dá pra editar mensagens enviadas pela equipe' });
+    if (m.type !== 'text') return res.status(400).json({ error: 'Só mensagens de texto podem ser editadas' });
+    if (m.status === 'deleted') return res.status(400).json({ error: 'Essa mensagem foi apagada' });
+    if (!m.wa_msg_id) return res.status(400).json({ error: 'Aguarde a confirmação de envio pra editar' });
+    if (Date.now() - new Date(m.created_at).getTime() > 15 * 60 * 1000)
+      return res.status(400).json({ error: 'O WhatsApp só permite editar até 15 minutos após o envio' });
+
+    const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
+    let phoneNum = String(conv?.phone || '').replace(/\D/g, '');
+    if (phoneNum.startsWith('55') && phoneNum.length >= 12) phoneNum = phoneNum.slice(2);
+    const primeiroNome = (m.sender_nome || '').trim().split(' ')[0];
+    const comAssinatura = primeiroNome && !novo.trimStart().startsWith('*') ? `*${primeiroNome}:*\n${novo}` : novo;
+
+    if (zapiOk()) {
+      const zr = await zapiCall('/edit-message', 'POST', { phone: `55${phoneNum}`, messageId: m.wa_msg_id, message: comAssinatura });
+      if (!zr?.ok) {
+        const corpo = await zr?.text().catch(() => '');
+        console.error('edit-message falhou:', zr?.status, corpo.slice(0, 150));
+        return res.status(502).json({ error: 'O WhatsApp recusou a edição (talvez o tempo tenha passado).' });
+      }
+    }
+    const { rows: [upd] } = await query('UPDATE mensagens SET content = $1, editada = true WHERE id = $2 RETURNING *', [novo, m.id]);
+    await query(`UPDATE conversas SET last_message = $1 WHERE id = $2 AND last_message_at = (SELECT MAX(created_at) FROM mensagens WHERE conversa_id = $2) AND $3 = (SELECT id FROM mensagens WHERE conversa_id = $2 ORDER BY created_at DESC LIMIT 1)`, [novo, conv.id, m.id]).catch(() => {});
+    socketEmit('message_updated', { convId: conv.id, messageId: m.id, content: novo, editada: true });
+    res.json(upd);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── APAGAR mensagem enviada (apaga pra todos no WhatsApp) ───────────────────
+r.delete('/conversations/:id/messages/:msgId', async (req, res) => {
+  try {
+    const { rows: [m] } = await query('SELECT * FROM mensagens WHERE id = $1 AND conversa_id = $2', [req.params.msgId, req.params.id]);
+    if (!m) return res.status(404).json({ error: 'Mensagem não encontrada' });
+    if (m.from_type !== 'me') return res.status(403).json({ error: 'Só dá pra apagar mensagens enviadas pela equipe' });
+    if (m.status === 'deleted') return res.json({ ok: true });
+    if (!m.wa_msg_id) return res.status(400).json({ error: 'Aguarde a confirmação de envio pra apagar' });
+
+    const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
+    let phoneNum = String(conv?.phone || '').replace(/\D/g, '');
+    if (phoneNum.startsWith('55') && phoneNum.length >= 12) phoneNum = phoneNum.slice(2);
+
+    if (zapiOk()) {
+      const zr = await zapiCall(`/messages?phone=55${phoneNum}&messageId=${encodeURIComponent(m.wa_msg_id)}&owner=true`, 'DELETE');
+      if (!zr?.ok) {
+        const corpo = await zr?.text().catch(() => '');
+        console.error('delete-message falhou:', zr?.status, corpo.slice(0, 150));
+        return res.status(502).json({ error: 'O WhatsApp recusou apagar essa mensagem.' });
+      }
+    }
+    await query(`UPDATE mensagens SET status = 'deleted', content = '🚫 Mensagem apagada', media_data = NULL, editada = false WHERE id = $1`, [m.id]);
+    await query(`UPDATE conversas SET last_message = '🚫 Mensagem apagada' WHERE id = $1 AND $2 = (SELECT id FROM mensagens WHERE conversa_id = $1 ORDER BY created_at DESC LIMIT 1)`, [conv.id, m.id]).catch(() => {});
+    socketEmit('message_updated', { convId: conv.id, messageId: m.id, content: '🚫 Mensagem apagada', status: 'deleted' });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ─── RESET DE TRIAGEM (gestão): força o menu de boas-vindas na próxima msg ───
 r.post('/conversations/:id/reset-triagem', async (req, res) => {
   try {
@@ -2852,6 +2915,22 @@ r.post('/ai-assist', async (req, res) => {
 
     const conhecimento = montarConhecimentoVacinal();
     const tabelaPrecos = formatarPrecos(await getPrecosVittaSys());
+
+    // ── Modo CORRIGIR: só ortografia/pontuação, sem mudar o tom (pedido da equipe) ──
+    if (mode === 'corrigir') {
+      const texto = String(req.body.texto || prompt || '').slice(0, 2000);
+      if (!texto.trim()) return res.status(400).json({ error: 'Nada pra corrigir' });
+      const data = await openaiMessages({
+        model: 'gpt-4o-mini', max_tokens: 700, json: true,
+        system: 'Corrija APENAS ortografia, acentuação e pontuação do texto em português, preservando o tom, gírias leves, emojis e o sentido. NÃO reescreva, NÃO formalize, NÃO acrescente nada. Responda somente JSON: {"texto":"..."}',
+        messages: [{ role: 'user', content: texto }],
+      });
+      if (data.error) return res.status(502).json({ error: data.error.message || 'Erro na IA' });
+      const raw = (data.content?.find(c => c.type === 'text')?.text || '{}').trim();
+      let out = null;
+      try { out = JSON.parse(raw.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim()); } catch {}
+      return res.json({ texto: out?.texto || texto });
+    }
 
     const sysPrompt = `Você é o copiloto comercial da equipe da Vittalis Saúde (clínica de pediatria, vacinação e especialidades em São Luís-MA). Quem lê sua análise é a ATENDENTE, não o cliente. Seja específico, direto e útil — análise rasa ou genérica não tem valor.
 

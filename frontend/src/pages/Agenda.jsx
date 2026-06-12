@@ -41,7 +41,7 @@ export default function Agenda() {
     try {
       if (m.local_link && !/^https?:\/\//i.test(m.local_link.trim())) { setErro('O link da localização precisa começar com http:// ou https://'); setSalvando(false); return; }
       if (m.email && !/.+@.+\..+/.test(m.email.trim())) { setErro('E-mail inválido.'); setSalvando(false); return; }
-      const body = { paciente: m.paciente.trim(), responsavel_nome: m.responsavel_nome || '', servico: m.servico || '', data: m.data || data, hora: m.hora, profissional: m.profissional || '', telefone: m.telefone || '', observacoes: m.observacoes || '', setor: m.setor || 'vacinas', endereco: m.endereco || '', local_link: (m.local_link || '').trim(), email: (m.email || '').trim(), valor: m.valor ?? '', forma_pagamento: m.forma_pagamento || '' };
+      const body = { paciente: m.paciente.trim(), responsavel_nome: m.responsavel_nome || '', servico: m.servico || '', data: m.data || data, hora: m.hora, profissional: m.profissional || '', telefone: m.telefone || '', observacoes: m.observacoes || '', setor: m.setor || 'vacinas', endereco: m.endereco || '', local_link: (m.local_link || '').trim(), email: (m.email || '').trim(), valor: m.valor ?? '', forma_pagamento: m.forma_pagamento || '', parcelas: m.parcelas || '' };
       if (m.id) await api.put(`/extras/agenda/${m.id}`, body);
       else await api.post('/extras/agenda', body);
       setModal(null); load();
@@ -112,7 +112,7 @@ export default function Agenda() {
                 </div>
                 {(ev.endereco || ev.email || ev.local_link || ev.valor != null) && (
                   <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    {ev.valor != null && <span style={{ fontWeight: 800, color: 'var(--tq2)' }}>💰 {fmt.brl(parseFloat(ev.valor))}{ev.forma_pagamento ? ` · ${ev.forma_pagamento}` : ''}</span>}
+                    {ev.valor != null && <span style={{ fontWeight: 800, color: 'var(--tq2)' }}>💰 {fmt.brl(parseFloat(ev.valor))}{ev.forma_pagamento ? ` · ${ev.forma_pagamento}${ev.parcelas > 1 ? ` ${ev.parcelas}x de ${fmt.brl(parseFloat(ev.valor) / ev.parcelas)}` : ''}` : ''}</span>}
                     {ev.endereco && <span title="Atendimento domiciliar">📍 {ev.endereco}</span>}
                     {ev.email && <span>✉️ {ev.email}</span>}
                     {ev.local_link && (
@@ -182,11 +182,20 @@ export default function Agenda() {
               <div className="field"><label>Valor (R$)</label>
                 <input type="number" min="0" step="0.01" value={modal.valor ?? ''} onChange={e => setModal({ ...modal, valor: e.target.value })} placeholder="0,00" /></div>
               <div className="field"><label>Pagamento</label>
-                <select value={modal.forma_pagamento || ''} onChange={e => setModal({ ...modal, forma_pagamento: e.target.value })}
+                <select value={modal.forma_pagamento || ''} onChange={e => setModal({ ...modal, forma_pagamento: e.target.value, parcelas: e.target.value === 'Crédito' ? (modal.parcelas || 1) : '' })}
                   style={{ width: '100%', padding: '8px 10px', borderRadius: 10, border: '1.5px solid var(--border)', fontSize: 12.5, background: 'var(--card)', color: 'var(--txt)' }}>
                   <option value="">—</option>
                   <option>À vista</option><option>Pix</option><option>Débito</option><option>Crédito</option>
                 </select></div>
+              {modal.forma_pagamento === 'Crédito' && (
+                <div className="field"><label>Parcelamento</label>
+                  <select value={modal.parcelas || 1} onChange={e => setModal({ ...modal, parcelas: e.target.value })}
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: 10, border: '1.5px solid var(--border)', fontSize: 12.5, background: 'var(--card)', color: 'var(--txt)' }}>
+                    {Array.from({ length: 12 }, (_, i) => i + 1).map(n => (
+                      <option key={n} value={n}>{n}x{modal.valor && !isNaN(parseFloat(modal.valor)) ? ` de ${(parseFloat(modal.valor) / n).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}` : ''}</option>
+                    ))}
+                  </select></div>
+              )}
               <div className="field"><label>Setor</label>
                 <select value={modal.setor || 'vacinas'} onChange={e => setModal({ ...modal, setor: e.target.value })}
                   style={{ width: '100%', padding: '8px 10px', borderRadius: 10, border: '1.5px solid var(--border)', fontSize: 12.5, background: 'var(--card)', color: 'var(--txt)' }}>
@@ -225,7 +234,7 @@ function baixarPDF(eventos, dataISO, rotuloDia) {
       <td>${SET_ICO[ev.setor] || ''} <b>${esc(ev.paciente)}</b>${ev.responsavel_nome ? `<br><small>Resp.: ${esc(ev.responsavel_nome)}</small>` : ''}</td>
       <td>${esc(ev.servico || '—')}${ev.profissional ? `<br><small>${esc(ev.profissional)}</small>` : ''}</td>
       <td>${ev.telefone ? esc(ev.telefone) : '—'}${ev.email ? `<br><small>${esc(ev.email)}</small>` : ''}</td>
-      <td>${ev.valor != null ? `<b>${brl(ev.valor)}</b>${ev.forma_pagamento ? `<br><small>${esc(ev.forma_pagamento)}</small>` : ''}` : '—'}</td>
+      <td>${ev.valor != null ? `<b>${brl(ev.valor)}</b>${ev.forma_pagamento ? `<br><small>${esc(ev.forma_pagamento)}${ev.parcelas > 1 ? ` ${ev.parcelas}x de ${brl(ev.valor / ev.parcelas)}` : ''}</small>` : ''}` : '—'}</td>
       <td>${esc(ev.status)}</td>
     </tr>
     ${ev.endereco || ev.observacoes ? `<tr class="sub"><td></td><td colspan="5">${ev.endereco ? `📍 ${esc(ev.endereco)} ` : ''}${ev.observacoes ? `· ${esc(ev.observacoes)}` : ''}</td></tr>` : ''}

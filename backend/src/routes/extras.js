@@ -41,13 +41,14 @@ r.post('/agenda', async (req, res) => {
     const valor = b.valor !== undefined && b.valor !== '' && !isNaN(parseFloat(b.valor))
       ? Math.max(0, Math.min(parseFloat(b.valor), 100000)) : null;
     const formaPag = FORMAS.includes(b.forma_pagamento) ? b.forma_pagamento : null;
+    const parcelas = formaPag === 'Crédito' && b.parcelas ? Math.max(1, Math.min(parseInt(b.parcelas) || 1, 12)) : null;
     const { rows: [ev] } = await query(`
-      INSERT INTO agenda_eventos (paciente, responsavel_nome, servico, data, hora, profissional, telefone, observacoes, status, setor, responsavel_id, lead_id, endereco, local_link, email, valor, forma_pagamento)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'Agendado',$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
+      INSERT INTO agenda_eventos (paciente, responsavel_nome, servico, data, hora, profissional, telefone, observacoes, status, setor, responsavel_id, lead_id, endereco, local_link, email, valor, forma_pagamento, parcelas)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'Agendado',$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *`,
       [paciente, cut(b.responsavel_nome, 80), cut(b.servico, 80), b.data, b.hora,
        cut(b.profissional, 80), cut((b.telefone || '').replace(/\D/g, ''), 13),
        cut(b.observacoes, 300), setor, b.responsavel_id || req.user.id, b.lead_id || null,
-       cut(b.endereco, 160), localLink, email, valor, formaPag]);
+       cut(b.endereco, 160), localLink, email, valor, formaPag, parcelas]);
     socketEmit('agenda_update', { id: ev.id });
     res.status(201).json(ev);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -73,6 +74,7 @@ r.put('/agenda/:id', async (req, res) => {
     if (b.email !== undefined) set('email', b.email && /.+@.+\..+/.test(b.email) ? cut(b.email.trim(), 120) : null);
     if (b.valor !== undefined) set('valor', b.valor === '' || isNaN(parseFloat(b.valor)) ? null : Math.max(0, Math.min(parseFloat(b.valor), 100000)));
     if (b.forma_pagamento !== undefined) set('forma_pagamento', ['À vista', 'Pix', 'Débito', 'Crédito'].includes(b.forma_pagamento) ? b.forma_pagamento : null);
+    if (b.parcelas !== undefined || b.forma_pagamento !== undefined) set('parcelas', b.forma_pagamento === 'Crédito' && b.parcelas ? Math.max(1, Math.min(parseInt(b.parcelas) || 1, 12)) : null);
     if (!sets.length) return res.status(400).json({ error: 'Nada para atualizar' });
     params.push(req.params.id);
     const { rows: [ev] } = await query(`UPDATE agenda_eventos SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${i} RETURNING *`, params);

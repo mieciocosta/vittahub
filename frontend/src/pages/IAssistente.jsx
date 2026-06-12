@@ -131,7 +131,7 @@ export default function IAssistente() {
           </button>
           <input ref={fileRef} type="file" accept="image/*,application/pdf" style={{ display: 'none' }}
             onChange={e => { lerArquivo(e.target.files?.[0]); e.target.value = ''; }} />
-          <input value={input} maxLength={2000} onPaste={colar} onChange={e => setInput(e.target.value)}
+          <input value={input} maxLength={2000} spellCheck lang="pt-BR" onPaste={colar} onChange={e => setInput(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviar(); } }}
             placeholder="Pergunte à IA… (Enter envia)"
             style={{ flex: 1, padding: '10px 14px', borderRadius: 12, border: '1.5px solid var(--border)', fontSize: 13, outline: 'none', background: 'var(--bg)', color: 'var(--txt)' }} />
