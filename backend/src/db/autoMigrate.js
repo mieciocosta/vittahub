@@ -187,11 +187,13 @@ export default async function runMigrate() {
       console.log('🌱 Seed setores/papéis aplicado');
     }
 
-    // ── TRIAGEM DIÁRIA: menu de boas-vindas reaparece a cada novo dia ───────
+    // ── TRIAGEM: menu de boas-vindas reaparece após 24h de conversa parada ──
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS triagem_data DATE`).catch(() => {});
-    // Conversas movimentadas HOJE não recebem menu no meio do papo após o deploy
-    await query(`UPDATE conversas SET triagem_data = CURRENT_DATE
-                 WHERE triagem_data IS NULL AND last_message_at::date = CURRENT_DATE`).catch(() => {});
+    await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS triagem_ts TIMESTAMPTZ`).catch(() => {});
+    await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS captura_etapa TEXT`).catch(() => {});
+    // Conversas ativas nas últimas 24h não recebem menu no meio do papo após o deploy
+    await query(`UPDATE conversas SET triagem_ts = NOW()
+                 WHERE triagem_ts IS NULL AND last_message_at > NOW() - interval '24 hours'`).catch(() => {});
 
     // ── FICHA DO PACIENTE (dados do cliente no painel da conversa) ──────────
     await query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS nascimento DATE`).catch(() => {});

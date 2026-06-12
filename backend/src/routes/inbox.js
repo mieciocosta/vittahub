@@ -518,7 +518,7 @@ function detectarSetor(texto) {
 }
 
 const MENU_TITULO = `Olá! 👋
-Seja muito bem-vindo(a) à *Vittalis Saúde!* 💙
+Seja muito bem-vindo(a) à *Vittalis Saúde!* 💎
 
 Para te direcionar ao setor correto e oferecer o melhor atendimento, escolha uma das opções abaixo:`;
 
@@ -526,7 +526,7 @@ const MENU_TRIAGEM = `${MENU_TITULO}
 
 1️⃣ 💉 Vacinação
 2️⃣ 🩺 Consultas
-3️⃣ 🧩 Terapias
+3️⃣ 🤲 Terapias
 4️⃣ 💬 Outros Assuntos
 
 É só responder com o número ou o nome da opção 😊`;
@@ -541,11 +541,11 @@ async function enviarMenuTriagem(phoneNum) {
       buttonList: { buttons: [
         { id: 'vacinas',   label: '💉 Vacinação' },
         { id: 'consultas', label: '🩺 Consultas' },
-        { id: 'terapias',  label: '🧩 Terapias' },
+        { id: 'terapias',  label: '🤲 Terapias' },
         { id: 'outros',    label: '💬 Outros Assuntos' },
       ] },
     });
-    if (r?.ok) return `${MENU_TITULO}\n\n[💉 Vacinação] [🩺 Consultas] [🧩 Terapias] [💬 Outros Assuntos]`;
+    if (r?.ok) return `${MENU_TITULO}\n\n[💉 Vacinação] [🩺 Consultas] [🤲 Terapias] [💬 Outros Assuntos]`;
     console.error('send-button-list recusado:', r?.status, (await r?.text().catch(() => ''))?.slice(0, 120));
   } catch (e) { console.error('send-button-list erro:', e.message); }
   await zapiCall('/send-text', 'POST', { phone: `55${phoneNum}`, message: MENU_TRIAGEM });
@@ -571,6 +571,76 @@ async function distribuirSetor(convId, setor) {
   await query('UPDATE conversas SET responsavel_id = $1 WHERE id = $2', [escolhida.id, convId]);
   socketEmit('conv_assigned', { convId, responsavel_id: escolhida.id, responsavel_nome: escolhida.nome });
   return escolhida;
+}
+
+// Garante que a conversa tem um lead no funil (pra captura salvar a ficha)
+async function garanteLead(conv) {
+  if (conv.lead_id) return conv.lead_id;
+  const { rows: [lead] } = await query(`
+    INSERT INTO leads (nome, telefone, origem, interesse, status, responsavel_id, observacoes, setor)
+    VALUES ($1,$2,'WhatsApp',$3,'Novo Lead',$4,'Lead automático via menu de boas-vindas',$5) RETURNING id`,
+    [conv.contact_name || conv.phone || 'Cliente', conv.phone || '',
+     conv.setor === 'consultas' ? 'Consulta' : conv.setor === 'terapias' ? 'Terapia' : 'Vacina',
+     conv.responsavel_id || null, conv.setor || 'vacinas']).catch(() => ({ rows: [null] }));
+  if (!lead) return null;
+  await query('UPDATE conversas SET lead_id = $1 WHERE id = $2', [lead.id, conv.id]).catch(() => {});
+  const cached = convoCache.get(conv.id);
+  if (cached) cacheUpdate({ ...cached, lead_id: lead.id });
+  return lead.id;
+}
+
+// Captura automática pós-apresentação: nome → paciente → nascimento.
+// Sai de cena em silêncio se o cliente fugir do roteiro (pergunta, texto longo).
+async function capturaDados(conv, texto, phoneNum) {
+  const t = String(texto || '').trim();
+  const desviou = t.length < 2 || t.length > 60 || /[?]/.test(t) ||
+    /\b(quanto|valor|preco|preço|horario|horário|agendar|endere)\b/i.test(t);
+
+  const responde = async (msg, proxEtapa) => {
+    await query('UPDATE conversas SET captura_etapa = $2 WHERE id = $1', [conv.id, proxEtapa]).catch(() => {});
+    if (zapiOk()) await zapiCall('/send-text', 'POST', { phone: `55${phoneNum}`, message: msg });
+    const { rows: [m] } = await query(
+      `INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, created_at)
+       VALUES ($1,'bot','Vitta','text',$2,NOW()) RETURNING *`, [conv.id, msg]).catch(() => ({ rows: [null] }));
+    if (m) socketEmit('new_message', { convId: conv.id, message: m, conv });
+  };
+
+  if (conv.captura_etapa === 'nome') {
+    if (desviou) { await query('UPDATE conversas SET captura_etapa = NULL WHERE id = $1', [conv.id]).catch(() => {}); return false; }
+    const nome = t.replace(/\s+/g, ' ').slice(0, 80);
+    const leadId = await garanteLead(conv);
+    if (leadId) await query('UPDATE leads SET responsavel_cliente = $1 WHERE id = $2 AND (responsavel_cliente IS NULL OR responsavel_cliente = \'\')', [nome, leadId]).catch(() => {});
+    await query(`UPDATE conversas SET contact_name = CASE WHEN contact_name IS NULL OR contact_name = phone THEN $1 ELSE contact_name END WHERE id = $2`, [nome, conv.id]).catch(() => {});
+    await responde(`Obrigada, *${nome.split(' ')[0]}*! 😊\n\nE qual é o nome do paciente (quem vai receber o atendimento)?`, 'paciente');
+    return true;
+  }
+
+  if (conv.captura_etapa === 'paciente') {
+    if (desviou) { await query('UPDATE conversas SET captura_etapa = NULL WHERE id = $1', [conv.id]).catch(() => {}); return false; }
+    const nomeP = t.replace(/\s+/g, ' ').slice(0, 80);
+    const leadId = await garanteLead(conv);
+    if (leadId) await query('UPDATE leads SET nome = $1 WHERE id = $2', [nomeP, leadId]).catch(() => {});
+    await responde(`Perfeito! E qual a data de nascimento de *${nomeP.split(' ')[0]}*? (ex: 15/12/2024)`, 'nascimento');
+    return true;
+  }
+
+  if (conv.captura_etapa === 'nascimento') {
+    const md = t.match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);
+    if (!md) { await query('UPDATE conversas SET captura_etapa = NULL WHERE id = $1', [conv.id]).catch(() => {}); return false; }
+    let [, d, mes, ano] = md;
+    if (ano.length === 2) ano = (parseInt(ano) > 30 ? '19' : '20') + ano;
+    const iso = `${ano}-${String(mes).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const dt = new Date(iso + 'T12:00:00');
+    if (isNaN(dt) || dt > new Date() || parseInt(ano) < 1920) {
+      await query('UPDATE conversas SET captura_etapa = NULL WHERE id = $1', [conv.id]).catch(() => {});
+      return false;
+    }
+    const leadId = await garanteLead(conv);
+    if (leadId) await query('UPDATE leads SET nascimento = $1 WHERE id = $2', [iso, leadId]).catch(() => {});
+    await responde(`Prontinho, tudo registrado! ✅💎\nNossa equipe já está com seus dados e segue com você por aqui. 😊`, null);
+    return true;
+  }
+  return false;
 }
 
 // Devolve true se a mensagem foi consumida pela triagem (Vitta não responde)
@@ -628,8 +698,10 @@ async function triagemSetor(conv, texto, phoneNum) {
   const saud = parseInt(h) < 12 ? 'Bom dia' : parseInt(h) < 18 ? 'Boa tarde' : 'Boa noite';
   const nomeAt = atendente ? atendente.nome.split(' ')[0] : null;
   const confirma = nomeAt
-    ? `${saud}! 😊\n\nEu me chamo *${nomeAt}* e será um prazer receber você aqui na Vittalis Saúde 💙\n\nPara que eu possa oferecer um atendimento personalizado, com toda atenção e cuidado que você merece, poderia me confirmar seu nome, por gentileza?`
-    : `${saud}! Você está na fila de *${SETORES[escolha].rotulo}* — nossa equipe já vai te atender 💙`;
+    ? `${saud}! 😊\n\nEu me chamo *${nomeAt}*.\nÉ um prazer receber você na Vittalis Saúde. 💎\n\nPara que eu possa oferecer um atendimento personalizado e com toda atenção que você merece, poderia me informar seu nome, por gentileza?`
+    : `${saud}! Você está na fila de *${SETORES[escolha].rotulo}* — nossa equipe já vai te atender 💎`;
+  // Liga a captura automática (nome → paciente → nascimento)
+  if (nomeAt) await query(`UPDATE conversas SET captura_etapa = 'nome' WHERE id = $1`, [conv.id]).catch(() => {});
   if (zapiOk()) await zapiCall('/send-text', 'POST', { phone: `55${phoneNum}`, message: confirma });
   await query('UPDATE conversas SET bot_ativo = false, last_from = $2, last_message = $3 WHERE id = $1',
     [conv.id, 'bot', confirma.slice(0, 100)]).catch(() => {});
@@ -1231,18 +1303,33 @@ r.post('/webhook/zapi', async (req, res) => {
     // DEBOUNCE: mensagens em sequência são agregadas e a Vitta responde UMA
     // única vez lendo o histórico completo — corrige as respostas triplicadas
     // que se contradiziam e re-perguntavam o que o cliente já tinha dito.
-    // ── TRIAGEM DIÁRIA: a cada dia diferente, o fluxo de boas-vindas recomeça ──
-    // (menu com botões + novo sorteio). Religa o bot só pra essa abertura.
-    const hojeSP = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
-    const ultimaTriagem = conv.triagem_data ? String(conv.triagem_data).slice(0, 10) : null;
-    if (textoParaIA && ultimaTriagem !== hojeSP) {
-      await query(
-        `UPDATE conversas SET bot_ativo = true, menu_enviado = false, triagem_data = $2 WHERE id = $1`,
-        [conv.id, hojeSP]).catch(() => {});
-      conv.bot_ativo = true; conv.menu_enviado = false; conv.triagem_data = hojeSP;
-      const cachedT = convoCache.get(conv.id);
-      if (cachedT) cacheUpdate({ ...cachedT, bot_ativo: true });
-      socketEmit('bot_status', { convId: conv.id, bot_ativo: true });
+    // ── REABERTURA AUTOMÁTICA: menu volta após 24h de conversa parada ─────────
+    // Regras da gestão: só reabre se NÃO houver atendimento ativo (equipe
+    // respondeu nas últimas 24h) e se a última triagem foi há 24h ou mais.
+    const precisaReabrir = textoParaIA &&
+      (!conv.triagem_ts || (Date.now() - new Date(conv.triagem_ts).getTime()) >= 24 * 3600 * 1000);
+    if (precisaReabrir) {
+      const { rows: [ativo] } = await query(
+        `SELECT 1 FROM mensagens WHERE conversa_id = $1 AND from_type = 'me'
+         AND created_at > NOW() - interval '24 hours' LIMIT 1`, [conv.id]).catch(() => ({ rows: [] }));
+      if (!ativo) {
+        await query(
+          `UPDATE conversas SET bot_ativo = true, menu_enviado = false, triagem_ts = NOW(), captura_etapa = NULL WHERE id = $1`,
+          [conv.id]).catch(() => {});
+        conv.bot_ativo = true; conv.menu_enviado = false; conv.captura_etapa = null;
+        const cachedT = convoCache.get(conv.id);
+        if (cachedT) cacheUpdate({ ...cachedT, bot_ativo: true });
+        socketEmit('bot_status', { convId: conv.id, bot_ativo: true });
+      } else {
+        // atendimento ativo: empurra a janela pra não reavaliar a cada mensagem
+        await query(`UPDATE conversas SET triagem_ts = NOW() WHERE id = $1`, [conv.id]).catch(() => {});
+      }
+    }
+
+    // ── CAPTURA AUTOMÁTICA: nome → paciente → nascimento (salva no CRM) ──────
+    if (textoParaIA && conv.captura_etapa) {
+      const tratado = await capturaDados(conv, textoParaIA, phoneDigits.startsWith('55') ? phoneDigits.slice(2) : phoneDigits);
+      if (tratado) return; // resposta do webhook já foi enviada lá no início
     }
 
     if (conv.bot_ativo && textoParaIA) {
