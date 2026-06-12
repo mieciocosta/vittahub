@@ -989,9 +989,18 @@ export default function Inbox({ onUnreadChange }) {
               <button onClick={marcarNaoLida} title="Marcar como não lida (volta o badge e fecha a conversa)" className="btn btn-sm" style={{ background:'var(--bg2)', color:'var(--muted)', border:'1.5px solid var(--border)', fontSize:11, padding:'4px 8px' }}>
                 <MailOpen size={11}/>
               </button>
+              {user?.role !== 'atendente' && (
+                <button onClick={async ()=>{ try { await api.post(`/inbox/conversations/${sel.id}/reset-triagem`); Toast.show('Triagem reiniciada — o próximo "oi" do cliente recebe o menu de boas-vindas 💎', 'success'); } catch(e){ Toast.show(e.message, 'error'); } }}
+                  title="Reiniciar boas-vindas: a próxima mensagem do cliente recebe o menu com botões"
+                  className="btn btn-sm" style={{ background:'var(--bg2)', color:'var(--muted)', border:'1.5px solid var(--border)', fontSize:11, padding:'4px 9px' }}>
+                  ↺ Menu
+                </button>
+              )}
+              {/* BOT OCULTO (gestão 12/06/2026) — Vitta desligada no backend; descomente junto com agendarVitta pra religar.
               <button onClick={toggleBot} className="btn btn-sm" style={{ background:sel.bot_ativo?'var(--ok2)':'var(--bg2)', color:sel.bot_ativo?'var(--ok)':'var(--muted)', border:`1.5px solid ${sel.bot_ativo?'var(--ok)':'var(--border)'}`, fontSize:11, padding:'4px 9px' }}>
                 <Bot size={10}/>{sel.bot_ativo?'Bot ON':'Bot'}
               </button>
+              */}
 
               <button onClick={toLead} className="btn btn-s btn-sm" style={{ fontSize:11, padding:'4px 9px' }}><UserPlus size={10}/> Lead</button>
               <button onClick={()=>{setShowAI(p=>!p);setShowInfo(false);}} className="btn btn-sm" style={{ background:showAI?'#032B30':'var(--bg2)', color:showAI?'#00B8C0':'var(--muted)', border:`1.5px solid ${showAI?'rgba(0,184,192,.4)':'var(--border)'}`, fontSize:11, padding:'4px 9px' }}>

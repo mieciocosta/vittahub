@@ -576,12 +576,17 @@ async function distribuirSetor(convId, setor) {
 // Garante que a conversa tem um lead no funil (pra captura salvar a ficha)
 async function garanteLead(conv) {
   if (conv.lead_id) return conv.lead_id;
+  // Primeira etapa real do funil do setor (ex: "Boas Vindas"), com fallback
+  const { rows: [col] } = await query(
+    `SELECT nome FROM funil_colunas WHERE setor = $1 AND ordem < 99 ORDER BY ordem LIMIT 1`,
+    [conv.setor || 'vacinas']).catch(() => ({ rows: [] }));
+  const statusInicial = col?.nome || 'Novo Lead';
   const { rows: [lead] } = await query(`
     INSERT INTO leads (nome, telefone, origem, interesse, status, responsavel_id, observacoes, setor)
-    VALUES ($1,$2,'WhatsApp',$3,'Novo Lead',$4,'Lead automático via menu de boas-vindas',$5) RETURNING id`,
+    VALUES ($1,$2,'WhatsApp',$3,$6,$4,'Lead automático via menu de boas-vindas',$5) RETURNING id`,
     [conv.contact_name || conv.phone || 'Cliente', conv.phone || '',
      conv.setor === 'consultas' ? 'Consulta' : conv.setor === 'terapias' ? 'Terapia' : 'Vacina',
-     conv.responsavel_id || null, conv.setor || 'vacinas']).catch(() => ({ rows: [null] }));
+     conv.responsavel_id || null, conv.setor || 'vacinas', statusInicial]).catch(() => ({ rows: [null] }));
   if (!lead) return null;
   await query('UPDATE conversas SET lead_id = $1 WHERE id = $2', [lead.id, conv.id]).catch(() => {});
   const cached = convoCache.get(conv.id);
@@ -637,7 +642,75 @@ async function capturaDados(conv, texto, phoneNum) {
     }
     const leadId = await garanteLead(conv);
     if (leadId) await query('UPDATE leads SET nascimento = $1 WHERE id = $2', [iso, leadId]).catch(() => {});
-    await responde(`Prontinho, tudo registrado! ✅💎\nNossa equipe já está com seus dados e segue com você por aqui. 😊`, null);
+    await responde(`Anotado! ✅ E pra finalizar: qual o motivo do seu contato hoje? (ex: vacina de 6 meses, consulta pediátrica, avaliação…)`, 'motivo');
+    return true;
+  }
+
+  if (conv.captura_etapa === 'motivo') {
+    const motivo = t.replace(/\s+/g, ' ').slice(0, 200);
+    if (motivo.length < 2) { await query('UPDATE conversas SET captura_etapa = NULL WHERE id = $1', [conv.id]).catch(() => {}); return false; }
+    const leadId = await garanteLead(conv);
+    if (leadId) {
+      await query(`UPDATE leads SET interesse = COALESCE(NULLIF(interesse, ''), $1),
+                   observacoes = TRIM(BOTH E'\n' FROM COALESCE(observacoes, '') || E'\n' || $2)
+                   WHERE id = $3`,
+        [motivo.slice(0, 60), `Motivo do contato: ${motivo}`, leadId]).catch(() => {});
+    }
+    await responde(`Perfeito, tudo registrado! ✅\n\nPra adiantar seu atendimento: qual *dia e horário* você prefere? 🗓️\n(ex: 15/06 às 09:00 — atendemos de segunda a sábado)`, 'agenda');
+    return true;
+  }
+
+  // ── Etapa AGENDA: entende "15/06 às 09:00" e cria o agendamento sozinho ──
+  if (conv.captura_etapa === 'agenda') {
+    const md = t.match(/(\d{1,2})[\/\-.](\d{1,2})(?:[\/\-.](\d{2,4}))?/);
+    const mh = t.match(/(\d{1,2})\s*[:hH]\s*(\d{2})?/);
+    const encerraSemAgendar = async () => {
+      await responde(`Sem problemas! 😊 Nossa equipe vai combinar com você o melhor dia e horário por aqui mesmo. 💎`, null);
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, conv_id)
+                   VALUES ('novo_lead', $1, 'Cliente concluiu o cadastro e quer agendar — combinar dia/horário.', $2)`,
+        [`Agendar: ${conv.contact_name || 'cliente'}`, conv.id]).catch(() => {});
+    };
+    if (!md || !mh) { await encerraSemAgendar(); return true; }
+
+    let [, d, mes, ano] = md;
+    const hoje = new Date();
+    ano = ano ? (String(ano).length === 2 ? '20' + ano : String(ano)) : String(hoje.getFullYear());
+    let dataISO = `${ano}-${String(mes).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    let dt = new Date(dataISO + 'T12:00:00');
+    if (!md[3] && !isNaN(dt) && dt < new Date(hoje.toDateString())) { // "15/06" já passou → ano que vem
+      dataISO = `${hoje.getFullYear() + 1}-${String(mes).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      dt = new Date(dataISO + 'T12:00:00');
+    }
+    const hora = `${String(mh[1]).padStart(2, '0')}:${mh[2] || '00'}`;
+    const horaOk = parseInt(mh[1]) >= 0 && parseInt(mh[1]) <= 23 && (!mh[2] || parseInt(mh[2]) <= 59);
+    const dataOk = !isNaN(dt) && dt >= new Date(hoje.toDateString()) && (dt - hoje) < 370 * 86400000;
+    if (!dataOk || !horaOk) { await encerraSemAgendar(); return true; }
+
+    const leadId = await garanteLead(conv);
+    let dadosLead = {};
+    if (leadId) {
+      const { rows: [l] } = await query('SELECT nome, responsavel_cliente, interesse, email, endereco FROM leads WHERE id = $1', [leadId]).catch(() => ({ rows: [{}] }));
+      dadosLead = l || {};
+    }
+    await query(`
+      INSERT INTO agenda_eventos (paciente, responsavel_nome, servico, data, hora, telefone, observacoes, status, setor, lead_id, email, endereco)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,'Agendado',$8,$9,$10,$11)`,
+      [dadosLead.nome || conv.contact_name || 'Cliente', dadosLead.responsavel_cliente || null,
+       dadosLead.interesse || null, dataISO, hora,
+       String(conv.phone || '').replace(/\D/g, '').slice(0, 13),
+       'Agendado automaticamente pelas boas-vindas 💎',
+       conv.setor || 'vacinas', leadId, dadosLead.email || null, dadosLead.endereco || null]).catch(e => console.error('AGENDA_AUTO:', e.message));
+    if (leadId) {
+      await query(`UPDATE leads SET status = 'Agendado', status_changed_at = NOW(), data_retorno = $1
+                   WHERE id = $2 AND EXISTS (SELECT 1 FROM funil_colunas WHERE setor = $3 AND nome = 'Agendado')`,
+        [dataISO, leadId, conv.setor || 'vacinas']).catch(() => {});
+    }
+    socketEmit('agenda_update', { auto: true });
+    await query(`INSERT INTO notificacoes (tipo, titulo, texto, conv_id)
+                 VALUES ('novo_lead', $1, $2, $3)`,
+      [`🗓️ Agendado: ${dadosLead.nome || conv.contact_name || 'cliente'}`,
+       `Boas-vindas agendou ${dataISO.split('-').reverse().join('/')} às ${hora} — confirmar detalhes.`, conv.id]).catch(() => {});
+    await responde(`Prontinho! Agendei pra *${dataISO.split('-').reverse().join('/')}* às *${hora}* 🗓️💎\nNossa equipe confirma os detalhes com você por aqui. Até lá! 😊`, null);
     return true;
   }
   return false;
@@ -1308,10 +1381,12 @@ r.post('/webhook/zapi', async (req, res) => {
     // respondeu nas últimas 24h) e se a última triagem foi há 24h ou mais.
     const precisaReabrir = textoParaIA &&
       (!conv.triagem_ts || (Date.now() - new Date(conv.triagem_ts).getTime()) >= 24 * 3600 * 1000);
+    console.log(`TRIAGEM conv=${conv.id} reabrir=${!!precisaReabrir} triagem_ts=${conv.triagem_ts || 'null'} bot=${conv.bot_ativo} setor=${conv.setor || '-'} menu_enviado=${conv.menu_enviado}`);
     if (precisaReabrir) {
       const { rows: [ativo] } = await query(
         `SELECT 1 FROM mensagens WHERE conversa_id = $1 AND from_type = 'me'
          AND created_at > NOW() - interval '24 hours' LIMIT 1`, [conv.id]).catch(() => ({ rows: [] }));
+      console.log(`TRIAGEM conv=${conv.id} atendimentoAtivo24h=${!!ativo}`);
       if (!ativo) {
         await query(
           `UPDATE conversas SET bot_ativo = true, menu_enviado = false, triagem_ts = NOW(), captura_etapa = NULL WHERE id = $1`,
@@ -1336,7 +1411,12 @@ r.post('/webhook/zapi', async (req, res) => {
       // Triagem de setor primeiro (menu inicial / rodízio); se consumiu, para aqui
       const convAtual = (await query('SELECT * FROM conversas WHERE id = $1', [conv.id])).rows[0] || conv;
       const consumido = await triagemSetor(convAtual, textoParaIA, phoneDigits.startsWith('55') ? phoneDigits.slice(2) : phoneDigits);
-      if (!consumido) agendarVitta(conv.id);
+      // ╔═ VITTA DESLIGADA (gestão, 12/06/2026) ═══════════════════════════╗
+      // ║ A IA generativa estava respondendo errado e queimando leads.     ║
+      // ║ O fluxo determinístico (menu, sorteio, captura, agenda) SEGUE    ║
+      // ║ ativo. Pra religar a Vitta, descomente a linha abaixo.           ║
+      // ╚═══════════════════════════════════════════════════════════════════╝
+      // if (!consumido) agendarVitta(conv.id);
     }
   } catch (err) { console.error('ZAPI_ERROR:', err.message); }
 });
@@ -2381,6 +2461,22 @@ r.patch('/conversations/:id/unread', async (req, res) => {
 // Caso de uso real: a mãe manda a foto da carteira de vacinação, a atendente
 // anexa aqui e pergunta "quais vacinas faltam?" — a IA lê a imagem e responde
 // com base no calendário oficial da clínica.
+// ─── RESET DE TRIAGEM (gestão): força o menu de boas-vindas na próxima msg ───
+r.post('/conversations/:id/reset-triagem', async (req, res) => {
+  try {
+    if (!['master', 'supervisor'].includes(req.user.role)) return res.status(403).json({ error: 'Somente gestão' });
+    const { rows: [conv] } = await query(
+      `UPDATE conversas SET bot_ativo = true, menu_enviado = false, triagem_ts = NULL, captura_etapa = NULL
+       WHERE id = $1 RETURNING id, bot_ativo`, [req.params.id]);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
+    const cached = convoCache.get(conv.id);
+    if (cached) cacheUpdate({ ...cached, bot_ativo: true });
+    socketEmit('bot_status', { convId: conv.id, bot_ativo: true });
+    console.log(`TRIAGEM conv=${conv.id} RESET manual por ${req.user.nome}`);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ─── IA EXTRAI DADOS DA CONVERSA (pré-preenche o agendamento/ficha) ──────────
 r.post('/ai-extrair', async (req, res) => {
   try {
