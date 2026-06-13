@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext.jsx';
-import { Menu } from 'lucide-react';
 import Sidebar from './components/Sidebar.jsx';
 import CelebracaoGlobal from './components/CelebracaoGlobal.jsx';
 import Login from './pages/Login.jsx';
@@ -21,6 +20,35 @@ import Ligacoes from './pages/Ligacoes.jsx';
 import IAssistente from './pages/IAssistente.jsx';
 import Auditoria from './pages/Auditoria.jsx';
 import WhatsApp from './pages/WhatsApp.jsx';
+
+// Heartbeat isolado — roda em background, sem afetar o render do App
+function Heartbeat({ userId }) {
+  const started = React.useRef(false);
+  React.useEffect(() => {
+    if (!userId || started.current) return;
+    started.current = true;
+    let lat = null, lng = null;
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(p => { lat = p.coords.latitude; lng = p.coords.longitude; }, () => {}, { enableHighAccuracy: false, timeout: 10000 });
+    }
+    const tk = () => localStorage.getItem('vh_token') || '';
+    const BASE = import.meta.env.VITE_API_URL || '';
+    const beat = () => {
+      const pagina = location.pathname.replace(/\//g, '') || 'dashboard';
+      fetch(`${BASE}/api/auditoria/heartbeat`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk()}` }, body: JSON.stringify({ latitude: lat, longitude: lng, pagina }) }).catch(() => {});
+    };
+    const logNav = () => {
+      fetch(`${BASE}/api/auditoria/log`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk()}` }, body: JSON.stringify({ acao: 'navegacao', detalhes: { pagina: location.pathname }, latitude: lat, longitude: lng }) }).catch(() => {});
+    };
+    window.__auditLog = (acao, entidade, entidade_id, detalhes) => {
+      fetch(`${BASE}/api/auditoria/log`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk()}` }, body: JSON.stringify({ acao, entidade, entidade_id, detalhes, latitude: lat, longitude: lng }) }).catch(() => {});
+    };
+    beat(); logNav();
+    const hb = setInterval(beat, 30000);
+    return () => { clearInterval(hb); delete window.__auditLog; started.current = false; };
+  }, [userId]);
+  return null; // never renders anything
+}
 
 export default function App() {
   const { user, loading } = useAuth();
@@ -58,38 +86,11 @@ export default function App() {
 
   if (!user) return <Login />;
 
-  // ── HEARTBEAT + AUDIT (presença e localização, admin vê em /auditoria) ──
-  React.useEffect(() => {
-    if (!user) return;
-    let lat = null, lng = null;
-    // Pede localização uma vez (o navegador mostra um prompt)
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => { lat = pos.coords.latitude; lng = pos.coords.longitude; },
-        () => {}, { enableHighAccuracy: false, timeout: 10000 }
-      );
-    }
-    const beat = () => {
-      const pagina = location.pathname.replace(/\//g, '') || 'dashboard';
-      api.post('/auditoria/heartbeat', { latitude: lat, longitude: lng, pagina }).catch(() => {});
-    };
-    beat();
-    const hb = setInterval(beat, 30000);
-    // Log de navegação a cada mudança de rota
-    const logNav = () => {
-      api.post('/auditoria/log', { acao: 'navegacao', detalhes: { pagina: location.pathname }, latitude: lat, longitude: lng }).catch(() => {});
-    };
-    logNav();
-    window.__auditLog = (acao, entidade, entidade_id, detalhes) => {
-      api.post('/auditoria/log', { acao, entidade, entidade_id, detalhes, latitude: lat, longitude: lng }).catch(() => {});
-    };
-    return () => { clearInterval(hb); delete window.__auditLog; };
-  }, [user?.id]); // eslint-disable-line
 
   return (
     <div style={{ display:'flex', minHeight:'100vh' }}>
       <CelebracaoGlobal />
-      <button className="vh-hamburger" onClick={() => setMobileMenu(true)} aria-label="Menu"><Menu size={18} /></button>
+      <button className="vh-hamburger" onClick={() => setMobileMenu(true)} aria-label="Menu">☰</button>
       <div className={`vh-overlay${mobileMenu ? ' open' : ''}`} onClick={() => setMobileMenu(false)} />
       <Sidebar
         unread={unread}
@@ -100,6 +101,7 @@ export default function App() {
         mobileOpen={mobileMenu}
         onCloseMobile={React.useCallback(() => setMobileMenu(false), [])}
       />
+      {user && <Heartbeat userId={user.id} />}
       <main className='vh-main' style={{ marginLeft:'var(--sw)', flex:1, minHeight:'100vh', overflowX:'hidden', transition:'margin-left .2s ease' }}>
         <Routes>
           <Route path="/"             element={<Dashboard />} />

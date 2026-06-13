@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, MessageSquare, Users, Kanban, BarChart2,
   LogOut, Settings, Smartphone, Sun, Moon, ChevronLeft, ChevronRight,
@@ -105,8 +105,7 @@ const initials = n => (n||'?').split(' ').slice(0,2).map(w=>w[0]).join('').toUpp
 
 export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, collapsed = false, onToggleCollapse }) {
   const { user, setUser, logout, isMaster } = useAuth();
-  const routeLoc = useLocation();
-  React.useEffect(() => { if (onCloseMobile) onCloseMobile(); }, [routeLoc.pathname]); // eslint-disable-line
+
   const avatarFileRef = useRef(null);
   // Foto de perfil: reduz no navegador (128px jpeg) e salva no próprio usuário
   const trocarAvatar = (e) => {
@@ -183,7 +182,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
       </div>
 
       {/* Nav */}
-      <nav style={{ flex:1, padding: collapsed ? '14px 6px' : '14px 10px', display:'flex', flexDirection:'column', gap:3, overflowY:'auto', overflowX:'hidden' }}>
+      <nav onClick={() => onCloseMobile?.()} style={{ flex:1, padding: collapsed ? '14px 6px' : '14px 10px', display:'flex', flexDirection:'column', gap:3, overflowY:'auto', overflowX:'hidden' }}>
         {!collapsed && <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:1.6, color:'rgba(255,255,255,.62)', padding:'0 12px 6px', textTransform:'uppercase' }}>Menu</div>}
         {NAV.map(({ to, icon:Icon, label, unread:showU, retornos:retBadge }) => (
           <NavLink key={to} to={to} end={to==='/'} title={collapsed ? label : ''} style={({ isActive }) => ({
