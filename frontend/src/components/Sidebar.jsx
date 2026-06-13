@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, MessageSquare, Users, Kanban, BarChart2,
   LogOut, Settings, Smartphone, Sun, Moon, ChevronLeft, ChevronRight,
-  CalendarClock, CalendarDays, Bell, CheckCheck, UserPlus,
+  CalendarClock, CalendarDays, Bell, CheckCheck, UserPlus, Shield,
   Gift, Bot, Image, FileText, Smile, Phone,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -27,6 +27,10 @@ const NAV_FERRAMENTAS = [
   { to:'/modelos',    icon:FileText,        label:'Modelos de Mensagens' },
   { to:'/figurinhas', icon:Smile,           label:'Figurinhas' },
   { to:'/ligacoes',   icon:Phone,           label:'Ligações' },
+];
+
+const NAV_ADMIN = [
+  { to:'/auditoria', icon:Shield, label:'Auditoria', masterOnly:true },
 ];
 
 /* ── Sino de notificações (novo lead, lead qualificado pela Vitta etc.) ────── */
@@ -213,6 +217,30 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
             )}
           </NavLink>
         ))}
+
+        {/* ── Administração (só master) ── */}
+        {user?.role === 'master' && (
+          <>
+            {!collapsed && <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:1.6, color:'rgba(255,255,255,.62)', padding:'12px 12px 6px', textTransform:'uppercase', borderTop:'1px solid rgba(255,255,255,.16)', marginTop:10 }}>Administração</div>}
+            {collapsed && <div style={{ borderTop:'1px solid rgba(255,255,255,.16)', margin:'10px 8px' }} />}
+            {NAV_ADMIN.map(({ to, icon:Icon, label }) => (
+              <NavLink key={to} to={to} title={collapsed ? label : ''} style={({ isActive }) => ({
+                display:'flex', alignItems:'center', gap: collapsed ? 0 : 10,
+                padding: collapsed ? '10px 0' : '8px 12px',
+                justifyContent: collapsed ? 'center' : 'flex-start',
+                borderRadius:12, textDecoration:'none',
+                color: isActive ? 'var(--tq2)' : 'rgba(255,255,255,.85)',
+                background: isActive ? '#ffffff' : 'transparent',
+                boxShadow: isActive ? '0 4px 16px rgba(3,43,48,.22)' : 'none',
+                fontWeight: isActive ? 700 : 500, fontSize:13,
+                transition:'all .15s',
+              })}>
+                <Icon size={15} strokeWidth={1.8} />
+                {!collapsed && <span style={{ flex:1 }}>{label}</span>}
+              </NavLink>
+            ))}
+          </>
+        )}
 
         {/* ── Ferramentas ── */}
         {!collapsed && <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:1.6, color:'rgba(255,255,255,.62)', padding:'12px 12px 6px', textTransform:'uppercase', borderTop:'1px solid rgba(255,255,255,.16)', marginTop:10 }}>Ferramentas</div>}

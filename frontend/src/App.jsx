@@ -18,6 +18,7 @@ import Figurinhas from './pages/Figurinhas.jsx';
 import Modelos from './pages/Modelos.jsx';
 import Ligacoes from './pages/Ligacoes.jsx';
 import IAssistente from './pages/IAssistente.jsx';
+import Auditoria from './pages/Auditoria.jsx';
 import WhatsApp from './pages/WhatsApp.jsx';
 
 export default function App() {
@@ -55,6 +56,34 @@ export default function App() {
 
   if (!user) return <Login />;
 
+  // ── HEARTBEAT + AUDIT (presença e localização, admin vê em /auditoria) ──
+  React.useEffect(() => {
+    if (!user) return;
+    let lat = null, lng = null;
+    // Pede localização uma vez (o navegador mostra um prompt)
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => { lat = pos.coords.latitude; lng = pos.coords.longitude; },
+        () => {}, { enableHighAccuracy: false, timeout: 10000 }
+      );
+    }
+    const beat = () => {
+      const pagina = location.pathname.replace(/\//g, '') || 'dashboard';
+      api.post('/auditoria/heartbeat', { latitude: lat, longitude: lng, pagina }).catch(() => {});
+    };
+    beat();
+    const hb = setInterval(beat, 30000);
+    // Log de navegação a cada mudança de rota
+    const logNav = () => {
+      api.post('/auditoria/log', { acao: 'navegacao', detalhes: { pagina: location.pathname }, latitude: lat, longitude: lng }).catch(() => {});
+    };
+    logNav();
+    window.__auditLog = (acao, entidade, entidade_id, detalhes) => {
+      api.post('/auditoria/log', { acao, entidade, entidade_id, detalhes, latitude: lat, longitude: lng }).catch(() => {});
+    };
+    return () => { clearInterval(hb); delete window.__auditLog; };
+  }, [user?.id]); // eslint-disable-line
+
   return (
     <div style={{ display:'flex', minHeight:'100vh' }}>
       <CelebracaoGlobal />
@@ -80,6 +109,7 @@ export default function App() {
           <Route path="/modelos" element={<Modelos />} />
           <Route path="/ligacoes" element={<Ligacoes />} />
           <Route path="/ia" element={<IAssistente />} />
+          <Route path="/auditoria" element={user.role === 'master' ? <Auditoria /> : <Navigate to="/" />} />
           <Route path="/whatsapp"     element={user.role === 'master' ? <WhatsApp /> : <Navigate to="/" />} />
           <Route path="/configuracoes" element={<Configuracoes />} />
           <Route path="*"             element={<Navigate to="/" />} />

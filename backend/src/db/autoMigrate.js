@@ -187,6 +187,19 @@ export default async function runMigrate() {
       console.log('🌱 Seed setores/papéis aplicado');
     }
 
+    // ── AUDITORIA + PRESENÇA (admin only) ─────────────────────────────────
+    await query(`CREATE TABLE IF NOT EXISTS audit_logs (
+      id SERIAL PRIMARY KEY, usuario_id TEXT, usuario_nome TEXT, acao TEXT NOT NULL,
+      entidade TEXT, entidade_id TEXT, detalhes JSONB, ip TEXT, user_agent TEXT,
+      latitude NUMERIC(10,7), longitude NUMERIC(10,7), created_at TIMESTAMPTZ DEFAULT NOW()
+    )`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS idx_audit_user_date ON audit_logs (usuario_id, created_at DESC)`).catch(() => {});
+    await query(`CREATE TABLE IF NOT EXISTS presenca (
+      usuario_id TEXT PRIMARY KEY, socket_id TEXT, status TEXT DEFAULT 'online',
+      ultimo_heartbeat TIMESTAMPTZ DEFAULT NOW(), latitude NUMERIC(10,7), longitude NUMERIC(10,7),
+      user_agent TEXT, ip TEXT, pagina TEXT
+    )`).catch(() => {});
+
     // ── TRIAGEM: menu de boas-vindas reaparece após 24h de conversa parada ──
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS triagem_data DATE`).catch(() => {});
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS triagem_ts TIMESTAMPTZ`).catch(() => {});

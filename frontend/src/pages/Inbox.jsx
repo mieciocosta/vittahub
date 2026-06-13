@@ -824,6 +824,7 @@ export default function Inbox({ onUnreadChange }) {
     try {
       await api.put(`/inbox/conversations/${sel.id}/messages/${m.id}`, { content: novo.trim() });
       setMsgs(prev => prev.map(x => x.id === m.id ? { ...x, content: novo.trim(), editada: true } : x));
+      window.__auditLog?.('editar_mensagem', 'mensagens', String(m.id));
     } catch (e) { Toast.show(e.message, 'error'); }
   };
 
@@ -833,6 +834,7 @@ export default function Inbox({ onUnreadChange }) {
     try {
       await api.delete(`/inbox/conversations/${sel.id}/messages/${m.id}`);
       setMsgs(prev => prev.map(x => x.id === m.id ? { ...x, content: '🚫 Mensagem apagada', status: 'deleted' } : x));
+      window.__auditLog?.('apagar_mensagem', 'mensagens', String(m.id));
     } catch (e) { Toast.show(e.message, 'error'); }
   };
 
@@ -1314,7 +1316,7 @@ export default function Inbox({ onUnreadChange }) {
       )}
 
       {showAgendar && sel && (
-        <AgendarModal sel={sel} api={api} onClose={(ok) => { setShowAgendar(false); if (ok) Toast.show('Agendamento criado! 📅', 'success'); }} />
+        <AgendarModal sel={sel} api={api} onClose={(ok) => { setShowAgendar(false); if (ok) { Toast.show('Agendamento criado! 📅', 'success'); window.__auditLog?.('agendar', 'agenda', '', { paciente: sel?.contact_name }); } }} />
       )}
       {showIndicar && sel && (
         <IndicarModal sel={sel} api={api} onClose={() => setShowIndicar(false)} />
@@ -1643,6 +1645,7 @@ function IndicarModal({ sel, api, onClose }) {
         indicado_telefone: String(m.indicado_telefone || '').replace(/\D/g, ''),
       });
       Toast.show('Indicação registrada! 🎁', 'success');
+      window.__auditLog?.('indicacao', 'indicacoes', '', { indicador: sel?.contact_name });
       onClose();
     } catch (e) { setErro(e.message); }
   };
