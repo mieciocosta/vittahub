@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext.jsx';
+import { Menu } from 'lucide-react';
 import Sidebar from './components/Sidebar.jsx';
 import CelebracaoGlobal from './components/CelebracaoGlobal.jsx';
 import Login from './pages/Login.jsx';
@@ -25,6 +26,7 @@ export default function App() {
   const { user, loading } = useAuth();
   const [unread, setUnread] = useState(0);
   const [theme, setTheme] = useState(() => localStorage.getItem('vh_theme') || 'light');
+  const [mobileMenu, setMobileMenu] = useState(false);
   // Sidebar navigation collapsed state (persiste entre sessões)
   const [navCollapsed, setNavCollapsed] = useState(
     () => localStorage.getItem('vh_nav') === 'collapsed'
@@ -87,14 +89,18 @@ export default function App() {
   return (
     <div style={{ display:'flex', minHeight:'100vh' }}>
       <CelebracaoGlobal />
+      <button className="vh-hamburger" onClick={() => setMobileMenu(true)} aria-label="Menu"><Menu size={18} /></button>
+      <div className={`vh-overlay${mobileMenu ? ' open' : ''}`} onClick={() => setMobileMenu(false)} />
       <Sidebar
         unread={unread}
         theme={theme}
         onToggleTheme={toggleTheme}
         collapsed={navCollapsed}
         onToggleCollapse={toggleNav}
+        mobileOpen={mobileMenu}
+        onCloseMobile={React.useCallback(() => setMobileMenu(false), [])}
       />
-      <main style={{ marginLeft:'var(--sw)', flex:1, minHeight:'100vh', overflowX:'hidden', transition:'margin-left .2s ease' }}>
+      <main className='vh-main' style={{ marginLeft:'var(--sw)', flex:1, minHeight:'100vh', overflowX:'hidden', transition:'margin-left .2s ease' }}>
         <Routes>
           <Route path="/"             element={<Dashboard />} />
           <Route path="/inbox"        element={<Inbox onUnreadChange={setUnread} />} />

@@ -311,3 +311,79 @@ h1 { letter-spacing: -0.7px; }
 .conv-row.sel{background:var(--tq4)}
 [data-theme="dark"] .conv-row:hover{background:var(--bg2)}
 [data-theme="dark"] .conv-row.sel{background:rgba(0,184,192,.1)}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   RESPONSIVO — Mobile (≤768px) e Tablet (769–1024px)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Sidebar: drawer no mobile ── */
+@media (max-width: 768px) {
+  :root { --sw: 0px !important; }
+  .vh-sidebar {
+    transform: translateX(-100%);
+    transition: transform .25s ease !important;
+    width: 260px !important;
+    z-index: 200 !important;
+  }
+  .vh-sidebar.open { transform: translateX(0); }
+  .vh-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(3,43,48,.5);
+    z-index: 199; backdrop-filter: blur(2px);
+  }
+  .vh-overlay.open { display: block; }
+  .vh-hamburger { display: flex !important; }
+  .vh-main { margin-left: 0 !important; }
+  /* Inbox: lista OU conversa */
+  .vh-inbox-wrap { flex-direction: column !important; }
+  .vh-inbox-list { width: 100% !important; min-width: unset !important; max-width: unset !important; }
+  .vh-inbox-list.hidden { display: none !important; }
+  .vh-inbox-chat { width: 100% !important; min-width: unset !important; display: flex !important; flex-direction: column !important; }
+  .vh-inbox-chat.hidden { display: none !important; }
+  .vh-inbox-info { position: fixed !important; right: 0; top: 0; bottom: 0; width: 85vw !important; max-width: 340px; z-index: 180; box-shadow: -4px 0 20px rgba(0,0,0,.15) !important; }
+  .vh-inbox-info.hidden { display: none !important; }
+  .vh-back-btn { display: flex !important; }
+  /* Barra de ações: scroll horizontal */
+  .vh-action-bar { padding: 6px 8px 0 !important; gap: 4px !important; }
+  .vh-action-bar button { min-width: 54px !important; padding: 6px 8px !important; }
+  .vh-action-bar button span:last-child { font-size: 8px !important; }
+  /* Faixa contexto: compacta */
+  .vh-faixa { padding: 5px 4px !important; gap: 6px !important; font-size: 10px !important; }
+  .vh-faixa > div { padding: 0 8px !important; }
+  /* Header da conversa */
+  .vh-chat-header { flex-wrap: wrap; gap: 6px !important; }
+  .vh-chat-header .btn-sm { padding: 3px 7px !important; font-size: 10px !important; }
+  /* Dashboard: 1 coluna */
+  .vh-dash-grid-3 { grid-template-columns: 1fr !important; }
+  .vh-dash-kpi { grid-template-columns: repeat(2, 1fr) !important; }
+  /* Padding geral */
+  .vh-page-pad { padding: 16px !important; }
+  /* Modais: full width */
+  .vh-modal-box { max-width: 96vw !important; margin: 8px !important; }
+}
+
+/* ── Tablet ── */
+@media (min-width: 769px) and (max-width: 1024px) {
+  :root { --sw: 64px !important; }
+  .vh-sidebar { width: 64px !important; }
+  .vh-dash-grid-3 { grid-template-columns: 1fr 1fr !important; }
+  .vh-inbox-list { width: 260px !important; min-width: 260px !important; }
+  .vh-inbox-info { width: 260px !important; min-width: 260px !important; }
+  .vh-page-pad { padding: 20px !important; }
+}
+
+/* ── Helpers responsivos ── */
+.vh-hamburger { display: none; align-items: center; justify-content: center; width: 38px; height: 38px; border-radius: 10px; border: 1.5px solid var(--border); background: var(--card); color: var(--tq2); cursor: pointer; position: fixed; top: 10px; left: 10px; z-index: 210; box-shadow: 0 2px 8px rgba(0,0,0,.1); }
+.vh-back-btn { display: none; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 9px; border: 1px solid var(--border); background: var(--card); color: var(--tq2); cursor: pointer; flex-shrink: 0; }
+
+/* Touch targets */
+@media (pointer: coarse) {
+  .btn, .btn-s, .btn-p, .btn-sm, button { min-height: 38px; }
+  input, select, textarea { min-height: 40px; font-size: 16px !important; /* previne zoom no iOS */ }
+  .field label { font-size: 12px !important; }
+}
+
+/* Safe area (notch) */
+@supports (padding: max(0px)) {
+  .vh-main { padding-bottom: max(0px, env(safe-area-inset-bottom)); }
+  .vh-sidebar { padding-top: max(0px, env(safe-area-inset-top)); }
+}

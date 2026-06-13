@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, MessageSquare, Users, Kanban, BarChart2,
   LogOut, Settings, Smartphone, Sun, Moon, ChevronLeft, ChevronRight,
@@ -105,6 +105,8 @@ const initials = n => (n||'?').split(' ').slice(0,2).map(w=>w[0]).join('').toUpp
 
 export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, collapsed = false, onToggleCollapse }) {
   const { user, setUser, logout, isMaster } = useAuth();
+  const routeLoc = useLocation();
+  React.useEffect(() => { if (onCloseMobile) onCloseMobile(); }, [routeLoc.pathname]); // eslint-disable-line
   const avatarFileRef = useRef(null);
   // Foto de perfil: reduz no navegador (128px jpeg) e salva no próprio usuário
   const trocarAvatar = (e) => {
@@ -152,7 +154,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
   }, []); // eslint-disable-line
 
   return (
-    <aside style={{
+    <aside className={`vh-sidebar${mobileOpen ? ' open' : ''}`} style={{
       width: w,
       minHeight:'100vh', position:'fixed', left:0, top:0, bottom:0, zIndex:100,
       background:'linear-gradient(178deg, #00B8C0 0%, #0AA0AA 55%, #0E8C96 100%)',
