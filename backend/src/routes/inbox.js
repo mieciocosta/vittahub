@@ -3802,7 +3802,9 @@ export async function rodarFollowups() {
 
     const { rows: [cfgRow] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'");
     const cfg = cfgRow?.valor || {};
-    if (cfg.ativo === false || cfg.followup === false) return;   // respeita o liga/desliga
+    // Opt-in: o follow-up só dispara quando explicitamente ligado (cfg.followup === true).
+    // Dado o histórico de IA "queimando leads", nasce desligado — ligue com consciência.
+    if (cfg.ativo === false || cfg.followup !== true) return;
 
     const { rows: candidatos } = await query(`
       SELECT * FROM conversas
