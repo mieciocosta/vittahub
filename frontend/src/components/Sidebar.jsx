@@ -103,7 +103,7 @@ function BellPanel({ collapsed }) {
 
 const initials = n => (n||'?').split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase();
 
-export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, collapsed = false, onToggleCollapse }) {
+export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, collapsed = false, onToggleCollapse, mobileOpen = false, onCloseMobile }) {
   const { user, setUser, logout, isMaster } = useAuth();
 
   const avatarFileRef = useRef(null);

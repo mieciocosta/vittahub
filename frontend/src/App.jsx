@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext.jsx';
 import Sidebar from './components/Sidebar.jsx';
 import CelebracaoGlobal from './components/CelebracaoGlobal.jsx';
+import ErrorBoundary from './components/ErrorBoundary.jsx';
 import Login from './pages/Login.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Inbox from './pages/Inbox.jsx';
@@ -106,6 +107,7 @@ export default function App() {
       />
       {user && <Heartbeat userId={user.id} />}
       <main className='vh-main' style={{ marginLeft:'var(--sw)', flex:1, minHeight:'100vh', overflowX:'hidden', transition:'margin-left .2s ease' }}>
+        <ErrorBoundary>
         <Routes>
           <Route path="/"             element={<Dashboard />} />
           <Route path="/inbox"        element={<Inbox onUnreadChange={setUnread} />} />
@@ -125,6 +127,7 @@ export default function App() {
           <Route path="/configuracoes" element={<Configuracoes />} />
           <Route path="*"             element={<Navigate to="/" />} />
         </Routes>
+        </ErrorBoundary>
       </main>
     </div>
   );
