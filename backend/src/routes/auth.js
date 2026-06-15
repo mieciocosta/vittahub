@@ -6,6 +6,24 @@ import { SECRET, auth } from '../middleware/auth.js';
 
 const r = express.Router();
 
+// IP real atrás do proxy do Railway
+function getRealIP(req) {
+  const xff = req.headers['x-forwarded-for'];
+  return xff ? xff.split(',')[0].trim() : req.ip || 'unknown';
+}
+
+// Auditoria fire-and-forget — registra a ação SEM nunca lançar erro
+// (uma falha de log jamais pode derrubar o login).
+function logAudit(req, usuarioId, usuarioNome, acao, detalhes) {
+  query(
+    `INSERT INTO audit_logs (usuario_id, usuario_nome, acao, detalhes, ip, user_agent)
+     VALUES ($1,$2,$3,$4,$5,$6)`,
+    [usuarioId || null, usuarioNome || null, String(acao || '').slice(0, 40),
+     detalhes ? JSON.stringify(detalhes) : null,
+     getRealIP(req), req.get('user-agent')?.slice(0, 300)]
+  ).catch(() => {});
+}
+
 r.post('/login', async (req, res) => {
   try {
     // Login por CPF (padrão da equipe) ou e-mail. Aceita { login } ou { email }.
@@ -23,7 +41,7 @@ r.post('/login', async (req, res) => {
     const u = rows[0];
     if (!u) return res.status(401).json({ error: 'Usuário não encontrado. Confira o CPF digitado.' });
     const ok = await bcrypt.compare(senha, u.senha);
-    if (!ok) { logAudit(req, null, cpf, 'login_falha', { motivo: 'Senha incorreta' }); return res.status(401).json({ error: 'Senha incorreta' }); }
+    if (!ok) { logAudit(req, null, id, 'login_falha', { motivo: 'Senha incorreta' }); return res.status(401).json({ error: 'Senha incorreta' }); }
     const token = jwt.sign({ id: u.id, nome: u.nome, email: u.email, role: u.role, cor: u.cor }, SECRET, { expiresIn: '30d' });
     logAudit(req, u.id, u.nome, 'login', { metodo: 'cpf' });
     res.json({ token, user: { id: u.id, nome: u.nome, email: u.email, cpf: u.cpf, role: u.role, cor: u.cor, avatar: u.avatar || null, setor: u.setor || null } });
