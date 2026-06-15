@@ -155,6 +155,7 @@ function notifyWaiters(convId, message) {
   if (!list || list.length === 0) return;
   const snapshot = list.splice(0); // atômico: pega tudo e limpa
   snapshot.forEach(w => { clearTimeout(w.timer); w.resolve([message]); });
+  waiters.delete(convId); // evita acúmulo de chaves vazias na memória
 }
 
 // Upload em memória
@@ -1785,7 +1786,7 @@ r.get('/whatsapp/test-ia', async (req, res) => {
       http_status: r2.status,
       resposta: d.choices?.[0]?.message?.content || null,
       erro: d.error || null,
-      key_prefix: (process.env.OPENAI_API_KEY || '').slice(0, 12) + '...',
+      key_configurada: !!process.env.OPENAI_API_KEY,
     });
   } catch (e) { res.json({ error: e.message }); }
 });
@@ -2278,7 +2279,9 @@ r.get('/conversations/:id/messages/new', async (req, res) => {
 r.patch('/conversations/:id/read', async (req, res) => {
   try {
     await query('UPDATE conversas SET unread = 0 WHERE id = $1', [req.params.id]);
-    await query("UPDATE mensagens SET status = 'read' WHERE conversa_id = $1", [req.params.id]);
+    // Só reescreve o que mudou: mensagens do cliente ainda não lidas (evita
+    // reescrever centenas de linhas a cada vez que a conversa é aberta)
+    await query("UPDATE mensagens SET status = 'read' WHERE conversa_id = $1 AND from_type = 'contact' AND status <> 'read'", [req.params.id]);
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -2327,6 +2330,9 @@ r.patch('/conversations/:id/bot', async (req, res) => {
 r.post('/conversations/:id/send', async (req, res) => {
   try {
     const { content, type = 'text' } = req.body;
+    if (type === 'text' && typeof content === 'string' && content.length > 8000) {
+      return res.status(400).json({ error: 'Mensagem muito longa (máx. 8000 caracteres).' });
+    }
     const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
     if (!conv) return res.status(404).json({ error: 'Não encontrado' });
 
@@ -3739,7 +3745,7 @@ r.get('/whatsapp/zapi/qrcode', async (req, res) => {
 });
 
 // ─── Limpar todas as conversas (ao trocar número) ─────────────────────────────
-r.post('/whatsapp/clear-all', async (req, res) => {
+r.post('/whatsapp/clear-all', masterOnly, async (req, res) => {
   try {
     await query('DELETE FROM mensagens');
     await query('DELETE FROM conversas');
@@ -3751,7 +3757,7 @@ r.post('/whatsapp/clear-all', async (req, res) => {
 });
 
 
-r.post('/whatsapp/switch-number', async (req, res) => {
+r.post('/whatsapp/switch-number', masterOnly, async (req, res) => {
   try {
     const { clearConversations = false } = req.body;
     // Limpa o cache em memória sempre

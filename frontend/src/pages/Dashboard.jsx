@@ -78,10 +78,10 @@ export default function Dashboard() {
   const maxFunil = Math.max(...ETAPAS_VACINAS.map(stCount), 1);
 
   const kpis = [
-    { Icon: MessageSquare, label: 'Conversas pendentes', valor: resumo.totalUnread || 0, sub: 'Precisam de atenção', go: '/inbox' },
-    { Icon: HeartPulse, label: 'Pós-vacinais', valor: stCount('Pós-Vacinal'), sub: 'Acompanhamentos', go: '/funil' },
-    { Icon: CalendarCheck, label: 'Agendados', valor: stCount('Agendado'), sub: 'No funil de vacinas', go: '/funil' },
-    { Icon: CircleDollarSign, label: 'Orçamentos aguardando', valor: stCount('Orçamento Enviado'), sub: 'Aguardam retorno', go: '/funil' },
+    { Icon: MessageSquare, label: 'Conversas não lidas', valor: resumo.totalUnread || 0, sub: 'Precisam de atenção', go: '/inbox' },
+    { Icon: MessageSquare, label: 'Aguardando resposta', valor: data.conversas?.aguardando || 0, sub: 'Cliente falou por último', go: '/inbox' },
+    { Icon: CalendarCheck, label: 'Agendamentos hoje', valor: data.agenda?.hoje ?? agendaHoje.length, sub: 'Na agenda de hoje', go: '/agenda' },
+    { Icon: CalendarCheck, label: 'Próximos agendamentos', valor: data.agenda?.proximos || 0, sub: 'A confirmar / realizar', go: '/agenda' },
     { Icon: Bell, label: 'Follow-ups pendentes', valor: followups.length, sub: 'Retornos programados', go: '/retornos' },
   ];
 

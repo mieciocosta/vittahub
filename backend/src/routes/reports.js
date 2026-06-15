@@ -59,6 +59,18 @@ r.get('/dashboard', async (req, res) => {
         (SELECT COUNT(*) FROM leads WHERE status IN ('Vacinado','Pós-Vacinal')) criancas_vacinadas,
         (SELECT COUNT(*) FROM leads WHERE status IN ('Consulta Realizada','Retorno','Finalizado') AND COALESCE(setor,'vacinas')='consultas') consultas_realizadas,
         (SELECT COUNT(*) FROM leads WHERE status IN ('Em Tratamento','Renovação') AND COALESCE(setor,'vacinas')='terapias') terapias_iniciadas`),
+      // Agenda REAL (agenda_eventos) — o que de fato está marcado, não status de lead
+      query(`SELECT
+        COUNT(*) FILTER (WHERE data = CURRENT_DATE AND status <> 'Cancelado') hoje,
+        COUNT(*) FILTER (WHERE data >= CURRENT_DATE AND status IN ('Agendado','Confirmado','Reagendado')) proximos,
+        COUNT(*) FILTER (WHERE data >= CURRENT_DATE AND status = 'Agendado') a_confirmar
+        FROM agenda_eventos WHERE ($1::text IS NULL OR responsavel_id = $1)`, [verTudo ? null : uid]),
+      // Atividade real das conversas (WhatsApp/Instagram)
+      query(`SELECT
+        COUNT(*) total,
+        COUNT(*) FILTER (WHERE last_from = 'contact') aguardando,
+        COUNT(*) FILTER (WHERE last_message_at::date = CURRENT_DATE) hoje
+        FROM conversas`),
     ]);
 
     const t = totals.rows[0];
