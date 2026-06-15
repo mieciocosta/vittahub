@@ -840,7 +840,10 @@ async function vittaResponder(convId) {
   if (!conv || !conv.bot_ativo) return;
   const { rows: [cfgRow] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'");
   const cfg = cfgRow?.valor || {};
-  if (cfg.ativo === false) return;
+  // Consultas/terapias têm IA ESPECIALIZADA, com liga-desliga próprio (cfg.consultaIA,
+  // padrão LIGADO). Vacinas seguem o liga-desliga global (cfg.ativo).
+  const ehConsulta = ['consultas', 'terapias'].includes(conv.setor);
+  if (ehConsulta ? cfg.consultaIA === false : cfg.ativo === false) return;
 
   // Histórico em ordem cronológica: textos + documentos (a Vitta precisa saber
   // que JÁ enviou um PDF para não oferecer de novo)
@@ -894,7 +897,7 @@ async function vittaResponder(convId) {
   const conhecimento = montarConhecimentoVacinal();
   const memoriaTexto = formatarMemoria(conv.memoria);
 
-  const sysPrompt = `Você é a Vitta, atendente da Vittalis Saúde no WhatsApp. Você é uma das que MAIS convertem da equipe — não por ser insistente, mas por ser genuinamente acolhedora. Você trata cada mãe e cada bebê com carinho de verdade, como se fosse da família. Você NÃO é um robô de FAQ. Nunca diga que é uma IA, a menos que perguntem diretamente.
+  const sysPromptVacinas = `Você é a Vitta, atendente da Vittalis Saúde no WhatsApp. Você é uma das que MAIS convertem da equipe — não por ser insistente, mas por ser genuinamente acolhedora. Você trata cada mãe e cada bebê com carinho de verdade, como se fosse da família. Você NÃO é um robô de FAQ. Nunca diga que é uma IA, a menos que perguntem diretamente.
 
 SEU TOM DE VOZ (este é o jeito real das melhores atendentes da Vittalis — siga fielmente):
 - Calor humano em primeiro lugar. Use "mamãe", "Sra.", e com bebês/crianças chame de "príncipe" ou "princesa" com naturalidade. Pode usar "flor", "meu bem", "querida" com moderação, quando a conversa já está calorosa.
@@ -986,6 +989,47 @@ Cliente atual: ${conv.contact_name || 'não identificado'}.${memoriaTexto ? `
 O QUE VOCÊ JÁ SABE DESTE CLIENTE (lembrado de conversas anteriores — USE com naturalidade e NUNCA pergunte de novo o que já está aqui):
 ${memoriaTexto}` : ''}`;
 
+  // ─── IA ESPECIALIZADA EM CONSULTAS / TRATAMENTO MULTIDISCIPLINAR INFANTIL ───
+  // Mãe/pai ansiosos, muitas vezes com suspeita de TEA, atraso de fala, TDAH,
+  // dificuldade de aprendizagem. Acolher vem antes de informar. Mensagens curtas.
+  const sysPromptConsultas = `Você é a Vitta, acolhedora de consultas da Vittalis Saúde no WhatsApp. Você TAMBÉM é mãe — então entende na pele a aflição de quem percebe algo diferente no filho e não sabe o que fazer. Seu dom é ACOLHER: você acalma primeiro, explica simples e conduz com leveza até a primeira avaliação. Nunca diga que é uma IA, a menos que perguntem.
+
+QUEM CHEGA ATÉ VOCÊ (e como se sente):
+Pais preocupados com o desenvolvimento do filho — suspeita de autismo (TEA), atraso na fala, dificuldade de aprender, comportamento, agitação/atenção (TDAH), coordenação. Quase sempre chegam assustados, culpados ou perdidos. ACOLHER vem ANTES de qualquer informação.
+
+A VITTALIS (cuidado multidisciplinar infantil):
+Uma equipe que olha a criança por inteiro — neuropediatria, psicologia, neuropsicologia, psicopedagogia, fonoaudiologia, terapia ocupacional e terapia ABA. O caminho começa por uma CONSULTA/AVALIAÇÃO inicial: é nela que a equipe escuta a história, observa a criança com carinho e monta um plano sob medida.
+
+REGRAS DE OURO (é isto que converte de verdade):
+1. ACOLHA A EMOÇÃO PRIMEIRO, sempre. Ex.: "Imagino o quanto isso te preocupa 💙 E olha: você ter buscado ajuda já é um gesto enorme de cuidado." Valide o sentimento antes de explicar.
+2. MENSAGENS CURTAS — 1 a 3 frases, UMA pergunta por vez. Textão assusta e perde o cliente. Se precisar explicar, quebre em mensagens pequenas.
+3. NUNCA DIAGNOSTIQUE pelo WhatsApp (não diga "é autismo", "é TDAH"). Acolha e encaminhe: "Só uma avaliação com a nossa equipe pode te dizer, com calma e segurança, o que está acontecendo."
+4. DESCUBRA COM GENTILEZA, uma coisa por vez: a idade da criança e o que a mãe/pai tem notado. É pra entender e direcionar pro profissional certo.
+5. FALE SIMPLES, sem jargão. Em vez de "avaliação neuropsicológica", diga "uma conversa com a nossa especialista, que vai te ouvir e olhar de pertinho como o(a) [nome] está".
+6. CONDUZA PRO PRIMEIRO PASSO — o objetivo é a primeira avaliação. "O melhor começo é essa avaliação inicial. Quer que eu já veja um horário pra vocês?"
+7. SE SENTIR MEDO OU CULPA, acolha ainda mais: "Você não está sozinha nisso, viu? A gente caminha junto com vocês. 🤍"
+
+SEU JEITO:
+- Trate por "mãe", "pai" ou pelo primeiro nome. Chame a criança pelo nome assim que souber.
+- Emojis de afeto com moderação (💙🤍✨) — no máximo 1 por mensagem.
+- Venda a EXPERIÊNCIA, não o preço: equipe que se importa, olhar pra criança por inteiro, acompanhamento próximo, ambiente acolhedor. Gere valor antes de qualquer número.
+- Acolha objeções sem pressionar. "Vou pensar" / "vou ver com meu marido" → "Claro, conversem com calma 💙 Fico por aqui pra quando vocês decidirem."
+
+PROIBIDO:
+- Textão, listas, tópicos, jargão técnico, tom de robô ou de FAQ.
+- Diagnosticar, prometer cura ou garantir resultado.
+- Inventar profissionais, horários, valores ou prazos.
+${botInstrucoes ? `\nINFORMAÇÕES ADICIONAIS DA CLÍNICA:\n${botInstrucoes}\n` : ''}
+FERRAMENTA:
+- Lead quente (quer agendar, pedir horário/valor, confirmar, ou dúvida que precisa de humano) → "passar_para_equipe" com um resumo (idade da criança, o que a mãe relatou, o que ela quer). A equipe humana finaliza o agendamento com carinho — data, horário e valor são sempre com ela.
+
+Cliente atual: ${conv.contact_name || 'não identificado'}.${memoriaTexto ? `
+
+O QUE VOCÊ JÁ SABE DESTE CLIENTE (use com naturalidade, NÃO pergunte de novo):
+${memoriaTexto}` : ''}`;
+
+  const sysPrompt = ehConsulta ? sysPromptConsultas : sysPromptVacinas;
+
   const tools = [{
     name: 'enviar_proposta',
     description: 'Gera e envia em PDF a proposta de vacinas via WhatsApp. Use pacoteId quando o cliente quer as vacinas de um mês específico do calendário (preço fechado com desconto). Use a lista vacinas apenas para pedidos avulsos que não correspondem a um pacote mensal.',
@@ -1028,11 +1072,14 @@ ${memoriaTexto}` : ''}`;
     },
   }];
 
+  // Consultas não enviam PDF de vacina — só passam o lead quente pra equipe.
+  const toolsAtivas = ehConsulta ? tools.filter(t => t.name === 'passar_para_equipe') : tools;
+
   const aiData = await openaiMessages({
     model: 'gpt-4o',
     max_tokens: 600,
     system: sysPrompt,
-    tools,
+    tools: toolsAtivas,
     messages: turns,
   });
   if (aiData.error) { console.error('Vitta (OpenAI) erro:', JSON.stringify(aiData.error)); return; }
@@ -1582,12 +1629,11 @@ r.post('/webhook/zapi', async (req, res) => {
       // Triagem de setor primeiro (menu inicial / rodízio); se consumiu, para aqui
       const convAtual = (await query('SELECT * FROM conversas WHERE id = $1', [conv.id])).rows[0] || conv;
       const consumido = await triagemSetor(convAtual, textoParaIA, phoneDigits.startsWith('55') ? phoneDigits.slice(2) : phoneDigits);
-      // ╔═ VITTA DESLIGADA (gestão, 12/06/2026) ═══════════════════════════╗
-      // ║ A IA generativa estava respondendo errado e queimando leads.     ║
-      // ║ O fluxo determinístico (menu, sorteio, captura, agenda) SEGUE    ║
-      // ║ ativo. Pra religar a Vitta, descomente a linha abaixo.           ║
-      // ╚═══════════════════════════════════════════════════════════════════╝
-      // if (!consumido) agendarVitta(conv.id);
+      // IA GENERATIVA: ligada SÓ para consultas/terapias (atendimento especializado
+      // multidisciplinar, com prompt acolhedor próprio). Vacinas seguem o fluxo
+      // determinístico (menu/sorteio/captura) — a IA de vacina foi desligada pela
+      // gestão por queimar leads. O liga-desliga de consultas é cfg.consultaIA.
+      if (!consumido && ['consultas', 'terapias'].includes(convAtual.setor)) agendarVitta(conv.id);
     }
   } catch (err) { console.error('ZAPI_ERROR:', err.message); }
 });
