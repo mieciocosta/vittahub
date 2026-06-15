@@ -1066,7 +1066,8 @@ Cliente atual: ${conv.contact_name || 'não identificado'}.`;
     try {
       const info = toolPassar.input || {};
       console.log('IA qualificou lead:', JSON.stringify(info));
-      await query('UPDATE conversas SET bot_ativo = false WHERE id = $1', [convId]);
+      await query("UPDATE conversas SET bot_ativo = false, lead_score = 'quente', lead_score_motivo = $2, lead_score_at = NOW() WHERE id = $1",
+        [convId, String(info.motivo || 'lead qualificado').slice(0, 60)]);
       await query(
         `INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, created_at)
          VALUES ($1,'system','Sistema','text',$2,NOW())`,
@@ -1074,6 +1075,7 @@ Cliente atual: ${conv.contact_name || 'não identificado'}.`;
       ).catch(() => {});
       socketEmit('bot_status', { convId, bot_ativo: false });
       socketEmit('lead_qualificado', { convId, motivo: info.motivo, resumo: info.resumo });
+      socketEmit('lead_score', { convId, lead_score: 'quente', lead_score_motivo: String(info.motivo || 'lead qualificado').slice(0, 60) });
       if (!botReply) botReply = 'Vou passar você para um especialista da nossa equipe que vai finalizar seu atendimento. Um instante!';
     } catch (e) { console.error('Erro passar_para_equipe:', e.message); }
   }
@@ -1167,6 +1169,62 @@ Cliente atual: ${conv.contact_name || 'não identificado'}.`;
       [botReply.slice(0, 100), convId]);
     if (botMsg) socketEmit('new_message', { convId, message: botMsg, conv });
   }
+
+  // Score de temperatura do lead (não bloqueia a resposta). Se a Vitta acabou de
+  // qualificar e passar pra equipe, o lead já foi marcado 'quente' acima.
+  if (!toolPassar) classificarLead(convId).catch(() => {});
+}
+
+/* ─── SCORE DE LEAD (quente / morno / frio) ────────────────────────────────────
+   Classifica a temperatura do lead pela conversa, pra equipe priorizar os
+   quentes. Usa IA barata (gpt-4o-mini) com fallback heurístico. Atualiza a
+   conversa, o cache e empurra pro front via socket ('lead_score').           */
+async function classificarLead(convId) {
+  try {
+    const { rows: histRows } = await query(
+      `SELECT from_type, type, content, filename FROM mensagens
+       WHERE conversa_id = $1 AND type IN ('text','document') AND from_type <> 'system'
+       ORDER BY created_at DESC LIMIT 20`, [convId]
+    );
+    const hist = histRows.reverse();
+    if (!hist.length) return;
+
+    let score = 'morno', motivo = '';
+
+    if (process.env.OPENAI_API_KEY) {
+      const resumo = hist.map(m => {
+        const quem = m.from_type === 'contact' ? 'Cliente' : 'Vitta';
+        const txt = m.type === 'document' ? `[Vitta enviou PDF: ${m.filename || 'proposta'}]` : String(m.content || '').slice(0, 200);
+        return `${quem}: ${txt}`;
+      }).join('\n');
+
+      const sys = `Você classifica a TEMPERATURA de um lead da Vittalis Saúde (clínica de vacinas e consultas) a partir da conversa de WhatsApp. Responda APENAS JSON: {"score":"quente|morno|frio","motivo":"até 8 palavras"}.
+- quente: intenção real de fechar/agendar AGORA — pede para agendar, confirma horário ou pagamento, manda endereço/dados de cadastro, diz "quero", "pode marcar", ou responde engajado logo após receber a proposta.
+- morno: interessado, fazendo perguntas (preço, vacinas, datas), mas ainda sem decisão.
+- frio: vago, "só pesquisando", "vou pensar", sumiu, ou apenas cumprimentou sem avançar.
+O ÚLTIMO movimento do cliente é o que mais pesa.`;
+
+      const aiData = await openaiMessages({
+        model: 'gpt-4o-mini', max_tokens: 60, json: true, system: sys,
+        messages: [{ role: 'user', content: resumo }],
+      });
+      const txt = aiData?.content?.find(c => c.type === 'text')?.text || '';
+      try {
+        const j = JSON.parse(txt);
+        if (['quente', 'morno', 'frio'].includes(j.score)) { score = j.score; motivo = String(j.motivo || '').slice(0, 60); }
+      } catch {}
+    } else {
+      // Heurística sem IA: olha as palavras-chave da conversa
+      const all = hist.map(m => String(m.content || '').toLowerCase()).join(' ');
+      if (/\bagend|marcar|fechar|quero|confirm|endere[çc]|pix|cart[aã]o|pagar|hoje|amanh[aã]\b/.test(all)) { score = 'quente'; motivo = 'sinais de fechamento'; }
+      else if (/\bpre[çc]o|valor|quanto|vacina|consulta|plano|hor[aá]rio\b/.test(all)) { score = 'morno'; motivo = 'tirando dúvidas'; }
+      else { score = 'frio'; motivo = 'pouco engajamento'; }
+    }
+
+    await query('UPDATE conversas SET lead_score = $1, lead_score_motivo = $2, lead_score_at = NOW() WHERE id = $3', [score, motivo, convId]);
+    const { rows: [c] } = await query('SELECT * FROM conversas WHERE id = $1', [convId]);
+    if (c) { cacheUpdate(c); socketEmit('lead_score', { convId, lead_score: score, lead_score_motivo: motivo }); }
+  } catch (e) { console.error('classificarLead erro:', e.message); }
 }
 
 
