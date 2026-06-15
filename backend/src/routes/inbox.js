@@ -1514,7 +1514,13 @@ r.post('/webhook/zapi', async (req, res) => {
     // ── REABERTURA AUTOMÁTICA: menu volta após 24h de conversa parada ─────────
     // Regras da gestão: só reabre se NÃO houver atendimento ativo (equipe
     // respondeu nas últimas 24h) e se a última triagem foi há 24h ou mais.
-    const precisaReabrir = textoParaIA &&
+    // Interruptor global do bot — só o master (Miécio/Nágila) liga/desliga em
+    // Configurações. Desligado → NENHUMA automação: não reabre, não tria, não
+    // responde. Foi por não respeitar isto que os bots "não desligavam".
+    const { rows: [cfgBotRow] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'").catch(() => ({ rows: [] }));
+    const botGlobalAtivo = cfgBotRow?.valor?.ativo !== false;
+
+    const precisaReabrir = botGlobalAtivo && textoParaIA &&
       (!conv.triagem_ts || (Date.now() - new Date(conv.triagem_ts).getTime()) >= 24 * 3600 * 1000);
     console.log(`TRIAGEM conv=${conv.id} reabrir=${!!precisaReabrir} triagem_ts=${conv.triagem_ts || 'null'} bot=${conv.bot_ativo} setor=${conv.setor || '-'} menu_enviado=${conv.menu_enviado}`);
     if (precisaReabrir) {
@@ -1537,12 +1543,12 @@ r.post('/webhook/zapi', async (req, res) => {
     }
 
     // ── CAPTURA AUTOMÁTICA: nome → paciente → nascimento (salva no CRM) ──────
-    if (textoParaIA && conv.captura_etapa) {
+    if (botGlobalAtivo && textoParaIA && conv.captura_etapa) {
       const tratado = await capturaDados(conv, textoParaIA, phoneDigits.startsWith('55') ? phoneDigits.slice(2) : phoneDigits);
       if (tratado) return; // resposta do webhook já foi enviada lá no início
     }
 
-    if (conv.bot_ativo && textoParaIA) {
+    if (botGlobalAtivo && conv.bot_ativo && textoParaIA) {
       // Triagem de setor primeiro (menu inicial / rodízio); se consumiu, para aqui
       const convAtual = (await query('SELECT * FROM conversas WHERE id = $1', [conv.id])).rows[0] || conv;
       const consumido = await triagemSetor(convAtual, textoParaIA, phoneDigits.startsWith('55') ? phoneDigits.slice(2) : phoneDigits);
@@ -2297,8 +2303,11 @@ r.patch('/conversations/:id/status', async (req, res) => {
 // ─── BOT TOGGLE ────────────────────────────────────────────────────────────────
 r.patch('/conversations/:id/bot', async (req, res) => {
   try {
+    if (req.user?.role !== 'master') return res.status(403).json({ error: 'Apenas o master (Miécio ou Nágila) pode ligar ou desligar o bot.' });
     const { rows: [c] } = await query('UPDATE conversas SET bot_ativo = $1 WHERE id = $2 RETURNING bot_ativo', [req.body.ativo, req.params.id]);
-    res.json({ ok: true, botAtivo: c.bot_ativo });
+    if (c) { const cached = convoCache.get(req.params.id); if (cached) cacheUpdate({ ...cached, bot_ativo: c.bot_ativo }); }
+    socketEmit('bot_status', { convId: req.params.id, bot_ativo: c?.bot_ativo });
+    res.json({ ok: true, botAtivo: c?.bot_ativo });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -2662,7 +2671,7 @@ r.delete('/conversations/:id/messages/:msgId', async (req, res) => {
 // ─── RESET DE TRIAGEM (gestão): força o menu de boas-vindas na próxima msg ───
 r.post('/conversations/:id/reset-triagem', async (req, res) => {
   try {
-    if (!['master', 'supervisor'].includes(req.user.role)) return res.status(403).json({ error: 'Somente gestão' });
+    if (req.user?.role !== 'master') return res.status(403).json({ error: 'Apenas o master (Miécio ou Nágila) pode reativar o bot.' });
     const { rows: [conv] } = await query(
       `UPDATE conversas SET bot_ativo = true, menu_enviado = false, triagem_ts = NULL, captura_etapa = NULL
        WHERE id = $1 RETURNING id, bot_ativo`, [req.params.id]);
@@ -3165,8 +3174,24 @@ r.get('/bot-config', async (req, res) => {
 
 r.put('/bot-config', async (req, res) => {
   try {
+    if (req.user?.role !== 'master') return res.status(403).json({ error: 'Apenas o master (Miécio ou Nágila) pode alterar a configuração do bot.' });
     await query("INSERT INTO configuracoes (chave,valor) VALUES ('bot',$1) ON CONFLICT (chave) DO UPDATE SET valor=$1, updated_at=NOW()", [JSON.stringify(req.body)]);
     res.json(req.body);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Botão de emergência (master): desliga TODOS os bots de uma vez — limpa o
+// bot_ativo de todas as conversas E o interruptor global.
+r.post('/bot/desligar-todos', async (req, res) => {
+  try {
+    if (req.user?.role !== 'master') return res.status(403).json({ error: 'Apenas o master (Miécio ou Nágila) pode desligar os bots.' });
+    const { rowCount } = await query('UPDATE conversas SET bot_ativo = false WHERE bot_ativo = true');
+    await query(`INSERT INTO configuracoes (chave, valor) VALUES ('bot', '{"ativo":false}'::jsonb)
+                 ON CONFLICT (chave) DO UPDATE SET valor = jsonb_set(COALESCE(configuracoes.valor, '{}'::jsonb), '{ativo}', 'false'::jsonb), updated_at = NOW()`);
+    await loadCache();
+    socketEmit('bots_desligados', { por: req.user?.nome || 'master', total: rowCount });
+    console.log(`🔌 ${req.user?.nome || 'master'} desligou TODOS os bots (${rowCount} conversas)`);
+    res.json({ ok: true, desligados: rowCount });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

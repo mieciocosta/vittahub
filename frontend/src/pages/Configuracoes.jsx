@@ -56,6 +56,18 @@ export default function Configuracoes() {
     setTimeout(()=>setSaved(false), 2000);
   };
 
+  const [killing, setKilling] = useState(false);
+  const desligarTodos = async () => {
+    if (!window.confirm('Desligar TODOS os bots AGORA?\n\nA Vitta para de responder em todas as conversas até você religar aqui em Configurações.')) return;
+    setKilling(true);
+    try {
+      const r = await api.post('/inbox/bot/desligar-todos', {});
+      setBot(p => ({ ...(p||{}), ativo:false }));
+      window.alert(`✅ Pronto! ${r.desligados ?? 0} conversa(s) com bot foram desligadas e o bot global está OFF.`);
+    } catch (e) { window.alert('Erro ao desligar: ' + e.message); }
+    setKilling(false);
+  };
+
   const addQR = async () => {
     if (!newQR.titulo||!newQR.texto) return;
     const q = await api.post('/inbox/quick-replies', newQR);
@@ -77,7 +89,7 @@ export default function Configuracoes() {
         <div className="card" style={{ padding:'22px' }}>
           <div style={{ display:'flex', alignItems:'center', gap:9, marginBottom:18 }}>
             <div style={{ width:36, height:36, borderRadius:10, background:'var(--ok2)', display:'flex', alignItems:'center', justifyContent:'center' }}><Bot size={18} color="var(--ok)"/></div>
-            <div><h2 style={{ fontSize:16, fontWeight:800 }}>Bot de Atendimento</h2><p style={{ fontSize:12, color:'var(--muted)', marginTop:1 }}>A Vitta responde sozinha enquanto a equipe não assume — desligue por conversa no botão Bot do chat</p></div>
+            <div><h2 style={{ fontSize:16, fontWeight:800 }}>Bot de Atendimento</h2><p style={{ fontSize:12, color:'var(--muted)', marginTop:1 }}>A Vitta responde sozinha enquanto a equipe não assume. Apenas o master (Miécio ou Nágila) liga ou desliga o bot.</p></div>
           </div>
 
           {bot && (
@@ -100,6 +112,19 @@ export default function Configuracoes() {
               <button onClick={saveBot} disabled={saving} className="btn btn-p" style={{ width:'100%' }}>
                 {saving?<span className="spin" style={{width:14,height:14}}/>:saved?'✅ Salvo!':'💾 Salvar configurações'}
               </button>
+
+              {/* Botão de emergência: desliga todos os bots de uma vez */}
+              <div style={{ borderTop:'1px solid var(--border)', marginTop:4, paddingTop:14 }}>
+                <div style={{ fontSize:12, color:'var(--muted)', marginBottom:8 }}>
+                  Bot global agora: {bot.ativo
+                    ? <strong style={{ color:'var(--ok)' }}>LIGADO</strong>
+                    : <strong style={{ color:'var(--err,#dc2626)' }}>DESLIGADO</strong>}
+                </div>
+                <button onClick={desligarTodos} disabled={killing} className="btn"
+                  style={{ width:'100%', background:'#fee2e2', color:'#dc2626', border:'1.5px solid #fecaca', fontWeight:800 }}>
+                  {killing ? <span className="spin" style={{width:14,height:14}}/> : '🔌 Desligar TODOS os bots agora'}
+                </button>
+              </div>
             </div>
           )}
         </div>

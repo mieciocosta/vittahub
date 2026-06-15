@@ -170,6 +170,18 @@ export default async function runMigrate() {
       console.log('🌱 Seed de produção aplicado (usuários reais, senha Vittalis@2026)');
     }
 
+    // ── KILL-SWITCH (ordem da gestão): desliga TODOS os bots e o interruptor
+    //    global. Roda UMA vez. Depois, só o master (Miécio/Nágila) religa em
+    //    Configurações. Resolve os bots que "não desligavam".
+    const { rows: [killFlag] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'bot_kill_v1'").catch(() => ({ rows: [] }));
+    if (!killFlag) {
+      await query('UPDATE conversas SET bot_ativo = false WHERE bot_ativo = true').catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('bot', '{"ativo":false}'::jsonb)
+                   ON CONFLICT (chave) DO UPDATE SET valor = jsonb_set(COALESCE(configuracoes.valor, '{}'::jsonb), '{ativo}', 'false'::jsonb), updated_at = NOW()`).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('bot_kill_v1', '{"ok":true}'::jsonb) ON CONFLICT DO NOTHING`).catch(() => {});
+      console.log('🔌 Kill-switch aplicado: todos os bots desligados + bot global OFF (uma vez)');
+    }
+
     // ── SETORES E PAPÉIS (estrutura da equipe: admin / supervisora / atendente) ──
     await query(`ALTER TABLE usuarios  ADD COLUMN IF NOT EXISTS setor TEXT`).catch(() => {});
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS setor TEXT`).catch(() => {});
