@@ -1306,7 +1306,7 @@ r.post('/webhook/zapi', async (req, res) => {
     }
 
     // Z-API webhook payload:
-    const phone = body.phone;
+    let phone = body.phone;
     if (!phone) return;
     // Ignora TODO callback que não é mensagem recebida (status de entrega,
     // leitura, envio, presença...) — eram eles que viravam "[mensagem]" no chat
@@ -1323,12 +1323,28 @@ r.post('/webhook/zapi', async (req, res) => {
     }
     if (body.isGroup === true || body.isGroup === 'true') return;
     if (body.isNewsletter || body.isStatusReply) return;
-    if (String(phone).includes('@lid') || String(phone).includes('broadcast') || String(phone).includes('status')) return;
+
+    const chatLid = body.chatLid || null;
+    const isMe = !!body.isFromMe || !!body.fromMe;
+    const msgId = body.messageId || body.zaapId || null;
+
+    // WhatsApp LID: mensagens enviadas pelo CELULAR chegam com o recipiente em
+    // formato @lid (sem telefone real). Resolve pelo chatLid → a conversa que já
+    // foi criada pelas mensagens RECEBIDAS (que trazem o telefone real + a mesma
+    // chatLid). Sem isso, tudo que a equipe responde pelo celular era descartado.
+    if (String(phone).includes('@lid')) {
+      if (isMe && chatLid) {
+        const { rows: [cLid] } = await query('SELECT phone FROM conversas WHERE chat_lid = $1 LIMIT 1', [chatLid]).catch(() => ({ rows: [] }));
+        if (cLid?.phone) phone = cLid.phone;   // reescreve para o telefone real → segue o fluxo normal
+        else return;                            // ainda não existe conversa correspondente
+      } else {
+        return;                                 // @lid não-resolvível (broadcast/status/recebida sem telefone)
+      }
+    }
+    if (String(phone).includes('broadcast') || String(phone).includes('status')) return;
     const phoneDigits = String(phone).replace(/\D/g, '');
     if (phoneDigits.length < 10 || phoneDigits.length > 15) return;
 
-    const isMe = !!body.isFromMe || !!body.fromMe;
-    const msgId = body.messageId || body.zaapId || null;
     const senderName = body.senderName || body.chatName || '';
     const profilePic = body.photo || body.senderPhoto || body.profilePicUrl || '';
 
@@ -1419,8 +1435,8 @@ r.post('/webhook/zapi', async (req, res) => {
     const lastFromVal = isMe ? 'me' : 'contact';
 
     const { rows: [conv] } = await query(`
-      INSERT INTO conversas (channel, contact_name, contact_id, phone, unread, last_message, last_message_at, profile_pic)
-      VALUES ('whatsapp', $1, $2, $3, $7, $4, $5, $6)
+      INSERT INTO conversas (channel, contact_name, contact_id, phone, unread, last_message, last_message_at, profile_pic, chat_lid)
+      VALUES ('whatsapp', $1, $2, $3, $7, $4, $5, $6, $9)
       ON CONFLICT (contact_id) DO UPDATE SET
         contact_name = CASE
           WHEN length(EXCLUDED.contact_name) > 5 AND EXCLUDED.contact_name != EXCLUDED.phone
@@ -1428,13 +1444,14 @@ r.post('/webhook/zapi', async (req, res) => {
           ELSE conversas.contact_name
         END,
         profile_pic = COALESCE(EXCLUDED.profile_pic, conversas.profile_pic),
+        chat_lid = COALESCE(EXCLUDED.chat_lid, conversas.chat_lid),
         unread = conversas.unread + $7,
         last_from = $8,
         followup_count = CASE WHEN $8 = 'contact' THEN 0 ELSE conversas.followup_count END,
         last_message = EXCLUDED.last_message,
         last_message_at = EXCLUDED.last_message_at
       RETURNING *`,
-      [contactName, remoteJid, displayPhone, previewContent, ts, fetchedPic || null, incUnread, lastFromVal]
+      [contactName, remoteJid, displayPhone, previewContent, ts, fetchedPic || null, incUnread, lastFromVal, chatLid]
     );
 
     // Atualiza cache em memória imediatamente

@@ -80,6 +80,10 @@ export default async function runMigrate() {
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS lead_score_at TIMESTAMPTZ`).catch(() => {});
     // Memória do lead: perfil persistente (paciente, idade, o que já cotou…)
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS memoria JSONB DEFAULT '{}'::jsonb`).catch(() => {});
+    // WhatsApp LID: casa mensagens enviadas pelo celular (que chegam só com @lid)
+    // com a conversa real criada pelas mensagens recebidas.
+    await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS chat_lid TEXT`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS idx_conv_chat_lid ON conversas(chat_lid) WHERE chat_lid IS NOT NULL`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS idx_conv_status ON conversas(status_atend)`).catch(() => {});
 
     await query(`CREATE INDEX IF NOT EXISTS idx_conv_last ON conversas(last_message_at DESC)`);
