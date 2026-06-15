@@ -891,6 +891,7 @@ async function vittaResponder(convId) {
   const precos = await getPrecosVittaSys();
   const tabelaPrecos = formatarPrecos(precos);
   const conhecimento = montarConhecimentoVacinal();
+  const memoriaTexto = formatarMemoria(conv.memoria);
 
   const sysPrompt = `Você é a Vitta, atendente da Vittalis Saúde no WhatsApp. Você é uma das que MAIS convertem da equipe — não por ser insistente, mas por ser genuinamente acolhedora. Você trata cada mãe e cada bebê com carinho de verdade, como se fosse da família. Você NÃO é um robô de FAQ. Nunca diga que é uma IA, a menos que perguntem diretamente.
 
@@ -979,7 +980,10 @@ FERRAMENTAS (PDF e equipe):
 - Depois de enviar o PDF, faça follow-up curto e conduza pro fechamento/agendamento.
 - Lead quente (quer fechar, agendar, confirmar pagamento) → "passar_para_equipe". Agendamento de data/horário é sempre com a equipe humana.
 
-Cliente atual: ${conv.contact_name || 'não identificado'}.`;
+Cliente atual: ${conv.contact_name || 'não identificado'}.${memoriaTexto ? `
+
+O QUE VOCÊ JÁ SABE DESTE CLIENTE (lembrado de conversas anteriores — USE com naturalidade e NUNCA pergunte de novo o que já está aqui):
+${memoriaTexto}` : ''}`;
 
   const tools = [{
     name: 'enviar_proposta',
@@ -1175,12 +1179,50 @@ Cliente atual: ${conv.contact_name || 'não identificado'}.`;
   if (!toolPassar) classificarLead(convId).catch(() => {});
 }
 
-/* ─── SCORE DE LEAD (quente / morno / frio) ────────────────────────────────────
-   Classifica a temperatura do lead pela conversa, pra equipe priorizar os
-   quentes. Usa IA barata (gpt-4o-mini) com fallback heurístico. Atualiza a
-   conversa, o cache e empurra pro front via socket ('lead_score').           */
+/* ─── MEMÓRIA DO LEAD ──────────────────────────────────────────────────────────
+   Perfil persistente do cliente (paciente, idade, responsável, o que já cotou…)
+   pra Vitta não tratar quem volta como se fosse a primeira vez. Acumula fatos:
+   nunca apaga um dado conhecido por causa de um null vindo da nova extração.  */
+function mergeMemoria(antiga = {}, nova = {}) {
+  const out = { ...(antiga || {}) };
+  for (const k of Object.keys(nova || {})) {
+    const v = nova[k];
+    if (v === null || v === undefined || v === '' || v === 'null') continue;
+    if (Array.isArray(v)) {
+      const base = Array.isArray(out[k]) ? out[k] : [];
+      out[k] = Array.from(new Set([...base, ...v.map(x => String(x).trim()).filter(Boolean)])).slice(0, 12);
+    } else {
+      out[k] = typeof v === 'string' ? v.trim().slice(0, 200) : v;
+    }
+  }
+  return out;
+}
+
+function formatarMemoria(m) {
+  if (!m || typeof m !== 'object') return '';
+  const L = [];
+  if (m.paciente)        L.push(`Paciente/bebê: ${m.paciente}`);
+  if (m.nascimento)      L.push(`Nascimento: ${m.nascimento}`);
+  if (m.idade)           L.push(`Idade: ${m.idade}`);
+  if (m.responsavel)     L.push(`Responsável: ${m.responsavel}`);
+  if (m.endereco)        L.push(`Endereço: ${m.endereco}`);
+  if (m.email)           L.push(`E-mail: ${m.email}`);
+  if (Array.isArray(m.interesses) && m.interesses.length) L.push(`Interesses: ${m.interesses.join(', ')}`);
+  if (m.proposta_enviada) L.push(`Já recebeu proposta: ${m.proposta_enviada}`);
+  if (m.preferencias)    L.push(`Preferências: ${m.preferencias}`);
+  if (m.observacoes)     L.push(`Observações: ${m.observacoes}`);
+  return L.join('\n');
+}
+
+/* ─── ANÁLISE DA CONVERSA: score + memória (uma só chamada de IA) ───────────────
+   Classifica a temperatura do lead (quente/morno/frio) e extrai/atualiza a
+   memória do cliente. Roda após cada resposta da Vitta, sem bloquear o envio.
+   Usa IA barata (gpt-4o-mini) com fallback heurístico para o score.          */
 async function classificarLead(convId) {
   try {
+    const { rows: [conv] } = await query('SELECT memoria FROM conversas WHERE id = $1', [convId]);
+    const memoriaAtual = conv?.memoria || {};
+
     const { rows: histRows } = await query(
       `SELECT from_type, type, content, filename FROM mensagens
        WHERE conversa_id = $1 AND type IN ('text','document') AND from_type <> 'system'
@@ -1190,6 +1232,7 @@ async function classificarLead(convId) {
     if (!hist.length) return;
 
     let score = 'morno', motivo = '';
+    let memoria = memoriaAtual;
 
     if (process.env.OPENAI_API_KEY) {
       const resumo = hist.map(m => {
@@ -1198,32 +1241,39 @@ async function classificarLead(convId) {
         return `${quem}: ${txt}`;
       }).join('\n');
 
-      const sys = `Você classifica a TEMPERATURA de um lead da Vittalis Saúde (clínica de vacinas e consultas) a partir da conversa de WhatsApp. Responda APENAS JSON: {"score":"quente|morno|frio","motivo":"até 8 palavras"}.
-- quente: intenção real de fechar/agendar AGORA — pede para agendar, confirma horário ou pagamento, manda endereço/dados de cadastro, diz "quero", "pode marcar", ou responde engajado logo após receber a proposta.
-- morno: interessado, fazendo perguntas (preço, vacinas, datas), mas ainda sem decisão.
-- frio: vago, "só pesquisando", "vou pensar", sumiu, ou apenas cumprimentou sem avançar.
-O ÚLTIMO movimento do cliente é o que mais pesa.`;
+      const sys = `Você analisa uma conversa de WhatsApp de um lead da Vittalis Saúde (clínica de vacinas e consultas). Responda APENAS JSON:
+{"score":"quente|morno|frio","motivo":"até 8 palavras","memoria":{"paciente":null,"nascimento":null,"idade":null,"responsavel":null,"endereco":null,"email":null,"interesses":[],"proposta_enviada":null,"preferencias":null,"observacoes":null}}
+
+TEMPERATURA (score):
+- quente: intenção de fechar/agendar AGORA — pede para agendar, confirma horário/pagamento, manda endereço/dados, diz "quero"/"pode marcar", ou engaja logo após a proposta.
+- morno: interessado, fazendo perguntas (preço, vacinas, datas), sem decisão.
+- frio: vago, "vou pensar", sumiu, ou só cumprimentou.
+O último movimento do cliente é o que mais pesa.
+
+MEMÓRIA: preencha SÓ com fatos que o cliente informou ou que a Vitta confirmou na conversa. Use null quando não souber. NÃO invente. "interesses" = vacinas/consultas/planos citados. "proposta_enviada" = o que já foi cotado (ex: "Pacote 2 meses", "Plano completo 0-18m"). "nascimento" no formato YYYY-MM-DD se possível. Memória já conhecida (mantenha e complemente, não contradiga sem motivo): ${JSON.stringify(memoriaAtual)}`;
 
       const aiData = await openaiMessages({
-        model: 'gpt-4o-mini', max_tokens: 60, json: true, system: sys,
+        model: 'gpt-4o-mini', max_tokens: 260, json: true, system: sys,
         messages: [{ role: 'user', content: resumo }],
       });
       const txt = aiData?.content?.find(c => c.type === 'text')?.text || '';
       try {
         const j = JSON.parse(txt);
         if (['quente', 'morno', 'frio'].includes(j.score)) { score = j.score; motivo = String(j.motivo || '').slice(0, 60); }
+        if (j.memoria && typeof j.memoria === 'object') memoria = mergeMemoria(memoriaAtual, j.memoria);
       } catch {}
     } else {
-      // Heurística sem IA: olha as palavras-chave da conversa
+      // Heurística sem IA: score por palavras-chave; memória fica como está
       const all = hist.map(m => String(m.content || '').toLowerCase()).join(' ');
       if (/\bagend|marcar|fechar|quero|confirm|endere[çc]|pix|cart[aã]o|pagar|hoje|amanh[aã]\b/.test(all)) { score = 'quente'; motivo = 'sinais de fechamento'; }
       else if (/\bpre[çc]o|valor|quanto|vacina|consulta|plano|hor[aá]rio\b/.test(all)) { score = 'morno'; motivo = 'tirando dúvidas'; }
       else { score = 'frio'; motivo = 'pouco engajamento'; }
     }
 
-    await query('UPDATE conversas SET lead_score = $1, lead_score_motivo = $2, lead_score_at = NOW() WHERE id = $3', [score, motivo, convId]);
+    await query('UPDATE conversas SET lead_score = $1, lead_score_motivo = $2, lead_score_at = NOW(), memoria = $3 WHERE id = $4',
+      [score, motivo, JSON.stringify(memoria || {}), convId]);
     const { rows: [c] } = await query('SELECT * FROM conversas WHERE id = $1', [convId]);
-    if (c) { cacheUpdate(c); socketEmit('lead_score', { convId, lead_score: score, lead_score_motivo: motivo }); }
+    if (c) { cacheUpdate(c); socketEmit('lead_score', { convId, lead_score: score, lead_score_motivo: motivo, memoria: c.memoria }); }
   } catch (e) { console.error('classificarLead erro:', e.message); }
 }
 

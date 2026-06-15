@@ -30,6 +30,18 @@ const SCORE_CFG = {
 };
 const scoreRank = (s) => SCORE_CFG[s]?.rank ?? 3;
 
+// Memória do lead → linhas legíveis para a ficha (o que a Vitta já sabe)
+function memoriaLinhas(m) {
+  if (!m || typeof m !== 'object') return [];
+  const L = [];
+  const push = (lbl, v) => { if (v) L.push(`${lbl}: ${v}`); };
+  push('Paciente', m.paciente); push('Nascimento', m.nascimento); push('Idade', m.idade);
+  push('Responsável', m.responsavel); push('Endereço', m.endereco); push('E-mail', m.email);
+  if (Array.isArray(m.interesses) && m.interesses.length) L.push(`Interesses: ${m.interesses.join(', ')}`);
+  push('Já recebeu proposta', m.proposta_enviada); push('Preferências', m.preferencias); push('Observações', m.observacoes);
+  return L;
+}
+
 /* ── Avatar ─────────────────────────────────────────────────────────────────── */
 const Avatar = React.memo(function Avatar({ conv, size = 38, fontSize = 13 }) {
   const initials = (conv.contact_name || conv.phone || '?').split(' ').slice(0, 2).map(w => w[0] || '?').join('').toUpperCase();
@@ -566,9 +578,12 @@ export default function Inbox({ onUnreadChange }) {
         }
       });
 
-      // Temperatura do lead reclassificada pela Vitta → atualiza o selo na lista
-      socket.on('lead_score', ({ convId, lead_score, lead_score_motivo }) => {
-        setConvos(prev => prev.map(c => c.id === convId ? { ...c, lead_score, lead_score_motivo } : c));
+      // Temperatura/memória reclassificadas pela Vitta → atualiza selo na lista,
+      // e a ficha da conversa aberta se for essa
+      socket.on('lead_score', ({ convId, lead_score, lead_score_motivo, memoria }) => {
+        const patch = c => ({ ...c, lead_score, lead_score_motivo, ...(memoria !== undefined ? { memoria } : {}) });
+        setConvos(prev => prev.map(c => c.id === convId ? patch(c) : c));
+        setSel(prev => prev && prev.id === convId ? patch(prev) : prev);
       });
     }).catch(err => console.warn('socket.io-client não disponível:', err.message));
 
@@ -1483,6 +1498,25 @@ function FaixaContexto({ sel, leadInfo, setLeadInfo, api, scoreChip, setScoreChi
       <Item ic="👤" label="Responsável" valor={resp || 'Sem responsável'} />
       <Item ic="👶" label="Paciente" valor={leadInfo?.nome || sel?.contact_name} />
       <Item ic="📋" label="Etapa" valor={leadInfo?.status || (sel?.lead_id ? '' : 'Sem lead')} />
+      {SCORE_CFG[sel?.lead_score] && (
+        <Item ic={SCORE_CFG[sel.lead_score].emoji} label="Temperatura" valor={SCORE_CFG[sel.lead_score].label} />
+      )}
+      {(() => {
+        const linhas = memoriaLinhas(sel?.memoria);
+        if (!linhas.length) return null;
+        const resumo = [sel.memoria.paciente, sel.memoria.idade].filter(Boolean).join(' · ');
+        return (
+          <div title={linhas.join('\n')} style={{ display:'flex', alignItems:'center', gap:8, padding:'0 14px', borderRight:'1px solid var(--tq3)', cursor:'help' }}>
+            <span style={{ fontSize:14 }}>🧠</span>
+            <div>
+              <div style={{ fontSize:9.5, fontWeight:800, color:'var(--tq2)', textTransform:'uppercase', letterSpacing:.4 }}>Memória</div>
+              <div style={{ fontSize:12, fontWeight:700, color:'var(--txt)', maxWidth:200, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                {resumo || `${linhas.length} fato${linhas.length===1?'':'s'} lembrado${linhas.length===1?'':'s'}`}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       <div style={{ display:'flex', alignItems:'center', gap:8, padding:'0 14px' }}>
         <span style={{ fontSize:14 }}>❤️</span>
         <div>
