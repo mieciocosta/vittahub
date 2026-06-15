@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1
 # ─── VittaHub Frontend — build via Docker ─────────────────────────────────────
 # Por que Docker em vez do Railpack: o Railpack remontava o ambiente base toda
 # vez (apt libatomic1 + mise + npm), passo que às vezes travava por 20 min num
@@ -8,10 +7,9 @@ FROM node:22-alpine
 
 WORKDIR /app
 
-# 1) Dependências — camada cacheada por package*.json; o --mount=cache mantém o
-#    cache do npm (~/.npm) entre builds, acelerando o npm ci mesmo no builder frio.
+# 1) Dependências — camada cacheada enquanto package*.json não mudar
 COPY package*.json ./
-RUN --mount=type=cache,target=/root/.npm npm ci --prefer-offline --no-audit --no-fund
+RUN npm ci --no-audit --no-fund
 
 # 2) Código + build de produção (lê .env.production → VITE_API_URL)
 COPY . .
