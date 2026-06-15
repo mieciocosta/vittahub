@@ -11,6 +11,9 @@
   --gold:  #C4973B;
   --gold2: #fdf5e8;
 
+  /* Barra lateral — turquesa no claro, azul-escuro no escuro (sobrescrito abaixo) */
+  --sidebar-bg: linear-gradient(178deg, #00B8C0 0%, #0AA0AA 55%, #0E8C96 100%);
+
   /* Neutrals — elegant, not flat */
   --bg:     #f0f4f7;
   --bg2:    #e6ecf1;
@@ -228,6 +231,8 @@ h1 { letter-spacing: -0.7px; }
   --light:  #4d6880;
   --tq3:    rgba(0,184,192,0.12);
   --tq4:    rgba(0,184,192,0.06);
+  /* Barra lateral azul-escuro no tema escuro */
+  --sidebar-bg: linear-gradient(178deg, #13294b 0%, #0e1f3a 55%, #0a1830 100%);
 }
 [data-theme="dark"] body { background: var(--bg); color: var(--txt); }
 [data-theme="dark"] .card { background: var(--card); border-color: var(--border); }
@@ -236,6 +241,14 @@ h1 { letter-spacing: -0.7px; }
 }
 [data-theme="dark"] .btn-s { background: var(--card); color: var(--txt2); border-color: var(--border); }
 [data-theme="dark"] .btn-g { background: var(--bg2); color: var(--txt2); }
+
+/* ── Rede de segurança do tema escuro ──────────────────────────────────────────
+   Pega elementos com fundo branco "chumbado" que não usam variável e ficariam
+   claros (ou com texto claro sobre branco) no escuro. Inline style ainda vence,
+   por isso o JSX também foi convertido para var(--card)/var(--txt).            */
+[data-theme="dark"] .btn-p { color: #fff; }
+[data-theme="dark"] ::-webkit-scrollbar-thumb { background: var(--border); }
+[data-theme="dark"] .msg-date-pill { background: var(--bg2); color: var(--muted); }
 
 /* ─── RESIZABLE SIDEBAR ──────────────────────────────────────────────────── */
 .inbox-resize-handle {

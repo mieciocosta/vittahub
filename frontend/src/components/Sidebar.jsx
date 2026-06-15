@@ -156,7 +156,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
     <aside className={`vh-sidebar${mobileOpen ? ' open' : ''}`} style={{
       width: w,
       minHeight:'100vh', position:'fixed', left:0, top:0, bottom:0, zIndex:100,
-      background:'linear-gradient(178deg, #00B8C0 0%, #0AA0AA 55%, #0E8C96 100%)',
+      background:'var(--sidebar-bg)',
       display:'flex', flexDirection:'column',
       borderRight:'none',
       boxShadow:'4px 0 20px rgba(0,140,150,.18)',

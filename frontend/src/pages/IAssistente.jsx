@@ -85,7 +85,7 @@ export default function IAssistente() {
         <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 2 }}>Orçamentos, objeções, mensagens humanizadas e estratégia — pergunte qualquer coisa</p>
       </div>
 
-      <div className="card" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', background: '#fff', overflow: 'hidden' }}>
+      <div className="card" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', background: 'var(--card)', overflow: 'hidden' }}>
         <div style={{ flex: 1, overflowY: 'auto', padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
           {msgs.length === 0 && (
             <div style={{ margin: 'auto', textAlign: 'center', maxWidth: 480 }}>

@@ -85,7 +85,7 @@ export default function Agenda() {
         </div>
       </div>
 
-      <div className="card" style={{ padding: 0, overflow: 'hidden', background: '#fff' }}>
+      <div className="card" style={{ padding: 0, overflow: 'hidden', background: 'var(--card)' }}>
         <div style={{ padding: '13px 20px', background: 'linear-gradient(90deg,var(--tq),#0aa6ae)', color: '#fff', fontWeight: 800, fontSize: 14, textTransform: 'capitalize' }}>
           {ehHoje ? `Hoje · ${rotuloDia}` : rotuloDia}
         </div>

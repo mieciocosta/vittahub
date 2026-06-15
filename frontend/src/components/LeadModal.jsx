@@ -64,8 +64,8 @@ export default function LeadModal({ lead, onClose, onSave, prefill = {} }) {
 
   return (
     <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{ position:'fixed', inset:0, background:'rgba(7,30,44,0.6)', zIndex:300, display:'flex', alignItems:'center', justifyContent:'center', padding:16, backdropFilter:'blur(4px)' }}>
-      <div className="anim" style={{ background:'#fff', borderRadius:18, width:'100%', maxWidth:600, maxHeight:'92vh', overflowY:'auto', boxShadow:'var(--sh4)' }}>
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'22px 24px 16px', borderBottom:'1px solid var(--border)', position:'sticky', top:0, background:'#fff', zIndex:1 }}>
+      <div className="anim" style={{ background:'var(--card)', borderRadius:18, width:'100%', maxWidth:600, maxHeight:'92vh', overflowY:'auto', boxShadow:'var(--sh4)' }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'22px 24px 16px', borderBottom:'1px solid var(--border)', position:'sticky', top:0, background:'var(--card)', zIndex:1 }}>
           <div style={{ display:'flex', alignItems:'center', gap:10 }}>
             <div style={{ width:36, height:36, borderRadius:10, background:'var(--tq3)', display:'flex', alignItems:'center', justifyContent:'center' }}><UserPlus size={17} color="var(--tq)" /></div>
             <div>

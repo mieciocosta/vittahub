@@ -18,7 +18,7 @@ const IG = ({s=13})=><svg width={s} height={s} viewBox="0 0 24 24" fill="current
 const STATUS_CFG = {
   aberto:          { label: 'Aberto',       color: '#10b981', bg: '#d1fae5', icon: MessageCircle },
   em_atendimento:  { label: 'Em atend.',    color: '#0ea5e9', bg: '#e0f2fe', icon: Clock },
-  resolvido:       { label: 'Resolvido',    color: '#6b7280', bg: '#f3f4f6', icon: CheckCircle2 },
+  resolvido:       { label: 'Resolvido',    color: 'var(--muted)', bg: '#f3f4f6', icon: CheckCircle2 },
 };
 const ITEM_HEIGHT = 80;
 
@@ -1528,7 +1528,7 @@ function FaixaContexto({ sel, leadInfo, setLeadInfo, api, scoreChip, setScoreChi
           {typeof scoreChip === 'number' ? (
             <div style={{ display:'flex', alignItems:'center', gap:6 }}>
               <span style={{ fontSize:13, fontWeight:800, color: scoreChip >= 80 ? 'var(--ok)' : scoreChip >= 50 ? '#a07514' : 'var(--err)' }}>{scoreChip}%</span>
-              <div style={{ width:54, height:5, borderRadius:4, background:'#fff', overflow:'hidden' }}>
+              <div style={{ width:54, height:5, borderRadius:4, background:'var(--card)', overflow:'hidden' }}>
                 <div style={{ width:`${scoreChip}%`, height:'100%', background:'var(--tq)' }} />
               </div>
             </div>

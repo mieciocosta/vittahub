@@ -53,14 +53,14 @@ export default function Leads() {
         <div style={{ position:'relative', flex:1, minWidth:200 }}>
           <Search size={14} style={{ position:'absolute', left:10, top:'50%', transform:'translateY(-50%)', color:'var(--muted)' }} />
           <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Nome, telefone, e-mail..."
-            style={{ width:'100%', padding:'9px 36px 9px 32px', border:'1.5px solid var(--border)', borderRadius:8, outline:'none', background:'#fff' }} />
+            style={{ width:'100%', padding:'9px 36px 9px 32px', border:'1.5px solid var(--border)', borderRadius:8, outline:'none', background:'var(--card)' }} />
           {search && <button onClick={()=>setSearch('')} style={{ position:'absolute', right:8, top:'50%', transform:'translateY(-50%)', background:'none', color:'var(--muted)', padding:2 }}><X size={13} /></button>}
         </div>
-        <select value={fSt} onChange={e=>setFSt(e.target.value)} style={{ padding:'9px 12px', border:'1.5px solid var(--border)', borderRadius:8, background:'#fff', outline:'none', minWidth:160 }}>
+        <select value={fSt} onChange={e=>setFSt(e.target.value)} style={{ padding:'9px 12px', border:'1.5px solid var(--border)', borderRadius:8, background:'var(--card)', outline:'none', minWidth:160 }}>
           <option value="">Todos os status</option>
           {STATUS.map(s=><option key={s}>{s}</option>)}
         </select>
-        <select value={fOr} onChange={e=>setFOr(e.target.value)} style={{ padding:'9px 12px', border:'1.5px solid var(--border)', borderRadius:8, background:'#fff', outline:'none', minWidth:130 }}>
+        <select value={fOr} onChange={e=>setFOr(e.target.value)} style={{ padding:'9px 12px', border:'1.5px solid var(--border)', borderRadius:8, background:'var(--card)', outline:'none', minWidth:130 }}>
           <option value="">Todas as origens</option>
           {ORIGENS.map(o=><option key={o}>{o}</option>)}
         </select>

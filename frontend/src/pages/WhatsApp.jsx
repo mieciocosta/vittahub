@@ -197,7 +197,7 @@ export default function WhatsApp() {
     connected:    { label:'Conectado',         color:WA_GREEN,  bg:'#dcfce7', Icon:CheckCircle },
     disconnected: { label:'Desconectado',       color:'#dc2626', bg:'#fee2e2', Icon:WifiOff },
     qrcode:       { label:'Aguardando leitura', color:'#b45309', bg:'#fef3c7', Icon:QrCode },
-    loading:      { label:'Carregando...',      color:'#6b7280', bg:'#f3f4f6', Icon:Loader2 },
+    loading:      { label:'Carregando...',      color:'var(--muted)', bg:'#f3f4f6', Icon:Loader2 },
     error:        { label:'Erro',               color:'#dc2626', bg:'#fee2e2', Icon:WifiOff },
   };
   const { label, color, bg, Icon } = ST[status] || ST.loading;

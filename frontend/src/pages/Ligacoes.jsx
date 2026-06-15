@@ -36,7 +36,7 @@ export default function Ligacoes() {
         <button onClick={() => setNovo({ direcao: 'realizada', status: 'Atendida' })} className="btn btn-p" style={{ gap: 6 }}><Plus size={14} /> Registrar ligação</button>
       </div>
 
-      <div className="card" style={{ padding: 0, overflow: 'hidden', background: '#fff' }}>
+      <div className="card" style={{ padding: 0, overflow: 'hidden', background: 'var(--card)' }}>
         {lista.length === 0 && <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: 13.5 }}>Nenhuma ligação registrada ainda.</div>}
         {lista.map((lg, i) => {
           const [bg, cor] = ST_CLR[lg.status] || ST_CLR.Atendida;

@@ -73,7 +73,7 @@ export default function Indicacoes() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 12, marginBottom: 18 }}>
         {[['📩', resumo.total, 'Indicações'], ['🟢', resumo.convertidas, 'Convertidas'],
           ['🎁', resumo.premiosPendentes, 'Prêmios a entregar'], ['✅', resumo.premiosEntregues, 'Prêmios entregues']].map(([ic, v, l]) => (
-          <div key={l} className="card" style={{ padding: '13px 16px', display: 'flex', alignItems: 'center', gap: 11, background: '#fff' }}>
+          <div key={l} className="card" style={{ padding: '13px 16px', display: 'flex', alignItems: 'center', gap: 11, background: 'var(--card)' }}>
             <span style={{ fontSize: 22 }}>{ic}</span>
             <div><div style={{ fontSize: 20, fontWeight: 800 }}>{v}</div><div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>{l}</div></div>
           </div>
@@ -82,7 +82,7 @@ export default function Indicacoes() {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(380px,1.6fr) minmax(280px,1fr)', gap: 16, alignItems: 'start' }}>
         {/* Lista */}
-        <div className="card" style={{ padding: 0, overflow: 'hidden', background: '#fff' }}>
+        <div className="card" style={{ padding: 0, overflow: 'hidden', background: 'var(--card)' }}>
           <div style={{ padding: '12px 18px', fontWeight: 800, fontSize: 14, borderBottom: '1px solid var(--border)' }}>Indicações</div>
           {indicacoes.length === 0 && <div style={{ padding: '34px 18px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>Nenhuma indicação ainda — registre a primeira! 🚀</div>}
           {indicacoes.map((ind, i) => {
@@ -118,7 +118,7 @@ export default function Indicacoes() {
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {/* Ranking + Retroprojetor */}
-          <div className="card" style={{ padding: '15px 18px', background: '#fff' }}>
+          <div className="card" style={{ padding: '15px 18px', background: 'var(--card)' }}>
             <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 11, display: 'flex', alignItems: 'center', gap: 7 }}><Trophy size={15} color="var(--gold)" /> Ranking dos Indicadores</div>
             {ranking.slice(0, 6).map((rk, i) => (
               <div key={rk.nome} style={{ padding: '7px 0', borderBottom: i < Math.min(ranking.length, 6) - 1 ? '1px solid var(--border)' : 'none' }}>
@@ -145,7 +145,7 @@ export default function Indicacoes() {
 
           {/* Regras (pontos) + Estratégias */}
           {gestao && pontos && estr && (
-            <div className="card" style={{ padding: '15px 18px', background: '#fff' }}>
+            <div className="card" style={{ padding: '15px 18px', background: 'var(--card)' }}>
               <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 11, display: 'flex', alignItems: 'center', gap: 7 }}><Gift size={15} color="var(--tq2)" /> Regras & Estratégias</div>
               <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 7 }}>Pontos por conversão</div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 13 }}>

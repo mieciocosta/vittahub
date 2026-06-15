@@ -100,14 +100,14 @@ export function GridMidias({ tipoFixo = null, titulo, subtitulo, categorias = nu
       </div>
 
       {itens.length === 0 && (
-        <div className="card" style={{ padding: '44px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: 13.5, background: '#fff' }}>
+        <div className="card" style={{ padding: '44px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: 13.5, background: 'var(--card)' }}>
           Nada por aqui ainda.{gestao ? ' Clique em "Adicionar" pra alimentar a biblioteca. 📸' : ' A gestão vai alimentar em breve. 📸'}
         </div>
       )}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(170px,1fr))', gap: 13 }}>
         {itens.map(it => (
-          <div key={it.id} className="card" style={{ padding: 0, overflow: 'hidden', background: '#fff' }}>
+          <div key={it.id} className="card" style={{ padding: 0, overflow: 'hidden', background: 'var(--card)' }}>
             <div style={{ height: 120, background: 'var(--bg2)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
               {it.tipo === 'video'
                 ? <Video size={30} color="var(--light)" />

@@ -98,7 +98,7 @@ export default function Dashboard() {
 
       {/* ── Faixa superior: saudação + versículo + meta mini + perfil ── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap',
-        padding: '16px 28px', background: '#fff', borderBottom: '1px solid var(--border)', marginBottom: 22 }}>
+        padding: '16px 28px', background: 'var(--card)', borderBottom: '1px solid var(--border)', marginBottom: 22 }}>
         <div style={{ minWidth: 200 }}>
           <div style={{ fontWeight: 800, fontSize: 21 }}>{saud}, {nome}! {hora < 12 ? '☀️' : hora < 18 ? '🌤️' : '🌙'}</div>
           <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Que seu dia seja abençoado e produtivo!</div>
@@ -138,7 +138,7 @@ export default function Dashboard() {
         {/* ── KPIs ── */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(190px,1fr))', gap: 13, marginBottom: 20 }}>
           {kpis.map(({ Icon, label, valor, sub, go }) => (
-            <button key={label} onClick={() => nav(go)} className="card" style={{ display: 'flex', alignItems: 'center', gap: 13, padding: '15px 17px', cursor: 'pointer', border: '1px solid var(--border)', textAlign: 'left', background: '#fff' }}>
+            <button key={label} onClick={() => nav(go)} className="card" style={{ display: 'flex', alignItems: 'center', gap: 13, padding: '15px 17px', cursor: 'pointer', border: '1px solid var(--border)', textAlign: 'left', background: 'var(--card)' }}>
               <div style={{ width: 42, height: 42, borderRadius: 13, background: 'var(--tq4)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <Icon size={19} color="var(--tq2)" />
               </div>
@@ -175,7 +175,7 @@ export default function Dashboard() {
                 </div>
               </div>
               <div style={{ height: 9, borderRadius: 6, background: 'rgba(255,255,255,.25)', overflow: 'hidden', margin: '14px 0 10px' }}>
-                <div style={{ width: `${Math.min(metas.vacinas.pct, 100)}%`, height: '100%', background: '#fff', borderRadius: 6 }} />
+                <div style={{ width: `${Math.min(metas.vacinas.pct, 100)}%`, height: '100%', background: 'var(--card)', borderRadius: 6 }} />
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, fontWeight: 600, opacity: .92, flexWrap: 'wrap', gap: 6 }}>
                 <span>Faltam {fmt.brl(metas.vacinas.falta)} para a meta!</span>
@@ -186,7 +186,7 @@ export default function Dashboard() {
           )}
 
           {/* Funil de Vacinas — barras */}
-          <div className="card" style={{ padding: '17px 19px', background: '#fff' }}>
+          <div className="card" style={{ padding: '17px 19px', background: 'var(--card)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 800, fontSize: 14, marginBottom: 13 }}>
               <span style={{ fontSize: 16 }}>💉</span> Funil de Vacinas
             </div>
@@ -207,7 +207,7 @@ export default function Dashboard() {
           </div>
 
           {/* Agenda — Hoje (retornos/follow-ups do dia) */}
-          <div className="card" style={{ padding: 0, overflow: 'hidden', background: '#fff', display: 'flex', flexDirection: 'column' }}>
+          <div className="card" style={{ padding: 0, overflow: 'hidden', background: 'var(--card)', display: 'flex', flexDirection: 'column' }}>
             <div style={{ padding: '13px 17px', background: 'linear-gradient(90deg,var(--tq),#0aa6ae)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div style={{ fontWeight: 800, fontSize: 14, display: 'flex', alignItems: 'center', gap: 8 }}>📅 Agenda — Hoje</div>
               <button onClick={() => nav('/agenda')} style={{ padding: '5px 12px', borderRadius: 9, background: 'rgba(255,255,255,.92)', color: 'var(--tq2)', fontSize: 11, fontWeight: 800, border: 'none', cursor: 'pointer' }}>
@@ -262,7 +262,7 @@ export default function Dashboard() {
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px,1.1fr) minmax(260px,1fr) minmax(300px,1.3fr)', gap: 16, marginBottom: 16 }}>
 
           {/* Desempenho da Equipe — Hoje */}
-          <div className="card" style={{ padding: '17px 19px', background: '#fff' }}>
+          <div className="card" style={{ padding: '17px 19px', background: 'var(--card)' }}>
             <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 13, display: 'flex', alignItems: 'center', gap: 8 }}>👏 Desempenho da Equipe — Hoje</div>
             {(porResponsavel || []).slice(0, 5).map((u2, i) => {
               const metaDia = 10;
@@ -290,7 +290,7 @@ export default function Dashboard() {
           </div>
 
           {/* Atividades de Follow-up */}
-          <div className="card" style={{ padding: '17px 19px', background: '#fff', display: 'flex', flexDirection: 'column' }}>
+          <div className="card" style={{ padding: '17px 19px', background: 'var(--card)', display: 'flex', flexDirection: 'column' }}>
             <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 13, display: 'flex', alignItems: 'center', gap: 8 }}>🔔 Atividades de Follow-up</div>
             <div style={{ flex: 1 }}>
               {followups.slice(0, 4).map((f, i) => {
@@ -324,7 +324,7 @@ export default function Dashboard() {
                 <div style={{ fontSize: 12.5, color: 'var(--txt2)', lineHeight: 1.5 }}>{motivacional}</div>
               </div>
             </div>
-            <div className="card" style={{ padding: '15px 19px', background: '#fff' }}>
+            <div className="card" style={{ padding: '15px 19px', background: 'var(--card)' }}>
               <div style={{ fontWeight: 800, fontSize: 13.5, marginBottom: 11 }}>⚡ Ações rápidas</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 8 }}>
                 {acoes.map(({ Icon, label, go, href }) => (
@@ -343,7 +343,7 @@ export default function Dashboard() {
 
         {/* ── Painel de Impacto ── */}
         {impacto && (
-          <div className="card" style={{ padding: '17px 22px', background: '#fff' }}>
+          <div className="card" style={{ padding: '17px 22px', background: 'var(--card)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 13 }}>
               <div style={{ fontWeight: 800, fontSize: 14 }}>💙 Painel de Impacto — Este Mês</div>
               {isMaster && (

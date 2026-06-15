@@ -99,7 +99,7 @@ export default function BoasVindas() {
         </div>
       </div>
       <button onClick={dispensar} title="Dispensar por hoje"
-        style={{ width: 28, height: 28, borderRadius: 8, border: '1px solid var(--border)', background: '#fff', color: 'var(--muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        style={{ width: 28, height: 28, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--card)', color: 'var(--muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
         <X size={14} />
       </button>
     </div>

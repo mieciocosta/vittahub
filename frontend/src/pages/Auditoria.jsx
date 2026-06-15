@@ -64,9 +64,9 @@ export default function Auditoria() {
   );
 
   const StatCard = ({ label, valor, cor }) => (
-    <div style={{ flex: 1, minWidth: 100, padding: '12px 14px', background: '#fff', borderRadius: 11, borderLeft: `3px solid ${cor}`, textAlign: 'center', boxShadow: '0 1px 3px #0001' }}>
+    <div style={{ flex: 1, minWidth: 100, padding: '12px 14px', background: 'var(--card)', borderRadius: 11, borderLeft: `3px solid ${cor}`, textAlign: 'center', boxShadow: '0 1px 3px #0001' }}>
       <div style={{ fontSize: 22, fontWeight: 800, color: cor }}>{valor}</div>
-      <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: '#94a3b8', letterSpacing: .5 }}>{label}</div>
+      <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: 'var(--muted)', letterSpacing: .5 }}>{label}</div>
     </div>
   );
 
@@ -106,7 +106,7 @@ export default function Auditoria() {
 
       {/* ── Presença em tempo real ── */}
       {nivel === 'presenca' && (
-        <div className="card" style={{ padding: 0, overflow: 'hidden', background: '#fff' }}>
+        <div className="card" style={{ padding: 0, overflow: 'hidden', background: 'var(--card)' }}>
           <div style={{ padding: '13px 18px', background: 'linear-gradient(90deg,var(--tq),#0aa6ae)', color: '#fff', fontWeight: 800, fontSize: 14 }}>
             Equipe — Tempo Real
           </div>
@@ -124,11 +124,11 @@ export default function Auditoria() {
                   <div style={{ position: 'absolute', bottom: -1, right: -1, width: 12, height: 12, borderRadius: '50%', background: cor, border: '2px solid #fff' }} />
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 13.5 }}>{p.nome} <span style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8' }}>· {p.role === 'master' ? 'Master' : p.role === 'supervisor' ? 'Supervisora' : 'Atendente'}{p.setor ? ` · ${p.setor}` : ''}</span></div>
+                  <div style={{ fontWeight: 700, fontSize: 13.5 }}>{p.nome} <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>· {p.role === 'master' ? 'Master' : p.role === 'supervisor' ? 'Supervisora' : 'Atendente'}{p.setor ? ` · ${p.setor}` : ''}</span></div>
                   <div style={{ fontSize: 11.5, color: cor, fontWeight: 700 }}>{label}{p.pagina ? ` · ${p.pagina}` : ''}</div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#94a3b8' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--muted)' }}>
                     {isMobile ? <Smartphone size={12} /> : <Monitor size={12} />}
                     <span>{p.ip}</span>
                   </div>
@@ -149,7 +149,7 @@ export default function Auditoria() {
       {nivel === 'usuarios' && (
         <>
           <div style={{ marginBottom: 14 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, maxWidth: 400, padding: '8px 12px', borderRadius: 10, border: '1.5px solid var(--border)', background: '#fff' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, maxWidth: 400, padding: '8px 12px', borderRadius: 10, border: '1.5px solid var(--border)', background: 'var(--card)' }}>
               <Search size={14} color="var(--muted)" />
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar usuário…"
                 style={{ border: 'none', outline: 'none', flex: 1, fontSize: 13, background: 'transparent', color: 'var(--txt)' }} />
@@ -158,17 +158,17 @@ export default function Auditoria() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(280px,1fr))', gap: 12 }}>
             {usuarios.map(u => (
               <div key={u.id} onClick={() => { setSelUser(u); setNivel('dias'); }}
-                className="card" style={{ padding: '14px 16px', cursor: 'pointer', borderLeft: `4px solid ${u.role === 'master' ? '#059669' : u.role === 'supervisor' ? '#0E8C96' : '#64748b'}`, background: '#fff', transition: 'box-shadow .15s' }}
+                className="card" style={{ padding: '14px 16px', cursor: 'pointer', borderLeft: `4px solid ${u.role === 'master' ? '#059669' : u.role === 'supervisor' ? '#0E8C96' : '#64748b'}`, background: 'var(--card)', transition: 'box-shadow .15s' }}
                 onMouseEnter={e => e.currentTarget.style.boxShadow = '0 4px 12px #0002'}
                 onMouseLeave={e => e.currentTarget.style.boxShadow = ''}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                  <div><div style={{ fontWeight: 700, fontSize: 14 }}>{u.nome}</div><div style={{ fontSize: 11.5, color: '#64748b' }}>{u.role}{u.setor ? ` · ${u.setor}` : ''}</div></div>
+                  <div><div style={{ fontWeight: 700, fontSize: 14 }}>{u.nome}</div><div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{u.role}{u.setor ? ` · ${u.setor}` : ''}</div></div>
                   <Avatar u={u} />
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, fontSize: 12 }}>
-                  <div><span style={{ color: '#94a3b8' }}>Eventos:</span> <b>{u.total_eventos || 0}</b></div>
-                  <div><span style={{ color: '#94a3b8' }}>Críticas:</span> <b style={{ color: '#dc2626' }}>{u.acoes_criticas || 0}</b></div>
-                  {u.ultimo_acesso && <div style={{ gridColumn: '1/-1', color: '#94a3b8', fontSize: 11, marginTop: 3 }}>Último: {fmt.relTime(u.ultimo_acesso)}</div>}
+                  <div><span style={{ color: 'var(--muted)' }}>Eventos:</span> <b>{u.total_eventos || 0}</b></div>
+                  <div><span style={{ color: 'var(--muted)' }}>Críticas:</span> <b style={{ color: '#dc2626' }}>{u.acoes_criticas || 0}</b></div>
+                  {u.ultimo_acesso && <div style={{ gridColumn: '1/-1', color: 'var(--muted)', fontSize: 11, marginTop: 3 }}>Último: {fmt.relTime(u.ultimo_acesso)}</div>}
                 </div>
               </div>
             ))}
@@ -179,29 +179,29 @@ export default function Auditoria() {
       {/* ── Nível 2: Dias ── */}
       {nivel === 'dias' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {dias.length === 0 && <div className="card" style={{ padding: '36px 18px', textAlign: 'center', color: 'var(--muted)', background: '#fff' }}>Sem atividade registrada.</div>}
+          {dias.length === 0 && <div className="card" style={{ padding: '36px 18px', textAlign: 'center', color: 'var(--muted)', background: 'var(--card)' }}>Sem atividade registrada.</div>}
           {dias.map(d => {
             const dt = new Date(String(d.data).slice(0, 10) + 'T12:00:00');
             const DS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
             const fh = t => t ? new Date(t).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '—';
             return (
               <div key={d.data} onClick={() => { setSelDia(String(d.data).slice(0, 10)); setNivel('timeline'); }}
-                className="card" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 18px', cursor: 'pointer', background: '#fff' }}
+                className="card" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 18px', cursor: 'pointer', background: 'var(--card)' }}
                 onMouseEnter={e => e.currentTarget.style.background = 'var(--tq4)'}
                 onMouseLeave={e => e.currentTarget.style.background = '#fff'}>
                 <div style={{ width: 48, textAlign: 'center' }}>
                   <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--tq2)' }}>{dt.getDate()}</div>
-                  <div style={{ fontSize: 10, fontWeight: 600, color: '#94a3b8' }}>{DS[dt.getDay()]}</div>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--muted)' }}>{DS[dt.getDay()]}</div>
                 </div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 600, fontSize: 13 }}>{String(d.data).slice(0, 10)}</div>
-                  <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>{fh(d.primeiro)} → {fh(d.ultimo)} · {d.duracao_min} min</div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{fh(d.primeiro)} → {fh(d.ultimo)} · {d.duracao_min} min</div>
                 </div>
                 <div style={{ display: 'flex', gap: 6 }}>
                   <span style={{ padding: '4px 10px', borderRadius: 8, background: '#e0f2fe', fontSize: 12, fontWeight: 700, color: '#0369a1' }}>{d.total}</span>
                   {d.criticos > 0 && <span style={{ padding: '4px 10px', borderRadius: 8, background: '#fef2f2', fontSize: 12, fontWeight: 700, color: '#dc2626' }}>{d.criticos}⚠</span>}
                 </div>
-                <span style={{ color: '#94a3b8' }}>→</span>
+                <span style={{ color: 'var(--muted)' }}>→</span>
               </div>
             );
           })}
@@ -220,9 +220,9 @@ export default function Auditoria() {
                 ['Ocioso', `${timeline.sessao.ocioso_min || 0}m`, '#d97706'],
                 ['Eventos', String(timeline.sessao.total_eventos || 0), '#0E8C96'],
               ].map(([l, v, c]) => (
-                <div key={l} style={{ flex: 1, minWidth: 80, padding: '10px 12px', background: '#fff', borderRadius: 9, textAlign: 'center', border: '1px solid var(--border)' }}>
+                <div key={l} style={{ flex: 1, minWidth: 80, padding: '10px 12px', background: 'var(--card)', borderRadius: 9, textAlign: 'center', border: '1px solid var(--border)' }}>
                   <div style={{ fontSize: 16, fontWeight: 700, color: c }}>{v}</div>
-                  <div style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', color: '#94a3b8', marginTop: 2 }}>{l}</div>
+                  <div style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', color: 'var(--muted)', marginTop: 2 }}>{l}</div>
                 </div>
               ))}
             </div>
@@ -245,18 +245,18 @@ export default function Auditoria() {
                         <span style={{ fontWeight: 700, fontSize: isCrit ? 13 : 12, color, fontFamily: 'monospace' }}>{hora}</span>
                         <span style={{ padding: '2px 8px', borderRadius: 4, fontSize: isCrit ? 11 : 10, fontWeight: 700, color: '#fff', background: color }}>{e.acao.toUpperCase().replace(/_/g, ' ')}</span>
                         {e.entidade && <span style={{ padding: '2px 6px', borderRadius: 4, fontSize: 10, background: 'var(--bg2)', color: 'var(--muted)', fontWeight: 600 }}>{e.entidade}</span>}
-                        {e.entidade_id && <span style={{ fontSize: 10, color: '#94a3b8', fontFamily: 'monospace' }}>#{String(e.entidade_id).slice(0, 12)}</span>}
+                        {e.entidade_id && <span style={{ fontSize: 10, color: 'var(--muted)', fontFamily: 'monospace' }}>#{String(e.entidade_id).slice(0, 12)}</span>}
                         {e.latitude && (
                           <a href={`https://www.google.com/maps?q=${e.latitude},${e.longitude}`} target="_blank" rel="noreferrer"
                             style={{ fontSize: 10, color: 'var(--tq2)', fontWeight: 700, textDecoration: 'none' }}>📍</a>
                         )}
                       </div>
-                      <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 10, color: '#94a3b8' }}>
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 10, color: 'var(--muted)' }}>
                         <span>{e.device}</span><span>{e.browser}</span><span>{e.ip}</span>
                       </div>
                     </div>
                     {e.detalhes && typeof e.detalhes === 'object' && Object.keys(e.detalhes).length > 0 && (
-                      <div style={{ marginTop: 6, fontSize: 11.5, color: '#475569', background: 'var(--bg2)', padding: '6px 10px', borderRadius: 7, fontFamily: 'monospace', wordBreak: 'break-all', maxHeight: 100, overflow: 'auto' }}>
+                      <div style={{ marginTop: 6, fontSize: 11.5, color: 'var(--txt2)', background: 'var(--bg2)', padding: '6px 10px', borderRadius: 7, fontFamily: 'monospace', wordBreak: 'break-all', maxHeight: 100, overflow: 'auto' }}>
                         {JSON.stringify(e.detalhes, null, 1)}
                       </div>
                     )}

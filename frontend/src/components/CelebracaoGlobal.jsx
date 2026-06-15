@@ -72,7 +72,7 @@ export default function CelebracaoGlobal() {
       <Confetes grande={grande} />
       <div style={{ position: 'fixed', top: 70, left: '50%', transform: 'translateX(-50%)', zIndex: 1000,
         animation: 'vh-pop .35s cubic-bezier(.3,1.6,.5,1)' }}>
-        <div style={{ background: '#fff', borderRadius: 18, padding: '16px 26px', textAlign: 'center',
+        <div style={{ background: 'var(--card)', borderRadius: 18, padding: '16px 26px', textAlign: 'center',
           border: '2px solid var(--tq)', boxShadow: '0 12px 40px rgba(0,184,192,.35)', minWidth: 280, maxWidth: 420 }}>
           <div style={{ fontSize: 30, lineHeight: 1, marginBottom: 6 }}>🎊</div>
           <div style={{ fontWeight: 800, fontSize: grande ? 18 : 16, color: 'var(--txt)' }}>{festa.titulo}</div>

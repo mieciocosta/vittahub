@@ -36,7 +36,7 @@ export default function Modelos() {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(290px,1fr))', gap: 13 }}>
         {lista.map(qr => (
-          <div key={qr.id} className="card" style={{ padding: '14px 16px', background: '#fff', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div key={qr.id} className="card" style={{ padding: '14px 16px', background: 'var(--card)', display: 'flex', flexDirection: 'column', gap: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <MessageSquareText size={14} color="var(--tq2)" />
               <span style={{ fontWeight: 800, fontSize: 13, flex: 1 }}>{qr.titulo}</span>
@@ -50,7 +50,7 @@ export default function Modelos() {
             <div style={{ fontSize: 12, color: 'var(--txt2)', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{qr.texto}</div>
           </div>
         ))}
-        {lista.length === 0 && <div className="card" style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: 13, gridColumn: '1 / -1', background: '#fff' }}>Nenhum modelo cadastrado ainda.</div>}
+        {lista.length === 0 && <div className="card" style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: 13, gridColumn: '1 / -1', background: 'var(--card)' }}>Nenhum modelo cadastrado ainda.</div>}
       </div>
 
       {modal && (

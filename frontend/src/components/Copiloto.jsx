@@ -127,7 +127,7 @@ const Chip = ({ children, color = P.tq, dim }) => (
   <span style={{ display: 'inline-flex', alignItems: 'center', padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: dim || `${color}1f`, color, border: `1px solid ${color}40` }}>{children}</span>
 );
 const UseBtn = ({ onClick, children }) => (
-  <button onClick={onClick} className="cop-use" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 9, background: P.tq, color: '#04252b', fontSize: 12, fontWeight: 800, border: 'none', cursor: 'pointer', transition: 'transform .1s, box-shadow .15s' }}>
+  <button onClick={onClick} className="cop-use" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 9, background: P.tq, color: 'var(--txt)', fontSize: 12, fontWeight: 800, border: 'none', cursor: 'pointer', transition: 'transform .1s, box-shadow .15s' }}>
     <ArrowUpLeft size={13} /> {children}
   </button>
 );
@@ -368,7 +368,7 @@ export default function Copiloto({ conv, onUse, onClose }) {
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviarChat(); } }}
               style={{ flex: 1, resize: 'none', padding: '8px 11px', borderRadius: 10, background: 'rgba(255,255,255,.07)', border: `1px solid ${P.cardBorder}`, color: P.txt, fontSize: 12.5, outline: 'none', lineHeight: 1.5, maxHeight: 90, fontFamily: 'inherit' }} />
             <button onClick={() => enviarChat()} disabled={chatLoading || (!chatInput.trim() && !chatImg && !chatPdf)}
-              style={{ width: 32, height: 32, borderRadius: 9, background: P.tq, border: 'none', color: '#04252b', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, opacity: chatLoading || (!chatInput.trim() && !chatImg && !chatPdf) ? .45 : 1 }}>
+              style={{ width: 32, height: 32, borderRadius: 9, background: P.tq, border: 'none', color: 'var(--txt)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, opacity: chatLoading || (!chatInput.trim() && !chatImg && !chatPdf) ? .45 : 1 }}>
               <Send size={13} />
             </button>
           </div>
