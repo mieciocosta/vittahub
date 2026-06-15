@@ -8,7 +8,7 @@ import { fileURLToPath } from 'url';
 import authRouter    from './routes/auth.js';
 import leadsRouter   from './routes/leads.js';
 import reportsRouter from './routes/reports.js';
-import inboxRouter, { rodarFollowups } from './routes/inbox.js';
+import inboxRouter, { rodarFollowups, configurarWebhooksZapi } from './routes/inbox.js';
 import extrasRouter  from './routes/extras.js';
 import auditoriaRouter from './routes/auditoria.js';
 
@@ -93,6 +93,14 @@ async function start() {
       // função respeita horário comercial, o liga/desliga e a cadência).
       setInterval(() => { rodarFollowups().catch(e => console.error('Follow-up tick:', e.message)); }, 5 * 60 * 1000);
       console.log('✅ Follow-up automático de leads agendado (5 min)');
+
+      // Auto-cura dos webhooks da Z-API: reaponta TODOS (inclusive o "enviadas
+      // por mim", que faz mensagens do CELULAR subirem pro CRM) para este backend.
+      setTimeout(() => {
+        configurarWebhooksZapi()
+          .then(out => out?.results && console.log('🔗 Webhooks Z-API reconfigurados:', JSON.stringify(out.results)))
+          .catch(e => console.error('Webhooks Z-API:', e.message));
+      }, 8000);
     }
   } catch (err) {
     console.error('❌ Startup:', err.message);

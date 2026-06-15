@@ -3678,32 +3678,39 @@ r.post('/whatsapp/zapi/mark-connected', masterOnly, async (req, res) => {
 });
 
 // ─── Z-API: Auto-configurar webhooks ─────────────────────────────────────────
-r.post('/whatsapp/zapi/setup-webhooks', masterOnly, async (req, res) => {
-  if (!zapiOk()) return res.status(400).json({ error: 'Z-API não configurada' });
-  // URL do backend (corrige precedência de operador)
+// Configura TODOS os webhooks da Z-API apontando para este backend. Inclui o
+// "received-delivery" (notificar enviadas por mim) — é o que faz a Z-API avisar
+// o backend quando a equipe responde direto pelo CELULAR. Chamado no boot
+// (auto-cura) e pelo botão da tela do WhatsApp.
+export async function configurarWebhooksZapi() {
+  if (!zapiOk()) return { skipped: 'zapi não configurada' };
   const BACKEND = process.env.BACKEND_URL
     || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : 'https://vittahub-backend-production.up.railway.app');
   const webhookUrl = `${BACKEND}/api/inbox/webhook/zapi`;
-
-  const results = {};
   const endpoints = [
-    'update-webhook-received',          // ao receber mensagem
+    'update-webhook-received',          // ao receber mensagem (cliente)
     'update-webhook-delivery',          // ao enviar
-    'update-webhook-received-delivery', // notificar enviadas por mim
+    'update-webhook-received-delivery', // notificar enviadas por mim (CELULAR)
     'update-webhook-message-status',    // status da mensagem
     'update-webhook-connected',         // ao conectar
     'update-webhook-disconnected',      // ao desconectar
   ];
-
+  const results = {};
   for (const ep of endpoints) {
     try {
       const r2 = await zapiCall(`/${ep}`, 'PUT', { value: webhookUrl });
       const txt = await r2?.text().catch(() => '');
-      results[ep] = r2?.ok ? 'ok' : `erro(${r2?.status}): ${txt.slice(0,60)}`;
+      results[ep] = r2?.ok ? 'ok' : `erro(${r2?.status}): ${txt.slice(0, 60)}`;
     } catch (e) { results[ep] = `erro: ${e.message}`; }
   }
-  console.log('Z-API webhooks configurados:', JSON.stringify(results));
-  res.json({ ok: true, webhookUrl, results });
+  return { webhookUrl, results };
+}
+
+r.post('/whatsapp/zapi/setup-webhooks', masterOnly, async (req, res) => {
+  if (!zapiOk()) return res.status(400).json({ error: 'Z-API não configurada' });
+  const out = await configurarWebhooksZapi();
+  console.log('Z-API webhooks configurados:', JSON.stringify(out.results));
+  res.json({ ok: true, ...out });
 });
 
 
