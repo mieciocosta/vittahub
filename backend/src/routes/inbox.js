@@ -315,6 +315,7 @@ r.post('/webhook/whatsapp', async (req, res) => {
           END,
           unread = conversas.unread + 1,
           last_from = 'contact',
+          followup_count = 0,
           last_message = EXCLUDED.last_message,
           last_message_at = EXCLUDED.last_message_at
         RETURNING *`,
@@ -1314,6 +1315,7 @@ r.post('/webhook/zapi', async (req, res) => {
         profile_pic = COALESCE(EXCLUDED.profile_pic, conversas.profile_pic),
         unread = conversas.unread + 1,
         last_from = 'contact',
+        followup_count = 0,
         last_message = EXCLUDED.last_message,
         last_message_at = EXCLUDED.last_message_at
       RETURNING *`,
@@ -3625,6 +3627,125 @@ r.post('/whatsapp/switch-number', async (req, res) => {
     res.json({ ok: true, cleared, message: 'Pronto para conectar novo número' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
+/* ─── FOLLOW-UP AUTOMÁTICO ─────────────────────────────────────────────────────
+   Reativa leads que ficaram em silêncio depois que a Vitta falou. Só age em
+   conversas ainda nas mãos da Vitta (bot_ativo=true) cuja última mensagem foi
+   da própria Vitta (last_from='bot') — se um humano assumiu ou respondeu, ele
+   conduz. Cadência carinhosa e escalonada (2h → +1d → +3d), no máximo 3 toques,
+   só em horário comercial. Zera quando o cliente responde (webhook).          */
+const FOLLOWUP_MAX = 3;
+
+// Horário comercial de São Luís-MA (UTC-3, sem horário de verão): 8h às 20h
+function dentroDoHorarioComercial() {
+  const horaLocal = (new Date().getUTCHours() - 3 + 24) % 24;
+  return horaLocal >= 8 && horaLocal < 20;
+}
+
+async function gerarMensagemFollowup(conv, count) {
+  const { rows: histRows } = await query(
+    `SELECT from_type, type, content, filename FROM mensagens
+     WHERE conversa_id = $1 AND type IN ('text','document') AND from_type <> 'system'
+     ORDER BY created_at DESC LIMIT 12`, [conv.id]
+  );
+  const hist = histRows.reverse();
+  const enviouPdf = hist.some(m => m.from_type === 'bot' && m.type === 'document');
+  const primeiroNome = String(conv.contact_name || '').trim().split(/\s+/)[0] || '';
+  const trato = primeiroNome && !/^\d+$/.test(primeiroNome) ? primeiroNome : 'mamãe';
+
+  // Templates de segurança (tom real da Vittalis) — usados sem IA ou em falha
+  const fallback = (() => {
+    if (count === 0) return enviouPdf
+      ? `Oi, ${trato}! 😊 Conseguiu dar uma olhadinha na proposta que te enviei? Posso esclarecer qualquer dúvida e já deixar seu horário reservado 💙`
+      : `Oi, ${trato}! 😊 Passando aqui pra saber se ficou alguma dúvida. Vai ser um prazer te ajudar a deixar tudo certinho 💙`;
+    if (count === 1) return `Oii, ${trato}, ainda está por aí? 🥰 Qualquer dúvida sobre valores ou datas é só me chamar — será um prazer cuidar de vocês 💙`;
+    return `Oi, ${trato}! Não quero te incomodar 😊 Só deixar registrado que estou por aqui quando quiser seguir. Será um prazer receber vocês na Vittalis 💎`;
+  })();
+
+  if (!process.env.OPENAI_API_KEY || !hist.length) return fallback;
+
+  try {
+    const resumo = hist.map(m => {
+      const quem = m.from_type === 'contact' ? 'Cliente' : 'Vitta';
+      const txt = m.type === 'document' ? `[enviou PDF: ${m.filename || 'proposta'}]` : String(m.content || '').slice(0, 200);
+      return `${quem}: ${txt}`;
+    }).join('\n');
+
+    const sys = `Você é a Vitta, atendente carinhosa da Vittalis Saúde no WhatsApp. O cliente parou de responder e você quer reativar a conversa com delicadeza. Escreva UMA única mensagem curta (1 a 2 frases), calorosa e humana, no tom da Vittalis: trate por "${trato}", use 1 emoji de afeto (💙🥰😊✨), e convide gentilmente para o próximo passo (tirar dúvida ou agendar). NÃO repita literalmente o que já foi dito. NÃO seja insistente nem cobre. Esta é a tentativa de retomada número ${count + 1} de ${FOLLOWUP_MAX} — quanto maior o número, mais leve e sem pressão. Responda APENAS a mensagem, sem aspas.`;
+
+    const aiData = await openaiMessages({
+      model: 'gpt-4o-mini', max_tokens: 150, system: sys,
+      messages: [{ role: 'user', content: `Conversa até agora:\n${resumo}\n\nEscreva a mensagem de retomada.` }],
+    });
+    const txt = aiData?.content?.find(c => c.type === 'text')?.text?.trim();
+    return txt || fallback;
+  } catch (e) {
+    console.error('Follow-up IA erro:', e.message);
+    return fallback;
+  }
+}
+
+let followupRodando = false;
+export async function rodarFollowups() {
+  if (followupRodando) return;          // evita sobreposição de ticks
+  followupRodando = true;
+  try {
+    if (!zapiOk() || !dentroDoHorarioComercial()) return;
+
+    const { rows: [cfgRow] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'");
+    const cfg = cfgRow?.valor || {};
+    if (cfg.ativo === false || cfg.followup === false) return;   // respeita o liga/desliga
+
+    const { rows: candidatos } = await query(`
+      SELECT * FROM conversas
+      WHERE bot_ativo = true
+        AND last_from = 'bot'
+        AND COALESCE(followup_pausado, false) = false
+        AND COALESCE(followup_count, 0) < $1
+        AND phone IS NOT NULL AND phone <> ''
+        AND contact_id NOT LIKE '%g.us%'
+        AND last_message_at < NOW() - (CASE COALESCE(followup_count, 0)
+              WHEN 0 THEN INTERVAL '2 hours'
+              WHEN 1 THEN INTERVAL '1 day'
+              ELSE INTERVAL '3 days' END)
+      ORDER BY last_message_at ASC
+      LIMIT 15`, [FOLLOWUP_MAX]);
+
+    for (const conv of candidatos) {
+      try {
+        let phoneNum = String(conv.phone || '').replace(/\D/g, '');
+        if (phoneNum.startsWith('55') && phoneNum.length >= 12) phoneNum = phoneNum.slice(2);
+        if (phoneNum.length < 10) continue;
+
+        const count = conv.followup_count || 0;
+        const msg = await gerarMensagemFollowup(conv, count);
+
+        const zr = await zapiCall('/send-text', 'POST', { phone: `55${phoneNum}`, message: msg });
+        if (!zr?.ok) { console.error('Follow-up Z-API falhou:', conv.id, zr?.status); continue; }
+
+        const { rows: [botMsg] } = await query(
+          `INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome)
+           VALUES ($1,'bot','text',$2,'Vitta') RETURNING *`, [conv.id, msg]
+        ).catch(() => ({ rows: [null] }));
+
+        await query(
+          `UPDATE conversas SET last_message = $1, last_from = 'bot', last_message_at = NOW(),
+             followup_count = COALESCE(followup_count, 0) + 1, followup_last_at = NOW()
+           WHERE id = $2`, [msg.slice(0, 100), conv.id]
+        );
+
+        const { rows: [convAtual] } = await query('SELECT * FROM conversas WHERE id = $1', [conv.id]);
+        if (convAtual) cacheUpdate(convAtual);
+        if (botMsg) socketEmit('new_message', { convId: conv.id, message: botMsg, conv: convAtual });
+        console.log(`Follow-up #${count + 1} → ${conv.contact_name || conv.phone}`);
+      } catch (e) { console.error('Follow-up erro na conversa', conv.id, e.message); }
+    }
+  } catch (e) {
+    console.error('rodarFollowups erro:', e.message);
+  } finally {
+    followupRodando = false;
+  }
+}
 
 export default r;
 

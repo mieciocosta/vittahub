@@ -70,6 +70,10 @@ export default async function runMigrate() {
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS profile_pic TEXT`).catch(() => {});
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS status_atend TEXT DEFAULT 'aberto'`).catch(() => {});
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS provider TEXT DEFAULT 'zapi'`).catch(() => {});
+    // Follow-up automático: nutrição de leads que ficaram em silêncio
+    await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS followup_count INT DEFAULT 0`).catch(() => {});
+    await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS followup_last_at TIMESTAMPTZ`).catch(() => {});
+    await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS followup_pausado BOOLEAN DEFAULT false`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS idx_conv_status ON conversas(status_atend)`).catch(() => {});
 
     await query(`CREATE INDEX IF NOT EXISTS idx_conv_last ON conversas(last_message_at DESC)`);
