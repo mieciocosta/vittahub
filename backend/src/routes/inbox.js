@@ -1765,9 +1765,15 @@ export async function sendViaMeta(phone, type, content) {
   return metaSend(PID, AT, to, type, { [type]:{ link:content } });
 }
 
+// ─── DAQUI PRA BAIXO, TUDO EXIGE LOGIN ───────────────────────────────────────
+// O auth subiu para ANTES dos endpoints de debug/teste: antes eles ficavam
+// PÚBLICOS (protegidos só por uma chave fixa "vt24" na URL, e o debug-zapi sem
+// chave nenhuma), expondo dados de clientes e permitindo enviar/reconfigurar.
+r.use(auth);
+
 // Keep Evolution webhook for backward compat
-// ─── DEBUG: testar IA Claude (via ?k=vt24) ──────────────────────────────────
-r.get('/whatsapp/test-ia', async (req, res) => {
+// ─── DEBUG: testar IA Claude (somente logado) ───────────────────────────────
+r.get('/whatsapp/test-ia', masterOnly, async (req, res) => {
   if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
   if (!process.env.OPENAI_API_KEY) return res.json({ error: 'OPENAI_API_KEY não configurada' });
   try {
@@ -1812,7 +1818,7 @@ r.get('/whatsapp/test-post', async (req, res) => {
 });
 
 // ─── DEBUG: enviar mensagem de teste e checar webhook (via ?k=vt24) ──────────
-r.get('/whatsapp/test-send', async (req, res) => {
+r.get('/whatsapp/test-send', masterOnly, async (req, res) => {
   if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
   if (!zapiOk()) return res.json({ error: 'Z-API não configurada' });
   try {
@@ -1834,7 +1840,7 @@ r.get('/whatsapp/test-send', async (req, res) => {
 });
 
 // ─── DEBUG: forçar configuração de webhooks e ver resultado (via ?k=vt24) ────
-r.get('/whatsapp/force-webhooks', async (req, res) => {
+r.get('/whatsapp/force-webhooks', masterOnly, async (req, res) => {
   if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
   if (!zapiOk()) return res.json({ error: 'Z-API não configurada' });
   const webhookUrl = 'https://vittahub-backend-production.up.railway.app/api/inbox/webhook/zapi';
@@ -1884,7 +1890,7 @@ r.get('/whatsapp/debug-raw', async (req, res) => {
 });
 
 // ─── DEBUG: ver resposta raw do Z-API /chats (público — remover após debug) ───
-r.get('/whatsapp/debug-zapi', async (req, res) => {
+r.get('/whatsapp/debug-zapi', masterOnly, async (req, res) => {
   if (!zapiOk()) return res.json({ error: 'Z-API não configurada', zapiOk: false });
   try {
     const r2 = await zapiCall('/chats?page=1&pageSize=3', 'GET');
@@ -1988,7 +1994,7 @@ r.get('/proposta/test-pdf', async (req, res) => {
   }
 });
 
-r.use(auth);
+// (auth já aplicado acima, antes do bloco de debug — não repetir)
 
 // ─── POLL: conversas atualizadas — servido do CACHE (zero DB query) ──────────
 r.get('/conversations/updates', async (req, res) => {

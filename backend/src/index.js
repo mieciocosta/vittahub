@@ -26,8 +26,10 @@ app.use(cors({
   origin: (origin, cb) => {
     // cb(null, false) em vez de Error evita o 500 que bloqueava os webhooks da Z-API
     const allowed = [ORIGIN, 'http://localhost:3000', 'http://localhost:5173'];
+    // Não confiar em QUALQUER *.railway.app (domínio público compartilhado) —
+    // só o frontend da Vitta e os domínios oficiais vittalissaude.com.br.
     if (!origin || allowed.includes(origin)
-      || /\.railway\.app$/.test(origin)
+      || /^https:\/\/vittahub-frontend[\w-]*\.up\.railway\.app$/.test(origin)
       || /\.vittalissaude\.com\.br$/.test(origin)) return cb(null, true);
     return cb(null, false);
   },

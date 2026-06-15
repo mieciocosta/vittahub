@@ -275,7 +275,9 @@ r.post('/', async (req, res) => {
     const b = normBody(req.body);
     const nome = b.nome, telefone = b.telefone || '', email = b.email || '';
     const origem = b.origem || 'WhatsApp', interesse = b.interesse || 'Consulta';
-    const respId = b.responsavel_id || req.user.id;
+    // Só gestão atribui lead a outra pessoa; atendente cria sempre pra si
+    const podeAtribuir = ['master', 'supervisor'].includes(req.user.role);
+    const respId = (podeAtribuir && b.responsavel_id) ? b.responsavel_id : req.user.id;
     const valor = req.user.role === 'master' ? parseFloat(b.valor_proposta) || 0 : 0;
     // Permite criar o lead já numa etapa específica (criar direto na coluna do Kanban)
     let status = b.status;
@@ -322,7 +324,9 @@ r.put('/:id', async (req, res) => {
     set('nome', nome); set('telefone', telefone); set('email', email);
     set('nascimento', nascimento); set('endereco', endereco); set('bairro', bairro); set('responsavel_cliente', responsavel_cliente);
     set('origem', origem); set('interesse', interesse); set('status', status);
-    set('responsavel_id', responsavel_id); set('servico', servico);
+    // Reatribuir lead a outra pessoa: só gestão (atendente não troca o responsável)
+    if (['master', 'supervisor'].includes(req.user.role)) set('responsavel_id', responsavel_id);
+    set('servico', servico);
     set('data_retorno', data_retorno || null); set('observacoes', observacoes);
     set('motivo_perda', motivo_perda); set('tags', tags);
     if (valor !== undefined) set('valor_proposta', valor);
