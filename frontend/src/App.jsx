@@ -74,6 +74,9 @@ export default function App() {
 
   const toggleTheme = () => setTheme(t => t === 'light' ? 'dark' : 'light');
   const toggleNav = () => setNavCollapsed(p => !p);
+  // Hook estável: precisa ficar ANTES dos early-returns abaixo (regras de hooks),
+  // senão o nº de hooks muda entre renders (loading→pronto) e estoura React #310.
+  const closeMobile = React.useCallback(() => setMobileMenu(false), []);
 
   if (loading) return (
     <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', background:'linear-gradient(160deg,#f7fbfc,#e8f4f6)' }}>
@@ -99,7 +102,7 @@ export default function App() {
         collapsed={navCollapsed}
         onToggleCollapse={toggleNav}
         mobileOpen={mobileMenu}
-        onCloseMobile={React.useCallback(() => setMobileMenu(false), [])}
+        onCloseMobile={closeMobile}
       />
       {user && <Heartbeat userId={user.id} />}
       <main className='vh-main' style={{ marginLeft:'var(--sw)', flex:1, minHeight:'100vh', overflowX:'hidden', transition:'margin-left .2s ease' }}>

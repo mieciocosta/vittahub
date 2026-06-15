@@ -16,6 +16,7 @@ export default function Configuracoes() {
   const [editUser, setEditUser] = useState(null); // { id, cpf, senha, ativo }
   const [userErr, setUserErr] = useState('');
   const [novoUser, setNovoUser] = useState(null); // { nome, cpf, senha, role }
+  const [killing, setKilling] = useState(false); // desligar todos os bots (precisa ficar antes do early-return de isMaster)
   const criarUsuario = async () => {
     setUserErr('');
     try {
@@ -56,7 +57,6 @@ export default function Configuracoes() {
     setTimeout(()=>setSaved(false), 2000);
   };
 
-  const [killing, setKilling] = useState(false);
   const desligarTodos = async () => {
     if (!window.confirm('Desligar TODOS os bots AGORA?\n\nA Vitta para de responder em todas as conversas até você religar aqui em Configurações.')) return;
     setKilling(true);
