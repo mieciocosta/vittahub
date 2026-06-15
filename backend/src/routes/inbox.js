@@ -1514,9 +1514,11 @@ r.post('/webhook/zapi', async (req, res) => {
     // ── REABERTURA AUTOMÁTICA: menu volta após 24h de conversa parada ─────────
     // Regras da gestão: só reabre se NÃO houver atendimento ativo (equipe
     // respondeu nas últimas 24h) e se a última triagem foi há 24h ou mais.
-    // Interruptor global do bot — só o master (Miécio/Nágila) liga/desliga em
-    // Configurações. Desligado → NENHUMA automação: não reabre, não tria, não
-    // responde. Foi por não respeitar isto que os bots "não desligavam".
+    // Interruptor GLOBAL do bot (só master liga/desliga em Configurações).
+    // Ele controla apenas a AUTO-REABERTURA (o bot voltar sozinho após 24h).
+    // A RESPOSTA em si é controlada pelo bot_ativo de CADA conversa (botão BOT),
+    // então o master pode ligar/desligar o bot conversa a conversa mesmo com o
+    // global desligado — e nada se religa sozinho.
     const { rows: [cfgBotRow] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'").catch(() => ({ rows: [] }));
     const botGlobalAtivo = cfgBotRow?.valor?.ativo !== false;
 
@@ -1543,12 +1545,12 @@ r.post('/webhook/zapi', async (req, res) => {
     }
 
     // ── CAPTURA AUTOMÁTICA: nome → paciente → nascimento (salva no CRM) ──────
-    if (botGlobalAtivo && textoParaIA && conv.captura_etapa) {
+    if (conv.bot_ativo && textoParaIA && conv.captura_etapa) {
       const tratado = await capturaDados(conv, textoParaIA, phoneDigits.startsWith('55') ? phoneDigits.slice(2) : phoneDigits);
       if (tratado) return; // resposta do webhook já foi enviada lá no início
     }
 
-    if (botGlobalAtivo && conv.bot_ativo && textoParaIA) {
+    if (conv.bot_ativo && textoParaIA) {
       // Triagem de setor primeiro (menu inicial / rodízio); se consumiu, para aqui
       const convAtual = (await query('SELECT * FROM conversas WHERE id = $1', [conv.id])).rows[0] || conv;
       const consumido = await triagemSetor(convAtual, textoParaIA, phoneDigits.startsWith('55') ? phoneDigits.slice(2) : phoneDigits);

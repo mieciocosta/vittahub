@@ -956,9 +956,12 @@ export default function Inbox({ onUnreadChange }) {
   };
 
   const toggleBot = async () => {
-    const d = await api.patch(`/inbox/conversations/${sel.id}/bot`, { ativo:!sel.bot_ativo });
-    setSel(p => ({ ...p, bot_ativo:d.botAtivo }));
-    setConvos(p => p.map(c => c.id===sel.id ? {...c, bot_ativo:d.botAtivo} : c));
+    try {
+      const d = await api.patch(`/inbox/conversations/${sel.id}/bot`, { ativo:!sel.bot_ativo });
+      setSel(p => ({ ...p, bot_ativo:d.botAtivo }));
+      setConvos(p => p.map(c => c.id===sel.id ? {...c, bot_ativo:d.botAtivo} : c));
+      Toast.show(d.botAtivo ? 'Bot ligado nesta conversa 🤖' : 'Bot desligado nesta conversa', 'success');
+    } catch (e) { Toast.show(e.message || 'Não foi possível alterar o bot', 'error'); }
   };
 
   const changeStatus = async (status) => {
@@ -1115,11 +1118,12 @@ export default function Inbox({ onUnreadChange }) {
                   ↺ Menu
                 </button>
               )}
-              {/* BOT OCULTO (gestão 12/06/2026) — Vitta desligada no backend; descomente junto com agendarVitta pra religar.
-              <button onClick={toggleBot} className="btn btn-sm" style={{ background:sel.bot_ativo?'var(--ok2)':'var(--bg2)', color:sel.bot_ativo?'var(--ok)':'var(--muted)', border:`1.5px solid ${sel.bot_ativo?'var(--ok)':'var(--border)'}`, fontSize:11, padding:'4px 9px' }}>
-                <Bot size={10}/>{sel.bot_ativo?'Bot ON':'Bot'}
-              </button>
-              */}
+              {user?.role === 'master' && (
+                <button onClick={toggleBot} title={sel.bot_ativo ? 'Bot ligado nesta conversa — clique para desligar' : 'Bot desligado nesta conversa — clique para ligar'}
+                  className="btn btn-sm" style={{ background:sel.bot_ativo?'var(--ok2)':'var(--bg2)', color:sel.bot_ativo?'var(--ok)':'var(--muted)', border:`1.5px solid ${sel.bot_ativo?'var(--ok)':'var(--border)'}`, fontSize:11, padding:'4px 9px' }}>
+                  <Bot size={10}/> {sel.bot_ativo ? 'Bot ON' : 'Bot OFF'}
+                </button>
+              )}
 
               <button onClick={toLead} className="btn btn-s btn-sm" style={{ fontSize:11, padding:'4px 9px' }}><UserPlus size={10}/> Lead</button>
               <button onClick={()=>{setShowAI(p=>!p);setShowInfo(false);}} className="btn btn-sm" style={{ background:showAI?'#032B30':'var(--bg2)', color:showAI?'#00B8C0':'var(--muted)', border:`1.5px solid ${showAI?'rgba(0,184,192,.4)':'var(--border)'}`, fontSize:11, padding:'4px 9px' }}>
