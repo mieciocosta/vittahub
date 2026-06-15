@@ -238,7 +238,7 @@ export default function Auditoria() {
                   {e.gap_seconds && e.gap_seconds > 120 && (
                     <div style={{ fontSize: 10, color: '#d97706', fontWeight: 600, marginBottom: 4, fontStyle: 'italic' }}>⏸ {Math.round(e.gap_seconds / 60)} min ocioso</div>
                   )}
-                  <div style={{ padding: isCrit ? '12px 14px' : '7px 12px', background: isCrit ? 'linear-gradient(135deg,#fefce8,#fffbeb)' : '#fff', borderRadius: 10, border: `${isCrit ? 2 : 1}px solid ${isCrit ? '#f59e0b' : 'var(--border)'}`, fontSize: 13 }}>
+                  <div style={{ padding: isCrit ? '12px 14px' : '7px 12px', background: isCrit ? 'var(--warn2)' : 'var(--card)', borderRadius: 10, border: `${isCrit ? 2 : 1}px solid ${isCrit ? '#f59e0b' : 'var(--border)'}`, fontSize: 13 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
                       <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                         <span style={{ fontSize: isCrit ? 18 : 14 }}>{icon}</span>

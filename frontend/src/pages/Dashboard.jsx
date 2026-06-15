@@ -317,7 +317,7 @@ export default function Dashboard() {
 
           {/* Mensagem da Tarde / Ações rápidas empilhadas */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div className="card" style={{ padding: '16px 19px', background: 'linear-gradient(120deg,#eef9fa,#fff 65%,#f0fbfc)', border: '1.5px solid var(--tq3)', display: 'flex', gap: 13, alignItems: 'center' }}>
+            <div className="card" style={{ padding: '16px 19px', background: 'var(--card)', border: '1.5px solid var(--tq3)', display: 'flex', gap: 13, alignItems: 'center' }}>
               <div style={{ fontSize: 36, flexShrink: 0 }}>{hora < 12 ? '🌅' : '💙'}</div>
               <div>
                 <div style={{ fontWeight: 800, fontSize: 13.5, marginBottom: 3 }}>{hora < 12 ? 'Mensagem da Manhã' : 'Mensagem da Tarde'}</div>

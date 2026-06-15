@@ -233,6 +233,14 @@ h1 { letter-spacing: -0.7px; }
   --tq4:    rgba(0,184,192,0.06);
   /* Barra lateral azul-escuro no tema escuro */
   --sidebar-bg: linear-gradient(178deg, #13294b 0%, #0e1f3a 55%, #0a1830 100%);
+  /* Fundos pastel de status → translúcidos no escuro (badges, cards de alerta) */
+  --info2: rgba(59,130,246,0.16);
+  --org2:  rgba(232,103,26,0.16);
+  --pur2:  rgba(124,92,191,0.18);
+  --warn2: rgba(232,153,26,0.16);
+  --ok2:   rgba(15,176,122,0.16);
+  --err2:  rgba(232,64,64,0.16);
+  --gold2: rgba(196,151,59,0.16);
 }
 [data-theme="dark"] body { background: var(--bg); color: var(--txt); }
 [data-theme="dark"] .card { background: var(--card); border-color: var(--border); }
@@ -249,6 +257,14 @@ h1 { letter-spacing: -0.7px; }
 [data-theme="dark"] .btn-p { color: #fff; }
 [data-theme="dark"] ::-webkit-scrollbar-thumb { background: var(--border); }
 [data-theme="dark"] .msg-date-pill { background: var(--bg2); color: var(--muted); }
+/* Badges de status: texto mais claro no escuro (o fundo pastel virou translúcido) */
+[data-theme="dark"] .b-novo    { color: #93c5fd; }
+[data-theme="dark"] .b-atend   { color: #fdba74; }
+[data-theme="dark"] .b-orca    { color: #c4b5fd; }
+[data-theme="dark"] .b-aguard  { color: #fcd34d; }
+[data-theme="dark"] .b-fechado { color: #6ee7b7; }
+[data-theme="dark"] .b-perdido { color: #fca5a5; }
+[data-theme="dark"] .tag       { background: var(--tq3); color: #5eead4; }
 
 /* ─── RESIZABLE SIDEBAR ──────────────────────────────────────────────────── */
 .inbox-resize-handle {
