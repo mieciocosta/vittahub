@@ -1332,15 +1332,17 @@ r.post('/webhook/zapi', async (req, res) => {
     const profilePic = body.photo || body.senderPhoto || body.profilePicUrl || '';
 
     if (isMe) {
-      // fromMe: just update delivery status
+      // Origem "minha": (a) o VittaHub enviou → já tem registro, só confirma a
+      // entrega; (b) foi digitada direto no celular/WhatsApp → NÃO tem registro,
+      // então precisa aparecer no VittaHub como mensagem da equipe (segue abaixo).
       if (msgId) {
-        await query(
-          `UPDATE mensagens SET status = 'delivered'
-           WHERE wa_msg_id = $1`,
-          [msgId]
-        ).catch(() => {});
+        const { rows: jaExiste } = await query('SELECT id FROM mensagens WHERE wa_msg_id = $1 LIMIT 1', [msgId]).catch(() => ({ rows: [] }));
+        if (jaExiste.length > 0) {
+          await query(`UPDATE mensagens SET status = 'delivered' WHERE wa_msg_id = $1`, [msgId]).catch(() => {});
+          return;
+        }
       }
-      return;
+      // (b) sem registro → cai no fluxo abaixo e é gravada como 'me'
     }
 
     // Deduplication
@@ -1411,9 +1413,13 @@ r.post('/webhook/zapi', async (req, res) => {
     // Eco/callback sem conteúdo reconhecível e sem mídia → ignora (era o "[mensagem]")
     if (content === '[mensagem]' && !mediaData) return;
 
+    // fromMe (digitada no celular) entra como 'me', sem somar não-lidas
+    const incUnread = isMe ? 0 : 1;
+    const lastFromVal = isMe ? 'me' : 'contact';
+
     const { rows: [conv] } = await query(`
       INSERT INTO conversas (channel, contact_name, contact_id, phone, unread, last_message, last_message_at, profile_pic)
-      VALUES ('whatsapp', $1, $2, $3, 1, $4, $5, $6)
+      VALUES ('whatsapp', $1, $2, $3, $7, $4, $5, $6)
       ON CONFLICT (contact_id) DO UPDATE SET
         contact_name = CASE
           WHEN length(EXCLUDED.contact_name) > 5 AND EXCLUDED.contact_name != EXCLUDED.phone
@@ -1421,13 +1427,13 @@ r.post('/webhook/zapi', async (req, res) => {
           ELSE conversas.contact_name
         END,
         profile_pic = COALESCE(EXCLUDED.profile_pic, conversas.profile_pic),
-        unread = conversas.unread + 1,
-        last_from = 'contact',
-        followup_count = 0,
+        unread = conversas.unread + $7,
+        last_from = $8,
+        followup_count = CASE WHEN $8 = 'contact' THEN 0 ELSE conversas.followup_count END,
         last_message = EXCLUDED.last_message,
         last_message_at = EXCLUDED.last_message_at
       RETURNING *`,
-      [contactName, remoteJid, displayPhone, previewContent, ts, fetchedPic || null]
+      [contactName, remoteJid, displayPhone, previewContent, ts, fetchedPic || null, incUnread, lastFromVal]
     );
 
     // Atualiza cache em memória imediatamente
@@ -1436,11 +1442,11 @@ r.post('/webhook/zapi', async (req, res) => {
     // Salva mensagem
     const finalContent = mediaData || content;
     const { rows: [newMsg] } = await query(
-      `INSERT INTO mensagens (conversa_id, from_type, type, content, filename, created_at, wa_msg_id)
-       SELECT $1, 'contact', $2, $3, $4, $5, $6
+      `INSERT INTO mensagens (conversa_id, from_type, type, content, filename, created_at, wa_msg_id, status)
+       SELECT $1, $7, $2, $3, $4, $5, $6, $8
        WHERE NOT EXISTS (SELECT 1 FROM mensagens WHERE wa_msg_id = $6 AND $6 IS NOT NULL)
        RETURNING *`,
-      [conv.id, type, finalContent, filename, ts, msgId]
+      [conv.id, type, finalContent, filename, ts, msgId, isMe ? 'me' : 'contact', isMe ? 'delivered' : 'sent']
     );
 
     // ── Socket.io: entrega instantânea para todos os clientes ──
@@ -1451,6 +1457,10 @@ r.post('/webhook/zapi', async (req, res) => {
       ]).catch(() => {});
       notifyWaiters(conv.id, newMsg);
     }
+
+    // Mensagem enviada do celular: já apareceu no VittaHub como 'me'. Não notifica
+    // como "nova do cliente" nem aciona o bot (quem respondeu foi um humano).
+    if (isMe) return;
 
 
     await query(
