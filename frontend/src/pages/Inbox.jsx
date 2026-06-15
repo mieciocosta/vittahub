@@ -22,6 +22,26 @@ const STATUS_CFG = {
 };
 const ITEM_HEIGHT = 80;
 
+// Temperatura do lead — a Vitta classifica e a equipe prioriza os quentes
+const SCORE_CFG = {
+  quente: { label: 'QUENTE', emoji: '🔥', color: '#dc2626', bg: '#fee2e2', rank: 0 },
+  morno:  { label: 'MORNO',  emoji: '🟡', color: '#d97706', bg: '#fef3c7', rank: 1 },
+  frio:   { label: 'FRIO',   emoji: '❄️', color: '#2563eb', bg: '#dbeafe', rank: 2 },
+};
+const scoreRank = (s) => SCORE_CFG[s]?.rank ?? 3;
+
+// Memória do lead → linhas legíveis para a ficha (o que a Vitta já sabe)
+function memoriaLinhas(m) {
+  if (!m || typeof m !== 'object') return [];
+  const L = [];
+  const push = (lbl, v) => { if (v) L.push(`${lbl}: ${v}`); };
+  push('Paciente', m.paciente); push('Nascimento', m.nascimento); push('Idade', m.idade);
+  push('Responsável', m.responsavel); push('Endereço', m.endereco); push('E-mail', m.email);
+  if (Array.isArray(m.interesses) && m.interesses.length) L.push(`Interesses: ${m.interesses.join(', ')}`);
+  push('Já recebeu proposta', m.proposta_enviada); push('Preferências', m.preferencias); push('Observações', m.observacoes);
+  return L;
+}
+
 /* ── Avatar ─────────────────────────────────────────────────────────────────── */
 const Avatar = React.memo(function Avatar({ conv, size = 38, fontSize = 13 }) {
   const initials = (conv.contact_name || conv.phone || '?').split(' ').slice(0, 2).map(w => w[0] || '?').join('').toUpperCase();
@@ -123,6 +143,7 @@ const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect, usersB
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
           <span style={{ fontWeight: hasUnread ? 800 : 600, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, marginRight: 6 }}>
+            {conv.lead_score === 'quente' && <span title="Lead quente" style={{ marginRight: 3 }}>🔥</span>}
             {conv.contact_name || fmt.phone(conv.phone) || '…'}
           </span>
           <span style={{ fontSize: 10.5, fontWeight: hasUnread ? 800 : 500, color: hasUnread ? 'var(--tq)' : 'var(--light)', flexShrink: 0 }}>
@@ -141,6 +162,12 @@ const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect, usersB
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
           <StatusBadge status={conv.status_atend} size="xs" />
+          {SCORE_CFG[conv.lead_score] && (
+            <span title={conv.lead_score_motivo ? `Lead ${conv.lead_score}: ${conv.lead_score_motivo}` : `Lead ${conv.lead_score}`}
+              style={{ fontSize: 9, color: SCORE_CFG[conv.lead_score].color, fontWeight: 800, background: SCORE_CFG[conv.lead_score].bg, padding: '1.5px 6px', borderRadius: 8, letterSpacing: .4, display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+              {SCORE_CFG[conv.lead_score].emoji}{SCORE_CFG[conv.lead_score].label}
+            </span>
+          )}
           {conv.bot_ativo && <span style={{ fontSize: 9, color: 'var(--ok)', fontWeight: 800, background: 'var(--ok2)', padding: '1.5px 6px', borderRadius: 8, letterSpacing: .4 }}>BOT</span>}
           {conv.lead_id   && <span style={{ fontSize: 9, color: 'var(--tq)', fontWeight: 800, background: 'var(--tq3)', padding: '1.5px 6px', borderRadius: 8, letterSpacing: .4 }}>LEAD</span>}
           {resp && (
@@ -411,6 +438,7 @@ export default function Inbox({ onUnreadChange }) {
   const [search, setSearch]         = useState('');
   const [filter, setFilter]         = useState('all');
   const [unreadOnly, setUnreadOnly] = useState(false);
+  const [quentesPrimeiro, setQuentesPrimeiro] = useState(false); // prioriza leads quentes
 
   // ── UI state ───────────────────────────────────────────────────────────────
   const [listCollapsed, setListCollapsed] = useState(false);
@@ -548,6 +576,14 @@ export default function Inbox({ onUnreadChange }) {
             return [...clean, message];
           });
         }
+      });
+
+      // Temperatura/memória reclassificadas pela Vitta → atualiza selo na lista,
+      // e a ficha da conversa aberta se for essa
+      socket.on('lead_score', ({ convId, lead_score, lead_score_motivo, memoria }) => {
+        const patch = c => ({ ...c, lead_score, lead_score_motivo, ...(memoria !== undefined ? { memoria } : {}) });
+        setConvos(prev => prev.map(c => c.id === convId ? patch(c) : c));
+        setSel(prev => prev && prev.id === convId ? patch(prev) : prev);
       });
     }).catch(err => console.warn('socket.io-client não disponível:', err.message));
 
@@ -932,6 +968,12 @@ export default function Inbox({ onUnreadChange }) {
   };
 
   const totalUnread = useMemo(() => convos.reduce((s, c) => s + (c.unread||0), 0), [convos]);
+  const totalQuentes = useMemo(() => convos.filter(c => c.lead_score === 'quente').length, [convos]);
+  // Ordena por temperatura quando o modo "quentes primeiro" está ligado (sort estável preserva a recência dentro de cada faixa)
+  const convosExib = useMemo(
+    () => quentesPrimeiro ? [...convos].sort((a, b) => scoreRank(a.lead_score) - scoreRank(b.lead_score)) : convos,
+    [convos, quentesPrimeiro]
+  );
 
   /* ─────────────────── RENDER ──────────────────────────────────────────────── */
   return (
@@ -966,7 +1008,7 @@ export default function Inbox({ onUnreadChange }) {
           modo={modo} setModo={setModo} counts={counts}/>
 
         <div ref={listContainerRef} style={{ flex:1, minHeight:0 }}>
-          <VirtualList items={convos} selectedId={sel?.id} onSelect={openConvo} usersById={usersById}
+          <VirtualList items={convosExib} selectedId={sel?.id} onSelect={openConvo} usersById={usersById}
             containerHeight={listH} loadMore={loadMore} hasMore={hasMore} loadingMore={loadingMore}/>
         </div>
 
@@ -976,6 +1018,12 @@ export default function Inbox({ onUnreadChange }) {
             <span>{total.toLocaleString()} conversas</span>
             <span style={{ color: totalUnread>0 ? 'var(--tq2)' : 'var(--light)' }}>{totalUnread} não lida{totalUnread===1?'':'s'}</span>
             <span style={{ color:'var(--light)' }}>{convos.filter(c=>c.bot_ativo).length} com bot</span>
+            <button onClick={()=>setQuentesPrimeiro(v=>!v)}
+              title={quentesPrimeiro ? 'Mostrando leads quentes no topo' : 'Ordenar leads quentes primeiro'}
+              style={{ border:'none', cursor:'pointer', fontSize:11, fontWeight:700, padding:'1px 7px', borderRadius:8,
+                background: quentesPrimeiro ? '#fee2e2' : 'var(--bg2)', color: quentesPrimeiro ? '#dc2626' : 'var(--light)' }}>
+              🔥 {totalQuentes} quente{totalQuentes===1?'':'s'}
+            </button>
           </div>
           <button onClick={()=>setSomAtivo(v=>!v)} title={somAtivo?'Som de notificação ligado':'Som de notificação desligado'}
             style={{ width:26, height:26, borderRadius:8, border:'1.5px solid var(--border)', background: somAtivo?'var(--tq3)':'var(--bg2)', color: somAtivo?'var(--tq2)':'var(--light)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
@@ -1450,6 +1498,25 @@ function FaixaContexto({ sel, leadInfo, setLeadInfo, api, scoreChip, setScoreChi
       <Item ic="👤" label="Responsável" valor={resp || 'Sem responsável'} />
       <Item ic="👶" label="Paciente" valor={leadInfo?.nome || sel?.contact_name} />
       <Item ic="📋" label="Etapa" valor={leadInfo?.status || (sel?.lead_id ? '' : 'Sem lead')} />
+      {SCORE_CFG[sel?.lead_score] && (
+        <Item ic={SCORE_CFG[sel.lead_score].emoji} label="Temperatura" valor={SCORE_CFG[sel.lead_score].label} />
+      )}
+      {(() => {
+        const linhas = memoriaLinhas(sel?.memoria);
+        if (!linhas.length) return null;
+        const resumo = [sel.memoria.paciente, sel.memoria.idade].filter(Boolean).join(' · ');
+        return (
+          <div title={linhas.join('\n')} style={{ display:'flex', alignItems:'center', gap:8, padding:'0 14px', borderRight:'1px solid var(--tq3)', cursor:'help' }}>
+            <span style={{ fontSize:14 }}>🧠</span>
+            <div>
+              <div style={{ fontSize:9.5, fontWeight:800, color:'var(--tq2)', textTransform:'uppercase', letterSpacing:.4 }}>Memória</div>
+              <div style={{ fontSize:12, fontWeight:700, color:'var(--txt)', maxWidth:200, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                {resumo || `${linhas.length} fato${linhas.length===1?'':'s'} lembrado${linhas.length===1?'':'s'}`}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       <div style={{ display:'flex', alignItems:'center', gap:8, padding:'0 14px' }}>
         <span style={{ fontSize:14 }}>❤️</span>
         <div>

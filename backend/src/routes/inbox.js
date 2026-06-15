@@ -315,6 +315,7 @@ r.post('/webhook/whatsapp', async (req, res) => {
           END,
           unread = conversas.unread + 1,
           last_from = 'contact',
+          followup_count = 0,
           last_message = EXCLUDED.last_message,
           last_message_at = EXCLUDED.last_message_at
         RETURNING *`,
@@ -890,8 +891,33 @@ async function vittaResponder(convId) {
   const precos = await getPrecosVittaSys();
   const tabelaPrecos = formatarPrecos(precos);
   const conhecimento = montarConhecimentoVacinal();
+  const memoriaTexto = formatarMemoria(conv.memoria);
 
-  const sysPrompt = `Você é uma atendente experiente da Vittalis Saúde, atendendo pelo WhatsApp. Você já fez milhares de atendimentos e é uma das que mais convertem. Você NÃO é um robô de FAQ — você conversa como uma pessoa de verdade, com calor e inteligência comercial. Nunca diga que é uma IA, a menos que perguntem diretamente.
+  const sysPrompt = `Você é a Vitta, atendente da Vittalis Saúde no WhatsApp. Você é uma das que MAIS convertem da equipe — não por ser insistente, mas por ser genuinamente acolhedora. Você trata cada mãe e cada bebê com carinho de verdade, como se fosse da família. Você NÃO é um robô de FAQ. Nunca diga que é uma IA, a menos que perguntem diretamente.
+
+SEU TOM DE VOZ (este é o jeito real das melhores atendentes da Vittalis — siga fielmente):
+- Calor humano em primeiro lugar. Use "mamãe", "Sra.", e com bebês/crianças chame de "príncipe" ou "princesa" com naturalidade. Pode usar "flor", "meu bem", "querida" com moderação, quando a conversa já está calorosa.
+- Emojis de afeto fazem parte da marca: 💙 🩵 🥰 😊 ✨ 💎 👑. Use 1 a 2 por mensagem, sem exagero. Eles transmitem o cuidado da Vittalis.
+- ACOLHA A EMOÇÃO ANTES DE VENDER. Mãe de recém-nascido aflita? "Fica tranquila, mamãe, isso acontece sim nos primeiros dias. Vamos te ajudar ✨ Parabéns pela chegada do seu bebê, que momento especial! 💙" Só depois siga para o prático.
+- Fale "investimento", nunca "preço", "custo" ou "valor a pagar". E sempre gere valor (proteção, segurança, tranquilidade) na mesma frase: "Essa é a proteção contra a meningite, uma das mais importantes dessa fase. O investimento do pacote fica R$ 1.200 à vista 💙".
+- Mensagens curtas e humanas, no ritmo do WhatsApp. Pode mandar 2 mensagens curtas seguidas em vez de um textão. No máximo UMA pergunta por vez.
+- CONDUZA SEMPRE para o próximo passo: agendamento. Depois de tirar uma dúvida, puxe: "Posso já deixar reservado seu horário? 😊".
+
+EXEMPLOS REAIS DE ATENDIMENTOS QUE CONVERTERAM (imite este jeito — não copie literal, capte o espírito):
+
+[Recém-nascido / consulta] Cliente: "O bebê saiu hoje da maternidade e como não deu leite preciso de uma consulta."
+Vitta: "Oi, mamãe! Parabéns pela chegada do seu bebê, esse momento é muito especial! 💙 Fica tranquila, isso pode acontecer sim nos primeiros dias, e vamos te ajudar ✨ Temos consulta pra te orientar sobre amamentação e avaliar o bebê. Me conta, quantos dias de vida ele tem? E é um príncipe ou uma princesa? 🥰"
+
+[Vacina, porta de entrada] Cliente: "Minha bebê tem 2 meses, queria fazer a vacinação de 2 meses pra ver como é."
+Vitta: "Perfeito! Podemos agendar o pacote das vacinas de 2 meses pra senhora ter uma experiência conosco 😊 E o melhor: atendemos no conforto do seu lar, com todo cuidado. Prefere essa semana? Tenho um horário lindo na sexta 💙"
+
+[Objeção de preço] Cliente: "Tá caro, vou ver com meu marido."
+Vitta: "Claro, mamãe, converse com ele com calma 💙 Se quiser, posso já mandar uma mensagem carinhosa pra ele também, pra tirar qualquer dúvida. E vou ver com nosso financeiro um descontinho especial pra vocês — além de já separar um brinquedinho musical de presente pro príncipe 🥰 Posso fazer isso?"
+
+[Especialista / garantir agenda] Depois de oferecer a consulta com especialista:
+Vitta: "Mamãe 💙 nossas especialistas têm agenda bem concorrida, e cada horário é reservado de forma exclusiva pra sua princesa, com todo o cuidado que ela merece. Pra garantir, trabalhamos com um sinal de R$ 60 que é totalmente abatido no valor da consulta. Assim já deixo tudo reservadinho pra vocês 😊".
+
+[Pós-venda / recompra] (use a ferramenta passar_para_equipe ou conduza): "Passando com carinho pra saber como o príncipe está depois da consulta 💙 Vai ser um prazer te ouvir 🌷 Já podemos ir agendando o retorno dele?"
 
 SOBRE A VITTALIS:
 - Clínica de pediatria, vacinação e especialidades em São Luís, MA
@@ -937,13 +963,14 @@ ACOLHA COM NATURALIDADE. Com bebês, pode chamar de "princesa" ou "príncipe" �
 NÃO DEIXE A CONVERSA MORRER. "Vou pensar" / "tá caro" / "vou ver com meu marido" → acolha e mantenha a porta aberta: "Claro, converse com ele! Será um prazer cuidar da princesa. Qualquer dúvida estou aqui." Ofereça agendar um retorno.
 
 PROIBIDO:
-- Responder como FAQ, central de atendimento ou chatbot
-- Listas e tópicos desnecessários (prefira texto corrido)
+- Responder como FAQ, central de atendimento ou chatbot, frio ou impessoal
+- Listas e tópicos desnecessários (prefira mensagens curtas e humanas)
 - Títulos em maiúsculas tipo "CONSULTAS", "VALORES"
-- Excesso de emojis (no máximo 1 por mensagem, às vezes nenhum)
+- Encher de emojis (1 a 2 por mensagem, sempre de afeto — nunca aleatórios)
+- Falar "preço/custo" em vez de "investimento"
 - Inventar preços, esquemas vacinais, horários ou disponibilidade
 - Dar diagnóstico médico ou prescrever remédio (em urgência, oriente atendimento presencial)
-- Respostas de uma palavra só
+- Respostas secas de uma palavra só, ou perder a chance de conduzir pro agendamento
 
 FERRAMENTAS (PDF e equipe):
 - Cliente quer orçamento das vacinas de um MÊS específico → "enviar_proposta" com pacoteId (ex: 5 meses → pacoteId "5m"). O PDF sai com o preço fechado do pacote.
@@ -953,7 +980,10 @@ FERRAMENTAS (PDF e equipe):
 - Depois de enviar o PDF, faça follow-up curto e conduza pro fechamento/agendamento.
 - Lead quente (quer fechar, agendar, confirmar pagamento) → "passar_para_equipe". Agendamento de data/horário é sempre com a equipe humana.
 
-Cliente atual: ${conv.contact_name || 'não identificado'}.`;
+Cliente atual: ${conv.contact_name || 'não identificado'}.${memoriaTexto ? `
+
+O QUE VOCÊ JÁ SABE DESTE CLIENTE (lembrado de conversas anteriores — USE com naturalidade e NUNCA pergunte de novo o que já está aqui):
+${memoriaTexto}` : ''}`;
 
   const tools = [{
     name: 'enviar_proposta',
@@ -999,7 +1029,7 @@ Cliente atual: ${conv.contact_name || 'não identificado'}.`;
 
   const aiData = await openaiMessages({
     model: 'gpt-4o',
-    max_tokens: 450,
+    max_tokens: 600,
     system: sysPrompt,
     tools,
     messages: turns,
@@ -1040,7 +1070,8 @@ Cliente atual: ${conv.contact_name || 'não identificado'}.`;
     try {
       const info = toolPassar.input || {};
       console.log('IA qualificou lead:', JSON.stringify(info));
-      await query('UPDATE conversas SET bot_ativo = false WHERE id = $1', [convId]);
+      await query("UPDATE conversas SET bot_ativo = false, lead_score = 'quente', lead_score_motivo = $2, lead_score_at = NOW() WHERE id = $1",
+        [convId, String(info.motivo || 'lead qualificado').slice(0, 60)]);
       await query(
         `INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, created_at)
          VALUES ($1,'system','Sistema','text',$2,NOW())`,
@@ -1048,6 +1079,7 @@ Cliente atual: ${conv.contact_name || 'não identificado'}.`;
       ).catch(() => {});
       socketEmit('bot_status', { convId, bot_ativo: false });
       socketEmit('lead_qualificado', { convId, motivo: info.motivo, resumo: info.resumo });
+      socketEmit('lead_score', { convId, lead_score: 'quente', lead_score_motivo: String(info.motivo || 'lead qualificado').slice(0, 60) });
       if (!botReply) botReply = 'Vou passar você para um especialista da nossa equipe que vai finalizar seu atendimento. Um instante!';
     } catch (e) { console.error('Erro passar_para_equipe:', e.message); }
   }
@@ -1141,6 +1173,108 @@ Cliente atual: ${conv.contact_name || 'não identificado'}.`;
       [botReply.slice(0, 100), convId]);
     if (botMsg) socketEmit('new_message', { convId, message: botMsg, conv });
   }
+
+  // Score de temperatura do lead (não bloqueia a resposta). Se a Vitta acabou de
+  // qualificar e passar pra equipe, o lead já foi marcado 'quente' acima.
+  if (!toolPassar) classificarLead(convId).catch(() => {});
+}
+
+/* ─── MEMÓRIA DO LEAD ──────────────────────────────────────────────────────────
+   Perfil persistente do cliente (paciente, idade, responsável, o que já cotou…)
+   pra Vitta não tratar quem volta como se fosse a primeira vez. Acumula fatos:
+   nunca apaga um dado conhecido por causa de um null vindo da nova extração.  */
+function mergeMemoria(antiga = {}, nova = {}) {
+  const out = { ...(antiga || {}) };
+  for (const k of Object.keys(nova || {})) {
+    const v = nova[k];
+    if (v === null || v === undefined || v === '' || v === 'null') continue;
+    if (Array.isArray(v)) {
+      const base = Array.isArray(out[k]) ? out[k] : [];
+      out[k] = Array.from(new Set([...base, ...v.map(x => String(x).trim()).filter(Boolean)])).slice(0, 12);
+    } else {
+      out[k] = typeof v === 'string' ? v.trim().slice(0, 200) : v;
+    }
+  }
+  return out;
+}
+
+function formatarMemoria(m) {
+  if (!m || typeof m !== 'object') return '';
+  const L = [];
+  if (m.paciente)        L.push(`Paciente/bebê: ${m.paciente}`);
+  if (m.nascimento)      L.push(`Nascimento: ${m.nascimento}`);
+  if (m.idade)           L.push(`Idade: ${m.idade}`);
+  if (m.responsavel)     L.push(`Responsável: ${m.responsavel}`);
+  if (m.endereco)        L.push(`Endereço: ${m.endereco}`);
+  if (m.email)           L.push(`E-mail: ${m.email}`);
+  if (Array.isArray(m.interesses) && m.interesses.length) L.push(`Interesses: ${m.interesses.join(', ')}`);
+  if (m.proposta_enviada) L.push(`Já recebeu proposta: ${m.proposta_enviada}`);
+  if (m.preferencias)    L.push(`Preferências: ${m.preferencias}`);
+  if (m.observacoes)     L.push(`Observações: ${m.observacoes}`);
+  return L.join('\n');
+}
+
+/* ─── ANÁLISE DA CONVERSA: score + memória (uma só chamada de IA) ───────────────
+   Classifica a temperatura do lead (quente/morno/frio) e extrai/atualiza a
+   memória do cliente. Roda após cada resposta da Vitta, sem bloquear o envio.
+   Usa IA barata (gpt-4o-mini) com fallback heurístico para o score.          */
+async function classificarLead(convId) {
+  try {
+    const { rows: [conv] } = await query('SELECT memoria FROM conversas WHERE id = $1', [convId]);
+    const memoriaAtual = conv?.memoria || {};
+
+    const { rows: histRows } = await query(
+      `SELECT from_type, type, content, filename FROM mensagens
+       WHERE conversa_id = $1 AND type IN ('text','document') AND from_type <> 'system'
+       ORDER BY created_at DESC LIMIT 20`, [convId]
+    );
+    const hist = histRows.reverse();
+    if (!hist.length) return;
+
+    let score = 'morno', motivo = '';
+    let memoria = memoriaAtual;
+
+    if (process.env.OPENAI_API_KEY) {
+      const resumo = hist.map(m => {
+        const quem = m.from_type === 'contact' ? 'Cliente' : 'Vitta';
+        const txt = m.type === 'document' ? `[Vitta enviou PDF: ${m.filename || 'proposta'}]` : String(m.content || '').slice(0, 200);
+        return `${quem}: ${txt}`;
+      }).join('\n');
+
+      const sys = `Você analisa uma conversa de WhatsApp de um lead da Vittalis Saúde (clínica de vacinas e consultas). Responda APENAS JSON:
+{"score":"quente|morno|frio","motivo":"até 8 palavras","memoria":{"paciente":null,"nascimento":null,"idade":null,"responsavel":null,"endereco":null,"email":null,"interesses":[],"proposta_enviada":null,"preferencias":null,"observacoes":null}}
+
+TEMPERATURA (score):
+- quente: intenção de fechar/agendar AGORA — pede para agendar, confirma horário/pagamento, manda endereço/dados, diz "quero"/"pode marcar", ou engaja logo após a proposta.
+- morno: interessado, fazendo perguntas (preço, vacinas, datas), sem decisão.
+- frio: vago, "vou pensar", sumiu, ou só cumprimentou.
+O último movimento do cliente é o que mais pesa.
+
+MEMÓRIA: preencha SÓ com fatos que o cliente informou ou que a Vitta confirmou na conversa. Use null quando não souber. NÃO invente. "interesses" = vacinas/consultas/planos citados. "proposta_enviada" = o que já foi cotado (ex: "Pacote 2 meses", "Plano completo 0-18m"). "nascimento" no formato YYYY-MM-DD se possível. Memória já conhecida (mantenha e complemente, não contradiga sem motivo): ${JSON.stringify(memoriaAtual)}`;
+
+      const aiData = await openaiMessages({
+        model: 'gpt-4o-mini', max_tokens: 260, json: true, system: sys,
+        messages: [{ role: 'user', content: resumo }],
+      });
+      const txt = aiData?.content?.find(c => c.type === 'text')?.text || '';
+      try {
+        const j = JSON.parse(txt);
+        if (['quente', 'morno', 'frio'].includes(j.score)) { score = j.score; motivo = String(j.motivo || '').slice(0, 60); }
+        if (j.memoria && typeof j.memoria === 'object') memoria = mergeMemoria(memoriaAtual, j.memoria);
+      } catch {}
+    } else {
+      // Heurística sem IA: score por palavras-chave; memória fica como está
+      const all = hist.map(m => String(m.content || '').toLowerCase()).join(' ');
+      if (/\bagend|marcar|fechar|quero|confirm|endere[çc]|pix|cart[aã]o|pagar|hoje|amanh[aã]\b/.test(all)) { score = 'quente'; motivo = 'sinais de fechamento'; }
+      else if (/\bpre[çc]o|valor|quanto|vacina|consulta|plano|hor[aá]rio\b/.test(all)) { score = 'morno'; motivo = 'tirando dúvidas'; }
+      else { score = 'frio'; motivo = 'pouco engajamento'; }
+    }
+
+    await query('UPDATE conversas SET lead_score = $1, lead_score_motivo = $2, lead_score_at = NOW(), memoria = $3 WHERE id = $4',
+      [score, motivo, JSON.stringify(memoria || {}), convId]);
+    const { rows: [c] } = await query('SELECT * FROM conversas WHERE id = $1', [convId]);
+    if (c) { cacheUpdate(c); socketEmit('lead_score', { convId, lead_score: score, lead_score_motivo: motivo, memoria: c.memoria }); }
+  } catch (e) { console.error('classificarLead erro:', e.message); }
 }
 
 
@@ -1289,6 +1423,7 @@ r.post('/webhook/zapi', async (req, res) => {
         profile_pic = COALESCE(EXCLUDED.profile_pic, conversas.profile_pic),
         unread = conversas.unread + 1,
         last_from = 'contact',
+        followup_count = 0,
         last_message = EXCLUDED.last_message,
         last_message_at = EXCLUDED.last_message_at
       RETURNING *`,
@@ -1379,7 +1514,13 @@ r.post('/webhook/zapi', async (req, res) => {
     // ── REABERTURA AUTOMÁTICA: menu volta após 24h de conversa parada ─────────
     // Regras da gestão: só reabre se NÃO houver atendimento ativo (equipe
     // respondeu nas últimas 24h) e se a última triagem foi há 24h ou mais.
-    const precisaReabrir = textoParaIA &&
+    // Interruptor global do bot — só o master (Miécio/Nágila) liga/desliga em
+    // Configurações. Desligado → NENHUMA automação: não reabre, não tria, não
+    // responde. Foi por não respeitar isto que os bots "não desligavam".
+    const { rows: [cfgBotRow] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'").catch(() => ({ rows: [] }));
+    const botGlobalAtivo = cfgBotRow?.valor?.ativo !== false;
+
+    const precisaReabrir = botGlobalAtivo && textoParaIA &&
       (!conv.triagem_ts || (Date.now() - new Date(conv.triagem_ts).getTime()) >= 24 * 3600 * 1000);
     console.log(`TRIAGEM conv=${conv.id} reabrir=${!!precisaReabrir} triagem_ts=${conv.triagem_ts || 'null'} bot=${conv.bot_ativo} setor=${conv.setor || '-'} menu_enviado=${conv.menu_enviado}`);
     if (precisaReabrir) {
@@ -1402,12 +1543,12 @@ r.post('/webhook/zapi', async (req, res) => {
     }
 
     // ── CAPTURA AUTOMÁTICA: nome → paciente → nascimento (salva no CRM) ──────
-    if (textoParaIA && conv.captura_etapa) {
+    if (botGlobalAtivo && textoParaIA && conv.captura_etapa) {
       const tratado = await capturaDados(conv, textoParaIA, phoneDigits.startsWith('55') ? phoneDigits.slice(2) : phoneDigits);
       if (tratado) return; // resposta do webhook já foi enviada lá no início
     }
 
-    if (conv.bot_ativo && textoParaIA) {
+    if (botGlobalAtivo && conv.bot_ativo && textoParaIA) {
       // Triagem de setor primeiro (menu inicial / rodízio); se consumiu, para aqui
       const convAtual = (await query('SELECT * FROM conversas WHERE id = $1', [conv.id])).rows[0] || conv;
       const consumido = await triagemSetor(convAtual, textoParaIA, phoneDigits.startsWith('55') ? phoneDigits.slice(2) : phoneDigits);
@@ -2162,8 +2303,11 @@ r.patch('/conversations/:id/status', async (req, res) => {
 // ─── BOT TOGGLE ────────────────────────────────────────────────────────────────
 r.patch('/conversations/:id/bot', async (req, res) => {
   try {
+    if (req.user?.role !== 'master') return res.status(403).json({ error: 'Apenas o master (Miécio ou Nágila) pode ligar ou desligar o bot.' });
     const { rows: [c] } = await query('UPDATE conversas SET bot_ativo = $1 WHERE id = $2 RETURNING bot_ativo', [req.body.ativo, req.params.id]);
-    res.json({ ok: true, botAtivo: c.bot_ativo });
+    if (c) { const cached = convoCache.get(req.params.id); if (cached) cacheUpdate({ ...cached, bot_ativo: c.bot_ativo }); }
+    socketEmit('bot_status', { convId: req.params.id, bot_ativo: c?.bot_ativo });
+    res.json({ ok: true, botAtivo: c?.bot_ativo });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -2527,7 +2671,7 @@ r.delete('/conversations/:id/messages/:msgId', async (req, res) => {
 // ─── RESET DE TRIAGEM (gestão): força o menu de boas-vindas na próxima msg ───
 r.post('/conversations/:id/reset-triagem', async (req, res) => {
   try {
-    if (!['master', 'supervisor'].includes(req.user.role)) return res.status(403).json({ error: 'Somente gestão' });
+    if (req.user?.role !== 'master') return res.status(403).json({ error: 'Apenas o master (Miécio ou Nágila) pode reativar o bot.' });
     const { rows: [conv] } = await query(
       `UPDATE conversas SET bot_ativo = true, menu_enviado = false, triagem_ts = NULL, captura_etapa = NULL
        WHERE id = $1 RETURNING id, bot_ativo`, [req.params.id]);
@@ -3030,8 +3174,24 @@ r.get('/bot-config', async (req, res) => {
 
 r.put('/bot-config', async (req, res) => {
   try {
+    if (req.user?.role !== 'master') return res.status(403).json({ error: 'Apenas o master (Miécio ou Nágila) pode alterar a configuração do bot.' });
     await query("INSERT INTO configuracoes (chave,valor) VALUES ('bot',$1) ON CONFLICT (chave) DO UPDATE SET valor=$1, updated_at=NOW()", [JSON.stringify(req.body)]);
     res.json(req.body);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Botão de emergência (master): desliga TODOS os bots de uma vez — limpa o
+// bot_ativo de todas as conversas E o interruptor global.
+r.post('/bot/desligar-todos', async (req, res) => {
+  try {
+    if (req.user?.role !== 'master') return res.status(403).json({ error: 'Apenas o master (Miécio ou Nágila) pode desligar os bots.' });
+    const { rowCount } = await query('UPDATE conversas SET bot_ativo = false WHERE bot_ativo = true');
+    await query(`INSERT INTO configuracoes (chave, valor) VALUES ('bot', '{"ativo":false}'::jsonb)
+                 ON CONFLICT (chave) DO UPDATE SET valor = jsonb_set(COALESCE(configuracoes.valor, '{}'::jsonb), '{ativo}', 'false'::jsonb), updated_at = NOW()`);
+    await loadCache();
+    socketEmit('bots_desligados', { por: req.user?.nome || 'master', total: rowCount });
+    console.log(`🔌 ${req.user?.nome || 'master'} desligou TODOS os bots (${rowCount} conversas)`);
+    res.json({ ok: true, desligados: rowCount });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -3600,6 +3760,127 @@ r.post('/whatsapp/switch-number', async (req, res) => {
     res.json({ ok: true, cleared, message: 'Pronto para conectar novo número' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
+/* ─── FOLLOW-UP AUTOMÁTICO ─────────────────────────────────────────────────────
+   Reativa leads que ficaram em silêncio depois que a Vitta falou. Só age em
+   conversas ainda nas mãos da Vitta (bot_ativo=true) cuja última mensagem foi
+   da própria Vitta (last_from='bot') — se um humano assumiu ou respondeu, ele
+   conduz. Cadência carinhosa e escalonada (2h → +1d → +3d), no máximo 3 toques,
+   só em horário comercial. Zera quando o cliente responde (webhook).          */
+const FOLLOWUP_MAX = 3;
+
+// Horário comercial de São Luís-MA (UTC-3, sem horário de verão): 8h às 20h
+function dentroDoHorarioComercial() {
+  const horaLocal = (new Date().getUTCHours() - 3 + 24) % 24;
+  return horaLocal >= 8 && horaLocal < 20;
+}
+
+async function gerarMensagemFollowup(conv, count) {
+  const { rows: histRows } = await query(
+    `SELECT from_type, type, content, filename FROM mensagens
+     WHERE conversa_id = $1 AND type IN ('text','document') AND from_type <> 'system'
+     ORDER BY created_at DESC LIMIT 12`, [conv.id]
+  );
+  const hist = histRows.reverse();
+  const enviouPdf = hist.some(m => m.from_type === 'bot' && m.type === 'document');
+  const primeiroNome = String(conv.contact_name || '').trim().split(/\s+/)[0] || '';
+  const trato = primeiroNome && !/^\d+$/.test(primeiroNome) ? primeiroNome : 'mamãe';
+
+  // Templates de segurança (tom real da Vittalis) — usados sem IA ou em falha
+  const fallback = (() => {
+    if (count === 0) return enviouPdf
+      ? `Oi, ${trato}! 😊 Conseguiu dar uma olhadinha na proposta que te enviei? Posso esclarecer qualquer dúvida e já deixar seu horário reservado 💙`
+      : `Oi, ${trato}! 😊 Passando aqui pra saber se ficou alguma dúvida. Vai ser um prazer te ajudar a deixar tudo certinho 💙`;
+    if (count === 1) return `Oii, ${trato}, ainda está por aí? 🥰 Qualquer dúvida sobre valores ou datas é só me chamar — será um prazer cuidar de vocês 💙`;
+    return `Oi, ${trato}! Não quero te incomodar 😊 Só deixar registrado que estou por aqui quando quiser seguir. Será um prazer receber vocês na Vittalis 💎`;
+  })();
+
+  if (!process.env.OPENAI_API_KEY || !hist.length) return fallback;
+
+  try {
+    const resumo = hist.map(m => {
+      const quem = m.from_type === 'contact' ? 'Cliente' : 'Vitta';
+      const txt = m.type === 'document' ? `[enviou PDF: ${m.filename || 'proposta'}]` : String(m.content || '').slice(0, 200);
+      return `${quem}: ${txt}`;
+    }).join('\n');
+
+    const sys = `Você é a Vitta, atendente carinhosa da Vittalis Saúde no WhatsApp. O cliente parou de responder e você quer reativar a conversa com delicadeza. Escreva UMA única mensagem curta (1 a 2 frases), calorosa e humana, no tom da Vittalis: trate por "${trato}", use 1 emoji de afeto (💙🥰😊✨), e convide gentilmente para o próximo passo (tirar dúvida ou agendar). NÃO repita literalmente o que já foi dito. NÃO seja insistente nem cobre. Esta é a tentativa de retomada número ${count + 1} de ${FOLLOWUP_MAX} — quanto maior o número, mais leve e sem pressão. Responda APENAS a mensagem, sem aspas.`;
+
+    const aiData = await openaiMessages({
+      model: 'gpt-4o-mini', max_tokens: 150, system: sys,
+      messages: [{ role: 'user', content: `Conversa até agora:\n${resumo}\n\nEscreva a mensagem de retomada.` }],
+    });
+    const txt = aiData?.content?.find(c => c.type === 'text')?.text?.trim();
+    return txt || fallback;
+  } catch (e) {
+    console.error('Follow-up IA erro:', e.message);
+    return fallback;
+  }
+}
+
+let followupRodando = false;
+export async function rodarFollowups() {
+  if (followupRodando) return;          // evita sobreposição de ticks
+  followupRodando = true;
+  try {
+    if (!zapiOk() || !dentroDoHorarioComercial()) return;
+
+    const { rows: [cfgRow] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'");
+    const cfg = cfgRow?.valor || {};
+    // Opt-in: o follow-up só dispara quando explicitamente ligado (cfg.followup === true).
+    // Dado o histórico de IA "queimando leads", nasce desligado — ligue com consciência.
+    if (cfg.ativo === false || cfg.followup !== true) return;
+
+    const { rows: candidatos } = await query(`
+      SELECT * FROM conversas
+      WHERE bot_ativo = true
+        AND last_from = 'bot'
+        AND COALESCE(followup_pausado, false) = false
+        AND COALESCE(followup_count, 0) < $1
+        AND phone IS NOT NULL AND phone <> ''
+        AND contact_id NOT LIKE '%g.us%'
+        AND last_message_at < NOW() - (CASE COALESCE(followup_count, 0)
+              WHEN 0 THEN INTERVAL '2 hours'
+              WHEN 1 THEN INTERVAL '1 day'
+              ELSE INTERVAL '3 days' END)
+      ORDER BY last_message_at ASC
+      LIMIT 15`, [FOLLOWUP_MAX]);
+
+    for (const conv of candidatos) {
+      try {
+        let phoneNum = String(conv.phone || '').replace(/\D/g, '');
+        if (phoneNum.startsWith('55') && phoneNum.length >= 12) phoneNum = phoneNum.slice(2);
+        if (phoneNum.length < 10) continue;
+
+        const count = conv.followup_count || 0;
+        const msg = await gerarMensagemFollowup(conv, count);
+
+        const zr = await zapiCall('/send-text', 'POST', { phone: `55${phoneNum}`, message: msg });
+        if (!zr?.ok) { console.error('Follow-up Z-API falhou:', conv.id, zr?.status); continue; }
+
+        const { rows: [botMsg] } = await query(
+          `INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome)
+           VALUES ($1,'bot','text',$2,'Vitta') RETURNING *`, [conv.id, msg]
+        ).catch(() => ({ rows: [null] }));
+
+        await query(
+          `UPDATE conversas SET last_message = $1, last_from = 'bot', last_message_at = NOW(),
+             followup_count = COALESCE(followup_count, 0) + 1, followup_last_at = NOW()
+           WHERE id = $2`, [msg.slice(0, 100), conv.id]
+        );
+
+        const { rows: [convAtual] } = await query('SELECT * FROM conversas WHERE id = $1', [conv.id]);
+        if (convAtual) cacheUpdate(convAtual);
+        if (botMsg) socketEmit('new_message', { convId: conv.id, message: botMsg, conv: convAtual });
+        console.log(`Follow-up #${count + 1} → ${conv.contact_name || conv.phone}`);
+      } catch (e) { console.error('Follow-up erro na conversa', conv.id, e.message); }
+    }
+  } catch (e) {
+    console.error('rodarFollowups erro:', e.message);
+  } finally {
+    followupRodando = false;
+  }
+}
 
 export default r;
 

@@ -8,7 +8,7 @@ import { fileURLToPath } from 'url';
 import authRouter    from './routes/auth.js';
 import leadsRouter   from './routes/leads.js';
 import reportsRouter from './routes/reports.js';
-import inboxRouter   from './routes/inbox.js';
+import inboxRouter, { rodarFollowups } from './routes/inbox.js';
 import extrasRouter  from './routes/extras.js';
 import auditoriaRouter from './routes/auditoria.js';
 
@@ -86,6 +86,11 @@ async function start() {
       });
 
       console.log('✅ Real-time: Socket.io + PG NOTIFY configurados');
+
+      // Follow-up automático: a cada 5 min reativa leads em silêncio (a própria
+      // função respeita horário comercial, o liga/desliga e a cadência).
+      setInterval(() => { rodarFollowups().catch(e => console.error('Follow-up tick:', e.message)); }, 5 * 60 * 1000);
+      console.log('✅ Follow-up automático de leads agendado (5 min)');
     }
   } catch (err) {
     console.error('❌ Startup:', err.message);

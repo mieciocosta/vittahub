@@ -70,6 +70,16 @@ export default async function runMigrate() {
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS profile_pic TEXT`).catch(() => {});
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS status_atend TEXT DEFAULT 'aberto'`).catch(() => {});
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS provider TEXT DEFAULT 'zapi'`).catch(() => {});
+    // Follow-up automático: nutrição de leads que ficaram em silêncio
+    await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS followup_count INT DEFAULT 0`).catch(() => {});
+    await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS followup_last_at TIMESTAMPTZ`).catch(() => {});
+    await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS followup_pausado BOOLEAN DEFAULT false`).catch(() => {});
+    // Score de temperatura do lead (quente / morno / frio)
+    await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS lead_score TEXT`).catch(() => {});
+    await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS lead_score_motivo TEXT`).catch(() => {});
+    await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS lead_score_at TIMESTAMPTZ`).catch(() => {});
+    // Memória do lead: perfil persistente (paciente, idade, o que já cotou…)
+    await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS memoria JSONB DEFAULT '{}'::jsonb`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS idx_conv_status ON conversas(status_atend)`).catch(() => {});
 
     await query(`CREATE INDEX IF NOT EXISTS idx_conv_last ON conversas(last_message_at DESC)`);
@@ -158,6 +168,18 @@ export default async function runMigrate() {
       await query(`UPDATE usuarios SET ativo = false WHERE email IN ('raquel@vittalissaude.com.br','thales@vittalissaude.com.br')`).catch(() => {});
       await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_producao_v1', '{"ok":true}') ON CONFLICT DO NOTHING`);
       console.log('🌱 Seed de produção aplicado (usuários reais, senha Vittalis@2026)');
+    }
+
+    // ── KILL-SWITCH (ordem da gestão): desliga TODOS os bots e o interruptor
+    //    global. Roda UMA vez. Depois, só o master (Miécio/Nágila) religa em
+    //    Configurações. Resolve os bots que "não desligavam".
+    const { rows: [killFlag] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'bot_kill_v1'").catch(() => ({ rows: [] }));
+    if (!killFlag) {
+      await query('UPDATE conversas SET bot_ativo = false WHERE bot_ativo = true').catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('bot', '{"ativo":false}'::jsonb)
+                   ON CONFLICT (chave) DO UPDATE SET valor = jsonb_set(COALESCE(configuracoes.valor, '{}'::jsonb), '{ativo}', 'false'::jsonb), updated_at = NOW()`).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('bot_kill_v1', '{"ok":true}'::jsonb) ON CONFLICT DO NOTHING`).catch(() => {});
+      console.log('🔌 Kill-switch aplicado: todos os bots desligados + bot global OFF (uma vez)');
     }
 
     // ── SETORES E PAPÉIS (estrutura da equipe: admin / supervisora / atendente) ──
