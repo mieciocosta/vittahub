@@ -1101,6 +1101,7 @@ ${memoriaTexto}` : ''}`;
   // Consultas não enviam PDF de vacina — só passam o lead quente pra equipe.
   const toolsAtivas = ehConsulta ? tools.filter(t => t.name === 'passar_para_equipe') : tools;
 
+  console.log(`VITTA conv=${convId} → chamando OpenAI (setor=${conv.setor || '-'}, turns=${turns.length})`);
   const aiData = await openaiMessages({
     model: 'gpt-4o',
     max_tokens: 600,
@@ -1246,6 +1247,7 @@ ${memoriaTexto}` : ''}`;
   }
 
   if (botReply && zapiOk()) {
+    console.log(`VITTA conv=${convId} → resposta ENVIADA: "${botReply.slice(0, 60)}"`);
     await zapiCall('/send-text', 'POST', { phone: `55${phoneNum}`, message: botReply });
     const { rows: [botMsg] } = await query(
       `INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome)
@@ -1713,7 +1715,9 @@ r.post('/webhook/zapi', async (req, res) => {
       // multidisciplinar, com prompt acolhedor próprio). Vacinas seguem o fluxo
       // determinístico (menu/sorteio/captura) — a IA de vacina foi desligada pela
       // gestão por queimar leads. O liga-desliga de consultas é cfg.consultaIA.
-      if (!consumido && convAtual.setor && convAtual.setor !== 'vacinas') agendarVitta(conv.id);
+      const vaiResponder = !consumido && convAtual.setor && convAtual.setor !== 'vacinas';
+      console.log(`TRIAGEM conv=${conv.id} consumido=${consumido} setor=${convAtual.setor || '-'} → agendarVitta=${vaiResponder}`);
+      if (vaiResponder) agendarVitta(conv.id);
     }
   } catch (err) { console.error('ZAPI_ERROR:', err.message); }
 });
