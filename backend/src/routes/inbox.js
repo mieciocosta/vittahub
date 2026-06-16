@@ -858,7 +858,10 @@ async function vittaResponder(convId) {
   // Consultas/terapias têm IA ESPECIALIZADA, com liga-desliga próprio (cfg.consultaIA,
   // padrão LIGADO). Vacinas seguem o liga-desliga global (cfg.ativo).
   const ehConsulta = !!conv.setor && conv.setor !== 'vacinas';
-  if (ehConsulta ? cfg.consultaIA === false : cfg.ativo === false) return;
+  // cfg.ativo = interruptor MESTRE (toggle "Bot ativo" das Configurações): liga/
+  // desliga o bot pra TODOS. cfg.consultaIA é um sub-liga-desliga só da IA de consulta.
+  if (cfg.ativo === false) return;
+  if (ehConsulta && cfg.consultaIA === false) return;
 
   // Histórico em ordem cronológica: textos + documentos (a Vitta precisa saber
   // que JÁ enviou um PDF para não oferecer de novo)
@@ -1648,12 +1651,12 @@ r.post('/webhook/zapi', async (req, res) => {
     }
 
     // ── CAPTURA AUTOMÁTICA: nome → paciente → nascimento (salva no CRM) ──────
-    if (conv.bot_ativo && textoParaIA && conv.captura_etapa) {
+    if (botGlobalAtivo && conv.bot_ativo && textoParaIA && conv.captura_etapa) {
       const tratado = await capturaDados(conv, textoParaIA, phoneDigits.startsWith('55') ? phoneDigits.slice(2) : phoneDigits);
       if (tratado) return; // resposta do webhook já foi enviada lá no início
     }
 
-    if (conv.bot_ativo && textoParaIA) {
+    if (botGlobalAtivo && conv.bot_ativo && textoParaIA) {
       // Triagem de setor primeiro (menu inicial / rodízio); se consumiu, para aqui
       const convAtual = (await query('SELECT * FROM conversas WHERE id = $1', [conv.id])).rows[0] || conv;
       const consumido = await triagemSetor(convAtual, textoParaIA, phoneDigits.startsWith('55') ? phoneDigits.slice(2) : phoneDigits);
@@ -3305,7 +3308,21 @@ r.get('/bot-config', async (req, res) => {
 r.put('/bot-config', async (req, res) => {
   try {
     if (req.user?.role !== 'master') return res.status(403).json({ error: 'Apenas o master (Miécio ou Nágila) pode alterar a configuração do bot.' });
+    // Estado anterior, pra saber se o "Bot ativo" mudou de liga<->desliga
+    const { rows: [antes] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'").catch(() => ({ rows: [{}] }));
+    const antesAtivo = antes?.valor?.ativo !== false;
+
     await query("INSERT INTO configuracoes (chave,valor) VALUES ('bot',$1) ON CONFLICT (chave) DO UPDATE SET valor=$1, updated_at=NOW()", [JSON.stringify(req.body)]);
+
+    // O toggle "Bot ativo" é o interruptor MESTRE: ao mudar, aplica pra TODAS as
+    // conversas (liga/desliga o bot pra todos os usuários de uma vez).
+    const novoAtivo = req.body?.ativo !== false;
+    if (novoAtivo !== antesAtivo) {
+      await query('UPDATE conversas SET bot_ativo = $1', [novoAtivo]);
+      await loadCache();
+      socketEmit('bots_global', { ativo: novoAtivo });
+      console.log(`Bot global ${novoAtivo ? 'LIGADO' : 'DESLIGADO'} para todas as conversas por ${req.user?.nome || 'master'}`);
+    }
     res.json(req.body);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

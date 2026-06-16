@@ -585,6 +585,12 @@ export default function Inbox({ onUnreadChange }) {
         setConvos(prev => prev.map(c => c.id === convId ? patch(c) : c));
         setSel(prev => prev && prev.id === convId ? patch(prev) : prev);
       });
+
+      // Admin ligou/desligou o bot global em Configurações → aplica em todas
+      socket.on('bots_global', ({ ativo }) => {
+        setConvos(prev => prev.map(c => ({ ...c, bot_ativo: !!ativo })));
+        setSel(prev => prev ? { ...prev, bot_ativo: !!ativo } : prev);
+      });
     }).catch(err => console.warn('socket.io-client não disponível:', err.message));
 
     return () => {

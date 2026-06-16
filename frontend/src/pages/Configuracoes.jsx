@@ -96,7 +96,7 @@ export default function Configuracoes() {
             <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
               <label style={{ display:'flex', alignItems:'center', gap:10, cursor:'pointer' }}>
                 <input type="checkbox" checked={bot.ativo} onChange={e=>setBot(p=>({...p,ativo:e.target.checked}))} style={{ width:16, height:16, accentColor:'var(--tq)' }}/>
-                <span style={{ fontWeight:600 }}>Bot ativo (responde automaticamente)</span>
+                <span style={{ fontWeight:600 }}>Bot ativo para TODOS (liga/desliga geral)</span>
               </label>
 
               <div className="field">
