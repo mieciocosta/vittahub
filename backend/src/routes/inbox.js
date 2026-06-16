@@ -1246,7 +1246,11 @@ ${memoriaTexto}` : ''}`;
     );
     await query("UPDATE conversas SET last_message=$1, last_from='bot', last_message_at=NOW() WHERE id=$2",
       [botReply.slice(0, 100), convId]);
-    if (botMsg) socketEmit('new_message', { convId, message: botMsg, conv });
+    // Atualiza o cache (a lista do inbox é servida dele) — senão a conversa não
+    // sobe pro topo e a prévia fica velha até reiniciar o servidor.
+    const cAtual = convoCache.get(convId);
+    if (cAtual) cacheUpdate({ ...cAtual, last_message: botReply.slice(0, 100), last_from: 'bot', last_message_at: new Date().toISOString() });
+    if (botMsg) { socketEmit('new_message', { convId, message: botMsg, conv }); notifyWaiters(convId, botMsg); }
   }
 
   // Score de temperatura do lead (não bloqueia a resposta). Se a Vitta acabou de
@@ -1412,7 +1416,7 @@ r.post('/webhook/zapi', async (req, res) => {
         // Usa o telefone COMPLETO do contact_id (com 55) — senão o remoteJid não
         // bate o contact_id existente e a conversa "racha" em duas.
         if (cLid?.contact_id) phone = String(cLid.contact_id).replace('@s.whatsapp.net', '');
-        else return;                            // ainda não existe conversa correspondente
+        else { console.warn(`fromMe @lid sem conversa (chatLid=${chatLid}) — msg do celular não casada`); return; }
       } else {
         return;                                 // @lid não-resolvível (broadcast/status/recebida sem telefone)
       }
@@ -1433,6 +1437,12 @@ r.post('/webhook/zapi', async (req, res) => {
         const { rows: jaExiste } = await query('SELECT id FROM mensagens WHERE wa_msg_id = $1 LIMIT 1', [msgId]).catch(() => ({ rows: [] }));
         if (jaExiste.length > 0) {
           await query(`UPDATE mensagens SET status = 'delivered' WHERE wa_msg_id = $1`, [msgId]).catch(() => {});
+          // Aproveita o eco da msg que ENVIAMOS pra gravar a chatLid na conversa —
+          // ajuda a casar as próximas respostas do CELULAR (que chegam só com @lid).
+          if (chatLid) await query(
+            `UPDATE conversas SET chat_lid = COALESCE(chat_lid, $1)
+             WHERE id = (SELECT conversa_id FROM mensagens WHERE wa_msg_id = $2 LIMIT 1)`,
+            [chatLid, msgId]).catch(() => {});
           return;
         }
       }
@@ -1501,14 +1511,23 @@ r.post('/webhook/zapi', async (req, res) => {
     // Em mensagem ENVIADA por mim, o senderName é o nome da CLÍNICA, não do
     // cliente — não pode sobrescrever o nome da conversa. Mantém o que já existe.
     const contactName = (!isMe && senderName && senderName.length > 2) ? senderName : displayPhone;
-    const ts = body.momment ? new Date(body.momment).toISOString() : new Date().toISOString();
+    // Ordena pela hora de RECEBIMENTO no servidor (mesmo relógio das mensagens
+    // enviadas pelo VittaHub/bot, que usam NOW()). Usar o "momment" do WhatsApp
+    // — que pode vir minutos atrasado por retry/lag — embaralhava a ordem do chat.
+    const ts = new Date().toISOString();
     const previewContent = type === 'text' ? content : type === 'sticker' ? '🎭 Sticker' : type === 'gif' ? '🎞️ GIF' : type === 'image' ? '📷 Imagem' : type === 'audio' ? '🎵 Áudio' : type === 'video' ? '🎥 Vídeo' : type === 'document' ? `📎 ${filename}` : content;
 
     console.log(`ZAPI_MSG: from="${contactName}" phone="${displayPhone}" type="${type}"`);
 
     // Upsert conversa
     // Eco/callback sem conteúdo reconhecível e sem mídia → ignora (era o "[mensagem]")
-    if (content === '[mensagem]' && !mediaData) return;
+    // Conteúdo não reconhecido: se é um eco/callback (sem messageId) → ignora.
+    // Se é uma mensagem REAL de um tipo não suportado (enquete, view-once, etc.)
+    // → grava um placeholder pra thread não ficar incompleta (a msg não some).
+    if (content === '[mensagem]' && !mediaData) {
+      if (!msgId) return;
+      content = '[mensagem não suportada neste formato]'; type = 'text';
+    }
 
     // fromMe (digitada no celular) entra como 'me', sem somar não-lidas
     const incUnread = isMe ? 0 : 1;
