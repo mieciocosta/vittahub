@@ -1381,8 +1381,10 @@ r.post('/webhook/zapi', async (req, res) => {
     // chatLid). Sem isso, tudo que a equipe responde pelo celular era descartado.
     if (String(phone).includes('@lid')) {
       if (isMe && chatLid) {
-        const { rows: [cLid] } = await query('SELECT phone FROM conversas WHERE chat_lid = $1 LIMIT 1', [chatLid]).catch(() => ({ rows: [] }));
-        if (cLid?.phone) phone = cLid.phone;   // reescreve para o telefone real → segue o fluxo normal
+        const { rows: [cLid] } = await query('SELECT contact_id FROM conversas WHERE chat_lid = $1 LIMIT 1', [chatLid]).catch(() => ({ rows: [] }));
+        // Usa o telefone COMPLETO do contact_id (com 55) — senão o remoteJid não
+        // bate o contact_id existente e a conversa "racha" em duas.
+        if (cLid?.contact_id) phone = String(cLid.contact_id).replace('@s.whatsapp.net', '');
         else return;                            // ainda não existe conversa correspondente
       } else {
         return;                                 // @lid não-resolvível (broadcast/status/recebida sem telefone)
@@ -1467,7 +1469,9 @@ r.post('/webhook/zapi', async (req, res) => {
 
     const remoteJid = `${phone}@s.whatsapp.net`;
     const displayPhone = phone.startsWith('55') ? phone.slice(2) : phone;
-    const contactName = senderName && senderName.length > 2 ? senderName : displayPhone;
+    // Em mensagem ENVIADA por mim, o senderName é o nome da CLÍNICA, não do
+    // cliente — não pode sobrescrever o nome da conversa. Mantém o que já existe.
+    const contactName = (!isMe && senderName && senderName.length > 2) ? senderName : displayPhone;
     const ts = body.momment ? new Date(body.momment).toISOString() : new Date().toISOString();
     const previewContent = type === 'text' ? content : type === 'sticker' ? '🎭 Sticker' : type === 'gif' ? '🎞️ GIF' : type === 'image' ? '📷 Imagem' : type === 'audio' ? '🎵 Áudio' : type === 'video' ? '🎥 Vídeo' : type === 'document' ? `📎 ${filename}` : content;
 
