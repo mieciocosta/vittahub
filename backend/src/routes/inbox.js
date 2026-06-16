@@ -535,23 +535,12 @@ const MENU_TRIAGEM = `${MENU_TITULO}
 
 É só responder com o número ou o nome da opção 😊`;
 
-// Menu com BOTÕES (como o mock); se a Z-API recusar, cai pro menu numerado
+// Menu de triagem em TEXTO numerado. (Botões da Z-API exigem aceitar os "termos
+// de mensagem com botões" no painel — sem isso a Z-API ACEITA o envio mas RECUSA
+// a entrega de forma assíncrona, e o cliente nunca recebe o menu. Texto sempre
+// chega, e o detectarSetor já entende resposta por número ou por palavra.)
 async function enviarMenuTriagem(phoneNum) {
   if (!zapiOk()) return MENU_TRIAGEM;
-  try {
-    const r = await zapiCall('/send-button-list', 'POST', {
-      phone: `55${phoneNum}`,
-      message: MENU_TITULO,
-      buttonList: { buttons: [
-        { id: 'vacinas',   label: '💉 Vacinação' },
-        { id: 'consultas', label: '🩺 Consultas' },
-        { id: 'terapias',  label: '🤲 Terapias' },
-        { id: 'outros',    label: '💬 Outros Assuntos' },
-      ] },
-    });
-    if (r?.ok) return `${MENU_TITULO}\n\n[💉 Vacinação] [🩺 Consultas] [🤲 Terapias] [💬 Outros Assuntos]`;
-    console.error('send-button-list recusado:', r?.status, (await r?.text().catch(() => ''))?.slice(0, 120));
-  } catch (e) { console.error('send-button-list erro:', e.message); }
   await zapiCall('/send-text', 'POST', { phone: `55${phoneNum}`, message: MENU_TRIAGEM });
   return MENU_TRIAGEM;
 }
@@ -725,9 +714,22 @@ async function triagemSetor(conv, texto, phoneNum) {
   if (conv.setor && conv.menu_enviado) return false; // já triado neste ciclo
   if (!conv.bot_ativo) return false;                 // equipe assumiu
   const escolha = detectarSetor(texto);
+  const { rows: [cfgT] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'").catch(() => ({ rows: [{}] }));
+  const consultaIAon = (cfgT?.valor?.consultaIA ?? true) !== false;
 
   if (!escolha) {
-    if (conv.menu_enviado) return false;            // já perguntou; deixa a Vitta seguir
+    // Já mandou o menu e o cliente respondeu algo que não é uma escolha clara:
+    // pela REGRA (tudo que não é vacina → IA de consulta), assume consultas pra
+    // a IA assumir, em vez de deixar a conversa muda travada sem setor.
+    if (conv.menu_enviado) {
+      if (consultaIAon && !conv.setor) {
+        await query('UPDATE conversas SET setor = $1 WHERE id = $2', ['consultas', conv.id]).catch(() => {});
+        const cachedX = convoCache.get(conv.id);
+        if (cachedX) cacheUpdate({ ...cachedX, setor: 'consultas' });
+        conv.setor = 'consultas';
+      }
+      return false;                                 // a IA (agendarVitta) responde
+    }
     await query('UPDATE conversas SET menu_enviado = true WHERE id = $1', [conv.id]);
     const registrado = await enviarMenuTriagem(phoneNum);
     const { rows: [m] } = await query(
@@ -740,13 +742,12 @@ async function triagemSetor(conv, texto, phoneNum) {
   // ─── REGRA: só VACINA segue o fluxo determinístico. Tudo o que NÃO é vacina
   // (consultas, terapias, outros assuntos) entra na IA de consulta, que assume
   // a conversa lendo o histórico. (cfg.consultaIA liga/desliga, padrão LIGADO.)
-  const { rows: [cfgT] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'").catch(() => ({ rows: [{}] }));
-  const consultaIAon = (cfgT?.valor?.consultaIA ?? true) !== false;
   if (escolha !== 'vacinas' && consultaIAon) {
     const setorIA = escolha === 'outros' ? 'consultas' : escolha; // "outros" usa a IA de consulta
     await query('UPDATE conversas SET setor = $1, menu_enviado = true WHERE id = $2', [setorIA, conv.id]).catch(() => {});
     const cachedC = convoCache.get(conv.id);
     if (cachedC) cacheUpdate({ ...cachedC, setor: setorIA });
+    conv.setor = setorIA; // reflete na hora pra o agendarVitta disparar já nesta msg
     return false; // a IA (agendarVitta) responde
   }
 
