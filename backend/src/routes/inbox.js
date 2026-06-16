@@ -856,11 +856,9 @@ async function vittaResponder(convId) {
   if (!conv || !conv.bot_ativo) { console.log(`VITTA skip conv=${convId}: bot_ativo=${conv?.bot_ativo} (conversa inexistente ou bot desligado)`); return; }
   const { rows: [cfgRow] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'");
   const cfg = cfgRow?.valor || {};
-  // INTERRUPTOR MESTRE: o "Bot ativo para TODOS" das Configurações (cfg.ativo).
-  // Desligado = NINGUÉM responde, nem conversa nova. É o desligar-geral de verdade.
-  if (cfg.ativo === false) { console.log(`VITTA skip conv=${convId}: bot GERAL desligado (cfg.ativo=false)`); return; }
-  // Com o geral ligado, o bot_ativo de CADA conversa (checado acima) decide.
-  // Ainda resta o sub-liga-desliga da IA de consulta (cfg.consultaIA, padrão ligado).
+  // Quem decide a resposta é o bot_ativo DA CONVERSA (checado acima). O "Bot ativo
+  // para TODOS" (cfg.ativo) controla o AUTOMÁTICO (conversa nova nasce ligada?) e o
+  // liga/desliga em massa — mas NÃO bloqueia uma conversa que o master ligou na mão.
   const ehConsulta = !!conv.setor && conv.setor !== 'vacinas';
   if (ehConsulta && cfg.consultaIA === false) { console.log(`VITTA skip conv=${convId}: cfg.consultaIA=false (IA de consulta desligada)`); return; }
 
@@ -1711,12 +1709,14 @@ r.post('/webhook/zapi', async (req, res) => {
     }
 
     // ── CAPTURA AUTOMÁTICA: nome → paciente → nascimento (salva no CRM) ──────
-    if (botGlobalAtivo && conv.bot_ativo && textoParaIA && conv.captura_etapa) {
+    // Quem manda é o bot_ativo DA CONVERSA. O geral (botGlobalAtivo) controla só o
+    // AUTO-religar (precisaReabrir acima) — não barra conversa ligada na mão.
+    if (conv.bot_ativo && textoParaIA && conv.captura_etapa) {
       const tratado = await capturaDados(conv, textoParaIA, phoneDigits.startsWith('55') ? phoneDigits.slice(2) : phoneDigits);
       if (tratado) return; // resposta do webhook já foi enviada lá no início
     }
 
-    if (botGlobalAtivo && conv.bot_ativo && textoParaIA) {
+    if (conv.bot_ativo && textoParaIA) {
       // Triagem de setor primeiro (menu inicial / rodízio); se consumiu, para aqui
       const convAtual = (await query('SELECT * FROM conversas WHERE id = $1', [conv.id])).rows[0] || conv;
       const consumido = await triagemSetor(convAtual, textoParaIA, phoneDigits.startsWith('55') ? phoneDigits.slice(2) : phoneDigits);
@@ -2561,6 +2561,15 @@ r.patch('/conversations/:id/bot', async (req, res) => {
     const { rows: [c] } = await query('UPDATE conversas SET bot_ativo = $1 WHERE id = $2 RETURNING bot_ativo', [req.body.ativo, req.params.id]);
     if (c) { const cached = convoCache.get(req.params.id); if (cached) cacheUpdate({ ...cached, bot_ativo: c.bot_ativo }); }
     socketEmit('bot_status', { convId: req.params.id, bot_ativo: c?.bot_ativo });
+    // Ligou o bot e a última mensagem é do cliente esperando? Responde JÁ, sem ter
+    // que esperar o cliente mandar outra mensagem. (Só pra setor de IA, não vacina.)
+    if (c?.bot_ativo) {
+      const { rows: [last] } = await query(
+        "SELECT from_type FROM mensagens WHERE conversa_id=$1 AND type IN ('text','document') AND from_type<>'system' ORDER BY created_at DESC LIMIT 1",
+        [req.params.id]).catch(() => ({ rows: [] }));
+      const { rows: [cv] } = await query('SELECT setor FROM conversas WHERE id=$1', [req.params.id]).catch(() => ({ rows: [] }));
+      if (last?.from_type === 'contact' && cv?.setor && cv.setor !== 'vacinas') agendarVitta(req.params.id);
+    }
     res.json({ ok: true, botAtivo: c?.bot_ativo });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
