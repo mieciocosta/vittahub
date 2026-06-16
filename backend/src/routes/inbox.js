@@ -1431,24 +1431,25 @@ r.post('/webhook/zapi', async (req, res) => {
       return;
     }
 
-    // WhatsApp LID: mensagens enviadas pelo CELULAR chegam com o recipiente em
-    // formato @lid (sem telefone real). Resolve pelo chatLid → a conversa que já
-    // foi criada pelas mensagens RECEBIDAS (que trazem o telefone real + a mesma
-    // chatLid). Sem isso, tudo que a equipe responde pelo celular era descartado.
+    // WhatsApp LID: algumas mensagens chegam com o telefone em formato @lid
+    // (privacidade do WhatsApp, sem número real). Tenta casar pela chatLid → a
+    // conversa que já foi criada pelas mensagens com telefone real (mesma chatLid).
+    // Vale tanto pra ENVIADAS pelo celular quanto pra RECEBIDAS que venham só com @lid.
     if (String(phone).includes('@lid')) {
-      if (isMe && chatLid) {
+      if (chatLid) {
         const { rows: [cLid] } = await query('SELECT contact_id FROM conversas WHERE chat_lid = $1 LIMIT 1', [chatLid]).catch(() => ({ rows: [] }));
         // Usa o telefone COMPLETO do contact_id (com 55) — senão o remoteJid não
         // bate o contact_id existente e a conversa "racha" em duas.
         if (cLid?.contact_id) phone = String(cLid.contact_id).replace('@s.whatsapp.net', '');
-        else { console.warn(`fromMe @lid sem conversa (chatLid=${chatLid}) — msg do celular não casada`); return; }
+        else { console.warn(`SYNC-DROP: @lid sem conversa casada (isMe=${isMe}, chatLid=${chatLid}, msgId=${msgId}) — mensagem não exibida`); return; }
       } else {
+        console.warn(`SYNC-DROP: @lid sem chatLid (isMe=${isMe}, phone=${phone}, msgId=${msgId}) — não dá pra casar a conversa`);
         return;                                 // @lid não-resolvível (broadcast/status/recebida sem telefone)
       }
     }
     if (String(phone).includes('broadcast') || String(phone).includes('status')) return;
     const phoneDigits = String(phone).replace(/\D/g, '');
-    if (phoneDigits.length < 10 || phoneDigits.length > 15) return;
+    if (phoneDigits.length < 10 || phoneDigits.length > 15) { console.warn(`SYNC-DROP: telefone inválido "${phone}" (isMe=${isMe}, msgId=${msgId})`); return; }
 
     const senderName = body.senderName || body.chatName || '';
     const profilePic = body.photo || body.senderPhoto || body.profilePicUrl || '';
@@ -1550,7 +1551,7 @@ r.post('/webhook/zapi', async (req, res) => {
     // Se é uma mensagem REAL de um tipo não suportado (enquete, view-once, etc.)
     // → grava um placeholder pra thread não ficar incompleta (a msg não some).
     if (content === '[mensagem]' && !mediaData) {
-      if (!msgId) return;
+      if (!msgId) { console.warn(`SYNC-DROP: callback sem conteúdo e sem msgId (phone=${phoneDigits}) — ignorado`); return; }
       content = '[mensagem não suportada neste formato]'; type = 'text';
     }
 
