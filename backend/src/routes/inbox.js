@@ -855,12 +855,10 @@ async function vittaResponder(convId) {
   if (!conv || !conv.bot_ativo) return;
   const { rows: [cfgRow] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'");
   const cfg = cfgRow?.valor || {};
-  // Consultas/terapias têm IA ESPECIALIZADA, com liga-desliga próprio (cfg.consultaIA,
-  // padrão LIGADO). Vacinas seguem o liga-desliga global (cfg.ativo).
+  // O controle real é o bot_ativo DA CONVERSA (checado acima). O "Bot ativo geral"
+  // das Configurações já liga/desliga o bot_ativo de todas de uma vez. Aqui só
+  // resta o sub-liga-desliga da IA de consulta (cfg.consultaIA, padrão ligado).
   const ehConsulta = !!conv.setor && conv.setor !== 'vacinas';
-  // cfg.ativo = interruptor MESTRE (toggle "Bot ativo" das Configurações): liga/
-  // desliga o bot pra TODOS. cfg.consultaIA é um sub-liga-desliga só da IA de consulta.
-  if (cfg.ativo === false) return;
   if (ehConsulta && cfg.consultaIA === false) return;
 
   // Histórico em ordem cronológica: textos + documentos (a Vitta precisa saber
@@ -1406,6 +1404,19 @@ r.post('/webhook/zapi', async (req, res) => {
     const isMe = !!body.isFromMe || !!body.fromMe;
     const msgId = body.messageId || body.zaapId || null;
 
+    // Mensagem APAGADA no WhatsApp (revoke) → marca a mensagem como apagada na
+    // thread; NÃO grava "REVOKE" como se fosse texto novo.
+    if (String(body.notification || '').toUpperCase().includes('REVOKE') || String(body.type || '') === 'RevokeCallback') {
+      const delId = body.referencedMessage?.messageId || body.notificationParameters?.[0] || msgId;
+      if (delId) {
+        const { rows: [dm] } = await query(
+          `UPDATE mensagens SET status='deleted', content='🚫 Mensagem apagada', editada=false
+           WHERE wa_msg_id=$1 RETURNING id, conversa_id`, [delId]).catch(() => ({ rows: [] }));
+        if (dm) socketEmit('message_updated', { convId: dm.conversa_id, messageId: dm.id, content: '🚫 Mensagem apagada', status: 'deleted' });
+      }
+      return;
+    }
+
     // WhatsApp LID: mensagens enviadas pelo CELULAR chegam com o recipiente em
     // formato @lid (sem telefone real). Resolve pelo chatLid → a conversa que já
     // foi criada pelas mensagens RECEBIDAS (que trazem o telefone real + a mesma
@@ -1679,12 +1690,12 @@ r.post('/webhook/zapi', async (req, res) => {
     }
 
     // ── CAPTURA AUTOMÁTICA: nome → paciente → nascimento (salva no CRM) ──────
-    if (botGlobalAtivo && conv.bot_ativo && textoParaIA && conv.captura_etapa) {
+    if (conv.bot_ativo && textoParaIA && conv.captura_etapa) {
       const tratado = await capturaDados(conv, textoParaIA, phoneDigits.startsWith('55') ? phoneDigits.slice(2) : phoneDigits);
       if (tratado) return; // resposta do webhook já foi enviada lá no início
     }
 
-    if (botGlobalAtivo && conv.bot_ativo && textoParaIA) {
+    if (conv.bot_ativo && textoParaIA) {
       // Triagem de setor primeiro (menu inicial / rodízio); se consumiu, para aqui
       const convAtual = (await query('SELECT * FROM conversas WHERE id = $1', [conv.id])).rows[0] || conv;
       const consumido = await triagemSetor(convAtual, textoParaIA, phoneDigits.startsWith('55') ? phoneDigits.slice(2) : phoneDigits);
