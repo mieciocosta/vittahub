@@ -2380,6 +2380,21 @@ r.patch('/conversations/:id/read', async (req, res) => {
     // reescrever centenas de linhas a cada vez que a conversa é aberta)
     await query("UPDATE mensagens SET status = 'read' WHERE conversa_id = $1 AND from_type = 'contact' AND status <> 'read'", [req.params.id]);
     res.json({ ok: true });
+
+    // Recibo de leitura no WhatsApp (✓✓ azul pro cliente) — como no WhatsApp real.
+    // Best-effort: marca a última mensagem recebida como lida na Z-API.
+    if (zapiOk()) {
+      try {
+        const { rows: [c] } = await query('SELECT phone FROM conversas WHERE id = $1', [req.params.id]);
+        const { rows: [m] } = await query(
+          "SELECT wa_msg_id FROM mensagens WHERE conversa_id = $1 AND from_type = 'contact' AND wa_msg_id IS NOT NULL ORDER BY created_at DESC LIMIT 1",
+          [req.params.id]);
+        if (c?.phone && m?.wa_msg_id) {
+          const tel = String(c.phone).replace(/\D/g, '');
+          await zapiCall('/read-message', 'POST', { phone: tel.startsWith('55') ? tel : `55${tel}`, messageId: m.wa_msg_id });
+        }
+      } catch (e) { console.error('read-message Z-API:', e.message); }
+    }
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
