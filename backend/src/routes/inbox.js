@@ -737,7 +737,20 @@ async function triagemSetor(conv, texto, phoneNum) {
     return true;
   }
 
-  // "Outros Assuntos": confirma, desliga o bot e chama a equipe (triagem humana)
+  // ─── REGRA: só VACINA segue o fluxo determinístico. Tudo o que NÃO é vacina
+  // (consultas, terapias, outros assuntos) entra na IA de consulta, que assume
+  // a conversa lendo o histórico. (cfg.consultaIA liga/desliga, padrão LIGADO.)
+  const { rows: [cfgT] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'").catch(() => ({ rows: [{}] }));
+  const consultaIAon = (cfgT?.valor?.consultaIA ?? true) !== false;
+  if (escolha !== 'vacinas' && consultaIAon) {
+    const setorIA = escolha === 'outros' ? 'consultas' : escolha; // "outros" usa a IA de consulta
+    await query('UPDATE conversas SET setor = $1, menu_enviado = true WHERE id = $2', [setorIA, conv.id]).catch(() => {});
+    const cachedC = convoCache.get(conv.id);
+    if (cachedC) cacheUpdate({ ...cachedC, setor: setorIA });
+    return false; // a IA (agendarVitta) responde
+  }
+
+  // "Outros Assuntos" (IA desligada): confirma, desliga o bot e chama a equipe
   if (escolha === 'outros') {
     const confOutros = `Perfeito! 😊\nVou te direcionar para nossa equipe.\nUm momento, por favor.`;
     if (zapiOk()) await zapiCall('/send-text', 'POST', { phone: `55${phoneNum}`, message: confOutros });
@@ -844,7 +857,7 @@ async function vittaResponder(convId) {
   const cfg = cfgRow?.valor || {};
   // Consultas/terapias têm IA ESPECIALIZADA, com liga-desliga próprio (cfg.consultaIA,
   // padrão LIGADO). Vacinas seguem o liga-desliga global (cfg.ativo).
-  const ehConsulta = ['consultas', 'terapias'].includes(conv.setor);
+  const ehConsulta = !!conv.setor && conv.setor !== 'vacinas';
   if (ehConsulta ? cfg.consultaIA === false : cfg.ativo === false) return;
 
   // Histórico em ordem cronológica: textos + documentos (a Vitta precisa saber
@@ -1490,8 +1503,8 @@ r.post('/webhook/zapi', async (req, res) => {
     const lastFromVal = isMe ? 'me' : 'contact';
 
     const { rows: [conv] } = await query(`
-      INSERT INTO conversas (channel, contact_name, contact_id, phone, unread, last_message, last_message_at, profile_pic, chat_lid)
-      VALUES ('whatsapp', $1, $2, $3, $7, $4, $5, $6, $9)
+      INSERT INTO conversas (channel, contact_name, contact_id, phone, unread, last_message, last_message_at, profile_pic, chat_lid, bot_ativo)
+      VALUES ('whatsapp', $1, $2, $3, $7, $4, $5, $6, $9, $10)
       ON CONFLICT (contact_id) DO UPDATE SET
         contact_name = CASE
           WHEN length(EXCLUDED.contact_name) > 5 AND EXCLUDED.contact_name != EXCLUDED.phone
@@ -1507,7 +1520,7 @@ r.post('/webhook/zapi', async (req, res) => {
         last_message = EXCLUDED.last_message,
         last_message_at = EXCLUDED.last_message_at
       RETURNING *`,
-      [contactName, remoteJid, displayPhone, previewContent, ts, fetchedPic || null, incUnread, lastFromVal, chatLid]
+      [contactName, remoteJid, displayPhone, previewContent, ts, fetchedPic || null, incUnread, lastFromVal, chatLid, !isMe]
     );
 
     // Atualiza cache em memória imediatamente
@@ -1648,7 +1661,7 @@ r.post('/webhook/zapi', async (req, res) => {
       // multidisciplinar, com prompt acolhedor próprio). Vacinas seguem o fluxo
       // determinístico (menu/sorteio/captura) — a IA de vacina foi desligada pela
       // gestão por queimar leads. O liga-desliga de consultas é cfg.consultaIA.
-      if (!consumido && ['consultas', 'terapias'].includes(convAtual.setor)) agendarVitta(conv.id);
+      if (!consumido && convAtual.setor && convAtual.setor !== 'vacinas') agendarVitta(conv.id);
     }
   } catch (err) { console.error('ZAPI_ERROR:', err.message); }
 });
