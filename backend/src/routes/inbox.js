@@ -1558,6 +1558,12 @@ r.post('/webhook/zapi', async (req, res) => {
     const incUnread = isMe ? 0 : 1;
     const lastFromVal = isMe ? 'me' : 'contact';
 
+    // Interruptor mestre: com o "Bot ativo para TODOS" DESLIGADO, conversa NOVA já
+    // nasce com bot_ativo=false (não aparece "Bot ON" nem precisa desligar na mão).
+    const { rows: [cfgIns] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'").catch(() => ({ rows: [{}] }));
+    const botGeralOn = (cfgIns?.valor?.ativo) !== false;
+    const novoBotAtivo = !isMe && botGeralOn;
+
     const { rows: [conv] } = await query(`
       INSERT INTO conversas (channel, contact_name, contact_id, phone, unread, last_message, last_message_at, profile_pic, chat_lid, bot_ativo)
       VALUES ('whatsapp', $1, $2, $3, $7, $4, $5, $6, $9, $10)
@@ -1576,7 +1582,7 @@ r.post('/webhook/zapi', async (req, res) => {
         last_message = EXCLUDED.last_message,
         last_message_at = EXCLUDED.last_message_at
       RETURNING *`,
-      [contactName, remoteJid, displayPhone, previewContent, ts, fetchedPic || null, incUnread, lastFromVal, chatLid, !isMe]
+      [contactName, remoteJid, displayPhone, previewContent, ts, fetchedPic || null, incUnread, lastFromVal, chatLid, novoBotAtivo]
     );
 
     // Atualiza cache em memória imediatamente
