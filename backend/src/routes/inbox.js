@@ -513,8 +513,10 @@ const SETORES = {
 function detectarSetor(texto) {
   const t = String(texto || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   if (/^\s*1\b/.test(t) || t.includes('vacin'))   return 'vacinas';
-  if (/^\s*2\b/.test(t) || t.includes('consult')) return 'consultas';
-  if (/^\s*3\b/.test(t) || t.includes('terap'))   return 'terapias';
+  // Terapias (inclui especialidades terapêuticas) — checa antes de consultas
+  if (/^\s*3\b/.test(t) || /terap|\baba\b|ocupacional|psicopedag|fonoaudiolog|\bfono\b/.test(t)) return 'terapias';
+  // Consultas (inclui especialidades médicas comuns: pediatra, neuro, psicólogo…)
+  if (/^\s*2\b/.test(t) || /consult|pediatr|m[ée]dic|especialista|neuroped|neurolog|psicolog|psiquiatr|psicopediatr|nutri|cardiolog|dermatolog|oftalmolog|otorrino|ortoped/.test(t)) return 'consultas';
   if (/^\s*4\b/.test(t) || t.includes('outro') || t.includes('assunto')) return 'outros';
   return null;
 }
@@ -1398,9 +1400,10 @@ r.post('/webhook/zapi', async (req, res) => {
     const profilePic = body.photo || body.senderPhoto || body.profilePicUrl || '';
 
     if (isMe) {
-      // Origem "minha": (a) o VittaHub enviou → já tem registro, só confirma a
-      // entrega; (b) foi digitada direto no celular/WhatsApp → NÃO tem registro,
-      // então precisa aparecer no VittaHub como mensagem da equipe (segue abaixo).
+      // Origem "minha": (a) o VittaHub/bot ENVIOU (já tem registro, ou veio da API)
+      // → só confirma a entrega, NÃO duplica; (b) foi DIGITADA no celular pela
+      // equipe (fromApi=false, sem registro) → registra como mensagem da equipe e
+      // DESLIGA o bot nesta conversa (humano assumiu, o bot não pode interferir).
       if (msgId) {
         const { rows: jaExiste } = await query('SELECT id FROM mensagens WHERE wa_msg_id = $1 LIMIT 1', [msgId]).catch(() => ({ rows: [] }));
         if (jaExiste.length > 0) {
@@ -1408,7 +1411,8 @@ r.post('/webhook/zapi', async (req, res) => {
           return;
         }
       }
-      // (b) sem registro → cai no fluxo abaixo e é gravada como 'me'
+      if (body.fromApi) return; // enviada pelo próprio sistema/bot via API — não duplica nem desliga o bot
+      // (b) digitada no celular → segue abaixo, grava como 'me' e desliga o bot
     }
 
     // Deduplication
@@ -1498,6 +1502,7 @@ r.post('/webhook/zapi', async (req, res) => {
         chat_lid = COALESCE(EXCLUDED.chat_lid, conversas.chat_lid),
         unread = conversas.unread + $7,
         last_from = $8,
+        bot_ativo = CASE WHEN $8 = 'me' THEN false ELSE conversas.bot_ativo END,
         followup_count = CASE WHEN $8 = 'contact' THEN 0 ELSE conversas.followup_count END,
         last_message = EXCLUDED.last_message,
         last_message_at = EXCLUDED.last_message_at
@@ -1527,9 +1532,15 @@ r.post('/webhook/zapi', async (req, res) => {
       notifyWaiters(conv.id, newMsg);
     }
 
-    // Mensagem enviada do celular: já apareceu no VittaHub como 'me'. Não notifica
-    // como "nova do cliente" nem aciona o bot (quem respondeu foi um humano).
-    if (isMe) return;
+    // Mensagem enviada do celular: já apareceu no VittaHub como 'me'. O bot foi
+    // desligado nesta conversa (humano assumiu) — avisa a interface. Não notifica
+    // como "nova do cliente" nem aciona o bot.
+    if (isMe) {
+      const cAtual = convoCache.get(conv.id);
+      if (cAtual) cacheUpdate({ ...cAtual, bot_ativo: false });
+      socketEmit('bot_status', { convId: conv.id, bot_ativo: false });
+      return;
+    }
 
 
     await query(
