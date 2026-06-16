@@ -193,6 +193,22 @@ export default function WhatsApp() {
     setBusy(false);
   };
 
+  const mergeDuplicadas = async () => {
+    setBusy(true);
+    try {
+      // 1) Simulação — só conta quantas seriam mescladas
+      const dry = await api.post('/inbox/whatsapp/merge-duplicadas', {});
+      if (!dry.gruposDuplicados) { setMsg('✅ Nenhuma conversa duplicada encontrada.'); setBusy(false); return; }
+      if (!window.confirm(`Encontrei ${dry.gruposDuplicados} contato(s) com conversa DUPLICADA (mesmo número em 2 chats).\n\nMesclar agora? As mensagens vão pra conversa principal e a duplicada é removida.`)) {
+        setMsg(`${dry.gruposDuplicados} duplicada(s) encontrada(s). Mesclagem cancelada.`); setBusy(false); return;
+      }
+      // 2) Aplica de verdade
+      const r = await api.post('/inbox/whatsapp/merge-duplicadas', { apply: true });
+      setMsg(`✅ ${r.conversasMescladas} conversa(s) duplicada(s) mesclada(s) — ${r.mensagensMovidas} mensagens reunidas na conversa principal.`);
+    } catch (e) { setMsg(e.message); }
+    setBusy(false);
+  };
+
   const ST = {
     connected:    { label:'Conectado',         color:WA_GREEN,  bg:'#dcfce7', Icon:CheckCircle },
     disconnected: { label:'Desconectado',       color:'#dc2626', bg:'#fee2e2', Icon:WifiOff },
@@ -339,6 +355,12 @@ export default function WhatsApp() {
                 style={{ padding:'11px', borderRadius:11, background:'var(--card,#fff)', border:'1.5px solid var(--border)', cursor:'pointer', fontWeight:600, fontSize:13, display:'flex', alignItems:'center', justifyContent:'center', gap:7 }}>
                 {busy?<Loader2 size={13} style={{animation:'spin 1s linear infinite'}}/>:<RotateCcw size={13}/>}
                 Importar histórico
+              </button>
+              <button onClick={mergeDuplicadas} disabled={busy}
+                title="Junta conversas duplicadas do mesmo contato (mesmo número em 2 chats)"
+                style={{ gridColumn:'1 / -1', padding:'11px', borderRadius:11, background:'var(--card,#fff)', border:'1.5px solid var(--border)', cursor:'pointer', fontWeight:600, fontSize:13, display:'flex', alignItems:'center', justifyContent:'center', gap:7 }}>
+                {busy?<Loader2 size={13} style={{animation:'spin 1s linear infinite'}}/>:<span>🧩</span>}
+                Mesclar conversas duplicadas
               </button>
             </div>
           )}

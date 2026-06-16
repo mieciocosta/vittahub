@@ -3791,6 +3791,51 @@ r.post('/whatsapp/zapi/setup-webhooks', masterOnly, async (req, res) => {
   res.json({ ok: true, ...out });
 });
 
+// Mescla conversas DUPLICADAS (mesmo contato em 2 chats por causa do bug @lid).
+// Junta pela chatLid — identificador estável do contato no WhatsApp. Sem body
+// (ou {apply:false}) faz uma SIMULAÇÃO (só conta). Com {apply:true}, aplica:
+// move as mensagens pra conversa canônica e remove a duplicada.
+r.post('/whatsapp/merge-duplicadas', masterOnly, async (req, res) => {
+  try {
+    const apply = req.body?.apply === true;
+    // Canônica = contact_id mais longo (com o 55) e mais antiga. As demais são as duplicadas.
+    const { rows: grupos } = await query(`
+      SELECT chat_lid, array_agg(id ORDER BY length(contact_id) DESC, created_at ASC) ids
+        FROM conversas
+       WHERE chat_lid IS NOT NULL AND chat_lid <> ''
+       GROUP BY chat_lid
+      HAVING COUNT(*) > 1`);
+
+    let conversasMescladas = 0, mensagensMovidas = 0;
+    const exemplos = [];
+
+    for (const g of grupos) {
+      const [canonica, ...dups] = g.ids;
+      if (exemplos.length < 12) exemplos.push({ chat_lid: g.chat_lid, canonica, duplicadas: dups });
+      if (!apply) continue;
+      for (const dupId of dups) {
+        // Evita violar o índice único de wa_msg_id: remove da duplicada o que já
+        // existe na canônica antes de mover.
+        await query(`DELETE FROM mensagens WHERE conversa_id = $1 AND wa_msg_id IS NOT NULL
+                     AND wa_msg_id IN (SELECT wa_msg_id FROM mensagens WHERE conversa_id = $2 AND wa_msg_id IS NOT NULL)`,
+          [dupId, canonica]).catch(() => {});
+        const mv = await query('UPDATE mensagens SET conversa_id = $1 WHERE conversa_id = $2', [canonica, dupId]).catch(() => ({ rowCount: 0 }));
+        mensagensMovidas += mv.rowCount || 0;
+        await query('DELETE FROM conversas WHERE id = $1', [dupId]).catch(() => {});
+        conversasMescladas++;
+      }
+      // Atualiza a prévia (última mensagem) da canônica
+      await query(`UPDATE conversas c SET last_message = m.content, last_message_at = m.created_at
+                   FROM (SELECT content, created_at FROM mensagens WHERE conversa_id = $1 AND type='text'
+                         ORDER BY created_at DESC LIMIT 1) m WHERE c.id = $1`, [canonica]).catch(() => {});
+    }
+
+    if (apply) await loadCache();
+    console.log(`Merge duplicadas: apply=${apply} grupos=${grupos.length} mescladas=${conversasMescladas} msgs=${mensagensMovidas}`);
+    res.json({ apply, gruposDuplicados: grupos.length, conversasMescladas, mensagensMovidas, exemplos });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 
 r.get('/whatsapp/zapi/qrcode', async (req, res) => {
   if (!zapiOk()) return res.status(400).json({ error: 'Z-API não configurada' });
