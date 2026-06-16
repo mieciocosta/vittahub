@@ -10,6 +10,7 @@ export default function Configuracoes() {
   const [bot, setBot] = useState(null);
   const [users, setUsers] = useState([]);
   const [newQR, setNewQR] = useState({ titulo:'', texto:'' });
+  const [editQR, setEditQR] = useState(null); // { id, titulo, texto } — edição em linha
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   // edição de usuário (master): CPF, nova senha, ativo
@@ -82,9 +83,19 @@ export default function Configuracoes() {
     setQr(p=>[...p,q]); setNewQR({titulo:'',texto:''});
   };
 
-  const delQR = async (id) => {
-    await api.del(`/inbox/quick-replies/${id}`);
-    setQr(p=>p.filter(q=>q.id!==id));
+  const delQR = async (q) => {
+    if (!window.confirm(`Apagar a resposta rápida "${q.titulo}"?\n\nIsso remove o atalho do chat. Não dá pra desfazer.`)) return;
+    await api.del(`/inbox/quick-replies/${q.id}`);
+    setQr(p=>p.filter(x=>x.id!==q.id));
+    if (editQR?.id === q.id) setEditQR(null);
+  };
+
+  const saveEditQR = async () => {
+    const titulo = (editQR.titulo||'').trim(), texto = (editQR.texto||'').trim();
+    if (!titulo || !texto) return;
+    const upd = await api.put(`/inbox/quick-replies/${editQR.id}`, { titulo, texto });
+    setQr(p=>p.map(x=>x.id===editQR.id ? upd : x));
+    setEditQR(null);
   };
 
   return (
@@ -163,13 +174,23 @@ export default function Configuracoes() {
           </div>
 
           <div style={{ maxHeight:280, overflowY:'auto', marginBottom:14 }}>
-            {qr.map(q=>(
+            {qr.map(q=> editQR?.id===q.id ? (
+              <div key={q.id} style={{ display:'flex', flexDirection:'column', gap:7, padding:'9px 0', borderBottom:'1px solid var(--border)' }}>
+                <div className="field" style={{ margin:0 }}><label>Título</label><input value={editQR.titulo} onChange={e=>setEditQR(p=>({...p,titulo:e.target.value}))} /></div>
+                <div className="field" style={{ margin:0 }}><label>Texto</label><textarea value={editQR.texto} onChange={e=>setEditQR(p=>({...p,texto:e.target.value}))} rows={3} style={{ resize:'vertical' }} /></div>
+                <div style={{ display:'flex', gap:7 }}>
+                  <button onClick={saveEditQR} disabled={!editQR.titulo?.trim()||!editQR.texto?.trim()} className="btn btn-p btn-sm" style={{ gap:4 }}><Check size={13}/> Salvar</button>
+                  <button onClick={()=>setEditQR(null)} className="btn btn-sm" style={{ gap:4 }}><X size={13}/> Cancelar</button>
+                </div>
+              </div>
+            ) : (
               <div key={q.id} style={{ display:'flex', gap:8, padding:'9px 0', borderBottom:'1px solid var(--border)', alignItems:'flex-start' }}>
                 <div style={{ flex:1 }}>
                   <div style={{ fontWeight:700, fontSize:13 }}>{q.titulo}</div>
                   <div style={{ fontSize:12, color:'var(--muted)', marginTop:2, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden' }}>{q.texto}</div>
                 </div>
-                <button onClick={()=>delQR(q.id)} style={{ padding:5, background:'var(--err2)', color:'var(--err)', borderRadius:6, flexShrink:0 }}><Trash2 size={12}/></button>
+                <button onClick={()=>setEditQR({ id:q.id, titulo:q.titulo, texto:q.texto })} title="Editar" style={{ padding:5, background:'var(--tq3)', color:'var(--tq)', borderRadius:6, flexShrink:0 }}><Pencil size={12}/></button>
+                <button onClick={()=>delQR(q)} title="Apagar" style={{ padding:5, background:'var(--err2)', color:'var(--err)', borderRadius:6, flexShrink:0 }}><Trash2 size={12}/></button>
               </div>
             ))}
           </div>
