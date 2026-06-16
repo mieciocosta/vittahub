@@ -2582,8 +2582,12 @@ r.post('/conversations/:id/send', async (req, res) => {
     );
 
     const preview = type === 'text' ? content : type === 'audio' ? '🎵 Áudio' : type === 'image' ? '📷 Imagem' : type === 'sticker' ? '🎭 Figurinha' : `📎 Arquivo`;
-    const { rows: [convUpd] } = await query("UPDATE conversas SET last_message = $1, last_from = 'me', last_message_at = NOW() WHERE id = $2 RETURNING *", [preview, req.params.id]);
+    // Atendente respondeu pelo painel = humano assumiu → desliga o bot nesta
+    // conversa (mesma regra de quando responde pelo celular), pra a IA não falar
+    // por cima do atendimento humano.
+    const { rows: [convUpd] } = await query("UPDATE conversas SET last_message = $1, last_from = 'me', last_message_at = NOW(), bot_ativo = false WHERE id = $2 RETURNING *", [preview, req.params.id]);
     if (convUpd) cacheUpdate(convUpd);
+    if (conv.bot_ativo) socketEmit('bot_status', { convId: req.params.id, bot_ativo: false });
 
     // ── Responsável automático: só depois da 2ª resposta da MESMA atendente ──
     // (a pedido do Sr. Miécio: clicar pra ler não pode "roubar" a conversa)
