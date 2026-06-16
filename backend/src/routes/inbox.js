@@ -852,14 +852,14 @@ function montarConhecimentoVacinal() {
 async function vittaResponder(convId) {
   // Estado mais recente — o humano pode ter assumido (bot_ativo=false) nesse meio-tempo
   const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [convId]);
-  if (!conv || !conv.bot_ativo) return;
+  if (!conv || !conv.bot_ativo) { console.log(`VITTA skip conv=${convId}: bot_ativo=${conv?.bot_ativo} (conversa inexistente ou bot desligado)`); return; }
   const { rows: [cfgRow] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'");
   const cfg = cfgRow?.valor || {};
   // O controle real é o bot_ativo DA CONVERSA (checado acima). O "Bot ativo geral"
   // das Configurações já liga/desliga o bot_ativo de todas de uma vez. Aqui só
   // resta o sub-liga-desliga da IA de consulta (cfg.consultaIA, padrão ligado).
   const ehConsulta = !!conv.setor && conv.setor !== 'vacinas';
-  if (ehConsulta && cfg.consultaIA === false) return;
+  if (ehConsulta && cfg.consultaIA === false) { console.log(`VITTA skip conv=${convId}: cfg.consultaIA=false (IA de consulta desligada)`); return; }
 
   // Histórico em ordem cronológica: textos + documentos (a Vitta precisa saber
   // que JÁ enviou um PDF para não oferecer de novo)
@@ -870,10 +870,10 @@ async function vittaResponder(convId) {
     [convId]
   );
   const hist = histRows.reverse();
-  if (!hist.length) return;
+  if (!hist.length) { console.log(`VITTA skip conv=${convId}: sem histórico de texto`); return; }
 
   // Só responde se a ÚLTIMA mensagem é do cliente (evita resposta dupla)
-  if (hist[hist.length - 1].from_type !== 'contact') return;
+  if (hist[hist.length - 1].from_type !== 'contact') { console.log(`VITTA skip conv=${convId}: última msg é '${hist[hist.length - 1].from_type}', não do cliente`); return; }
 
   let phoneNum = String(conv.phone || '').replace(/\D/g, '');
   if (phoneNum.startsWith('55') && phoneNum.length >= 12) phoneNum = phoneNum.slice(2);
@@ -1107,7 +1107,16 @@ ${memoriaTexto}` : ''}`;
     tools: toolsAtivas,
     messages: turns,
   });
-  if (aiData.error) { console.error('Vitta (OpenAI) erro:', JSON.stringify(aiData.error)); return; }
+  if (aiData.error) {
+    console.error(`VITTA OpenAI ERRO conv=${convId}:`, JSON.stringify(aiData.error));
+    // Erro da OpenAI (chave inválida/sem crédito/limite) deixa o bot MUDO. Em vez de
+    // falhar em silêncio, registra uma notificação pra equipe perceber que a IA caiu.
+    await query(
+      `INSERT INTO notificacoes (tipo, titulo, texto, conv_id) VALUES ('erro_ia',$1,$2,$3)`,
+      ['⚠️ IA fora do ar', `A IA não conseguiu responder: ${aiData.error?.message || aiData.error?.code || 'erro OpenAI'}. Confira a OPENAI_API_KEY no Railway.`, convId]
+    ).catch(() => {});
+    return;
+  }
 
   const toolUse = aiData.content?.find(c => c.type === 'tool_use' && c.name === 'enviar_proposta');
   const toolPlano = aiData.content?.find(c => c.type === 'tool_use' && c.name === 'enviar_plano');
@@ -1928,6 +1937,68 @@ r.get('/whatsapp/test-ia', masterOnly, async (req, res) => {
       key_configurada: !!process.env.OPENAI_API_KEY,
     });
   } catch (e) { res.json({ error: e.message }); }
+});
+
+// ─── DIAGNÓSTICO DO BOT: por que ele (não) responde? (master) ────────────────
+// Roda todos os portões em ordem e devolve um veredito em português claro.
+// Use ?convId=<id> pra checar uma conversa específica (ex: a que está muda).
+r.get('/whatsapp/diag-bot', masterOnly, async (req, res) => {
+  try {
+    const out = { passos: [], veredito: null };
+    const add = (ok, msg) => out.passos.push({ ok, msg });
+
+    // 1) Chave da OpenAI — testa de verdade (1 chamada curtinha)
+    if (!process.env.OPENAI_API_KEY) {
+      add(false, 'OPENAI_API_KEY NÃO está configurada no Railway.');
+    } else {
+      try {
+        const { default: fetch } = await import('node-fetch');
+        const r2 = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+          body: JSON.stringify({ model: 'gpt-4o-mini', max_tokens: 5, messages: [{ role: 'user', content: 'ok' }] }),
+        });
+        const d = await r2.json();
+        if (r2.ok && d.choices) add(true, 'OpenAI respondeu OK — a chave está válida e com crédito.');
+        else add(false, `OpenAI RECUSOU (HTTP ${r2.status}): ${d.error?.message || d.error?.code || 'erro'}. ➜ Provável chave inválida/revogada ou sem crédito. Atualize a OPENAI_API_KEY no Railway.`);
+      } catch (e) { add(false, `Falha ao falar com a OpenAI: ${e.message}`); }
+    }
+
+    // 2) Z-API conectada (sem ela o bot não consegue ENVIAR a resposta)
+    add(zapiOk(), zapiOk() ? 'Z-API configurada (consegue enviar mensagens).' : 'Z-API NÃO configurada — o bot não consegue enviar a resposta no WhatsApp.');
+
+    // 3) Config geral do bot
+    const { rows: [cfgRow] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'").catch(() => ({ rows: [{}] }));
+    const cfg = cfgRow?.valor || {};
+    add(cfg.ativo !== false, cfg.ativo !== false
+      ? 'Bot geral LIGADO (novas conversas recebem bot automaticamente).'
+      : 'Bot geral DESLIGADO — novas conversas não pegam bot sozinhas; só respondem as marcadas "Bot ON" na mão.');
+    add(cfg.consultaIA !== false, cfg.consultaIA !== false
+      ? 'IA de consulta LIGADA.'
+      : 'IA de consulta DESLIGADA (cfg.consultaIA=false) — conversas de consulta/terapia não respondem.');
+
+    // 4) Conversa específica (opcional)
+    if (req.query.convId) {
+      const { rows: [c] } = await query('SELECT * FROM conversas WHERE id = $1', [req.query.convId]);
+      if (!c) add(false, `Conversa ${req.query.convId} não encontrada.`);
+      else {
+        out.conversa = { id: c.id, nome: c.contact_name, setor: c.setor, bot_ativo: c.bot_ativo, menu_enviado: c.menu_enviado, captura_etapa: c.captura_etapa };
+        add(!!c.bot_ativo, c.bot_ativo ? 'Esta conversa está com "Bot ON".' : 'Esta conversa está com "Bot OFF" (clique no botão BOT pra ligar).');
+        const ehConsulta = !!c.setor && c.setor !== 'vacinas';
+        add(true, `Setor da conversa: ${c.setor || '(nenhum — cai no menu de triagem)'} → ${ehConsulta ? 'IA de consulta' : c.setor === 'vacinas' ? 'fluxo determinístico de vacina (sem IA generativa)' : 'aguardando triagem'}.`);
+        const { rows: [last] } = await query("SELECT from_type, content FROM mensagens WHERE conversa_id=$1 AND type IN ('text','document') AND from_type<>'system' ORDER BY created_at DESC LIMIT 1", [c.id]).catch(() => ({ rows: [{}] }));
+        add(last?.from_type === 'contact', last?.from_type === 'contact'
+          ? 'A última mensagem é do cliente (o bot responderia).'
+          : `A última mensagem é '${last?.from_type || 'nenhuma'}' — o bot só responde quando a última é do cliente.`);
+      }
+    }
+
+    const falhas = out.passos.filter(p => !p.ok).map(p => p.msg);
+    out.veredito = falhas.length
+      ? `Encontrei ${falhas.length} bloqueio(s): ` + falhas.join(' | ')
+      : 'Nenhum bloqueio óbvio — bot deveria responder. Se ainda não responder, me chame que olho os logs.';
+    res.json(out);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ─── DEBUG: testar POST no próprio webhook (via ?k=vt24) ─────────────────────

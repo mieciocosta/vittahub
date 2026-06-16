@@ -17,6 +17,14 @@ export default function Configuracoes() {
   const [userErr, setUserErr] = useState('');
   const [novoUser, setNovoUser] = useState(null); // { nome, cpf, senha, role }
   const [killing, setKilling] = useState(false); // desligar todos os bots (precisa ficar antes do early-return de isMaster)
+  const [diag, setDiag] = useState(null);        // resultado do diagnóstico do bot
+  const [diagLoad, setDiagLoad] = useState(false);
+  const diagnosticarBot = async () => {
+    setDiagLoad(true); setDiag(null);
+    try { setDiag(await api.get('/inbox/whatsapp/diag-bot')); }
+    catch (e) { setDiag({ veredito: 'Erro ao diagnosticar: ' + e.message, passos: [] }); }
+    setDiagLoad(false);
+  };
   const criarUsuario = async () => {
     setUserErr('');
     try {
@@ -124,6 +132,24 @@ export default function Configuracoes() {
                   style={{ width:'100%', background:'#fee2e2', color:'#dc2626', border:'1.5px solid #fecaca', fontWeight:800 }}>
                   {killing ? <span className="spin" style={{width:14,height:14}}/> : '🔌 Desligar TODOS os bots agora'}
                 </button>
+              </div>
+
+              {/* Diagnóstico: descobre por que o bot (não) responde */}
+              <div style={{ borderTop:'1px solid var(--border)', marginTop:4, paddingTop:14 }}>
+                <button onClick={diagnosticarBot} disabled={diagLoad} className="btn"
+                  style={{ width:'100%', fontWeight:700 }}>
+                  {diagLoad ? <span className="spin" style={{width:14,height:14}}/> : '🔍 Diagnosticar bot (por que não responde?)'}
+                </button>
+                {diag && (
+                  <div style={{ marginTop:10, fontSize:12.5, background:'var(--bg2,#f8fafc)', border:'1px solid var(--border)', borderRadius:10, padding:'12px 14px' }}>
+                    <div style={{ fontWeight:800, marginBottom:8 }}>{diag.veredito}</div>
+                    {(diag.passos||[]).map((p,i)=>(
+                      <div key={i} style={{ display:'flex', gap:7, alignItems:'flex-start', padding:'3px 0', color:p.ok?'var(--ok,#16a34a)':'var(--err,#dc2626)' }}>
+                        <span>{p.ok?'✅':'⛔'}</span><span style={{ color:'var(--text)' }}>{p.msg}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}
