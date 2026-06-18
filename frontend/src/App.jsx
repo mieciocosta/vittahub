@@ -15,6 +15,7 @@ import Relatorios from './pages/Relatorios.jsx';
 import Configuracoes from './pages/Configuracoes.jsx';
 import Agenda from './pages/Agenda.jsx';
 import Indicacoes from './pages/Indicacoes.jsx';
+import PastaClientes from './pages/PastaClientes.jsx';
 import Biblioteca from './pages/Biblioteca.jsx';
 import Figurinhas from './pages/Figurinhas.jsx';
 import Modelos from './pages/Modelos.jsx';
@@ -117,6 +118,8 @@ export default function App() {
           <Route path="/retornos"     element={<Retornos />} />
           <Route path="/relatorios"   element={<Relatorios />} />
           <Route path="/agenda" element={<Agenda />} />
+          <Route path="/fidelidade" element={<PastaClientes categoria="fidelidade" key="fidelidade" />} />
+          <Route path="/banco-dados" element={<PastaClientes categoria="banco_dados" key="banco_dados" />} />
           <Route path="/indicacoes" element={<Indicacoes />} />
           <Route path="/biblioteca" element={<Biblioteca />} />
           <Route path="/figurinhas" element={<Figurinhas />} />

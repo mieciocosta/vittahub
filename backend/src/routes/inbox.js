@@ -98,10 +98,14 @@ async function transcreverAudio(base64, mime = 'audio/webm') {
 
 const ehGrupo = (c) => String(c.contact_id || '').includes('g.us') || String(c.phone || '').replace(/\D/g, '').length > 13;
 
-function cacheGetList({ channel, search, unread_only, waiting, minhas, grupos, setor, page = 1, limit = 100, extraIds = null, viewer = null }) {
+function cacheGetList({ channel, search, unread_only, waiting, minhas, grupos, setor, categoria, page = 1, limit = 100, extraIds = null, viewer = null }) {
   let list = Array.from(convoCache.values())
     .sort((a, b) => new Date(b.last_message_at || 0) - new Date(a.last_message_at || 0));
   if (channel && channel !== 'all') list = list.filter(c => c.channel === channel);
+  // Pastas de organização: com ?categoria=fidelidade|banco_dados mostra só a pasta;
+  // sem categoria, o inbox normal ESCONDE quem já foi movido pra uma pasta.
+  if (categoria) list = list.filter(c => c.categoria === categoria);
+  else list = list.filter(c => !c.categoria);
   // Filtro de setor: chips da gestão (?setor=) ou trava da atendente (vê só o dela)
   if (setor && setor !== 'all') list = list.filter(c => c.setor === setor);
   if (viewer && viewer.role === 'atendente' && viewer.setor) {
@@ -2346,6 +2350,8 @@ r.get('/conversations', async (req, res) => {
       let pi = 1;
       if (channel && channel !== 'all') { conditions.push(`c.channel = $${pi++}`); params.push(channel); }
       if (unread_only === 'true') conditions.push(`c.unread > 0`);
+      if (req.query.categoria) { conditions.push(`c.categoria = $${pi++}`); params.push(req.query.categoria); }
+      else conditions.push(`c.categoria IS NULL`);
       if (search) {
         conditions.push(`(unaccent(lower(c.contact_name)) ILIKE unaccent(lower($${pi})) OR c.phone ILIKE $${pi})`);
         params.push(`%${search}%`); pi++;
@@ -2585,6 +2591,20 @@ r.patch('/conversations/:id/assign', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Mover atendimento para uma PASTA (fidelidade / banco_dados) ou tirar (null).
+// Sai do inbox normal e passa a viver na pasta correspondente.
+r.patch('/conversations/:id/categoria', async (req, res) => {
+  try {
+    const cat = ['fidelidade', 'banco_dados'].includes(req.body.categoria) ? req.body.categoria : null;
+    const { rows: [conv] } = await query(
+      'UPDATE conversas SET categoria = $1 WHERE id = $2 RETURNING *', [cat, req.params.id]);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    cacheUpdate(conv);
+    socketEmit('conv_categoria', { convId: conv.id, categoria: cat });
+    res.json({ ok: true, categoria: cat });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Lista de atendentes (pra o seletor de transferência) — acessível a todos logados
 r.get('/atendentes', async (req, res) => {
   try {
@@ -2687,6 +2707,10 @@ r.post('/conversations/:id/send', async (req, res) => {
     const { rows: [convUpd] } = await query("UPDATE conversas SET last_message = $1, last_from = 'me', last_message_at = NOW(), bot_ativo = false WHERE id = $2 RETURNING *", [preview, req.params.id]);
     if (convUpd) cacheUpdate(convUpd);
     if (conv.bot_ativo) socketEmit('bot_status', { convId: req.params.id, bot_ativo: false });
+
+    // AUTO-CADASTRO: todo atendimento que um humano responde já vira ficha de
+    // cliente no funil (pra nenhum contato ser esquecido). Não bloqueia o envio.
+    garanteLead(convUpd || conv).catch(() => {});
 
     // ── Responsável automático: só depois da 2ª resposta da MESMA atendente ──
     // (a pedido do Sr. Miécio: clicar pra ler não pode "roubar" a conversa)

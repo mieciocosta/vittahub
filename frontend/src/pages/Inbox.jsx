@@ -991,6 +991,17 @@ export default function Inbox({ onUnreadChange }) {
     } catch (e) { Toast.show(e.message || 'Não foi possível alterar o bot', 'error'); }
   };
 
+  const moverPasta = async (categoria) => {
+    try {
+      await api.patch(`/inbox/conversations/${sel.id}/categoria`, { categoria });
+      setSel(p => ({ ...p, categoria }));
+      // Se foi movida para uma pasta, sai do inbox normal
+      if (categoria) setConvos(p => p.filter(c => c.id !== sel.id));
+      else setConvos(p => p.map(c => c.id === sel.id ? { ...c, categoria } : c));
+      Toast.show(categoria === 'fidelidade' ? 'Movido para Fidelidade ⭐' : categoria === 'banco_dados' ? 'Movido para Banco de Dados 🗂️' : 'Removido da pasta', 'success');
+    } catch (e) { Toast.show(e.message || 'Não foi possível mover', 'error'); }
+  };
+
   const abrirAgendar = () => {
     setAgForm({ data: hojeISO, hora: '', servico: '', valor: '', observacoes: '' });
     setAgendarOpen(true);
@@ -1273,6 +1284,20 @@ export default function Inbox({ onUnreadChange }) {
                       style={{ padding:'5px 12px', background:'var(--tq3)', color:'var(--tq2)', borderRadius:8, fontSize:11.5, fontWeight:700, border:'none', cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}>
                       <RefreshCw size={11}/> Atualizar
                     </button>
+                  </div>
+                  <div style={{ marginTop:12, paddingTop:12, borderTop:'1px solid var(--border)' }}>
+                    <div style={{ fontSize:10.5, fontWeight:700, color:'var(--muted)', textTransform:'uppercase', letterSpacing:.5, marginBottom:7 }}>Mover para pasta</div>
+                    <div style={{ display:'flex', gap:6 }}>
+                      <button onClick={()=>moverPasta(sel.categoria==='fidelidade'?null:'fidelidade')}
+                        className="btn btn-sm" style={{ flex:1, fontSize:11, fontWeight:700, background:sel.categoria==='fidelidade'?'#C4973B':'var(--bg2)', color:sel.categoria==='fidelidade'?'#fff':'var(--muted)', border:'1.5px solid #e3c98a' }}>
+                        ⭐ Fidelidade
+                      </button>
+                      <button onClick={()=>moverPasta(sel.categoria==='banco_dados'?null:'banco_dados')}
+                        className="btn btn-sm" style={{ flex:1, fontSize:11, fontWeight:700, background:sel.categoria==='banco_dados'?'#0E8C96':'var(--bg2)', color:sel.categoria==='banco_dados'?'#fff':'var(--muted)', border:'1.5px solid #9fd6da' }}>
+                        🗂️ Banco
+                      </button>
+                    </div>
+                    {sel.categoria && <div style={{ fontSize:11, color:'var(--muted)', marginTop:6 }}>Nesta pasta. Clique de novo pra tirar.</div>}
                   </div>
                 </div>
                 {leadData ? (

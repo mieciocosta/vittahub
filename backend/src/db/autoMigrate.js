@@ -260,6 +260,9 @@ export default async function runMigrate() {
     await query(`ALTER TABLE agenda_eventos ADD COLUMN IF NOT EXISTS conversa_id TEXT`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS idx_agenda_conversa ON agenda_eventos (conversa_id)`).catch(() => {});
     await query(`ALTER TABLE mensagens ADD COLUMN IF NOT EXISTS editada BOOLEAN DEFAULT false`).catch(() => {});
+    // Pastas de organização: 'fidelidade' (mensalistas) e 'banco_dados' (1 vacina só)
+    await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS categoria TEXT`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS idx_conversas_categoria ON conversas (categoria) WHERE categoria IS NOT NULL`).catch(() => {});
 
     await query(`CREATE TABLE IF NOT EXISTS indicacoes (
       id SERIAL PRIMARY KEY, indicador_nome TEXT NOT NULL, indicador_telefone TEXT,

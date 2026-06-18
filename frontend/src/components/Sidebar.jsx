@@ -4,7 +4,7 @@ import {
   LayoutDashboard, MessageSquare, Users, Kanban, BarChart2,
   LogOut, Settings, Smartphone, Sun, Moon, ChevronLeft, ChevronRight,
   CalendarClock, CalendarDays, Bell, CheckCheck, UserPlus, Shield,
-  Gift, Bot, Image, FileText, Smile, Phone,
+  Gift, Bot, Image, FileText, Smile, Phone, Star, Database,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useApi } from '../context/AuthContext.jsx';
@@ -14,6 +14,8 @@ const NAV = [
   { to:'/',           icon:LayoutDashboard, label:'Dashboard' },
   { to:'/inbox',      icon:MessageSquare,   label:'Chat',     unread:true },
   { to:'/leads',      icon:Users,           label:'Clientes' },
+  { to:'/fidelidade', icon:Star,            label:'Fidelidade' },
+  { to:'/banco-dados',icon:Database,        label:'Banco de Dados' },
   { to:'/funil',      icon:Kanban,          label:'Organização' },
   { to:'/retornos',   icon:Bell,            label:'Follow-up',  retornos:true },
   { to:'/agenda',     icon:CalendarDays,    label:'Agenda' },
