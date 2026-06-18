@@ -118,6 +118,14 @@ export default function Configuracoes() {
                 <span style={{ fontWeight:600 }}>Bot ativo para TODOS (liga/desliga geral)</span>
               </label>
 
+              <label style={{ display:'flex', alignItems:'flex-start', gap:10, cursor:'pointer', background:'var(--tq3)', padding:'10px 12px', borderRadius:10 }}>
+                <input type="checkbox" checked={bot.consultaIA !== false} onChange={e=>setBot(p=>({...p,consultaIA:e.target.checked}))} style={{ width:16, height:16, accentColor:'var(--tq)', marginTop:1 }}/>
+                <span>
+                  <span style={{ fontWeight:700, display:'block' }}>IA de Consultas (assume sozinha)</span>
+                  <span style={{ fontSize:11.5, color:'var(--muted)' }}>Quando ligada, a IA atende automaticamente tudo que NÃO é vacina (consultas e terapias) — mesmo com o bot geral desligado. Vacina fica com a equipe.</span>
+                </span>
+              </label>
+
               <div className="field">
                 <label>Mensagem de boas-vindas</label>
                 <textarea value={bot.mensagemBoasVindas} onChange={e=>setBot(p=>({...p,mensagemBoasVindas:e.target.value}))} rows={5} style={{ resize:'vertical' }} />

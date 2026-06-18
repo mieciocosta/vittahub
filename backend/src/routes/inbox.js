@@ -716,8 +716,21 @@ async function triagemSetor(conv, texto, phoneNum) {
   const escolha = detectarSetor(texto);
   const { rows: [cfgT] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'").catch(() => ({ rows: [{}] }));
   const consultaIAon = (cfgT?.valor?.consultaIA ?? true) !== false;
+  const botGeralOn   = (cfgT?.valor?.ativo ?? true) !== false;
+  // Modo DEDICADO à consulta: o bot geral (vacina) está desligado e só a IA de
+  // Consultas está ligada → a IA assume TUDO direto, sem menu de triagem.
+  const soConsultaIA = !botGeralOn && consultaIAon;
 
   if (!escolha) {
+    // Só IA de consultas ligada → assume direto como consultas, sem menu.
+    if (soConsultaIA) {
+      if (!conv.setor) {
+        await query('UPDATE conversas SET setor = $1, menu_enviado = true WHERE id = $2', ['consultas', conv.id]).catch(() => {});
+        const cc = convoCache.get(conv.id); if (cc) cacheUpdate({ ...cc, setor: 'consultas' });
+        conv.setor = 'consultas';
+      }
+      return false; // a IA (agendarVitta) responde
+    }
     // Já mandou o menu e o cliente respondeu algo que não é uma escolha clara:
     // pela REGRA (tudo que não é vacina → IA de consulta), assume consultas pra
     // a IA assumir, em vez de deixar a conversa muda travada sem setor.
@@ -736,6 +749,17 @@ async function triagemSetor(conv, texto, phoneNum) {
       `INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, created_at)
        VALUES ($1,'bot','Vitta','text',$2,NOW()) RETURNING *`, [conv.id, registrado]).catch(() => ({ rows: [null] }));
     if (m) socketEmit('new_message', { convId: conv.id, message: m, conv });
+    return true;
+  }
+
+  // Modo dedicado à consulta + cliente falou de VACINA: o bot não cuida de vacina
+  // agora (geral desligado) → passa pra equipe humana, sem ficar mudo.
+  if (escolha === 'vacinas' && !botGeralOn) {
+    await query('UPDATE conversas SET bot_ativo = false, menu_enviado = true WHERE id = $1', [conv.id]).catch(() => {});
+    const cv = convoCache.get(conv.id); if (cv) cacheUpdate({ ...cv, bot_ativo: false });
+    socketEmit('bot_status', { convId: conv.id, bot_ativo: false });
+    await query(`INSERT INTO notificacoes (tipo, titulo, texto, conv_id) VALUES ('novo_lead',$1,$2,$3)`,
+      [`Vacina: ${conv.contact_name || phoneNum}`, 'Cliente quer vacina — atendimento humano (bot de vacina desligado).', conv.id]).catch(() => {});
     return true;
   }
 
@@ -1027,7 +1051,8 @@ DADOS DA CLÍNICA (responda na hora quando perguntarem — NUNCA invente, use ex
 
 REGRAS DE OURO (é isto que converte de verdade):
 1. ACOLHA A EMOÇÃO PRIMEIRO, sempre. Ex.: "Imagino o quanto isso te preocupa. E olha, você ter buscado ajuda já é um gesto enorme de cuidado." Valide o sentimento antes de explicar.
-2. MENSAGENS CURTAS — 1 a 3 frases, UMA pergunta por vez. Textão assusta e perde o cliente. Se precisar explicar, quebre em mensagens pequenas.
+2. MENSAGENS MUITO CURTAS — no máximo 1 ou 2 frases por mensagem, UMA pergunta por vez. Nunca mande textão. Se for explicar algo maior, dê só o essencial agora e siga na próxima mensagem.
+2b. ESCUTE DE VERDADE: antes de responder, mostre que entendeu o que a mãe acabou de dizer — repita com as palavras dela ("entendi, então o [nome] está com dificuldade na fala…") e SÓ ENTÃO conduza. Responda exatamente o que ela trouxe, sem mudar de assunto nem despejar informação que ela não pediu.
 3. NUNCA DIAGNOSTIQUE pelo WhatsApp (não diga "é autismo", "é TDAH"). Acolha e encaminhe: "Só uma avaliação com a nossa equipe pode te dizer, com calma e segurança, o que está acontecendo."
 4. DESCUBRA COM GENTILEZA, uma coisa por vez: a idade da criança e o que a mãe/pai tem notado. É pra entender e direcionar pro profissional certo.
 5. FALE SIMPLES, sem jargão. Em vez de "avaliação neuropsicológica", diga "uma conversa com a nossa especialista, que vai te ouvir e olhar de pertinho como o(a) [nome] está".
@@ -1557,11 +1582,15 @@ r.post('/webhook/zapi', async (req, res) => {
     const incUnread = isMe ? 0 : 1;
     const lastFromVal = isMe ? 'me' : 'contact';
 
-    // Interruptor mestre: com o "Bot ativo para TODOS" DESLIGADO, conversa NOVA já
-    // nasce com bot_ativo=false (não aparece "Bot ON" nem precisa desligar na mão).
+    // Ativação do bot na conversa NOVA. Dois interruptores independentes:
+    //  • cfg.ativo       = "Bot ativo para TODOS" (fluxo geral / vacina)
+    //  • cfg.consultaIA  = "IA de Consultas" (assume sozinha tudo que não é vacina)
+    // Se QUALQUER um estiver ligado, a conversa nova nasce ativa pra ser triada —
+    // a triagem decide o setor e a IA de consulta assume se for não-vacina.
     const { rows: [cfgIns] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'").catch(() => ({ rows: [{}] }));
     const botGeralOn = (cfgIns?.valor?.ativo) !== false;
-    const novoBotAtivo = !isMe && botGeralOn;
+    const iaConsultasOn = (cfgIns?.valor?.consultaIA) !== false;
+    const novoBotAtivo = !isMe && (botGeralOn || iaConsultasOn);
 
     const { rows: [conv] } = await query(`
       INSERT INTO conversas (channel, contact_name, contact_id, phone, unread, last_message, last_message_at, profile_pic, chat_lid, bot_ativo)
@@ -1686,7 +1715,10 @@ r.post('/webhook/zapi', async (req, res) => {
     const { rows: [cfgBotRow] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'").catch(() => ({ rows: [] }));
     const botGlobalAtivo = cfgBotRow?.valor?.ativo !== false;
 
-    const precisaReabrir = botGlobalAtivo && textoParaIA &&
+    // Auto-reabertura: vale quando o bot geral está ligado OU quando só a IA de
+    // Consultas está ligada (aí a IA reassume a conversa sozinha após 24h paradas).
+    // iaConsultasOn já foi calculado lá em cima no upsert da conversa.
+    const precisaReabrir = (botGlobalAtivo || iaConsultasOn) && textoParaIA &&
       (!conv.triagem_ts || (Date.now() - new Date(conv.triagem_ts).getTime()) >= 24 * 3600 * 1000);
     console.log(`TRIAGEM conv=${conv.id} reabrir=${!!precisaReabrir} triagem_ts=${conv.triagem_ts || 'null'} bot=${conv.bot_ativo} setor=${conv.setor || '-'} menu_enviado=${conv.menu_enviado}`);
     if (precisaReabrir) {
@@ -3445,20 +3477,34 @@ r.get('/bot-config', async (req, res) => {
 r.put('/bot-config', async (req, res) => {
   try {
     if (req.user?.role !== 'master') return res.status(403).json({ error: 'Apenas o master (Miécio ou Nágila) pode alterar a configuração do bot.' });
-    // Estado anterior, pra saber se o "Bot ativo" mudou de liga<->desliga
+    // Estado anterior, pra saber se os toggles mudaram de liga<->desliga
     const { rows: [antes] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'").catch(() => ({ rows: [{}] }));
     const antesAtivo = antes?.valor?.ativo !== false;
+    const antesConsultaIA = antes?.valor?.consultaIA !== false;
 
     await query("INSERT INTO configuracoes (chave,valor) VALUES ('bot',$1) ON CONFLICT (chave) DO UPDATE SET valor=$1, updated_at=NOW()", [JSON.stringify(req.body)]);
 
     // O toggle "Bot ativo" é o interruptor MESTRE: ao mudar, aplica pra TODAS as
     // conversas (liga/desliga o bot pra todos os usuários de uma vez).
     const novoAtivo = req.body?.ativo !== false;
+    const novoConsultaIA = req.body?.consultaIA !== false;
     if (novoAtivo !== antesAtivo) {
       await query('UPDATE conversas SET bot_ativo = $1', [novoAtivo]);
       await loadCache();
       socketEmit('bots_global', { ativo: novoAtivo });
       console.log(`Bot global ${novoAtivo ? 'LIGADO' : 'DESLIGADO'} para todas as conversas por ${req.user?.nome || 'master'}`);
+    }
+    // Ligou a IA de Consultas: assume na hora as conversas NÃO-vacina que estão
+    // esperando resposta (última mensagem do cliente), sem mexer nas de vacina nem
+    // nas que um humano está atendendo (última do 'me').
+    if (novoConsultaIA && !antesConsultaIA) {
+      const { rowCount } = await query(
+        `UPDATE conversas c SET bot_ativo = true
+         WHERE COALESCE(c.setor,'') NOT IN ('vacinas')
+           AND c.last_from = 'contact' AND COALESCE(c.bot_ativo,false) = false`).catch(() => ({ rowCount: 0 }));
+      await loadCache();
+      socketEmit('bots_global', { ativo: true, soConsultas: true });
+      console.log(`IA de Consultas LIGADA por ${req.user?.nome || 'master'} — ${rowCount} conversa(s) não-vacina reassumidas`);
     }
     res.json(req.body);
   } catch (err) { res.status(500).json({ error: err.message }); }
