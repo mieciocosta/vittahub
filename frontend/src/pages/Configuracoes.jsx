@@ -18,6 +18,9 @@ export default function Configuracoes() {
   const [userErr, setUserErr] = useState('');
   const [novoUser, setNovoUser] = useState(null); // { nome, cpf, senha, role }
   const [killing, setKilling] = useState(false); // desligar todos os bots (precisa ficar antes do early-return de isMaster)
+  const [metaAg, setMetaAg] = useState('');      // alvo mensal de agendamentos
+  const [metaSaving, setMetaSaving] = useState(false);
+  const [metaSaved, setMetaSaved] = useState(false);
   const [diag, setDiag] = useState(null);        // resultado do diagnóstico do bot
   const [diagLoad, setDiagLoad] = useState(false);
   const diagnosticarBot = async () => {
@@ -55,7 +58,15 @@ export default function Configuracoes() {
     api.get('/inbox/quick-replies').then(setQr);
     api.get('/inbox/bot-config').then(setBot);
     api.get('/auth/usuarios').then(setUsers).catch(()=>{});
+    api.get('/extras/agenda/meta').then(d=>setMetaAg(d?.alvo || '')).catch(()=>{});
   }, []);
+
+  const salvarMetaAg = async () => {
+    setMetaSaving(true);
+    try { await api.put('/extras/agenda/meta', { agendamentos_mes: parseInt(metaAg) || 0 }); setMetaSaved(true); setTimeout(()=>setMetaSaved(false), 2000); }
+    catch (e) { window.alert('Erro: ' + e.message); }
+    setMetaSaving(false);
+  };
 
   if (!isMaster) return <div style={{padding:40,textAlign:'center',color:'var(--muted)'}}>Acesso restrito ao Master.</div>;
 
@@ -134,6 +145,15 @@ export default function Configuracoes() {
               <div className="field">
                 <label>Transferir para atendente após N mensagens do cliente</label>
                 <input type="number" min={1} max={10} value={bot.transferirApos} onChange={e=>setBot(p=>({...p,transferirApos:+e.target.value}))} />
+              </div>
+
+              <div className="field" style={{ background:'var(--bg2,#f8fafc)', padding:'10px 12px', borderRadius:10 }}>
+                <label>🎯 Meta de agendamentos do mês (alvo)</label>
+                <div style={{ display:'flex', gap:8 }}>
+                  <input type="number" min={0} value={metaAg} onChange={e=>setMetaAg(e.target.value)} placeholder="Ex: 120" style={{ flex:1 }} />
+                  <button onClick={salvarMetaAg} disabled={metaSaving} className="btn btn-sm" style={{ fontWeight:700 }}>{metaSaving?'…':metaSaved?'✅':'Salvar meta'}</button>
+                </div>
+                <span style={{ fontSize:11, color:'var(--muted)' }}>Aparece no Dashboard como "Agendados no mês: X/alvo". Cada botão "Agendar" no chat conta aqui.</span>
               </div>
 
               <button onClick={saveBot} disabled={saving} className="btn btn-p" style={{ width:'100%' }}>

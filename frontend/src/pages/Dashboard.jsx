@@ -54,9 +54,11 @@ export default function Dashboard() {
   const [data, setData] = useState(null);
 
   const [agendaHoje, setAgendaHoje] = useState([]);
+  const [agMeta, setAgMeta] = useState(null);
   useEffect(() => {
     api.get('/reports/dashboard').then(setData).catch(() => {});
     api.get(`/extras/agenda?data=${new Date().toISOString().slice(0, 10)}`).then(d => setAgendaHoje(Array.isArray(d) ? d : [])).catch(() => {});
+    api.get('/extras/agenda/meta').then(setAgMeta).catch(() => {});
   }, []); // eslint-disable-line
 
   const hoje = new Date();
@@ -82,6 +84,7 @@ export default function Dashboard() {
     { Icon: MessageSquare, label: 'Aguardando resposta', valor: data.conversas?.aguardando || 0, sub: 'Cliente falou por último', go: '/inbox' },
     { Icon: CalendarCheck, label: 'Agendamentos hoje', valor: data.agenda?.hoje ?? agendaHoje.length, sub: 'Na agenda de hoje', go: '/agenda' },
     { Icon: CalendarCheck, label: 'Próximos agendamentos', valor: data.agenda?.proximos || 0, sub: 'A confirmar / realizar', go: '/agenda' },
+    { Icon: CalendarCheck, label: 'Agendados no mês 🎯', valor: agMeta ? (agMeta.alvo ? `${agMeta.feitos}/${agMeta.alvo}` : agMeta.feitos) : '—', sub: agMeta?.alvo ? `Meta: ${agMeta.pct ?? 0}% alcançada` : 'Defina o alvo nas Configurações', go: '/agenda' },
     { Icon: Bell, label: 'Follow-ups pendentes', valor: followups.length, sub: 'Retornos programados', go: '/retornos' },
   ];
 
