@@ -2016,33 +2016,47 @@ r.get('/whatsapp/diag-bot', masterOnly, async (req, res) => {
     // 3) Config geral do bot
     const { rows: [cfgRow] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'").catch(() => ({ rows: [{}] }));
     const cfg = cfgRow?.valor || {};
-    add(cfg.ativo !== false, cfg.ativo !== false
-      ? 'Bot geral LIGADO (novas conversas recebem bot automaticamente).'
-      : 'Bot geral DESLIGADO — novas conversas não pegam bot sozinhas; só respondem as marcadas "Bot ON" na mão.');
-    add(cfg.consultaIA !== false, cfg.consultaIA !== false
-      ? 'IA de consulta LIGADA.'
-      : 'IA de consulta DESLIGADA (cfg.consultaIA=false) — conversas de consulta/terapia não respondem.');
+    const geralOn = cfg.ativo !== false;
+    const consultaOn = cfg.consultaIA !== false;
+    // Com a IA de Consultas ligada, consultas/terapias respondem MESMO com o geral
+    // off — então o geral off só não é problema se a IA de Consultas estiver on.
+    add(geralOn || consultaOn, geralOn
+      ? 'Bot geral LIGADO (vacina + tudo responde).'
+      : consultaOn
+        ? 'Bot geral DESLIGADO, mas IA de Consultas LIGADA → consultas/terapias respondem; vacina vai pra equipe.'
+        : 'Bot geral DESLIGADO e IA de Consultas DESLIGADA → ninguém responde. Ligue ao menos um.');
+    add(consultaOn, consultaOn
+      ? 'IA de Consultas LIGADA (atende consultas/terapias sozinha).'
+      : 'IA de Consultas DESLIGADA — conversas de consulta/terapia não respondem.');
 
-    // 4) Conversa específica (opcional)
+    // 4) Conversa específica (?convId) OU a última que está esperando resposta
+    let alvo = null;
     if (req.query.convId) {
       const { rows: [c] } = await query('SELECT * FROM conversas WHERE id = $1', [req.query.convId]);
+      alvo = c || null;
       if (!c) add(false, `Conversa ${req.query.convId} não encontrada.`);
-      else {
-        out.conversa = { id: c.id, nome: c.contact_name, setor: c.setor, bot_ativo: c.bot_ativo, menu_enviado: c.menu_enviado, captura_etapa: c.captura_etapa };
-        add(!!c.bot_ativo, c.bot_ativo ? 'Esta conversa está com "Bot ON".' : 'Esta conversa está com "Bot OFF" (clique no botão BOT pra ligar).');
-        const ehConsulta = !!c.setor && c.setor !== 'vacinas';
-        add(true, `Setor da conversa: ${c.setor || '(nenhum — cai no menu de triagem)'} → ${ehConsulta ? 'IA de consulta' : c.setor === 'vacinas' ? 'fluxo determinístico de vacina (sem IA generativa)' : 'aguardando triagem'}.`);
-        const { rows: [last] } = await query("SELECT from_type, content FROM mensagens WHERE conversa_id=$1 AND type IN ('text','document') AND from_type<>'system' ORDER BY created_at DESC LIMIT 1", [c.id]).catch(() => ({ rows: [{}] }));
-        add(last?.from_type === 'contact', last?.from_type === 'contact'
-          ? 'A última mensagem é do cliente (o bot responderia).'
-          : `A última mensagem é '${last?.from_type || 'nenhuma'}' — o bot só responde quando a última é do cliente.`);
-      }
+    } else {
+      const { rows: [c] } = await query(
+        "SELECT * FROM conversas WHERE last_from='contact' ORDER BY last_message_at DESC LIMIT 1").catch(() => ({ rows: [] }));
+      alvo = c || null;
+    }
+    if (alvo) {
+      const c = alvo;
+      out.conversa = { id: c.id, nome: c.contact_name, setor: c.setor, bot_ativo: c.bot_ativo, menu_enviado: c.menu_enviado };
+      const ehConsulta = !!c.setor && c.setor !== 'vacinas';
+      add(true, `Conversa analisada: "${c.contact_name || c.phone}" · setor=${c.setor || '(sem setor)'} · ${ehConsulta ? 'IA de consulta' : c.setor === 'vacinas' ? 'vacina (sem IA)' : 'aguardando triagem'}.`);
+      add(!!c.bot_ativo, c.bot_ativo ? 'Está com "Bot ON".' : 'Está com "Bot OFF" — ligue o botão BOT na conversa.');
+      const { rows: [last] } = await query("SELECT from_type FROM mensagens WHERE conversa_id=$1 AND type IN ('text','document') AND from_type<>'system' ORDER BY created_at DESC LIMIT 1", [c.id]).catch(() => ({ rows: [{}] }));
+      add(last?.from_type === 'contact', last?.from_type === 'contact'
+        ? 'A última mensagem é do cliente (o bot responderia).'
+        : `A última mensagem é '${last?.from_type || 'nenhuma'}' — o bot só responde quando a última é do cliente (humano assumiu?).`);
     }
 
     const falhas = out.passos.filter(p => !p.ok).map(p => p.msg);
+    out.versao_backend = '2026-06-18b · IA-consultas-dedicada (geral-off NÃO bloqueia consulta)';
     out.veredito = falhas.length
-      ? `Encontrei ${falhas.length} bloqueio(s): ` + falhas.join(' | ')
-      : 'Nenhum bloqueio óbvio — bot deveria responder. Se ainda não responder, me chame que olho os logs.';
+      ? `Encontrei ${falhas.length} ponto(s) de atenção: ` + falhas.join(' | ')
+      : 'Tudo certo — o bot deveria responder. Se não responder, o deploy do backend pode estar atrasado (confira a versao_backend abaixo) ou me chame pros logs.';
     res.json(out);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

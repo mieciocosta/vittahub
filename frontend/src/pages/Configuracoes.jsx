@@ -167,6 +167,7 @@ export default function Configuracoes() {
                         <span>{p.ok?'✅':'⛔'}</span><span style={{ color:'var(--text)' }}>{p.msg}</span>
                       </div>
                     ))}
+                    {diag.versao_backend && <div style={{ marginTop:8, fontSize:10.5, color:'var(--muted)', borderTop:'1px solid var(--border)', paddingTop:6 }}>versão do backend: {diag.versao_backend}</div>}
                   </div>
                 )}
               </div>
