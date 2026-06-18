@@ -2585,6 +2585,49 @@ r.patch('/conversations/:id/assign', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Lista de atendentes (pra o seletor de transferência) — acessível a todos logados
+r.get('/atendentes', async (req, res) => {
+  try {
+    const { rows } = await query(
+      `SELECT id, nome, setor, cor, avatar FROM usuarios
+       WHERE ativo = true AND role IN ('atendente','supervisor','master') ORDER BY nome`);
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// TRANSFERIR atendimento: passa a conversa para outro atendente (e move pro setor
+// dele). Some da lista de quem transferiu, aparece pra quem recebeu (com aviso).
+r.patch('/conversations/:id/transferir', async (req, res) => {
+  try {
+    const paraId = req.body.para_id;
+    if (!paraId) return res.status(400).json({ error: 'Escolha para quem transferir.' });
+    const { rows: [dest] } = await query("SELECT id, nome, setor FROM usuarios WHERE id = $1 AND ativo = true", [paraId]);
+    if (!dest) return res.status(404).json({ error: 'Atendente não encontrado.' });
+    const novoSetor = ['vacinas', 'consultas', 'terapias'].includes(dest.setor) ? dest.setor : null;
+    const { rows: [conv] } = await query(
+      `UPDATE conversas SET responsavel_id = $1, bot_ativo = false ${novoSetor ? ', setor = $3' : ''}
+       WHERE id = $2 RETURNING *`,
+      novoSetor ? [paraId, req.params.id, novoSetor] : [paraId, req.params.id]);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    cacheUpdate(conv);
+    const de = req.user?.nome || 'a equipe';
+    // Mensagem de sistema na thread (registro da transferência)
+    const { rows: [sysMsg] } = await query(
+      `INSERT INTO mensagens (conversa_id, from_type, type, content, created_at)
+       VALUES ($1,'system','text',$2,NOW()) RETURNING *`,
+      [conv.id, `🔁 Atendimento transferido de ${de} para ${dest.nome}.`]).catch(() => ({ rows: [null] }));
+    // Notifica quem recebeu
+    await query(
+      `INSERT INTO notificacoes (tipo, titulo, texto, conv_id) VALUES ('transferencia',$1,$2,$3)`,
+      [`🔁 Atendimento recebido: ${conv.contact_name || conv.phone || 'cliente'}`,
+       `${de} transferiu este atendimento para você. Dê uma olhada e continue de onde parou.`, conv.id]).catch(() => {});
+    socketEmit('conv_assigned', { convId: conv.id, responsavel_id: paraId, responsavel_nome: dest.nome });
+    socketEmit('conv_transferida', { convId: conv.id, para_id: paraId, para_nome: dest.nome, de_id: req.user?.id });
+    if (sysMsg) socketEmit('new_message', { convId: conv.id, message: sysMsg, conv });
+    res.json({ ok: true, responsavel_id: paraId, responsavel_nome: dest.nome, setor: conv.setor });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ─── STATUS DE ATENDIMENTO ────────────────────────────────────────────────────
 r.patch('/conversations/:id/status', async (req, res) => {
   try {

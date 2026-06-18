@@ -454,6 +454,9 @@ export default function Inbox({ onUnreadChange }) {
   const [showAI, setShowAI]     = useState(() => localStorage.getItem('vh_ia_aberta') !== 'off');
   const [agendarOpen, setAgendarOpen] = useState(false); // modal de agendamento
   const [agSaving, setAgSaving] = useState(false);
+  const [transfOpen, setTransfOpen] = useState(false);   // modal de transferência
+  const [atendentes, setAtendentes] = useState([]);
+  const [transfSaving, setTransfSaving] = useState(false);
   const hojeISO = new Date().toISOString().slice(0,10);
   const [agForm, setAgForm] = useState({ data: hojeISO, hora: '', servico: '', valor: '', observacoes: '' });
   const [showInfo, setShowInfo] = useState(false);
@@ -495,6 +498,8 @@ export default function Inbox({ onUnreadChange }) {
   // CRÍTICO: atribuir no render body (síncrono), não em useEffect (assíncrono)
   // Evita janela onde WebSocket chega e selRef ainda aponta para conversa anterior
   selRef.current = sel;
+  const userRef          = useRef(user);
+  userRef.current = user;
 
   // ── Mede altura da lista (ResizeObserver: reage a QUALQUER mudança de layout) ──
   useEffect(() => {
@@ -595,6 +600,16 @@ export default function Inbox({ onUnreadChange }) {
       socket.on('bots_global', ({ ativo }) => {
         setConvos(prev => prev.map(c => ({ ...c, bot_ativo: !!ativo })));
         setSel(prev => prev ? { ...prev, bot_ativo: !!ativo } : prev);
+      });
+      socket.on('conv_transferida', ({ convId, para_id, para_nome }) => {
+        const me = userRef.current?.id;
+        // Sou atendente e a conversa saiu de mim → some da minha lista
+        if (me && para_id !== me && userRef.current?.role === 'atendente') {
+          setConvos(prev => prev.filter(c => c.id !== convId));
+          setSel(prev => prev?.id === convId ? null : prev);
+        } else {
+          setConvos(prev => prev.map(c => c.id === convId ? { ...c, responsavel_id: para_id } : c));
+        }
       });
     }).catch(err => console.warn('socket.io-client não disponível:', err.message));
 
@@ -980,6 +995,25 @@ export default function Inbox({ onUnreadChange }) {
     setAgForm({ data: hojeISO, hora: '', servico: '', valor: '', observacoes: '' });
     setAgendarOpen(true);
   };
+
+  const abrirTransferir = async () => {
+    setTransfOpen(true);
+    try { const d = await api.get('/inbox/atendentes'); setAtendentes(Array.isArray(d) ? d : []); } catch {}
+  };
+  const transferir = async (para) => {
+    if (transfSaving) return;
+    setTransfSaving(true);
+    try {
+      await api.patch(`/inbox/conversations/${sel.id}/transferir`, { para_id: para.id });
+      setTransfOpen(false);
+      // some da minha lista (transferi pra outra pessoa)
+      const idTransf = sel.id;
+      setConvos(p => p.filter(c => c.id !== idTransf));
+      setSel(null); setMsgs([]);
+      Toast.show(`Atendimento transferido para ${(para.nome||'').split(' ')[0]} 🔁`, 'success');
+    } catch (e) { Toast.show(e.message || 'Não foi possível transferir', 'error'); }
+    setTransfSaving(false);
+  };
   const salvarAgendamento = async () => {
     if (!agForm.hora) { Toast.show('Informe o horário', 'error'); return; }
     setAgSaving(true);
@@ -1160,6 +1194,10 @@ export default function Inbox({ onUnreadChange }) {
               <button onClick={abrirAgendar} title="Agendar este atendimento (conta na meta do mês)"
                 className="btn btn-sm" style={{ background:'#1e3a5f', color:'#7cc4ff', border:'1.5px solid #2563eb', fontSize:11, padding:'4px 9px', fontWeight:700 }}>
                 <CalendarDays size={10}/> Agendar
+              </button>
+              <button onClick={abrirTransferir} title="Transferir este atendimento para outro atendente"
+                className="btn btn-sm" style={{ fontSize:11, padding:'4px 9px' }}>
+                <RefreshCw size={10}/> Transferir
               </button>
               <button onClick={toLead} className="btn btn-s btn-sm" style={{ fontSize:11, padding:'4px 9px' }}><UserPlus size={10}/> Lead</button>
               <button onClick={()=>{setShowAI(p=>!p);setShowInfo(false);}} className="btn btn-sm" style={{ background:showAI?'#032B30':'var(--bg2)', color:showAI?'#00B8C0':'var(--muted)', border:`1.5px solid ${showAI?'rgba(0,184,192,.4)':'var(--border)'}`, fontSize:11, padding:'4px 9px' }}>
@@ -1416,6 +1454,34 @@ export default function Inbox({ onUnreadChange }) {
       {showProposta && sel && (
         <PropostaModal convId={sel.id} token={token} contactName={sel.contact_name} atendente={user?.nome}
           onClose={txt=>{setShowProposta(false);if(txt)setMsgs(p=>[...p,{id:Date.now(),from_type:'me',type:'text',content:txt,created_at:new Date().toISOString(),status:'sent',sender_nome:user?.nome}]);}}/>
+      )}
+
+      {transfOpen && sel && (
+        <div onClick={()=>setTransfOpen(false)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.5)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000, padding:16 }}>
+          <div onClick={e=>e.stopPropagation()} className="card" style={{ width:360, maxWidth:'100%', padding:22, maxHeight:'80vh', overflowY:'auto' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
+              <RefreshCw size={18} color="var(--tq)"/>
+              <h3 style={{ fontSize:16, fontWeight:800 }}>Transferir atendimento</h3>
+            </div>
+            <p style={{ fontSize:12, color:'var(--muted)', marginBottom:14 }}>Ao transferir, este atendimento sai da sua lista e vai para a pessoa escolhida.</p>
+            <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+              {atendentes.filter(a => a.id !== user?.id).map(a => (
+                <button key={a.id} onClick={()=>transferir(a)} disabled={transfSaving} className="btn"
+                  style={{ display:'flex', alignItems:'center', gap:10, justifyContent:'flex-start', padding:'9px 12px', textAlign:'left' }}>
+                  <div style={{ width:30, height:30, borderRadius:'50%', background:a.cor||'var(--tq)', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:800, flexShrink:0 }}>
+                    {(a.nome||'?').split(' ').map(p=>p[0]).slice(0,2).join('')}
+                  </div>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontWeight:700, fontSize:13 }}>{a.nome}</div>
+                    {a.setor && <div style={{ fontSize:11, color:'var(--muted)' }}>{a.setor}</div>}
+                  </div>
+                </button>
+              ))}
+              {atendentes.filter(a => a.id !== user?.id).length === 0 && <div style={{ fontSize:12, color:'var(--muted)' }}>Nenhum outro atendente disponível.</div>}
+            </div>
+            <button onClick={()=>setTransfOpen(false)} className="btn btn-sm" style={{ width:'100%', marginTop:12 }}>Cancelar</button>
+          </div>
+        </div>
       )}
 
       {agendarOpen && sel && (
