@@ -458,7 +458,7 @@ export default function Inbox({ onUnreadChange }) {
   const [atendentes, setAtendentes] = useState([]);
   const [transfSaving, setTransfSaving] = useState(false);
   const hojeISO = new Date().toISOString().slice(0,10);
-  const [agForm, setAgForm] = useState({ data: hojeISO, hora: '', servico: '', valor: '', observacoes: '' });
+  const [agForm, setAgForm] = useState({ data: hojeISO, hora: '', servico: '', valor: '', observacoes: '', setor: 'consultas' });
   const [showInfo, setShowInfo] = useState(false);
   const [showEmoji, setShowEmoji] = useState(false);
   const [filePreview, setFilePreview] = useState(null);
@@ -1003,7 +1003,8 @@ export default function Inbox({ onUnreadChange }) {
   };
 
   const abrirAgendar = () => {
-    setAgForm({ data: hojeISO, hora: '', servico: '', valor: '', observacoes: '' });
+    const s = ['vacinas','consultas','terapias'].includes(sel.setor) ? sel.setor : 'consultas';
+    setAgForm({ data: hojeISO, hora: '', servico: '', valor: '', observacoes: '', setor: s });
     setAgendarOpen(true);
   };
 
@@ -1031,11 +1032,11 @@ export default function Inbox({ onUnreadChange }) {
     try {
       await api.post('/extras/agenda', {
         paciente: sel.contact_name || fmt.phone(sel.phone) || 'Cliente',
-        telefone: sel.phone, conversa_id: sel.id, setor: sel.setor || 'consultas',
+        telefone: sel.phone, conversa_id: sel.id, setor: agForm.setor,
         data: agForm.data, hora: agForm.hora, servico: agForm.servico,
         valor: agForm.valor, observacoes: agForm.observacoes,
       });
-      Toast.show('Agendado! ✅ Contabilizado na meta do mês 🎯', 'success');
+      Toast.show(`Agendado! ✅ Abatido da meta de ${agForm.setor} 🎯`, 'success');
       setAgendarOpen(false);
     } catch (e) { Toast.show(e.message || 'Não foi possível agendar', 'error'); }
     setAgSaving(false);
@@ -1521,6 +1522,14 @@ export default function Inbox({ onUnreadChange }) {
               <div style={{ display:'flex', gap:10 }}>
                 <div className="field" style={{ flex:1, margin:0 }}><label>Data</label><input type="date" value={agForm.data} onChange={e=>setAgForm(p=>({...p,data:e.target.value}))} /></div>
                 <div className="field" style={{ flex:1, margin:0 }}><label>Hora</label><input type="time" value={agForm.hora} onChange={e=>setAgForm(p=>({...p,hora:e.target.value}))} /></div>
+              </div>
+              <div className="field" style={{ margin:0 }}>
+                <label>Setor (abate da meta deste setor)</label>
+                <select value={agForm.setor} onChange={e=>setAgForm(p=>({...p,setor:e.target.value}))} style={{ width:'100%' }}>
+                  <option value="vacinas">💉 Vacinas</option>
+                  <option value="consultas">🩺 Consultas</option>
+                  <option value="terapias">🧩 Terapias</option>
+                </select>
               </div>
               <div className="field" style={{ margin:0 }}><label>Serviço (opcional)</label><input value={agForm.servico} onChange={e=>setAgForm(p=>({...p,servico:e.target.value}))} placeholder="Ex: Avaliação inicial, Vacina..." /></div>
               <div className="field" style={{ margin:0 }}><label>Valor (opcional)</label><input type="number" value={agForm.valor} onChange={e=>setAgForm(p=>({...p,valor:e.target.value}))} placeholder="R$" /></div>

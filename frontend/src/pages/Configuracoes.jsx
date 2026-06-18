@@ -18,7 +18,7 @@ export default function Configuracoes() {
   const [userErr, setUserErr] = useState('');
   const [novoUser, setNovoUser] = useState(null); // { nome, cpf, senha, role }
   const [killing, setKilling] = useState(false); // desligar todos os bots (precisa ficar antes do early-return de isMaster)
-  const [metaAg, setMetaAg] = useState('');      // alvo mensal de agendamentos
+  const [metaAg, setMetaAg] = useState({ vacinas:'', consultas:'', terapias:'' }); // alvos por setor
   const [metaSaving, setMetaSaving] = useState(false);
   const [metaSaved, setMetaSaved] = useState(false);
   const [diag, setDiag] = useState(null);        // resultado do diagnóstico do bot
@@ -58,12 +58,15 @@ export default function Configuracoes() {
     api.get('/inbox/quick-replies').then(setQr);
     api.get('/inbox/bot-config').then(setBot);
     api.get('/auth/usuarios').then(setUsers).catch(()=>{});
-    api.get('/extras/agenda/meta').then(d=>setMetaAg(d?.alvo || '')).catch(()=>{});
+    api.get('/extras/agenda/meta').then(d=>{
+      const s = d?.setores || {};
+      setMetaAg({ vacinas: s.vacinas?.alvo || '', consultas: s.consultas?.alvo || '', terapias: s.terapias?.alvo || '' });
+    }).catch(()=>{});
   }, []);
 
   const salvarMetaAg = async () => {
     setMetaSaving(true);
-    try { await api.put('/extras/agenda/meta', { agendamentos_mes: parseInt(metaAg) || 0 }); setMetaSaved(true); setTimeout(()=>setMetaSaved(false), 2000); }
+    try { await api.put('/extras/agenda/meta', { vacinas: parseInt(metaAg.vacinas)||0, consultas: parseInt(metaAg.consultas)||0, terapias: parseInt(metaAg.terapias)||0 }); setMetaSaved(true); setTimeout(()=>setMetaSaved(false), 2000); }
     catch (e) { window.alert('Erro: ' + e.message); }
     setMetaSaving(false);
   };
@@ -148,12 +151,14 @@ export default function Configuracoes() {
               </div>
 
               <div className="field" style={{ background:'var(--bg2,#f8fafc)', padding:'10px 12px', borderRadius:10 }}>
-                <label>🎯 Meta de agendamentos do mês (alvo)</label>
+                <label>🎯 Meta de agendamentos do mês — por setor</label>
                 <div style={{ display:'flex', gap:8 }}>
-                  <input type="number" min={0} value={metaAg} onChange={e=>setMetaAg(e.target.value)} placeholder="Ex: 120" style={{ flex:1 }} />
-                  <button onClick={salvarMetaAg} disabled={metaSaving} className="btn btn-sm" style={{ fontWeight:700 }}>{metaSaving?'…':metaSaved?'✅':'Salvar meta'}</button>
+                  <div style={{ flex:1 }}><span style={{ fontSize:11, color:'var(--muted)' }}>💉 Vacinas</span><input type="number" min={0} value={metaAg.vacinas} onChange={e=>setMetaAg(p=>({...p,vacinas:e.target.value}))} placeholder="0" /></div>
+                  <div style={{ flex:1 }}><span style={{ fontSize:11, color:'var(--muted)' }}>🩺 Consultas</span><input type="number" min={0} value={metaAg.consultas} onChange={e=>setMetaAg(p=>({...p,consultas:e.target.value}))} placeholder="0" /></div>
+                  <div style={{ flex:1 }}><span style={{ fontSize:11, color:'var(--muted)' }}>🧩 Terapias</span><input type="number" min={0} value={metaAg.terapias} onChange={e=>setMetaAg(p=>({...p,terapias:e.target.value}))} placeholder="0" /></div>
                 </div>
-                <span style={{ fontSize:11, color:'var(--muted)' }}>Aparece no Dashboard como "Agendados no mês: X/alvo". Cada botão "Agendar" no chat conta aqui.</span>
+                <button onClick={salvarMetaAg} disabled={metaSaving} className="btn btn-sm" style={{ fontWeight:700, marginTop:8, width:'100%' }}>{metaSaving?'…':metaSaved?'✅ Salvo!':'Salvar metas por setor'}</button>
+                <span style={{ fontSize:11, color:'var(--muted)', display:'block', marginTop:6 }}>Cada "Agendar" no chat abate da meta do setor. O Dashboard mostra feito/alvo e quanto falta.</span>
               </div>
 
               <button onClick={saveBot} disabled={saving} className="btn btn-p" style={{ width:'100%' }}>

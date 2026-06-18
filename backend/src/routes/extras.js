@@ -38,32 +38,54 @@ r.get('/agenda/conversa/:convId', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Meta de agendamentos do MÊS (contagem) + alvo configurável + por atendente
+// Meta de agendamentos do MÊS — por SETOR (vacinas/consultas/terapias): conta o
+// que foi agendado, abate da meta do setor e devolve quanto falta. + por atendente.
+const SETORES_META = ['vacinas', 'consultas', 'terapias'];
 r.get('/agenda/meta', async (req, res) => {
   try {
     const ini = new Date(); ini.setDate(1); const iniStr = ini.toISOString().slice(0, 10);
     const fim = new Date(ini.getFullYear(), ini.getMonth() + 1, 1).toISOString().slice(0, 10);
-    const [tot, porResp, cfg] = await Promise.all([
-      query(`SELECT COUNT(*)::int n FROM agenda_eventos WHERE data >= $1 AND data < $2 AND status <> 'Cancelado'`, [iniStr, fim]),
+    const [porSetor, porResp, cfg] = await Promise.all([
+      query(`SELECT COALESCE(setor,'vacinas') setor, COUNT(*)::int n
+              FROM agenda_eventos WHERE data >= $1 AND data < $2 AND status <> 'Cancelado'
+              GROUP BY setor`, [iniStr, fim]),
       query(`SELECT COALESCE(responsavel_nome,'(sem nome)') nome, COUNT(*)::int n
               FROM agenda_eventos WHERE data >= $1 AND data < $2 AND status <> 'Cancelado'
               GROUP BY responsavel_nome ORDER BY n DESC`, [iniStr, fim]),
       query("SELECT valor FROM configuracoes WHERE chave = 'metas'"),
     ]);
-    const alvo = parseInt(cfg.rows[0]?.valor?.agendamentos_mes) || 0;
-    const feitos = tot.rows[0]?.n || 0;
-    res.json({ feitos, alvo, pct: alvo ? +((feitos / alvo) * 100).toFixed(1) : null, porAtendente: porResp.rows });
+    const metas = cfg.rows[0]?.valor?.agendamentos || {};
+    const feitosPor = Object.fromEntries(porSetor.rows.map(r2 => [r2.setor, r2.n]));
+    const setores = {};
+    let totFeitos = 0, totAlvo = 0;
+    for (const s of SETORES_META) {
+      const feitos = feitosPor[s] || 0;
+      const alvo = parseInt(metas[s]) || 0;
+      setores[s] = { feitos, alvo, falta: Math.max(alvo - feitos, 0), pct: alvo ? +((feitos / alvo) * 100).toFixed(1) : null };
+      totFeitos += feitos; totAlvo += alvo;
+    }
+    res.json({
+      setores,
+      total: { feitos: totFeitos, alvo: totAlvo, falta: Math.max(totAlvo - totFeitos, 0), pct: totAlvo ? +((totFeitos / totAlvo) * 100).toFixed(1) : null },
+      // compat: campos antigos (total geral)
+      feitos: totFeitos, alvo: totAlvo, pct: totAlvo ? +((totFeitos / totAlvo) * 100).toFixed(1) : null,
+      porAtendente: porResp.rows,
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Define o alvo mensal de agendamentos (gestão)
+// Define o alvo mensal de agendamentos POR SETOR (gestão)
 r.put('/agenda/meta', async (req, res) => {
   try {
     if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão pode alterar a meta.' });
-    const alvo = Math.max(0, Math.min(parseInt(req.body?.agendamentos_mes) || 0, 100000));
-    await query(`INSERT INTO configuracoes (chave, valor) VALUES ('metas', jsonb_build_object('agendamentos_mes', $1::int))
-                 ON CONFLICT (chave) DO UPDATE SET valor = jsonb_set(COALESCE(configuracoes.valor,'{}'::jsonb), '{agendamentos_mes}', to_jsonb($1::int)), updated_at = NOW()`, [alvo]);
-    res.json({ ok: true, agendamentos_mes: alvo });
+    const b = req.body || {};
+    const clamp = (v) => Math.max(0, Math.min(parseInt(v) || 0, 100000));
+    const agend = {
+      vacinas: clamp(b.vacinas), consultas: clamp(b.consultas), terapias: clamp(b.terapias),
+    };
+    await query(`INSERT INTO configuracoes (chave, valor) VALUES ('metas', jsonb_build_object('agendamentos', $1::jsonb))
+                 ON CONFLICT (chave) DO UPDATE SET valor = jsonb_set(COALESCE(configuracoes.valor,'{}'::jsonb), '{agendamentos}', $1::jsonb), updated_at = NOW()`, [JSON.stringify(agend)]);
+    res.json({ ok: true, agendamentos: agend });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

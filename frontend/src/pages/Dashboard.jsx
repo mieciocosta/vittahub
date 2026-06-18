@@ -292,6 +292,32 @@ export default function Dashboard() {
             {(porResponsavel || []).length === 0 && <div style={{ fontSize: 12, color: 'var(--muted)' }}>Visível para a gestão.</div>}
           </div>
 
+          {/* Metas de agendamento por setor — feito / alvo / quanto falta */}
+          {agMeta?.setores && Object.values(agMeta.setores).some(s => s.alvo > 0) && (
+            <div className="card" style={{ padding: '17px 19px', background: 'var(--card)' }}>
+              <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>🎯 Metas de agendamento — por setor</div>
+              {[['vacinas','💉 Vacinas','#7c5cbf'],['consultas','🩺 Consultas','#00B8C0'],['terapias','🧩 Terapias','#C4973B']].map(([k,rotulo,cor]) => {
+                const s = agMeta.setores[k] || { feitos:0, alvo:0, falta:0, pct:null };
+                if (!s.alvo) return null;
+                const pct = Math.min(s.pct || 0, 100);
+                return (
+                  <div key={k} style={{ marginBottom: 12 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 12.5 }}>
+                      <span style={{ fontWeight: 700 }}>{rotulo}</span>
+                      <span style={{ fontWeight: 800, color: cor }}>{s.feitos}/{s.alvo}</span>
+                    </div>
+                    <div style={{ height: 8, borderRadius: 5, background: 'var(--bg2)', overflow: 'hidden' }}>
+                      <div style={{ width: `${pct}%`, height: '100%', borderRadius: 5, background: s.falta === 0 ? 'var(--ok)' : cor }} />
+                    </div>
+                    <div style={{ fontSize: 11, color: s.falta === 0 ? 'var(--ok)' : 'var(--muted)', marginTop: 3, fontWeight: 600 }}>
+                      {s.falta === 0 ? '🏆 Meta batida!' : `Faltam ${s.falta} para a meta`}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           {/* Ranking de agendamentos do mês — por atendente */}
           {agMeta && (agMeta.porAtendente || []).length > 0 && (
             <div className="card" style={{ padding: '17px 19px', background: 'var(--card)' }}>
