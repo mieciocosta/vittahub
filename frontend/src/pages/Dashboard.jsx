@@ -292,6 +292,34 @@ export default function Dashboard() {
             {(porResponsavel || []).length === 0 && <div style={{ fontSize: 12, color: 'var(--muted)' }}>Visível para a gestão.</div>}
           </div>
 
+          {/* Ranking de agendamentos do mês — por atendente */}
+          {agMeta && (agMeta.porAtendente || []).length > 0 && (
+            <div className="card" style={{ padding: '17px 19px', background: 'var(--card)' }}>
+              <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}>🎯 Agendamentos do mês</div>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 12 }}>
+                {agMeta.feitos} no total{agMeta.alvo ? ` · meta ${agMeta.alvo} (${agMeta.pct ?? 0}%)` : ''}
+              </div>
+              {(agMeta.porAtendente || []).slice(0, 6).map((u2, i) => {
+                const max = Math.max(...agMeta.porAtendente.map(x => x.n), 1);
+                const pct = Math.min((u2.n / max) * 100, 100);
+                return (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderBottom: i < Math.min(agMeta.porAtendente.length, 6) - 1 ? '1px solid var(--border)' : 'none' }}>
+                    <span style={{ fontSize: 13, fontWeight: 800, color: i === 0 ? 'var(--gold,#C4973B)' : 'var(--muted)', minWidth: 18 }}>{i + 1}º</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+                        <span style={{ fontWeight: 700, fontSize: 12.5 }}>{(u2.nome || '—').split(' ')[0]}</span>
+                        <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--tq2)' }}>{u2.n}</span>
+                      </div>
+                      <div style={{ height: 6, borderRadius: 5, background: 'var(--bg2)', overflow: 'hidden' }}>
+                        <div style={{ width: `${pct}%`, height: '100%', borderRadius: 5, background: i === 0 ? 'var(--gold,#C4973B)' : 'var(--tq)' }} />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           {/* Atividades de Follow-up */}
           <div className="card" style={{ padding: '17px 19px', background: 'var(--card)', display: 'flex', flexDirection: 'column' }}>
             <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 13, display: 'flex', alignItems: 'center', gap: 8 }}>🔔 Atividades de Follow-up</div>
