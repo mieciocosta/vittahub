@@ -451,7 +451,7 @@ export default function Inbox({ onUnreadChange }) {
   const [sending, setSending] = useState(false); // guard: evita envios duplos
   const [recording, setRecording] = useState(false);
   const [recorder, setRecorder]   = useState(null);
-  const [showAI, setShowAI]     = useState(false);
+  const [showAI, setShowAI]     = useState(() => localStorage.getItem('vh_ia_aberta') !== 'off');
   const [showInfo, setShowInfo] = useState(false);
   const [showEmoji, setShowEmoji] = useState(false);
   const [filePreview, setFilePreview] = useState(null);
@@ -465,6 +465,7 @@ export default function Inbox({ onUnreadChange }) {
   const [somAtivo, setSomAtivo] = useState(() => localStorage.getItem('vh_sound') !== 'off');
   const somRef = useRef(true);
   useEffect(() => { somRef.current = somAtivo; localStorage.setItem('vh_sound', somAtivo ? 'on' : 'off'); }, [somAtivo]);
+  useEffect(() => { localStorage.setItem('vh_ia_aberta', showAI ? 'on' : 'off'); }, [showAI]);
   const [showProposta, setShowProposta] = useState(false);
   const [showBib, setShowBib] = useState(false);
   const [bibAba, setBibAba] = useState('foto');
@@ -771,7 +772,8 @@ export default function Inbox({ onUnreadChange }) {
 
   const openConvo = async (c) => {
     setSel(c); setMsgs([]); setMsgsHasMore(false); setMsgsTotal(0);
-    setShowAI(false); setShowProposta(false); setLeadData(null);
+    // IA fica aberta do lado por padrão (lembrando a preferência do usuário).
+    setShowProposta(false); setLeadData(null);
     lastMsgTs.current = null;
     try {
       const data = await api.get(`/inbox/conversations/${c.id}`);

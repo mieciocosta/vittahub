@@ -111,6 +111,12 @@ export default function Login() {
         </div>
 
         <div style={{ position: 'relative' }}>
+          <div style={{ borderRadius: 16, background: 'linear-gradient(135deg, rgba(196,151,59,.22), rgba(2,38,42,.35))', border: '1px solid rgba(196,151,59,.45)', padding: '14px 20px', marginBottom: 14, textAlign: 'center' }}>
+            <div style={{ fontSize: 14.5, lineHeight: 1.5, fontWeight: 800, color: '#fff' }}>
+              Resultados fortes mostram um líder forte. Resultados fracos mostram um líder fraco.
+            </div>
+            <div style={{ fontSize: 13, color: '#C4973B', fontWeight: 800, marginTop: 5 }}>Decida fazer história de sucesso. 🏆</div>
+          </div>
           <div style={{ display: 'flex', gap: 0, borderRadius: 16, background: 'rgba(2,38,42,.35)', border: '1px solid rgba(255,255,255,.18)', padding: '16px 20px', flexWrap: 'wrap' }}>
             <div style={{ flex: '1.2 1 240px', display: 'flex', gap: 12, alignItems: 'flex-start', paddingRight: 18 }}>
               <div style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(255,255,255,.14)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
