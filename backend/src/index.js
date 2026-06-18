@@ -8,7 +8,7 @@ import { fileURLToPath } from 'url';
 import authRouter    from './routes/auth.js';
 import leadsRouter   from './routes/leads.js';
 import reportsRouter from './routes/reports.js';
-import inboxRouter, { rodarFollowups, configurarWebhooksZapi } from './routes/inbox.js';
+import inboxRouter, { rodarFollowups, configurarWebhooksZapi, alertarLeadsSemResposta } from './routes/inbox.js';
 import extrasRouter  from './routes/extras.js';
 import auditoriaRouter from './routes/auditoria.js';
 
@@ -93,6 +93,11 @@ async function start() {
       // função respeita horário comercial, o liga/desliga e a cadência).
       setInterval(() => { rodarFollowups().catch(e => console.error('Follow-up tick:', e.message)); }, 5 * 60 * 1000);
       console.log('✅ Follow-up automático de leads agendado (5 min)');
+
+      // Alerta de lead não respondido: a cada 5 min avisa a equipe (sino) sobre
+      // clientes esperando resposta humana há tempo demais — pra ninguém esquecer.
+      setInterval(() => { alertarLeadsSemResposta().catch(e => console.error('Alerta sem-resposta tick:', e.message)); }, 5 * 60 * 1000);
+      console.log('✅ Alerta de leads sem resposta agendado (5 min)');
 
       // Auto-cura dos webhooks da Z-API: reaponta TODOS (inclusive o "enviadas
       // por mim", que faz mensagens do CELULAR subirem pro CRM) para este backend.

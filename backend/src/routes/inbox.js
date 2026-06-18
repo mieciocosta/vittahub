@@ -4280,3 +4280,48 @@ export async function rodarFollowups() {
 
 export default r;
 
+/* ─── ALERTA DE LEAD NÃO RESPONDIDO ────────────────────────────────────────────
+   Pra nenhum contato ser esquecido: avisa a EQUIPE quando um cliente está
+   esperando resposta há tempo demais e ninguém (humano) respondeu. Diferente do
+   follow-up (que fala com o cliente), aqui é um alerta interno (sino/notificação).
+   Só conta conversa fora das mãos do bot (bot_ativo=false = fila humana). Dedupe:
+   um alerta por "espera" — não repete enquanto o cliente não mandar nova msg. */
+let alertaRodando = false;
+export async function alertarLeadsSemResposta() {
+  if (alertaRodando) return;
+  alertaRodando = true;
+  try {
+    const { rows: [cfgRow] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'").catch(() => ({ rows: [{}] }));
+    const minutos = Math.max(5, Math.min(parseInt(cfgRow?.valor?.alerta_sem_resposta_min) || 30, 1440));
+    const { rows: pendentes } = await query(`
+      SELECT c.id, c.contact_name, c.phone, c.last_message_at
+      FROM conversas c
+      WHERE c.last_from = 'contact'
+        AND COALESCE(c.bot_ativo, false) = false
+        AND c.last_message_at < NOW() - ($1 || ' minutes')::interval
+        AND c.last_message_at > NOW() - INTERVAL '24 hours'
+        AND COALESCE(c.contact_id,'') NOT LIKE '%g.us%'
+        AND NOT EXISTS (
+          SELECT 1 FROM notificacoes n
+          WHERE n.conv_id = c.id AND n.tipo = 'lead_sem_resposta'
+            AND n.created_at > c.last_message_at)
+      ORDER BY c.last_message_at ASC
+      LIMIT 30`, [String(minutos)]);
+
+    for (const c of pendentes) {
+      const espera = Math.round((Date.now() - new Date(c.last_message_at).getTime()) / 60000);
+      const { rows: [n] } = await query(
+        `INSERT INTO notificacoes (tipo, titulo, texto, conv_id) VALUES ('lead_sem_resposta',$1,$2,$3) RETURNING *`,
+        [`⏰ Lead esperando: ${c.contact_name || c.phone || 'cliente'}`,
+         `O cliente está sem resposta há ${espera} min. Não deixe esfriar — responda ou transfira.`, c.id]
+      ).catch(() => ({ rows: [null] }));
+      if (n) socketEmit('notificacao', n);
+    }
+    if (pendentes.length) console.log(`ALERTA sem-resposta: ${pendentes.length} lead(s) esperando há +${minutos}min`);
+  } catch (e) {
+    console.error('alertarLeadsSemResposta erro:', e.message);
+  } finally {
+    alertaRodando = false;
+  }
+}
+
