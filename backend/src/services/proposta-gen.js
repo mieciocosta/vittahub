@@ -381,7 +381,6 @@ function gerarHtmlPlano({ planoId, desconto = 0, parcelas, bonus = 'Atendimento 
   const credito = precos.credito || bruto;
   const parcQtd = parcelas || precos.parcelas || 6;
 
-  const vN = fmtPreco(bruto);
   const vD = avista < bruto ? fmtPreco(avista) : '';
   const vCredLabel = fmtPreco(credito);
   const vP = parcQtd > 1 ? `${parcQtd}x de ${fmtPreco(Math.ceil(credito / parcQtd))} sem juros` : '';
@@ -414,8 +413,6 @@ body{margin:0;font-family:Arial,Helvetica,sans-serif;color:#073e78;background:#f
 .vi-month{display:inline-block;background:#1a4c6e;color:#fff;border-radius:3mm;padding:.8mm 3mm;font-size:2.8mm;font-weight:800;margin-bottom:1mm;}
 .vi-list{margin:0;padding:0 0 0 4mm;list-style:disc;font-size:2.7mm;line-height:3.8mm;color:#2c3e50;}
 .vac-values{background:linear-gradient(135deg,#e8f4fd,#fff);border:1mm solid #b8d8e8;border-radius:6mm;margin:3mm 10mm 0;padding:3mm 5mm;text-align:center;}
-.vv-normal{font-size:3.5mm;font-weight:700;color:#2c3e50;margin-bottom:2mm;}
-.vv-normal span{font-size:4.5mm;font-weight:800;color:#073e78;}
 .vv-destaque{background:linear-gradient(135deg,#1a8a7d,#2bbcb3);border-radius:5mm;padding:2.5mm 4mm;color:#fff;margin-bottom:2mm;}
 .vv-destaque-valor{font-size:7mm;font-weight:800;margin:0 2mm;}
 .vv-parc{background:linear-gradient(135deg,#0d3b5e,#207898);color:#fff;border-radius:4mm;padding:2.5mm 4mm;font-size:3.2mm;font-weight:700;margin-bottom:1.5mm;}
@@ -433,7 +430,6 @@ ${capaUrl ? `<section class="static-page"><img src="${capaUrl}" alt="Capa"/></se
   </div>
   <div class="vac-card">${vacH}</div>
   <div class="vac-values">
-    <div class="vv-normal">Valor Normal sem desconto: <span>${esc(vN)}</span></div>
     ${vD ? `<div class="vv-destaque"><span>Valor com desconto:</span><span class="vv-destaque-valor">${esc(vD)}</span><span>à vista</span></div>` : ''}
     <div class="vv-parc">${svgIcon('card', '#fff', 13, 'margin-right:5px;margin-top:-2px;')}Ou ${esc(vCredLabel)} no cartão${vP ? ' em ' + esc(vP) : ''}</div>
   </div>
