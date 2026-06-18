@@ -27,6 +27,46 @@ r.get('/agenda', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Agendamentos vinculados a uma conversa (mostra no chat)
+r.get('/agenda/conversa/:convId', async (req, res) => {
+  try {
+    const { rows } = await query(
+      `SELECT id, paciente, servico, data, hora, status, setor, valor
+       FROM agenda_eventos WHERE conversa_id = $1 ORDER BY data DESC, hora DESC LIMIT 50`,
+      [req.params.convId]);
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Meta de agendamentos do MÊS (contagem) + alvo configurável + por atendente
+r.get('/agenda/meta', async (req, res) => {
+  try {
+    const ini = new Date(); ini.setDate(1); const iniStr = ini.toISOString().slice(0, 10);
+    const fim = new Date(ini.getFullYear(), ini.getMonth() + 1, 1).toISOString().slice(0, 10);
+    const [tot, porResp, cfg] = await Promise.all([
+      query(`SELECT COUNT(*)::int n FROM agenda_eventos WHERE data >= $1 AND data < $2 AND status <> 'Cancelado'`, [iniStr, fim]),
+      query(`SELECT COALESCE(responsavel_nome,'(sem nome)') nome, COUNT(*)::int n
+              FROM agenda_eventos WHERE data >= $1 AND data < $2 AND status <> 'Cancelado'
+              GROUP BY responsavel_nome ORDER BY n DESC`, [iniStr, fim]),
+      query("SELECT valor FROM configuracoes WHERE chave = 'metas'"),
+    ]);
+    const alvo = parseInt(cfg.rows[0]?.valor?.agendamentos_mes) || 0;
+    const feitos = tot.rows[0]?.n || 0;
+    res.json({ feitos, alvo, pct: alvo ? +((feitos / alvo) * 100).toFixed(1) : null, porAtendente: porResp.rows });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Define o alvo mensal de agendamentos (gestão)
+r.put('/agenda/meta', async (req, res) => {
+  try {
+    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão pode alterar a meta.' });
+    const alvo = Math.max(0, Math.min(parseInt(req.body?.agendamentos_mes) || 0, 100000));
+    await query(`INSERT INTO configuracoes (chave, valor) VALUES ('metas', jsonb_build_object('agendamentos_mes', $1::int))
+                 ON CONFLICT (chave) DO UPDATE SET valor = jsonb_set(COALESCE(configuracoes.valor,'{}'::jsonb), '{agendamentos_mes}', to_jsonb($1::int)), updated_at = NOW()`, [alvo]);
+    res.json({ ok: true, agendamentos_mes: alvo });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.post('/agenda', async (req, res) => {
   try {
     const b = req.body || {};
@@ -43,12 +83,12 @@ r.post('/agenda', async (req, res) => {
     const formaPag = FORMAS.includes(b.forma_pagamento) ? b.forma_pagamento : null;
     const parcelas = formaPag === 'Crédito' && b.parcelas ? Math.max(1, Math.min(parseInt(b.parcelas) || 1, 12)) : null;
     const { rows: [ev] } = await query(`
-      INSERT INTO agenda_eventos (paciente, responsavel_nome, servico, data, hora, profissional, telefone, observacoes, status, setor, responsavel_id, lead_id, endereco, local_link, email, valor, forma_pagamento, parcelas)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'Agendado',$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *`,
+      INSERT INTO agenda_eventos (paciente, responsavel_nome, servico, data, hora, profissional, telefone, observacoes, status, setor, responsavel_id, lead_id, endereco, local_link, email, valor, forma_pagamento, parcelas, conversa_id)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'Agendado',$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *`,
       [paciente, cut(b.responsavel_nome, 80), cut(b.servico, 80), b.data, b.hora,
        cut(b.profissional, 80), cut((b.telefone || '').replace(/\D/g, ''), 13),
        cut(b.observacoes, 300), setor, b.responsavel_id || req.user.id, b.lead_id || null,
-       cut(b.endereco, 160), localLink, email, valor, formaPag, parcelas]);
+       cut(b.endereco, 160), localLink, email, valor, formaPag, parcelas, cut(b.conversa_id, 40)]);
     socketEmit('agenda_update', { id: ev.id });
     res.status(201).json(ev);
   } catch (err) { res.status(500).json({ error: err.message }); }

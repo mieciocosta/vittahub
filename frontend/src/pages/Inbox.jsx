@@ -4,7 +4,7 @@ import {
   UserPlus, Hash, Bot, FileText, Volume2, File, Tag,
   Smile, PanelLeftClose, PanelLeftOpen, Play, ChevronUp, Loader2, Zap, Plus,
   CheckCircle2, Clock, MessageCircle, Phone, Image,
-  MailOpen, VolumeX } from 'lucide-react';
+  MailOpen, VolumeX, CalendarDays } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt, openWA, avatarGrad } from '../hooks/utils.js';
 import PropostaModal from '../components/PropostaModal.jsx';
@@ -452,6 +452,10 @@ export default function Inbox({ onUnreadChange }) {
   const [recording, setRecording] = useState(false);
   const [recorder, setRecorder]   = useState(null);
   const [showAI, setShowAI]     = useState(() => localStorage.getItem('vh_ia_aberta') !== 'off');
+  const [agendarOpen, setAgendarOpen] = useState(false); // modal de agendamento
+  const [agSaving, setAgSaving] = useState(false);
+  const hojeISO = new Date().toISOString().slice(0,10);
+  const [agForm, setAgForm] = useState({ data: hojeISO, hora: '', servico: '', valor: '', observacoes: '' });
   const [showInfo, setShowInfo] = useState(false);
   const [showEmoji, setShowEmoji] = useState(false);
   const [filePreview, setFilePreview] = useState(null);
@@ -972,6 +976,26 @@ export default function Inbox({ onUnreadChange }) {
     } catch (e) { Toast.show(e.message || 'Não foi possível alterar o bot', 'error'); }
   };
 
+  const abrirAgendar = () => {
+    setAgForm({ data: hojeISO, hora: '', servico: '', valor: '', observacoes: '' });
+    setAgendarOpen(true);
+  };
+  const salvarAgendamento = async () => {
+    if (!agForm.hora) { Toast.show('Informe o horário', 'error'); return; }
+    setAgSaving(true);
+    try {
+      await api.post('/extras/agenda', {
+        paciente: sel.contact_name || fmt.phone(sel.phone) || 'Cliente',
+        telefone: sel.phone, conversa_id: sel.id, setor: sel.setor || 'consultas',
+        data: agForm.data, hora: agForm.hora, servico: agForm.servico,
+        valor: agForm.valor, observacoes: agForm.observacoes,
+      });
+      Toast.show('Agendado! ✅ Contabilizado na meta do mês 🎯', 'success');
+      setAgendarOpen(false);
+    } catch (e) { Toast.show(e.message || 'Não foi possível agendar', 'error'); }
+    setAgSaving(false);
+  };
+
   const changeStatus = async (status) => {
     await api.patch(`/inbox/conversations/${sel.id}/status`, { status });
     setSel(p => ({ ...p, status_atend:status }));
@@ -1133,6 +1157,10 @@ export default function Inbox({ onUnreadChange }) {
                 </button>
               )}
 
+              <button onClick={abrirAgendar} title="Agendar este atendimento (conta na meta do mês)"
+                className="btn btn-sm" style={{ background:'#1e3a5f', color:'#7cc4ff', border:'1.5px solid #2563eb', fontSize:11, padding:'4px 9px', fontWeight:700 }}>
+                <CalendarDays size={10}/> Agendar
+              </button>
               <button onClick={toLead} className="btn btn-s btn-sm" style={{ fontSize:11, padding:'4px 9px' }}><UserPlus size={10}/> Lead</button>
               <button onClick={()=>{setShowAI(p=>!p);setShowInfo(false);}} className="btn btn-sm" style={{ background:showAI?'#032B30':'var(--bg2)', color:showAI?'#00B8C0':'var(--muted)', border:`1.5px solid ${showAI?'rgba(0,184,192,.4)':'var(--border)'}`, fontSize:11, padding:'4px 9px' }}>
                 <Sparkles size={10}/> IA
@@ -1388,6 +1416,31 @@ export default function Inbox({ onUnreadChange }) {
       {showProposta && sel && (
         <PropostaModal convId={sel.id} token={token} contactName={sel.contact_name} atendente={user?.nome}
           onClose={txt=>{setShowProposta(false);if(txt)setMsgs(p=>[...p,{id:Date.now(),from_type:'me',type:'text',content:txt,created_at:new Date().toISOString(),status:'sent',sender_nome:user?.nome}]);}}/>
+      )}
+
+      {agendarOpen && sel && (
+        <div onClick={()=>setAgendarOpen(false)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.5)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000, padding:16 }}>
+          <div onClick={e=>e.stopPropagation()} className="card" style={{ width:380, maxWidth:'100%', padding:22 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
+              <CalendarDays size={18} color="var(--tq)"/>
+              <h3 style={{ fontSize:16, fontWeight:800 }}>Agendar atendimento</h3>
+            </div>
+            <p style={{ fontSize:12, color:'var(--muted)', marginBottom:16 }}>Cliente: <b>{sel.contact_name || fmt.phone(sel.phone)}</b> · conta na meta do mês 🎯</p>
+            <div style={{ display:'flex', flexDirection:'column', gap:11 }}>
+              <div style={{ display:'flex', gap:10 }}>
+                <div className="field" style={{ flex:1, margin:0 }}><label>Data</label><input type="date" value={agForm.data} onChange={e=>setAgForm(p=>({...p,data:e.target.value}))} /></div>
+                <div className="field" style={{ flex:1, margin:0 }}><label>Hora</label><input type="time" value={agForm.hora} onChange={e=>setAgForm(p=>({...p,hora:e.target.value}))} /></div>
+              </div>
+              <div className="field" style={{ margin:0 }}><label>Serviço (opcional)</label><input value={agForm.servico} onChange={e=>setAgForm(p=>({...p,servico:e.target.value}))} placeholder="Ex: Avaliação inicial, Vacina..." /></div>
+              <div className="field" style={{ margin:0 }}><label>Valor (opcional)</label><input type="number" value={agForm.valor} onChange={e=>setAgForm(p=>({...p,valor:e.target.value}))} placeholder="R$" /></div>
+              <div className="field" style={{ margin:0 }}><label>Observações (opcional)</label><textarea value={agForm.observacoes} onChange={e=>setAgForm(p=>({...p,observacoes:e.target.value}))} rows={2} style={{ resize:'vertical' }} /></div>
+              <div style={{ display:'flex', gap:8, marginTop:4 }}>
+                <button onClick={salvarAgendamento} disabled={agSaving} className="btn btn-p" style={{ flex:1 }}>{agSaving ? <span className="spin" style={{width:14,height:14}}/> : '✅ Agendar'}</button>
+                <button onClick={()=>setAgendarOpen(false)} className="btn">Cancelar</button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
