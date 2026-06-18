@@ -1083,7 +1083,16 @@ Cliente atual: ${conv.contact_name || 'não identificado'}.${memoriaTexto ? `
 O QUE VOCÊ JÁ SABE DESTE CLIENTE (use com naturalidade, NÃO pergunte de novo):
 ${memoriaTexto}` : ''}`;
 
-  const sysPrompt = ehConsulta ? sysPromptConsultas : sysPromptVacinas;
+  let sysPrompt = ehConsulta ? sysPromptConsultas : sysPromptVacinas;
+  // Exemplos de conversas que CONVERTERAM (marcadas pela gestão): a IA estuda o
+  // jeito campeão — tom, ritmo, como acolhe e conduz pro agendamento.
+  const { rows: exRows } = await query(
+    `SELECT conteudo FROM exemplos_conversa WHERE setor = $1 ORDER BY created_at DESC LIMIT 3`,
+    [conv.setor || 'consultas']).catch(() => ({ rows: [] }));
+  if (exRows.length) {
+    const exemplos = exRows.map((e, i) => `--- EXEMPLO ${i + 1} (deu certo) ---\n${e.conteudo}`).join('\n\n');
+    sysPrompt += `\n\nESTUDE ESTES EXEMPLOS REAIS DE ATENDIMENTOS QUE CONVERTERAM. Copie o JEITO (tom, ritmo, como acolhe, como conduz pro agendamento) — mas NUNCA copie dados específicos (nomes, valores, datas) deles; use sempre os dados reais do cliente de agora:\n\n${exemplos}`;
+  }
 
   const tools = [{
     name: 'enviar_proposta',
@@ -2603,6 +2612,43 @@ r.patch('/conversations/:id/categoria', async (req, res) => {
     socketEmit('conv_categoria', { convId: conv.id, categoria: cat });
     res.json({ ok: true, categoria: cat });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── EXEMPLOS DE CONVERSA (treino da IA) ──────────────────────────────────────
+// Marca uma conversa que converteu como EXEMPLO. A IA passa a estudar o jeito.
+r.post('/conversations/:id/exemplo', masterOnly, async (req, res) => {
+  try {
+    const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    const { rows: msgs } = await query(
+      `SELECT from_type, type, content, filename FROM mensagens
+       WHERE conversa_id = $1 AND type IN ('text','document') AND from_type <> 'system'
+       ORDER BY created_at ASC LIMIT 60`, [req.params.id]);
+    if (!msgs.length) return res.status(400).json({ error: 'Conversa sem mensagens pra usar de exemplo.' });
+    const conteudo = msgs.map(m => {
+      const quem = m.from_type === 'contact' ? 'Cliente' : 'Atendente';
+      const txt = m.type === 'document' ? `[enviou documento: ${m.filename || 'arquivo'}]` : String(m.content || '').trim();
+      return txt ? `${quem}: ${txt}` : '';
+    }).filter(Boolean).join('\n').slice(0, 4000);
+    const titulo = (req.body?.titulo || conv.contact_name || conv.phone || 'Conversa de sucesso').slice(0, 80);
+    const setor = ['vacinas', 'consultas', 'terapias'].includes(conv.setor) ? conv.setor : 'consultas';
+    const { rows: [ex] } = await query(
+      `INSERT INTO exemplos_conversa (titulo, setor, conteudo, criado_por) VALUES ($1,$2,$3,$4) RETURNING id, titulo, setor, created_at`,
+      [titulo, setor, conteudo, req.user?.nome || null]);
+    res.status(201).json(ex);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.get('/exemplos', async (req, res) => {
+  try {
+    const { rows } = await query(`SELECT id, titulo, setor, criado_por, created_at, length(conteudo) tam FROM exemplos_conversa ORDER BY created_at DESC LIMIT 100`);
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.delete('/exemplos/:id', masterOnly, async (req, res) => {
+  try { await query('DELETE FROM exemplos_conversa WHERE id = $1', [req.params.id]); res.json({ ok: true }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // Lista de atendentes (pra o seletor de transferência) — acessível a todos logados

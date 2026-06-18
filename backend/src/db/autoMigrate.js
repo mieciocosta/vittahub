@@ -263,6 +263,11 @@ export default async function runMigrate() {
     // Pastas de organização: 'fidelidade' (mensalistas) e 'banco_dados' (1 vacina só)
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS categoria TEXT`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS idx_conversas_categoria ON conversas (categoria) WHERE categoria IS NOT NULL`).catch(() => {});
+    // Exemplos de conversas que converteram — a IA estuda pra copiar o jeito campeão
+    await query(`CREATE TABLE IF NOT EXISTS exemplos_conversa (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      titulo TEXT, setor TEXT DEFAULT 'consultas', conteudo TEXT NOT NULL,
+      criado_por TEXT, created_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
 
     await query(`CREATE TABLE IF NOT EXISTS indicacoes (
       id SERIAL PRIMARY KEY, indicador_nome TEXT NOT NULL, indicador_telefone TEXT,

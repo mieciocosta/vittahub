@@ -991,6 +991,14 @@ export default function Inbox({ onUnreadChange }) {
     } catch (e) { Toast.show(e.message || 'Não foi possível alterar o bot', 'error'); }
   };
 
+  const marcarExemplo = async () => {
+    if (!window.confirm('Marcar esta conversa como EXEMPLO de sucesso?\n\nA IA vai estudar o jeito desta conversa pra copiar o tom que converteu.')) return;
+    try {
+      await api.post(`/inbox/conversations/${sel.id}/exemplo`, {});
+      Toast.show('Conversa marcada como exemplo da IA ⭐ A IA vai aprender com ela.', 'success');
+    } catch (e) { Toast.show(e.message || 'Não foi possível marcar', 'error'); }
+  };
+
   const moverPasta = async (categoria) => {
     try {
       await api.patch(`/inbox/conversations/${sel.id}/categoria`, { categoria });
@@ -1302,6 +1310,14 @@ export default function Inbox({ onUnreadChange }) {
                     </div>
                     {sel.categoria && <div style={{ fontSize:11, color:'var(--muted)', marginTop:6 }}>Nesta pasta. Clique de novo pra tirar.</div>}
                   </div>
+                  {user?.role === 'master' && (
+                    <div style={{ marginTop:12, paddingTop:12, borderTop:'1px solid var(--border)' }}>
+                      <button onClick={marcarExemplo} className="btn btn-sm" style={{ width:'100%', fontWeight:700, background:'#fef3c7', color:'#92600a', border:'1.5px solid #fcd34d' }}>
+                        ⭐ Usar como exemplo da IA
+                      </button>
+                      <div style={{ fontSize:10.5, color:'var(--muted)', marginTop:5 }}>A IA estuda conversas que converteram pra copiar o jeito.</div>
+                    </div>
+                  )}
                 </div>
                 {leadData ? (
                   <div style={{ padding:'12px 14px', borderBottom:'1px solid var(--border)' }}>

@@ -19,6 +19,12 @@ export default function Configuracoes() {
   const [novoUser, setNovoUser] = useState(null); // { nome, cpf, senha, role }
   const [killing, setKilling] = useState(false); // desligar todos os bots (precisa ficar antes do early-return de isMaster)
   const [metaAg, setMetaAg] = useState({ vacinas:'', consultas:'', terapias:'' }); // alvos por setor
+  const [exemplos, setExemplos] = useState([]);  // exemplos de conversa pra IA
+  const delExemplo = async (id) => {
+    if (!window.confirm('Remover este exemplo? A IA deixa de estudá-lo.')) return;
+    setExemplos(p=>p.filter(e=>e.id!==id));
+    try { await api.del(`/inbox/exemplos/${id}`); } catch {}
+  };
   const [metaSaving, setMetaSaving] = useState(false);
   const [metaSaved, setMetaSaved] = useState(false);
   const [diag, setDiag] = useState(null);        // resultado do diagnóstico do bot
@@ -58,6 +64,7 @@ export default function Configuracoes() {
     api.get('/inbox/quick-replies').then(setQr);
     api.get('/inbox/bot-config').then(setBot);
     api.get('/auth/usuarios').then(setUsers).catch(()=>{});
+    api.get('/inbox/exemplos').then(d=>setExemplos(Array.isArray(d)?d:[])).catch(()=>{});
     api.get('/extras/agenda/meta').then(d=>{
       const s = d?.setores || {};
       setMetaAg({ vacinas: s.vacinas?.alvo || '', consultas: s.consultas?.alvo || '', terapias: s.terapias?.alvo || '' });
@@ -195,6 +202,23 @@ export default function Configuracoes() {
                     {diag.versao_backend && <div style={{ marginTop:8, fontSize:10.5, color:'var(--muted)', borderTop:'1px solid var(--border)', paddingTop:6 }}>versão do backend: {diag.versao_backend}</div>}
                   </div>
                 )}
+              </div>
+
+              {/* Exemplos de conversa que a IA estuda (treino) */}
+              <div style={{ borderTop:'1px solid var(--border)', marginTop:4, paddingTop:14 }}>
+                <div style={{ fontWeight:700, fontSize:13, marginBottom:3 }}>⭐ Exemplos de conversa da IA</div>
+                <div style={{ fontSize:11.5, color:'var(--muted)', marginBottom:10 }}>Conversas que converteram, marcadas no chat. A IA estuda o jeito delas pra copiar o tom campeão.</div>
+                {exemplos.length === 0
+                  ? <div style={{ fontSize:12, color:'var(--muted)' }}>Nenhum exemplo ainda. No chat, abra um atendimento de sucesso → painel Info → "⭐ Usar como exemplo da IA".</div>
+                  : exemplos.map(e=>(
+                    <div key={e.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'7px 0', borderBottom:'1px solid var(--border)' }}>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontWeight:700, fontSize:12.5, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{e.titulo}</div>
+                        <div style={{ fontSize:11, color:'var(--muted)' }}>{e.setor} · {e.criado_por || 'gestão'}</div>
+                      </div>
+                      <button onClick={()=>delExemplo(e.id)} style={{ padding:5, background:'var(--err2)', color:'var(--err)', borderRadius:6, flexShrink:0 }}><Trash2 size={12}/></button>
+                    </div>
+                  ))}
               </div>
             </div>
           )}
