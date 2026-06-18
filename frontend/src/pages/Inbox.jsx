@@ -1004,7 +1004,7 @@ export default function Inbox({ onUnreadChange }) {
 
   const abrirAgendar = () => {
     const s = ['vacinas','consultas','terapias'].includes(sel.setor) ? sel.setor : 'consultas';
-    setAgForm({ data: hojeISO, hora: '', servico: '', valor: '', observacoes: '', setor: s });
+    setAgForm({ data: hojeISO, hora: '', servico: '', valor: '', observacoes: '', setor: s, forma_pagamento: '', endereco: '', local_link: '' });
     setAgendarOpen(true);
   };
 
@@ -1028,6 +1028,7 @@ export default function Inbox({ onUnreadChange }) {
   };
   const salvarAgendamento = async () => {
     if (!agForm.hora) { Toast.show('Informe o horário', 'error'); return; }
+    if (agForm.local_link && !/^https?:\/\//i.test(agForm.local_link.trim())) { Toast.show('O link do endereço precisa começar com http:// ou https://', 'error'); return; }
     setAgSaving(true);
     try {
       await api.post('/extras/agenda', {
@@ -1035,6 +1036,7 @@ export default function Inbox({ onUnreadChange }) {
         telefone: sel.phone, conversa_id: sel.id, setor: agForm.setor,
         data: agForm.data, hora: agForm.hora, servico: agForm.servico,
         valor: agForm.valor, observacoes: agForm.observacoes,
+        forma_pagamento: agForm.forma_pagamento, endereco: agForm.endereco, local_link: agForm.local_link.trim(),
       });
       Toast.show(`Agendado! ✅ Abatido da meta de ${agForm.setor} 🎯`, 'success');
       setAgendarOpen(false);
@@ -1532,7 +1534,21 @@ export default function Inbox({ onUnreadChange }) {
                 </select>
               </div>
               <div className="field" style={{ margin:0 }}><label>Serviço (opcional)</label><input value={agForm.servico} onChange={e=>setAgForm(p=>({...p,servico:e.target.value}))} placeholder="Ex: Avaliação inicial, Vacina..." /></div>
-              <div className="field" style={{ margin:0 }}><label>Valor (opcional)</label><input type="number" value={agForm.valor} onChange={e=>setAgForm(p=>({...p,valor:e.target.value}))} placeholder="R$" /></div>
+              <div style={{ display:'flex', gap:10 }}>
+                <div className="field" style={{ flex:1, margin:0 }}><label>Valor (opcional)</label><input type="number" value={agForm.valor} onChange={e=>setAgForm(p=>({...p,valor:e.target.value}))} placeholder="R$" /></div>
+                <div className="field" style={{ flex:1, margin:0 }}>
+                  <label>Forma de pagamento</label>
+                  <select value={agForm.forma_pagamento} onChange={e=>setAgForm(p=>({...p,forma_pagamento:e.target.value}))} style={{ width:'100%' }}>
+                    <option value="">—</option>
+                    <option value="À vista">À vista</option>
+                    <option value="Pix">Pix</option>
+                    <option value="Débito">Débito</option>
+                    <option value="Crédito">Crédito</option>
+                  </select>
+                </div>
+              </div>
+              <div className="field" style={{ margin:0 }}><label>Endereço (opcional)</label><input value={agForm.endereco} onChange={e=>setAgForm(p=>({...p,endereco:e.target.value}))} placeholder="Ex: Av. Colares Moreira, 3 — sala 36" /></div>
+              <div className="field" style={{ margin:0 }}><label>Link do endereço (Google Maps)</label><input value={agForm.local_link} onChange={e=>setAgForm(p=>({...p,local_link:e.target.value}))} placeholder="https://maps.google.com/..." /></div>
               <div className="field" style={{ margin:0 }}><label>Observações (opcional)</label><textarea value={agForm.observacoes} onChange={e=>setAgForm(p=>({...p,observacoes:e.target.value}))} rows={2} style={{ resize:'vertical' }} /></div>
               <div style={{ display:'flex', gap:8, marginTop:4 }}>
                 <button onClick={salvarAgendamento} disabled={agSaving} className="btn btn-p" style={{ flex:1 }}>{agSaving ? <span className="spin" style={{width:14,height:14}}/> : '✅ Agendar'}</button>
