@@ -4,7 +4,6 @@ import { useAuth } from './context/AuthContext.jsx';
 import Sidebar from './components/Sidebar.jsx';
 import CelebracaoGlobal from './components/CelebracaoGlobal.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
-import Calculadora from './components/Calculadora.jsx';
 import Login from './pages/Login.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Inbox from './pages/Inbox.jsx';
@@ -133,7 +132,6 @@ export default function App() {
         </Routes>
         </ErrorBoundary>
       </main>
-      <Calculadora />
     </div>
   );
 }

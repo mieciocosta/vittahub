@@ -2661,6 +2661,22 @@ r.patch('/conversations/:id/assign', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// CLASSIFICAR o setor do atendimento (atendente define o assunto). Ao classificar,
+// a conversa passa a aparecer SÓ pro time daquele setor (regra de acesso) e some
+// pra quem não é. menu_enviado=true pra o bot não reabrir a triagem.
+r.patch('/conversations/:id/setor', async (req, res) => {
+  try {
+    const setor = req.body.setor;
+    if (!['vacinas', 'consultas', 'terapias'].includes(setor)) return res.status(400).json({ error: 'Setor inválido.' });
+    const { rows: [conv] } = await query(
+      'UPDATE conversas SET setor = $1, menu_enviado = true WHERE id = $2 RETURNING *', [setor, req.params.id]);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    cacheUpdate(conv);
+    socketEmit('conv_setor', { convId: conv.id, setor });
+    res.json({ ok: true, setor });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Mover atendimento para uma PASTA (fidelidade / banco_dados) ou tirar (null).
 // Sai do inbox normal e passa a viver na pasta correspondente.
 r.patch('/conversations/:id/categoria', async (req, res) => {

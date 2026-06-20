@@ -8,6 +8,7 @@ import {
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt, openWA, avatarGrad } from '../hooks/utils.js';
 import PropostaModal from '../components/PropostaModal.jsx';
+import Calculadora from '../components/Calculadora.jsx';
 import Copiloto from '../components/Copiloto.jsx';
 
 /* ── Icons ──────────────────────────────────────────────────────────────────── */
@@ -611,6 +612,24 @@ export default function Inbox({ onUnreadChange }) {
           setConvos(prev => prev.map(c => c.id === convId ? { ...c, responsavel_id: para_id } : c));
         }
       });
+      // Conversa foi classificada num setor → se eu não sou do grupo dele, some.
+      socket.on('conv_setor', ({ convId, setor }) => {
+        const u = userRef.current;
+        const doGrupo = !u || u.role === 'master' || !u.setor || ((u.setor === 'vacinas') === (setor === 'vacinas'));
+        if (!doGrupo) {
+          setConvos(prev => prev.filter(c => c.id !== convId));
+          setSel(prev => prev?.id === convId ? null : prev);
+        } else {
+          setConvos(prev => prev.map(c => c.id === convId ? { ...c, setor } : c));
+        }
+      });
+      // Conversa movida pra uma pasta (Fidelidade/Banco) → sai do inbox normal.
+      socket.on('conv_categoria', ({ convId, categoria }) => {
+        if (categoria) {
+          setConvos(prev => prev.filter(c => c.id !== convId));
+          setSel(prev => prev?.id === convId ? null : prev);
+        }
+      });
     }).catch(err => console.warn('socket.io-client não disponível:', err.message));
 
     return () => {
@@ -999,6 +1018,29 @@ export default function Inbox({ onUnreadChange }) {
     } catch (e) { Toast.show(e.message || 'Não foi possível marcar', 'error'); }
   };
 
+  // Atendente classifica o setor do atendimento. Depois disso a conversa só
+  // aparece pro time daquele setor — se eu não sou desse grupo, some da minha lista.
+  const classificarSetor = async (setor) => {
+    try {
+      await api.patch(`/inbox/conversations/${sel.id}/setor`, { setor });
+      setSel(p => ({ ...p, setor }));
+      const souMaster = user?.role === 'master';
+      const meuSetor = user?.setor;
+      const convVacina = setor === 'vacinas';
+      const euVacina = meuSetor === 'vacinas';
+      const souDoGrupo = souMaster || !meuSetor || (euVacina === convVacina);
+      if (!souDoGrupo) {
+        const idC = sel.id;
+        setConvos(p => p.filter(c => c.id !== idC));
+        setSel(null); setMsgs([]);
+        Toast.show(`Classificado como ${setor} — enviado pro time responsável ✅`, 'success');
+      } else {
+        setConvos(p => p.map(c => c.id===sel.id ? {...c, setor} : c));
+        Toast.show(`Classificado como ${setor} ✅`, 'success');
+      }
+    } catch (e) { Toast.show(e.message || 'Não foi possível classificar', 'error'); }
+  };
+
   const moverPasta = async (categoria) => {
     try {
       await api.patch(`/inbox/conversations/${sel.id}/categoria`, { categoria });
@@ -1213,6 +1255,16 @@ export default function Inbox({ onUnreadChange }) {
                 </button>
               )}
 
+              <select value={sel.setor || ''} onChange={e=>e.target.value && classificarSetor(e.target.value)}
+                title="Classificar o setor deste atendimento — depois ele aparece só pro time responsável"
+                className="btn btn-sm" style={{ fontSize:11, padding:'4px 9px', fontWeight:700, cursor:'pointer',
+                  background: sel.setor ? 'var(--tq3)' : '#fff7ed', color: sel.setor ? 'var(--tq2)' : '#b45309',
+                  border:`1.5px solid ${sel.setor ? 'var(--tq)' : '#fcd34d'}` }}>
+                <option value="">🏷️ Classificar setor…</option>
+                <option value="vacinas">💉 Vacinas</option>
+                <option value="consultas">🩺 Consultas</option>
+                <option value="terapias">🧩 Terapias</option>
+              </select>
               <button onClick={abrirAgendar} title="Agendar este atendimento (conta na meta do mês)"
                 className="btn btn-sm" style={{ background:'#1e3a5f', color:'#7cc4ff', border:'1.5px solid #2563eb', fontSize:11, padding:'4px 9px', fontWeight:700 }}>
                 <CalendarDays size={10}/> Agendar
@@ -1459,6 +1511,7 @@ export default function Inbox({ onUnreadChange }) {
               <button onClick={()=>{setShowEmoji(p=>!p);setShowQR(false);}} className="btn btn-ico" style={{ background:showEmoji?'var(--tq3)':'transparent', color:showEmoji?'var(--tq)':'var(--muted)', borderRadius:8 }}><Smile size={15}/></button>
               <button onClick={()=>{setShowQR(p=>!p);setShowEmoji(false);}} title="Mensagens automáticas" className="btn btn-ico" style={{ background:showQR?'var(--tq3)':'transparent', color:showQR?'var(--tq)':'var(--muted)', borderRadius:8 }}><Zap size={15}/></button>
               <button onClick={()=>setShowBib(true)} title="Biblioteca de Experiências (fotos, vídeos, figurinhas)" className="btn btn-ico" style={{ background:'transparent', color:'var(--muted)', borderRadius:8, fontSize:15, lineHeight:1 }}>🖼️</button>
+              <Calculadora />
               <input ref={fileRef} type="file" accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.gif" style={{ display:'none' }} onChange={handleFile}/>
               <textarea ref={textRef} onPaste={handlePaste} spellCheck lang="pt-BR" value={input} onChange={e=>setInput(e.target.value)}
                 onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}}}
