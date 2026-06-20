@@ -197,34 +197,55 @@ r.get('/vendas', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Resumo comercial do MÊS: as 4 camadas de valor + por setor/categoria/atendente.
+// Resumo comercial do MÊS: as 4 camadas de valor (potencial/agendado/pendente/
+// confirmado) por SETOR com meta e "quanto falta" + ranking por atendente/categoria.
+const SET3 = ['vacinas', 'consultas', 'terapias'];
 r.get('/vendas/resumo', async (req, res) => {
   try {
     const mes = /^\d{4}-\d{2}$/.test(req.query.mes || '') ? req.query.mes : new Date().toISOString().slice(0, 7);
     const soMinhas = !gestao(req) ? `AND atendente_id = '${req.user.id.replace(/'/g, '')}'` : '';
-    const [camadas, porSetor, porAtendente, porCategoria, agendado] = await Promise.all([
-      query(`SELECT
+    const [vendasSetor, porAtendente, porCategoria, agSetor, cfg] = await Promise.all([
+      query(`SELECT setor,
           COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float confirmado,
           COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('sinal','aguardando','parcelado','pendente')),0)::float pendente,
-          COUNT(*)::int total
-        FROM vendas WHERE to_char(data_venda,'YYYY-MM') = $1 ${soMinhas}`, [mes]),
-      query(`SELECT setor, COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float confirmado, COUNT(*)::int n
-              FROM vendas WHERE to_char(data_venda,'YYYY-MM') = $1 ${soMinhas} GROUP BY setor`, [mes]),
+          COUNT(*)::int n
+        FROM vendas WHERE to_char(data_venda,'YYYY-MM') = $1 ${soMinhas} GROUP BY setor`, [mes]),
       query(`SELECT COALESCE(atendente_nome,'(sem nome)') nome, COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float confirmado, COUNT(*)::int n
               FROM vendas WHERE to_char(data_venda,'YYYY-MM') = $1 ${soMinhas} GROUP BY atendente_nome ORDER BY confirmado DESC`, [mes]),
       query(`SELECT categoria, COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float confirmado, COUNT(*)::int n
               FROM vendas WHERE to_char(data_venda,'YYYY-MM') = $1 ${soMinhas} GROUP BY categoria ORDER BY confirmado DESC`, [mes]),
-      query(`SELECT COALESCE(SUM(valor),0)::float agendado FROM agenda_eventos
-              WHERE to_char(data,'YYYY-MM') = $1 AND status IN ('Agendado','Confirmado','Reagendado') AND valor IS NOT NULL`, [mes]),
+      query(`SELECT COALESCE(setor,'vacinas') setor, COALESCE(SUM(valor),0)::float agendado FROM agenda_eventos
+              WHERE to_char(data,'YYYY-MM') = $1 AND status IN ('Agendado','Confirmado','Reagendado') AND valor IS NOT NULL GROUP BY setor`, [mes]),
+      query("SELECT valor FROM configuracoes WHERE chave = 'metas'"),
     ]);
+    const metaV = cfg.rows[0]?.valor?.vendas || {};
+    const vMap = Object.fromEntries(vendasSetor.rows.map(r2 => [r2.setor, r2]));
+    const aMap = Object.fromEntries(agSetor.rows.map(r2 => [r2.setor, r2.agendado]));
+    const setores = {}; let totConf = 0, totPend = 0, totAg = 0, totMeta = 0;
+    for (const s of SET3) {
+      const conf = vMap[s]?.confirmado || 0, pend = vMap[s]?.pendente || 0, ag = aMap[s] || 0;
+      const meta = parseFloat(metaV[s]) || 0;
+      setores[s] = { meta, confirmado: conf, pendente: pend, agendado: ag, falta: Math.max(meta - conf, 0), pct: meta ? +((conf / meta) * 100).toFixed(1) : null, n: vMap[s]?.n || 0 };
+      totConf += conf; totPend += pend; totAg += ag; totMeta += meta;
+    }
     res.json({
-      mes,
-      confirmado: camadas.rows[0]?.confirmado || 0,
-      pendente: camadas.rows[0]?.pendente || 0,
-      agendado: agendado.rows[0]?.agendado || 0,
-      total: camadas.rows[0]?.total || 0,
-      porSetor: porSetor.rows, porAtendente: porAtendente.rows, porCategoria: porCategoria.rows,
+      mes, setores,
+      total: { meta: totMeta, confirmado: totConf, pendente: totPend, agendado: totAg, falta: Math.max(totMeta - totConf, 0), pct: totMeta ? +((totConf / totMeta) * 100).toFixed(1) : null },
+      porAtendente: porAtendente.rows, porCategoria: porCategoria.rows,
     });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Define a meta de VENDAS (R$) por setor do mês (gestão)
+r.put('/vendas/meta', async (req, res) => {
+  try {
+    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão define metas.' });
+    const b = req.body || {};
+    const clamp = (v) => Math.max(0, Math.min(parseFloat(v) || 0, 100000000));
+    const vendas = { vacinas: clamp(b.vacinas), consultas: clamp(b.consultas), terapias: clamp(b.terapias) };
+    await query(`INSERT INTO configuracoes (chave, valor) VALUES ('metas', jsonb_build_object('vendas', $1::jsonb))
+                 ON CONFLICT (chave) DO UPDATE SET valor = jsonb_set(COALESCE(configuracoes.valor,'{}'::jsonb), '{vendas}', $1::jsonb), updated_at = NOW()`, [JSON.stringify(vendas)]);
+    res.json({ ok: true, vendas });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
