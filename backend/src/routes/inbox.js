@@ -112,13 +112,14 @@ carregarUsuariosSetor();
 setInterval(carregarUsuariosSetor, 30000);
 
 // Grupo EFETIVO da conversa (vacina | nao-vacina | null=indefinida). PRECEDÊNCIA:
-// 1º o setor de quem é RESPONSÁVEL (Danielle/Raylane = vacinas → vacina); se o
-// responsável não tem setor (ex.: master) ou não há responsável, usa o setor da
-// CONVERSA. Sem nenhum dos dois → indefinida (conversa nova ainda não triada).
-// Como cada conversa cai em UM único grupo, nunca aparece pra dois lados nem some.
+// 1º o SETOR da conversa (o assunto/triagem manda — conversa marcada 'vacinas' é
+// de vacina, não importa quem é o responsável). Só quando a conversa NÃO tem setor
+// (ainda não triada) é que usamos o setor de quem é RESPONSÁVEL (Danielle/Raylane
+// = vacinas → vacina; demais → não-vacina). Sem nenhum dos dois → indefinida.
+// Cada conversa cai em UM único grupo — nunca aparece pra dois lados nem some.
 function grupoConversa(conv) {
   const respSetor = conv.responsavel_id ? usuariosSetor.get(String(conv.responsavel_id)) : null;
-  const efetivo = respSetor || conv.setor || null;
+  const efetivo = conv.setor || respSetor || null;
   if (efetivo === 'vacinas') return 'vacina';
   if (efetivo === 'consultas' || efetivo === 'terapias') return 'nao-vacina';
   return null;
@@ -2404,9 +2405,10 @@ r.get('/conversations', async (req, res) => {
       if (req.query.categoria) { conditions.push(`c.categoria = $${pi++}`); params.push(req.query.categoria); }
       else conditions.push(`c.categoria IS NULL`);
       // Acesso por setor (rede de segurança na janela de boot, antes do cache):
-      // considera o setor do RESPONSÁVEL (precedência) e, na falta, o da conversa.
+      // mesma precedência do cache — o setor da CONVERSA manda; só usa o do
+      // responsável quando a conversa não tem setor.
       if (req.user && req.user.role !== 'master' && req.user.setor) {
-        const grupoVac = `COALESCE((SELECT u2.setor FROM usuarios u2 WHERE u2.id = c.responsavel_id), c.setor)`;
+        const grupoVac = `COALESCE(c.setor, (SELECT u2.setor FROM usuarios u2 WHERE u2.id = c.responsavel_id))`;
         conditions.push(req.user.setor === 'vacinas'
           ? `(${grupoVac} = 'vacinas' OR ${grupoVac} IS NULL)`
           : `(${grupoVac} <> 'vacinas' OR ${grupoVac} IS NULL)`);
