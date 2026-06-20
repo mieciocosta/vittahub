@@ -4,7 +4,7 @@ import {
   UserPlus, Hash, Bot, FileText, Volume2, File, Tag,
   Smile, PanelLeftClose, PanelLeftOpen, Play, ChevronUp, Loader2, Zap, Plus,
   CheckCircle2, Clock, MessageCircle, Phone, Image,
-  MailOpen, VolumeX, CalendarDays } from 'lucide-react';
+  MailOpen, VolumeX, CalendarDays, Bell } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { useSearchParams } from 'react-router-dom';
 import { fmt, openWA, avatarGrad } from '../hooks/utils.js';
@@ -467,6 +467,9 @@ export default function Inbox({ onUnreadChange }) {
   const [perderOpen, setPerderOpen] = useState(false);
   const [perderSaving, setPerderSaving] = useState(false);
   const [perderForm, setPerderForm] = useState({ motivo:'', observacao:'', valor_potencial:'' });
+  const [followOpen, setFollowOpen] = useState(false);
+  const [followSaving, setFollowSaving] = useState(false);
+  const [followForm, setFollowForm] = useState({ data:'', motivo:'' });
   const hojeISO = new Date().toISOString().slice(0,10);
   const [agForm, setAgForm] = useState({ data: hojeISO, hora: '', servico: '', valor: '', observacoes: '', setor: 'consultas' });
   const [showInfo, setShowInfo] = useState(false);
@@ -1108,6 +1111,23 @@ export default function Inbox({ onUnreadChange }) {
     return ds.length ? ds.map(([k,l]) => `${l} ${p.disponibilidade[k].inicio}-${p.disponibilidade[k].fim}`).join(' · ') : 'sem horário definido';
   };
 
+  const MOTIVOS_FOLLOW = ['Orçamento enviado','Proposta enviada','Cliente vai falar com esposo/família','Aguardando pagamento','Aguardando confirmação','Aguardando carteira','Reativação','Próxima dose','Retorno de consulta','Renovação de terapia','Outro'];
+  const abrirFollow = () => {
+    const amanha = new Date(Date.now() + 86400000).toISOString().slice(0,10);
+    setFollowForm({ data: amanha, motivo: '' }); setFollowOpen(true);
+  };
+  const salvarFollow = async () => {
+    if (!followForm.data) { Toast.show('Escolha a data do follow-up', 'error'); return; }
+    setFollowSaving(true);
+    try {
+      await api.post(`/inbox/conversations/${sel.id}/followup`, followForm);
+      window.__auditLog?.('criar_followup', 'conversa', sel.id, { nome: sel.contact_name, data: followForm.data, motivo: followForm.motivo });
+      Toast.show('Follow-up agendado! 🔔 Aparece em Follow-up.', 'success');
+      setFollowOpen(false);
+    } catch (e) { Toast.show(e.message || 'Não foi possível agendar', 'error'); }
+    setFollowSaving(false);
+  };
+
   const MOTIVOS_PERDA = ['Achou caro','Vai falar com esposo e não retornou','Vai fazer depois','Vai fazer pelo SUS','Fechou em outro local','Não respondeu','Sem horário disponível','Sem vacina disponível','Sem profissional disponível','Atendimento demorou','Cliente não quis informar','Outro'];
   const abrirPerder = () => { setPerderForm({ motivo:'', observacao:'', valor_potencial:'' }); setPerderOpen(true); };
   const salvarPerda = async () => {
@@ -1395,6 +1415,10 @@ export default function Inbox({ onUnreadChange }) {
               <button onClick={abrirTransferir} title="Transferir este atendimento para outro atendente"
                 className="btn btn-sm" style={{ fontSize:11, padding:'4px 9px' }}>
                 <RefreshCw size={10}/> Transferir
+              </button>
+              <button onClick={abrirFollow} title="Criar follow-up (lembrete de retorno)"
+                className="btn btn-sm" style={{ fontSize:11, padding:'4px 9px' }}>
+                <Bell size={10}/> Follow-up
               </button>
               <button onClick={abrirPerder} title="Marcar este lead como perdido (com motivo)"
                 className="btn btn-sm" style={{ fontSize:11, padding:'4px 9px', color:'var(--err)', border:'1.5px solid #fca5a5' }}>
@@ -1708,6 +1732,28 @@ export default function Inbox({ onUnreadChange }) {
               {atendentes.filter(a => a.id !== user?.id).length === 0 && <div style={{ fontSize:12, color:'var(--muted)' }}>Nenhum outro atendente disponível.</div>}
             </div>
             <button onClick={()=>setTransfOpen(false)} className="btn btn-sm" style={{ width:'100%', marginTop:12 }}>Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {followOpen && sel && (
+        <div onClick={()=>setFollowOpen(false)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.5)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000, padding:16 }}>
+          <div onClick={e=>e.stopPropagation()} className="card" style={{ width:360, maxWidth:'100%', padding:22 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}><Bell size={18} color="var(--tq)"/><h3 style={{ fontSize:16, fontWeight:800 }}>Criar follow-up</h3></div>
+            <p style={{ fontSize:12, color:'var(--muted)', marginBottom:16 }}>Lembrete de retorno pra <b>{sel.contact_name || fmt.phone(sel.phone)}</b>. Aparece em Follow-up.</p>
+            <div style={{ display:'flex', flexDirection:'column', gap:11 }}>
+              <div className="field" style={{ margin:0 }}><label>Data do retorno *</label><input type="date" value={followForm.data} onChange={e=>setFollowForm(p=>({...p,data:e.target.value}))} /></div>
+              <div className="field" style={{ margin:0 }}><label>Motivo</label>
+                <select value={followForm.motivo} onChange={e=>setFollowForm(p=>({...p,motivo:e.target.value}))} style={{ width:'100%' }}>
+                  <option value="">— (opcional)</option>
+                  {MOTIVOS_FOLLOW.map(m=><option key={m} value={m}>{m}</option>)}
+                </select>
+              </div>
+              <div style={{ display:'flex', gap:8, marginTop:4 }}>
+                <button onClick={salvarFollow} disabled={followSaving} className="btn btn-p" style={{ flex:1 }}>{followSaving ? <span className="spin" style={{width:14,height:14}}/> : '🔔 Agendar follow-up'}</button>
+                <button onClick={()=>setFollowOpen(false)} className="btn">Cancelar</button>
+              </div>
+            </div>
           </div>
         </div>
       )}

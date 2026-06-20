@@ -2730,6 +2730,26 @@ r.patch('/conversations/:id/perder', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// CRIAR FOLLOW-UP a partir da conversa: garante a ficha do lead e agenda o
+// retorno (aparece em Follow-up/Retornos). Motivo vai pra observação do lead.
+r.post('/conversations/:id/followup', async (req, res) => {
+  try {
+    const data = String(req.body.data || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) return res.status(400).json({ error: 'Escolha a data do follow-up.' });
+    const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    const leadId = conv.lead_id || await garanteLead(conv);
+    if (!leadId) return res.status(500).json({ error: 'Não foi possível criar a ficha do cliente.' });
+    const motivo = String(req.body.motivo || '').slice(0, 120);
+    await query(
+      `UPDATE leads SET data_retorno = $1, updated_at = NOW(),
+        observacoes = CASE WHEN $2 <> '' THEN COALESCE(observacoes,'') || E'\n[Follow-up ' || $1 || '] ' || $2 ELSE observacoes END
+       WHERE id = $3`, [data, motivo, leadId]).catch(() => {});
+    socketEmit('funil_update', { tipo: 'lead', leadId });
+    res.json({ ok: true, data, lead_id: leadId });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Mover atendimento para uma PASTA (fidelidade / banco_dados) ou tirar (null).
 // Sai do inbox normal e passa a viver na pasta correspondente.
 r.patch('/conversations/:id/categoria', async (req, res) => {
