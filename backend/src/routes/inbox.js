@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import { query } from '../db/pool.js';
 import { auth, masterOnly, SECRET } from '../middleware/auth.js';
 import jwt from 'jsonwebtoken';
-import { socketEmit } from '../socketServer.js';
+import { socketEmit, setConvGroupFn } from '../socketServer.js';
 import * as propostaGen from '../services/proposta-gen.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -98,14 +98,42 @@ async function transcreverAudio(base64, mime = 'audio/webm') {
 
 const ehGrupo = (c) => String(c.contact_id || '').includes('g.us') || String(c.phone || '').replace(/\D/g, '').length > 13;
 
-// Regra de acesso por setor (gestão): master e quem não tem setor veem tudo.
-// Quem é de VACINAS só acessa conversa de vacina; quem é de consultas/terapias
-// (não-vacina) acessa tudo que NÃO é vacina. Conversa sem setor ainda não foi
-// triada — fica visível pra todos até o bot/menu definir o assunto.
-function podeVerSetor(viewer, convSetor) {
+// Setor de cada usuário (id → setor), pra classificar a conversa pelo RESPONSÁVEL.
+// O cache de conversas não guarda o setor do responsável, então mantemos este mapa
+// atualizado (a cada 30s) e usamos de forma síncrona na filtragem.
+let usuariosSetor = new Map();
+async function carregarUsuariosSetor() {
+  try {
+    const { rows } = await query('SELECT id, setor FROM usuarios');
+    usuariosSetor = new Map(rows.map(u => [String(u.id), u.setor || null]));
+  } catch { /* banco ainda não pronto — tenta de novo no próximo tick */ }
+}
+carregarUsuariosSetor();
+setInterval(carregarUsuariosSetor, 30000);
+
+// Grupo EFETIVO da conversa (vacina | nao-vacina | null=indefinida). PRECEDÊNCIA:
+// 1º o setor de quem é RESPONSÁVEL (Danielle/Raylane = vacinas → vacina); se o
+// responsável não tem setor (ex.: master) ou não há responsável, usa o setor da
+// CONVERSA. Sem nenhum dos dois → indefinida (conversa nova ainda não triada).
+// Como cada conversa cai em UM único grupo, nunca aparece pra dois lados nem some.
+function grupoConversa(conv) {
+  const respSetor = conv.responsavel_id ? usuariosSetor.get(String(conv.responsavel_id)) : null;
+  const efetivo = respSetor || conv.setor || null;
+  if (efetivo === 'vacinas') return 'vacina';
+  if (efetivo === 'consultas' || efetivo === 'terapias') return 'nao-vacina';
+  return null;
+}
+// Entrega de eventos em tempo real (socket) também respeita o acesso por setor.
+setConvGroupFn(grupoConversa);
+
+// Regra de acesso (gestão): master e quem não tem setor veem tudo. Quem é de
+// VACINAS só acessa conversa do grupo vacina; quem é de consultas/terapias acessa
+// o grupo não-vacina. Conversa de grupo indefinido fica visível a todos.
+function podeVerSetor(viewer, conv) {
   if (!viewer || viewer.role === 'master' || !viewer.setor) return true;
-  if (!convSetor) return true;
-  return viewer.setor === 'vacinas' ? convSetor === 'vacinas' : convSetor !== 'vacinas';
+  const g = grupoConversa(conv);
+  if (g === null) return true;
+  return viewer.setor === 'vacinas' ? g === 'vacina' : g === 'nao-vacina';
 }
 
 function cacheGetList({ channel, search, unread_only, waiting, minhas, grupos, setor, categoria, page = 1, limit = 100, extraIds = null, viewer = null }) {
@@ -121,7 +149,7 @@ function cacheGetList({ channel, search, unread_only, waiting, minhas, grupos, s
   // Acesso por MACRO-grupo (regra da gestão): quem é de VACINAS só vê conversas
   // de vacina; quem NÃO é de vacina (consultas/terapias) vê tudo que não é vacina.
   // Vale pra atendente E supervisora. Master e quem não tem setor veem tudo.
-  if (viewer) list = list.filter(c => podeVerSetor(viewer, c.setor));
+  if (viewer) list = list.filter(c => podeVerSetor(viewer, c));
   if (unread_only === 'true') list = list.filter(c => (c.unread || 0) > 0);
   // Aguardando resposta: a última mensagem é do CLIENTE (fila de quem espera)
   if (waiting === 'true') list = list.filter(c => c.last_from === 'contact');
@@ -141,10 +169,13 @@ function cacheGetList({ channel, search, unread_only, waiting, minhas, grupos, s
   return { data: list.slice(offset, offset + Number(limit)), total, page: Number(page) };
 }
 
-function cacheGetUpdatedSince(since, filter = {}) {
+function cacheGetUpdatedSince(since, viewer = null) {
   const ts = new Date(since);
   return Array.from(convoCache.values())
     .filter(c => new Date(c.last_message_at || 0) > ts)
+    // Mesma regra de acesso da lista: cada um só recebe updates do que pode ver,
+    // e nada que esteja numa pasta (Fidelidade/Banco).
+    .filter(c => !c.categoria && podeVerSetor(viewer, c))
     .sort((a, b) => new Date(b.last_message_at || 0) - new Date(a.last_message_at || 0));
 }
 
@@ -2289,7 +2320,7 @@ r.get('/conversations/updates', async (req, res) => {
   res.set('Cache-Control', 'no-store, no-cache');
   const since = req.query.since;
   if (!since) return res.json({ data: [] });
-  const updated = cacheGetUpdatedSince(since);
+  const updated = cacheGetUpdatedSince(since, req.user);
   res.json({ data: updated });
 });
 
@@ -2372,6 +2403,14 @@ r.get('/conversations', async (req, res) => {
       if (unread_only === 'true') conditions.push(`c.unread > 0`);
       if (req.query.categoria) { conditions.push(`c.categoria = $${pi++}`); params.push(req.query.categoria); }
       else conditions.push(`c.categoria IS NULL`);
+      // Acesso por setor (rede de segurança na janela de boot, antes do cache):
+      // considera o setor do RESPONSÁVEL (precedência) e, na falta, o da conversa.
+      if (req.user && req.user.role !== 'master' && req.user.setor) {
+        const grupoVac = `COALESCE((SELECT u2.setor FROM usuarios u2 WHERE u2.id = c.responsavel_id), c.setor)`;
+        conditions.push(req.user.setor === 'vacinas'
+          ? `(${grupoVac} = 'vacinas' OR ${grupoVac} IS NULL)`
+          : `(${grupoVac} <> 'vacinas' OR ${grupoVac} IS NULL)`);
+      }
       if (search) {
         conditions.push(`(unaccent(lower(c.contact_name)) ILIKE unaccent(lower($${pi})) OR c.phone ILIKE $${pi})`);
         params.push(`%${search}%`); pi++;
@@ -2387,7 +2426,7 @@ r.get('/conversations', async (req, res) => {
   // Contadores dos chips (Todas/Minhas/Não lidas/Grupos) — direto do cache, custo zero.
   // Respeita o acesso por setor: cada um só conta o que pode ver. E não conta quem
   // foi movido pra uma pasta (Fidelidade/Banco), igual à lista.
-  const tudo = Array.from(convoCache.values()).filter(c => !c.categoria && podeVerSetor(req.user, c.setor));
+  const tudo = Array.from(convoCache.values()).filter(c => !c.categoria && podeVerSetor(req.user, c));
   result.counts = {
     todas: tudo.length,
     minhas: tudo.filter(c => c.responsavel_id === req.user.id).length,
@@ -2440,7 +2479,7 @@ r.get('/conversations/:id', async (req, res) => {
       FROM conversas c LEFT JOIN usuarios u ON u.id = c.responsavel_id
       WHERE c.id = $1`, [req.params.id]);
     if (!conv) return res.status(404).json({ error: 'Não encontrado' });
-    if (!podeVerSetor(req.user, conv.setor)) {
+    if (!podeVerSetor(req.user, conv)) {
       return res.status(403).json({ error: 'Sem acesso: esta conversa é de outro setor.' });
     }
 
@@ -2515,6 +2554,8 @@ r.get('/messages/:id/content', async (req, res) => {
 r.get('/conversations/:id/poll', async (req, res) => {
   try {
     res.set('Cache-Control', 'no-store, no-cache');
+    const cPoll = convoCache.get(req.params.id);
+    if (cPoll && !podeVerSetor(req.user, cPoll)) return res.status(403).json({ error: 'Sem acesso' });
 
     // Nunca aceitar timestamps muito antigos (evita retornar todo o histórico)
     // Máximo de 30 minutos atrás — se after_ts for mais antigo, usa 30min atrás
@@ -2560,6 +2601,8 @@ r.get('/conversations/:id/poll', async (req, res) => {
 r.get('/conversations/:id/messages/new', async (req, res) => {
   try {
     res.set('Cache-Control', 'no-store, no-cache');
+    const cNew = convoCache.get(req.params.id);
+    if (cNew && !podeVerSetor(req.user, cNew)) return res.status(403).json({ error: 'Sem acesso' });
     // after_ts: ISO timestamp da última mensagem conhecida
     const afterTs = req.query.after_ts
       ? new Date(req.query.after_ts).toISOString()
@@ -2754,7 +2797,7 @@ r.post('/conversations/:id/send', async (req, res) => {
     }
     const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
     if (!conv) return res.status(404).json({ error: 'Não encontrado' });
-    if (!podeVerSetor(req.user, conv.setor)) return res.status(403).json({ error: 'Sem acesso: esta conversa é de outro setor.' });
+    if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso: esta conversa é de outro setor.' });
 
     const { rows: [msg] } = await query(`
       INSERT INTO mensagens (conversa_id, from_type, type, content, sender_id, sender_nome, status)

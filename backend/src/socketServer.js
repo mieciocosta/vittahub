@@ -13,6 +13,19 @@ import { SECRET } from './middleware/auth.js';
 
 let io = null;
 
+// Função (injetada pelo inbox.js) que devolve o GRUPO de uma conversa:
+// 'vacina' | 'nao-vacina' | null(indefinido). Usada pra entregar eventos de
+// conversa só pra quem tem acesso àquele setor — sem vazar pra outros atendentes.
+let convGroupFn = null;
+export function setConvGroupFn(fn) { convGroupFn = fn; }
+
+// true se o usuário do socket pode ver uma conversa daquele grupo
+function socketPodeVer(user, grupo) {
+  if (!user || user.role === 'master' || !user.setor) return true;
+  if (!grupo) return true; // conversa indefinida (sem setor/responsável) → todos
+  return user.setor === 'vacinas' ? grupo === 'vacina' : grupo === 'nao-vacina';
+}
+
 export function createSocketServer(httpServer, frontendUrl) {
   io = new Server(httpServer, {
     cors: {
@@ -66,9 +79,22 @@ export function createSocketServer(httpServer, frontendUrl) {
   return io;
 }
 
-/** Emite evento para TODOS os clientes conectados */
+/** Emite evento. Se o payload traz uma conversa (data.conv), entrega só pra quem
+ *  tem acesso ao setor dela (regra de acesso por setor). Eventos sem conversa
+ *  (status global, agenda, notificações…) seguem pra todos. */
 export function socketEmit(event, data) {
   if (!io) return;
+  try {
+    if (data && data.conv && convGroupFn) {
+      const grupo = convGroupFn(data.conv); // 'vacina' | 'nao-vacina' | null
+      if (grupo) {
+        for (const [, socket] of io.sockets.sockets) {
+          if (socketPodeVer(socket.user, grupo)) socket.emit(event, data);
+        }
+        return;
+      }
+    }
+  } catch { /* qualquer falha na classificação → cai pro broadcast normal */ }
   io.emit(event, data);
 }
 
