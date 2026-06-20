@@ -163,6 +163,39 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
     return () => clearInterval(t);
   }, []); // eslint-disable-line
 
+  // Contagem de leads esperando por setor (badges dos atalhos) — atualiza a cada 15s
+  const [setorCount, setSetorCount] = useState({});
+  useEffect(() => {
+    const load = () => api.get('/inbox/setores-contagem').then(setSetorCount).catch(() => {});
+    load(); const t = setInterval(load, 15000);
+    return () => clearInterval(t);
+  }, []); // eslint-disable-line
+
+  // Bloco de Setores (logo abaixo de Clientes): atalhos coloridos com a contagem
+  // de leads ESPERANDO em cada um — ajuda os atendentes a organizar o que vem junto.
+  const setorBadge = (n, cor) => (!collapsed && n > 0)
+    ? <span style={{ background:cor, color:'#fff', borderRadius:10, padding:'1px 7px', fontSize:10, fontWeight:800, minWidth:18, textAlign:'center' }}>{n>99?'99+':n}</span>
+    : null;
+  const setorItem = (to, cor, label, count) => (
+    <NavLink key={to} to={to} title={collapsed ? label : ''} style={({ isActive }) => ({
+      display:'flex', alignItems:'center', gap: collapsed ? 0 : 10,
+      padding: collapsed ? '8px 0' : '8px 12px', justifyContent: collapsed ? 'center' : 'flex-start',
+      borderRadius:12, textDecoration:'none', color: isActive ? 'var(--tq2)' : 'rgba(255,255,255,.85)',
+      background: isActive ? '#ffffff' : 'transparent', fontWeight: isActive ? 700 : 500, fontSize:13, transition:'all .15s',
+    })}>
+      <span style={{ width:11, height:11, borderRadius:'50%', background:cor, flexShrink:0, boxShadow:`0 0 0 3px ${cor}33` }} />
+      {!collapsed && <span style={{ flex:1 }}>{label}</span>}
+      {setorBadge(count, cor)}
+    </NavLink>
+  );
+  const setoresBlock = (
+    <>
+      {!collapsed && <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:1.6, color:'rgba(255,255,255,.62)', padding:'10px 12px 5px', textTransform:'uppercase' }}>Setores</div>}
+      {setorItem('/inbox?cls=sem', '#94a3b8', 'Novos a classificar', setorCount.sem_classificacao)}
+      {SETORES_MENU.map(s => setorItem(`/inbox?cls=${s.cls}`, s.cor, s.label, setorCount[s.cls]))}
+    </>
+  );
+
   return (
     <aside className={`vh-sidebar${mobileOpen ? ' open' : ''}`} style={{
       width: w,
@@ -196,7 +229,8 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
       <nav onClick={() => onCloseMobile?.()} style={{ flex:1, padding: collapsed ? '14px 6px' : '14px 10px', display:'flex', flexDirection:'column', gap:3, overflowY:'auto', overflowX:'hidden' }}>
         {!collapsed && <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:1.6, color:'rgba(255,255,255,.62)', padding:'0 12px 6px', textTransform:'uppercase' }}>Menu</div>}
         {NAV.map(({ to, icon:Icon, label, unread:showU, retornos:retBadge }) => (
-          <NavLink key={to} to={to} end={to==='/'} title={collapsed ? label : ''} style={({ isActive }) => ({
+          <React.Fragment key={to}>
+          <NavLink to={to} end={to==='/'} title={collapsed ? label : ''} style={({ isActive }) => ({
             display:'flex', alignItems:'center', gap: collapsed ? 0 : 10,
             padding: collapsed ? '10px 0' : '9px 12px',
             justifyContent: collapsed ? 'center' : 'flex-start',
@@ -228,20 +262,8 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
               <span style={{ position:'absolute', top:4, right:4, width:8, height:8, borderRadius:'50%', background:'var(--tq)', border:'2px solid #fff' }} />
             )}
           </NavLink>
-        ))}
-
-        {/* ── Setores (atalhos coloridos pro chat filtrado por classificação) ── */}
-        {!collapsed && <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:1.6, color:'rgba(255,255,255,.62)', padding:'12px 12px 6px', textTransform:'uppercase' }}>Setores</div>}
-        {SETORES_MENU.map(({ cls, label, cor }) => (
-          <NavLink key={cls} to={`/inbox?cls=${cls}`} title={collapsed ? label : ''} style={({ isActive }) => ({
-            display:'flex', alignItems:'center', gap: collapsed ? 0 : 10,
-            padding: collapsed ? '8px 0' : '8px 12px', justifyContent: collapsed ? 'center' : 'flex-start',
-            borderRadius:12, textDecoration:'none', color:'rgba(255,255,255,.85)', background:'transparent',
-            fontWeight:500, fontSize:13, transition:'all .15s',
-          })}>
-            <span style={{ width:11, height:11, borderRadius:'50%', background:cor, flexShrink:0, boxShadow:`0 0 0 3px ${cor}33` }} />
-            {!collapsed && <span style={{ flex:1 }}>{label}</span>}
-          </NavLink>
+          {to === '/leads' && setoresBlock}
+          </React.Fragment>
         ))}
 
         {/* ── Administração (só master) ── */}

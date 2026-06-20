@@ -147,8 +147,10 @@ function cacheGetList({ channel, search, unread_only, waiting, minhas, grupos, s
   else list = list.filter(c => !c.categoria);
   // Filtro de setor: chips da gestão (?setor=) ou trava da atendente (vê só o dela)
   if (setor && setor !== 'all') list = list.filter(c => c.setor === setor);
-  // Filtro por classificação fina (atalhos coloridos do menu: vacinacao, planos_vacinais…)
-  if (classificacao && classificacao !== 'all') list = list.filter(c => c.classificacao === classificacao);
+  // Filtro por classificação fina (atalhos coloridos do menu). 'sem' = ainda não
+  // classificadas (os leads novos que precisam ser organizados/distribuídos).
+  if (classificacao === 'sem') list = list.filter(c => !c.classificacao);
+  else if (classificacao && classificacao !== 'all') list = list.filter(c => c.classificacao === classificacao);
   // Acesso por MACRO-grupo (regra da gestão): quem é de VACINAS só vê conversas
   // de vacina; quem NÃO é de vacina (consultas/terapias) vê tudo que não é vacina.
   // Vale pra atendente E supervisora. Master e quem não tem setor veem tudo.
@@ -2737,6 +2739,23 @@ r.get('/exemplos', async (req, res) => {
 r.delete('/exemplos/:id', masterOnly, async (req, res) => {
   try { await query('DELETE FROM exemplos_conversa WHERE id = $1', [req.params.id]); res.json({ ok: true }); }
   catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Contagem de leads ESPERANDO resposta por classificação (pros atalhos do menu).
+// Respeita o acesso por setor: cada um só conta o que pode ver. Ajuda a organizar
+// quem atende o quê (4 atendentes não se perdem com tudo vindo junto).
+r.get('/setores-contagem', (req, res) => {
+  try {
+    const out = { vacinacao: 0, planos_vacinais: 0, consultas: 0, terapias: 0, sem_classificacao: 0 };
+    for (const conv of convoCache.values()) {
+      if (conv.categoria) continue;                 // quem está em pasta não conta
+      if (conv.last_from !== 'contact') continue;    // só os que ESPERAM resposta
+      if (!podeVerSetor(req.user, conv)) continue;   // só o que a pessoa pode ver
+      if (conv.classificacao && out[conv.classificacao] !== undefined) out[conv.classificacao]++;
+      else if (!conv.classificacao) out.sem_classificacao++;
+    }
+    res.json(out);
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // Lista de atendentes (pra o seletor de transferência) — acessível a todos logados
