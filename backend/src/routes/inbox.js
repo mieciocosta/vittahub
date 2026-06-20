@@ -137,7 +137,7 @@ function podeVerSetor(viewer, conv) {
   return viewer.setor === 'vacinas' ? g === 'vacina' : g === 'nao-vacina';
 }
 
-function cacheGetList({ channel, search, unread_only, waiting, minhas, grupos, setor, categoria, page = 1, limit = 100, extraIds = null, viewer = null }) {
+function cacheGetList({ channel, search, unread_only, waiting, minhas, grupos, setor, categoria, classificacao, page = 1, limit = 100, extraIds = null, viewer = null }) {
   let list = Array.from(convoCache.values())
     .sort((a, b) => new Date(b.last_message_at || 0) - new Date(a.last_message_at || 0));
   if (channel && channel !== 'all') list = list.filter(c => c.channel === channel);
@@ -147,6 +147,8 @@ function cacheGetList({ channel, search, unread_only, waiting, minhas, grupos, s
   else list = list.filter(c => !c.categoria);
   // Filtro de setor: chips da gestão (?setor=) ou trava da atendente (vê só o dela)
   if (setor && setor !== 'all') list = list.filter(c => c.setor === setor);
+  // Filtro por classificação fina (atalhos coloridos do menu: vacinacao, planos_vacinais…)
+  if (classificacao && classificacao !== 'all') list = list.filter(c => c.classificacao === classificacao);
   // Acesso por MACRO-grupo (regra da gestão): quem é de VACINAS só vê conversas
   // de vacina; quem NÃO é de vacina (consultas/terapias) vê tudo que não é vacina.
   // Vale pra atendente E supervisora. Master e quem não tem setor veem tudo.

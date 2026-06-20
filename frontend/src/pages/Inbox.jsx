@@ -6,6 +6,7 @@ import {
   CheckCircle2, Clock, MessageCircle, Phone, Image,
   MailOpen, VolumeX, CalendarDays } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
+import { useSearchParams } from 'react-router-dom';
 import { fmt, openWA, avatarGrad } from '../hooks/utils.js';
 import PropostaModal from '../components/PropostaModal.jsx';
 import Calculadora from '../components/Calculadora.jsx';
@@ -468,6 +469,8 @@ export default function Inbox({ onUnreadChange }) {
   const [lightbox, setLightbox] = useState(null);
   const [waiting, setWaiting] = useState(false);
   const [setorFiltro, setSetorFiltro] = useState('all');
+  const [searchParams] = useSearchParams();
+  const clsFiltro = searchParams.get('cls') || 'all';
   const [modo, setModo] = useState('todas');
   const [counts, setCounts] = useState(null);
   const [somAtivo, setSomAtivo] = useState(() => localStorage.getItem('vh_sound') !== 'off');
@@ -716,7 +719,7 @@ export default function Inbox({ onUnreadChange }) {
       } catch {}
     }, 5000);
     return () => clearInterval(iv);
-  }, [filter, search, unreadOnly, waiting, setorFiltro, modo]);
+  }, [filter, search, unreadOnly, waiting, setorFiltro, clsFiltro, modo]);
 
   // ── Auto-scroll ao chegar novas mensagens ─────────────────────────────────
   // Só rola se o usuário já estava perto do fim (não interrompe quem lê mensagens antigas)
@@ -738,6 +741,7 @@ export default function Inbox({ onUnreadChange }) {
       if (unreadOnly) params.set('unread_only', 'true');
       if (waiting) params.set('waiting', 'true');
       if (setorFiltro !== 'all') params.set('setor', setorFiltro);
+      if (clsFiltro !== 'all') params.set('classificacao', clsFiltro);
       if (modo === 'minhas') params.set('minhas', 'true');
       if (modo === 'naolidas') params.set('unread_only', 'true');
       if (modo === 'grupos') params.set('grupos', 'true');
@@ -749,7 +753,7 @@ export default function Inbox({ onUnreadChange }) {
       lastPollTs.current = new Date().toISOString();
       onUnreadChange?.(list.reduce((s, c) => s + (c.unread || 0), 0));
     } catch(err) { console.error('loadConvos:', err.message); }
-  }, [filter, search, unreadOnly, waiting, setorFiltro, modo]);
+  }, [filter, search, unreadOnly, waiting, setorFiltro, clsFiltro, modo]);
 
   // ── Infinite scroll ────────────────────────────────────────────────────────
   const loadMore = useCallback(async () => {
@@ -780,12 +784,12 @@ export default function Inbox({ onUnreadChange }) {
     setLoadingMore(false);
   }, [page, hasMore, loadingMore, filter, search, unreadOnly]);
 
-  // ── Search debounced ───────────────────────────────────────────────────────
+  // ── Recarrega ao mudar busca/filtros (inclui setor e classificação do menu) ──
   useEffect(() => {
     clearTimeout(searchTimeout.current);
     searchTimeout.current = setTimeout(() => loadConvos(), 350);
     return () => clearTimeout(searchTimeout.current);
-  }, [search, filter, unreadOnly]);
+  }, [search, filter, unreadOnly, setorFiltro, clsFiltro, waiting, modo]);
 
   useEffect(() => { api.get('/inbox/quick-replies').then(setQr).catch(() => {}); }, []);
   const [qrNovo, setQrNovo] = useState(null);
@@ -1132,7 +1136,7 @@ export default function Inbox({ onUnreadChange }) {
         <div style={{ padding:'12px 12px 0', flexShrink:0, borderBottom:'1px solid var(--border)' }}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
             <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-              <h2 style={{ fontSize:17, fontWeight:700 }}>Inbox</h2>
+              <h2 style={{ fontSize:17, fontWeight:700 }}>{user?.setor ? ({vacinas:'Vacinas',consultas:'Consultas',terapias:'Terapias'}[user.setor] || 'Inbox') : 'Inbox'}</h2>
               {totalUnread>0 && <span style={{ background:'var(--tq)', color:'#fff', borderRadius:10, padding:'1px 7px', fontSize:10.5, fontWeight:800, boxShadow:'0 2px 6px rgba(0,184,192,.3)' }}>{totalUnread>99?'99+':totalUnread}</span>}
             </div>
             <div style={{ display:'flex', gap:3, alignItems:'center' }}>

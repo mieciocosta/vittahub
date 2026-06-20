@@ -10,6 +10,14 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { useApi } from '../context/AuthContext.jsx';
 import { fmt } from '../hooks/utils.js';
 
+// Atalhos coloridos por classificação → abrem o chat filtrado (?cls=)
+const SETORES_MENU = [
+  { cls:'vacinacao',       label:'Vacinação',       cor:'#7c5cbf' },
+  { cls:'planos_vacinais', label:'Planos Vacinais', cor:'#3b82f6' },
+  { cls:'consultas',       label:'Consultas',       cor:'#00B8C0' },
+  { cls:'terapias',        label:'Terapias',        cor:'#C4973B' },
+];
+
 const NAV = [
   { to:'/',           icon:LayoutDashboard, label:'Dashboard' },
   { to:'/inbox',      icon:MessageSquare,   label:'Chat',     unread:true },
@@ -218,6 +226,20 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
             {collapsed && showU && unread > 0 && (
               <span style={{ position:'absolute', top:4, right:4, width:8, height:8, borderRadius:'50%', background:'var(--tq)', border:'2px solid #fff' }} />
             )}
+          </NavLink>
+        ))}
+
+        {/* ── Setores (atalhos coloridos pro chat filtrado por classificação) ── */}
+        {!collapsed && <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:1.6, color:'rgba(255,255,255,.62)', padding:'12px 12px 6px', textTransform:'uppercase' }}>Setores</div>}
+        {SETORES_MENU.map(({ cls, label, cor }) => (
+          <NavLink key={cls} to={`/inbox?cls=${cls}`} title={collapsed ? label : ''} style={({ isActive }) => ({
+            display:'flex', alignItems:'center', gap: collapsed ? 0 : 10,
+            padding: collapsed ? '8px 0' : '8px 12px', justifyContent: collapsed ? 'center' : 'flex-start',
+            borderRadius:12, textDecoration:'none', color:'rgba(255,255,255,.85)', background:'transparent',
+            fontWeight:500, fontSize:13, transition:'all .15s',
+          })}>
+            <span style={{ width:11, height:11, borderRadius:'50%', background:cor, flexShrink:0, boxShadow:`0 0 0 3px ${cor}33` }} />
+            {!collapsed && <span style={{ flex:1 }}>{label}</span>}
           </NavLink>
         ))}
 
