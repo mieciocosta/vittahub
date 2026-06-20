@@ -294,6 +294,13 @@ export default async function runMigrate() {
     await query(`ALTER TABLE agenda_eventos ADD COLUMN IF NOT EXISTS parcelas INT`).catch(() => {});
     await query(`ALTER TABLE agenda_eventos ADD COLUMN IF NOT EXISTS conversa_id TEXT`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS idx_agenda_conversa ON agenda_eventos (conversa_id)`).catch(() => {});
+    // Painel de Profissionais: cadastro de médicos/especialistas + disponibilidade
+    await query(`CREATE TABLE IF NOT EXISTS profissionais (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      nome TEXT NOT NULL, especialidade TEXT, setor TEXT DEFAULT 'consultas',
+      cor TEXT DEFAULT '#00B8C0', telefone TEXT, ativo BOOLEAN DEFAULT true,
+      disponibilidade JSONB DEFAULT '{}'::jsonb, observacoes TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
     await query(`ALTER TABLE mensagens ADD COLUMN IF NOT EXISTS editada BOOLEAN DEFAULT false`).catch(() => {});
     // Pastas de organização: 'fidelidade' (mensalistas) e 'banco_dados' (1 vacina só)
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS categoria TEXT`).catch(() => {});

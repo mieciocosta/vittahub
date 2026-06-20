@@ -154,6 +154,62 @@ r.delete('/agenda/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* ═══ PAINEL DE PROFISSIONAIS ════════════════════════════════════════════════ */
+// Cadastro de médicos/especialistas + disponibilidade semanal.
+r.get('/profissionais', async (req, res) => {
+  try {
+    const { rows } = await query('SELECT * FROM profissionais ORDER BY ativo DESC, nome');
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.post('/profissionais', async (req, res) => {
+  try {
+    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão cadastra profissionais.' });
+    const b = req.body || {};
+    const nome = cut((b.nome || '').trim(), 80);
+    if (!nome) return res.status(400).json({ error: 'Informe o nome do profissional.' });
+    const setor = ['vacinas', 'consultas', 'terapias'].includes(b.setor) ? b.setor : 'consultas';
+    const { rows: [p] } = await query(
+      `INSERT INTO profissionais (nome, especialidade, setor, cor, telefone, ativo, disponibilidade, observacoes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      [nome, cut(b.especialidade, 80), setor, cut(b.cor, 9) || '#00B8C0',
+       cut(String(b.telefone || '').replace(/\D/g, ''), 13), b.ativo !== false,
+       JSON.stringify(b.disponibilidade || {}), cut(b.observacoes, 300)]);
+    res.status(201).json(p);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.put('/profissionais/:id', async (req, res) => {
+  try {
+    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão edita profissionais.' });
+    const b = req.body || {};
+    const sets = [], params = []; let i = 1;
+    const set = (c, v) => { sets.push(`${c} = $${i++}`); params.push(v); };
+    if (b.nome !== undefined) set('nome', cut(b.nome.trim(), 80));
+    if (b.especialidade !== undefined) set('especialidade', cut(b.especialidade, 80));
+    if (b.setor !== undefined) set('setor', ['vacinas', 'consultas', 'terapias'].includes(b.setor) ? b.setor : 'consultas');
+    if (b.cor !== undefined) set('cor', cut(b.cor, 9) || '#00B8C0');
+    if (b.telefone !== undefined) set('telefone', cut(String(b.telefone).replace(/\D/g, ''), 13));
+    if (b.ativo !== undefined) set('ativo', !!b.ativo);
+    if (b.disponibilidade !== undefined) set('disponibilidade', JSON.stringify(b.disponibilidade || {}));
+    if (b.observacoes !== undefined) set('observacoes', cut(b.observacoes, 300));
+    if (!sets.length) return res.status(400).json({ error: 'Nada para atualizar' });
+    params.push(req.params.id);
+    const { rows: [p] } = await query(`UPDATE profissionais SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${i} RETURNING *`, params);
+    if (!p) return res.status(404).json({ error: 'Profissional não encontrado' });
+    res.json(p);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.delete('/profissionais/:id', async (req, res) => {
+  try {
+    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão remove profissionais.' });
+    await query('DELETE FROM profissionais WHERE id = $1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 /* ═══ PROGRAMA DE INDICAÇÕES ═════════════════════════════════════════════════ */
 const IND_STATUS = ['Cadastrada', 'Em atendimento', 'Orçamento enviado', 'Convertida', 'Não convertida'];
 const PONTOS_PADRAO = { 'Plano Vacinal': 100, 'Pacote Infantil': 70, 'Pacote Adulto': 50, 'Vacina Avulsa': 20 };
