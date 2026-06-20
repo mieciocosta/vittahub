@@ -426,3 +426,46 @@ h1 { letter-spacing: -0.7px; }
   .vh-main { padding-bottom: max(0px, env(safe-area-inset-bottom)); }
   .vh-sidebar { padding-top: max(0px, env(safe-area-inset-top)); }
 }
+
+/* ─── Polimento visual geral (v2) ─────────────────────────────────────────────
+   Deixa todos os formulários (modais de venda, perda, agendar, profissionais…)
+   com o mesmo acabamento, sem depender de cada um. Cards com mais profundidade. */
+
+/* Campos "soltos" (fora de .field) — herdam o mesmo visual elegante */
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+select, textarea {
+  padding: 9px 12px;
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+  color: var(--txt);
+  outline: none;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:focus {
+  border-color: var(--tq);
+  box-shadow: 0 0 0 3px rgba(0,184,192,.14);
+}
+input::placeholder, textarea::placeholder { color: var(--light); }
+
+/* Cards com borda sutil + profundidade um pouco maior */
+.card {
+  border: 1px solid var(--border);
+  box-shadow: var(--s3);
+}
+
+/* Modais que aparecem por cima (z alto) ganham um respiro a mais */
+.card { backdrop-filter: saturate(1.02); }
+
+/* Botões pequenos do cabeçalho do chat: um pouco mais arredondados e com gap */
+.chat-header-actions { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+.chat-header-actions .btn-sm { border-radius: 9px; }
+
+/* Hover suave em qualquer .card-hover já existente fica mais marcado */
+.card-hover:hover { box-shadow: var(--s4); transform: translateY(-2px); }
+
+/* Linhas de lista (conversas, vendas, etc.) com transição suave */
+[data-theme="dark"] input:not([type="checkbox"]):not([type="radio"]),
+[data-theme="dark"] select, [data-theme="dark"] textarea {
+  background: var(--card); color: var(--txt); border-color: var(--border);
+}
