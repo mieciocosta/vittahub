@@ -18,12 +18,18 @@ let io = null;
 // conversa só pra quem tem acesso àquele setor — sem vazar pra outros atendentes.
 let convGroupFn = null;
 export function setConvGroupFn(fn) { convGroupFn = fn; }
+// Resolve o setor de um usuário pelo id (injetado pelo inbox.js) — cobre tokens
+// antigos que não traziam o setor.
+let userSetorFn = null;
+export function setUserSetorFn(fn) { userSetorFn = fn; }
 
 // true se o usuário do socket pode ver uma conversa daquele grupo
 function socketPodeVer(user, grupo) {
-  if (!user || user.role === 'master' || !user.setor) return true;
+  if (!user || user.role === 'master') return true;
+  const setor = user.setor || (userSetorFn ? userSetorFn(user.id) : null);
+  if (!setor) return true;
   if (!grupo) return true; // conversa indefinida (sem setor/responsável) → todos
-  return user.setor === 'vacinas' ? grupo === 'vacina' : grupo === 'nao-vacina';
+  return setor === 'vacinas' ? grupo === 'vacina' : grupo === 'nao-vacina';
 }
 
 export function createSocketServer(httpServer, frontendUrl) {

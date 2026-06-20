@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import { query } from '../db/pool.js';
 import { auth, masterOnly, SECRET } from '../middleware/auth.js';
 import jwt from 'jsonwebtoken';
-import { socketEmit, setConvGroupFn } from '../socketServer.js';
+import { socketEmit, setConvGroupFn, setUserSetorFn } from '../socketServer.js';
 import * as propostaGen from '../services/proposta-gen.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -126,15 +126,19 @@ function grupoConversa(conv) {
 }
 // Entrega de eventos em tempo real (socket) também respeita o acesso por setor.
 setConvGroupFn(grupoConversa);
+setUserSetorFn((userId) => usuariosSetor.get(String(userId)) || null);
 
 // Regra de acesso (gestão): master e quem não tem setor veem tudo. Quem é de
 // VACINAS só acessa conversa do grupo vacina; quem é de consultas/terapias acessa
 // o grupo não-vacina. Conversa de grupo indefinido fica visível a todos.
 function podeVerSetor(viewer, conv) {
-  if (!viewer || viewer.role === 'master' || !viewer.setor) return true;
+  if (!viewer || viewer.role === 'master') return true;
+  // O setor pode não vir no token antigo — resolve pelo cache (id → setor).
+  const viewerSetor = viewer.setor || usuariosSetor.get(String(viewer.id)) || null;
+  if (!viewerSetor) return true;
   const g = grupoConversa(conv);
   if (g === null) return true;
-  return viewer.setor === 'vacinas' ? g === 'vacina' : g === 'nao-vacina';
+  return viewerSetor === 'vacinas' ? g === 'vacina' : g === 'nao-vacina';
 }
 
 function cacheGetList({ channel, search, unread_only, waiting, minhas, grupos, setor, categoria, classificacao, page = 1, limit = 100, extraIds = null, viewer = null }) {
@@ -2877,6 +2881,14 @@ r.post('/conversations/:id/send', async (req, res) => {
     if (convUpd) cacheUpdate(convUpd);
     if (conv.bot_ativo) socketEmit('bot_status', { convId: req.params.id, bot_ativo: false });
 
+    // EXCLUSIVIDADE: se a conversa ainda não tem setor e quem respondeu é de um
+    // setor, a conversa passa a ser DAQUELE setor (some pros outros setores).
+    const senderSetor = req.user.setor || usuariosSetor.get(String(req.user.id)) || null;
+    if (!conv.setor && ['vacinas', 'consultas', 'terapias'].includes(senderSetor)) {
+      const { rows: [cs] } = await query('UPDATE conversas SET setor = $1, menu_enviado = true WHERE id = $2 RETURNING *', [senderSetor, req.params.id]).catch(() => ({ rows: [] }));
+      if (cs) { cacheUpdate(cs); socketEmit('conv_setor', { convId: cs.id, setor: senderSetor }); }
+    }
+
     // AUTO-CADASTRO: todo atendimento que um humano responde já vira ficha de
     // cliente no funil (pra nenhum contato ser esquecido). Não bloqueia o envio.
     garanteLead(convUpd || conv).catch(() => {});
@@ -3198,25 +3210,34 @@ r.delete('/conversations/:id/messages/:msgId', async (req, res) => {
     const { rows: [m] } = await query('SELECT * FROM mensagens WHERE id = $1 AND conversa_id = $2', [req.params.msgId, req.params.id]);
     if (!m) return res.status(404).json({ error: 'Mensagem não encontrada' });
     if (m.from_type !== 'me') return res.status(403).json({ error: 'Só dá pra apagar mensagens enviadas pela equipe' });
-    if (m.status === 'deleted') return res.json({ ok: true });
-    if (!m.wa_msg_id) return res.status(400).json({ error: 'Aguarde a confirmação de envio pra apagar' });
+    if (m.status === 'deleted') return res.json({ ok: true, whatsapp: true });
 
     const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
     let phoneNum = String(conv?.phone || '').replace(/\D/g, '');
     if (phoneNum.startsWith('55') && phoneNum.length >= 12) phoneNum = phoneNum.slice(2);
 
-    if (zapiOk()) {
-      const zr = await zapiCall(`/messages?phone=55${phoneNum}&messageId=${encodeURIComponent(m.wa_msg_id)}&owner=true`, 'DELETE');
-      if (!zr?.ok) {
-        const corpo = await zr?.text().catch(() => '');
-        console.error('delete-message falhou:', zr?.status, corpo.slice(0, 150));
-        return res.status(502).json({ error: 'O WhatsApp recusou apagar essa mensagem.' });
-      }
+    // Tenta apagar no WhatsApp (pra todos) — best-effort. Se a Z-API recusar (passou
+    // do tempo limite do WhatsApp, sem wa_msg_id, etc.), AINDA assim apaga no CRM,
+    // pra a mensagem sumir da tela. Não trava mais o apagar.
+    let whatsappOk = false, aviso = null;
+    if (m.wa_msg_id && zapiOk()) {
+      try {
+        const zr = await zapiCall(`/messages?phone=55${phoneNum}&messageId=${encodeURIComponent(m.wa_msg_id)}&owner=true`, 'DELETE');
+        whatsappOk = !!zr?.ok;
+        if (!whatsappOk) {
+          const corpo = await zr?.text().catch(() => '');
+          console.error('delete-message Z-API recusou:', zr?.status, corpo.slice(0, 150));
+          aviso = 'Apaguei aqui no CRM, mas o WhatsApp não deixou apagar pra todos (geralmente porque passou do tempo limite dele).';
+        }
+      } catch (e) { console.error('delete-message erro:', e.message); aviso = 'Apaguei no CRM; o WhatsApp não respondeu.'; }
+    } else {
+      aviso = 'Apaguei aqui no CRM. (Não havia ID de envio confirmado pra apagar no WhatsApp.)';
     }
+
     await query(`UPDATE mensagens SET status = 'deleted', content = '🚫 Mensagem apagada', media_data = NULL, editada = false WHERE id = $1`, [m.id]);
     await query(`UPDATE conversas SET last_message = '🚫 Mensagem apagada' WHERE id = $1 AND $2 = (SELECT id FROM mensagens WHERE conversa_id = $1 ORDER BY created_at DESC LIMIT 1)`, [conv.id, m.id]).catch(() => {});
     socketEmit('message_updated', { convId: conv.id, messageId: m.id, content: '🚫 Mensagem apagada', status: 'deleted' });
-    res.json({ ok: true });
+    res.json({ ok: true, whatsapp: whatsappOk, aviso });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

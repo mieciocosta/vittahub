@@ -42,7 +42,7 @@ r.post('/login', async (req, res) => {
     if (!u) return res.status(401).json({ error: 'Usuário não encontrado. Confira o CPF digitado.' });
     const ok = await bcrypt.compare(senha, u.senha);
     if (!ok) { logAudit(req, null, id, 'login_falha', { motivo: 'Senha incorreta' }); return res.status(401).json({ error: 'Senha incorreta' }); }
-    const token = jwt.sign({ id: u.id, nome: u.nome, email: u.email, role: u.role, cor: u.cor }, SECRET, { expiresIn: '30d' });
+    const token = jwt.sign({ id: u.id, nome: u.nome, email: u.email, role: u.role, cor: u.cor, setor: u.setor || null }, SECRET, { expiresIn: '30d' });
     logAudit(req, u.id, u.nome, 'login', { metodo: 'cpf' });
     res.json({ token, user: { id: u.id, nome: u.nome, email: u.email, cpf: u.cpf, role: u.role, cor: u.cor, avatar: u.avatar || null, setor: u.setor || null } });
   } catch (err) {

@@ -919,9 +919,11 @@ export default function Inbox({ onUnreadChange }) {
   const apagarMensagem = async (m) => {
     if (!window.confirm('Apagar esta mensagem pra todos? O cliente verá "mensagem apagada".')) return;
     try {
-      await api.delete(`/inbox/conversations/${sel.id}/messages/${m.id}`);
+      const r = await api.delete(`/inbox/conversations/${sel.id}/messages/${m.id}`);
       setMsgs(prev => prev.map(x => x.id === m.id ? { ...x, content: '🚫 Mensagem apagada', status: 'deleted' } : x));
       window.__auditLog?.('apagar_mensagem', 'mensagens', String(m.id));
+      if (r?.aviso) Toast.show(r.aviso, 'info');
+      else Toast.show('Mensagem apagada pra todos ✅', 'success');
     } catch (e) { Toast.show(e.message, 'error'); }
   };
 
