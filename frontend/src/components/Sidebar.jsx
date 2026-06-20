@@ -10,12 +10,14 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { useApi } from '../context/AuthContext.jsx';
 import { fmt } from '../hooks/utils.js';
 
-// Atalhos coloridos por classificação → abrem o chat filtrado (?cls=)
+// Atalhos coloridos por classificação → abrem o chat filtrado (?cls=).
+// Fidelidade abre a PASTA (as conversas dela saem do inbox).
 const SETORES_MENU = [
   { cls:'vacinacao',       label:'Vacinação',       cor:'#7c5cbf' },
   { cls:'planos_vacinais', label:'Planos Vacinais', cor:'#3b82f6' },
   { cls:'consultas',       label:'Consultas',       cor:'#00B8C0' },
   { cls:'terapias',        label:'Terapias',        cor:'#C4973B' },
+  { cls:'fidelidade',      label:'Fidelidade',      cor:'#eab308', to:'/fidelidade' },
 ];
 
 const NAV = [
@@ -192,7 +194,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
     <>
       {!collapsed && <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:1.6, color:'rgba(255,255,255,.62)', padding:'10px 12px 5px', textTransform:'uppercase' }}>Setores</div>}
       {setorItem('/inbox?cls=sem', '#94a3b8', 'Novos a classificar', setorCount.sem_classificacao)}
-      {SETORES_MENU.map(s => setorItem(`/inbox?cls=${s.cls}`, s.cor, s.label, setorCount[s.cls]))}
+      {SETORES_MENU.map(s => setorItem(s.to || `/inbox?cls=${s.cls}`, s.cor, s.label, setorCount[s.cls]))}
     </>
   );
 

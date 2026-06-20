@@ -2765,11 +2765,12 @@ r.delete('/exemplos/:id', masterOnly, async (req, res) => {
 // quem atende o quê (4 atendentes não se perdem com tudo vindo junto).
 r.get('/setores-contagem', (req, res) => {
   try {
-    const out = { vacinacao: 0, planos_vacinais: 0, consultas: 0, terapias: 0, sem_classificacao: 0 };
+    const out = { vacinacao: 0, planos_vacinais: 0, consultas: 0, terapias: 0, fidelidade: 0, sem_classificacao: 0 };
     for (const conv of convoCache.values()) {
-      if (conv.categoria) continue;                 // quem está em pasta não conta
-      if (conv.last_from !== 'contact') continue;    // só os que ESPERAM resposta
       if (!podeVerSetor(req.user, conv)) continue;   // só o que a pessoa pode ver
+      if (conv.categoria === 'fidelidade') { out.fidelidade++; continue; } // total na pasta
+      if (conv.categoria) continue;                  // outras pastas não contam
+      if (conv.last_from !== 'contact') continue;    // só os que ESPERAM resposta
       if (conv.classificacao && out[conv.classificacao] !== undefined) out[conv.classificacao]++;
       else if (!conv.classificacao) out.sem_classificacao++;
     }
