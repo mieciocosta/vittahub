@@ -233,6 +233,21 @@ export default async function runMigrate() {
       console.log('🌱 Equipe: Klycia (supervisora/consultas) criada e Fabiane desativada');
     }
 
+    // ── Reatribui as conversas da Fabiane para a Klycia (uma vez). Só roda se as
+    // DUAS existem — evita "desatribuir" sem querer caso a Klycia ainda não exista.
+    const { rows: [flagRA] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_reassign_fabiane_klycia_v1'");
+    if (!flagRA) {
+      const { rows: [kly] } = await query("SELECT id FROM usuarios WHERE cpf = '06100955369' LIMIT 1").catch(() => ({ rows: [] }));
+      const { rows: [fab] } = await query("SELECT id FROM usuarios WHERE cpf = '02607997348' OR email = 'fabiane@vittahub.local' LIMIT 1").catch(() => ({ rows: [] }));
+      if (kly && fab) {
+        const r = await query('UPDATE conversas SET responsavel_id = $1 WHERE responsavel_id = $2', [kly.id, fab.id]).catch((e) => { console.error('reassign fabiane->klycia:', e.message); return null; });
+        if (r) {
+          await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_reassign_fabiane_klycia_v1', '{"ok":true}') ON CONFLICT DO NOTHING`);
+          console.log(`🔁 ${r.rowCount} conversa(s) da Fabiane reatribuída(s) para a Klycia`);
+        }
+      }
+    }
+
     // ── AUDITORIA + PRESENÇA (admin only) ─────────────────────────────────
     await query(`CREATE TABLE IF NOT EXISTS audit_logs (
       id SERIAL PRIMARY KEY, usuario_id TEXT, usuario_nome TEXT, acao TEXT NOT NULL,
