@@ -13,7 +13,8 @@ const vazio = { nome:'', especialidade:'', setor:'consultas', cor:'#00B8C0', tel
 export default function Profissionais() {
   const api = useApi();
   const { user } = useAuth();
-  const ehGestao = user?.role === 'master' || user?.role === 'supervisor';
+  // Gerenciam: gestão (master/supervisor) e os times de consultas e terapias.
+  const ehGestao = user?.role === 'master' || user?.role === 'supervisor' || ['consultas','terapias'].includes(user?.setor);
   const [lista, setLista] = useState([]);
   const [modal, setModal] = useState(null);
   const [salvando, setSalvando] = useState(false);

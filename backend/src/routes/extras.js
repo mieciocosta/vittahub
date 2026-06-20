@@ -155,6 +155,9 @@ r.delete('/agenda/:id', async (req, res) => {
 });
 
 /* ═══ PAINEL DE PROFISSIONAIS ════════════════════════════════════════════════ */
+// Quem gerencia profissionais: gestão (master/supervisor) E os times de consultas
+// e terapias (eles cadastram seus médicos/especialistas e a disponibilidade).
+const podeGerirProf = (req) => gestao(req) || ['consultas', 'terapias'].includes(req.user?.setor);
 // Cadastro de médicos/especialistas + disponibilidade semanal.
 r.get('/profissionais', async (req, res) => {
   try {
@@ -165,7 +168,7 @@ r.get('/profissionais', async (req, res) => {
 
 r.post('/profissionais', async (req, res) => {
   try {
-    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão cadastra profissionais.' });
+    if (!podeGerirProf(req)) return res.status(403).json({ error: 'Sem permissão pra cadastrar profissionais.' });
     const b = req.body || {};
     const nome = cut((b.nome || '').trim(), 80);
     if (!nome) return res.status(400).json({ error: 'Informe o nome do profissional.' });
@@ -182,7 +185,7 @@ r.post('/profissionais', async (req, res) => {
 
 r.put('/profissionais/:id', async (req, res) => {
   try {
-    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão edita profissionais.' });
+    if (!podeGerirProf(req)) return res.status(403).json({ error: 'Sem permissão pra editar profissionais.' });
     const b = req.body || {};
     const sets = [], params = []; let i = 1;
     const set = (c, v) => { sets.push(`${c} = $${i++}`); params.push(v); };
@@ -204,7 +207,7 @@ r.put('/profissionais/:id', async (req, res) => {
 
 r.delete('/profissionais/:id', async (req, res) => {
   try {
-    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão remove profissionais.' });
+    if (!podeGerirProf(req)) return res.status(403).json({ error: 'Sem permissão pra remover profissionais.' });
     await query('DELETE FROM profissionais WHERE id = $1', [req.params.id]);
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
