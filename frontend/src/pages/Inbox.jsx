@@ -461,6 +461,7 @@ export default function Inbox({ onUnreadChange }) {
   const [transfSaving, setTransfSaving] = useState(false);
   const [vendaOpen, setVendaOpen] = useState(false);     // modal de registrar venda
   const [vendaSaving, setVendaSaving] = useState(false);
+  const [vendaErro, setVendaErro] = useState('');
   const [vendaForm, setVendaForm] = useState({ categoria:'', valor:'', forma_pagamento:'', status_pagamento:'pago', servico:'', observacao:'' });
   const hojeISO = new Date().toISOString().slice(0,10);
   const [agForm, setAgForm] = useState({ data: hojeISO, hora: '', servico: '', valor: '', observacoes: '', setor: 'consultas' });
@@ -1084,20 +1085,22 @@ export default function Inbox({ onUnreadChange }) {
     setVendaOpen(true);
   };
   const salvarVenda = async () => {
-    if (!vendaForm.categoria) { Toast.show('Escolha a categoria da venda', 'error'); return; }
-    if (!vendaForm.valor || parseFloat(vendaForm.valor) <= 0) { Toast.show('Informe o valor', 'error'); return; }
+    setVendaErro('');
+    if (!vendaForm.categoria) { setVendaErro('Escolha a categoria da venda.'); return; }
+    const valNum = parseFloat(String(vendaForm.valor).replace(',', '.'));
+    if (!valNum || valNum <= 0) { setVendaErro('Informe o valor (ex.: 250 ou 250.00).'); return; }
     setVendaSaving(true);
     try {
       await Promise.race([
         api.post('/extras/vendas', {
-          ...vendaForm, conversa_id: sel.id, lead_id: sel.lead_id || null,
+          ...vendaForm, valor: valNum, conversa_id: sel.id, lead_id: sel.lead_id || null,
           cliente_nome: sel.contact_name || fmt.phone(sel.phone), setor: sel.setor,
         }),
-        new Promise((_, rej) => setTimeout(() => rej(new Error('Servidor demorou a responder (pode estar atualizando). Tente de novo em alguns segundos.')), 20000)),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('Servidor demorou a responder (timeout 20s).')), 20000)),
       ]);
       Toast.show('Venda registrada! 💰 Entrou na meta do mês 🎯', 'success');
       setVendaOpen(false);
-    } catch (e) { Toast.show(e.message || 'Não foi possível registrar', 'error'); }
+    } catch (e) { setVendaErro('Erro: ' + (e.message || 'não foi possível registrar')); }
     finally { setVendaSaving(false); }
   };
 
@@ -1670,6 +1673,7 @@ export default function Inbox({ onUnreadChange }) {
               </div>
               <div className="field" style={{ margin:0 }}><label>Serviço (opcional)</label><input value={vendaForm.servico} onChange={e=>setVendaForm(p=>({...p,servico:e.target.value}))} placeholder="Ex: Plano 0-9 meses, Pediatria..." /></div>
               <div className="field" style={{ margin:0 }}><label>Observação (opcional)</label><textarea value={vendaForm.observacao} onChange={e=>setVendaForm(p=>({...p,observacao:e.target.value}))} rows={2} style={{ resize:'vertical' }} /></div>
+              {vendaErro && <div style={{ fontSize:12.5, color:'#fff', background:'#dc2626', borderRadius:8, padding:'8px 11px', fontWeight:600 }}>{vendaErro}</div>}
               <div style={{ display:'flex', gap:8, marginTop:4 }}>
                 <button onClick={salvarVenda} disabled={vendaSaving} className="btn btn-p" style={{ flex:1, background:'#16a34a' }}>{vendaSaving ? <span className="spin" style={{width:14,height:14}}/> : '💰 Registrar venda'}</button>
                 <button onClick={()=>setVendaOpen(false)} className="btn">Cancelar</button>
