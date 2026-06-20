@@ -23,6 +23,7 @@ const SETORES_MENU = [
 const NAV = [
   { to:'/',           icon:LayoutDashboard, label:'Dashboard' },
   { to:'/inbox',      icon:MessageSquare,   label:'Chat',     unread:true },
+  { to:'/equipe',     icon:Users,           label:'Chat da Equipe', equipe:true },
   { to:'/leads',      icon:Users,           label:'Clientes' },
   { to:'/banco-dados',icon:Database,        label:'Banco de Dados' },
   { to:'/funil',      icon:Kanban,          label:'Organização' },
@@ -165,6 +166,14 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
     return () => clearInterval(t);
   }, []); // eslint-disable-line
 
+  // Chat da equipe: não-lidas (badge)
+  const [eqNaoLidas, setEqNaoLidas] = useState(0);
+  useEffect(() => {
+    const load = () => api.get('/inbox/chat-interno-naolidas').then(d => setEqNaoLidas(d?.n || 0)).catch(() => {});
+    load(); const t = setInterval(load, 12000);
+    return () => clearInterval(t);
+  }, []); // eslint-disable-line
+
   // Contagem de leads esperando por setor (badges dos atalhos) — atualiza a cada 15s
   const [setorCount, setSetorCount] = useState({});
   useEffect(() => {
@@ -230,7 +239,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
       {/* Nav */}
       <nav onClick={() => onCloseMobile?.()} style={{ flex:1, padding: collapsed ? '14px 6px' : '14px 10px', display:'flex', flexDirection:'column', gap:3, overflowY:'auto', overflowX:'hidden' }}>
         {!collapsed && <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:1.6, color:'rgba(255,255,255,.62)', padding:'0 12px 6px', textTransform:'uppercase' }}>Menu</div>}
-        {NAV.map(({ to, icon:Icon, label, unread:showU, retornos:retBadge }) => (
+        {NAV.map(({ to, icon:Icon, label, unread:showU, retornos:retBadge, equipe:eqBadge }) => (
           <React.Fragment key={to}>
           <NavLink to={to} end={to==='/'} title={collapsed ? label : ''} style={({ isActive }) => ({
             display:'flex', alignItems:'center', gap: collapsed ? 0 : 10,
@@ -254,6 +263,11 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
             {!collapsed && retBadge && vencidos > 0 && (
               <span style={{ background:'var(--err)', color:'#fff', borderRadius:10, padding:'1px 7px', fontSize:10.5, fontWeight:800, minWidth:20, textAlign:'center' }}>
                 {vencidos > 99 ? '99+' : vencidos}
+              </span>
+            )}
+            {!collapsed && eqBadge && eqNaoLidas > 0 && (
+              <span style={{ background:'var(--tq)', color:'#fff', borderRadius:10, padding:'1px 7px', fontSize:10.5, fontWeight:800, minWidth:20, textAlign:'center' }}>
+                {eqNaoLidas > 99 ? '99+' : eqNaoLidas}
               </span>
             )}
             {collapsed && retBadge && vencidos > 0 && (

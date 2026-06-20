@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import { query } from '../db/pool.js';
 import { auth, masterOnly, SECRET } from '../middleware/auth.js';
 import jwt from 'jsonwebtoken';
-import { socketEmit, setConvGroupFn, setUserSetorFn } from '../socketServer.js';
+import { socketEmit, setConvGroupFn, setUserSetorFn, socketEmitToUsers } from '../socketServer.js';
 import * as propostaGen from '../services/proposta-gen.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -2827,6 +2827,55 @@ r.get('/atencao-agora', async (req, res) => {
       vendasPendentes: vp.rows[0]?.n || 0,
       vendasPendentesValor: vp.rows[0]?.v || 0,
     });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── CHAT INTERNO (equipe ↔ equipe) ──────────────────────────────────────────
+// Lista de contatos (usuários) com último recado e não-lidas pra mim.
+r.get('/chat-interno/contatos', async (req, res) => {
+  try {
+    const { rows } = await query(`
+      SELECT u.id, u.nome, u.cor, u.avatar, u.setor, u.role,
+        (SELECT conteudo FROM chat_interno m WHERE (m.de_id=u.id AND m.para_id=$1) OR (m.de_id=$1 AND m.para_id=u.id) ORDER BY m.created_at DESC LIMIT 1) AS ultima,
+        (SELECT created_at FROM chat_interno m WHERE (m.de_id=u.id AND m.para_id=$1) OR (m.de_id=$1 AND m.para_id=u.id) ORDER BY m.created_at DESC LIMIT 1) AS ultima_at,
+        (SELECT COUNT(*) FROM chat_interno m WHERE m.de_id=u.id AND m.para_id=$1 AND m.lida=false)::int AS nao_lidas
+      FROM usuarios u
+      WHERE u.id <> $1 AND u.ativo = true AND u.role <> 'bot'
+      ORDER BY ultima_at DESC NULLS LAST, u.nome`, [req.user.id]);
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Conversa com um usuário (marca como lidas as que ele me mandou).
+r.get('/chat-interno/:userId', async (req, res) => {
+  try {
+    const { rows } = await query(
+      `SELECT * FROM chat_interno WHERE (de_id=$1 AND para_id=$2) OR (de_id=$2 AND para_id=$1) ORDER BY created_at ASC LIMIT 300`,
+      [req.user.id, req.params.userId]);
+    await query('UPDATE chat_interno SET lida=true WHERE de_id=$1 AND para_id=$2 AND lida=false', [req.params.userId, req.user.id]).catch(() => {});
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Enviar recado interno.
+r.post('/chat-interno', async (req, res) => {
+  try {
+    const para = String(req.body.para_id || '');
+    const conteudo = String(req.body.conteudo || '').trim().slice(0, 4000);
+    if (!para || !conteudo) return res.status(400).json({ error: 'Destinatário e mensagem são obrigatórios.' });
+    const { rows: [m] } = await query(
+      `INSERT INTO chat_interno (de_id, de_nome, para_id, conteudo) VALUES ($1,$2,$3,$4) RETURNING *`,
+      [req.user.id, req.user.nome, para, conteudo]);
+    socketEmitToUsers([para, req.user.id], 'chat_interno', m);
+    res.status(201).json(m);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Total de não-lidas (badge do menu).
+r.get('/chat-interno-naolidas', async (req, res) => {
+  try {
+    const { rows: [r2] } = await query('SELECT COUNT(*)::int n FROM chat_interno WHERE para_id=$1 AND lida=false', [req.user.id]);
+    res.json({ n: r2?.n || 0 });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

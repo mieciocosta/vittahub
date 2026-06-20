@@ -104,6 +104,15 @@ export function socketEmit(event, data) {
   io.emit(event, data);
 }
 
+/** Emite um evento só para os usuários cujos ids estão na lista (chat interno). */
+export function socketEmitToUsers(userIds, event, data) {
+  if (!io) return;
+  const set = new Set((userIds || []).map(String));
+  for (const [, socket] of io.sockets.sockets) {
+    if (socket.user && set.has(String(socket.user.id))) socket.emit(event, data);
+  }
+}
+
 /** Emite para clientes de uma conversa específica */
 export function socketEmitConv(convId, event, data) {
   if (!io) return;

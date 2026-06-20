@@ -17,6 +17,7 @@ import Indicacoes from './pages/Indicacoes.jsx';
 import PastaClientes from './pages/PastaClientes.jsx';
 import Profissionais from './pages/Profissionais.jsx';
 import Metas from './pages/Metas.jsx';
+import Equipe from './pages/Equipe.jsx';
 import Biblioteca from './pages/Biblioteca.jsx';
 import Figurinhas from './pages/Figurinhas.jsx';
 import Modelos from './pages/Modelos.jsx';
@@ -143,6 +144,7 @@ export default function App() {
           <Route path="/agenda" element={<Agenda />} />
           <Route path="/profissionais" element={<Profissionais />} />
           <Route path="/metas" element={<Metas />} />
+          <Route path="/equipe" element={<Equipe />} />
           <Route path="/fidelidade" element={<PastaClientes categoria="fidelidade" key="fidelidade" />} />
           <Route path="/banco-dados" element={<PastaClientes categoria="banco_dados" key="banco_dados" />} />
           <Route path="/indicacoes" element={<Indicacoes />} />

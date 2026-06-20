@@ -325,6 +325,13 @@ export default async function runMigrate() {
       created_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS perdido BOOLEAN DEFAULT false`).catch(() => {});
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS motivo_perda TEXT`).catch(() => {});
+    // CHAT INTERNO da equipe (usuário ↔ usuário, separado do WhatsApp).
+    await query(`CREATE TABLE IF NOT EXISTS chat_interno (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      de_id TEXT NOT NULL, de_nome TEXT, para_id TEXT NOT NULL,
+      conteudo TEXT NOT NULL, lida BOOLEAN DEFAULT false,
+      created_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS idx_chatint_par ON chat_interno (de_id, para_id, created_at)`).catch(() => {});
     // Corrige tabelas já criadas com lead_id INT (UUID não cabe em inteiro)
     await query(`ALTER TABLE vendas ALTER COLUMN lead_id TYPE TEXT USING lead_id::text`).catch(() => {});
     await query(`ALTER TABLE mensagens ADD COLUMN IF NOT EXISTS editada BOOLEAN DEFAULT false`).catch(() => {});
