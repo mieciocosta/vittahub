@@ -459,6 +459,9 @@ export default function Inbox({ onUnreadChange }) {
   const [transfOpen, setTransfOpen] = useState(false);   // modal de transferência
   const [atendentes, setAtendentes] = useState([]);
   const [transfSaving, setTransfSaving] = useState(false);
+  const [vendaOpen, setVendaOpen] = useState(false);     // modal de registrar venda
+  const [vendaSaving, setVendaSaving] = useState(false);
+  const [vendaForm, setVendaForm] = useState({ categoria:'', valor:'', forma_pagamento:'', status_pagamento:'pago', servico:'', observacao:'' });
   const hojeISO = new Date().toISOString().slice(0,10);
   const [agForm, setAgForm] = useState({ data: hojeISO, hora: '', servico: '', valor: '', observacoes: '', setor: 'consultas' });
   const [showInfo, setShowInfo] = useState(false);
@@ -1075,6 +1078,26 @@ export default function Inbox({ onUnreadChange }) {
     setAgendarOpen(true);
   };
 
+  const CAT_SUGERIDA = { vacinas:'Vacinação Geral', consultas:'Consulta', terapias:'Terapia' };
+  const abrirVenda = () => {
+    setVendaForm({ categoria: CAT_SUGERIDA[sel.setor] || '', valor:'', forma_pagamento:'', status_pagamento:'pago', servico:'', observacao:'' });
+    setVendaOpen(true);
+  };
+  const salvarVenda = async () => {
+    if (!vendaForm.categoria) { Toast.show('Escolha a categoria da venda', 'error'); return; }
+    if (!vendaForm.valor || parseFloat(vendaForm.valor) <= 0) { Toast.show('Informe o valor', 'error'); return; }
+    setVendaSaving(true);
+    try {
+      await api.post('/extras/vendas', {
+        ...vendaForm, conversa_id: sel.id, lead_id: sel.lead_id || null,
+        cliente_nome: sel.contact_name || fmt.phone(sel.phone), setor: sel.setor,
+      });
+      Toast.show('Venda registrada! 💰 Entrou na meta do mês 🎯', 'success');
+      setVendaOpen(false);
+    } catch (e) { Toast.show(e.message || 'Não foi possível registrar', 'error'); }
+    setVendaSaving(false);
+  };
+
   const abrirTransferir = async () => {
     setTransfOpen(true);
     try { const d = await api.get('/inbox/atendentes'); setAtendentes(Array.isArray(d) ? d : []); } catch {}
@@ -1287,6 +1310,10 @@ export default function Inbox({ onUnreadChange }) {
               <button onClick={abrirAgendar} title="Agendar este atendimento (conta na meta do mês)"
                 className="btn btn-sm" style={{ background:'#1e3a5f', color:'#7cc4ff', border:'1.5px solid #2563eb', fontSize:11, padding:'4px 9px', fontWeight:700 }}>
                 <CalendarDays size={10}/> Agendar
+              </button>
+              <button onClick={abrirVenda} title="Registrar uma venda deste atendimento (entra na meta)"
+                className="btn btn-sm" style={{ background:'#14432a', color:'#7ee0a8', border:'1.5px solid #16a34a', fontSize:11, padding:'4px 9px', fontWeight:700 }}>
+                💰 Venda
               </button>
               <button onClick={abrirTransferir} title="Transferir este atendimento para outro atendente"
                 className="btn btn-sm" style={{ fontSize:11, padding:'4px 9px' }}>
@@ -1600,6 +1627,51 @@ export default function Inbox({ onUnreadChange }) {
               {atendentes.filter(a => a.id !== user?.id).length === 0 && <div style={{ fontSize:12, color:'var(--muted)' }}>Nenhum outro atendente disponível.</div>}
             </div>
             <button onClick={()=>setTransfOpen(false)} className="btn btn-sm" style={{ width:'100%', marginTop:12 }}>Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {vendaOpen && sel && (
+        <div onClick={()=>setVendaOpen(false)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.5)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000, padding:16 }}>
+          <div onClick={e=>e.stopPropagation()} className="card" style={{ width:400, maxWidth:'100%', padding:22, maxHeight:'88vh', overflowY:'auto' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
+              <span style={{ fontSize:18 }}>💰</span>
+              <h3 style={{ fontSize:16, fontWeight:800 }}>Registrar venda</h3>
+            </div>
+            <p style={{ fontSize:12, color:'var(--muted)', marginBottom:16 }}>Cliente: <b>{sel.contact_name || fmt.phone(sel.phone)}</b> · entra na meta 🎯</p>
+            <div style={{ display:'flex', flexDirection:'column', gap:11 }}>
+              <div className="field" style={{ margin:0 }}><label>Categoria *</label>
+                <select value={vendaForm.categoria} onChange={e=>setVendaForm(p=>({...p,categoria:e.target.value}))} style={{ width:'100%' }}>
+                  <option value="">Escolha…</option>
+                  {['Vacinação Geral','Plano Vacinal','Fidelidade Mensal','Consulta','Terapia'].map(c=><option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div style={{ display:'flex', gap:10 }}>
+                <div className="field" style={{ flex:1, margin:0 }}><label>Valor (R$) *</label><input type="number" value={vendaForm.valor} onChange={e=>setVendaForm(p=>({...p,valor:e.target.value}))} placeholder="0,00" /></div>
+                <div className="field" style={{ flex:1, margin:0 }}><label>Forma de pagamento</label>
+                  <select value={vendaForm.forma_pagamento} onChange={e=>setVendaForm(p=>({...p,forma_pagamento:e.target.value}))} style={{ width:'100%' }}>
+                    <option value="">—</option>
+                    {['Pix','Cartão','Dinheiro','Link de pagamento','Parcelado','Cortesia'].map(f=><option key={f} value={f}>{f}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="field" style={{ margin:0 }}><label>Status do pagamento</label>
+                <select value={vendaForm.status_pagamento} onChange={e=>setVendaForm(p=>({...p,status_pagamento:e.target.value}))} style={{ width:'100%' }}>
+                  <option value="pago">Pago (confirma na meta)</option>
+                  <option value="sinal">Sinal pago</option>
+                  <option value="aguardando">Aguardando pagamento</option>
+                  <option value="parcelado">Parcelado</option>
+                  <option value="cortesia">Cortesia</option>
+                  <option value="pendente">Pendente</option>
+                </select>
+              </div>
+              <div className="field" style={{ margin:0 }}><label>Serviço (opcional)</label><input value={vendaForm.servico} onChange={e=>setVendaForm(p=>({...p,servico:e.target.value}))} placeholder="Ex: Plano 0-9 meses, Pediatria..." /></div>
+              <div className="field" style={{ margin:0 }}><label>Observação (opcional)</label><textarea value={vendaForm.observacao} onChange={e=>setVendaForm(p=>({...p,observacao:e.target.value}))} rows={2} style={{ resize:'vertical' }} /></div>
+              <div style={{ display:'flex', gap:8, marginTop:4 }}>
+                <button onClick={salvarVenda} disabled={vendaSaving} className="btn btn-p" style={{ flex:1, background:'#16a34a' }}>{vendaSaving ? <span className="spin" style={{width:14,height:14}}/> : '💰 Registrar venda'}</button>
+                <button onClick={()=>setVendaOpen(false)} className="btn">Cancelar</button>
+              </div>
+            </div>
           </div>
         </div>
       )}
