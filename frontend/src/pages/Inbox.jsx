@@ -479,6 +479,13 @@ export default function Inbox({ onUnreadChange }) {
   const [setorFiltro, setSetorFiltro] = useState('all');
   const [searchParams] = useSearchParams();
   const clsFiltro = searchParams.get('cls') || 'all';
+  const [setorResumo, setSetorResumo] = useState(null);
+  useEffect(() => {
+    const reais = ['vacinacao','planos_vacinais','fidelidade','consultas','terapias'];
+    if (!reais.includes(clsFiltro)) { setSetorResumo(null); return; }
+    const load = () => api.get(`/inbox/setor-resumo?cls=${clsFiltro}`).then(setSetorResumo).catch(()=>setSetorResumo(null));
+    load(); const t = setInterval(load, 20000); return () => clearInterval(t);
+  }, [clsFiltro]); // eslint-disable-line
   const [modo, setModo] = useState('todas');
   const [counts, setCounts] = useState(null);
   const [somAtivo, setSomAtivo] = useState(() => localStorage.getItem('vh_sound') !== 'off');
@@ -1218,6 +1225,29 @@ export default function Inbox({ onUnreadChange }) {
           waiting={waiting} setWaiting={setWaiting}
           setor={setorFiltro} setSetor={setSetorFiltro} mostraSetores={user?.role !== 'atendente'}
           modo={modo} setModo={setModo} counts={counts}/>
+
+        {setorResumo && (
+          <div style={{ padding:'10px 12px', borderBottom:'1px solid var(--border)', background:'var(--bg2)' }}>
+            <div style={{ fontSize:10.5, fontWeight:800, letterSpacing:.5, color:'var(--muted)', textTransform:'uppercase', marginBottom:7 }}>{setorResumo.rotulo} · resumo do mês</div>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:6 }}>
+              {[
+                ['Em atend.', setorResumo.emAtendimento, 'var(--tq2)'],
+                ['Esperando', setorResumo.esperando, '#dc2626'],
+                ['Agendados', setorResumo.agendados, '#2563eb'],
+                ['Fechados', setorResumo.vendas, 'var(--ok,#16a34a)'],
+              ].map(([l,v,c]) => (
+                <div key={l} style={{ background:'var(--card)', borderRadius:8, padding:'6px 4px', textAlign:'center', border:'1px solid var(--border)' }}>
+                  <div style={{ fontSize:17, fontWeight:800, color:c }}>{v}</div>
+                  <div style={{ fontSize:9.5, color:'var(--muted)', fontWeight:600 }}>{l}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, marginTop:6, color:'var(--muted)' }}>
+              <span>💰 Vendido: <b style={{ color:'var(--ok,#16a34a)' }}>{fmt.brl(setorResumo.vendido)}</b></span>
+              {setorResumo.perdidos > 0 && <span>❌ Perdidos: <b style={{ color:'#dc2626' }}>{setorResumo.perdidos}</b></span>}
+            </div>
+          </div>
+        )}
 
         <div ref={listContainerRef} style={{ flex:1, minHeight:0 }}>
           <VirtualList items={convosExib} selectedId={sel?.id} onSelect={openConvo} usersById={usersById}

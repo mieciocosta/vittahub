@@ -2799,6 +2799,40 @@ r.get('/setores-contagem', (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// RESUMO DO MÊS por classificação/setor (banner no topo da aba). Junta
+// atendimentos, agendados, vendas fechadas e perdidos daquele ambiente.
+const CLS_CATEGORIA = { vacinacao: 'Vacinação Geral', planos_vacinais: 'Plano Vacinal', fidelidade: 'Fidelidade Mensal', consultas: 'Consulta', terapias: 'Terapia' };
+const CLS_SETOR = { vacinacao: 'vacinas', planos_vacinais: 'vacinas', fidelidade: 'vacinas', consultas: 'consultas', terapias: 'terapias' };
+r.get('/setor-resumo', async (req, res) => {
+  try {
+    const cls = req.query.cls;
+    if (!CLS_CATEGORIA[cls]) return res.json({});
+    let emAtendimento = 0, esperando = 0;
+    for (const c of convoCache.values()) {
+      if (c.categoria || c.classificacao !== cls) continue;
+      if (!podeVerSetor(req.user, c)) continue;
+      emAtendimento++;
+      if (c.last_from === 'contact') esperando++;
+    }
+    const mes = new Date().toISOString().slice(0, 7);
+    const cat = CLS_CATEGORIA[cls], setor = CLS_SETOR[cls];
+    const [vendas, perdas, ag] = await Promise.all([
+      query(`SELECT COUNT(*)::int n, COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float confirmado FROM vendas WHERE to_char(data_venda,'YYYY-MM')=$1 AND categoria=$2`, [mes, cat]).catch(() => ({ rows: [{ n: 0, confirmado: 0 }] })),
+      query(`SELECT COUNT(*)::int n, COALESCE(SUM(valor_potencial),0)::float valor FROM perdas WHERE to_char(created_at,'YYYY-MM')=$1 AND (categoria=$2 OR setor=$3)`, [mes, cls, setor]).catch(() => ({ rows: [{ n: 0, valor: 0 }] })),
+      query(`SELECT COUNT(*)::int n FROM agenda_eventos WHERE to_char(data,'YYYY-MM')=$1 AND setor=$2 AND status<>'Cancelado'`, [mes, setor]).catch(() => ({ rows: [{ n: 0 }] })),
+    ]);
+    res.json({
+      cls, rotulo: cat,
+      emAtendimento, esperando,
+      agendados: ag.rows[0]?.n || 0,
+      vendas: vendas.rows[0]?.n || 0,
+      vendido: vendas.rows[0]?.confirmado || 0,
+      perdidos: perdas.rows[0]?.n || 0,
+      perdidoValor: perdas.rows[0]?.valor || 0,
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // "ATENÇÃO AGORA": pontos de ação pra gestão/atendente agir — respeita o acesso.
 r.get('/atencao-agora', async (req, res) => {
   try {
