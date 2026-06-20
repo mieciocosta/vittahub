@@ -2686,7 +2686,22 @@ r.patch('/conversations/:id/classificar', async (req, res) => {
     if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
     cacheUpdate(conv);
     socketEmit('conv_setor', { convId: conv.id, setor: mapa.setor, classificacao: cls, categoria: mapa.categoria });
-    res.json({ ok: true, classificacao: cls, setor: mapa.setor, categoria: mapa.categoria });
+
+    // RODÍZIO AUTOMÁTICO: lead novo (sem responsável) e que NÃO foi pra pasta →
+    // distribui entre as atendentes do setor de forma justa e avisa a escolhida.
+    let distribuida = null;
+    if (!mapa.categoria && !conv.responsavel_id) {
+      distribuida = await distribuirSetor(conv.id, mapa.setor).catch(() => null);
+      if (distribuida) {
+        const { rows: [c2] } = await query('SELECT * FROM conversas WHERE id = $1', [conv.id]).catch(() => ({ rows: [] }));
+        if (c2) cacheUpdate(c2);
+        await query(
+          `INSERT INTO notificacoes (tipo, titulo, texto, conv_id) VALUES ('distribuicao',$1,$2,$3)`,
+          [`📥 Novo lead pra você: ${conv.contact_name || conv.phone || 'cliente'}`,
+           `Distribuído automaticamente pelo rodízio de ${mapa.setor}.`, conv.id]).catch(() => {});
+      }
+    }
+    res.json({ ok: true, classificacao: cls, setor: mapa.setor, categoria: mapa.categoria, responsavel: distribuida });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

@@ -1036,8 +1036,10 @@ export default function Inbox({ onUnreadChange }) {
   const classificarSetor = async (cls) => {
     const m = CLS_MAP[cls]; if (!m) return;
     try {
-      await api.patch(`/inbox/conversations/${sel.id}/classificar`, { classificacao: cls });
-      setSel(p => ({ ...p, classificacao: cls, setor: m.setor, categoria: m.cat }));
+      const r = await api.patch(`/inbox/conversations/${sel.id}/classificar`, { classificacao: cls });
+      const resp = r?.responsavel;
+      const respNome = resp?.nome ? resp.nome.split(' ')[0] : null;
+      setSel(p => ({ ...p, classificacao: cls, setor: m.setor, categoria: m.cat, responsavel_id: resp?.id || p.responsavel_id }));
       const souMaster = user?.role === 'master';
       const meuSetor = user?.setor;
       const souDoGrupo = souMaster || !meuSetor || ((meuSetor === 'vacinas') === (m.setor === 'vacinas'));
@@ -1046,10 +1048,10 @@ export default function Inbox({ onUnreadChange }) {
         const idC = sel.id;
         setConvos(p => p.filter(c => c.id !== idC));
         setSel(null); setMsgs([]);
-        Toast.show(m.cat ? 'Salvo em Clientes Fidelidade ⭐' : `Classificado como ${m.label} — enviado pro time responsável ✅`, 'success');
+        Toast.show(m.cat ? 'Salvo em Clientes Fidelidade ⭐' : respNome ? `Classificado como ${m.label} — distribuído pra ${respNome} 🔁` : `Classificado como ${m.label} — enviado pro time ✅`, 'success');
       } else {
-        setConvos(p => p.map(c => c.id===sel.id ? {...c, classificacao:cls, setor:m.setor} : c));
-        Toast.show(`Classificado como ${m.label} ✅`, 'success');
+        setConvos(p => p.map(c => c.id===sel.id ? {...c, classificacao:cls, setor:m.setor, responsavel_id:resp?.id||c.responsavel_id} : c));
+        Toast.show(respNome ? `Classificado como ${m.label} — distribuído pra ${respNome} 🔁` : `Classificado como ${m.label} ✅`, 'success');
       }
     } catch (e) { Toast.show(e.message || 'Não foi possível classificar', 'error'); }
   };
