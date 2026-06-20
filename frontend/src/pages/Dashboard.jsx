@@ -55,10 +55,15 @@ export default function Dashboard() {
 
   const [agendaHoje, setAgendaHoje] = useState([]);
   const [agMeta, setAgMeta] = useState(null);
+  const [vendasResumo, setVendasResumo] = useState(null);
+  const [atencao, setAtencao] = useState(null);
   useEffect(() => {
     api.get('/reports/dashboard').then(setData).catch(() => {});
     api.get(`/extras/agenda?data=${new Date().toISOString().slice(0, 10)}`).then(d => setAgendaHoje(Array.isArray(d) ? d : [])).catch(() => {});
     api.get('/extras/agenda/meta').then(setAgMeta).catch(() => {});
+    api.get('/extras/vendas/resumo').then(setVendasResumo).catch(() => {});
+    const loadAt = () => api.get('/inbox/atencao-agora').then(setAtencao).catch(() => {});
+    loadAt(); const t = setInterval(loadAt, 20000); return () => clearInterval(t);
   }, []); // eslint-disable-line
 
   const hoje = new Date();
@@ -152,6 +157,43 @@ export default function Dashboard() {
               </div>
             </button>
           ))}
+        </div>
+
+        {/* ── ATENÇÃO AGORA + Resumo comercial ── */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(300px,1.3fr) minmax(280px,1fr)', gap: 16, marginBottom: 16 }}>
+          {/* Atenção agora */}
+          <div className="card" style={{ padding: '16px 18px', borderLeft: '4px solid var(--err,#dc2626)' }}>
+            <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>🔔 Atenção agora</div>
+            {atencao ? (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))', gap: 10 }}>
+                {[
+                  ['Sem resposta +10min', atencao.semResposta, '#dc2626', '/inbox?cls=', 'Clientes esperando'],
+                  ['Leads quentes parados', atencao.quentes, '#e8671a', '/inbox', 'Querem fechar'],
+                  ['Agend. sem confirmar', atencao.agendamentosSemConfirmar, '#d97706', '/agenda', 'Confirmar com o cliente'],
+                  ['Vendas pendentes', atencao.vendasPendentes, '#2563eb', '/metas', fmt.brl(atencao.vendasPendentesValor) + ' a receber'],
+                ].map(([lbl, val, cor, go, sub]) => (
+                  <div key={lbl} onClick={() => go && nav(go)} style={{ cursor: go ? 'pointer' : 'default', background: 'var(--bg2)', borderRadius: 10, padding: '10px 12px' }}>
+                    <div style={{ fontSize: 24, fontWeight: 800, color: (val > 0 ? cor : 'var(--muted)') }}>{val}</div>
+                    <div style={{ fontSize: 11.5, fontWeight: 700 }}>{lbl}</div>
+                    <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>{sub}</div>
+                  </div>
+                ))}
+              </div>
+            ) : <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Carregando…</div>}
+          </div>
+          {/* Resumo comercial do mês */}
+          {vendasResumo && (
+            <div className="card" style={{ padding: '16px 18px' }}>
+              <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>💰 Vendas do mês</div>
+              <div style={{ fontSize: 30, fontWeight: 800, color: 'var(--ok,#16a34a)' }}>{fmt.brl(vendasResumo.total?.confirmado)}</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>confirmado{vendasResumo.total?.meta > 0 && ` de ${fmt.brl(vendasResumo.total.meta)} (${vendasResumo.total.pct ?? 0}%)`}</div>
+              <div style={{ display: 'flex', gap: 8, fontSize: 11.5 }}>
+                <div style={{ flex: 1, background: 'var(--bg2)', borderRadius: 8, padding: '7px 9px' }}><div style={{ color: 'var(--muted)' }}>Agendado</div><div style={{ fontWeight: 800, color: '#2563eb' }}>{fmt.brl(vendasResumo.total?.agendado)}</div></div>
+                <div style={{ flex: 1, background: 'var(--bg2)', borderRadius: 8, padding: '7px 9px' }}><div style={{ color: 'var(--muted)' }}>Pendente</div><div style={{ fontWeight: 800, color: '#d97706' }}>{fmt.brl(vendasResumo.total?.pendente)}</div></div>
+              </div>
+              <button onClick={() => nav('/metas')} className="btn btn-sm" style={{ width: '100%', marginTop: 12 }}>Ver metas →</button>
+            </div>
+          )}
         </div>
 
         {/* ── Linha principal: Meta grande · Funil · Agenda-Hoje ── */}

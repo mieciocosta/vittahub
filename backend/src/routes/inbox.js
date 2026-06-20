@@ -2778,6 +2778,37 @@ r.get('/setores-contagem', (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// "ATENÇÃO AGORA": pontos de ação pra gestão/atendente agir — respeita o acesso.
+r.get('/atencao-agora', async (req, res) => {
+  try {
+    const agora = Date.now();
+    let semResposta = 0, quentes = 0;
+    for (const c of convoCache.values()) {
+      if (c.categoria) continue;
+      if (!podeVerSetor(req.user, c)) continue;
+      if (c.last_from === 'contact') {
+        const idade = c.last_message_at ? agora - new Date(c.last_message_at).getTime() : 0;
+        if (idade > 10 * 60 * 1000 && idade < 24 * 3600 * 1000) semResposta++;
+        if (c.lead_score === 'quente') quentes++;
+      }
+    }
+    const hoje = new Date().toISOString().slice(0, 10);
+    const mes = hoje.slice(0, 7);
+    const soMinhasVenda = req.user.role === 'master' || req.user.role === 'supervisor' ? '' : ` AND atendente_id = '${String(req.user.id).replace(/'/g, '')}'`;
+    const [ag, vp] = await Promise.all([
+      query(`SELECT COUNT(*)::int n FROM agenda_eventos WHERE data >= $1 AND status = 'Agendado'`, [hoje]).catch(() => ({ rows: [{ n: 0 }] })),
+      query(`SELECT COUNT(*)::int n, COALESCE(SUM(valor),0)::float v FROM vendas
+              WHERE to_char(data_venda,'YYYY-MM') = $1 AND status_pagamento IN ('sinal','aguardando','parcelado','pendente') ${soMinhasVenda}`, [mes]).catch(() => ({ rows: [{ n: 0, v: 0 }] })),
+    ]);
+    res.json({
+      semResposta, quentes,
+      agendamentosSemConfirmar: ag.rows[0]?.n || 0,
+      vendasPendentes: vp.rows[0]?.n || 0,
+      vendasPendentesValor: vp.rows[0]?.v || 0,
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Lista de atendentes (pra o seletor de transferência) — acessível a todos logados
 r.get('/atendentes', async (req, res) => {
   try {
