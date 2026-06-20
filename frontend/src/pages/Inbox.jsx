@@ -1088,14 +1088,17 @@ export default function Inbox({ onUnreadChange }) {
     if (!vendaForm.valor || parseFloat(vendaForm.valor) <= 0) { Toast.show('Informe o valor', 'error'); return; }
     setVendaSaving(true);
     try {
-      await api.post('/extras/vendas', {
-        ...vendaForm, conversa_id: sel.id, lead_id: sel.lead_id || null,
-        cliente_nome: sel.contact_name || fmt.phone(sel.phone), setor: sel.setor,
-      });
+      await Promise.race([
+        api.post('/extras/vendas', {
+          ...vendaForm, conversa_id: sel.id, lead_id: sel.lead_id || null,
+          cliente_nome: sel.contact_name || fmt.phone(sel.phone), setor: sel.setor,
+        }),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('Servidor demorou a responder (pode estar atualizando). Tente de novo em alguns segundos.')), 20000)),
+      ]);
       Toast.show('Venda registrada! 💰 Entrou na meta do mês 🎯', 'success');
       setVendaOpen(false);
     } catch (e) { Toast.show(e.message || 'Não foi possível registrar', 'error'); }
-    setVendaSaving(false);
+    finally { setVendaSaving(false); }
   };
 
   const abrirTransferir = async () => {
