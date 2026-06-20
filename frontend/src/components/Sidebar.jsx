@@ -21,7 +21,7 @@ const SETORES_MENU = [
 ];
 
 const NAV = [
-  { to:'/',           icon:LayoutDashboard, label:'Dashboard' },
+  { to:'/',           icon:LayoutDashboard, label:'Resumo' },
   { to:'/inbox',      icon:MessageSquare,   label:'Chat',     unread:true },
   { to:'/equipe',     icon:Users,           label:'Chat da Equipe', equipe:true },
   { to:'/leads',      icon:Users,           label:'Clientes' },
@@ -221,7 +221,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
 
       {/* Logo / Brand — vertical branca oficial, clicável pro Dashboard */}
       <div style={{ padding: collapsed ? '14px 0' : '18px 14px 14px', borderBottom:'1px solid rgba(255,255,255,.16)', flexShrink:0 }}>
-        <NavLink to="/" title="Ir para o Dashboard" className="brand-link" style={{ textDecoration:'none', display:'block' }}>
+        <NavLink to="/" title="Ir para o Resumo" className="brand-link" style={{ textDecoration:'none', display:'block' }}>
           {collapsed ? (
             <img src="/logos/logo-icon-white.png" alt="Vittalis Saúde" style={{ height:28, objectFit:'contain', display:'block', margin:'0 auto' }} />
           ) : (
