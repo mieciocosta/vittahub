@@ -248,6 +248,18 @@ export default async function runMigrate() {
       }
     }
 
+    // ── Desativa a Taíse (uma vez). O middleware de revogação corta o acesso na
+    // hora; pode reativar pela tela quando quiser (flag impede re-rodar).
+    const { rows: [flagTz] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_desativa_taise_v1'");
+    if (!flagTz) {
+      const r = await query(`UPDATE conversas SET responsavel_id = NULL WHERE responsavel_id IN (SELECT id FROM usuarios WHERE email = 'taise@vittahub.local' OR cpf = '62109563354')`).catch(() => null);
+      const up = await query(`UPDATE usuarios SET ativo = false WHERE email = 'taise@vittahub.local' OR cpf = '62109563354'`).catch((e) => { console.error('desativa taise:', e.message); return null; });
+      if (up) {
+        await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_desativa_taise_v1', '{"ok":true}') ON CONFLICT DO NOTHING`);
+        console.log(`🔒 Taíse desativada (${up.rowCount} usuário) e ${r?.rowCount || 0} conversa(s) liberadas`);
+      }
+    }
+
     // ── AUDITORIA + PRESENÇA (admin only) ─────────────────────────────────
     await query(`CREATE TABLE IF NOT EXISTS audit_logs (
       id SERIAL PRIMARY KEY, usuario_id TEXT, usuario_nome TEXT, acao TEXT NOT NULL,
