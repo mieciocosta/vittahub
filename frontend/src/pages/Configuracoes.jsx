@@ -303,6 +303,13 @@ export default function Configuracoes() {
                 </select>
               </div>
               {userErr && <div style={{ fontSize:12, color:'var(--err)', fontWeight:600 }}>{userErr}</div>}
+              {(() => {
+                const falta = [];
+                if (!novoUser.nome.trim()) falta.push('nome');
+                if (mask.digits(novoUser.cpf).length !== 11) falta.push('CPF completo (11 dígitos)');
+                if (novoUser.senha.length < 8) falta.push('senha de 8+ caracteres');
+                return falta.length ? <div style={{ fontSize:11.5, color:'var(--gold,#C4973B)', fontWeight:600 }}>Falta preencher: {falta.join(' · ')}</div> : null;
+              })()}
               <button onClick={criarUsuario} disabled={!novoUser.nome.trim()||mask.digits(novoUser.cpf).length!==11||novoUser.senha.length<8}
                 className="btn btn-p btn-sm" style={{ alignSelf:'flex-start', gap:5, opacity:(!novoUser.nome.trim()||mask.digits(novoUser.cpf).length!==11||novoUser.senha.length<8)?.5:1 }}>
                 <Check size={13}/> Criar usuário
