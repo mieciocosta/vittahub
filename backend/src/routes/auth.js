@@ -2,7 +2,7 @@ import express from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { query } from '../db/pool.js';
-import { SECRET, auth } from '../middleware/auth.js';
+import { SECRET, auth, revogarAcesso, reativarAcesso } from '../middleware/auth.js';
 
 const r = express.Router();
 
@@ -134,6 +134,9 @@ r.put('/usuarios/:id', auth, async (req, res) => {
       params
     );
     if (!rows[0]) return res.status(404).json({ error: 'Usuário não encontrado' });
+    // Revoga/reativa o acesso NA HORA quando o status muda (não espera o token expirar)
+    if (ativo === false) revogarAcesso(rows[0].id);
+    else if (ativo === true) reativarAcesso(rows[0].id);
     res.json(rows[0]);
   } catch (err) {
     if (String(err.message).includes('idx_usuarios_cpf')) return res.status(409).json({ error: 'Este CPF já está cadastrado em outro usuário' });
