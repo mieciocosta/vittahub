@@ -213,6 +213,26 @@ export default async function runMigrate() {
       console.log('🌱 Seed setores/papéis aplicado');
     }
 
+    // ── Atualização de equipe (uma vez): Klycia entra (supervisora do não-vacina,
+    // ou seja, consultas/terapias) e Fabiane sai (desativada). Senha padrão da casa.
+    const { rows: [flagKF] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_equipe_klycia_v1'");
+    if (!flagKF) {
+      const bcryptK = await import('bcryptjs');
+      const hashK = await bcryptK.default.hash('Vittalis@2026', 10);
+      const { rows: existeK } = await query("SELECT id FROM usuarios WHERE cpf = '06100955369' LIMIT 1").catch(() => ({ rows: [] }));
+      if (!existeK.length) {
+        await query(`INSERT INTO usuarios (id, nome, email, cpf, senha, role, cor, ativo, setor)
+          VALUES (gen_random_uuid()::text, 'Klycia', '06100955369@vittahub.local', '06100955369', $1, 'supervisor', '#e8671a', true, 'consultas')
+          ON CONFLICT (email) DO NOTHING`, [hashK]).catch((e) => console.error('seed klycia insert:', e.message));
+      }
+      // Garante o papel/setor/ativo dela mesmo se já existia por outra via
+      await query(`UPDATE usuarios SET role = 'supervisor', setor = 'consultas', ativo = true WHERE cpf = '06100955369'`).catch(() => {});
+      // Retira a Fabiane do CRM (desativa — preserva histórico; pode reativar na tela)
+      await query(`UPDATE usuarios SET ativo = false WHERE cpf = '02607997348' OR email = 'fabiane@vittahub.local'`).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_equipe_klycia_v1', '{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🌱 Equipe: Klycia (supervisora/consultas) criada e Fabiane desativada');
+    }
+
     // ── AUDITORIA + PRESENÇA (admin only) ─────────────────────────────────
     await query(`CREATE TABLE IF NOT EXISTS audit_logs (
       id SERIAL PRIMARY KEY, usuario_id TEXT, usuario_nome TEXT, acao TEXT NOT NULL,
