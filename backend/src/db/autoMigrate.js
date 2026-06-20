@@ -260,6 +260,22 @@ export default async function runMigrate() {
       }
     }
 
+    // ── Cria a Giovanna (atendente de vacinas) — uma vez. Senha padrão da casa.
+    const { rows: [flagGi] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_giovanna_v1'");
+    if (!flagGi) {
+      const bcryptG = await import('bcryptjs');
+      const hashG = await bcryptG.default.hash('Vittalis@2026', 10);
+      const { rows: existeG } = await query("SELECT id FROM usuarios WHERE cpf = '61313127370' LIMIT 1").catch(() => ({ rows: [] }));
+      if (!existeG.length) {
+        await query(`INSERT INTO usuarios (id, nome, email, cpf, senha, role, cor, ativo, setor)
+          VALUES (gen_random_uuid()::text, 'Giovanna Pacheco Conceição', '61313127370@vittahub.local', '61313127370', $1, 'atendente', '#0ea5e9', true, 'vacinas')
+          ON CONFLICT (email) DO NOTHING`, [hashG]).catch((e) => console.error('seed giovanna:', e.message));
+      }
+      await query(`UPDATE usuarios SET setor = 'vacinas', ativo = true WHERE cpf = '61313127370'`).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_giovanna_v1', '{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🌱 Giovanna (atendente/vacinas) criada');
+    }
+
     // ── AUDITORIA + PRESENÇA (admin only) ─────────────────────────────────
     await query(`CREATE TABLE IF NOT EXISTS audit_logs (
       id SERIAL PRIMARY KEY, usuario_id TEXT, usuario_nome TEXT, acao TEXT NOT NULL,
