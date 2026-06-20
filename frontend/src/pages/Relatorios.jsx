@@ -102,6 +102,12 @@ export default function Relatorios() {
   const [dias, setDias] = useState(7); // período dos gráficos diários: 7 | 30 | 90
 
   useEffect(() => { setData(null); api.get(`/reports/dashboard?days=${dias}`).then(setData); }, [dias]); // eslint-disable-line
+  const [vendasR, setVendasR] = useState(null);
+  const [perdasR, setPerdasR] = useState(null);
+  useEffect(() => {
+    api.get('/extras/vendas/resumo').then(setVendasR).catch(()=>{});
+    api.get('/extras/perdas/resumo').then(setPerdasR).catch(()=>{});
+  }, []); // eslint-disable-line
 
   const handlePDF = async () => {
     setPdfLoading(true);
@@ -183,6 +189,47 @@ export default function Relatorios() {
           </div>
         ))}
       </div>
+
+      {/* Comercial do mês: vendas (4 camadas) + perdas por motivo */}
+      {(vendasR || perdasR) && (
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16, marginBottom:16 }}>
+          {vendasR && (
+            <div className="card" style={{ padding:'17px 19px' }}>
+              <div style={{ fontWeight:800, fontSize:14, marginBottom:12 }}>💰 Vendas do mês ({vendasR.mes})</div>
+              <div style={{ display:'flex', gap:8, marginBottom:14 }}>
+                {[['Confirmado', vendasR.total?.confirmado, 'var(--ok)'],['Agendado', vendasR.total?.agendado, '#2563eb'],['Pendente', vendasR.total?.pendente, '#d97706']].map(([l,v,c])=>(
+                  <div key={l} style={{ flex:1, background:'var(--bg2)', borderRadius:9, padding:'8px 10px' }}>
+                    <div style={{ fontSize:10.5, color:'var(--muted)', fontWeight:600 }}>{l}</div>
+                    <div style={{ fontSize:15, fontWeight:800, color:c }}>{fmt.brl(v)}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ fontSize:11.5, fontWeight:700, color:'var(--muted)', marginBottom:6 }}>Por categoria</div>
+              {(vendasR.porCategoria||[]).slice(0,6).map((c,i)=>(
+                <div key={i} style={{ display:'flex', justifyContent:'space-between', padding:'5px 0', borderBottom:'1px solid var(--border)', fontSize:12.5 }}>
+                  <span>{c.categoria || '—'} <span style={{ color:'var(--muted)' }}>({c.n})</span></span>
+                  <b style={{ color:'var(--ok)' }}>{fmt.brl(c.confirmado)}</b>
+                </div>
+              ))}
+              {(vendasR.porCategoria||[]).length===0 && <div style={{ fontSize:12, color:'var(--muted)' }}>Sem vendas neste mês.</div>}
+            </div>
+          )}
+          {perdasR && (
+            <div className="card" style={{ padding:'17px 19px' }}>
+              <div style={{ fontWeight:800, fontSize:14, marginBottom:4 }}>❌ Perdas do mês</div>
+              <div style={{ fontSize:12, color:'var(--muted)', marginBottom:12 }}>{perdasR.total} perdas · potencial perdido <b style={{ color:'var(--err)' }}>{fmt.brl(perdasR.valorPerdido)}</b></div>
+              <div style={{ fontSize:11.5, fontWeight:700, color:'var(--muted)', marginBottom:6 }}>Principais motivos</div>
+              {(perdasR.porMotivo||[]).slice(0,8).map((m,i)=>(
+                <div key={i} style={{ display:'flex', justifyContent:'space-between', padding:'5px 0', borderBottom:'1px solid var(--border)', fontSize:12.5 }}>
+                  <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginRight:8 }}>{m.motivo}</span>
+                  <b style={{ color:'var(--err)' }}>{m.n}</b>
+                </div>
+              ))}
+              {(perdasR.porMotivo||[]).length===0 && <div style={{ fontSize:12, color:'var(--muted)' }}>Nenhuma perda registrada. 🎉</div>}
+            </div>
+          )}
+        </div>
+      )}
 
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16, marginBottom:16 }}>
         <Card title="Leads por Canal">

@@ -279,6 +279,20 @@ r.delete('/vendas/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Resumo de PERDAS do mês: total, valor potencial perdido, por motivo e setor.
+r.get('/perdas/resumo', async (req, res) => {
+  try {
+    const mes = /^\d{4}-\d{2}$/.test(req.query.mes || '') ? req.query.mes : new Date().toISOString().slice(0, 7);
+    const soMinhas = !gestao(req) ? ` AND atendente_id = '${String(req.user.id).replace(/'/g, '')}'` : '';
+    const [tot, porMotivo, porSetor] = await Promise.all([
+      query(`SELECT COUNT(*)::int n, COALESCE(SUM(valor_potencial),0)::float valor FROM perdas WHERE to_char(created_at,'YYYY-MM')=$1 ${soMinhas}`, [mes]),
+      query(`SELECT motivo, COUNT(*)::int n, COALESCE(SUM(valor_potencial),0)::float valor FROM perdas WHERE to_char(created_at,'YYYY-MM')=$1 ${soMinhas} GROUP BY motivo ORDER BY n DESC`, [mes]),
+      query(`SELECT COALESCE(setor,'(sem)') setor, COUNT(*)::int n FROM perdas WHERE to_char(created_at,'YYYY-MM')=$1 ${soMinhas} GROUP BY setor ORDER BY n DESC`, [mes]),
+    ]);
+    res.json({ mes, total: tot.rows[0]?.n || 0, valorPerdido: tot.rows[0]?.valor || 0, porMotivo: porMotivo.rows, porSetor: porSetor.rows });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 /* ═══ PAINEL DE PROFISSIONAIS ════════════════════════════════════════════════ */
 // Quem gerencia profissionais: gestão (master/supervisor) E os times de consultas
 // e terapias (eles cadastram seus médicos/especialistas e a disponibilidade).
