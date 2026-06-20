@@ -1518,14 +1518,18 @@ export default function Inbox({ onUnreadChange }) {
           {/* Input bar */}
           <div className="chat-input-bar" style={{ background:'var(--card,#fff)', padding:'9px 12px', borderTop:'1px solid var(--border)', flexShrink:0 }}>
             <div style={{ display:'flex', gap:5, alignItems:'flex-end' }}>
-              <button onClick={corrigirTexto} disabled={!input.trim() || corrigindo} title="Corrigir ortografia (✨ IA — não muda o tom)"
-                className="btn btn-ico" style={{ background:'transparent', color: corrigindo ? 'var(--tq)' : 'var(--muted)', borderRadius:8, opacity:!input.trim()?.45:1, fontSize:14, lineHeight:1 }}>
-                {corrigindo ? <Loader2 size={15} className="spin"/> : '✨'}
+              <button onClick={corrigirTexto} disabled={!input.trim() || corrigindo} title="Corrigir ortografia com IA (não muda o tom)"
+                className="btn btn-ico tb-ico" style={{ color: corrigindo ? 'var(--tq)' : 'var(--muted)', opacity:!input.trim()?.4:1 }}>
+                {corrigindo ? <Loader2 size={17} className="spin"/> : <Sparkles size={17}/>}
               </button>
-              <button onClick={()=>fileRef.current?.click()} className="btn btn-g btn-ico"><Paperclip size={15}/></button>
-              <button onClick={()=>{setShowEmoji(p=>!p);setShowQR(false);}} className="btn btn-ico" style={{ background:showEmoji?'var(--tq3)':'transparent', color:showEmoji?'var(--tq)':'var(--muted)', borderRadius:8 }}><Smile size={15}/></button>
-              <button onClick={()=>{setShowQR(p=>!p);setShowEmoji(false);}} title="Mensagens automáticas" className="btn btn-ico" style={{ background:showQR?'var(--tq3)':'transparent', color:showQR?'var(--tq)':'var(--muted)', borderRadius:8 }}><Zap size={15}/></button>
-              <button onClick={()=>setShowBib(true)} title="Biblioteca de Experiências (fotos, vídeos, figurinhas)" className="btn btn-ico" style={{ background:'transparent', color:'var(--muted)', borderRadius:8, fontSize:15, lineHeight:1 }}>🖼️</button>
+              <button onClick={()=>fileRef.current?.click()} title="Anexar arquivo"
+                className="btn btn-ico tb-ico" style={{ color:'var(--muted)' }}><Paperclip size={17}/></button>
+              <button onClick={()=>{setShowEmoji(p=>!p);setShowQR(false);}} title="Emojis"
+                className="btn btn-ico tb-ico" style={{ background:showEmoji?'var(--tq3)':undefined, color:showEmoji?'var(--tq)':'var(--muted)' }}><Smile size={17}/></button>
+              <button onClick={()=>{setShowQR(p=>!p);setShowEmoji(false);}} title="Mensagens automáticas"
+                className="btn btn-ico tb-ico" style={{ background:showQR?'var(--tq3)':undefined, color:showQR?'var(--tq)':'var(--muted)' }}><Zap size={17}/></button>
+              <button onClick={()=>setShowBib(true)} title="Biblioteca de Experiências (fotos, vídeos, figurinhas)"
+                className="btn btn-ico tb-ico" style={{ color:'var(--muted)' }}><Image size={17}/></button>
               <Calculadora />
               <input ref={fileRef} type="file" accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.gif" style={{ display:'none' }} onChange={handleFile}/>
               <textarea ref={textRef} onPaste={handlePaste} spellCheck lang="pt-BR" value={input} onChange={e=>setInput(e.target.value)}
