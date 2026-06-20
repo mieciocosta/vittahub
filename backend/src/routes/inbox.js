@@ -111,6 +111,14 @@ function cacheGetList({ channel, search, unread_only, waiting, minhas, grupos, s
   if (viewer && viewer.role === 'atendente' && viewer.setor) {
     list = list.filter(c => c.setor === viewer.setor);
   }
+  // Supervisora com setor vê o seu MACRO-grupo: 'vacinas' (a área de vacinas) OU o
+  // atendimento multidisciplinar — consultas + terapias = tudo que NÃO é vacina.
+  // Master e supervisora SEM setor continuam vendo tudo.
+  if (viewer && viewer.role === 'supervisor' && viewer.setor) {
+    list = viewer.setor === 'vacinas'
+      ? list.filter(c => c.setor === 'vacinas')
+      : list.filter(c => c.setor !== 'vacinas');
+  }
   if (unread_only === 'true') list = list.filter(c => (c.unread || 0) > 0);
   // Aguardando resposta: a última mensagem é do CLIENTE (fila de quem espera)
   if (waiting === 'true') list = list.filter(c => c.last_from === 'contact');
