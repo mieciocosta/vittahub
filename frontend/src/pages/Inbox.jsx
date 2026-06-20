@@ -1202,7 +1202,7 @@ export default function Inbox({ onUnreadChange }) {
         <div style={{ padding:'12px 12px 0', flexShrink:0, borderBottom:'1px solid var(--border)' }}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
             <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-              <h2 style={{ fontSize:17, fontWeight:700 }}>{user?.setor ? ({vacinas:'Vacinas',consultas:'Consultas',terapias:'Terapias'}[user.setor] || 'Inbox') : 'Inbox'}</h2>
+              <h2 style={{ fontSize:17, fontWeight:700 }}>{user?.setor ? ({vacinas:'Vacinas',consultas:'Consultas',terapias:'Terapias'}[user.setor] || 'Conversas') : 'Conversas'}</h2>
               {totalUnread>0 && <span style={{ background:'var(--tq)', color:'#fff', borderRadius:10, padding:'1px 7px', fontSize:10.5, fontWeight:800, boxShadow:'0 2px 6px rgba(0,184,192,.3)' }}>{totalUnread>99?'99+':totalUnread}</span>}
             </div>
             <div style={{ display:'flex', gap:3, alignItems:'center' }}>
