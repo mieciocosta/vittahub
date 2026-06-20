@@ -316,6 +316,15 @@ export default async function runMigrate() {
       created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS idx_vendas_data ON vendas (data_venda)`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS idx_vendas_setor ON vendas (setor)`).catch(() => {});
+    // PERDAS: lead marcado como perdido (motivo obrigatório) — alimenta relatórios.
+    await query(`CREATE TABLE IF NOT EXISTS perdas (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      conversa_id TEXT, atendente_id TEXT, atendente_nome TEXT,
+      setor TEXT, categoria TEXT, cliente_nome TEXT,
+      motivo TEXT NOT NULL, observacao TEXT, valor_potencial NUMERIC(10,2) DEFAULT 0,
+      created_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
+    await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS perdido BOOLEAN DEFAULT false`).catch(() => {});
+    await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS motivo_perda TEXT`).catch(() => {});
     // Corrige tabelas já criadas com lead_id INT (UUID não cabe em inteiro)
     await query(`ALTER TABLE vendas ALTER COLUMN lead_id TYPE TEXT USING lead_id::text`).catch(() => {});
     await query(`ALTER TABLE mensagens ADD COLUMN IF NOT EXISTS editada BOOLEAN DEFAULT false`).catch(() => {});

@@ -2709,6 +2709,27 @@ r.patch('/conversations/:id/classificar', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// MARCAR COMO PERDIDO (motivo obrigatório). Registra a perda (relatórios) e
+// fecha o atendimento. Lista de motivos no front; aqui só exige um motivo.
+r.patch('/conversations/:id/perder', async (req, res) => {
+  try {
+    const motivo = String(req.body.motivo || '').trim().slice(0, 80);
+    if (!motivo) return res.status(400).json({ error: 'Informe o motivo da perda.' });
+    const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    const valor = req.body.valor_potencial !== undefined && !isNaN(parseFloat(req.body.valor_potencial)) ? Math.max(0, parseFloat(req.body.valor_potencial)) : 0;
+    await query(
+      `INSERT INTO perdas (conversa_id, atendente_id, atendente_nome, setor, categoria, cliente_nome, motivo, observacao, valor_potencial)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [conv.id, req.user.id, req.user.nome, conv.setor || null, conv.classificacao || null, conv.contact_name || conv.phone || null, motivo, String(req.body.observacao || '').slice(0, 300), valor]);
+    const { rows: [c2] } = await query(
+      "UPDATE conversas SET perdido = true, motivo_perda = $1, status_atend = 'resolvido', bot_ativo = false WHERE id = $2 RETURNING *", [motivo, conv.id]);
+    if (c2) cacheUpdate(c2);
+    socketEmit('conv_perdido', { convId: conv.id, motivo });
+    res.json({ ok: true, motivo });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Mover atendimento para uma PASTA (fidelidade / banco_dados) ou tirar (null).
 // Sai do inbox normal e passa a viver na pasta correspondente.
 r.patch('/conversations/:id/categoria', async (req, res) => {

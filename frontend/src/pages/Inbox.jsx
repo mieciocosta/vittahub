@@ -464,6 +464,9 @@ export default function Inbox({ onUnreadChange }) {
   const [vendaSaving, setVendaSaving] = useState(false);
   const [vendaErro, setVendaErro] = useState('');
   const [vendaForm, setVendaForm] = useState({ categoria:'', valor:'', forma_pagamento:'', status_pagamento:'pago', servico:'', observacao:'' });
+  const [perderOpen, setPerderOpen] = useState(false);
+  const [perderSaving, setPerderSaving] = useState(false);
+  const [perderForm, setPerderForm] = useState({ motivo:'', observacao:'', valor_potencial:'' });
   const hojeISO = new Date().toISOString().slice(0,10);
   const [agForm, setAgForm] = useState({ data: hojeISO, hora: '', servico: '', valor: '', observacoes: '', setor: 'consultas' });
   const [showInfo, setShowInfo] = useState(false);
@@ -631,6 +634,11 @@ export default function Inbox({ onUnreadChange }) {
         } else {
           setConvos(prev => prev.map(c => c.id === convId ? { ...c, setor, classificacao } : c));
         }
+      });
+      // Lead marcado como perdido → sai do inbox de todos.
+      socket.on('conv_perdido', ({ convId }) => {
+        setConvos(prev => prev.filter(c => c.id !== convId));
+        setSel(prev => prev?.id === convId ? null : prev);
       });
       // Conversa movida pra uma pasta (Fidelidade/Banco) → sai do inbox normal.
       socket.on('conv_categoria', ({ convId, categoria }) => {
@@ -1085,6 +1093,22 @@ export default function Inbox({ onUnreadChange }) {
     setAgendarOpen(true);
   };
 
+  const MOTIVOS_PERDA = ['Achou caro','Vai falar com esposo e não retornou','Vai fazer depois','Vai fazer pelo SUS','Fechou em outro local','Não respondeu','Sem horário disponível','Sem vacina disponível','Sem profissional disponível','Atendimento demorou','Cliente não quis informar','Outro'];
+  const abrirPerder = () => { setPerderForm({ motivo:'', observacao:'', valor_potencial:'' }); setPerderOpen(true); };
+  const salvarPerda = async () => {
+    if (!perderForm.motivo) { Toast.show('Escolha o motivo da perda', 'error'); return; }
+    setPerderSaving(true);
+    try {
+      await api.patch(`/inbox/conversations/${sel.id}/perder`, perderForm);
+      window.__auditLog?.('marcar_perdido', 'conversa', sel.id, { nome: sel.contact_name, motivo: perderForm.motivo });
+      Toast.show('Marcado como perdido. Registrado nos relatórios.', 'info');
+      setPerderOpen(false);
+      setConvos(p => p.filter(c => c.id !== sel.id));
+      setSel(null); setMsgs([]);
+    } catch (e) { Toast.show(e.message || 'Não foi possível marcar', 'error'); }
+    setPerderSaving(false);
+  };
+
   const CAT_SUGERIDA = { vacinas:'Vacinação Geral', consultas:'Consulta', terapias:'Terapia' };
   const abrirVenda = () => {
     setVendaForm({ categoria: CAT_SUGERIDA[sel.setor] || '', valor:'', forma_pagamento:'', status_pagamento:'pago', servico:'', observacao:'' });
@@ -1333,6 +1357,10 @@ export default function Inbox({ onUnreadChange }) {
               <button onClick={abrirTransferir} title="Transferir este atendimento para outro atendente"
                 className="btn btn-sm" style={{ fontSize:11, padding:'4px 9px' }}>
                 <RefreshCw size={10}/> Transferir
+              </button>
+              <button onClick={abrirPerder} title="Marcar este lead como perdido (com motivo)"
+                className="btn btn-sm" style={{ fontSize:11, padding:'4px 9px', color:'var(--err)', border:'1.5px solid #fca5a5' }}>
+                Perdido
               </button>
               <button onClick={toLead} className="btn btn-s btn-sm" style={{ fontSize:11, padding:'4px 9px' }}><UserPlus size={10}/> Lead</button>
               <button onClick={()=>{setShowAI(p=>!p);setShowInfo(false);}} className="btn btn-sm" style={{ background:showAI?'#032B30':'var(--bg2)', color:showAI?'#00B8C0':'var(--muted)', border:`1.5px solid ${showAI?'rgba(0,184,192,.4)':'var(--border)'}`, fontSize:11, padding:'4px 9px' }}>
@@ -1642,6 +1670,29 @@ export default function Inbox({ onUnreadChange }) {
               {atendentes.filter(a => a.id !== user?.id).length === 0 && <div style={{ fontSize:12, color:'var(--muted)' }}>Nenhum outro atendente disponível.</div>}
             </div>
             <button onClick={()=>setTransfOpen(false)} className="btn btn-sm" style={{ width:'100%', marginTop:12 }}>Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {perderOpen && sel && (
+        <div onClick={()=>setPerderOpen(false)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.5)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000, padding:16 }}>
+          <div onClick={e=>e.stopPropagation()} className="card" style={{ width:380, maxWidth:'100%', padding:22 }}>
+            <h3 style={{ fontSize:16, fontWeight:800, marginBottom:6 }}>Marcar como perdido</h3>
+            <p style={{ fontSize:12, color:'var(--muted)', marginBottom:16 }}>Cliente: <b>{sel.contact_name || fmt.phone(sel.phone)}</b>. O motivo é obrigatório e entra nos relatórios.</p>
+            <div style={{ display:'flex', flexDirection:'column', gap:11 }}>
+              <div className="field" style={{ margin:0 }}><label>Motivo *</label>
+                <select value={perderForm.motivo} onChange={e=>setPerderForm(p=>({...p,motivo:e.target.value}))} style={{ width:'100%' }}>
+                  <option value="">Escolha…</option>
+                  {MOTIVOS_PERDA.map(m=><option key={m} value={m}>{m}</option>)}
+                </select>
+              </div>
+              <div className="field" style={{ margin:0 }}><label>Valor potencial perdido (opcional)</label><input type="number" value={perderForm.valor_potencial} onChange={e=>setPerderForm(p=>({...p,valor_potencial:e.target.value}))} placeholder="R$ que deixou de vender" /></div>
+              <div className="field" style={{ margin:0 }}><label>Observação (opcional)</label><textarea value={perderForm.observacao} onChange={e=>setPerderForm(p=>({...p,observacao:e.target.value}))} rows={2} style={{ resize:'vertical' }} /></div>
+              <div style={{ display:'flex', gap:8, marginTop:4 }}>
+                <button onClick={salvarPerda} disabled={perderSaving} className="btn" style={{ flex:1, background:'#dc2626', color:'#fff', fontWeight:700 }}>{perderSaving ? <span className="spin" style={{width:14,height:14}}/> : 'Marcar perdido'}</button>
+                <button onClick={()=>setPerderOpen(false)} className="btn">Cancelar</button>
+              </div>
+            </div>
           </div>
         </div>
       )}
