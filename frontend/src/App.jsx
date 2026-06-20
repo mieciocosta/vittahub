@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from './context/AuthContext.jsx';
 import Sidebar from './components/Sidebar.jsx';
 import CelebracaoGlobal from './components/CelebracaoGlobal.jsx';
@@ -47,10 +47,32 @@ function Heartbeat({ userId }) {
     window.__auditLog = (acao, entidade, entidade_id, detalhes) => {
       fetch(`${BASE}/api/auditoria/log`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk()}` }, body: JSON.stringify({ acao, entidade, entidade_id, detalhes, latitude: lat, longitude: lng }) }).catch(() => {});
     };
-    beat(); logNav();
+    beat();
     const hb = setInterval(beat, 30000);
     return () => { clearInterval(hb); delete window.__auditLog; started.current = false; };
+  }, [userId]); // eslint-disable-line
+
+  // Navegação: registra CADA página que o atendente abre (passo a passo).
+  const loc = useLocation();
+  React.useEffect(() => {
+    if (userId && window.__auditLog) window.__auditLog('navegacao', 'pagina', loc.pathname);
+  }, [loc.pathname, userId]);
+
+  // Cópia: registra quando o atendente copia texto/número (Ctrl+C).
+  React.useEffect(() => {
+    if (!userId) return;
+    const onCopy = () => {
+      try {
+        const txt = String(window.getSelection?.() || '').trim().slice(0, 80);
+        if (!txt || !window.__auditLog) return;
+        const ehTel = txt.replace(/\D/g, '').length >= 8 && /^[\d()+\-.\s]+$/.test(txt);
+        window.__auditLog('copiar', ehTel ? 'telefone' : 'texto', '', { copiado: txt });
+      } catch {}
+    };
+    document.addEventListener('copy', onCopy);
+    return () => document.removeEventListener('copy', onCopy);
   }, [userId]);
+
   return null; // never renders anything
 }
 

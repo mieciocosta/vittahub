@@ -818,6 +818,7 @@ export default function Inbox({ onUnreadChange }) {
   };
 
   const openConvo = async (c) => {
+    window.__auditLog?.('abrir_conversa', 'conversa', c.id, { nome: c.contact_name, telefone: c.phone });
     setSel(c); setMsgs([]); setMsgsHasMore(false); setMsgsTotal(0);
     // IA fica aberta do lado por padrão (lembrando a preferência do usuário).
     setShowProposta(false); setLeadData(null);
@@ -895,6 +896,7 @@ export default function Inbox({ onUnreadChange }) {
     setConvos(p => p.map(c => c.id===sel.id ? {...c, last_message:t, last_message_at:now} : c));
     try {
       const r = await api.post(`/inbox/conversations/${sel.id}/send`, { content:t });
+      window.__auditLog?.('responder', 'conversa', sel.id, { nome: sel.contact_name, trecho: t.slice(0, 60) });
       // Responsável automático: regra das 2 respostas (vem do backend)
       if (r?.autoAssign?.responsavel_id) {
         const u = usersById[r.autoAssign.responsavel_id];
@@ -1015,6 +1017,7 @@ export default function Inbox({ onUnreadChange }) {
   const toggleBot = async () => {
     try {
       const d = await api.patch(`/inbox/conversations/${sel.id}/bot`, { ativo:!sel.bot_ativo });
+      window.__auditLog?.('toggle_bot', 'conversa', sel.id, { nome: sel.contact_name, bot: d.botAtivo ? 'ligou' : 'desligou' });
       setSel(p => ({ ...p, bot_ativo:d.botAtivo }));
       setConvos(p => p.map(c => c.id===sel.id ? {...c, bot_ativo:d.botAtivo} : c));
       Toast.show(d.botAtivo ? 'Bot ligado nesta conversa 🤖' : 'Bot desligado nesta conversa', 'success');
@@ -1043,6 +1046,7 @@ export default function Inbox({ onUnreadChange }) {
     const m = CLS_MAP[cls]; if (!m) return;
     try {
       const r = await api.patch(`/inbox/conversations/${sel.id}/classificar`, { classificacao: cls });
+      window.__auditLog?.('classificar', 'conversa', sel.id, { nome: sel.contact_name, classificacao: m.label });
       const resp = r?.responsavel;
       const respNome = resp?.nome ? resp.nome.split(' ')[0] : null;
       setSel(p => ({ ...p, classificacao: cls, setor: m.setor, categoria: m.cat, responsavel_id: resp?.id || p.responsavel_id }));
@@ -1065,6 +1069,7 @@ export default function Inbox({ onUnreadChange }) {
   const moverPasta = async (categoria) => {
     try {
       await api.patch(`/inbox/conversations/${sel.id}/categoria`, { categoria });
+      window.__auditLog?.('mover_pasta', 'conversa', sel.id, { nome: sel.contact_name, pasta: categoria || 'tirou da pasta' });
       setSel(p => ({ ...p, categoria }));
       // Se foi movida para uma pasta, sai do inbox normal
       if (categoria) setConvos(p => p.filter(c => c.id !== sel.id));
@@ -1098,6 +1103,7 @@ export default function Inbox({ onUnreadChange }) {
         }),
         new Promise((_, rej) => setTimeout(() => rej(new Error('Servidor demorou a responder (timeout 20s).')), 20000)),
       ]);
+      window.__auditLog?.('registrar_venda', 'venda', sel.id, { categoria: vendaForm.categoria, valor: valNum, status: vendaForm.status_pagamento, cliente: sel.contact_name });
       Toast.show('Venda registrada! 💰 Entrou na meta do mês 🎯', 'success');
       setVendaOpen(false);
     } catch (e) { setVendaErro('Erro: ' + (e.message || 'não foi possível registrar')); }
@@ -1113,6 +1119,7 @@ export default function Inbox({ onUnreadChange }) {
     setTransfSaving(true);
     try {
       await api.patch(`/inbox/conversations/${sel.id}/transferir`, { para_id: para.id });
+      window.__auditLog?.('transferir', 'conversa', sel.id, { nome: sel.contact_name, para: para.nome });
       setTransfOpen(false);
       // some da minha lista (transferi pra outra pessoa)
       const idTransf = sel.id;
@@ -1134,6 +1141,7 @@ export default function Inbox({ onUnreadChange }) {
         valor: agForm.valor, observacoes: agForm.observacoes,
         forma_pagamento: agForm.forma_pagamento, endereco: agForm.endereco, local_link: agForm.local_link.trim(),
       });
+      window.__auditLog?.('agendar', 'agenda', sel.id, { nome: sel.contact_name, data: agForm.data, hora: agForm.hora, setor: agForm.setor });
       Toast.show(`Agendado! ✅ Abatido da meta de ${agForm.setor} 🎯`, 'success');
       setAgendarOpen(false);
     } catch (e) { Toast.show(e.message || 'Não foi possível agendar', 'error'); }

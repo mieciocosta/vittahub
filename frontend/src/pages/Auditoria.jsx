@@ -13,6 +13,9 @@ const ACOES = {
   agendar: ['📅', '#0E8C96'], excluir: ['🗑️', '#dc2626'], editar_mensagem: ['✏️', '#d97706'],
   apagar_mensagem: ['🗑️', '#dc2626'], indicacao: ['🎁', '#C4973B'], proposta: ['💰', '#059669'],
   heartbeat: ['💓', '#e2e8f0'],
+  abrir_conversa: ['💬', '#0E8C96'], responder: ['↩️', '#0369a1'], copiar: ['📋', '#7c3aed'],
+  registrar_venda: ['💰', '#16a34a'], transferir: ['🔁', '#d97706'], classificar: ['🏷️', '#2563eb'],
+  mover_pasta: ['📁', '#C4973B'], toggle_bot: ['🤖', '#0E8C96'],
 };
 const CRIT = ['excluir', 'editar_lead', 'apagar_mensagem', 'editar_mensagem', 'login_falha'];
 
