@@ -165,6 +165,7 @@ const setorDaCategoria = (cat) => ['Vacinação Geral', 'Plano Vacinal', 'Fideli
 r.post('/vendas', async (req, res) => {
   try {
     const b = req.body || {};
+    console.log(`VENDA POST recebida: categoria=${b.categoria} valor=${b.valor} por=${req.user?.nome}`);
     const categoria = CATEGORIAS_VENDA.includes(b.categoria) ? b.categoria : null;
     if (!categoria) return res.status(400).json({ error: 'Escolha a categoria da venda.' });
     const valor = b.valor !== undefined && b.valor !== '' && !isNaN(parseFloat(b.valor)) ? Math.max(0, Math.min(parseFloat(b.valor), 1000000)) : 0;
@@ -180,8 +181,9 @@ r.post('/vendas', async (req, res) => {
        /^\d{4}-\d{2}-\d{2}$/.test(b.data_atendimento || '') ? b.data_atendimento : null,
        cut(b.origem, 40), cut(b.observacao, 300)]);
     socketEmit('venda_registrada', { id: v.id, setor, valor });
+    console.log(`VENDA OK: ${categoria} R$${valor} (id=${v.id})`);
     res.status(201).json(v);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { console.error('VENDA ERRO:', err.message); res.status(500).json({ error: err.message }); }
 });
 
 // Lista de vendas (gestão vê tudo; atendente vê as suas). Filtros: setor, mes (YYYY-MM)
