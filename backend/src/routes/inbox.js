@@ -98,6 +98,16 @@ async function transcreverAudio(base64, mime = 'audio/webm') {
 
 const ehGrupo = (c) => String(c.contact_id || '').includes('g.us') || String(c.phone || '').replace(/\D/g, '').length > 13;
 
+// Regra de acesso por setor (gestão): master e quem não tem setor veem tudo.
+// Quem é de VACINAS só acessa conversa de vacina; quem é de consultas/terapias
+// (não-vacina) acessa tudo que NÃO é vacina. Conversa sem setor ainda não foi
+// triada — fica visível pra todos até o bot/menu definir o assunto.
+function podeVerSetor(viewer, convSetor) {
+  if (!viewer || viewer.role === 'master' || !viewer.setor) return true;
+  if (!convSetor) return true;
+  return viewer.setor === 'vacinas' ? convSetor === 'vacinas' : convSetor !== 'vacinas';
+}
+
 function cacheGetList({ channel, search, unread_only, waiting, minhas, grupos, setor, categoria, page = 1, limit = 100, extraIds = null, viewer = null }) {
   let list = Array.from(convoCache.values())
     .sort((a, b) => new Date(b.last_message_at || 0) - new Date(a.last_message_at || 0));
@@ -108,17 +118,10 @@ function cacheGetList({ channel, search, unread_only, waiting, minhas, grupos, s
   else list = list.filter(c => !c.categoria);
   // Filtro de setor: chips da gestão (?setor=) ou trava da atendente (vê só o dela)
   if (setor && setor !== 'all') list = list.filter(c => c.setor === setor);
-  if (viewer && viewer.role === 'atendente' && viewer.setor) {
-    list = list.filter(c => c.setor === viewer.setor);
-  }
-  // Supervisora com setor vê o seu MACRO-grupo: 'vacinas' (a área de vacinas) OU o
-  // atendimento multidisciplinar — consultas + terapias = tudo que NÃO é vacina.
-  // Master e supervisora SEM setor continuam vendo tudo.
-  if (viewer && viewer.role === 'supervisor' && viewer.setor) {
-    list = viewer.setor === 'vacinas'
-      ? list.filter(c => c.setor === 'vacinas')
-      : list.filter(c => c.setor !== 'vacinas');
-  }
+  // Acesso por MACRO-grupo (regra da gestão): quem é de VACINAS só vê conversas
+  // de vacina; quem NÃO é de vacina (consultas/terapias) vê tudo que não é vacina.
+  // Vale pra atendente E supervisora. Master e quem não tem setor veem tudo.
+  if (viewer) list = list.filter(c => podeVerSetor(viewer, c.setor));
   if (unread_only === 'true') list = list.filter(c => (c.unread || 0) > 0);
   // Aguardando resposta: a última mensagem é do CLIENTE (fila de quem espera)
   if (waiting === 'true') list = list.filter(c => c.last_from === 'contact');
@@ -2381,8 +2384,10 @@ r.get('/conversations', async (req, res) => {
     } catch (err) { return res.status(500).json({ error: err.message }); }
   }
   const result = cacheGetList({ ...req.query, extraIds, viewer: req.user });
-  // Contadores dos chips (Todas/Minhas/Não lidas/Grupos) — direto do cache, custo zero
-  const tudo = Array.from(convoCache.values());
+  // Contadores dos chips (Todas/Minhas/Não lidas/Grupos) — direto do cache, custo zero.
+  // Respeita o acesso por setor: cada um só conta o que pode ver. E não conta quem
+  // foi movido pra uma pasta (Fidelidade/Banco), igual à lista.
+  const tudo = Array.from(convoCache.values()).filter(c => !c.categoria && podeVerSetor(req.user, c.setor));
   result.counts = {
     todas: tudo.length,
     minhas: tudo.filter(c => c.responsavel_id === req.user.id).length,
@@ -2435,6 +2440,9 @@ r.get('/conversations/:id', async (req, res) => {
       FROM conversas c LEFT JOIN usuarios u ON u.id = c.responsavel_id
       WHERE c.id = $1`, [req.params.id]);
     if (!conv) return res.status(404).json({ error: 'Não encontrado' });
+    if (!podeVerSetor(req.user, conv.setor)) {
+      return res.status(403).json({ error: 'Sem acesso: esta conversa é de outro setor.' });
+    }
 
     // Auto-assign: quem abre uma conversa sem responsável assume o atendimento
     // (pode ser trocado depois no cabeçalho do chat)
@@ -2746,6 +2754,7 @@ r.post('/conversations/:id/send', async (req, res) => {
     }
     const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
     if (!conv) return res.status(404).json({ error: 'Não encontrado' });
+    if (!podeVerSetor(req.user, conv.setor)) return res.status(403).json({ error: 'Sem acesso: esta conversa é de outro setor.' });
 
     const { rows: [msg] } = await query(`
       INSERT INTO mensagens (conversa_id, from_type, type, content, sender_id, sender_nome, status)
