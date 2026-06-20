@@ -1094,10 +1094,18 @@ export default function Inbox({ onUnreadChange }) {
     } catch (e) { Toast.show(e.message || 'Não foi possível mover', 'error'); }
   };
 
+  const [profsAgenda, setProfsAgenda] = useState([]);
   const abrirAgendar = () => {
     const s = ['vacinas','consultas','terapias'].includes(sel.setor) ? sel.setor : 'consultas';
-    setAgForm({ data: hojeISO, hora: '', servico: '', valor: '', observacoes: '', setor: s, forma_pagamento: '', endereco: '', local_link: '' });
+    setAgForm({ data: hojeISO, hora: '', servico: '', valor: '', observacoes: '', setor: s, forma_pagamento: '', endereco: '', local_link: '', profissional: '' });
     setAgendarOpen(true);
+    api.get('/extras/profissionais').then(d => setProfsAgenda(Array.isArray(d) ? d.filter(p => p.ativo) : [])).catch(()=>setProfsAgenda([]));
+  };
+  // Resumo da disponibilidade de um profissional (pra mostrar ao agendar)
+  const dispProf = (p) => {
+    const D = [['seg','Seg'],['ter','Ter'],['qua','Qua'],['qui','Qui'],['sex','Sex'],['sab','Sáb'],['dom','Dom']];
+    const ds = D.filter(([k]) => p.disponibilidade?.[k]?.inicio && p.disponibilidade?.[k]?.fim);
+    return ds.length ? ds.map(([k,l]) => `${l} ${p.disponibilidade[k].inicio}-${p.disponibilidade[k].fim}`).join(' · ') : 'sem horário definido';
   };
 
   const MOTIVOS_PERDA = ['Achou caro','Vai falar com esposo e não retornou','Vai fazer depois','Vai fazer pelo SUS','Fechou em outro local','Não respondeu','Sem horário disponível','Sem vacina disponível','Sem profissional disponível','Atendimento demorou','Cliente não quis informar','Outro'];
@@ -1170,7 +1178,7 @@ export default function Inbox({ onUnreadChange }) {
         paciente: sel.contact_name || fmt.phone(sel.phone) || 'Cliente',
         telefone: sel.phone, conversa_id: sel.id, setor: agForm.setor,
         data: agForm.data, hora: agForm.hora, servico: agForm.servico,
-        valor: agForm.valor, observacoes: agForm.observacoes,
+        valor: agForm.valor, observacoes: agForm.observacoes, profissional: agForm.profissional,
         forma_pagamento: agForm.forma_pagamento, endereco: agForm.endereco, local_link: agForm.local_link.trim(),
       });
       window.__auditLog?.('agendar', 'agenda', sel.id, { nome: sel.contact_name, data: agForm.data, hora: agForm.hora, setor: agForm.setor });
@@ -1794,6 +1802,18 @@ export default function Inbox({ onUnreadChange }) {
                   <option value="terapias">🧩 Terapias</option>
                 </select>
               </div>
+              {profsAgenda.filter(p=>p.setor===agForm.setor).length > 0 && (
+                <div className="field" style={{ margin:0 }}>
+                  <label>Profissional</label>
+                  <select value={agForm.profissional} onChange={e=>setAgForm(p=>({...p,profissional:e.target.value}))} style={{ width:'100%' }}>
+                    <option value="">— escolher —</option>
+                    {profsAgenda.filter(p=>p.setor===agForm.setor).map(p=>(
+                      <option key={p.id} value={p.nome}>{p.nome}{p.especialidade?` · ${p.especialidade}`:''}</option>
+                    ))}
+                  </select>
+                  {agForm.profissional && (() => { const p = profsAgenda.find(x=>x.nome===agForm.profissional); return p ? <span style={{ fontSize:11, color:'var(--muted)' }}>🕒 {dispProf(p)}</span> : null; })()}
+                </div>
+              )}
               <div className="field" style={{ margin:0 }}><label>Serviço (opcional)</label><input value={agForm.servico} onChange={e=>setAgForm(p=>({...p,servico:e.target.value}))} placeholder="Ex: Avaliação inicial, Vacina..." /></div>
               <div style={{ display:'flex', gap:10 }}>
                 <div className="field" style={{ flex:1, margin:0 }}><label>Valor (opcional)</label><input type="number" value={agForm.valor} onChange={e=>setAgForm(p=>({...p,valor:e.target.value}))} placeholder="R$" /></div>
