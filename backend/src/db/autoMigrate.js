@@ -302,9 +302,10 @@ export default async function runMigrate() {
       disponibilidade JSONB DEFAULT '{}'::jsonb, observacoes TEXT,
       created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
     // VENDAS: espinha comercial — alimenta metas, dashboard e relatórios.
+    // lead_id é TEXT porque os ids de lead/conversa são UUID (não inteiro).
     await query(`CREATE TABLE IF NOT EXISTS vendas (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
-      conversa_id TEXT, lead_id INT,
+      conversa_id TEXT, lead_id TEXT,
       atendente_id TEXT, atendente_nome TEXT,
       setor TEXT, categoria TEXT,
       cliente_nome TEXT, paciente_nome TEXT, servico TEXT,
@@ -315,6 +316,8 @@ export default async function runMigrate() {
       created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS idx_vendas_data ON vendas (data_venda)`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS idx_vendas_setor ON vendas (setor)`).catch(() => {});
+    // Corrige tabelas já criadas com lead_id INT (UUID não cabe em inteiro)
+    await query(`ALTER TABLE vendas ALTER COLUMN lead_id TYPE TEXT USING lead_id::text`).catch(() => {});
     await query(`ALTER TABLE mensagens ADD COLUMN IF NOT EXISTS editada BOOLEAN DEFAULT false`).catch(() => {});
     // Pastas de organização: 'fidelidade' (mensalistas) e 'banco_dados' (1 vacina só)
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS categoria TEXT`).catch(() => {});
