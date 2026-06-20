@@ -2661,19 +2661,28 @@ r.patch('/conversations/:id/assign', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// CLASSIFICAR o setor do atendimento (atendente define o assunto). Ao classificar,
-// a conversa passa a aparecer SÓ pro time daquele setor (regra de acesso) e some
-// pra quem não é. menu_enviado=true pra o bot não reabrir a triagem.
-r.patch('/conversations/:id/setor', async (req, res) => {
+// CLASSIFICAR o atendimento (o atendente define o tipo). Cada classificação mapeia
+// pra um SETOR (que rege o acesso: vacina x não-vacina) e, no caso de Fidelidade,
+// move a conversa pra pasta. Depois disso ela só aparece pro time responsável.
+const CLASSIFICACOES = {
+  vacinacao:       { setor: 'vacinas',   categoria: null },
+  planos_vacinais: { setor: 'vacinas',   categoria: null },
+  fidelidade:      { setor: 'vacinas',   categoria: 'fidelidade' },
+  consultas:       { setor: 'consultas', categoria: null },
+  terapias:        { setor: 'terapias',  categoria: null },
+};
+r.patch('/conversations/:id/classificar', async (req, res) => {
   try {
-    const setor = req.body.setor;
-    if (!['vacinas', 'consultas', 'terapias'].includes(setor)) return res.status(400).json({ error: 'Setor inválido.' });
+    const cls = req.body.classificacao;
+    const mapa = CLASSIFICACOES[cls];
+    if (!mapa) return res.status(400).json({ error: 'Classificação inválida.' });
     const { rows: [conv] } = await query(
-      'UPDATE conversas SET setor = $1, menu_enviado = true WHERE id = $2 RETURNING *', [setor, req.params.id]);
+      'UPDATE conversas SET classificacao = $1, setor = $2, categoria = $3, menu_enviado = true WHERE id = $4 RETURNING *',
+      [cls, mapa.setor, mapa.categoria, req.params.id]);
     if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
     cacheUpdate(conv);
-    socketEmit('conv_setor', { convId: conv.id, setor });
-    res.json({ ok: true, setor });
+    socketEmit('conv_setor', { convId: conv.id, setor: mapa.setor, classificacao: cls, categoria: mapa.categoria });
+    res.json({ ok: true, classificacao: cls, setor: mapa.setor, categoria: mapa.categoria });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

@@ -612,15 +612,16 @@ export default function Inbox({ onUnreadChange }) {
           setConvos(prev => prev.map(c => c.id === convId ? { ...c, responsavel_id: para_id } : c));
         }
       });
-      // Conversa foi classificada num setor → se eu não sou do grupo dele, some.
-      socket.on('conv_setor', ({ convId, setor }) => {
+      // Conversa foi classificada → se foi pra pasta (Fidelidade) ou eu não sou do
+      // grupo do setor, some da minha lista.
+      socket.on('conv_setor', ({ convId, setor, categoria, classificacao }) => {
         const u = userRef.current;
         const doGrupo = !u || u.role === 'master' || !u.setor || ((u.setor === 'vacinas') === (setor === 'vacinas'));
-        if (!doGrupo) {
+        if (categoria || !doGrupo) {
           setConvos(prev => prev.filter(c => c.id !== convId));
           setSel(prev => prev?.id === convId ? null : prev);
         } else {
-          setConvos(prev => prev.map(c => c.id === convId ? { ...c, setor } : c));
+          setConvos(prev => prev.map(c => c.id === convId ? { ...c, setor, classificacao } : c));
         }
       });
       // Conversa movida pra uma pasta (Fidelidade/Banco) → sai do inbox normal.
@@ -1018,25 +1019,33 @@ export default function Inbox({ onUnreadChange }) {
     } catch (e) { Toast.show(e.message || 'Não foi possível marcar', 'error'); }
   };
 
-  // Atendente classifica o setor do atendimento. Depois disso a conversa só
-  // aparece pro time daquele setor — se eu não sou desse grupo, some da minha lista.
-  const classificarSetor = async (setor) => {
+  // Mapa de classificação → setor (pro acesso) e rótulo. 'fidelidade' move pra pasta.
+  const CLS_MAP = {
+    vacinacao:       { setor:'vacinas',   label:'Vacinação',      cat:null },
+    planos_vacinais: { setor:'vacinas',   label:'Planos Vacinais', cat:null },
+    fidelidade:      { setor:'vacinas',   label:'Fidelidade',     cat:'fidelidade' },
+    consultas:       { setor:'consultas', label:'Consultas',      cat:null },
+    terapias:        { setor:'terapias',  label:'Terapias',       cat:null },
+  };
+  // Atendente classifica o atendimento. Depois disso a conversa só aparece pro time
+  // responsável — se eu não sou do grupo (ou foi pra pasta), some da minha lista.
+  const classificarSetor = async (cls) => {
+    const m = CLS_MAP[cls]; if (!m) return;
     try {
-      await api.patch(`/inbox/conversations/${sel.id}/setor`, { setor });
-      setSel(p => ({ ...p, setor }));
+      await api.patch(`/inbox/conversations/${sel.id}/classificar`, { classificacao: cls });
+      setSel(p => ({ ...p, classificacao: cls, setor: m.setor, categoria: m.cat }));
       const souMaster = user?.role === 'master';
       const meuSetor = user?.setor;
-      const convVacina = setor === 'vacinas';
-      const euVacina = meuSetor === 'vacinas';
-      const souDoGrupo = souMaster || !meuSetor || (euVacina === convVacina);
-      if (!souDoGrupo) {
+      const souDoGrupo = souMaster || !meuSetor || ((meuSetor === 'vacinas') === (m.setor === 'vacinas'));
+      // Fidelidade vai pra pasta (sai do inbox de todos); ou perdi acesso pelo setor
+      if (m.cat || !souDoGrupo) {
         const idC = sel.id;
         setConvos(p => p.filter(c => c.id !== idC));
         setSel(null); setMsgs([]);
-        Toast.show(`Classificado como ${setor} — enviado pro time responsável ✅`, 'success');
+        Toast.show(m.cat ? 'Salvo em Clientes Fidelidade ⭐' : `Classificado como ${m.label} — enviado pro time responsável ✅`, 'success');
       } else {
-        setConvos(p => p.map(c => c.id===sel.id ? {...c, setor} : c));
-        Toast.show(`Classificado como ${setor} ✅`, 'success');
+        setConvos(p => p.map(c => c.id===sel.id ? {...c, classificacao:cls, setor:m.setor} : c));
+        Toast.show(`Classificado como ${m.label} ✅`, 'success');
       }
     } catch (e) { Toast.show(e.message || 'Não foi possível classificar', 'error'); }
   };
@@ -1255,13 +1264,15 @@ export default function Inbox({ onUnreadChange }) {
                 </button>
               )}
 
-              <select value={sel.setor || ''} onChange={e=>e.target.value && classificarSetor(e.target.value)}
-                title="Classificar o setor deste atendimento — depois ele aparece só pro time responsável"
+              <select value={sel.classificacao || ''} onChange={e=>e.target.value && classificarSetor(e.target.value)}
+                title="Classificar este atendimento — depois ele aparece só pro time responsável"
                 className="btn btn-sm" style={{ fontSize:11, padding:'4px 9px', fontWeight:700, cursor:'pointer',
-                  background: sel.setor ? 'var(--tq3)' : '#fff7ed', color: sel.setor ? 'var(--tq2)' : '#b45309',
-                  border:`1.5px solid ${sel.setor ? 'var(--tq)' : '#fcd34d'}` }}>
-                <option value="">🏷️ Classificar setor…</option>
-                <option value="vacinas">💉 Vacinas</option>
+                  background: sel.classificacao ? 'var(--tq3)' : '#fff7ed', color: sel.classificacao ? 'var(--tq2)' : '#b45309',
+                  border:`1.5px solid ${sel.classificacao ? 'var(--tq)' : '#fcd34d'}` }}>
+                <option value="">🏷️ Classificar…</option>
+                <option value="vacinacao">💉 Vacinação</option>
+                <option value="planos_vacinais">📋 Planos Vacinais</option>
+                <option value="fidelidade">⭐ Fidelidade</option>
                 <option value="consultas">🩺 Consultas</option>
                 <option value="terapias">🧩 Terapias</option>
               </select>

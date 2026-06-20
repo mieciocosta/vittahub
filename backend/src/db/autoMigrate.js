@@ -297,6 +297,9 @@ export default async function runMigrate() {
     await query(`ALTER TABLE mensagens ADD COLUMN IF NOT EXISTS editada BOOLEAN DEFAULT false`).catch(() => {});
     // Pastas de organização: 'fidelidade' (mensalistas) e 'banco_dados' (1 vacina só)
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS categoria TEXT`).catch(() => {});
+    // Classificação fina feita pelo atendente (vacinacao/planos_vacinais/fidelidade/
+    // consultas/terapias) — rótulo; o acesso continua sendo por setor (vacina x não).
+    await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS classificacao TEXT`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS idx_conversas_categoria ON conversas (categoria) WHERE categoria IS NOT NULL`).catch(() => {});
     // Exemplos de conversas que converteram — a IA estuda pra copiar o jeito campeão
     await query(`CREATE TABLE IF NOT EXISTS exemplos_conversa (
