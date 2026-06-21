@@ -2508,6 +2508,101 @@ r.get('/conversations/buscar', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// EDITAR cadastro do cliente (nome / telefone) direto da pasta
+r.patch('/conversations/:id/contato', async (req, res) => {
+  try {
+    const sets = [], params = []; let i = 1;
+    if (req.body.nome !== undefined) { sets.push(`contact_name = $${i++}`); params.push(String(req.body.nome).trim().slice(0, 80) || null); }
+    if (req.body.phone !== undefined) { sets.push(`phone = $${i++}`); params.push(String(req.body.phone).replace(/\D/g, '').slice(0, 15) || null); }
+    if (!sets.length) return res.status(400).json({ error: 'Nada para atualizar.' });
+    params.push(req.params.id);
+    const { rows: [conv] } = await query(`UPDATE conversas SET ${sets.join(', ')} WHERE id = $${i} RETURNING *`, params);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    cacheUpdate(conv);
+    res.json({ ok: true, contact_name: conv.contact_name, phone: conv.phone });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* ═══ FUNIL DENTRO DA PASTA (etapas por contexto, leads → fechar venda) ═══════ */
+const PASTA_CONTEXTOS = ['planos_vacinais', 'vacinacao', 'consultas', 'terapias', 'fidelidade', 'banco_dados'];
+const ETAPAS_PADRAO = [
+  ['Novo interesse', '#3b82f6'], ['Proposta enviada', '#8b5cf6'],
+  ['Em negociação', '#f59e0b'], ['Fechamento', '#0ea5e9'],
+  ['Ganho', '#10b981'], ['Perdido', '#ef4444'],
+];
+async function etapasDoContexto(contexto) {
+  let { rows } = await query('SELECT * FROM pasta_etapas WHERE contexto = $1 ORDER BY ordem, created_at', [contexto]);
+  if (!rows.length) {
+    // Semeia o funil padrão na primeira vez que a pasta é aberta
+    let ordem = 0;
+    for (const [nome, cor] of ETAPAS_PADRAO) {
+      await query(`INSERT INTO pasta_etapas (contexto, nome, cor, ordem, fixa) VALUES ($1,$2,$3,$4,$5)`,
+        [contexto, nome, cor, ordem++, nome === 'Ganho' || nome === 'Perdido']).catch(() => {});
+    }
+    ({ rows } = await query('SELECT * FROM pasta_etapas WHERE contexto = $1 ORDER BY ordem, created_at', [contexto]));
+  }
+  return rows;
+}
+
+// Lista as etapas do funil de uma pasta (cria as padrão se ainda não existirem)
+r.get('/pasta-funil/etapas', async (req, res) => {
+  try {
+    const contexto = PASTA_CONTEXTOS.includes(req.query.contexto) ? req.query.contexto : null;
+    if (!contexto) return res.status(400).json({ error: 'Contexto inválido.' });
+    res.json(await etapasDoContexto(contexto));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Criar etapa no funil da pasta (gestão)
+r.post('/pasta-funil/etapas', masterOnly, async (req, res) => {
+  try {
+    const contexto = PASTA_CONTEXTOS.includes(req.body.contexto) ? req.body.contexto : null;
+    const nome = String(req.body.nome || '').trim().slice(0, 32);
+    if (!contexto || !nome) return res.status(400).json({ error: 'Informe contexto e nome.' });
+    const cor = /^#[0-9a-fA-F]{6}$/.test(req.body.cor) ? req.body.cor : '#3b82f6';
+    const { rows: [{ max }] } = await query("SELECT COALESCE(MAX(ordem),-1) max FROM pasta_etapas WHERE contexto = $1", [contexto]);
+    const { rows: [e] } = await query('INSERT INTO pasta_etapas (contexto, nome, cor, ordem) VALUES ($1,$2,$3,$4) RETURNING *',
+      [contexto, nome, cor, parseInt(max) + 1]);
+    res.status(201).json(e);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Renomear / cor da etapa (gestão)
+r.put('/pasta-funil/etapas/:id', masterOnly, async (req, res) => {
+  try {
+    const sets = [], params = []; let i = 1;
+    if (req.body.nome !== undefined) { sets.push(`nome = $${i++}`); params.push(String(req.body.nome).trim().slice(0, 32)); }
+    if (req.body.cor !== undefined && /^#[0-9a-fA-F]{6}$/.test(req.body.cor)) { sets.push(`cor = $${i++}`); params.push(req.body.cor); }
+    if (!sets.length) return res.status(400).json({ error: 'Nada para atualizar.' });
+    params.push(req.params.id);
+    const { rows: [e] } = await query(`UPDATE pasta_etapas SET ${sets.join(', ')} WHERE id = $${i} RETURNING *`, params);
+    if (!e) return res.status(404).json({ error: 'Etapa não encontrada.' });
+    res.json(e);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Excluir etapa — os leads dela voltam pra "sem etapa" (1ª coluna no front)
+r.delete('/pasta-funil/etapas/:id', masterOnly, async (req, res) => {
+  try {
+    const { rows: [e] } = await query('SELECT * FROM pasta_etapas WHERE id = $1', [req.params.id]);
+    if (!e) return res.status(404).json({ error: 'Etapa não encontrada.' });
+    await query('UPDATE conversas SET funil_etapa = NULL WHERE funil_etapa = $1', [e.nome]).catch(() => {});
+    await query('DELETE FROM pasta_etapas WHERE id = $1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Mover um lead pra uma etapa do funil
+r.patch('/conversations/:id/funil-etapa', async (req, res) => {
+  try {
+    const etapa = req.body.etapa ? String(req.body.etapa).slice(0, 32) : null;
+    const { rows: [conv] } = await query('UPDATE conversas SET funil_etapa = $1 WHERE id = $2 RETURNING *', [etapa, req.params.id]);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    cacheUpdate(conv);
+    res.json({ ok: true, funil_etapa: etapa });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.get('/conversations/:id', async (req, res) => {
   try {
     res.set('Cache-Control', 'no-store, no-cache');

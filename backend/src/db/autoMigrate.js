@@ -386,6 +386,16 @@ export default async function runMigrate() {
       created_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS idx_analises_atend ON analises_atendimento (atendente_id)`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS idx_analises_conv ON analises_atendimento (conversa_id, created_at DESC)`).catch(() => {});
+    // FUNIL DENTRO DA PASTA: cada pasta (Planos/Fidelidade/Consultas/etc.) tem o
+    // seu funil de etapas pra empurrar o lead até fechar a venda.
+    await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS funil_etapa TEXT`).catch(() => {});
+    await query(`CREATE TABLE IF NOT EXISTS pasta_etapas (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      contexto TEXT NOT NULL,            -- a pasta: planos_vacinais, fidelidade, consultas, terapias, vacinacao, banco_dados
+      nome TEXT NOT NULL, cor TEXT DEFAULT '#3b82f6',
+      ordem INT DEFAULT 0, fixa BOOLEAN DEFAULT false,
+      created_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS idx_pasta_etapas_ctx ON pasta_etapas (contexto, ordem)`).catch(() => {});
     // CHAT INTERNO da equipe (usuário ↔ usuário, separado do WhatsApp).
     await query(`CREATE TABLE IF NOT EXISTS chat_interno (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,

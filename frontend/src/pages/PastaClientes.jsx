@@ -1,8 +1,9 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Trash2, Star, Database, Phone, CalendarDays, UserPlus, X, Syringe, Stethoscope, Brain, MessageSquare } from 'lucide-react';
-import { useApi } from '../context/AuthContext.jsx';
+import { Search, Trash2, Star, Database, Phone, CalendarDays, UserPlus, X, Syringe, Stethoscope, Brain, MessageSquare, Pencil, List, Kanban, Check } from 'lucide-react';
+import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt, openWA } from '../hooks/utils.js';
+import PastaFunil from './PastaFunil.jsx';
 
 /* Pasta de organização de clientes — usada por Fidelidade, Banco de Dados e
    Planos Vacinais. Lista os clientes (por categoria OU por classificação),
@@ -25,6 +26,7 @@ const CFG = {
 export default function PastaClientes({ categoria, classificacao }) {
   const api = useApi();
   const nav = useNavigate();
+  const { isMaster } = useAuth();
   const valor = classificacao || categoria;          // o que filtra a pasta
   const cfg = CFG[valor] || CFG.banco_dados;
   const modo = cfg.modo;                              // 'categoria' | 'classificacao'
@@ -32,6 +34,8 @@ export default function PastaClientes({ categoria, classificacao }) {
   const [busca, setBusca] = useState('');
   const [carregando, setCarregando] = useState(true);
   const [modal, setModal] = useState(false);         // modal "Adicionar cliente"
+  const [editAlvo, setEditAlvo] = useState(null);    // cliente em edição (nome/telefone)
+  const [vista, setVista] = useState('lista');       // 'lista' (por mês) | 'funil' (Kanban)
   const ehFidelidade = valor === 'fidelidade';
 
   const load = useCallback(() => {
@@ -107,8 +111,18 @@ export default function PastaClientes({ categoria, classificacao }) {
           <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar por nome ou telefone…"
             style={{ width: '100%', padding: '9px 12px 9px 34px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--card)' }} />
         </div>
-        <span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 700 }}>{filtrada.length} cliente(s) · {mesesOrdenados.length} mês(es)</span>
-        <button onClick={() => setModal(true)} className="btn btn-p" style={{ gap: 7, marginLeft: 'auto' }}>
+        <span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 700 }}>{filtrada.length} cliente(s){vista === 'lista' ? ` · ${mesesOrdenados.length} mês(es)` : ''}</span>
+        {/* Alternância Lista (por mês) / Funil (Kanban) */}
+        <div style={{ display: 'flex', background: 'var(--card)', borderRadius: 10, border: '1px solid var(--border)', overflow: 'hidden', marginLeft: 'auto' }}>
+          {[['lista', 'Lista', List], ['funil', 'Funil', Kanban]].map(([k, l, Ico]) => (
+            <button key={k} onClick={() => setVista(k)} title={l}
+              style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 12px', border: 'none', cursor: 'pointer', fontSize: 12.5, fontWeight: 700,
+                background: vista === k ? cfg.cor : 'transparent', color: vista === k ? '#fff' : 'var(--muted)' }}>
+              <Ico size={14} /> {l}
+            </button>
+          ))}
+        </div>
+        <button onClick={() => setModal(true)} className="btn btn-p" style={{ gap: 7 }}>
           <UserPlus size={15} /> Adicionar cliente
         </button>
       </div>
@@ -121,6 +135,8 @@ export default function PastaClientes({ categoria, classificacao }) {
           <div style={{ fontWeight: 700, marginBottom: 4 }}>Nenhum cliente nesta pasta ainda.</div>
           <div style={{ fontSize: 12.5 }}>Use o botão <b>“Adicionar cliente”</b> acima para puxar um atendimento ou cadastrar um novo.</div>
         </div>
+      ) : vista === 'funil' ? (
+        <PastaFunil api={api} contexto={valor} cor={cfg.cor} lista={filtrada} setLista={setLista} nav={nav} isMaster={isMaster} />
       ) : (
         mesesOrdenados.map(mes => (
           <div key={mes} style={{ marginBottom: 18 }}>
@@ -148,6 +164,7 @@ export default function PastaClientes({ categoria, classificacao }) {
                     </button>
                   )}
                   <button onClick={() => nav(`/inbox?conv=${c.id}`)} title="Abrir a conversa no chat" className="btn btn-sm" style={{ padding: '6px 9px' }}><MessageSquare size={13} /></button>
+                  <button onClick={() => setEditAlvo(c)} title="Editar nome/telefone" className="btn btn-sm" style={{ padding: '6px 9px' }}><Pencil size={13} /></button>
                   <button onClick={() => openWA(c.phone)} title="Abrir no WhatsApp" className="btn btn-sm" style={{ padding: '6px 9px' }}><Phone size={13} /></button>
                   <button onClick={() => tirar(c)} title="Tirar da pasta" className="btn btn-sm" style={{ padding: '6px 9px', color: 'var(--err)' }}><Trash2 size={13} /></button>
                 </div>
@@ -164,6 +181,50 @@ export default function PastaClientes({ categoria, classificacao }) {
           onAdded={() => { setModal(false); load(); }}
         />
       )}
+      {editAlvo && (
+        <EditarClienteModal
+          api={api} cliente={editAlvo} cor={cfg.cor}
+          onClose={() => setEditAlvo(null)}
+          onSaved={(upd) => { setLista(prev => prev.map(x => x.id === upd.id ? { ...x, ...upd } : x)); setEditAlvo(null); }}
+        />
+      )}
+    </div>
+  );
+}
+
+/* Modal de edição do cadastro (nome + telefone) do cliente da pasta. */
+function EditarClienteModal({ api, cliente, cor, onClose, onSaved }) {
+  const [nome, setNome] = useState(cliente.contact_name || '');
+  const [tel, setTel] = useState(cliente.phone || '');
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState('');
+  const salvar = async () => {
+    setSalvando(true); setErro('');
+    try {
+      const r = await api.patch(`/inbox/conversations/${cliente.id}/contato`, { nome, phone: tel });
+      onSaved({ id: cliente.id, contact_name: r.contact_name, phone: r.phone });
+    } catch (e) { setErro(e.message || 'Erro ao salvar'); setSalvando(false); }
+  };
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
+      <div onClick={e => e.stopPropagation()} className="card" style={{ width: 400, maxWidth: '100%', padding: 0, overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '15px 18px', borderBottom: '1px solid var(--border)' }}>
+          <div style={{ fontWeight: 800, fontSize: 15 }}>Editar cadastro</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
+        </div>
+        <div style={{ padding: 18 }}>
+          {erro && <div style={{ marginBottom: 12, padding: '8px 12px', borderRadius: 9, background: '#fdecec', color: '#c0392b', fontSize: 12.5, fontWeight: 600 }}>{erro}</div>}
+          <label style={{ display: 'block', fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', marginBottom: 5 }}>NOME</label>
+          <input autoFocus value={nome} onChange={e => setNome(e.target.value)} placeholder="Nome do cliente"
+            style={{ width: '100%', padding: '9px 12px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--card)', marginBottom: 12 }} />
+          <label style={{ display: 'block', fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', marginBottom: 5 }}>TELEFONE</label>
+          <input value={tel} onChange={e => setTel(e.target.value)} placeholder="(98) 98888-8888" inputMode="tel"
+            style={{ width: '100%', padding: '9px 12px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--card)', marginBottom: 16 }} />
+          <button onClick={salvar} disabled={salvando} className="btn btn-p" style={{ width: '100%', gap: 7, background: cor, borderColor: cor }}>
+            {salvando ? <span className="spin" style={{ width: 15, height: 15 }} /> : <Check size={15} />} Salvar
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
