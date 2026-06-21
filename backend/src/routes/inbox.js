@@ -2417,7 +2417,9 @@ r.get('/conversations', async (req, res) => {
       let pi = 1;
       if (channel && channel !== 'all') { conditions.push(`c.channel = $${pi++}`); params.push(channel); }
       if (unread_only === 'true') conditions.push(`c.unread > 0`);
-      if (req.query.categoria) { conditions.push(`c.categoria = $${pi++}`); params.push(req.query.categoria); }
+      if (req.query.classificacao && req.query.classificacao !== 'all') {
+        conditions.push(`c.classificacao = $${pi++}`); params.push(req.query.classificacao);
+      } else if (req.query.categoria) { conditions.push(`c.categoria = $${pi++}`); params.push(req.query.categoria); }
       else conditions.push(`c.categoria IS NULL`);
       // Acesso por setor (rede de segurança na janela de boot, antes do cache):
       // mesma precedência do cache — o setor da CONVERSA manda; só usa o do
@@ -2496,7 +2498,7 @@ r.get('/conversations/buscar', async (req, res) => {
     if (q.length < 2) return res.json([]);
     const like = `%${q}%`;
     const { rows } = await query(
-      `SELECT id, contact_name, phone, categoria FROM conversas
+      `SELECT id, contact_name, phone, categoria, classificacao FROM conversas
        WHERE unaccent(lower(COALESCE(contact_name,''))) ILIKE unaccent(lower($1)) OR phone ILIKE $1
        ORDER BY last_message_at DESC NULLS LAST LIMIT 20`, [like]);
     res.json(rows);
@@ -2704,6 +2706,14 @@ const CLASSIFICACOES = {
 r.patch('/conversations/:id/classificar', async (req, res) => {
   try {
     const cls = req.body.classificacao;
+    // null/'' → remove a classificação (tira da pasta de Planos, por ex.)
+    if (cls === null || cls === '') {
+      const { rows: [conv] } = await query('UPDATE conversas SET classificacao = NULL WHERE id = $1 RETURNING *', [req.params.id]);
+      if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+      cacheUpdate(conv);
+      socketEmit('conv_setor', { convId: conv.id, classificacao: null });
+      return res.json({ ok: true, classificacao: null });
+    }
     const mapa = CLASSIFICACOES[cls];
     if (!mapa) return res.status(400).json({ error: 'Classificação inválida.' });
     const { rows: [conv] } = await query(
@@ -2809,20 +2819,25 @@ r.post('/conversations/manual', async (req, res) => {
     const nome = String(req.body.nome || '').trim().slice(0, 80);
     const phoneRaw = String(req.body.phone || '').replace(/\D/g, '').slice(0, 15);
     const categoria = ['fidelidade', 'banco_dados'].includes(req.body.categoria) ? req.body.categoria : null;
-    if (!categoria) return res.status(400).json({ error: 'Categoria inválida.' });
+    const cls = CLASSIFICACOES[req.body.classificacao] ? req.body.classificacao : null;
+    if (!categoria && !cls) return res.status(400).json({ error: 'Destino inválido.' });
     if (!nome && !phoneRaw) return res.status(400).json({ error: 'Informe ao menos o nome ou o telefone.' });
+    const setorCls = cls ? CLASSIFICACOES[cls].setor : null;
     const base = phoneRaw ? (phoneRaw.startsWith('55') ? phoneRaw : '55' + phoneRaw) : `manual_${Date.now()}`;
     const contactId = `${base}@s.whatsapp.net`;
     const { rows: [conv] } = await query(`
-      INSERT INTO conversas (contact_id, phone, contact_name, channel, last_message, last_message_at, unread, status_atend, provider, categoria, categoria_em)
-      VALUES ($1, $2, $3, 'whatsapp', $4, NOW(), 0, 'aberto', 'manual', $5, NOW())
+      INSERT INTO conversas (contact_id, phone, contact_name, channel, last_message, last_message_at, unread, status_atend, provider, categoria, categoria_em, classificacao, setor)
+      VALUES ($1, $2, $3, 'whatsapp', $4, NOW(), 0, 'aberto', 'manual', $5, CASE WHEN $5::text IS NOT NULL THEN NOW() END, $6, $7)
       ON CONFLICT (contact_id) DO UPDATE SET
         contact_name = COALESCE(NULLIF($3,''), conversas.contact_name),
-        categoria = $5, categoria_em = NOW()
+        categoria = COALESCE($5, conversas.categoria),
+        categoria_em = CASE WHEN $5::text IS NOT NULL THEN NOW() ELSE conversas.categoria_em END,
+        classificacao = COALESCE($6, conversas.classificacao),
+        setor = COALESCE($7, conversas.setor)
       RETURNING *`,
-      [contactId, phoneRaw || null, nome || null, 'Cliente cadastrado na pasta', categoria]);
+      [contactId, phoneRaw || null, nome || null, 'Cliente cadastrado na pasta', categoria, cls, setorCls]);
     cacheUpdate(conv);
-    socketEmit('conv_categoria', { convId: conv.id, categoria });
+    socketEmit(cls ? 'conv_setor' : 'conv_categoria', { convId: conv.id, categoria, classificacao: cls });
     res.status(201).json(conv);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

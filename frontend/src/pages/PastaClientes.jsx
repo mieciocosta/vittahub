@@ -1,40 +1,48 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Search, Trash2, Star, Database, Phone, CalendarDays, UserPlus, X } from 'lucide-react';
+import { Search, Trash2, Star, Database, Phone, CalendarDays, UserPlus, X, Syringe } from 'lucide-react';
 import { useApi } from '../context/AuthContext.jsx';
 import { fmt, openWA } from '../hooks/utils.js';
 
-/* Pasta de organização de clientes — usada por Fidelidade e Banco de Dados.
-   Agora ORGANIZADA POR MÊS: os clientes ficam agrupados pelo mês em que
-   entraram na pasta (mês de referência), do mais recente para o mais antigo.
-   Na Fidelidade (mensalistas) dá pra marcar o DIA do mês que o cliente costuma
-   vacinar — assim cada mês fica em ordem e ninguém é esquecido. */
-export default function PastaClientes({ categoria }) {
+/* Pasta de organização de clientes — usada por Fidelidade, Banco de Dados e
+   Planos Vacinais. Lista os clientes (por categoria OU por classificação),
+   agrupados por MÊS de referência. Permite puxar/cadastrar clientes. */
+const CFG = {
+  fidelidade:      { titulo: 'Clientes Fidelidade', Icon: Star, cor: '#C4973B', modo: 'categoria',
+    sub: 'Clientes que vacinam todo mês (mensalistas). Organizados por mês — marque o dia de vacinação pra não perder ninguém.' },
+  banco_dados:     { titulo: 'Banco de Dados', Icon: Database, cor: '#0E8C96', modo: 'categoria',
+    sub: 'Contatos que pegaram só 1 vacina e nada mais (ex.: idosos). Organizados por mês de entrada pra nenhum cliente ser esquecido.' },
+  planos_vacinais: { titulo: 'Planos Vacinais', Icon: Syringe, cor: '#3b82f6', modo: 'classificacao',
+    sub: 'Todos os clientes interessados em planos vacinais, organizados por mês. Puxe atendimentos ou cadastre novos interessados aqui.' },
+};
+
+export default function PastaClientes({ categoria, classificacao }) {
   const api = useApi();
+  const valor = classificacao || categoria;          // o que filtra a pasta
+  const cfg = CFG[valor] || CFG.banco_dados;
+  const modo = cfg.modo;                              // 'categoria' | 'classificacao'
   const [lista, setLista] = useState([]);
   const [busca, setBusca] = useState('');
   const [carregando, setCarregando] = useState(true);
-  const [modal, setModal] = useState(false);        // modal "Adicionar cliente"
-  const ehFidelidade = categoria === 'fidelidade';
-
-  const cfg = ehFidelidade
-    ? { titulo: 'Clientes Fidelidade', Icon: Star, cor: '#C4973B',
-        sub: 'Clientes que vacinam todo mês (mensalistas). Organizados por mês — marque o dia de vacinação pra não perder ninguém.' }
-    : { titulo: 'Banco de Dados', Icon: Database, cor: '#0E8C96',
-        sub: 'Contatos que pegaram só 1 vacina e nada mais (ex.: idosos). Organizados por mês de entrada pra nenhum cliente ser esquecido.' };
+  const [modal, setModal] = useState(false);         // modal "Adicionar cliente"
+  const ehFidelidade = valor === 'fidelidade';
 
   const load = useCallback(() => {
     setCarregando(true);
-    api.get(`/inbox/conversations?categoria=${categoria}&limit=500`)
+    const param = modo === 'classificacao' ? `classificacao=${valor}` : `categoria=${valor}`;
+    api.get(`/inbox/conversations?${param}&limit=500`)
       .then(d => setLista(Array.isArray(d?.data) ? d.data : (Array.isArray(d) ? d : [])))
       .catch(() => setLista([]))
       .finally(() => setCarregando(false));
-  }, [categoria]); // eslint-disable-line
+  }, [valor, modo]); // eslint-disable-line
   useEffect(load, [load]);
 
   const tirar = async (c) => {
     if (!window.confirm(`Tirar "${c.contact_name || c.phone}" da pasta? Ele volta para o fluxo normal de atendimento.`)) return;
     setLista(p => p.filter(x => x.id !== c.id));
-    try { await api.patch(`/inbox/conversations/${c.id}/categoria`, { categoria: null }); } catch { load(); }
+    try {
+      if (modo === 'classificacao') await api.patch(`/inbox/conversations/${c.id}/classificar`, { classificacao: null });
+      else await api.patch(`/inbox/conversations/${c.id}/categoria`, { categoria: null });
+    } catch { load(); }
   };
 
   const definirDia = async (c) => {
@@ -103,7 +111,7 @@ export default function PastaClientes({ categoria }) {
         <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}>
           <cfg.Icon size={34} color="var(--border)" style={{ marginBottom: 10 }} />
           <div style={{ fontWeight: 700, marginBottom: 4 }}>Nenhum cliente nesta pasta ainda.</div>
-          <div style={{ fontSize: 12.5 }}>No chat, abra um atendimento e use “Mover para {cfg.titulo}”.</div>
+          <div style={{ fontSize: 12.5 }}>Use o botão <b>“Adicionar cliente”</b> acima para puxar um atendimento ou cadastrar um novo.</div>
         </div>
       ) : (
         mesesOrdenados.map(mes => (
@@ -142,7 +150,7 @@ export default function PastaClientes({ categoria }) {
 
       {modal && (
         <AddClienteModal
-          api={api} categoria={categoria} titulo={cfg.titulo} cor={cfg.cor}
+          api={api} modo={modo} valor={valor} titulo={cfg.titulo} cor={cfg.cor}
           onClose={() => setModal(false)}
           onAdded={() => { setModal(false); load(); }}
         />
@@ -153,7 +161,7 @@ export default function PastaClientes({ categoria }) {
 
 /* Modal "Adicionar cliente": puxar um atendimento existente (busca) ou
    cadastrar um novo só com nome + telefone. */
-function AddClienteModal({ api, categoria, titulo, cor, onClose, onAdded }) {
+function AddClienteModal({ api, modo, valor, titulo, cor, onClose, onAdded }) {
   const [aba, setAba] = useState('buscar');
   const [q, setQ] = useState('');
   const [res, setRes] = useState([]);
@@ -162,6 +170,7 @@ function AddClienteModal({ api, categoria, titulo, cor, onClose, onAdded }) {
   const [tel, setTel] = useState('');
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState('');
+  const jaEsta = (c) => modo === 'classificacao' ? c.classificacao === valor : c.categoria === valor;
 
   useEffect(() => {
     if (aba !== 'buscar' || q.trim().length < 2) { setRes([]); return; }
@@ -175,13 +184,17 @@ function AddClienteModal({ api, categoria, titulo, cor, onClose, onAdded }) {
   }, [q, aba]); // eslint-disable-line
 
   const puxar = async (c) => {
-    try { await api.patch(`/inbox/conversations/${c.id}/categoria`, { categoria }); onAdded(); }
-    catch (e) { setErro(e.message || 'Erro ao adicionar'); }
+    try {
+      if (modo === 'classificacao') await api.patch(`/inbox/conversations/${c.id}/classificar`, { classificacao: valor });
+      else await api.patch(`/inbox/conversations/${c.id}/categoria`, { categoria: valor });
+      onAdded();
+    } catch (e) { setErro(e.message || 'Erro ao adicionar'); }
   };
   const cadastrar = async () => {
     if (!nome.trim() && !tel.trim()) { setErro('Informe o nome ou o telefone.'); return; }
     setSalvando(true); setErro('');
-    try { await api.post('/inbox/conversations/manual', { nome, phone: tel, categoria }); onAdded(); }
+    const body = modo === 'classificacao' ? { nome, phone: tel, classificacao: valor } : { nome, phone: tel, categoria: valor };
+    try { await api.post('/inbox/conversations/manual', body); onAdded(); }
     catch (e) { setErro(e.message || 'Erro ao cadastrar'); setSalvando(false); }
   };
 
@@ -218,11 +231,11 @@ function AddClienteModal({ api, categoria, titulo, cor, onClose, onAdded }) {
                     <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 4px', borderBottom: '1px solid var(--border)' }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontWeight: 700, fontSize: 13 }}>{c.contact_name || fmt.phone(c.phone)}</div>
-                        <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{fmt.phone(c.phone)}{c.categoria ? ` · já está em ${c.categoria === categoria ? 'esta pasta' : c.categoria}` : ''}</div>
+                        <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{fmt.phone(c.phone)}{jaEsta(c) ? ' · já está nesta pasta' : ''}</div>
                       </div>
-                      <button disabled={c.categoria === categoria} onClick={() => puxar(c)} className="btn btn-sm"
-                        style={{ padding: '6px 12px', opacity: c.categoria === categoria ? .5 : 1 }}>
-                        {c.categoria === categoria ? 'Já está' : 'Adicionar'}
+                      <button disabled={jaEsta(c)} onClick={() => puxar(c)} className="btn btn-sm"
+                        style={{ padding: '6px 12px', opacity: jaEsta(c) ? .5 : 1 }}>
+                        {jaEsta(c) ? 'Já está' : 'Adicionar'}
                       </button>
                     </div>
                   ))}
