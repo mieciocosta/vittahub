@@ -378,6 +378,12 @@ export default async function runMigrate() {
     // consultas/terapias) — rótulo; o acesso continua sendo por setor (vacina x não).
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS classificacao TEXT`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS idx_conversas_categoria ON conversas (categoria) WHERE categoria IS NOT NULL`).catch(() => {});
+    // Organização por mês das pastas: quando entrou na pasta (mês de referência)
+    // e o dia do mês que o mensalista costuma vacinar (Fidelidade).
+    await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS categoria_em TIMESTAMPTZ`).catch(() => {});
+    await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS pasta_dia INT`).catch(() => {});
+    // Backfill: quem já está numa pasta e ainda não tem data de referência herda o último contato.
+    await query(`UPDATE conversas SET categoria_em = COALESCE(last_message_at, created_at, NOW()) WHERE categoria IS NOT NULL AND categoria_em IS NULL`).catch(() => {});
     // Exemplos de conversas que converteram — a IA estuda pra copiar o jeito campeão
     await query(`CREATE TABLE IF NOT EXISTS exemplos_conversa (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,

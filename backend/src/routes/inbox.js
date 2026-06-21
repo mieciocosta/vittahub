@@ -2762,12 +2762,28 @@ r.post('/conversations/:id/followup', async (req, res) => {
 r.patch('/conversations/:id/categoria', async (req, res) => {
   try {
     const cat = ['fidelidade', 'banco_dados'].includes(req.body.categoria) ? req.body.categoria : null;
+    // Ao entrar numa pasta, marca o mês de referência (entrou agora).
     const { rows: [conv] } = await query(
-      'UPDATE conversas SET categoria = $1 WHERE id = $2 RETURNING *', [cat, req.params.id]);
+      `UPDATE conversas SET categoria = $1,
+         categoria_em = CASE WHEN $1::text IS NOT NULL THEN NOW() ELSE categoria_em END
+       WHERE id = $2 RETURNING *`, [cat, req.params.id]);
     if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
     cacheUpdate(conv);
     socketEmit('conv_categoria', { convId: conv.id, categoria: cat });
     res.json({ ok: true, categoria: cat });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Dia do mês em que o mensalista (Fidelidade) costuma vacinar — organiza a pasta
+r.patch('/conversations/:id/pasta-dia', async (req, res) => {
+  try {
+    let dia = parseInt(req.body.dia);
+    dia = (dia >= 1 && dia <= 31) ? dia : null;
+    const { rows: [conv] } = await query(
+      'UPDATE conversas SET pasta_dia = $1 WHERE id = $2 RETURNING *', [dia, req.params.id]);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    cacheUpdate(conv);
+    res.json({ ok: true, pasta_dia: dia });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
