@@ -170,10 +170,21 @@ r.post('/vendas', async (req, res) => {
     if (!categoria) return res.status(400).json({ error: 'Escolha a categoria da venda.' });
     const valor = b.valor !== undefined && b.valor !== '' && !isNaN(parseFloat(b.valor)) ? Math.max(0, Math.min(parseFloat(b.valor), 1000000)) : 0;
     const setor = ['vacinas', 'consultas', 'terapias'].includes(b.setor) ? b.setor : setorDaCategoria(categoria);
+    // Atribuição ao ATENDENTE dono do atendimento: se a venda veio de uma conversa,
+    // credita ao responsável dela (quem cuidou do cliente) e não a quem clicou em
+    // registrar (ex.: o master lançando pela equipe). Sem conversa/responsável,
+    // fica com quem registrou. Um atendente_id explícito no corpo tem prioridade.
+    let atendenteId = req.user.id, atendenteNome = req.user.nome;
+    if (b.conversa_id) {
+      const { rows: [c] } = await query(
+        `SELECT u.id, u.nome FROM conversas c JOIN usuarios u ON u.id = c.responsavel_id WHERE c.id = $1`,
+        [cut(b.conversa_id, 40)]);
+      if (c) { atendenteId = c.id; atendenteNome = c.nome; }
+    }
     const { rows: [v] } = await query(`
       INSERT INTO vendas (conversa_id, lead_id, atendente_id, atendente_nome, setor, categoria, cliente_nome, paciente_nome, servico, valor, forma_pagamento, status_pagamento, data_venda, data_atendimento, origem, observacao)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,COALESCE($13,CURRENT_DATE),$14,$15,$16) RETURNING *`,
-      [cut(b.conversa_id, 40), b.lead_id || null, req.user.id, req.user.nome, setor, categoria,
+      [cut(b.conversa_id, 40), b.lead_id || null, atendenteId, atendenteNome, setor, categoria,
        cut(b.cliente_nome, 80), cut(b.paciente_nome, 80), cut(b.servico, 120), valor,
        FORMAS_PG.includes(b.forma_pagamento) ? b.forma_pagamento : null,
        STATUS_PG.includes(b.status_pagamento) ? b.status_pagamento : 'pago',

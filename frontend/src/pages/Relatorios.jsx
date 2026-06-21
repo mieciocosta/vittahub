@@ -335,14 +335,13 @@ export default function Relatorios() {
               ))}
           </Card>
 
-          {isMaster&&respData.length>0&&(
-            <Card title="🏆 Ranking de Atendentes">
-              {respData.slice(0,4).map((rv,i)=>(
-                <div key={rv.nome} style={{display:'flex',alignItems:'center',gap:9,padding:'8px 0',borderBottom:i<3?'1px solid var(--border)':'none'}}>
-                  <span style={{fontFamily:'Syne',fontWeight:800,fontSize:16,color:i===0?'var(--gold)':i===1?'#94a3b8':'var(--light)',minWidth:22}}>{i+1}°</span>
+          {isMaster && (porResponsavel||[]).length>0 && (
+            <Card title="👏 Atividade por atendente">
+              {respData.slice(0,5).map((rv,i)=>(
+                <div key={rv.id||rv.nome} style={{display:'flex',alignItems:'center',gap:9,padding:'8px 0',borderBottom:i<Math.min(respData.length,5)-1?'1px solid var(--border)':'none'}}>
                   <div style={{width:26,height:26,borderRadius:'50%',background:rv.cor||'var(--tq)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:800,color:'#fff'}}>{fmt.initials(rv.nome)}</div>
-                  <div style={{flex:1}}><div style={{fontWeight:700,fontSize:13}}>{rv.nome}</div><div style={{fontSize:11,color:'var(--muted)'}}>{rv.leads} leads · {rv.taxa}% conv.</div></div>
-                  <div style={{fontWeight:800,color:'var(--ok)',fontSize:13}}>{fmt.brl(rv.valor)}</div>
+                  <div style={{flex:1}}><div style={{fontWeight:700,fontSize:13}}>{rv.nome}</div><div style={{fontSize:11,color:'var(--muted)'}}>{rv.leads} conversas · {rv.fechados} venda{rv.fechados===1?'':'s'} no mês</div></div>
+                  <div style={{fontWeight:800,color:rv.valor>0?'var(--ok)':'var(--muted)',fontSize:13}}>{fmt.brl(rv.valor)}</div>
                 </div>
               ))}
             </Card>

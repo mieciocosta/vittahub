@@ -35,9 +35,11 @@ r.get('/dashboard', async (req, res) => {
       isMaster ? query(`SELECT u.id, u.nome, u.cor, u.avatar, u.setor,
           (SELECT COUNT(*) FROM conversas c WHERE c.responsavel_id = u.id) leads,
           (SELECT COUNT(DISTINCT m.conversa_id) FROM mensagens m WHERE m.sender_id = u.id AND m.from_type='me' AND m.created_at::date = CURRENT_DATE) atend_hoje,
-          (SELECT COUNT(*) FROM vendas v WHERE v.atendente_id = u.id AND to_char(v.data_venda,'YYYY-MM')=to_char(NOW(),'YYYY-MM')) fechados,
-          (SELECT COALESCE(SUM(v.valor),0) FROM vendas v WHERE v.atendente_id = u.id AND v.status_pagamento IN ('pago','cortesia') AND to_char(v.data_venda,'YYYY-MM')=to_char(NOW(),'YYYY-MM')) valor
-        FROM usuarios u WHERE u.role IN ('atendente','supervisor') AND u.ativo = true ORDER BY atend_hoje DESC, valor DESC`).catch(() => ({ rows: [] })) : Promise.resolve({ rows: [] }),
+          (SELECT COUNT(*) FROM vendas v WHERE to_char(v.data_venda,'YYYY-MM')=to_char(NOW(),'YYYY-MM')
+              AND (v.atendente_id = u.id OR v.conversa_id IN (SELECT c2.id FROM conversas c2 WHERE c2.responsavel_id = u.id))) fechados,
+          (SELECT COALESCE(SUM(v.valor),0) FROM vendas v WHERE v.status_pagamento IN ('pago','cortesia') AND to_char(v.data_venda,'YYYY-MM')=to_char(NOW(),'YYYY-MM')
+              AND (v.atendente_id = u.id OR v.conversa_id IN (SELECT c2.id FROM conversas c2 WHERE c2.responsavel_id = u.id))) valor
+        FROM usuarios u WHERE u.role IN ('atendente','supervisor') AND u.ativo = true ORDER BY valor DESC, atend_hoje DESC`).catch(() => ({ rows: [] })) : Promise.resolve({ rows: [] }),
       query(`SELECT data_entrada::text data, COUNT(*) leads, COUNT(*) FILTER (WHERE status IN ('Fechado','Venda Fechada')) fechados FROM leads l WHERE data_entrada >= CURRENT_DATE - INTERVAL '${days} days' ${uFilter} GROUP BY data_entrada ORDER BY data_entrada`),
       query('SELECT SUM(unread) unread FROM conversas'),
       query(`SELECT COUNT(*) n FROM leads WHERE data_retorno = CURRENT_DATE ${uFilter.replace('l.', '')}`),
