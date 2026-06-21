@@ -109,7 +109,7 @@ export default function Classificar() {
                     {c.phone ? fmt.phone(c.phone) : ''}{c.last_message ? ` · ${c.last_message}` : ' · (sem prévia de mensagem)'}
                   </div>
                 </div>
-                <button onClick={() => nav('/inbox')} title="Abrir no chat para ler" className="btn btn-sm" style={{ padding: '7px 10px', flexShrink: 0, gap: 5 }}>
+                <button onClick={() => nav(`/inbox?conv=${c.id}`)} title="Abrir no chat para ler" className="btn btn-sm" style={{ padding: '7px 10px', flexShrink: 0, gap: 5 }}>
                   <MessageSquare size={13} /> Ler
                 </button>
               </div>

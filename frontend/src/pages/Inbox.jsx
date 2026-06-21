@@ -874,6 +874,18 @@ export default function Inbox({ onUnreadChange }) {
     setConvos(prev => prev.map(x => x.id === c.id ? { ...x, unread:0 } : x));
   };
 
+  // Deep-link: abrir uma conversa específica via ?conv=<id> (ex.: vindo de uma
+  // pasta como Planos Vacinais / Fidelidade). Busca por id e abre direto.
+  const convDeepLink = searchParams.get('conv');
+  const convAbertaRef = useRef(null);
+  useEffect(() => {
+    if (!convDeepLink || convAbertaRef.current === convDeepLink) return;
+    convAbertaRef.current = convDeepLink;
+    api.get(`/inbox/conversations/${convDeepLink}`)
+      .then(c => { if (c?.id) openConvo(c); })
+      .catch(() => {});
+  }, [convDeepLink]); // eslint-disable-line
+
   // ── Carregar mensagens mais antigas ───────────────────────────────────────
   const loadOlderMsgs = async () => {
     if (!sel || loadingOlderMsgs || !msgsHasMore) return;

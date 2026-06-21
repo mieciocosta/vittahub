@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Search, Trash2, Star, Database, Phone, CalendarDays, UserPlus, X, Syringe, Stethoscope, Brain } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Search, Trash2, Star, Database, Phone, CalendarDays, UserPlus, X, Syringe, Stethoscope, Brain, MessageSquare } from 'lucide-react';
 import { useApi } from '../context/AuthContext.jsx';
 import { fmt, openWA } from '../hooks/utils.js';
 
@@ -23,6 +24,7 @@ const CFG = {
 
 export default function PastaClientes({ categoria, classificacao }) {
   const api = useApi();
+  const nav = useNavigate();
   const valor = classificacao || categoria;          // o que filtra a pasta
   const cfg = CFG[valor] || CFG.banco_dados;
   const modo = cfg.modo;                              // 'categoria' | 'classificacao'
@@ -145,6 +147,7 @@ export default function PastaClientes({ categoria, classificacao }) {
                       <CalendarDays size={13} />{c.pasta_dia ? `dia ${c.pasta_dia}` : 'definir dia'}
                     </button>
                   )}
+                  <button onClick={() => nav(`/inbox?conv=${c.id}`)} title="Abrir a conversa no chat" className="btn btn-sm" style={{ padding: '6px 9px' }}><MessageSquare size={13} /></button>
                   <button onClick={() => openWA(c.phone)} title="Abrir no WhatsApp" className="btn btn-sm" style={{ padding: '6px 9px' }}><Phone size={13} /></button>
                   <button onClick={() => tirar(c)} title="Tirar da pasta" className="btn btn-sm" style={{ padding: '6px 9px', color: 'var(--err)' }}><Trash2 size={13} /></button>
                 </div>
