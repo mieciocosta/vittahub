@@ -83,6 +83,13 @@ export default function Dashboard() {
   const proxMarco = metas ? [25, 50, 75, 100].find(m => m > metas.vacinas.pct) : null;
   const maxFunil = Math.max(...funil.map(f => f.n), 1);
   const setorEmoji = { vacinas: '💉', consultas: '🩺', terapias: '🧩', 'sem setor': '📥' };
+  // Meta GERAL do mês (todos os setores somados) + quebras por setor e atendente
+  const mg = vendasResumo?.total || null;
+  const setoresV = vendasResumo?.setores || null;
+  const porAtend = vendasResumo?.porAtendente || [];
+  const SET_INFO = [['vacinas', '💉 Vacinas', '#7c5cbf'], ['consultas', '🩺 Consultas', '#00B8C0'], ['terapias', '🧩 Terapias', '#C4973B']];
+  const proxMarcoG = mg ? [25, 50, 75, 100].find(m => m > (mg.pct || 0)) : null;
+  const maxAtend = Math.max(...porAtend.map(a => a.confirmado || 0), 1);
 
   const kpis = [
     { Icon: MessageSquare, label: 'Conversas não lidas', valor: resumo.totalUnread || 0, sub: 'Precisam de atenção', go: '/inbox' },
@@ -118,16 +125,16 @@ export default function Dashboard() {
             {verso} <b style={{ color: 'var(--tq2)' }}>{ref}</b>
           </div>
         </div>
-        {metas && (
+        {mg && (
           <div style={{ minWidth: 190 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, fontWeight: 700, marginBottom: 4 }}>
-              <span style={{ color: 'var(--muted)' }}>Meta do mês — Vacinas</span>
-              <span style={{ color: 'var(--tq2)', fontSize: 14 }}>{Math.round(metas.vacinas.pct)}%</span>
+              <span style={{ color: 'var(--muted)' }}>Meta do mês — Geral</span>
+              <span style={{ color: 'var(--tq2)', fontSize: 14 }}>{Math.round(mg.pct || 0)}%</span>
             </div>
             <div style={{ height: 7, borderRadius: 6, background: 'var(--tq4)', overflow: 'hidden' }}>
-              <div style={{ width: `${Math.min(metas.vacinas.pct, 100)}%`, height: '100%', background: 'linear-gradient(90deg,var(--tq),var(--pet))', borderRadius: 6 }} />
+              <div style={{ width: `${Math.min(mg.pct || 0, 100)}%`, height: '100%', background: 'linear-gradient(90deg,var(--tq),var(--pet))', borderRadius: 6 }} />
             </div>
-            <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 3 }}>{fmt.brl(metas.vacinas.vendido)} / {fmt.brl(metas.vacinas.meta)}</div>
+            <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 3 }}>{fmt.brl(mg.confirmado)} / {fmt.brl(mg.meta)}</div>
           </div>
         )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -199,34 +206,53 @@ export default function Dashboard() {
         {/* ── Linha principal: Meta grande · Funil · Agenda-Hoje ── */}
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px,1.1fr) minmax(260px,1fr) minmax(300px,1.3fr)', gap: 16, marginBottom: 16 }}>
 
-          {/* Meta de Vacinas — card turquesa */}
-          {metas && (
+          {/* Meta do Mês — GERAL (todos os setores somados) — card turquesa */}
+          {mg && (
             <div style={{ borderRadius: 18, padding: '20px 22px', color: '#fff', position: 'relative', overflow: 'hidden',
               background: 'linear-gradient(135deg, #00B8C0 0%, #0E8C96 100%)', boxShadow: '0 8px 28px rgba(0,184,192,.3)' }}>
               <div style={{ position: 'absolute', right: -30, top: -30, width: 140, height: 140, borderRadius: '50%', background: 'rgba(255,255,255,.08)' }} />
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 800, fontSize: 14, marginBottom: 12 }}>
-                <span style={{ fontSize: 18 }}>🏆</span> Meta de Vacinas — Mês
+                <span style={{ fontSize: 18 }}>🏆</span> Meta do Mês — Geral
               </div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
                 <div>
-                  <div style={{ fontSize: 34, fontWeight: 800, lineHeight: 1 }}>{fmt.brl(metas.vacinas.vendido)}</div>
-                  <div style={{ fontSize: 13, opacity: .85, marginTop: 3 }}>de {fmt.brl(metas.vacinas.meta)}</div>
+                  <div style={{ fontSize: 34, fontWeight: 800, lineHeight: 1 }}>{fmt.brl(mg.confirmado)}</div>
+                  <div style={{ fontSize: 13, opacity: .85, marginTop: 3 }}>de {fmt.brl(mg.meta)}</div>
                 </div>
                 <div style={{ width: 74, height: 74, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  background: `conic-gradient(#fff ${Math.min(metas.vacinas.pct, 100) * 3.6}deg, rgba(255,255,255,.22) 0deg)` }}>
+                  background: `conic-gradient(#fff ${Math.min(mg.pct || 0, 100) * 3.6}deg, rgba(255,255,255,.22) 0deg)` }}>
                   <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'rgba(14,140,150,.92)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 16 }}>
-                    {Math.round(metas.vacinas.pct)}%
+                    {Math.round(mg.pct || 0)}%
                   </div>
                 </div>
               </div>
               <div style={{ height: 9, borderRadius: 6, background: 'rgba(255,255,255,.25)', overflow: 'hidden', margin: '14px 0 10px' }}>
-                <div style={{ width: `${Math.min(metas.vacinas.pct, 100)}%`, height: '100%', background: 'var(--card)', borderRadius: 6 }} />
+                <div style={{ width: `${Math.min(mg.pct || 0, 100)}%`, height: '100%', background: 'var(--card)', borderRadius: 6 }} />
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, fontWeight: 600, opacity: .92, flexWrap: 'wrap', gap: 6 }}>
-                <span>Faltam {fmt.brl(metas.vacinas.falta)} para a meta!</span>
-                {proxMarco && <span>🚩 Próximo marco: {proxMarco}%</span>}
+                <span>{mg.meta > 0 ? `Faltam ${fmt.brl(mg.falta)} para a meta!` : 'Defina a meta na página Metas'}</span>
+                {proxMarcoG && <span>🚩 Próximo marco: {proxMarcoG}%</span>}
               </div>
-              <div style={{ fontSize: 11, marginTop: 6, opacity: .8 }}>Projeção do mês: <b>{fmt.brl(metas.vacinas.projecao)}</b></div>
+              {/* Quebra por setor */}
+              {setoresV && (
+                <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,.2)', display: 'flex', flexDirection: 'column', gap: 9 }}>
+                  {SET_INFO.map(([k, rotulo]) => {
+                    const s = setoresV[k] || { confirmado: 0, meta: 0, pct: null };
+                    const pct = Math.min(s.pct || 0, 100);
+                    return (
+                      <div key={k}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, fontWeight: 600, marginBottom: 3 }}>
+                          <span>{rotulo}</span>
+                          <span>{fmt.brl(s.confirmado)}{s.meta > 0 ? ` / ${fmt.brl(s.meta)}` : ''}</span>
+                        </div>
+                        <div style={{ height: 6, borderRadius: 5, background: 'rgba(255,255,255,.22)', overflow: 'hidden' }}>
+                          <div style={{ width: `${pct}%`, height: '100%', background: 'rgba(255,255,255,.9)', borderRadius: 5 }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 
@@ -345,6 +371,32 @@ export default function Dashboard() {
             })}
             {(porResponsavel || []).length === 0 && <div style={{ fontSize: 12, color: 'var(--muted)' }}>Visível para a gestão.</div>}
           </div>
+
+          {/* Vendas por atendente — mês (confirmado) */}
+          {porAtend.length > 0 && (
+            <div className="card" style={{ padding: '17px 19px', background: 'var(--card)' }}>
+              <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}>💰 Vendas por atendente</div>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 12 }}>Confirmado no mês · {fmt.brl(mg?.confirmado)} no total</div>
+              {porAtend.slice(0, 6).map((a, i) => {
+                const pct = Math.min(((a.confirmado || 0) / maxAtend) * 100, 100);
+                return (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderBottom: i < Math.min(porAtend.length, 6) - 1 ? '1px solid var(--border)' : 'none' }}>
+                    <span style={{ fontSize: 13, fontWeight: 800, color: i === 0 ? 'var(--gold,#C4973B)' : 'var(--muted)', minWidth: 18 }}>{i + 1}º</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+                        <span style={{ fontWeight: 700, fontSize: 12.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{(a.nome || '—').split(' ')[0]}</span>
+                        <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--ok,#16a34a)' }}>{fmt.brl(a.confirmado)}</span>
+                      </div>
+                      <div style={{ height: 6, borderRadius: 5, background: 'var(--bg2)', overflow: 'hidden' }}>
+                        <div style={{ width: `${pct}%`, height: '100%', borderRadius: 5, background: i === 0 ? 'var(--gold,#C4973B)' : 'var(--tq)' }} />
+                      </div>
+                    </div>
+                    <span style={{ fontSize: 10.5, color: 'var(--muted)', minWidth: 44, textAlign: 'right' }}>{a.n} venda{a.n === 1 ? '' : 's'}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           {/* Metas de agendamento por setor — feito / alvo / quanto falta */}
           {agMeta?.setores && Object.values(agMeta.setores).some(s => s.alvo > 0) && (
