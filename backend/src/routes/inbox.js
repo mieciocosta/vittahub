@@ -1465,6 +1465,13 @@ r.post('/webhook/zapi', async (req, res) => {
   res.json({ received: true });
   try {
     const body = req.body;
+    // Segurança: só processa webhooks da NOSSA instância Z-API (a Z-API sempre
+    // envia o instanceId). Sem isso, qualquer um que soubesse a URL poderia
+    // injetar conversas/mensagens falsas no CRM.
+    if (process.env.ZAPI_INSTANCE && body?.instanceId !== process.env.ZAPI_INSTANCE) {
+      console.warn('Webhook Z-API rejeitado: instanceId ausente ou não confere');
+      return;
+    }
     logWebhook(body);
     console.log(`ZAPI_WH: ${JSON.stringify(body).slice(0, 300)}`);
 
