@@ -8,7 +8,7 @@ r.use(auth);
 r.get('/dashboard', async (req, res) => {
   try {
     const isMaster = req.user.role === 'master';
-    const uid = req.user.id;
+    const uid = String(req.user.id).replace(/[^a-zA-Z0-9-]/g, ''); // só charset de UUID (anti-injection)
     const verTudo = isMaster || req.user.role === 'supervisor';
     const uFilter = verTudo ? '' : `AND l.responsavel_id = '${uid}'`;
     // Período dos gráficos: ?days=7|30|90 (validado — nunca interpola entrada crua)

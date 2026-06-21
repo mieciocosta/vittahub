@@ -109,7 +109,8 @@ r.get('/meta', async (req, res) => {
 // Vencidos / hoje / próximos 7 dias — só leads em aberto (fora Fechado/Perdido)
 r.get('/retornos', async (req, res) => {
   try {
-    const uFilter = ['master','supervisor'].includes(req.user.role) ? '' : ` AND l.responsavel_id = '${req.user.id}'`;
+    const uid = String(req.user.id).replace(/[^a-zA-Z0-9-]/g, ''); // anti-injection
+    const uFilter = ['master','supervisor'].includes(req.user.role) ? '' : ` AND l.responsavel_id = '${uid}'`;
     const { rows } = await query(`
       SELECT l.*, u.nome AS responsavel_nome, u.cor AS responsavel_cor,
         CASE

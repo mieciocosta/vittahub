@@ -205,7 +205,7 @@ const SET3 = ['vacinas', 'consultas', 'terapias'];
 r.get('/vendas/resumo', async (req, res) => {
   try {
     const mes = /^\d{4}-\d{2}$/.test(req.query.mes || '') ? req.query.mes : new Date().toISOString().slice(0, 7);
-    const soMinhas = !gestao(req) ? `AND atendente_id = '${req.user.id.replace(/'/g, '')}'` : '';
+    const soMinhas = !gestao(req) ? `AND atendente_id = '${String(req.user.id).replace(/[^a-zA-Z0-9-]/g, '')}'` : '';
     const [vendasSetor, porAtendente, porCategoria, agSetor, cfg] = await Promise.all([
       query(`SELECT setor,
           COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float confirmado,
@@ -283,7 +283,7 @@ r.delete('/vendas/:id', async (req, res) => {
 r.get('/perdas/resumo', async (req, res) => {
   try {
     const mes = /^\d{4}-\d{2}$/.test(req.query.mes || '') ? req.query.mes : new Date().toISOString().slice(0, 7);
-    const soMinhas = !gestao(req) ? ` AND atendente_id = '${String(req.user.id).replace(/'/g, '')}'` : '';
+    const soMinhas = !gestao(req) ? ` AND atendente_id = '${String(req.user.id).replace(/[^a-zA-Z0-9-]/g, '')}'` : '';
     const [tot, porMotivo, porSetor] = await Promise.all([
       query(`SELECT COUNT(*)::int n, COALESCE(SUM(valor_potencial),0)::float valor FROM perdas WHERE to_char(created_at,'YYYY-MM')=$1 ${soMinhas}`, [mes]),
       query(`SELECT motivo, COUNT(*)::int n, COALESCE(SUM(valor_potencial),0)::float valor FROM perdas WHERE to_char(created_at,'YYYY-MM')=$1 ${soMinhas} GROUP BY motivo ORDER BY n DESC`, [mes]),

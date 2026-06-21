@@ -12,6 +12,22 @@ function getRealIP(req) {
   return xff ? xff.split(',')[0].trim() : req.ip || 'unknown';
 }
 
+// Rate-limit de login (anti brute-force): por IP, no máx 10 falhas em 10 min.
+const loginFalhas = new Map(); // ip -> { count, until }
+function loginBloqueado(ip) {
+  const e = loginFalhas.get(ip);
+  return e && e.until > Date.now() && e.count >= 10;
+}
+function registraFalhaLogin(ip) {
+  const now = Date.now();
+  let e = loginFalhas.get(ip);
+  if (!e || e.until < now) e = { count: 0, until: now + 10 * 60 * 1000 };
+  e.count++; loginFalhas.set(ip, e);
+}
+function limpaFalhasLogin(ip) { loginFalhas.delete(ip); }
+// limpeza periódica do mapa (evita crescer pra sempre)
+setInterval(() => { const now = Date.now(); for (const [k, v] of loginFalhas) if (v.until < now) loginFalhas.delete(k); }, 10 * 60 * 1000);
+
 // Auditoria fire-and-forget — registra a ação SEM nunca lançar erro
 // (uma falha de log jamais pode derrubar o login).
 function logAudit(req, usuarioId, usuarioNome, acao, detalhes) {
@@ -25,7 +41,9 @@ function logAudit(req, usuarioId, usuarioNome, acao, detalhes) {
 }
 
 r.post('/login', async (req, res) => {
+  const ip = getRealIP(req);
   try {
+    if (loginBloqueado(ip)) return res.status(429).json({ error: 'Muitas tentativas de login. Aguarde alguns minutos e tente de novo.' });
     // Login por CPF (padrão da equipe) ou e-mail. Aceita { login } ou { email }.
     const id = String(req.body.login || req.body.email || '').trim();
     const { senha } = req.body;
@@ -39,15 +57,16 @@ r.post('/login', async (req, res) => {
       ({ rows } = await query('SELECT * FROM usuarios WHERE LOWER(email) = LOWER($1) AND ativo = true', [id]));
     }
     const u = rows[0];
-    if (!u) return res.status(401).json({ error: 'Usuário não encontrado. Confira o CPF digitado.' });
+    if (!u) { registraFalhaLogin(ip); return res.status(401).json({ error: 'Usuário não encontrado. Confira o CPF digitado.' }); }
     const ok = await bcrypt.compare(senha, u.senha);
-    if (!ok) { logAudit(req, null, id, 'login_falha', { motivo: 'Senha incorreta' }); return res.status(401).json({ error: 'Senha incorreta' }); }
+    if (!ok) { registraFalhaLogin(ip); logAudit(req, null, id, 'login_falha', { motivo: 'Senha incorreta' }); return res.status(401).json({ error: 'Senha incorreta' }); }
+    limpaFalhasLogin(ip);
     const token = jwt.sign({ id: u.id, nome: u.nome, email: u.email, role: u.role, cor: u.cor, setor: u.setor || null }, SECRET, { expiresIn: '30d' });
     logAudit(req, u.id, u.nome, 'login', { metodo: 'cpf' });
     res.json({ token, user: { id: u.id, nome: u.nome, email: u.email, cpf: u.cpf, role: u.role, cor: u.cor, avatar: u.avatar || null, setor: u.setor || null } });
   } catch (err) {
-    console.error('Login error:', err.message);
-    res.status(500).json({ error: 'Erro interno: ' + err.message });
+    console.error('Login error:', err.message); // detalhe só no log do servidor
+    res.status(500).json({ error: 'Erro interno. Tente novamente.' }); // não vaza o motivo
   }
 });
 

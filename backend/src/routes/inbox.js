@@ -2869,7 +2869,7 @@ r.get('/atencao-agora', async (req, res) => {
     }
     const hoje = new Date().toISOString().slice(0, 10);
     const mes = hoje.slice(0, 7);
-    const soMinhasVenda = req.user.role === 'master' || req.user.role === 'supervisor' ? '' : ` AND atendente_id = '${String(req.user.id).replace(/'/g, '')}'`;
+    const soMinhasVenda = req.user.role === 'master' || req.user.role === 'supervisor' ? '' : ` AND atendente_id = '${String(req.user.id).replace(/[^a-zA-Z0-9-]/g, '')}'`;
     const [ag, vp] = await Promise.all([
       query(`SELECT COUNT(*)::int n FROM agenda_eventos WHERE data >= $1 AND status = 'Agendado'`, [hoje]).catch(() => ({ rows: [{ n: 0 }] })),
       query(`SELECT COUNT(*)::int n, COALESCE(SUM(valor),0)::float v FROM vendas
