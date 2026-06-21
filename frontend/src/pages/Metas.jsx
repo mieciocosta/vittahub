@@ -36,6 +36,7 @@ export default function Metas() {
     setSalvando(false);
   };
 
+  if (user?.role !== 'master') return <div style={{ padding: 40, color: 'var(--muted)' }}>🔒 Painel de metas restrito ao master.</div>;
   if (!data) return <div style={{ padding: 40, color: 'var(--muted)' }}>Carregando metas…</div>;
 
   return (

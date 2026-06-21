@@ -204,6 +204,8 @@ r.get('/vendas', async (req, res) => {
 const SET3 = ['vacinas', 'consultas', 'terapias'];
 r.get('/vendas/resumo', async (req, res) => {
   try {
+    // Painel comercial agregado (faturamento, metas, ranking) — só o master vê.
+    if (req.user.role !== 'master') return res.status(403).json({ error: 'Apenas o master vê o painel comercial.' });
     const mes = /^\d{4}-\d{2}$/.test(req.query.mes || '') ? req.query.mes : new Date().toISOString().slice(0, 7);
     const soMinhas = !gestao(req) ? `AND atendente_id = '${String(req.user.id).replace(/[^a-zA-Z0-9-]/g, '')}'` : '';
     const [vendasSetor, porAtendente, porCategoria, agSetor, cfg] = await Promise.all([
@@ -282,6 +284,7 @@ r.delete('/vendas/:id', async (req, res) => {
 // Resumo de PERDAS do mês: total, valor potencial perdido, por motivo e setor.
 r.get('/perdas/resumo', async (req, res) => {
   try {
+    if (req.user.role !== 'master') return res.status(403).json({ error: 'Apenas o master vê o painel comercial.' });
     const mes = /^\d{4}-\d{2}$/.test(req.query.mes || '') ? req.query.mes : new Date().toISOString().slice(0, 7);
     const soMinhas = !gestao(req) ? ` AND atendente_id = '${String(req.user.id).replace(/[^a-zA-Z0-9-]/g, '')}'` : '';
     const [tot, porMotivo, porSetor] = await Promise.all([

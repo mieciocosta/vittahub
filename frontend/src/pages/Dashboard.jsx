@@ -61,7 +61,7 @@ export default function Dashboard() {
     api.get('/reports/dashboard').then(setData).catch(() => {});
     api.get(`/extras/agenda?data=${new Date().toISOString().slice(0, 10)}`).then(d => setAgendaHoje(Array.isArray(d) ? d : [])).catch(() => {});
     api.get('/extras/agenda/meta').then(setAgMeta).catch(() => {});
-    api.get('/extras/vendas/resumo').then(setVendasResumo).catch(() => {});
+    if (isMaster) api.get('/extras/vendas/resumo').then(setVendasResumo).catch(() => {}); // painel comercial é só do master
     const loadAt = () => api.get('/inbox/atencao-agora').then(setAtencao).catch(() => {});
     loadAt(); const t = setInterval(loadAt, 20000); return () => clearInterval(t);
   }, []); // eslint-disable-line
@@ -125,7 +125,7 @@ export default function Dashboard() {
             {verso} <b style={{ color: 'var(--tq2)' }}>{ref}</b>
           </div>
         </div>
-        {mg && (
+        {isMaster && mg && (
           <div style={{ minWidth: 190 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, fontWeight: 700, marginBottom: 4 }}>
               <span style={{ color: 'var(--muted)' }}>Meta do mês — Geral</span>
@@ -177,7 +177,8 @@ export default function Dashboard() {
                   ['Sem resposta +10min', atencao.semResposta, '#dc2626', '/inbox?cls=', 'Clientes esperando'],
                   ['Leads quentes parados', atencao.quentes, '#e8671a', '/inbox', 'Querem fechar'],
                   ['Agend. sem confirmar', atencao.agendamentosSemConfirmar, '#d97706', '/agenda', 'Confirmar com o cliente'],
-                  ['Vendas pendentes', atencao.vendasPendentes, '#2563eb', '/metas', fmt.brl(atencao.vendasPendentesValor) + ' a receber'],
+                  // Valor a receber é financeiro — só o master vê
+                  ...(isMaster ? [['Vendas pendentes', atencao.vendasPendentes, '#2563eb', '/metas', fmt.brl(atencao.vendasPendentesValor) + ' a receber']] : []),
                 ].map(([lbl, val, cor, go, sub]) => (
                   <div key={lbl} onClick={() => go && nav(go)} style={{ cursor: go ? 'pointer' : 'default', background: 'var(--bg2)', borderRadius: 10, padding: '10px 12px' }}>
                     <div style={{ fontSize: 24, fontWeight: 800, color: (val > 0 ? cor : 'var(--muted)') }}>{val}</div>
@@ -188,8 +189,8 @@ export default function Dashboard() {
               </div>
             ) : <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Carregando…</div>}
           </div>
-          {/* Resumo comercial do mês */}
-          {vendasResumo && (
+          {/* Resumo comercial do mês — só o master */}
+          {isMaster && vendasResumo && (
             <div className="card" style={{ padding: '16px 18px' }}>
               <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>💰 Vendas do mês</div>
               <div style={{ fontSize: 30, fontWeight: 800, color: 'var(--ok,#16a34a)' }}>{fmt.brl(vendasResumo.total?.confirmado)}</div>
@@ -206,8 +207,8 @@ export default function Dashboard() {
         {/* ── Linha principal: Meta grande · Funil · Agenda-Hoje ── */}
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px,1.1fr) minmax(260px,1fr) minmax(300px,1.3fr)', gap: 16, marginBottom: 16 }}>
 
-          {/* Meta do Mês — GERAL (todos os setores somados) — card turquesa */}
-          {mg && (
+          {/* Meta do Mês — GERAL (todos os setores somados) — card turquesa — só master */}
+          {isMaster && mg && (
             <div style={{ borderRadius: 18, padding: '20px 22px', color: '#fff', position: 'relative', overflow: 'hidden',
               background: 'linear-gradient(135deg, #00B8C0 0%, #0E8C96 100%)', boxShadow: '0 8px 28px rgba(0,184,192,.3)' }}>
               <div style={{ position: 'absolute', right: -30, top: -30, width: 140, height: 140, borderRadius: '50%', background: 'rgba(255,255,255,.08)' }} />
@@ -372,8 +373,8 @@ export default function Dashboard() {
             {(porResponsavel || []).length === 0 && <div style={{ fontSize: 12, color: 'var(--muted)' }}>Visível para a gestão.</div>}
           </div>
 
-          {/* Vendas por atendente — mês (confirmado) */}
-          {porAtend.length > 0 && (
+          {/* Vendas por atendente — mês (confirmado) — só master */}
+          {isMaster && porAtend.length > 0 && (
             <div className="card" style={{ padding: '17px 19px', background: 'var(--card)' }}>
               <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}>💰 Vendas por atendente</div>
               <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 12 }}>Confirmado no mês · {fmt.brl(mg?.confirmado)} no total</div>

@@ -105,9 +105,10 @@ export default function Relatorios() {
   const [vendasR, setVendasR] = useState(null);
   const [perdasR, setPerdasR] = useState(null);
   useEffect(() => {
+    if (!isMaster) return; // painel comercial (vendas/perdas) é só do master
     api.get('/extras/vendas/resumo').then(setVendasR).catch(()=>{});
     api.get('/extras/perdas/resumo').then(setPerdasR).catch(()=>{});
-  }, []); // eslint-disable-line
+  }, [isMaster]); // eslint-disable-line
 
   const handlePDF = async () => {
     setPdfLoading(true);
@@ -190,8 +191,8 @@ export default function Relatorios() {
         ))}
       </div>
 
-      {/* Comercial do mês: vendas (4 camadas) + perdas por motivo */}
-      {(vendasR || perdasR) && (
+      {/* Comercial do mês: vendas (4 camadas) + perdas por motivo — só master */}
+      {isMaster && (vendasR || perdasR) && (
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16, marginBottom:16 }}>
           {vendasR && (
             <div className="card" style={{ padding:'17px 19px' }}>
@@ -228,6 +229,59 @@ export default function Relatorios() {
               {(perdasR.porMotivo||[]).length===0 && <div style={{ fontSize:12, color:'var(--muted)' }}>Nenhuma perda registrada. 🎉</div>}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Meta geral por setor + Vendas por atendente — mês corrente — só master */}
+      {isMaster && vendasR && (
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16, marginBottom:16 }}>
+          <div className="card" style={{ padding:'17px 19px' }}>
+            <div style={{ fontWeight:800, fontSize:14, marginBottom:12 }}>🎯 Meta por setor ({vendasR.mes})</div>
+            {[['vacinas','💉 Vacinas','#7c5cbf'],['consultas','🩺 Consultas','#00B8C0'],['terapias','🧩 Terapias','#C4973B']].map(([k,rotulo,cor])=>{
+              const s = vendasR.setores?.[k] || { confirmado:0, meta:0, pct:null, falta:0 };
+              const pct = Math.min(s.pct||0,100);
+              return (
+                <div key={k} style={{ marginBottom:13 }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', fontSize:12.5, marginBottom:4 }}>
+                    <span style={{ fontWeight:700 }}>{rotulo}</span>
+                    <span style={{ fontWeight:800, color:cor }}>{fmt.brl(s.confirmado)}{s.meta>0?` / ${fmt.brl(s.meta)}`:''}</span>
+                  </div>
+                  <div style={{ height:8, borderRadius:5, background:'var(--bg2)', overflow:'hidden' }}>
+                    <div style={{ width:`${pct}%`, height:'100%', borderRadius:5, background:(s.meta>0&&s.falta===0)?'var(--ok)':cor }}/>
+                  </div>
+                  <div style={{ fontSize:11, color:'var(--muted)', marginTop:3 }}>{s.meta>0?(s.falta===0?'🏆 Meta batida!':`Faltam ${fmt.brl(s.falta)} · ${s.pct}%`):'Sem meta definida'}</div>
+                </div>
+              );
+            })}
+            <div style={{ marginTop:6, paddingTop:10, borderTop:'1px solid var(--border)', display:'flex', justifyContent:'space-between', fontSize:13 }}>
+              <span style={{ fontWeight:800 }}>Total geral</span>
+              <span style={{ fontWeight:800, color:'var(--ok)' }}>{fmt.brl(vendasR.total?.confirmado)}{vendasR.total?.meta>0?` / ${fmt.brl(vendasR.total.meta)} (${vendasR.total.pct??0}%)`:''}</span>
+            </div>
+          </div>
+
+          <div className="card" style={{ padding:'17px 19px' }}>
+            <div style={{ fontWeight:800, fontSize:14, marginBottom:12 }}>💰 Vendas por atendente ({vendasR.mes})</div>
+            {(vendasR.porAtendente||[]).slice(0,8).map((a,i)=>{
+              const max = Math.max(...(vendasR.porAtendente||[]).map(x=>x.confirmado||0),1);
+              const pct = Math.min(((a.confirmado||0)/max)*100,100);
+              return (
+                <div key={i} style={{ display:'flex', alignItems:'center', gap:10, padding:'7px 0', borderBottom:i<Math.min((vendasR.porAtendente||[]).length,8)-1?'1px solid var(--border)':'none' }}>
+                  <span style={{ fontFamily:'Syne', fontWeight:800, fontSize:14, color:i===0?'var(--gold)':'var(--muted)', minWidth:20 }}>{i+1}º</span>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:3 }}>
+                      <span style={{ fontWeight:700, fontSize:12.5, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{(a.nome||'—').split(' ')[0]}</span>
+                      <span style={{ fontWeight:800, fontSize:12.5, color:'var(--ok)' }}>{fmt.brl(a.confirmado)}</span>
+                    </div>
+                    <div style={{ height:6, borderRadius:5, background:'var(--bg2)', overflow:'hidden' }}>
+                      <div style={{ width:`${pct}%`, height:'100%', borderRadius:5, background:i===0?'var(--gold)':'var(--tq)' }}/>
+                    </div>
+                  </div>
+                  <span style={{ fontSize:10.5, color:'var(--muted)', minWidth:42, textAlign:'right' }}>{a.n} venda{a.n===1?'':'s'}</span>
+                </div>
+              );
+            })}
+            {(vendasR.porAtendente||[]).length===0 && <div style={{ fontSize:12, color:'var(--muted)' }}>Sem vendas neste mês.</div>}
+          </div>
         </div>
       )}
 
