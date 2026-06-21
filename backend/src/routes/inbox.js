@@ -2488,6 +2488,21 @@ r.post('/conversations/:id/load-from-zapi', async (req, res) => {
 });
 
 
+// Busca conversas (qualquer categoria) para PUXAR um cliente para uma pasta.
+// IMPORTANTE: fica ANTES de GET /conversations/:id, senão "buscar" casa com :id.
+r.get('/conversations/buscar', async (req, res) => {
+  try {
+    const q = String(req.query.q || '').trim();
+    if (q.length < 2) return res.json([]);
+    const like = `%${q}%`;
+    const { rows } = await query(
+      `SELECT id, contact_name, phone, categoria FROM conversas
+       WHERE unaccent(lower(COALESCE(contact_name,''))) ILIKE unaccent(lower($1)) OR phone ILIKE $1
+       ORDER BY last_message_at DESC NULLS LAST LIMIT 20`, [like]);
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.get('/conversations/:id', async (req, res) => {
   try {
     res.set('Cache-Control', 'no-store, no-cache');
@@ -2784,6 +2799,31 @@ r.patch('/conversations/:id/pasta-dia', async (req, res) => {
     if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
     cacheUpdate(conv);
     res.json({ ok: true, pasta_dia: dia });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// CADASTRAR cliente manualmente direto numa pasta (nome + telefone). Se já existe
+// uma conversa com esse telefone, apenas move/transfere ela para a pasta.
+r.post('/conversations/manual', async (req, res) => {
+  try {
+    const nome = String(req.body.nome || '').trim().slice(0, 80);
+    const phoneRaw = String(req.body.phone || '').replace(/\D/g, '').slice(0, 15);
+    const categoria = ['fidelidade', 'banco_dados'].includes(req.body.categoria) ? req.body.categoria : null;
+    if (!categoria) return res.status(400).json({ error: 'Categoria inválida.' });
+    if (!nome && !phoneRaw) return res.status(400).json({ error: 'Informe ao menos o nome ou o telefone.' });
+    const base = phoneRaw ? (phoneRaw.startsWith('55') ? phoneRaw : '55' + phoneRaw) : `manual_${Date.now()}`;
+    const contactId = `${base}@s.whatsapp.net`;
+    const { rows: [conv] } = await query(`
+      INSERT INTO conversas (contact_id, phone, contact_name, channel, last_message, last_message_at, unread, status_atend, provider, categoria, categoria_em)
+      VALUES ($1, $2, $3, 'whatsapp', $4, NOW(), 0, 'aberto', 'manual', $5, NOW())
+      ON CONFLICT (contact_id) DO UPDATE SET
+        contact_name = COALESCE(NULLIF($3,''), conversas.contact_name),
+        categoria = $5, categoria_em = NOW()
+      RETURNING *`,
+      [contactId, phoneRaw || null, nome || null, 'Cliente cadastrado na pasta', categoria]);
+    cacheUpdate(conv);
+    socketEmit('conv_categoria', { convId: conv.id, categoria });
+    res.status(201).json(conv);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Search, Trash2, Star, Database, Phone, CalendarDays } from 'lucide-react';
+import { Search, Trash2, Star, Database, Phone, CalendarDays, UserPlus, X } from 'lucide-react';
 import { useApi } from '../context/AuthContext.jsx';
 import { fmt, openWA } from '../hooks/utils.js';
 
@@ -13,6 +13,7 @@ export default function PastaClientes({ categoria }) {
   const [lista, setLista] = useState([]);
   const [busca, setBusca] = useState('');
   const [carregando, setCarregando] = useState(true);
+  const [modal, setModal] = useState(false);        // modal "Adicionar cliente"
   const ehFidelidade = categoria === 'fidelidade';
 
   const cfg = ehFidelidade
@@ -91,6 +92,9 @@ export default function PastaClientes({ categoria }) {
             style={{ width: '100%', padding: '9px 12px 9px 34px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--card)' }} />
         </div>
         <span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 700 }}>{filtrada.length} cliente(s) · {mesesOrdenados.length} mês(es)</span>
+        <button onClick={() => setModal(true)} className="btn btn-p" style={{ gap: 7, marginLeft: 'auto' }}>
+          <UserPlus size={15} /> Adicionar cliente
+        </button>
       </div>
 
       {carregando ? (
@@ -135,6 +139,111 @@ export default function PastaClientes({ categoria }) {
           </div>
         ))
       )}
+
+      {modal && (
+        <AddClienteModal
+          api={api} categoria={categoria} titulo={cfg.titulo} cor={cfg.cor}
+          onClose={() => setModal(false)}
+          onAdded={() => { setModal(false); load(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+/* Modal "Adicionar cliente": puxar um atendimento existente (busca) ou
+   cadastrar um novo só com nome + telefone. */
+function AddClienteModal({ api, categoria, titulo, cor, onClose, onAdded }) {
+  const [aba, setAba] = useState('buscar');
+  const [q, setQ] = useState('');
+  const [res, setRes] = useState([]);
+  const [buscando, setBuscando] = useState(false);
+  const [nome, setNome] = useState('');
+  const [tel, setTel] = useState('');
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState('');
+
+  useEffect(() => {
+    if (aba !== 'buscar' || q.trim().length < 2) { setRes([]); return; }
+    const t = setTimeout(() => {
+      setBuscando(true);
+      api.get(`/inbox/conversations/buscar?q=${encodeURIComponent(q.trim())}`)
+        .then(d => setRes(Array.isArray(d) ? d : [])).catch(() => setRes([]))
+        .finally(() => setBuscando(false));
+    }, 350);
+    return () => clearTimeout(t);
+  }, [q, aba]); // eslint-disable-line
+
+  const puxar = async (c) => {
+    try { await api.patch(`/inbox/conversations/${c.id}/categoria`, { categoria }); onAdded(); }
+    catch (e) { setErro(e.message || 'Erro ao adicionar'); }
+  };
+  const cadastrar = async () => {
+    if (!nome.trim() && !tel.trim()) { setErro('Informe o nome ou o telefone.'); return; }
+    setSalvando(true); setErro('');
+    try { await api.post('/inbox/conversations/manual', { nome, phone: tel, categoria }); onAdded(); }
+    catch (e) { setErro(e.message || 'Erro ao cadastrar'); setSalvando(false); }
+  };
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
+      <div onClick={e => e.stopPropagation()} className="card" style={{ width: 460, maxWidth: '100%', padding: 0, overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '15px 18px', borderBottom: '1px solid var(--border)' }}>
+          <div style={{ fontWeight: 800, fontSize: 15 }}>Adicionar a {titulo}</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
+        </div>
+        <div style={{ display: 'flex', gap: 6, padding: '12px 18px 0' }}>
+          {[['buscar', 'Puxar atendimento'], ['novo', 'Cadastrar novo']].map(([k, l]) => (
+            <button key={k} onClick={() => { setAba(k); setErro(''); }}
+              style={{ padding: '7px 12px', borderRadius: 9, border: '1px solid var(--border)', cursor: 'pointer', fontSize: 12.5, fontWeight: 700,
+                background: aba === k ? cor : 'transparent', color: aba === k ? '#fff' : 'var(--muted)' }}>{l}</button>
+          ))}
+        </div>
+
+        <div style={{ padding: 18 }}>
+          {erro && <div style={{ marginBottom: 12, padding: '8px 12px', borderRadius: 9, background: '#fdecec', color: '#c0392b', fontSize: 12.5, fontWeight: 600 }}>{erro}</div>}
+
+          {aba === 'buscar' ? (
+            <>
+              <div style={{ position: 'relative', marginBottom: 12 }}>
+                <Search size={15} style={{ position: 'absolute', left: 11, top: 11, color: 'var(--muted)' }} />
+                <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar atendimento por nome ou telefone…"
+                  style={{ width: '100%', padding: '9px 12px 9px 34px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--card)' }} />
+              </div>
+              <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+                {buscando ? <div style={{ color: 'var(--muted)', fontSize: 12.5, padding: 12 }}>Buscando…</div>
+                  : q.trim().length < 2 ? <div style={{ color: 'var(--muted)', fontSize: 12.5, padding: 12 }}>Digite ao menos 2 letras para buscar.</div>
+                  : res.length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 12.5, padding: 12 }}>Nenhum atendimento encontrado.</div>
+                  : res.map(c => (
+                    <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 4px', borderBottom: '1px solid var(--border)' }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: 13 }}>{c.contact_name || fmt.phone(c.phone)}</div>
+                        <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{fmt.phone(c.phone)}{c.categoria ? ` · já está em ${c.categoria === categoria ? 'esta pasta' : c.categoria}` : ''}</div>
+                      </div>
+                      <button disabled={c.categoria === categoria} onClick={() => puxar(c)} className="btn btn-sm"
+                        style={{ padding: '6px 12px', opacity: c.categoria === categoria ? .5 : 1 }}>
+                        {c.categoria === categoria ? 'Já está' : 'Adicionar'}
+                      </button>
+                    </div>
+                  ))}
+              </div>
+            </>
+          ) : (
+            <>
+              <label style={{ display: 'block', fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', marginBottom: 5 }}>NOME</label>
+              <input autoFocus value={nome} onChange={e => setNome(e.target.value)} placeholder="Nome do cliente"
+                style={{ width: '100%', padding: '9px 12px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--card)', marginBottom: 12 }} />
+              <label style={{ display: 'block', fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', marginBottom: 5 }}>TELEFONE (com DDD)</label>
+              <input value={tel} onChange={e => setTel(e.target.value)} placeholder="(98) 98888-8888" inputMode="tel"
+                style={{ width: '100%', padding: '9px 12px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--card)', marginBottom: 16 }} />
+              <button onClick={cadastrar} disabled={salvando} className="btn btn-p" style={{ width: '100%', gap: 7 }}>
+                {salvando ? <span className="spin" style={{ width: 15, height: 15 }} /> : <UserPlus size={15} />} Cadastrar na pasta
+              </button>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 9 }}>Se já existir um atendimento com esse telefone, ele é movido para a pasta.</div>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

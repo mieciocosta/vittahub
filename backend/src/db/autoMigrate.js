@@ -466,6 +466,17 @@ export default async function runMigrate() {
       const { rows: [c] } = await query("SELECT COUNT(*)::int n FROM funil_colunas WHERE COALESCE(setor,'vacinas') = $1", [setorF]).catch(() => ({ rows: [{ n: 1 }] }));
       if (parseInt(c?.n) === 0) await seedFunilSetor(setorF, etapas);
     }
+    // RESET (uma vez): o funil tinha colunas legadas/genéricas misturadas, então
+    // os títulos não batiam com o setor. Zera e recria o padrão correto de cada
+    // setor. (leads.status é texto livre, sem FK — seguro.) Depois o master pode
+    // renomear/adicionar etapas normalmente pelo quadro.
+    const { rows: [flagFr] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_funis_reset_v2'");
+    if (!flagFr) {
+      await query('DELETE FROM funil_colunas').catch(() => {});
+      for (const [setorF, etapas] of Object.entries(FUNIS)) await seedFunilSetor(setorF, etapas);
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_funis_reset_v2','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🔄 Funil resetado para o padrão por setor (títulos corrigidos)');
+    }
 
     // ── KIT DE MENSAGENS PRONTAS (espec. da gestão) ──────────────────────────
     const { rows: [flagQR2] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_qr_v2'");
