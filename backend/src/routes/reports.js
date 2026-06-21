@@ -30,7 +30,14 @@ r.get('/dashboard', async (req, res) => {
         FROM leads l WHERE 1=1 ${uFilter}`),
       query(`SELECT status, COUNT(*) n FROM leads l WHERE 1=1 ${uFilter} GROUP BY status`),
       query(`SELECT origem, COUNT(*) total, COUNT(*) FILTER (WHERE status IN ('Fechado','Venda Fechada')) fechados FROM leads l WHERE 1=1 ${uFilter} GROUP BY origem ORDER BY total DESC`),
-      isMaster ? query(`SELECT u.id, u.nome, u.cor, u.avatar, u.setor, COUNT(l.id) leads, COUNT(l.id) FILTER (WHERE l.status_changed_at::date = CURRENT_DATE) atend_hoje, COUNT(l.id) FILTER (WHERE l.status IN ('Fechado','Venda Fechada')) fechados, SUM(CASE WHEN l.status IN ('Fechado','Venda Fechada') THEN l.valor_proposta ELSE 0 END) valor FROM usuarios u LEFT JOIN leads l ON l.responsavel_id = u.id WHERE u.role IN ('atendente','supervisor') AND u.ativo = true GROUP BY u.id ORDER BY valor DESC`) : Promise.resolve({ rows: [] }),
+      // Desempenho da equipe baseado em atividade REAL (conversas atendidas +
+      // mensagens enviadas hoje + vendas do mês), não em leads vazios.
+      isMaster ? query(`SELECT u.id, u.nome, u.cor, u.avatar, u.setor,
+          (SELECT COUNT(*) FROM conversas c WHERE c.responsavel_id = u.id) leads,
+          (SELECT COUNT(DISTINCT m.conversa_id) FROM mensagens m WHERE m.sender_id = u.id AND m.from_type='me' AND m.created_at::date = CURRENT_DATE) atend_hoje,
+          (SELECT COUNT(*) FROM vendas v WHERE v.atendente_id = u.id AND to_char(v.data_venda,'YYYY-MM')=to_char(NOW(),'YYYY-MM')) fechados,
+          (SELECT COALESCE(SUM(v.valor),0) FROM vendas v WHERE v.atendente_id = u.id AND v.status_pagamento IN ('pago','cortesia') AND to_char(v.data_venda,'YYYY-MM')=to_char(NOW(),'YYYY-MM')) valor
+        FROM usuarios u WHERE u.role IN ('atendente','supervisor') AND u.ativo = true ORDER BY atend_hoje DESC, valor DESC`).catch(() => ({ rows: [] })) : Promise.resolve({ rows: [] }),
       query(`SELECT data_entrada::text data, COUNT(*) leads, COUNT(*) FILTER (WHERE status IN ('Fechado','Venda Fechada')) fechados FROM leads l WHERE data_entrada >= CURRENT_DATE - INTERVAL '${days} days' ${uFilter} GROUP BY data_entrada ORDER BY data_entrada`),
       query('SELECT SUM(unread) unread FROM conversas'),
       query(`SELECT COUNT(*) n FROM leads WHERE data_retorno = CURRENT_DATE ${uFilter.replace('l.', '')}`),
