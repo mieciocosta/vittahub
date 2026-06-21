@@ -77,12 +77,12 @@ export default function Dashboard() {
 
   if (!data) return <div style={{ padding: 40, color: 'var(--muted)' }}>Carregando seu dia…</div>;
 
-  const { resumo = {}, porStatus = [], followups = [], porResponsavel = [], metas, impacto } = data;
-  const stCount = (nomeS) => parseInt((porStatus.find(x => x.status === nomeS) || {}).n) || 0;
+  const { resumo = {}, porStatus = [], followups = [], porResponsavel = [], metas, impacto, funil = [], porSetorConv = [] } = data;
   const fupsHoje = followups.filter(f => f.data_retorno === hoje.toISOString().slice(0, 10));
   const fupsVencidos = followups.filter(f => f.data_retorno < hoje.toISOString().slice(0, 10));
   const proxMarco = metas ? [25, 50, 75, 100].find(m => m > metas.vacinas.pct) : null;
-  const maxFunil = Math.max(...ETAPAS_VACINAS.map(stCount), 1);
+  const maxFunil = Math.max(...funil.map(f => f.n), 1);
+  const setorEmoji = { vacinas: '💉', consultas: '🩺', terapias: '🧩', 'sem setor': '📥' };
 
   const kpis = [
     { Icon: MessageSquare, label: 'Conversas não lidas', valor: resumo.totalUnread || 0, sub: 'Precisam de atenção', go: '/inbox' },
@@ -230,25 +230,37 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* Funil de Vacinas — barras */}
+          {/* Funil de Atendimento — baseado nas conversas reais */}
           <div className="card" style={{ padding: '17px 19px', background: 'var(--card)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 800, fontSize: 14, marginBottom: 13 }}>
-              <span style={{ fontSize: 16 }}>💉</span> Funil de Vacinas
+              <span style={{ fontSize: 16 }}>💬</span> Funil de Atendimento
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-              {ETAPAS_VACINAS.map((etapa, i) => {
-                const n = stCount(etapa);
-                return (
-                  <div key={etapa} style={{ display: 'grid', gridTemplateColumns: '128px 1fr 26px', alignItems: 'center', gap: 8 }}>
-                    <div style={{ fontSize: 11, color: 'var(--txt2)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{etapa}</div>
-                    <div style={{ height: 9, borderRadius: 6, background: 'var(--bg2)', overflow: 'hidden' }}>
-                      <div style={{ width: `${(n / maxFunil) * 100}%`, height: '100%', borderRadius: 6, background: CORES_FUNIL[i], transition: 'width .6s' }} />
-                    </div>
-                    <div style={{ fontSize: 11.5, fontWeight: 800, color: 'var(--txt2)', textAlign: 'right' }}>{n}</div>
+              {funil.map((f, i) => (
+                <div key={f.etapa} style={{ display: 'grid', gridTemplateColumns: '128px 1fr 30px', alignItems: 'center', gap: 8 }}>
+                  <div style={{ fontSize: 11, color: 'var(--txt2)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.etapa}</div>
+                  <div style={{ height: 9, borderRadius: 6, background: 'var(--bg2)', overflow: 'hidden' }}>
+                    <div style={{ width: `${(f.n / maxFunil) * 100}%`, height: '100%', borderRadius: 6, background: CORES_FUNIL[i % CORES_FUNIL.length], transition: 'width .6s' }} />
                   </div>
-                );
-              })}
+                  <div style={{ fontSize: 11.5, fontWeight: 800, color: 'var(--txt2)', textAlign: 'right' }}>{f.n}</div>
+                </div>
+              ))}
             </div>
+            {porSetorConv.length > 0 && (
+              <div style={{ marginTop: 13, paddingTop: 11, borderTop: '1px solid var(--border)' }}>
+                <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', marginBottom: 7 }}>CONVERSAS POR SETOR</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
+                  {porSetorConv.map(s => (
+                    <div key={s.setor} style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'var(--bg2)', borderRadius: 8, padding: '5px 9px', fontSize: 11.5 }}>
+                      <span>{setorEmoji[s.setor] || '📥'}</span>
+                      <span style={{ fontWeight: 700, textTransform: 'capitalize' }}>{s.setor}</span>
+                      <span style={{ fontWeight: 800, color: 'var(--tq2)' }}>{s.n}</span>
+                      {s.aguardando > 0 && <span title="aguardando resposta" style={{ fontSize: 10, color: '#dc2626', fontWeight: 700 }}>· {s.aguardando} ⏳</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Agenda — Hoje (retornos/follow-ups do dia) */}
@@ -453,10 +465,10 @@ export default function Dashboard() {
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 12 }}>
               {[['👨‍👩‍👧', impacto.familias, 'Famílias atendidas'],
-                ['💉', impacto.criancasVacinadas, 'Crianças vacinadas'],
-                ['🩺', impacto.consultasRealizadas, 'Consultas realizadas'],
-                ['🧩', impacto.terapiasIniciadas, 'Terapias iniciadas'],
-                ['❤️', `${resumo.taxaConversao || 0}%`, 'Taxa de conversão']].map(([ic, v, l]) => (
+                ['💉', impacto.convVacinas, 'Conversas — Vacinas'],
+                ['🩺', impacto.convConsultas, 'Conversas — Consultas'],
+                ['🧩', impacto.convTerapias, 'Conversas — Terapias'],
+                ['💬', resumo.totalUnread || 0, 'Não lidas agora']].map(([ic, v, l]) => (
                 <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <span style={{ fontSize: 26 }}>{ic}</span>
                   <div>

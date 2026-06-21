@@ -14,7 +14,7 @@ r.get('/dashboard', async (req, res) => {
     // Período dos gráficos: ?days=7|30|90 (validado — nunca interpola entrada crua)
     const days = [7, 30, 90].includes(parseInt(req.query.days)) ? parseInt(req.query.days) : 7;
 
-    const [totals, porStatus, porOrigem, porResp, porDia, unread, retornos, perdas, followups, metaVac, consHoje, cfgMetas, impacto, agenda, conversas] = await Promise.all([
+    const [totals, porStatus, porOrigem, porResp, porDia, unread, retornos, perdas, followups, metaVac, consHoje, cfgMetas, impacto, agenda, conversas, funilConv, porSetorConv] = await Promise.all([
       query(`SELECT
         COUNT(*) total,
         COUNT(*) FILTER (WHERE data_entrada = CURRENT_DATE) hoje,
@@ -58,11 +58,13 @@ r.get('/dashboard', async (req, res) => {
                AND status_changed_at::date = CURRENT_DATE`),
       query("SELECT valor FROM configuracoes WHERE chave = 'metas'"),
       // Painel de impacto (números do propósito, não só faturamento)
+      // Impacto baseado nas CONVERSAS reais (os status de lead ficam vazios) —
+      // volume de famílias atendidas por setor, que é o dado que de fato existe.
       query(`SELECT
         (SELECT COUNT(*) FROM conversas) familias,
-        (SELECT COUNT(*) FROM leads WHERE status IN ('Vacinado','Pós-Vacinal')) criancas_vacinadas,
-        (SELECT COUNT(*) FROM leads WHERE status IN ('Consulta Realizada','Retorno','Finalizado') AND COALESCE(setor,'vacinas')='consultas') consultas_realizadas,
-        (SELECT COUNT(*) FROM leads WHERE status IN ('Em Tratamento','Renovação') AND COALESCE(setor,'vacinas')='terapias') terapias_iniciadas`),
+        (SELECT COUNT(*) FROM conversas WHERE COALESCE(setor,'vacinas')='vacinas') conv_vacinas,
+        (SELECT COUNT(*) FROM conversas WHERE setor='consultas') conv_consultas,
+        (SELECT COUNT(*) FROM conversas WHERE setor='terapias') conv_terapias`),
       // Agenda REAL (agenda_eventos) — o que de fato está marcado, não status de lead
       query(`SELECT
         COUNT(*) FILTER (WHERE data = CURRENT_DATE AND status <> 'Cancelado') hoje,
@@ -75,6 +77,22 @@ r.get('/dashboard', async (req, res) => {
         COUNT(*) FILTER (WHERE last_from = 'contact') aguardando,
         COUNT(*) FILTER (WHERE last_message_at::date = CURRENT_DATE) hoje
         FROM conversas`),
+      // Funil REAL de atendimento — baseado nas CONVERSAS (os leads ficam vazios).
+      // Master/supervisão vê todos os setores; atendente vê o seu.
+      query(`SELECT
+        COUNT(*)::int recebidas,
+        COUNT(*) FILTER (WHERE setor IS NOT NULL OR classificacao IS NOT NULL)::int classificadas,
+        COUNT(*) FILTER (WHERE responsavel_id IS NOT NULL AND NOT COALESCE(perdido,false))::int em_atendimento,
+        COUNT(*) FILTER (WHERE last_from='contact' AND NOT COALESCE(perdido,false))::int aguardando,
+        COUNT(*) FILTER (WHERE lower(COALESCE(lead_score,'')) LIKE 'quente%' AND NOT COALESCE(perdido,false))::int quentes,
+        COUNT(*) FILTER (WHERE COALESCE(perdido,false))::int perdidas
+        FROM conversas c
+        WHERE ($1::text IS NULL OR COALESCE(c.setor,(SELECT u2.setor FROM usuarios u2 WHERE u2.id=c.responsavel_id))=$1)`,
+        [verTudo ? null : (req.user.setor || null)]).catch(() => ({ rows: [{}] })),
+      // Conversas por setor — admin vê a distribuição de TODAS
+      query(`SELECT COALESCE(setor,'sem setor') setor, COUNT(*)::int n,
+               COUNT(*) FILTER (WHERE last_from='contact')::int aguardando
+             FROM conversas GROUP BY setor ORDER BY n DESC`).catch(() => ({ rows: [] })),
     ]);
 
     const t = totals.rows[0];
@@ -131,11 +149,24 @@ r.get('/dashboard', async (req, res) => {
         aguardando: parseInt(conversas.rows[0]?.aguardando) || 0,
         hoje: parseInt(conversas.rows[0]?.hoje) || 0,
       },
+      // Funil de atendimento baseado nas conversas reais
+      funil: (() => {
+        const f = funilConv.rows[0] || {};
+        return [
+          { etapa: 'Recebidas',           n: parseInt(f.recebidas)      || 0 },
+          { etapa: 'Classificadas',       n: parseInt(f.classificadas)  || 0 },
+          { etapa: 'Em atendimento',      n: parseInt(f.em_atendimento) || 0 },
+          { etapa: 'Aguardando resposta', n: parseInt(f.aguardando)     || 0 },
+          { etapa: 'Leads quentes',       n: parseInt(f.quentes)        || 0 },
+          { etapa: 'Perdidas',            n: parseInt(f.perdidas)       || 0 },
+        ];
+      })(),
+      porSetorConv: (porSetorConv.rows || []).map(s => ({ setor: s.setor, n: parseInt(s.n) || 0, aguardando: parseInt(s.aguardando) || 0 })),
       impacto: {
         familias: parseInt(impacto.rows[0]?.familias) || 0,
-        criancasVacinadas: parseInt(impacto.rows[0]?.criancas_vacinadas) || 0,
-        consultasRealizadas: parseInt(impacto.rows[0]?.consultas_realizadas) || 0,
-        terapiasIniciadas: parseInt(impacto.rows[0]?.terapias_iniciadas) || 0,
+        convVacinas: parseInt(impacto.rows[0]?.conv_vacinas) || 0,
+        convConsultas: parseInt(impacto.rows[0]?.conv_consultas) || 0,
+        convTerapias: parseInt(impacto.rows[0]?.conv_terapias) || 0,
       },
     });
   } catch (err) {
