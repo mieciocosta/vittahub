@@ -146,9 +146,12 @@ function cacheGetList({ channel, search, unread_only, waiting, minhas, grupos, s
     .sort((a, b) => new Date(b.last_message_at || 0) - new Date(a.last_message_at || 0));
   if (channel && channel !== 'all') list = list.filter(c => c.channel === channel);
   // Pastas de organização: com ?categoria=fidelidade|banco_dados mostra só a pasta;
-  // sem categoria, o inbox normal ESCONDE quem já foi movido pra uma pasta.
+  // sem categoria, o inbox normal ESCONDE quem já foi movido pra uma pasta — EXCETO
+  // quando se pede uma classificação específica (páginas Planos/Vacinação/Consultas/
+  // Terapias), que devem listar todos daquela classificação, mesmo se tiverem pasta.
+  const clsEspecifica = classificacao && classificacao !== 'all' && classificacao !== 'sem';
   if (categoria) list = list.filter(c => c.categoria === categoria);
-  else list = list.filter(c => !c.categoria);
+  else if (!clsEspecifica) list = list.filter(c => !c.categoria);
   // Filtro de setor: chips da gestão (?setor=) ou trava da atendente (vê só o dela)
   if (setor && setor !== 'all') list = list.filter(c => c.setor === setor);
   // Filtro por classificação fina (atalhos coloridos do menu). 'sem' = ainda não
