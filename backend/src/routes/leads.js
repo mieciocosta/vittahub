@@ -156,7 +156,12 @@ r.patch('/:id/retorno', async (req, res) => {
 
 r.get('/colunas', async (req, res) => {
   try {
-    const { rows } = await query('SELECT * FROM funil_colunas ORDER BY ordem, created_at');
+    // Etapas próprias de cada setor: Vacinas, Consultas e Terapias têm funis
+    // diferentes. Sem o filtro, o quadro misturava as etapas de todos os setores.
+    const setor = ['vacinas', 'consultas', 'terapias'].includes(req.query.setor) ? req.query.setor : null;
+    const { rows } = setor
+      ? await query("SELECT * FROM funil_colunas WHERE COALESCE(setor,'vacinas') = $1 ORDER BY ordem, created_at", [setor])
+      : await query('SELECT * FROM funil_colunas ORDER BY ordem, created_at');
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

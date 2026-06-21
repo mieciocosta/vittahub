@@ -409,30 +409,38 @@ export default async function runMigrate() {
 
     // ── FUNIS POR SETOR (etapas próprias p/ Vacinas, Consultas e Terapias) ──
     await query(`ALTER TABLE funil_colunas ADD COLUMN IF NOT EXISTS setor TEXT DEFAULT 'vacinas'`).catch(() => {});
+    const FUNIS = {
+      vacinas:   [['Novo Lead','#00B8C0'],['Em Atendimento','#0E8C96'],['Orçamento Enviado','#C4973B'],['Negociação','#e8671a'],['Venda Fechada','#0fb07a'],['Agendado','#3b82f6'],['Vacinado','#7c5cbf'],['Pós-Vacinal','#ec4899'],['Reagendamento Futuro','#64748b']],
+      consultas: [['Novo Lead','#00B8C0'],['Em Atendimento','#0E8C96'],['Agendamento Pendente','#C4973B'],['Agendado','#3b82f6'],['Consulta Confirmada','#e8671a'],['Consulta Realizada','#0fb07a'],['Retorno','#7c5cbf'],['Finalizado','#64748b']],
+      terapias:  [['Novo Lead','#00B8C0'],['Triagem','#0E8C96'],['Avaliação','#C4973B'],['Plano Terapêutico','#e8671a'],['Em Tratamento','#3b82f6'],['Renovação','#7c5cbf'],['Finalizado','#0fb07a']],
+    };
+    const seedFunilSetor = async (setorF, etapas) => {
+      let ordem = 0;
+      for (const [nome, cor] of etapas) {
+        await query(`INSERT INTO funil_colunas (nome, cor, ordem, fixa, setor)
+          SELECT $1, $2, $3, false, $4
+          WHERE NOT EXISTS (SELECT 1 FROM funil_colunas WHERE nome = $1 AND setor = $4)`,
+          [nome, cor, ordem++, setorF]).catch(() => {});
+      }
+      // Perdido sempre existe em todo setor (motivo de perda obrigatório)
+      await query(`INSERT INTO funil_colunas (nome, cor, ordem, fixa, setor)
+        SELECT 'Perdido', '#e84040', 99, true, $1
+        WHERE NOT EXISTS (SELECT 1 FROM funil_colunas WHERE nome = 'Perdido' AND setor = $1)`, [setorF]).catch(() => {});
+    };
     const { rows: [flagFunis] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_funis_v1'");
     if (!flagFunis) {
       await query(`UPDATE funil_colunas SET setor = 'vacinas' WHERE setor IS NULL`).catch(() => {});
       await query(`UPDATE leads SET setor = 'vacinas' WHERE setor IS NULL`).catch(() => {});
-      const FUNIS = {
-        vacinas:   [['Novo Lead','#00B8C0'],['Em Atendimento','#0E8C96'],['Orçamento Enviado','#C4973B'],['Negociação','#e8671a'],['Venda Fechada','#0fb07a'],['Agendado','#3b82f6'],['Vacinado','#7c5cbf'],['Pós-Vacinal','#ec4899'],['Reagendamento Futuro','#64748b']],
-        consultas: [['Novo Lead','#00B8C0'],['Em Atendimento','#0E8C96'],['Agendamento Pendente','#C4973B'],['Agendado','#3b82f6'],['Consulta Confirmada','#e8671a'],['Consulta Realizada','#0fb07a'],['Retorno','#7c5cbf'],['Finalizado','#64748b']],
-        terapias:  [['Novo Lead','#00B8C0'],['Triagem','#0E8C96'],['Avaliação','#C4973B'],['Plano Terapêutico','#e8671a'],['Em Tratamento','#3b82f6'],['Renovação','#7c5cbf'],['Finalizado','#0fb07a']],
-      };
-      for (const [setorF, etapas] of Object.entries(FUNIS)) {
-        let ordem = 0;
-        for (const [nome, cor] of etapas) {
-          await query(`INSERT INTO funil_colunas (nome, cor, ordem, fixa, setor)
-            SELECT $1, $2, $3, false, $4
-            WHERE NOT EXISTS (SELECT 1 FROM funil_colunas WHERE nome = $1 AND setor = $4)`,
-            [nome, cor, ordem++, setorF]).catch(() => {});
-        }
-        // Perdido sempre existe em todo setor (motivo de perda obrigatório)
-        await query(`INSERT INTO funil_colunas (nome, cor, ordem, fixa, setor)
-          SELECT 'Perdido', '#e84040', 99, true, $1
-          WHERE NOT EXISTS (SELECT 1 FROM funil_colunas WHERE nome = 'Perdido' AND setor = $1)`, [setorF]).catch(() => {});
-      }
+      for (const [setorF, etapas] of Object.entries(FUNIS)) await seedFunilSetor(setorF, etapas);
       await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_funis_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
       console.log('🌱 Funis por setor criados');
+    }
+    // Rede de segurança: nenhum setor pode ficar SEM etapas (senão o quadro fica
+    // vazio ao filtrar). Só semeia quando o setor está zerado — não ressuscita
+    // colunas que o master renomeou/apagou.
+    for (const [setorF, etapas] of Object.entries(FUNIS)) {
+      const { rows: [c] } = await query("SELECT COUNT(*)::int n FROM funil_colunas WHERE COALESCE(setor,'vacinas') = $1", [setorF]).catch(() => ({ rows: [{ n: 1 }] }));
+      if (parseInt(c?.n) === 0) await seedFunilSetor(setorF, etapas);
     }
 
     // ── KIT DE MENSAGENS PRONTAS (espec. da gestão) ──────────────────────────
