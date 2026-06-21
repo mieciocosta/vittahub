@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Search, Trash2, Star, Database, Phone, CalendarDays, UserPlus, X, Syringe } from 'lucide-react';
+import { Search, Trash2, Star, Database, Phone, CalendarDays, UserPlus, X, Syringe, Stethoscope, Brain } from 'lucide-react';
 import { useApi } from '../context/AuthContext.jsx';
 import { fmt, openWA } from '../hooks/utils.js';
 
@@ -13,6 +13,12 @@ const CFG = {
     sub: 'Contatos que pegaram só 1 vacina e nada mais (ex.: idosos). Organizados por mês de entrada pra nenhum cliente ser esquecido.' },
   planos_vacinais: { titulo: 'Planos Vacinais', Icon: Syringe, cor: '#3b82f6', modo: 'classificacao',
     sub: 'Todos os clientes interessados em planos vacinais, organizados por mês. Puxe atendimentos ou cadastre novos interessados aqui.' },
+  vacinacao:       { titulo: 'Vacinação', Icon: Syringe, cor: '#7c5cbf', modo: 'classificacao',
+    sub: 'Todos os clientes de vacinação avulsa, organizados por mês. Puxe atendimentos ou cadastre novos.' },
+  consultas:       { titulo: 'Consultas', Icon: Stethoscope, cor: '#00B8C0', modo: 'classificacao',
+    sub: 'Todos os clientes interessados em consultas, organizados por mês. Puxe atendimentos ou cadastre novos.' },
+  terapias:        { titulo: 'Terapias', Icon: Brain, cor: '#C4973B', modo: 'classificacao',
+    sub: 'Todos os clientes interessados em terapias, organizados por mês. Puxe atendimentos ou cadastre novos.' },
 };
 
 export default function PastaClientes({ categoria, classificacao }) {

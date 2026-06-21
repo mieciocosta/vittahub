@@ -13,10 +13,10 @@ import { fmt } from '../hooks/utils.js';
 // Atalhos coloridos por classificação → abrem o chat filtrado (?cls=).
 // Fidelidade abre a PASTA (as conversas dela saem do inbox).
 const SETORES_MENU = [
-  { cls:'vacinacao',       label:'Vacinação',       cor:'#7c5cbf' },
+  { cls:'vacinacao',       label:'Vacinação',       cor:'#7c5cbf', to:'/vacinacao' },
   { cls:'planos_vacinais', label:'Planos Vacinais', cor:'#3b82f6', to:'/planos-vacinais' },
-  { cls:'consultas',       label:'Consultas',       cor:'#00B8C0' },
-  { cls:'terapias',        label:'Terapias',        cor:'#C4973B' },
+  { cls:'consultas',       label:'Consultas',       cor:'#00B8C0', to:'/consultas' },
+  { cls:'terapias',        label:'Terapias',        cor:'#C4973B', to:'/terapias' },
   { cls:'fidelidade',      label:'Fidelidade',      cor:'#eab308', to:'/fidelidade' },
 ];
 

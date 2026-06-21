@@ -147,6 +147,9 @@ export default function App() {
           <Route path="/equipe" element={<Equipe />} />
           <Route path="/fidelidade" element={<PastaClientes categoria="fidelidade" key="fidelidade" />} />
           <Route path="/planos-vacinais" element={<PastaClientes classificacao="planos_vacinais" key="planos_vacinais" />} />
+          <Route path="/vacinacao" element={<PastaClientes classificacao="vacinacao" key="vacinacao" />} />
+          <Route path="/consultas" element={<PastaClientes classificacao="consultas" key="consultas" />} />
+          <Route path="/terapias" element={<PastaClientes classificacao="terapias" key="terapias" />} />
           <Route path="/banco-dados" element={<PastaClientes categoria="banco_dados" key="banco_dados" />} />
           <Route path="/indicacoes" element={<Indicacoes />} />
           <Route path="/biblioteca" element={<Biblioteca />} />
