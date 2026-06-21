@@ -14,7 +14,7 @@ r.get('/dashboard', async (req, res) => {
     // Período dos gráficos: ?days=7|30|90 (validado — nunca interpola entrada crua)
     const days = [7, 30, 90].includes(parseInt(req.query.days)) ? parseInt(req.query.days) : 7;
 
-    const [totals, porStatus, porOrigem, porResp, porDia, unread, retornos, perdas, followups, metaVac, consHoje, cfgMetas, impacto] = await Promise.all([
+    const [totals, porStatus, porOrigem, porResp, porDia, unread, retornos, perdas, followups, metaVac, consHoje, cfgMetas, impacto, agenda, conversas] = await Promise.all([
       query(`SELECT
         COUNT(*) total,
         COUNT(*) FILTER (WHERE data_entrada = CURRENT_DATE) hoje,
@@ -45,10 +45,14 @@ r.get('/dashboard', async (req, res) => {
                AND l.status NOT IN ('Fechado','Venda Fechada','Perdido','Finalizado')
                ${uFilter}
              ORDER BY l.data_retorno ASC LIMIT 8`),
-      // Metas: vendido no mês (vacinas) e consultas confirmadas hoje
-      query(`SELECT COALESCE(SUM(valor_proposta),0) vendido FROM leads
-             WHERE status IN ('Fechado','Venda Fechada') AND COALESCE(setor,'vacinas')='vacinas'
-               AND date_trunc('month', status_changed_at) = date_trunc('month', NOW())`),
+      // Metas: vendido no mês (vacinas) — lê da tabela REAL de vendas (Registrar
+      // Venda), igual ao card "Vendas do mês" e à página de Metas. Antes lia de
+      // leads.valor_proposta (fluxo antigo) e por isso vinha sempre zerado.
+      query(`SELECT
+               COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float vendido,
+               COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('sinal','aguardando','parcelado','pendente')),0)::float pendente
+             FROM vendas WHERE COALESCE(setor,'vacinas')='vacinas'
+               AND to_char(data_venda,'YYYY-MM') = to_char(NOW(),'YYYY-MM')`).catch(() => ({ rows: [{ vendido: 0, pendente: 0 }] })),
       query(`SELECT COUNT(*) n FROM leads
              WHERE status = 'Consulta Confirmada' AND COALESCE(setor,'vacinas')='consultas'
                AND status_changed_at::date = CURRENT_DATE`),
@@ -96,21 +100,37 @@ r.get('/dashboard', async (req, res) => {
       motivosPerda: perdas.rows,
       followups: followups.rows,
       metas: (() => {
-        const metaMes = parseFloat(cfgMetas.rows[0]?.valor?.vacinas_mensal) || 200000;
-        const metaDiaCons = parseInt(cfgMetas.rows[0]?.valor?.consultas_dia) || 10;
+        const cfgVal = cfgMetas.rows[0]?.valor || {};
+        // Meta vem da estrutura nova (valor.vendas.vacinas, definida na página de
+        // Metas); cai para a chave antiga e, por fim, para o padrão de R$ 200 mil.
+        const metaMes = parseFloat(cfgVal.vendas?.vacinas) || parseFloat(cfgVal.vacinas_mensal) || 200000;
+        const metaDiaCons = parseInt(cfgVal.consultas_dia) || 10;
         const vendido = parseFloat(metaVac.rows[0]?.vendido) || 0;
+        const pendente = parseFloat(metaVac.rows[0]?.pendente) || 0;
         const hojeN = new Date().getDate();
         const diasMes = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
         return {
           vacinas: {
-            meta: metaMes, vendido,
-            pct: +((vendido / metaMes) * 100).toFixed(1),
+            meta: metaMes, vendido, pendente,
+            pct: metaMes > 0 ? +((vendido / metaMes) * 100).toFixed(1) : 0,
             falta: Math.max(metaMes - vendido, 0),
             projecao: hojeN > 0 ? +((vendido / hojeN) * diasMes).toFixed(0) : 0,
           },
           consultas: { metaDia: metaDiaCons, confirmadasHoje: parseInt(consHoje.rows[0]?.n) || 0 },
         };
       })(),
+      // Agenda real (agenda_eventos) e atividade das conversas — eram calculadas
+      // mas NÃO eram devolvidas; por isso os KPIs apareciam zerados no painel.
+      agenda: {
+        hoje: parseInt(agenda.rows[0]?.hoje) || 0,
+        proximos: parseInt(agenda.rows[0]?.proximos) || 0,
+        aConfirmar: parseInt(agenda.rows[0]?.a_confirmar) || 0,
+      },
+      conversas: {
+        total: parseInt(conversas.rows[0]?.total) || 0,
+        aguardando: parseInt(conversas.rows[0]?.aguardando) || 0,
+        hoje: parseInt(conversas.rows[0]?.hoje) || 0,
+      },
       impacto: {
         familias: parseInt(impacto.rows[0]?.familias) || 0,
         criancasVacinadas: parseInt(impacto.rows[0]?.criancas_vacinadas) || 0,
