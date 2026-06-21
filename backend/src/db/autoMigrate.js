@@ -466,16 +466,24 @@ export default async function runMigrate() {
       const { rows: [c] } = await query("SELECT COUNT(*)::int n FROM funil_colunas WHERE COALESCE(setor,'vacinas') = $1", [setorF]).catch(() => ({ rows: [{ n: 1 }] }));
       if (parseInt(c?.n) === 0) await seedFunilSetor(setorF, etapas);
     }
-    // RESET (uma vez): o funil tinha colunas legadas/genéricas misturadas, então
-    // os títulos não batiam com o setor. Zera e recria o padrão correto de cada
-    // setor. (leads.status é texto livre, sem FK — seguro.) Depois o master pode
-    // renomear/adicionar etapas normalmente pelo quadro.
-    const { rows: [flagFr] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_funis_reset_v2'");
+    // RESET (uma vez): o funil tinha colunas legadas/genéricas misturadas (ex.:
+    // "2 meses"), então os títulos não batiam com o setor. Zera e recria o padrão
+    // correto de cada setor. (leads.status é texto livre, sem FK — seguro.) E move
+    // pacientes que estavam numa etapa inexistente para uma etapa válida do setor,
+    // pra não sumirem do quadro. Depois o master pode renomear/adicionar etapas.
+    const { rows: [flagFr] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_funis_reset_v3'");
     if (!flagFr) {
       await query('DELETE FROM funil_colunas').catch(() => {});
       for (const [setorF, etapas] of Object.entries(FUNIS)) await seedFunilSetor(setorF, etapas);
-      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_funis_reset_v2','{"ok":true}') ON CONFLICT DO NOTHING`);
-      console.log('🔄 Funil resetado para o padrão por setor (títulos corrigidos)');
+      // Leads órfãos (status que não é mais etapa do setor) → etapa válida
+      for (const [setorF, etapas] of Object.entries(FUNIS)) {
+        const nomes = etapas.map(e => e[0]).concat(['Perdido']);
+        const destino = setorF === 'terapias' ? 'Triagem' : 'Em Atendimento';
+        await query(`UPDATE leads SET status = $1 WHERE COALESCE(setor,'vacinas') = $2 AND status <> ALL($3::text[])`,
+          [destino, setorF, nomes]).catch(() => {});
+      }
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_funis_reset_v3','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🔄 Funil resetado por setor + pacientes órfãos realocados');
     }
 
     // ── KIT DE MENSAGENS PRONTAS (espec. da gestão) ──────────────────────────
