@@ -202,7 +202,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
   const setoresBlock = (
     <>
       {!collapsed && <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:1.6, color:'rgba(255,255,255,.62)', padding:'10px 12px 5px', textTransform:'uppercase' }}>Setores</div>}
-      {setorItem('/inbox?cls=sem', '#94a3b8', 'Novos a classificar', setorCount.sem_classificacao)}
+      {setorItem('/classificar', '#94a3b8', 'Novos a classificar', setorCount.sem_classificacao)}
       {SETORES_MENU.map(s => setorItem(s.to || `/inbox?cls=${s.cls}`, s.cor, s.label, setorCount[s.cls]))}
     </>
   );

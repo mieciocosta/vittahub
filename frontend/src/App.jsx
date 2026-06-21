@@ -15,6 +15,7 @@ import Configuracoes from './pages/Configuracoes.jsx';
 import Agenda from './pages/Agenda.jsx';
 import Indicacoes from './pages/Indicacoes.jsx';
 import PastaClientes from './pages/PastaClientes.jsx';
+import Classificar from './pages/Classificar.jsx';
 import Profissionais from './pages/Profissionais.jsx';
 import Metas from './pages/Metas.jsx';
 import Equipe from './pages/Equipe.jsx';
@@ -145,6 +146,7 @@ export default function App() {
           <Route path="/profissionais" element={<Profissionais />} />
           <Route path="/metas" element={<Metas />} />
           <Route path="/equipe" element={<Equipe />} />
+          <Route path="/classificar" element={<Classificar />} />
           <Route path="/fidelidade" element={<PastaClientes categoria="fidelidade" key="fidelidade" />} />
           <Route path="/planos-vacinais" element={<PastaClientes classificacao="planos_vacinais" key="planos_vacinais" />} />
           <Route path="/vacinacao" element={<PastaClientes classificacao="vacinacao" key="vacinacao" />} />
