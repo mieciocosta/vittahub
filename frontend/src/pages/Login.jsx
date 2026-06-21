@@ -153,10 +153,10 @@ export default function Login() {
           {error && <div style={{ marginBottom: 14, padding: '10px 14px', borderRadius: 11, background: '#fdecec', color: '#c0392b', fontSize: 12.5, fontWeight: 600 }}>{error}</div>}
           {info && <div style={{ marginBottom: 14, padding: '10px 14px', borderRadius: 11, background: '#e8f7f8', color: '#0E8C96', fontSize: 12.5, fontWeight: 600 }}>{info}</div>}
 
-          <label style={{ display: 'block', fontSize: 11.5, fontWeight: 800, letterSpacing: .7, color: '#46606a', marginBottom: 7 }}>CPF</label>
+          <label style={{ display: 'block', fontSize: 11.5, fontWeight: 800, letterSpacing: .7, color: '#46606a', marginBottom: 7 }}>CPF OU USUÁRIO</label>
           <div className="vh-field" style={{ marginBottom: 16 }}>
             <User size={16} color="#9fb3ba" />
-            <input inputMode="numeric" autoComplete="username" value={cpf} onChange={e => onCpfChange(e.target.value)} placeholder="000.000.000-00" />
+            <input autoComplete="username" value={cpf} onChange={e => onCpfChange(e.target.value)} placeholder="CPF ou nome de usuário" />
           </div>
 
           <label style={{ display: 'block', fontSize: 11.5, fontWeight: 800, letterSpacing: .7, color: '#46606a', marginBottom: 7 }}>SENHA</label>

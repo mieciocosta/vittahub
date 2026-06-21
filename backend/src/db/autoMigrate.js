@@ -276,6 +276,25 @@ export default async function runMigrate() {
       console.log('🌱 Giovanna (atendente/vacinas) criada');
     }
 
+    // ── Cria a GIOVANA (atendente de Consultas) no lugar da Taíse — uma vez.
+    // Login pelo NOME: o auth aceita e-mail no campo de login, então o e-mail
+    // dela é 'giovana' e ela entra com "Giovana" / Vittalis@2026. CPF fica nulo.
+    const { rows: [flagGv] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_giovana_consultas_v1'");
+    if (!flagGv) {
+      const bcryptV = await import('bcryptjs');
+      const hashV = await bcryptV.default.hash('Vittalis@2026', 10);
+      await query(`INSERT INTO usuarios (id, nome, email, cpf, senha, role, cor, ativo, setor)
+        VALUES (gen_random_uuid()::text, 'Giovana', 'giovana', NULL, $1, 'atendente', '#0E8C96', true, 'consultas')
+        ON CONFLICT (email) DO UPDATE SET nome = 'Giovana', senha = EXCLUDED.senha, role = 'atendente', cor = '#0E8C96', ativo = true, setor = 'consultas'`,
+        [hashV]).catch((e) => console.error('seed giovana:', e.message));
+      // Giovana entra no lugar da Taíse: herda as conversas de consultas que
+      // ficaram sem responsável (foram liberadas quando a Taíse foi desativada).
+      await query(`UPDATE conversas SET responsavel_id = (SELECT id FROM usuarios WHERE email = 'giovana')
+        WHERE responsavel_id IS NULL AND setor = 'consultas'`).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_giovana_consultas_v1', '{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🌱 Giovana (atendente/consultas) criada no lugar da Taíse');
+    }
+
     // ── AUDITORIA + PRESENÇA (admin only) ─────────────────────────────────
     await query(`CREATE TABLE IF NOT EXISTS audit_logs (
       id SERIAL PRIMARY KEY, usuario_id TEXT, usuario_nome TEXT, acao TEXT NOT NULL,
