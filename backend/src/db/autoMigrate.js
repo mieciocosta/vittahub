@@ -353,6 +353,15 @@ export default async function runMigrate() {
       created_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS perdido BOOLEAN DEFAULT false`).catch(() => {});
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS motivo_perda TEXT`).catch(() => {});
+    // ANÁLISE DE QUALIDADE DO ATENDIMENTO por IA (nota 0-100 por atendimento).
+    await query(`CREATE TABLE IF NOT EXISTS analises_atendimento (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      conversa_id TEXT, atendente_id TEXT, atendente_nome TEXT, cliente_nome TEXT,
+      score INT, criterios JSONB DEFAULT '{}'::jsonb,
+      pontos_fortes TEXT, pontos_fracos TEXT, resumo TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS idx_analises_atend ON analises_atendimento (atendente_id)`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS idx_analises_conv ON analises_atendimento (conversa_id, created_at DESC)`).catch(() => {});
     // CHAT INTERNO da equipe (usuário ↔ usuário, separado do WhatsApp).
     await query(`CREATE TABLE IF NOT EXISTS chat_interno (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,

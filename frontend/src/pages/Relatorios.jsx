@@ -4,6 +4,9 @@ import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt, COLORS } from '../hooks/utils.js';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, Legend } from 'recharts';
 
+// Cor da nota de qualidade (0-100): verde bom, amarelo médio, vermelho ruim
+function qScore(v) { if (v == null) return 'var(--muted)'; return v >= 75 ? '#16a34a' : v >= 50 ? '#d97706' : '#dc2626'; }
+
 function gerarPDF(data) {
   const html = `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -104,11 +107,24 @@ export default function Relatorios() {
   useEffect(() => { setData(null); api.get(`/reports/dashboard?days=${dias}`).then(setData); }, [dias]); // eslint-disable-line
   const [vendasR, setVendasR] = useState(null);
   const [perdasR, setPerdasR] = useState(null);
+  const [qual, setQual] = useState(null);          // qualidade de atendimento (IA)
+  const [analisando, setAnalisando] = useState(false);
   useEffect(() => {
-    if (!isMaster) return; // painel comercial (vendas/perdas) é só do master
+    if (!isMaster) return; // painel comercial + qualidade é só do master
     api.get('/extras/vendas/resumo').then(setVendasR).catch(()=>{});
     api.get('/extras/perdas/resumo').then(setPerdasR).catch(()=>{});
+    api.get('/inbox/qualidade/resumo').then(setQual).catch(()=>{});
   }, [isMaster]); // eslint-disable-line
+
+  const analisarQualidade = async () => {
+    setAnalisando(true);
+    try {
+      const r = await api.post('/inbox/qualidade/analisar', { limite: 6 });
+      const d = await api.get('/inbox/qualidade/resumo'); setQual(d);
+      if (!r.analisadas) window.alert(r.tentadas ? 'Nada novo para analisar (as conversas recentes já foram avaliadas nos últimos 7 dias).' : 'Não há conversas com mensagens da equipe para avaliar ainda.');
+    } catch (e) { window.alert('Erro na análise: ' + (e.message || e)); }
+    finally { setAnalisando(false); }
+  };
 
   const handlePDF = async () => {
     setPdfLoading(true);
@@ -282,6 +298,69 @@ export default function Relatorios() {
             })}
             {(vendasR.porAtendente||[]).length===0 && <div style={{ fontSize:12, color:'var(--muted)' }}>Sem vendas neste mês.</div>}
           </div>
+        </div>
+      )}
+
+      {/* Qualidade do Atendimento (IA) — nota 0-100 — só master */}
+      {isMaster && (
+        <div className="card" style={{ padding:'18px 20px', marginBottom:16 }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:10, marginBottom:14 }}>
+            <div>
+              <div style={{ fontWeight:800, fontSize:14 }}>🤖 Qualidade do Atendimento (IA)</div>
+              <div style={{ fontSize:11.5, color:'var(--muted)', marginTop:2 }}>
+                Nota de 0 a 100 que a IA dá para a forma como cada atendente conduz as conversas.
+                {qual?.geral?.n>0 && <> Média geral <b style={{color:qScore(qual.geral.media)}}>{qual.geral.media}</b> em {qual.geral.n} atendimentos.</>}
+              </div>
+            </div>
+            <button onClick={analisarQualidade} disabled={analisando} className="btn btn-p" style={{ gap:7 }}>
+              {analisando ? <span className="spin" style={{width:15,height:15}}/> : '✨'} {analisando ? 'Analisando…' : 'Analisar conversas recentes'}
+            </button>
+          </div>
+
+          {(!qual || (qual.porAtendente||[]).length===0) ? (
+            <div style={{ fontSize:12.5, color:'var(--muted)', padding:'8px 0' }}>
+              Ainda não há análises. Clique em <b>“Analisar conversas recentes”</b> — a IA avalia as últimas conversas e monta a média por atendente. (Custo controlado: até 6 conversas por clique.)
+            </div>
+          ) : (
+            <div style={{ display:'grid', gridTemplateColumns:'minmax(260px,1fr) minmax(260px,1.2fr)', gap:18 }}>
+              {/* Média por atendente */}
+              <div>
+                <div style={{ fontSize:11, fontWeight:700, color:'var(--muted)', textTransform:'uppercase', letterSpacing:.5, marginBottom:8 }}>Média por atendente</div>
+                {(qual.porAtendente||[]).map((a,i)=>(
+                  <div key={i} style={{ padding:'8px 0', borderBottom:i<qual.porAtendente.length-1?'1px solid var(--border)':'none' }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:5 }}>
+                      <span style={{ fontWeight:700, fontSize:13 }}>{(a.nome||'—').split(' ')[0]} <span style={{ color:'var(--muted)', fontWeight:500, fontSize:11 }}>· {a.n} atend.</span></span>
+                      <span style={{ fontWeight:800, fontSize:15, color:qScore(a.media) }}>{a.media}</span>
+                    </div>
+                    <div style={{ height:7, borderRadius:5, background:'var(--bg2)', overflow:'hidden' }}>
+                      <div style={{ width:`${a.media}%`, height:'100%', borderRadius:5, background:qScore(a.media) }}/>
+                    </div>
+                    <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginTop:6 }}>
+                      {[['Agilidade',a.agilidade],['Cordialidade',a.cordialidade],['Clareza',a.clareza],['Condução',a.conducao],['Fechamento',a.fechamento]].map(([l,v])=>(
+                        <span key={l} style={{ fontSize:10, color:'var(--muted)' }}>{l} <b style={{ color:qScore(v) }}>{v??'—'}</b></span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {/* Análises recentes */}
+              <div>
+                <div style={{ fontSize:11, fontWeight:700, color:'var(--muted)', textTransform:'uppercase', letterSpacing:.5, marginBottom:8 }}>Análises recentes</div>
+                <div style={{ maxHeight:300, overflowY:'auto' }}>
+                  {(qual.recentes||[]).map(rrec=>(
+                    <div key={rrec.id} style={{ display:'flex', gap:10, padding:'8px 0', borderBottom:'1px solid var(--border)' }}>
+                      <div style={{ minWidth:38, height:38, borderRadius:9, background:qScore(rrec.score)+'22', color:qScore(rrec.score), display:'flex', alignItems:'center', justifyContent:'center', fontWeight:800, fontSize:14 }}>{rrec.score}</div>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontSize:12, fontWeight:700 }}>{(rrec.atendente_nome||'—').split(' ')[0]} <span style={{ color:'var(--muted)', fontWeight:500 }}>· {rrec.cliente_nome||'cliente'}</span></div>
+                        <div style={{ fontSize:11.5, color:'var(--txt2)' }}>{rrec.resumo}</div>
+                        {rrec.pontos_fracos && <div style={{ fontSize:11, color:'var(--err)', marginTop:2 }}>⚠ {rrec.pontos_fracos}</div>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

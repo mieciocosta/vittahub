@@ -3867,6 +3867,126 @@ ${cfgMode.schema}`;
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* ═══ ANÁLISE DE QUALIDADE DO ATENDIMENTO (IA, nota 0-100) ═══════════════════
+   Audita COMO a atendente conduziu o atendimento (não o potencial do lead).
+   On-demand e em lote pequeno (controle de custo) com gpt-4o-mini. Só master. */
+
+async function montarTranscriptConversa(convId, limite = 40) {
+  const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [convId]);
+  if (!conv) return null;
+  const { rows: histRows } = await query(
+    `SELECT from_type, type, content, filename, sender_nome, created_at FROM mensagens
+     WHERE conversa_id = $1 AND type IN ('text','document') AND from_type <> 'system'
+     ORDER BY created_at DESC LIMIT $2`, [convId, limite]);
+  const hist = histRows.reverse();
+  const transcript = hist.map(m => {
+    const quem = m.from_type === 'contact' ? (conv.contact_name || 'Cliente')
+      : m.from_type === 'bot' ? 'Vitta (IA)'
+      : `Atendente${m.sender_nome ? ` (${m.sender_nome})` : ''}`;
+    const txt = m.type === 'document' ? `[enviou PDF: ${m.filename || 'documento'}]` : String(m.content || '').slice(0, 400);
+    const hora = new Date(m.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    return `[${hora}] ${quem}: ${txt}`;
+  }).join('\n');
+  return { conv, hist, transcript };
+}
+
+async function resolverAtendente(conv, hist) {
+  // Quem é o atendente do atendimento: o responsável da conversa; senão, o
+  // remetente humano mais frequente das mensagens enviadas.
+  if (conv.responsavel_id) {
+    const { rows: [u] } = await query('SELECT id, nome FROM usuarios WHERE id = $1', [conv.responsavel_id]);
+    if (u) return { id: u.id, nome: u.nome };
+  }
+  const cont = {};
+  for (const m of hist) if (m.from_type === 'me' && m.sender_nome) cont[m.sender_nome] = (cont[m.sender_nome] || 0) + 1;
+  const nome = Object.entries(cont).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+  return { id: null, nome };
+}
+
+async function analisarQualidade(convId) {
+  if (!process.env.OPENAI_API_KEY) return { error: 'IA não configurada' };
+  const t = await montarTranscriptConversa(convId);
+  if (!t) return { error: 'Conversa não encontrada' };
+  if (t.hist.filter(m => m.from_type === 'me').length < 1) return { error: 'Sem mensagens da atendente para avaliar' };
+  const sys = `Você é auditor de qualidade de atendimento de uma clínica de pediatria e vacinação (Vittalis Saúde). Avalie COMO A ATENDENTE conduziu o atendimento ao cliente — não o potencial de venda do lead. Seja rigoroso e justo: nota alta só com atendimento realmente bom. Responda APENAS o JSON pedido, sem emojis, em português do Brasil.`;
+  const user = `Avalie o atendimento abaixo e dê uma nota de 0 a 100 (e por critério, 0 a 100).
+
+Critérios:
+- agilidade: rapidez e não deixar o cliente sem resposta
+- cordialidade: educação, empatia, acolhimento
+- clareza: respostas claras, completas e sem ambiguidade
+- conducao: conduziu bem para a próxima etapa (tirou dúvidas, ofereceu, contornou objeção)
+- fechamento: encaminhou para fechamento/agendamento ou deixou o próximo passo claro
+
+CONVERSA (cliente: ${t.conv.contact_name || 'cliente'}):
+${t.transcript}
+
+Devolva exatamente:
+{"score":0,"criterios":{"agilidade":0,"cordialidade":0,"clareza":0,"conducao":0,"fechamento":0},"pontos_fortes":"1 a 2 frases","pontos_fracos":"1 a 2 frases","resumo":"1 frase resumindo o atendimento"}`;
+  const data = await openaiMessages({ model: 'gpt-4o-mini', max_tokens: 500, json: true, system: sys, messages: [{ role: 'user', content: user }] });
+  if (data.error) return { error: data.error.message || 'Erro na IA' };
+  const raw = (data.content?.find(c => c.type === 'text')?.text || '').trim();
+  let p = null;
+  try { p = JSON.parse(raw.replace(/^```json\s*/i, '').replace(/^```\s*/, '').replace(/```\s*$/, '').trim()); } catch {}
+  if (!p || typeof p.score === 'undefined') return { error: 'Formato inesperado da IA' };
+  const clamp = n => Math.max(0, Math.min(100, Math.round(Number(n) || 0)));
+  const crit = {};
+  for (const k of ['agilidade', 'cordialidade', 'clareza', 'conducao', 'fechamento']) crit[k] = clamp(p.criterios?.[k]);
+  const at = await resolverAtendente(t.conv, t.hist);
+  const { rows: [row] } = await query(
+    `INSERT INTO analises_atendimento (conversa_id, atendente_id, atendente_nome, cliente_nome, score, criterios, pontos_fortes, pontos_fracos, resumo)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+    [convId, at.id, at.nome, t.conv.contact_name || null, clamp(p.score), JSON.stringify(crit),
+     String(p.pontos_fortes || '').slice(0, 400), String(p.pontos_fracos || '').slice(0, 400), String(p.resumo || '').slice(0, 300)]);
+  return { row };
+}
+
+// Lote: avalia as conversas recentes ainda não avaliadas (máx 8/chamada — custo)
+r.post('/qualidade/analisar', masterOnly, async (req, res) => {
+  try {
+    if (!process.env.OPENAI_API_KEY) return res.status(503).json({ error: 'IA não configurada (OPENAI_API_KEY ausente)' });
+    const limite = Math.max(1, Math.min(parseInt(req.body?.limite) || 6, 8));
+    const { rows: alvos } = await query(`
+      SELECT c.id FROM conversas c
+      WHERE EXISTS (SELECT 1 FROM mensagens m WHERE m.conversa_id = c.id AND m.from_type='me')
+        AND NOT EXISTS (SELECT 1 FROM analises_atendimento a WHERE a.conversa_id = c.id AND a.created_at > NOW() - INTERVAL '7 days')
+      ORDER BY c.last_message_at DESC NULLS LAST LIMIT $1`, [limite]);
+    let ok = 0; const erros = [];
+    for (const a of alvos) { const r2 = await analisarQualidade(a.id); if (r2.row) ok++; else if (r2.error) erros.push(r2.error); }
+    res.json({ analisadas: ok, tentadas: alvos.length, erros: [...new Set(erros)].slice(0, 3) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// On-demand: avalia UMA conversa específica
+r.post('/conversations/:id/qualidade', masterOnly, async (req, res) => {
+  try {
+    const r2 = await analisarQualidade(req.params.id);
+    if (r2.error) return res.status(400).json({ error: r2.error });
+    res.json(r2.row);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Resumo: média por atendente (por critério) + análises recentes
+r.get('/qualidade/resumo', masterOnly, async (req, res) => {
+  try {
+    const [porAtendente, recentes, geral] = await Promise.all([
+      query(`SELECT COALESCE(atendente_nome,'(sem atendente)') nome,
+               ROUND(AVG(score))::int media, COUNT(*)::int n,
+               ROUND(AVG(NULLIF(criterios->>'agilidade','')::int))::int agilidade,
+               ROUND(AVG(NULLIF(criterios->>'cordialidade','')::int))::int cordialidade,
+               ROUND(AVG(NULLIF(criterios->>'clareza','')::int))::int clareza,
+               ROUND(AVG(NULLIF(criterios->>'conducao','')::int))::int conducao,
+               ROUND(AVG(NULLIF(criterios->>'fechamento','')::int))::int fechamento
+             FROM analises_atendimento WHERE created_at > NOW() - INTERVAL '60 days'
+             GROUP BY atendente_nome ORDER BY media DESC`),
+      query(`SELECT id, conversa_id, atendente_nome, cliente_nome, score, resumo, pontos_fortes, pontos_fracos, created_at
+             FROM analises_atendimento ORDER BY created_at DESC LIMIT 15`),
+      query(`SELECT COUNT(*)::int n, ROUND(AVG(score))::int media FROM analises_atendimento WHERE created_at > NOW() - INTERVAL '60 days'`),
+    ]);
+    res.json({ porAtendente: porAtendente.rows, recentes: recentes.rows, geral: geral.rows[0] || { n: 0, media: 0 } });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ─── QUICK REPLIES ────────────────────────────────────────────────────────────
 r.get('/quick-replies', async (req, res) => {
   try {
