@@ -572,6 +572,15 @@ export default async function runMigrate() {
     await query(`UPDATE usuarios SET cpf = '02914270305' WHERE email = 'miecio@vittalissaude.com.br' AND cpf IS DISTINCT FROM '02914270305'`).catch(() => {});
     await query(`UPDATE usuarios SET cpf = '35411272874' WHERE email = 'nagila@vittalissaude.com.br' AND cpf IS DISTINCT FROM '35411272874'`).catch(() => {});
 
+    // ── Títulos (Dr/Dra) nos nomes dos masters — uma vez ──
+    const { rows: [flagTit] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_titulos_dr_v1'");
+    if (!flagTit) {
+      await query(`UPDATE usuarios SET nome = 'Dr Miécio' WHERE email = 'miecio@vittalissaude.com.br'`).catch(() => {});
+      await query(`UPDATE usuarios SET nome = 'Dra. Nágila' WHERE email = 'nagila@vittalissaude.com.br'`).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_titulos_dr_v1', '{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🪪 Nomes atualizados: Dr Miécio e Dra. Nágila');
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);
