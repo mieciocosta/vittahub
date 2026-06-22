@@ -141,7 +141,7 @@ function podeVerSetor(viewer, conv) {
   return viewerSetor === 'vacinas' ? g === 'vacina' : g === 'nao-vacina';
 }
 
-function cacheGetList({ channel, search, unread_only, waiting, minhas, grupos, setor, categoria, classificacao, page = 1, limit = 100, extraIds = null, viewer = null }) {
+function cacheGetList({ channel, search, unread_only, waiting, minhas, responsavel, grupos, setor, categoria, classificacao, page = 1, limit = 100, extraIds = null, viewer = null }) {
   let list = Array.from(convoCache.values())
     .sort((a, b) => new Date(b.last_message_at || 0) - new Date(a.last_message_at || 0));
   if (channel && channel !== 'all') list = list.filter(c => c.channel === channel);
@@ -167,6 +167,8 @@ function cacheGetList({ channel, search, unread_only, waiting, minhas, grupos, s
   if (waiting === 'true') list = list.filter(c => c.last_from === 'contact');
   // Filtros do mock: Minhas (sou a responsável) e Grupos (conversas de grupo)
   if (minhas === 'true' && viewer) list = list.filter(c => c.responsavel_id === viewer.id);
+  // Carteira de um atendente específico (gestão vê a carteira de cada um)
+  if (responsavel && responsavel !== 'all') list = list.filter(c => c.responsavel_id === responsavel);
   if (grupos === 'true') list = list.filter(c => ehGrupo(c));
   if (search) {
     const s = search.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
@@ -2437,6 +2439,9 @@ r.get('/conversations', async (req, res) => {
         conditions.push(`(unaccent(lower(c.contact_name)) ILIKE unaccent(lower($${pi})) OR c.phone ILIKE $${pi})`);
         params.push(`%${search}%`); pi++;
       }
+      // Carteira individual: minhas (responsável = eu) ou de um atendente específico
+      if (req.query.minhas === 'true' && req.user) { conditions.push(`c.responsavel_id = $${pi++}`); params.push(req.user.id); }
+      else if (req.query.responsavel && req.query.responsavel !== 'all') { conditions.push(`c.responsavel_id = $${pi++}`); params.push(req.query.responsavel); }
       const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
       const countRes = await query(`SELECT COUNT(*) FROM conversas c ${where}`, params);
       const total = parseInt(countRes.rows[0].count);
@@ -2821,6 +2826,16 @@ r.patch('/conversations/:id/classificar', async (req, res) => {
     cacheUpdate(conv);
     socketEmit('conv_setor', { convId: conv.id, setor: mapa.setor, classificacao: cls, categoria: mapa.categoria });
 
+    // CARTEIRA: ao PUXAR um cliente para a própria pasta, o cliente vira da
+    // pessoa (assumir=true) ou de um atendente escolhido (responsavel_id) — sem
+    // rodízio. Cada um organiza a SUA carteira.
+    const donoId = req.body.responsavel_id || (req.body.assumir ? req.user.id : null);
+    if (donoId) {
+      const { rows: [c3] } = await query('UPDATE conversas SET responsavel_id = $1 WHERE id = $2 RETURNING *', [donoId, conv.id]);
+      if (c3) { cacheUpdate(c3); socketEmit('conv_setor', { convId: conv.id, setor: mapa.setor, classificacao: cls, categoria: mapa.categoria }); }
+      return res.json({ ok: true, classificacao: cls, setor: mapa.setor, categoria: mapa.categoria, responsavel: donoId });
+    }
+
     // RODÍZIO AUTOMÁTICO: lead novo (sem responsável) e que NÃO foi pra pasta →
     // distribui entre as atendentes do setor de forma justa e avisa a escolhida.
     let distribuida = null;
@@ -2921,19 +2936,23 @@ r.post('/conversations/manual', async (req, res) => {
     if (!categoria && !cls) return res.status(400).json({ error: 'Destino inválido.' });
     if (!nome && !phoneRaw) return res.status(400).json({ error: 'Informe ao menos o nome ou o telefone.' });
     const setorCls = cls ? CLASSIFICACOES[cls].setor : null;
+    // Carteira: o cliente cadastrado entra pra quem cadastrou (assumir) ou pro
+    // atendente escolhido (responsavel_id).
+    const donoId = req.body.responsavel_id || (req.body.assumir ? req.user.id : null);
     const base = phoneRaw ? (phoneRaw.startsWith('55') ? phoneRaw : '55' + phoneRaw) : `manual_${Date.now()}`;
     const contactId = `${base}@s.whatsapp.net`;
     const { rows: [conv] } = await query(`
-      INSERT INTO conversas (contact_id, phone, contact_name, channel, last_message, last_message_at, unread, status_atend, provider, categoria, categoria_em, classificacao, setor)
-      VALUES ($1, $2, $3, 'whatsapp', $4, NOW(), 0, 'aberto', 'manual', $5, CASE WHEN $5::text IS NOT NULL THEN NOW() END, $6, $7)
+      INSERT INTO conversas (contact_id, phone, contact_name, channel, last_message, last_message_at, unread, status_atend, provider, categoria, categoria_em, classificacao, setor, responsavel_id)
+      VALUES ($1, $2, $3, 'whatsapp', $4, NOW(), 0, 'aberto', 'manual', $5, CASE WHEN $5::text IS NOT NULL THEN NOW() END, $6, $7, $8)
       ON CONFLICT (contact_id) DO UPDATE SET
         contact_name = COALESCE(NULLIF($3,''), conversas.contact_name),
         categoria = COALESCE($5, conversas.categoria),
         categoria_em = CASE WHEN $5::text IS NOT NULL THEN NOW() ELSE conversas.categoria_em END,
         classificacao = COALESCE($6, conversas.classificacao),
-        setor = COALESCE($7, conversas.setor)
+        setor = COALESCE($7, conversas.setor),
+        responsavel_id = COALESCE($8, conversas.responsavel_id)
       RETURNING *`,
-      [contactId, phoneRaw || null, nome || null, 'Cliente cadastrado na pasta', categoria, cls, setorCls]);
+      [contactId, phoneRaw || null, nome || null, 'Cliente cadastrado na pasta', categoria, cls, setorCls, donoId]);
     cacheUpdate(conv);
     socketEmit(cls ? 'conv_setor' : 'conv_categoria', { convId: conv.id, categoria, classificacao: cls });
     res.status(201).json(conv);

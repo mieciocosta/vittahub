@@ -26,7 +26,8 @@ const CFG = {
 export default function PastaClientes({ categoria, classificacao }) {
   const api = useApi();
   const nav = useNavigate();
-  const { isMaster } = useAuth();
+  const { user, isMaster } = useAuth();
+  const gestao = user?.role === 'master' || user?.role === 'supervisor';
   const valor = classificacao || categoria;          // o que filtra a pasta
   const cfg = CFG[valor] || CFG.banco_dados;
   const modo = cfg.modo;                              // 'categoria' | 'classificacao'
@@ -36,16 +37,30 @@ export default function PastaClientes({ categoria, classificacao }) {
   const [modal, setModal] = useState(false);         // modal "Adicionar cliente"
   const [editAlvo, setEditAlvo] = useState(null);    // cliente em edição (nome/telefone)
   const [vista, setVista] = useState('lista');       // 'lista' (por mês) | 'funil' (Kanban)
+  // Carteira individual: atendente vê só a SUA; gestão escolhe de quem ver.
+  const [carteira, setCarteira] = useState(gestao ? 'todos' : 'minhas');
+  const [equipe, setEquipe] = useState([]);          // atendentes (p/ o seletor da gestão)
   const ehFidelidade = valor === 'fidelidade';
+
+  // Dono ao adicionar: atendente vira dono; gestão atribui ao atendente escolhido.
+  const donoId = !gestao ? user?.id : (carteira !== 'todos' && carteira !== 'minhas' ? carteira : (carteira === 'minhas' ? user?.id : null));
+
+  useEffect(() => {
+    if (!gestao) return;
+    api.get('/leads/meta').then(m => setEquipe((m.users || []).filter(u => u.id !== user?.id))).catch(() => {});
+  }, [gestao]); // eslint-disable-line
 
   const load = useCallback(() => {
     setCarregando(true);
-    const param = modo === 'classificacao' ? `classificacao=${valor}` : `categoria=${valor}`;
-    api.get(`/inbox/conversations?${param}&limit=500`)
+    const base = modo === 'classificacao' ? `classificacao=${valor}` : `categoria=${valor}`;
+    const cart = !gestao ? '&minhas=true'
+      : carteira === 'minhas' ? '&minhas=true'
+      : carteira !== 'todos' ? `&responsavel=${carteira}` : '';
+    api.get(`/inbox/conversations?${base}${cart}&limit=500`)
       .then(d => setLista(Array.isArray(d?.data) ? d.data : (Array.isArray(d) ? d : [])))
       .catch(() => setLista([]))
       .finally(() => setCarregando(false));
-  }, [valor, modo]); // eslint-disable-line
+  }, [valor, modo, gestao, carteira]); // eslint-disable-line
   useEffect(load, [load]);
 
   const tirar = async (c) => {
@@ -112,6 +127,14 @@ export default function PastaClientes({ categoria, classificacao }) {
             style={{ width: '100%', padding: '9px 12px 9px 34px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--card)' }} />
         </div>
         <span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 700 }}>{filtrada.length} cliente(s){vista === 'lista' ? ` · ${mesesOrdenados.length} mês(es)` : ''}</span>
+        {gestao && (
+          <select value={carteira} onChange={e => setCarteira(e.target.value)} title="Carteira de"
+            style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--card)', fontSize: 12.5, fontWeight: 700 }}>
+            <option value="todos">👥 Carteira: Todos</option>
+            <option value="minhas">⭐ Minha carteira</option>
+            {equipe.map(u => <option key={u.id} value={u.id}>👤 {(u.nome || '').split(' ')[0]}</option>)}
+          </select>
+        )}
         {/* Alternância Lista (por mês) / Funil (Kanban) */}
         <div style={{ display: 'flex', background: 'var(--card)', borderRadius: 10, border: '1px solid var(--border)', overflow: 'hidden', marginLeft: 'auto' }}>
           {[['lista', 'Lista', List], ['funil', 'Funil', Kanban]].map(([k, l, Ico]) => (
@@ -176,7 +199,7 @@ export default function PastaClientes({ categoria, classificacao }) {
 
       {modal && (
         <AddClienteModal
-          api={api} modo={modo} valor={valor} titulo={cfg.titulo} cor={cfg.cor}
+          api={api} modo={modo} valor={valor} titulo={cfg.titulo} cor={cfg.cor} donoId={donoId}
           onClose={() => setModal(false)}
           onAdded={() => { setModal(false); load(); }}
         />
@@ -231,7 +254,7 @@ function EditarClienteModal({ api, cliente, cor, onClose, onSaved }) {
 
 /* Modal "Adicionar cliente": puxar um atendimento existente (busca) ou
    cadastrar um novo só com nome + telefone. */
-function AddClienteModal({ api, modo, valor, titulo, cor, onClose, onAdded }) {
+function AddClienteModal({ api, modo, valor, titulo, cor, donoId, onClose, onAdded }) {
   const [aba, setAba] = useState('buscar');
   const [q, setQ] = useState('');
   const [res, setRes] = useState([]);
@@ -255,15 +278,20 @@ function AddClienteModal({ api, modo, valor, titulo, cor, onClose, onAdded }) {
 
   const puxar = async (c) => {
     try {
-      if (modo === 'classificacao') await api.patch(`/inbox/conversations/${c.id}/classificar`, { classificacao: valor });
-      else await api.patch(`/inbox/conversations/${c.id}/categoria`, { categoria: valor });
+      if (modo === 'classificacao') await api.patch(`/inbox/conversations/${c.id}/classificar`, { classificacao: valor, responsavel_id: donoId || undefined });
+      else {
+        await api.patch(`/inbox/conversations/${c.id}/categoria`, { categoria: valor });
+        if (donoId) await api.patch(`/inbox/conversations/${c.id}/assign`, { responsavel_id: donoId });
+      }
       onAdded();
     } catch (e) { setErro(e.message || 'Erro ao adicionar'); }
   };
   const cadastrar = async () => {
     if (!nome.trim() && !tel.trim()) { setErro('Informe o nome ou o telefone.'); return; }
     setSalvando(true); setErro('');
-    const body = modo === 'classificacao' ? { nome, phone: tel, classificacao: valor } : { nome, phone: tel, categoria: valor };
+    const body = modo === 'classificacao'
+      ? { nome, phone: tel, classificacao: valor, responsavel_id: donoId || undefined }
+      : { nome, phone: tel, categoria: valor, responsavel_id: donoId || undefined };
     try { await api.post('/inbox/conversations/manual', body); onAdded(); }
     catch (e) { setErro(e.message || 'Erro ao cadastrar'); setSalvando(false); }
   };
