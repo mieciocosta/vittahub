@@ -27,22 +27,14 @@ r.get('/agenda', async (req, res) => {
     // (pra não agendar em cima), mas SEM o contato do cliente da outra. Dona e
     // gestão veem tudo. Atendente só vê o macro-setor dela.
     // Cada setor tem a SUA agenda: a equipe de vacinas compartilha a agenda
-    // entre si (motorista único), mas NÃO com consultas nem terapias — e
-    // vice-versa. Gestão vê tudo.
+    // entre si (motorista único) e vê tudo — precisa gerar o PDF completo (cliente,
+    // vacina, pagamento, endereço) para as vacinadoras. Não compartilha com
+    // consultas nem terapias, e vice-versa. Gestão vê tudo.
     const isGestao = ['master', 'supervisor'].includes(req.user.role);
     const meuSetor = req.user.setor;
-    const out = rows
-      .filter(a => isGestao || !meuSetor || (a.setor || 'vacinas') === meuSetor)
-      .map(a => {
-        if (isGestao || a.responsavel_id === req.user.id) return a;
-        return {
-          id: a.id, data: a.data, hora: a.hora, setor: a.setor, status: a.status,
-          resp_nome: a.resp_nome, resp_cor: a.resp_cor, mascarado: true,
-          paciente: 'Horário reservado', servico: null, telefone: null, endereco: null,
-          email: null, local_link: null, observacoes: null, profissional: null,
-          responsavel_nome: null, valor: null, forma_pagamento: null, parcelas: null,
-        };
-      });
+    const out = (isGestao || !meuSetor)
+      ? rows
+      : rows.filter(a => (a.setor || 'vacinas') === meuSetor);
     res.json(out);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
