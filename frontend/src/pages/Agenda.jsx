@@ -37,6 +37,15 @@ export default function Agenda() {
     const m = modal;
     if (!m.paciente?.trim()) return setErro('Informe o nome do paciente.');
     if (!/^\d{2}:\d{2}$/.test(m.hora || '')) return setErro('Hora no formato HH:MM.');
+    // Anti-choque do MOTORISTA ÚNICO — só vacinas: avisa se já tem agendamento
+    // de vacinas no mesmo dia e horário (conta até o "Reservado" das colegas).
+    if ((m.setor || 'vacinas') === 'vacinas') {
+      const dia = m.data || data;
+      let doDia = dia === data ? eventos : [];
+      if (dia !== data) { try { doDia = await api.get(`/extras/agenda?data=${dia}`); } catch { doDia = []; } }
+      const choque = (doDia || []).find(ev => ev.id !== m.id && ev.hora === m.hora && (ev.setor || 'vacinas') === 'vacinas' && ev.status !== 'Cancelado');
+      if (choque && !window.confirm(`⚠️ Já existe um agendamento de VACINAS às ${m.hora} neste dia — o motorista é único. Agendar mesmo assim?`)) return;
+    }
     setSalvando(true);
     try {
       if (m.local_link && !/^https?:\/\//i.test(m.local_link.trim())) { setErro('O link da localização precisa começar com http:// ou https://'); setSalvando(false); return; }
