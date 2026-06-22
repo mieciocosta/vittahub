@@ -395,7 +395,11 @@ export default async function runMigrate() {
       nome TEXT NOT NULL, cor TEXT DEFAULT '#3b82f6',
       ordem INT DEFAULT 0, fixa BOOLEAN DEFAULT false,
       created_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
+    await query(`ALTER TABLE pasta_etapas ADD COLUMN IF NOT EXISTS tipo TEXT`).catch(() => {}); // 'ganho' | 'perdido' | null
     await query(`CREATE INDEX IF NOT EXISTS idx_pasta_etapas_ctx ON pasta_etapas (contexto, ordem)`).catch(() => {});
+    // Backfill do tipo nas etapas padrão já semeadas antes desta coluna existir.
+    await query(`UPDATE pasta_etapas SET tipo = 'ganho' WHERE nome = 'Ganho' AND tipo IS NULL`).catch(() => {});
+    await query(`UPDATE pasta_etapas SET tipo = 'perdido' WHERE nome = 'Perdido' AND tipo IS NULL`).catch(() => {});
     // CHAT INTERNO da equipe (usuário ↔ usuário, separado do WhatsApp).
     await query(`CREATE TABLE IF NOT EXISTS chat_interno (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,

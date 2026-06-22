@@ -2526,18 +2526,18 @@ r.patch('/conversations/:id/contato', async (req, res) => {
 /* ═══ FUNIL DENTRO DA PASTA (etapas por contexto, leads → fechar venda) ═══════ */
 const PASTA_CONTEXTOS = ['planos_vacinais', 'vacinacao', 'consultas', 'terapias', 'fidelidade', 'banco_dados'];
 const ETAPAS_PADRAO = [
-  ['Novo interesse', '#3b82f6'], ['Proposta enviada', '#8b5cf6'],
-  ['Em negociação', '#f59e0b'], ['Fechamento', '#0ea5e9'],
-  ['Ganho', '#10b981'], ['Perdido', '#ef4444'],
+  ['Novo interesse', '#3b82f6', null], ['Proposta enviada', '#8b5cf6', null],
+  ['Em negociação', '#f59e0b', null], ['Fechamento', '#0ea5e9', null],
+  ['Ganho', '#10b981', 'ganho'], ['Perdido', '#ef4444', 'perdido'],
 ];
 async function etapasDoContexto(contexto) {
   let { rows } = await query('SELECT * FROM pasta_etapas WHERE contexto = $1 ORDER BY ordem, created_at', [contexto]);
   if (!rows.length) {
     // Semeia o funil padrão na primeira vez que a pasta é aberta
     let ordem = 0;
-    for (const [nome, cor] of ETAPAS_PADRAO) {
-      await query(`INSERT INTO pasta_etapas (contexto, nome, cor, ordem, fixa) VALUES ($1,$2,$3,$4,$5)`,
-        [contexto, nome, cor, ordem++, nome === 'Ganho' || nome === 'Perdido']).catch(() => {});
+    for (const [nome, cor, tipo] of ETAPAS_PADRAO) {
+      await query(`INSERT INTO pasta_etapas (contexto, nome, cor, ordem, fixa, tipo) VALUES ($1,$2,$3,$4,$5,$6)`,
+        [contexto, nome, cor, ordem++, !!tipo, tipo]).catch(() => {});
     }
     ({ rows } = await query('SELECT * FROM pasta_etapas WHERE contexto = $1 ORDER BY ordem, created_at', [contexto]));
   }
