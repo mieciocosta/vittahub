@@ -9,23 +9,32 @@ const ORIGENS = ['Instagram','Google','WhatsApp','Indicação','Facebook','Tráf
 
 export default function Leads() {
   const api = useApi();
-  const { isMaster } = useAuth();
+  const { user, isMaster } = useAuth();
+  const gestao = user?.role === 'master' || user?.role === 'supervisor';
   const [leads, setLeads] = useState([]);
   const [total, setTotal] = useState(0);
   const [modal, setModal] = useState(null);
   const [search, setSearch] = useState('');
   const [fSt, setFSt] = useState('');
   const [fOr, setFOr] = useState('');
+  const [carteira, setCarteira] = useState('todos'); // gestão: todos | minhas | <id>
+  const [equipe, setEquipe] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!gestao) return;
+    api.get('/leads/meta').then(m => setEquipe((m.users || []).filter(u => u.id !== user?.id))).catch(() => {});
+  }, [gestao]); // eslint-disable-line
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const q = new URLSearchParams({ limit:100, ...(fSt&&{status:fSt}), ...(fOr&&{origem:fOr}), ...(search&&{search}) });
+      const resp = !gestao ? null : carteira === 'minhas' ? user?.id : carteira !== 'todos' ? carteira : null;
+      const q = new URLSearchParams({ limit:100, ...(fSt&&{status:fSt}), ...(fOr&&{origem:fOr}), ...(search&&{search}), ...(resp&&{responsavel_id:resp}) });
       const d = await api.get(`/leads?${q}`);
       setLeads(d.data||[]); setTotal(d.total||0);
     } finally { setLoading(false); }
-  }, [fSt,fOr,search]);
+  }, [fSt,fOr,search,gestao,carteira]); // eslint-disable-line
 
   useEffect(() => { const t=setTimeout(load,250); return()=>clearTimeout(t); }, [load]);
 
@@ -64,6 +73,14 @@ export default function Leads() {
           <option value="">Todas as origens</option>
           {ORIGENS.map(o=><option key={o}>{o}</option>)}
         </select>
+        {gestao && (
+          <select value={carteira} onChange={e=>setCarteira(e.target.value)} title="Carteira de"
+            style={{ padding:'9px 12px', border:'1.5px solid var(--border)', borderRadius:8, background:'var(--card)', outline:'none', minWidth:150, fontWeight:700 }}>
+            <option value="todos">👥 Carteira: Todos</option>
+            <option value="minhas">⭐ Minha carteira</option>
+            {equipe.map(u=><option key={u.id} value={u.id}>👤 {(u.nome||'').split(' ')[0]}</option>)}
+          </select>
+        )}
         {(fSt||fOr||search)&&<button onClick={()=>{setFSt('');setFOr('');setSearch('');}} className="btn btn-s btn-sm">Limpar</button>}
       </div>
 

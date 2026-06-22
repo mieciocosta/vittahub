@@ -2787,6 +2787,8 @@ r.patch('/conversations/:id/assign', async (req, res) => {
   try {
     const respId = req.body.responsavel_id || null;
     await query('UPDATE conversas SET responsavel_id = $1 WHERE id = $2', [respId, req.params.id]);
+    // O lead vinculado herda a carteira (responsável) — pra bater com a pasta/lista
+    await query('UPDATE leads SET responsavel_id = $1 WHERE id = (SELECT lead_id FROM conversas WHERE id = $2 AND lead_id IS NOT NULL)', [respId, req.params.id]).catch(() => {});
     const cached = convoCache.get(req.params.id);
     if (cached) cacheUpdate({ ...cached, responsavel_id: respId });
     const { rows: [conv] } = await query(`
@@ -2825,6 +2827,8 @@ r.patch('/conversations/:id/classificar', async (req, res) => {
     if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
     cacheUpdate(conv);
     socketEmit('conv_setor', { convId: conv.id, setor: mapa.setor, classificacao: cls, categoria: mapa.categoria });
+    // O lead vinculado herda o setor (pra lista de Leads bater com o acesso)
+    await query('UPDATE leads SET setor = $1 WHERE id = (SELECT lead_id FROM conversas WHERE id = $2 AND lead_id IS NOT NULL)', [mapa.setor, conv.id]).catch(() => {});
 
     // CARTEIRA: ao PUXAR um cliente para a própria pasta, o cliente vira da
     // pessoa (assumir=true) ou de um atendente escolhido (responsavel_id) — sem
@@ -2833,6 +2837,7 @@ r.patch('/conversations/:id/classificar', async (req, res) => {
     if (donoId) {
       const { rows: [c3] } = await query('UPDATE conversas SET responsavel_id = $1 WHERE id = $2 RETURNING *', [donoId, conv.id]);
       if (c3) { cacheUpdate(c3); socketEmit('conv_setor', { convId: conv.id, setor: mapa.setor, classificacao: cls, categoria: mapa.categoria }); }
+      await query('UPDATE leads SET responsavel_id = $1, setor = $2 WHERE id = (SELECT lead_id FROM conversas WHERE id = $3 AND lead_id IS NOT NULL)', [donoId, mapa.setor, conv.id]).catch(() => {});
       return res.json({ ok: true, classificacao: cls, setor: mapa.setor, categoria: mapa.categoria, responsavel: donoId });
     }
 

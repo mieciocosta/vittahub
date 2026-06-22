@@ -572,6 +572,19 @@ export default async function runMigrate() {
     await query(`UPDATE usuarios SET cpf = '02914270305' WHERE email = 'miecio@vittalissaude.com.br' AND cpf IS DISTINCT FROM '02914270305'`).catch(() => {});
     await query(`UPDATE usuarios SET cpf = '35411272874' WHERE email = 'nagila@vittalissaude.com.br' AND cpf IS DISTINCT FROM '35411272874'`).catch(() => {});
 
+    // ── Leads herdam a CARTEIRA (responsável) e o SETOR da conversa vinculada ──
+    const { rows: [flagLC] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_leads_carteira_v1'");
+    if (!flagLC) {
+      await query(`UPDATE leads l SET
+          responsavel_id = COALESCE(l.responsavel_id, sub.responsavel_id),
+          setor = COALESCE(l.setor, sub.setor)
+        FROM (SELECT DISTINCT ON (lead_id) lead_id, responsavel_id, setor FROM conversas
+              WHERE lead_id IS NOT NULL ORDER BY lead_id, last_message_at DESC) sub
+        WHERE sub.lead_id = l.id AND (l.responsavel_id IS NULL OR l.setor IS NULL)`).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_leads_carteira_v1','{"ok":true}') ON CONFLICT DO NOTHING`).catch(() => {});
+      console.log('🔗 Leads herdaram carteira/setor das conversas');
+    }
+
     // ── Títulos (Dr/Dra) nos nomes dos masters — uma vez ──
     const { rows: [flagTit] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_titulos_dr_v1'");
     if (!flagTit) {
