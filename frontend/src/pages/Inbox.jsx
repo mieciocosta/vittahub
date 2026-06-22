@@ -1388,9 +1388,6 @@ export default function Inbox({ onUnreadChange }) {
             </div>
 
             <div style={{ display:'flex', gap:4, flexShrink:0 }}>
-              <button onClick={marcarNaoLida} title="Marcar como não lida (volta o badge e fecha a conversa)" className="btn btn-sm" style={{ background:'var(--bg2)', color:'var(--muted)', border:'1.5px solid var(--border)', fontSize:11, padding:'4px 8px' }}>
-                <MailOpen size={11}/>
-              </button>
               {user?.role !== 'atendente' && (
                 <button onClick={async ()=>{ try { await api.post(`/inbox/conversations/${sel.id}/reset-triagem`); Toast.show('Triagem reiniciada — o próximo "oi" do cliente recebe o menu de boas-vindas 💎', 'success'); } catch(e){ Toast.show(e.message, 'error'); } }}
                   title="Reiniciar boas-vindas: a próxima mensagem do cliente recebe o menu com botões"
@@ -1425,24 +1422,6 @@ export default function Inbox({ onUnreadChange }) {
                 className="btn btn-sm" style={{ background:'#14432a', color:'#7ee0a8', border:'1.5px solid #16a34a', fontSize:11, padding:'4px 9px', fontWeight:700 }}>
                 💰 Venda
               </button>
-              <div style={{ position:'relative' }}>
-                <button onClick={()=>setMoreOpen(o=>!o)} title="Mais ações" className="btn btn-sm" style={{ fontSize:11, padding:'4px 9px', background:moreOpen?'var(--bg2)':undefined }}>⋯ Mais</button>
-                {moreOpen && (
-                  <>
-                    <div onClick={()=>setMoreOpen(false)} style={{ position:'fixed', inset:0, zIndex:50 }} />
-                    <div style={{ position:'absolute', top:'calc(100% + 4px)', right:0, zIndex:51, background:'var(--card)', border:'1px solid var(--border)', borderRadius:10, boxShadow:'var(--s4)', padding:5, minWidth:170, display:'flex', flexDirection:'column', gap:2 }}>
-                      {[
-                        [<><RefreshCw size={13}/> Transferir</>, ()=>{abrirTransferir();setMoreOpen(false);}],
-                        [<><Bell size={13}/> Criar follow-up</>, ()=>{abrirFollow();setMoreOpen(false);}],
-                        [<><UserPlus size={13}/> Salvar como Lead</>, ()=>{toLead();setMoreOpen(false);}],
-                        [<span style={{ color:'var(--err)' }}>✕ Marcar perdido</span>, ()=>{abrirPerder();setMoreOpen(false);}],
-                      ].map(([label, fn], i)=>(
-                        <button key={i} onClick={fn} className="btn btn-g" style={{ justifyContent:'flex-start', gap:8, fontSize:12.5, padding:'8px 10px', borderRadius:7 }}>{label}</button>
-                      ))}
-                    </div>
-                  </>
-                )}
-              </div>
               <button onClick={()=>{setShowAI(p=>!p);setShowInfo(false);}} className="btn btn-sm" style={{ background:showAI?'#032B30':'var(--bg2)', color:showAI?'#00B8C0':'var(--muted)', border:`1.5px solid ${showAI?'rgba(0,184,192,.4)':'var(--border)'}`, fontSize:11, padding:'4px 9px' }}>
                 <Sparkles size={10}/> IA
               </button>
