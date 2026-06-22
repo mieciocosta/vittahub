@@ -11,6 +11,12 @@ const CAT_POR_CONTEXTO = { planos_vacinais: 'Plano Vacinal', vacinacao: 'Vacina�
 const FORMAS = ['Pix', 'Cartão', 'Dinheiro', 'Link de pagamento', 'Parcelado', 'Cortesia'];
 const STATUS = [['pago', 'Pago'], ['sinal', 'Sinal'], ['aguardando', 'Aguardando'], ['parcelado', 'Parcelado'], ['pendente', 'Pendente'], ['cortesia', 'Cortesia']];
 const MOTIVOS = ['Preço', 'Vai pensar', 'Fez em outra clínica', 'Sem interesse', 'Convênio', 'Sem retorno', 'Outro'];
+const COMBOS_SERVICO = {
+  vacinas: ['Vacinas 2 meses', 'Vacinas 3 meses', 'Vacinas 4 meses', 'Vacinas 5 meses', 'Vacinas 6 meses', 'Vacinas 7 meses', 'Vacinas 9 meses', 'Vacinas 12 meses', 'Vacinas 15 meses', 'Vacinas 18 meses', 'Plano 0-9 meses', 'Plano 0-12 meses', 'Plano 0-18 meses', 'Plano Anual', 'Gripe', 'HPV', 'Dengue', 'Meningite B', 'Tríplice Viral', 'Vacina avulsa'],
+  consultas: ['Pediatria', 'Neuropediatria', 'Pneumologia', 'Psicologia', 'Neuropsicologia', 'Psicopedagogia', 'Nutrição', 'Retorno', 'Avaliação inicial'],
+  terapias: ['Sessão avulsa', 'Pacote 4 sessões', 'Pacote 8 sessões', 'Pacote mensal', 'Avaliação', 'Fonoaudiologia', 'Terapia Ocupacional', 'Psicomotricidade', 'Psicoterapia'],
+};
+const grupoCombo = (cat) => ['Vacinação Geral', 'Plano Vacinal', 'Fidelidade Mensal'].includes(cat) ? 'vacinas' : cat === 'Consulta' ? 'consultas' : cat === 'Terapia' ? 'terapias' : 'vacinas';
 // Converte "1.500,00" / "150,50" / "150" em número
 const parseValor = (s) => { const t = String(s || '').trim(); if (!t) return 0; const n = t.includes(',') ? t.replace(/\./g, '').replace(',', '.') : t; return Math.max(0, parseFloat(n) || 0); };
 
@@ -160,19 +166,24 @@ const lblCss = { display: 'block', fontSize: 11.5, fontWeight: 700, color: 'var(
 /* Registrar Venda compacto — disparado ao mover o lead para "Ganho". */
 function VendaModal({ api, contexto, card, onClose, onSaved }) {
   const [categoria, setCategoria] = useState(CAT_POR_CONTEXTO[contexto] || 'Vacinação Geral');
+  const [servico, setServico] = useState('');
   const [valor, setValor] = useState('');
+  const [desconto, setDesconto] = useState('');
   const [forma, setForma] = useState('Pix');
   const [status, setStatus] = useState('pago');
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState('');
+  const combos = COMBOS_SERVICO[grupoCombo(categoria)] || [];
+  const totalV = Math.max(0, parseValor(valor) - parseValor(desconto));
   const salvar = async () => {
-    const v = parseValor(valor);
-    if (v <= 0 && status !== 'cortesia') { setErro('Informe o valor da venda.'); return; }
+    const bruto = parseValor(valor); const desc = parseValor(desconto);
+    if (bruto <= 0 && status !== 'cortesia') { setErro('Informe o valor da venda.'); return; }
+    if (desc > bruto) { setErro('O desconto não pode ser maior que o valor.'); return; }
     setSalvando(true); setErro('');
     try {
       await api.post('/extras/vendas', {
-        conversa_id: card.id, categoria, valor: v, forma_pagamento: forma,
-        status_pagamento: status, cliente_nome: card.contact_name || null,
+        conversa_id: card.id, categoria, servico: servico || null, valor: Math.max(0, bruto - desc), desconto: desc,
+        forma_pagamento: forma, status_pagamento: status, cliente_nome: card.contact_name || null,
       });
       onSaved();
     } catch (e) { setErro(e.message || 'Erro ao registrar'); setSalvando(false); }
@@ -181,11 +192,22 @@ function VendaModal({ api, contexto, card, onClose, onSaved }) {
     <ModalShell titulo={`🏆 Registrar venda — ${card.contact_name || fmt.phone(card.phone)}`} onClose={onClose}>
       {erro && <div style={{ marginBottom: 12, padding: '8px 12px', borderRadius: 9, background: '#fdecec', color: '#c0392b', fontSize: 12.5, fontWeight: 600 }}>{erro}</div>}
       <label style={lblCss}>CATEGORIA</label>
-      <select value={categoria} onChange={e => setCategoria(e.target.value)} style={inputCss}>
+      <select value={categoria} onChange={e => { setCategoria(e.target.value); setServico(''); }} style={inputCss}>
         {CATEGORIAS.map(c => <option key={c} value={c}>{c}</option>)}
       </select>
-      <label style={lblCss}>VALOR (R$)</label>
-      <input autoFocus value={valor} onChange={e => setValor(e.target.value)} placeholder="0,00" inputMode="decimal" style={inputCss} />
+      <label style={lblCss}>SERVIÇO / COMBO</label>
+      <input list="pf-combos" value={servico} onChange={e => setServico(e.target.value)} placeholder="Escolha um combo ou digite…" style={inputCss} />
+      <datalist id="pf-combos">{combos.map(c => <option key={c} value={c} />)}</datalist>
+      <div style={{ display: 'flex', gap: 10 }}>
+        <div style={{ flex: 1 }}><label style={lblCss}>VALOR (R$)</label>
+          <input autoFocus value={valor} onChange={e => setValor(e.target.value)} placeholder="0,00" inputMode="decimal" style={inputCss} /></div>
+        <div style={{ flex: 1 }}><label style={lblCss}>DESCONTO (R$)</label>
+          <input value={desconto} onChange={e => setDesconto(e.target.value)} placeholder="0,00" inputMode="decimal" style={inputCss} /></div>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 13px', borderRadius: 10, background: '#ecfdf3', border: '1px solid #bbf7d0', marginBottom: 12 }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: '#166534' }}>Total a receber</span>
+        <span style={{ fontSize: 17, fontWeight: 800, color: '#16a34a' }}>{fmt.brl(totalV)}</span>
+      </div>
       <div style={{ display: 'flex', gap: 10 }}>
         <div style={{ flex: 1 }}>
           <label style={lblCss}>FORMA</label>
