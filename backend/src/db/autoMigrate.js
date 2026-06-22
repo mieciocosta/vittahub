@@ -371,6 +371,7 @@ export default async function runMigrate() {
       created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS idx_vendas_data ON vendas (data_venda)`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS idx_vendas_setor ON vendas (setor)`).catch(() => {});
+    await query(`ALTER TABLE vendas ADD COLUMN IF NOT EXISTS desconto NUMERIC(10,2) DEFAULT 0`).catch(() => {});
     // PERDAS: lead marcado como perdido (motivo obrigatório) — alimenta relatórios.
     await query(`CREATE TABLE IF NOT EXISTS perdas (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,

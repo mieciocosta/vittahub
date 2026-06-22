@@ -181,6 +181,7 @@ r.post('/vendas', async (req, res) => {
     const categoria = CATEGORIAS_VENDA.includes(b.categoria) ? b.categoria : null;
     if (!categoria) return res.status(400).json({ error: 'Escolha a categoria da venda.' });
     const valor = b.valor !== undefined && b.valor !== '' && !isNaN(parseFloat(b.valor)) ? Math.max(0, Math.min(parseFloat(b.valor), 1000000)) : 0;
+    const desconto = b.desconto !== undefined && !isNaN(parseFloat(b.desconto)) ? Math.max(0, Math.min(parseFloat(b.desconto), 1000000)) : 0;
     const setor = ['vacinas', 'consultas', 'terapias'].includes(b.setor) ? b.setor : setorDaCategoria(categoria);
     // Atribuição ao ATENDENTE dono do atendimento: se a venda veio de uma conversa,
     // credita ao responsável dela (quem cuidou do cliente) e não a quem clicou em
@@ -194,10 +195,10 @@ r.post('/vendas', async (req, res) => {
       if (c) { atendenteId = c.id; atendenteNome = c.nome; }
     }
     const { rows: [v] } = await query(`
-      INSERT INTO vendas (conversa_id, lead_id, atendente_id, atendente_nome, setor, categoria, cliente_nome, paciente_nome, servico, valor, forma_pagamento, status_pagamento, data_venda, data_atendimento, origem, observacao)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,COALESCE($13,CURRENT_DATE),$14,$15,$16) RETURNING *`,
+      INSERT INTO vendas (conversa_id, lead_id, atendente_id, atendente_nome, setor, categoria, cliente_nome, paciente_nome, servico, valor, desconto, forma_pagamento, status_pagamento, data_venda, data_atendimento, origem, observacao)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,COALESCE($14,CURRENT_DATE),$15,$16,$17) RETURNING *`,
       [cut(b.conversa_id, 40), b.lead_id || null, atendenteId, atendenteNome, setor, categoria,
-       cut(b.cliente_nome, 80), cut(b.paciente_nome, 80), cut(b.servico, 120), valor,
+       cut(b.cliente_nome, 80), cut(b.paciente_nome, 80), cut(b.servico, 120), valor, desconto,
        FORMAS_PG.includes(b.forma_pagamento) ? b.forma_pagamento : null,
        STATUS_PG.includes(b.status_pagamento) ? b.status_pagamento : 'pago',
        /^\d{4}-\d{2}-\d{2}$/.test(b.data_venda || '') ? b.data_venda : null,

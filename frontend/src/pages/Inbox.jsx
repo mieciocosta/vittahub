@@ -463,7 +463,7 @@ export default function Inbox({ onUnreadChange }) {
   const [vendaOpen, setVendaOpen] = useState(false);     // modal de registrar venda
   const [vendaSaving, setVendaSaving] = useState(false);
   const [vendaErro, setVendaErro] = useState('');
-  const [vendaForm, setVendaForm] = useState({ categoria:'', valor:'', forma_pagamento:'', status_pagamento:'pago', servico:'', observacao:'' });
+  const [vendaForm, setVendaForm] = useState({ categoria:'', valor:'', desconto:'', forma_pagamento:'', status_pagamento:'pago', servico:'', observacao:'' });
   const [perderOpen, setPerderOpen] = useState(false);
   const [perderSaving, setPerderSaving] = useState(false);
   const [perderForm, setPerderForm] = useState({ motivo:'', observacao:'', valor_potencial:'' });
@@ -1158,25 +1158,35 @@ export default function Inbox({ onUnreadChange }) {
   };
 
   const CAT_SUGERIDA = { vacinas:'Vacinação Geral', consultas:'Consulta', terapias:'Terapia' };
+  // Combos de serviço por grupo — a atendente escolhe ou digita (datalist).
+  const COMBOS_SERVICO = {
+    vacinas: ['Vacinas 2 meses','Vacinas 3 meses','Vacinas 4 meses','Vacinas 5 meses','Vacinas 6 meses','Vacinas 7 meses','Vacinas 9 meses','Vacinas 12 meses','Vacinas 15 meses','Vacinas 18 meses','Plano 0-9 meses','Plano 0-12 meses','Plano 0-18 meses','Plano Anual','Gripe','HPV','Dengue','Meningite B','Tríplice Viral','Vacina avulsa'],
+    consultas: ['Pediatria','Neuropediatria','Pneumologia','Psicologia','Neuropsicologia','Psicopedagogia','Nutrição','Retorno','Avaliação inicial'],
+    terapias: ['Sessão avulsa','Pacote 4 sessões','Pacote 8 sessões','Pacote mensal','Avaliação','Fonoaudiologia','Terapia Ocupacional','Psicomotricidade','Psicoterapia'],
+  };
+  const grupoCombo = (cat) => ['Vacinação Geral','Plano Vacinal','Fidelidade Mensal'].includes(cat) ? 'vacinas' : cat==='Consulta' ? 'consultas' : cat==='Terapia' ? 'terapias' : 'vacinas';
   const abrirVenda = () => {
-    setVendaForm({ categoria: CAT_SUGERIDA[sel.setor] || '', valor:'', forma_pagamento:'', status_pagamento:'pago', servico:'', observacao:'' });
+    setVendaForm({ categoria: CAT_SUGERIDA[sel.setor] || '', valor:'', desconto:'', forma_pagamento:'', status_pagamento:'pago', servico:'', observacao:'' });
     setVendaOpen(true);
   };
   const salvarVenda = async () => {
     setVendaErro('');
     if (!vendaForm.categoria) { setVendaErro('Escolha a categoria da venda.'); return; }
-    const valNum = parseFloat(String(vendaForm.valor).replace(',', '.'));
-    if (!valNum || valNum <= 0) { setVendaErro('Informe o valor (ex.: 250 ou 250.00).'); return; }
+    const bruto = parseFloat(String(vendaForm.valor).replace(',', '.'));
+    if (!bruto || bruto <= 0) { setVendaErro('Informe o valor (ex.: 250 ou 250.00).'); return; }
+    const desc = parseFloat(String(vendaForm.desconto || '').replace(',', '.')) || 0;
+    if (desc > bruto) { setVendaErro('O desconto não pode ser maior que o valor.'); return; }
+    const valFinal = Math.max(0, bruto - desc);
     setVendaSaving(true);
     try {
       await Promise.race([
         api.post('/extras/vendas', {
-          ...vendaForm, valor: valNum, conversa_id: sel.id, lead_id: sel.lead_id || null,
+          ...vendaForm, valor: valFinal, desconto: desc, conversa_id: sel.id, lead_id: sel.lead_id || null,
           cliente_nome: sel.contact_name || fmt.phone(sel.phone), setor: sel.setor,
         }),
         new Promise((_, rej) => setTimeout(() => rej(new Error('Servidor demorou a responder (timeout 20s).')), 20000)),
       ]);
-      window.__auditLog?.('registrar_venda', 'venda', sel.id, { categoria: vendaForm.categoria, valor: valNum, status: vendaForm.status_pagamento, cliente: sel.contact_name });
+      window.__auditLog?.('registrar_venda', 'venda', sel.id, { categoria: vendaForm.categoria, valor: valFinal, desconto: desc, status: vendaForm.status_pagamento, cliente: sel.contact_name });
       Toast.show('Venda registrada! 💰 Entrou na meta do mês 🎯', 'success');
       setVendaOpen(false);
     } catch (e) { setVendaErro('Erro: ' + (e.message || 'não foi possível registrar')); }
@@ -1786,40 +1796,72 @@ export default function Inbox({ onUnreadChange }) {
               <h3 style={{ fontSize:16, fontWeight:800 }}>Registrar venda</h3>
             </div>
             <p style={{ fontSize:12, color:'var(--muted)', marginBottom:16 }}>Cliente: <b>{sel.contact_name || fmt.phone(sel.phone)}</b> · entra na meta 🎯</p>
+            {(() => {
+              const brutoV = parseFloat(String(vendaForm.valor).replace(',', '.')) || 0;
+              const descV = parseFloat(String(vendaForm.desconto || '').replace(',', '.')) || 0;
+              const totalV = Math.max(0, brutoV - descV);
+              const combos = COMBOS_SERVICO[grupoCombo(vendaForm.categoria)] || [];
+              const lblSec = { fontSize:10.5, fontWeight:800, letterSpacing:.6, color:'var(--muted)', textTransform:'uppercase', margin:'4px 0 2px' };
+              return (
             <div style={{ display:'flex', flexDirection:'column', gap:11 }}>
+              <div style={lblSec}>O que foi vendido</div>
               <div className="field" style={{ margin:0 }}><label>Categoria *</label>
-                <select value={vendaForm.categoria} onChange={e=>setVendaForm(p=>({...p,categoria:e.target.value}))} style={{ width:'100%' }}>
+                <select value={vendaForm.categoria} onChange={e=>setVendaForm(p=>({...p,categoria:e.target.value, servico:''}))} style={{ width:'100%' }}>
                   <option value="">Escolha…</option>
                   {['Vacinação Geral','Plano Vacinal','Fidelidade Mensal','Consulta','Terapia'].map(c=><option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
+              <div className="field" style={{ margin:0 }}><label>Serviço / combo</label>
+                <input list="vh-combos-servico" value={vendaForm.servico} onChange={e=>setVendaForm(p=>({...p,servico:e.target.value}))} placeholder="Escolha um combo ou digite…" />
+                <datalist id="vh-combos-servico">{combos.map(c=><option key={c} value={c} />)}</datalist>
+                {combos.length>0 && (
+                  <div style={{ display:'flex', flexWrap:'wrap', gap:5, marginTop:7 }}>
+                    {combos.slice(0,8).map(c=>(
+                      <button key={c} type="button" onClick={()=>setVendaForm(p=>({...p,servico:c}))}
+                        style={{ fontSize:10.5, fontWeight:700, padding:'4px 9px', borderRadius:20, cursor:'pointer',
+                          border:`1px solid ${vendaForm.servico===c?'#16a34a':'var(--border)'}`,
+                          background: vendaForm.servico===c?'#dcfce7':'var(--bg2)', color: vendaForm.servico===c?'#15803d':'var(--txt2)' }}>{c}</button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div style={lblSec}>Valores</div>
               <div style={{ display:'flex', gap:10 }}>
-                <div className="field" style={{ flex:1, margin:0 }}><label>Valor (R$) *</label><input type="number" value={vendaForm.valor} onChange={e=>setVendaForm(p=>({...p,valor:e.target.value}))} placeholder="0,00" /></div>
+                <div className="field" style={{ flex:1, margin:0 }}><label>Valor (R$) *</label><input type="number" min="0" step="0.01" value={vendaForm.valor} onChange={e=>setVendaForm(p=>({...p,valor:e.target.value}))} placeholder="0,00" /></div>
+                <div className="field" style={{ flex:1, margin:0 }}><label>Desconto (R$)</label><input type="number" min="0" step="0.01" value={vendaForm.desconto} onChange={e=>setVendaForm(p=>({...p,desconto:e.target.value}))} placeholder="0,00" /></div>
+              </div>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px 14px', borderRadius:11, background:'#ecfdf3', border:'1px solid #bbf7d0' }}>
+                <span style={{ fontSize:12.5, fontWeight:700, color:'#166534' }}>Total a receber{descV>0?` (− ${fmt.brl(descV)})`:''}</span>
+                <span style={{ fontSize:18, fontWeight:800, color:'#16a34a' }}>{fmt.brl(totalV)}</span>
+              </div>
+              <div style={{ display:'flex', gap:10 }}>
                 <div className="field" style={{ flex:1, margin:0 }}><label>Forma de pagamento</label>
                   <select value={vendaForm.forma_pagamento} onChange={e=>setVendaForm(p=>({...p,forma_pagamento:e.target.value}))} style={{ width:'100%' }}>
                     <option value="">—</option>
                     {['Pix','Cartão','Dinheiro','Link de pagamento','Parcelado','Cortesia'].map(f=><option key={f} value={f}>{f}</option>)}
                   </select>
                 </div>
+                <div className="field" style={{ flex:1, margin:0 }}><label>Status</label>
+                  <select value={vendaForm.status_pagamento} onChange={e=>setVendaForm(p=>({...p,status_pagamento:e.target.value}))} style={{ width:'100%' }}>
+                    <option value="pago">Pago</option>
+                    <option value="sinal">Sinal pago</option>
+                    <option value="aguardando">Aguardando</option>
+                    <option value="parcelado">Parcelado</option>
+                    <option value="cortesia">Cortesia</option>
+                    <option value="pendente">Pendente</option>
+                  </select>
+                </div>
               </div>
-              <div className="field" style={{ margin:0 }}><label>Status do pagamento</label>
-                <select value={vendaForm.status_pagamento} onChange={e=>setVendaForm(p=>({...p,status_pagamento:e.target.value}))} style={{ width:'100%' }}>
-                  <option value="pago">Pago (confirma na meta)</option>
-                  <option value="sinal">Sinal pago</option>
-                  <option value="aguardando">Aguardando pagamento</option>
-                  <option value="parcelado">Parcelado</option>
-                  <option value="cortesia">Cortesia</option>
-                  <option value="pendente">Pendente</option>
-                </select>
-              </div>
-              <div className="field" style={{ margin:0 }}><label>Serviço (opcional)</label><input value={vendaForm.servico} onChange={e=>setVendaForm(p=>({...p,servico:e.target.value}))} placeholder="Ex: Plano 0-9 meses, Pediatria..." /></div>
-              <div className="field" style={{ margin:0 }}><label>Observação (opcional)</label><textarea value={vendaForm.observacao} onChange={e=>setVendaForm(p=>({...p,observacao:e.target.value}))} rows={2} style={{ resize:'vertical' }} /></div>
+              <div className="field" style={{ margin:0 }}><label>Observação (opcional)</label><textarea value={vendaForm.observacao} onChange={e=>setVendaForm(p=>({...p,observacao:e.target.value}))} rows={2} placeholder="Anotações da venda…" style={{ resize:'vertical' }} /></div>
               {vendaErro && <div style={{ fontSize:12.5, color:'#fff', background:'#dc2626', borderRadius:8, padding:'8px 11px', fontWeight:600 }}>{vendaErro}</div>}
               <div style={{ display:'flex', gap:8, marginTop:4 }}>
                 <button onClick={salvarVenda} disabled={vendaSaving} className="btn btn-p" style={{ flex:1, background:'#16a34a' }}>{vendaSaving ? <span className="spin" style={{width:14,height:14}}/> : '💰 Registrar venda'}</button>
                 <button onClick={()=>setVendaOpen(false)} className="btn">Cancelar</button>
               </div>
             </div>
+              );
+            })()}
           </div>
         </div>
       )}
