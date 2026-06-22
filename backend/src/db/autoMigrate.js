@@ -407,6 +407,12 @@ export default async function runMigrate() {
       conteudo TEXT NOT NULL, lida BOOLEAN DEFAULT false,
       created_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS idx_chatint_par ON chat_interno (de_id, para_id, created_at)`).catch(() => {});
+    // Chat da equipe com mídia: áudio (gravado no navegador) e documentos/imagens.
+    await query(`ALTER TABLE chat_interno ADD COLUMN IF NOT EXISTS tipo TEXT DEFAULT 'text'`).catch(() => {});
+    await query(`ALTER TABLE chat_interno ADD COLUMN IF NOT EXISTS arquivo TEXT`).catch(() => {}); // data URL base64
+    await query(`ALTER TABLE chat_interno ADD COLUMN IF NOT EXISTS filename TEXT`).catch(() => {});
+    await query(`ALTER TABLE chat_interno ADD COLUMN IF NOT EXISTS mimetype TEXT`).catch(() => {});
+    await query(`ALTER TABLE chat_interno ALTER COLUMN conteudo DROP NOT NULL`).catch(() => {});
     // Corrige tabelas já criadas com lead_id INT (UUID não cabe em inteiro)
     await query(`ALTER TABLE vendas ALTER COLUMN lead_id TYPE TEXT USING lead_id::text`).catch(() => {});
     await query(`ALTER TABLE mensagens ADD COLUMN IF NOT EXISTS editada BOOLEAN DEFAULT false`).catch(() => {});

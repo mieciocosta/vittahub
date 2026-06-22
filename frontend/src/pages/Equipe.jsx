@@ -1,9 +1,13 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Send, Users, MessageSquare } from 'lucide-react';
+import { Send, Users, MessageSquare, Mic, Paperclip, Square, FileText, Download } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt } from '../hooks/utils.js';
 
-/* Chat interno da equipe — conversa usuário ↔ usuário (separado do WhatsApp). */
+const previaUltima = (c) => c.ultima || (c.ultima_tipo === 'audio' ? '🎤 Áudio' : c.ultima_tipo === 'image' ? '🖼️ Imagem' : c.ultima_tipo === 'document' ? '📎 Documento' : (c.role === 'master' ? 'Gestão' : c.setor || 'Equipe'));
+const fileToDataUrl = (file) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file); });
+
+/* Chat interno da equipe — conversa usuário ↔ usuário (separado do WhatsApp).
+   Suporta texto, áudio (gravado no navegador) e documentos/imagens. */
 export default function Equipe() {
   const api = useApi();
   const { user } = useAuth();
@@ -11,7 +15,12 @@ export default function Equipe() {
   const [sel, setSel] = useState(null);
   const [msgs, setMsgs] = useState([]);
   const [input, setInput] = useState('');
+  const [gravando, setGravando] = useState(false);
+  const [enviandoMidia, setEnviandoMidia] = useState(false);
   const endRef = useRef(null);
+  const fileRef = useRef(null);
+  const recRef = useRef(null);
+  const chunksRef = useRef([]);
 
   const loadContatos = () => api.get('/inbox/chat-interno/contatos').then(d => setContatos(Array.isArray(d) ? d : [])).catch(() => {});
   useEffect(() => { loadContatos(); const t = setInterval(loadContatos, 8000); return () => clearInterval(t); }, []); // eslint-disable-line
@@ -41,10 +50,50 @@ export default function Equipe() {
     const t = input.trim();
     if (!t || !sel) return;
     setInput('');
-    const tmp = { id: 'tmp' + Date.now(), de_id: user.id, para_id: sel.id, conteudo: t, created_at: new Date().toISOString() };
+    const tmp = { id: 'tmp' + Date.now(), de_id: user.id, para_id: sel.id, conteudo: t, tipo: 'text', created_at: new Date().toISOString() };
     setMsgs(p => [...p, tmp]);
     try { const m = await api.post('/inbox/chat-interno', { para_id: sel.id, conteudo: t }); setMsgs(p => p.map(x => x.id === tmp.id ? m : x)); }
     catch { setMsgs(p => p.filter(x => x.id !== tmp.id)); }
+  };
+
+  // Envia mídia (áudio / documento / imagem) como data URL base64.
+  const enviarMidia = async ({ tipo, arquivo, filename, mimetype }) => {
+    if (!sel) return;
+    if (arquivo.length > 11_000_000) { window.alert('Arquivo muito grande (máx. ~8MB).'); return; }
+    setEnviandoMidia(true);
+    const tmp = { id: 'tmp' + Date.now(), de_id: user.id, para_id: sel.id, tipo, arquivo, filename, mimetype, conteudo: null, created_at: new Date().toISOString() };
+    setMsgs(p => [...p, tmp]);
+    try {
+      const m = await api.post('/inbox/chat-interno', { para_id: sel.id, tipo, arquivo, filename, mimetype });
+      setMsgs(p => p.map(x => x.id === tmp.id ? m : x)); loadContatos();
+    } catch (e) { setMsgs(p => p.filter(x => x.id !== tmp.id)); window.alert('Erro ao enviar: ' + (e.message || e)); }
+    finally { setEnviandoMidia(false); }
+  };
+
+  const anexar = async (e) => {
+    const file = e.target.files?.[0]; e.target.value = '';
+    if (!file) return;
+    const arquivo = await fileToDataUrl(file);
+    enviarMidia({ tipo: file.type.startsWith('image/') ? 'image' : 'document', arquivo, filename: file.name, mimetype: file.type });
+  };
+
+  const toggleGravacao = async () => {
+    if (gravando) { recRef.current?.stop(); return; }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const rec = new MediaRecorder(stream);
+      chunksRef.current = [];
+      rec.ondataavailable = ev => { if (ev.data.size) chunksRef.current.push(ev.data); };
+      rec.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        setGravando(false);
+        const blob = new Blob(chunksRef.current, { type: rec.mimeType || 'audio/webm' });
+        if (blob.size < 800) return; // gravação vazia/curta demais
+        const arquivo = await fileToDataUrl(blob);
+        enviarMidia({ tipo: 'audio', arquivo, filename: 'audio.webm', mimetype: blob.type });
+      };
+      recRef.current = rec; rec.start(); setGravando(true);
+    } catch { window.alert('Não consegui acessar o microfone. Verifique a permissão do navegador.'); }
   };
 
   return (
@@ -63,7 +112,7 @@ export default function Equipe() {
                   <span style={{ fontWeight: 700, fontSize: 13 }}>{(c.nome || '').split(' ')[0]}</span>
                   {c.nao_lidas > 0 && <span style={{ background: 'var(--tq)', color: '#fff', borderRadius: 10, padding: '0 7px', fontSize: 10.5, fontWeight: 800 }}>{c.nao_lidas}</span>}
                 </div>
-                <div style={{ fontSize: 11.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.ultima || (c.role === 'master' ? 'Gestão' : c.setor || 'Equipe')}</div>
+                <div style={{ fontSize: 11.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{previaUltima(c)}</div>
               </div>
             </div>
           ))}
@@ -88,17 +137,32 @@ export default function Equipe() {
               {msgs.map(m => {
                 const meu = m.de_id === user.id;
                 return (
-                  <div key={m.id} style={{ alignSelf: meu ? 'flex-end' : 'flex-start', maxWidth: '70%', background: meu ? 'var(--tq)' : 'var(--bg2)', color: meu ? '#fff' : 'var(--text)', padding: '8px 12px', borderRadius: 12, fontSize: 13.5, lineHeight: 1.45, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                    {m.conteudo}
+                  <div key={m.id} style={{ alignSelf: meu ? 'flex-end' : 'flex-start', maxWidth: '72%', background: meu ? 'var(--tq)' : 'var(--bg2)', color: meu ? '#fff' : 'var(--text)', padding: '8px 12px', borderRadius: 12, fontSize: 13.5, lineHeight: 1.45, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                    {m.tipo === 'audio' ? (
+                      <audio controls src={m.arquivo} style={{ height: 36, maxWidth: 230 }} />
+                    ) : m.tipo === 'image' ? (
+                      <a href={m.arquivo} target="_blank" rel="noreferrer"><img src={m.arquivo} alt={m.filename || ''} style={{ maxWidth: 230, maxHeight: 230, borderRadius: 8, display: 'block' }} /></a>
+                    ) : m.tipo === 'document' ? (
+                      <a href={m.arquivo} download={m.filename || 'documento'} style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'inherit', textDecoration: 'none' }}>
+                        <FileText size={20} style={{ flexShrink: 0 }} />
+                        <span style={{ fontWeight: 700, fontSize: 12.5, wordBreak: 'break-all' }}>{m.filename || 'documento'}</span>
+                        <Download size={14} style={{ flexShrink: 0, opacity: .8 }} />
+                      </a>
+                    ) : m.conteudo}
                     <div style={{ fontSize: 9.5, opacity: .7, marginTop: 3, textAlign: 'right' }}>{fmt.relTime ? fmt.relTime(m.created_at) : new Date(m.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
                   </div>
                 );
               })}
               <div ref={endRef} />
             </div>
-            <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8 }}>
+            <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+              <input ref={fileRef} type="file" accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt" style={{ display: 'none' }} onChange={anexar} />
+              <button onClick={() => fileRef.current?.click()} disabled={enviandoMidia} title="Anexar documento ou imagem" className="btn btn-s btn-ico" style={{ alignSelf: 'flex-end' }}><Paperclip size={16} /></button>
+              <button onClick={toggleGravacao} disabled={enviandoMidia} title={gravando ? 'Parar e enviar áudio' : 'Gravar áudio'} className="btn btn-ico" style={{ alignSelf: 'flex-end', background: gravando ? 'var(--err,#dc2626)' : 'var(--bg2)', color: gravando ? '#fff' : 'var(--txt2)', border: '1px solid var(--border)' }}>
+                {gravando ? <Square size={15} /> : <Mic size={16} />}
+              </button>
               <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviar(); } }}
-                placeholder="Mensagem para a equipe… (Enter envia)" rows={1}
+                placeholder={gravando ? '🎤 Gravando… toque no quadrado para enviar' : 'Mensagem para a equipe… (Enter envia)'} rows={1} disabled={gravando}
                 style={{ flex: 1, padding: '9px 12px', border: '1.5px solid var(--border)', borderRadius: 10, fontSize: 13, resize: 'none', outline: 'none', maxHeight: 100, background: 'var(--card)', color: 'var(--text)' }} />
               <button onClick={enviar} className="btn btn-p btn-ico" style={{ alignSelf: 'flex-end' }}><Send size={16} /></button>
             </div>

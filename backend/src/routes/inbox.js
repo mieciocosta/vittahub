@@ -3086,6 +3086,7 @@ r.get('/chat-interno/contatos', async (req, res) => {
     const { rows } = await query(`
       SELECT u.id, u.nome, u.cor, u.avatar, u.setor, u.role,
         (SELECT conteudo FROM chat_interno m WHERE (m.de_id=u.id AND m.para_id=$1) OR (m.de_id=$1 AND m.para_id=u.id) ORDER BY m.created_at DESC LIMIT 1) AS ultima,
+        (SELECT tipo FROM chat_interno m WHERE (m.de_id=u.id AND m.para_id=$1) OR (m.de_id=$1 AND m.para_id=u.id) ORDER BY m.created_at DESC LIMIT 1) AS ultima_tipo,
         (SELECT created_at FROM chat_interno m WHERE (m.de_id=u.id AND m.para_id=$1) OR (m.de_id=$1 AND m.para_id=u.id) ORDER BY m.created_at DESC LIMIT 1) AS ultima_at,
         (SELECT COUNT(*) FROM chat_interno m WHERE m.de_id=u.id AND m.para_id=$1 AND m.lida=false)::int AS nao_lidas
       FROM usuarios u
@@ -3110,11 +3111,20 @@ r.get('/chat-interno/:userId', async (req, res) => {
 r.post('/chat-interno', async (req, res) => {
   try {
     const para = String(req.body.para_id || '');
+    const tipo = ['text', 'audio', 'document', 'image'].includes(req.body.tipo) ? req.body.tipo : 'text';
     const conteudo = String(req.body.conteudo || '').trim().slice(0, 4000);
-    if (!para || !conteudo) return res.status(400).json({ error: 'Destinatário e mensagem são obrigatórios.' });
+    const arquivo = req.body.arquivo ? String(req.body.arquivo) : null;
+    if (!para) return res.status(400).json({ error: 'Destinatário é obrigatório.' });
+    if (tipo === 'text' && !conteudo) return res.status(400).json({ error: 'Mensagem vazia.' });
+    if (tipo !== 'text') {
+      if (!arquivo || !/^data:[\w/+.\-]+;base64,/.test(arquivo)) return res.status(400).json({ error: 'Arquivo inválido.' });
+      if (arquivo.length > 11_000_000) return res.status(400).json({ error: 'Arquivo muito grande (máx. ~8MB).' });
+    }
     const { rows: [m] } = await query(
-      `INSERT INTO chat_interno (de_id, de_nome, para_id, conteudo) VALUES ($1,$2,$3,$4) RETURNING *`,
-      [req.user.id, req.user.nome, para, conteudo]);
+      `INSERT INTO chat_interno (de_id, de_nome, para_id, conteudo, tipo, arquivo, filename, mimetype) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      [req.user.id, req.user.nome, para, conteudo || null, tipo, arquivo,
+       req.body.filename ? String(req.body.filename).slice(0, 160) : null,
+       req.body.mimetype ? String(req.body.mimetype).slice(0, 100) : null]);
     socketEmitToUsers([para, req.user.id], 'chat_interno', m);
     res.status(201).json(m);
   } catch (err) { res.status(500).json({ error: err.message }); }
