@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Trash2, Star, Database, Phone, CalendarDays, UserPlus, X, Syringe, Stethoscope, Brain, MessageSquare, Pencil, List, Kanban, Check } from 'lucide-react';
+import { Search, Trash2, Star, Database, Phone, CalendarDays, UserPlus, X, Syringe, Stethoscope, Brain, MessageSquare, Pencil, List, Kanban, Check, ArrowRightLeft } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt, openWA } from '../hooks/utils.js';
 import PastaFunil from './PastaFunil.jsx';
@@ -36,19 +36,19 @@ export default function PastaClientes({ categoria, classificacao }) {
   const [carregando, setCarregando] = useState(true);
   const [modal, setModal] = useState(false);         // modal "Adicionar cliente"
   const [editAlvo, setEditAlvo] = useState(null);    // cliente em edição (nome/telefone)
+  const [transfAlvo, setTransfAlvo] = useState(null);// cliente em transferência
   const [vista, setVista] = useState('lista');       // 'lista' (por mês) | 'funil' (Kanban)
   // Carteira individual: atendente vê só a SUA; gestão escolhe de quem ver.
   const [carteira, setCarteira] = useState(gestao ? 'todos' : 'minhas');
-  const [equipe, setEquipe] = useState([]);          // atendentes (p/ o seletor da gestão)
+  const [equipe, setEquipe] = useState([]);          // atendentes (seletor + transferência)
   const ehFidelidade = valor === 'fidelidade';
 
   // Dono ao adicionar: atendente vira dono; gestão atribui ao atendente escolhido.
   const donoId = !gestao ? user?.id : (carteira !== 'todos' && carteira !== 'minhas' ? carteira : (carteira === 'minhas' ? user?.id : null));
 
   useEffect(() => {
-    if (!gestao) return;
     api.get('/leads/meta').then(m => setEquipe((m.users || []).filter(u => u.id !== user?.id))).catch(() => {});
-  }, [gestao]); // eslint-disable-line
+  }, []); // eslint-disable-line
 
   const load = useCallback(() => {
     setCarregando(true);
@@ -187,6 +187,7 @@ export default function PastaClientes({ categoria, classificacao }) {
                     </button>
                   )}
                   <button onClick={() => nav(`/inbox?conv=${c.id}`)} title="Abrir a conversa no chat" className="btn btn-sm" style={{ padding: '6px 9px' }}><MessageSquare size={13} /></button>
+                  <button onClick={() => setTransfAlvo(c)} title="Transferir para outro funil / atendente" className="btn btn-sm" style={{ padding: '6px 9px', color: 'var(--tq2)' }}><ArrowRightLeft size={13} /></button>
                   <button onClick={() => setEditAlvo(c)} title="Editar nome/telefone" className="btn btn-sm" style={{ padding: '6px 9px' }}><Pencil size={13} /></button>
                   <button onClick={() => openWA(c.phone)} title="Abrir no WhatsApp" className="btn btn-sm" style={{ padding: '6px 9px' }}><Phone size={13} /></button>
                   <button onClick={() => tirar(c)} title="Tirar da pasta" className="btn btn-sm" style={{ padding: '6px 9px', color: 'var(--err)' }}><Trash2 size={13} /></button>
@@ -211,6 +212,64 @@ export default function PastaClientes({ categoria, classificacao }) {
           onSaved={(upd) => { setLista(prev => prev.map(x => x.id === upd.id ? { ...x, ...upd } : x)); setEditAlvo(null); }}
         />
       )}
+      {transfAlvo && (
+        <TransferirModal
+          api={api} cliente={transfAlvo} origem={valor} equipe={equipe} cor={cfg.cor}
+          onClose={() => setTransfAlvo(null)}
+          onSaved={() => { setTransfAlvo(null); load(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+/* Transferir o cliente para outro FUNIL (pasta/setor) e/ou outra ATENDENTE. */
+const DESTINOS_PASTA = [
+  ['vacinacao', '💉 Vacinação', 'cls'], ['planos_vacinais', '🗓️ Planos Vacinais', 'cls'],
+  ['consultas', '🩺 Consultas', 'cls'], ['terapias', '🧩 Terapias', 'cls'],
+  ['fidelidade', '⭐ Fidelidade', 'cat'], ['banco_dados', '🗄️ Banco de Dados', 'cat'],
+];
+function TransferirModal({ api, cliente, origem, equipe, cor, onClose, onSaved }) {
+  const [dest, setDest] = useState(origem);
+  const [resp, setResp] = useState(cliente.responsavel_id || '');
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState('');
+  const transferir = async () => {
+    setSalvando(true); setErro('');
+    try {
+      const tipoDest = (DESTINOS_PASTA.find(d => d[0] === dest) || [])[2];
+      if (dest !== origem) {
+        if (tipoDest === 'cls') await api.patch(`/inbox/conversations/${cliente.id}/classificar`, { classificacao: dest, responsavel_id: resp || undefined });
+        else { await api.patch(`/inbox/conversations/${cliente.id}/categoria`, { categoria: dest }); if (resp) await api.patch(`/inbox/conversations/${cliente.id}/assign`, { responsavel_id: resp }); }
+      } else if (resp !== (cliente.responsavel_id || '')) {
+        await api.patch(`/inbox/conversations/${cliente.id}/assign`, { responsavel_id: resp || null });
+      }
+      onSaved();
+    } catch (e) { setErro(e.message || 'Erro ao transferir'); setSalvando(false); }
+  };
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
+      <div onClick={e => e.stopPropagation()} className="card" style={{ width: 420, maxWidth: '100%', padding: 0, overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '15px 18px', borderBottom: '1px solid var(--border)' }}>
+          <div style={{ fontWeight: 800, fontSize: 15 }}>Transferir {cliente.contact_name || fmt.phone(cliente.phone)}</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
+        </div>
+        <div style={{ padding: 18 }}>
+          {erro && <div style={{ marginBottom: 12, padding: '8px 12px', borderRadius: 9, background: '#fdecec', color: '#c0392b', fontSize: 12.5, fontWeight: 600 }}>{erro}</div>}
+          <label style={{ display: 'block', fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', marginBottom: 5 }}>FUNIL / PASTA</label>
+          <select value={dest} onChange={e => setDest(e.target.value)} style={{ width: '100%', padding: '9px 12px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--card)', marginBottom: 12 }}>
+            {DESTINOS_PASTA.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+          </select>
+          <label style={{ display: 'block', fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', marginBottom: 5 }}>ATENDENTE (CARTEIRA)</label>
+          <select value={resp} onChange={e => setResp(e.target.value)} style={{ width: '100%', padding: '9px 12px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--card)', marginBottom: 16 }}>
+            <option value="">— Sem responsável —</option>
+            {equipe.map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}
+          </select>
+          <button onClick={transferir} disabled={salvando} className="btn btn-p" style={{ width: '100%', gap: 7, background: cor, borderColor: cor }}>
+            {salvando ? <span className="spin" style={{ width: 15, height: 15 }} /> : <ArrowRightLeft size={15} />} Transferir
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

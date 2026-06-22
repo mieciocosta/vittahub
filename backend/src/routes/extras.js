@@ -23,7 +23,25 @@ r.get('/agenda', async (req, res) => {
       SELECT a.*, u.nome resp_nome, u.avatar resp_avatar, u.cor resp_cor
       FROM agenda_eventos a LEFT JOIN usuarios u ON u.id = a.responsavel_id
       WHERE a.data = $1 ORDER BY a.hora, a.created_at`, [data]);
-    res.json(rows);
+    // Motorista único: a colega do MESMO setor vê que o horário está OCUPADO
+    // (pra não agendar em cima), mas SEM o contato do cliente da outra. Dona e
+    // gestão veem tudo. Atendente só vê o macro-setor dela.
+    const isGestao = ['master', 'supervisor'].includes(req.user.role);
+    const meuSetor = req.user.setor;
+    const ehVac = (s) => (s || 'vacinas') === 'vacinas';
+    const out = rows
+      .filter(a => isGestao || !meuSetor || ehVac(a.setor) === (meuSetor === 'vacinas'))
+      .map(a => {
+        if (isGestao || a.responsavel_id === req.user.id) return a;
+        return {
+          id: a.id, data: a.data, hora: a.hora, setor: a.setor, status: a.status,
+          resp_nome: a.resp_nome, resp_cor: a.resp_cor, mascarado: true,
+          paciente: 'Horário reservado', servico: null, telefone: null, endereco: null,
+          email: null, local_link: null, observacoes: null, profissional: null,
+          responsavel_nome: null, valor: null, forma_pagamento: null, parcelas: null,
+        };
+      });
+    res.json(out);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

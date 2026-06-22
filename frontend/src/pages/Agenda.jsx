@@ -99,6 +99,21 @@ export default function Agenda() {
 
         {eventos.map((ev, i) => {
           const [bg, cor] = ST_CLR[ev.status] || ST_CLR.Agendado;
+          // Horário de uma colega do mesmo setor: mostra que está ocupado (motorista
+          // único), sem o contato do cliente dela e sem ações.
+          if (ev.mascarado) return (
+            <div key={ev.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 20px', borderBottom: i < eventos.length - 1 ? '1px solid var(--border)' : 'none', background: 'repeating-linear-gradient(45deg,var(--bg2),var(--bg2) 10px,transparent 10px,transparent 20px)' }}>
+              <div style={{ fontWeight: 800, fontSize: 14, color: 'var(--muted)', minWidth: 48 }}>{ev.hora}</div>
+              <div style={{ width: 38, height: 38, borderRadius: '50%', flexShrink: 0, background: 'var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 }}>🔒</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 800, fontSize: 13.5, color: 'var(--muted)' }}>Horário reservado</div>
+                <div style={{ fontSize: 11.5, color: 'var(--light,#9aa)' }}>Já agendado por outra colega — escolha outro horário para o motorista.</div>
+              </div>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)', minWidth: 70, textAlign: 'center' }}>{ev.resp_nome ? ev.resp_nome.split(' ')[0] : ''}</div>
+              <span style={{ padding: '3px 10px', borderRadius: 8, fontSize: 10.5, fontWeight: 800, background: bg, color: cor, minWidth: 86, textAlign: 'center' }}>{ev.status}</span>
+              <div style={{ width: 30 }} />
+            </div>
+          );
           return (
             <div key={ev.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 20px', borderBottom: i < eventos.length - 1 ? '1px solid var(--border)' : 'none', opacity: ev.status === 'Cancelado' ? .55 : 1 }}>
               <div style={{ fontWeight: 800, fontSize: 14, color: 'var(--tq2)', minWidth: 48 }}>{ev.hora}</div>
