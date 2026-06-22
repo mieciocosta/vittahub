@@ -232,55 +232,93 @@ const btnAcao = {
 };
 
 
-/* ── PDF da agenda do dia: janela de impressão brandada (salvar como PDF) ──── */
+/* ── PDF da agenda do dia: layout premium pra rota das vacinadoras ─────────── */
 function baixarPDF(eventos, dataISO, rotuloDia) {
-  const brl = (v) => Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-  const esc = (t) => String(t || '').replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
-  const SET_ICO = { vacinas: '💉', consultas: '🩺', terapias: '🤲' };
-  const linhas = eventos.map(ev => `
-    <tr>
-      <td><b>${esc(ev.hora)}</b></td>
-      <td>${SET_ICO[ev.setor] || ''} <b>${esc(ev.paciente)}</b>${ev.responsavel_nome ? `<br><small>Resp.: ${esc(ev.responsavel_nome)}</small>` : ''}</td>
-      <td>${esc(ev.servico || '—')}${ev.profissional ? `<br><small>${esc(ev.profissional)}</small>` : ''}</td>
-      <td>${ev.telefone ? esc(ev.telefone) : '—'}${ev.email ? `<br><small>${esc(ev.email)}</small>` : ''}</td>
-      <td>${ev.valor != null ? `<b>${brl(ev.valor)}</b>${ev.forma_pagamento ? `<br><small>${esc(ev.forma_pagamento)}${ev.parcelas > 1 ? ` ${ev.parcelas}x de ${brl(ev.valor / ev.parcelas)}` : ''}</small>` : ''}` : '—'}</td>
-      <td>${esc(ev.status)}</td>
-    </tr>
-    ${ev.endereco || ev.observacoes ? `<tr class="sub"><td></td><td colspan="5">${ev.endereco ? `📍 ${esc(ev.endereco)} ` : ''}${ev.observacoes ? `· ${esc(ev.observacoes)}` : ''}</td></tr>` : ''}
-  `).join('');
+  const brl = (v) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  const esc = (t) => String(t ?? '').replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+  const SET_ICO = { vacinas: '💉', consultas: '🩺', terapias: '🧩' };
+  const ativos = eventos.filter(e => e.status !== 'Cancelado');
+  const totalReceber = ativos.reduce((s, e) => s + (parseFloat(e.valor) || 0), 0);
+  const confirmados = ativos.filter(e => e.status === 'Confirmado' || e.status === 'Realizado').length;
+
+  const cards = eventos.map((ev, i) => {
+    const cancelado = ev.status === 'Cancelado';
+    return `
+    <div class="card ${cancelado ? 'cancel' : ''}">
+      <div class="ordem">${i + 1}</div>
+      <div class="hora">${esc(ev.hora)}<span>${SET_ICO[ev.setor] || '📌'}</span></div>
+      <div class="info">
+        <div class="topo">
+          <span class="paciente">${esc(ev.paciente)}</span>
+          <span class="status st-${esc(ev.status || 'Agendado')}">${esc(ev.status || 'Agendado')}</span>
+        </div>
+        <div class="servico">${esc(ev.servico || 'Atendimento')}${ev.responsavel_nome ? ` · Resp.: <b>${esc(ev.responsavel_nome)}</b>` : ''}${ev.profissional ? ` · ${esc(ev.profissional)}` : ''}</div>
+        <div class="grade">
+          <div class="bloco end"><span class="rot">📍 Endereço</span><span class="val">${ev.endereco ? esc(ev.endereco) : '—'}${ev.local_link ? ` <a href="${esc(ev.local_link)}">(mapa)</a>` : ''}</span></div>
+          <div class="bloco"><span class="rot">💳 Pagamento</span><span class="val">${ev.forma_pagamento ? esc(ev.forma_pagamento) + (ev.parcelas > 1 ? ` ${ev.parcelas}x` : '') : '—'}</span></div>
+          <div class="bloco"><span class="rot">💰 Valor</span><span class="val valor">${ev.valor != null && ev.valor !== '' ? brl(ev.valor) : '—'}</span></div>
+          <div class="bloco"><span class="rot">📞 Contato</span><span class="val">${ev.telefone ? esc(ev.telefone) : '—'}</span></div>
+        </div>
+        ${ev.observacoes ? `<div class="obs">📝 ${esc(ev.observacoes)}</div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
 
   const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
   <title>Agenda Vittalis — ${esc(dataISO.split('-').reverse().join('/'))}</title>
   <style>
-    * { box-sizing: border-box; font-family: 'Segoe UI', Arial, sans-serif; }
-    body { margin: 0; padding: 26px 30px; color: #133; }
-    .topo { display: flex; align-items: center; justify-content: space-between; border-bottom: 3px solid #00B8C0; padding-bottom: 12px; margin-bottom: 16px; }
-    .topo img { height: 52px; }
+    * { box-sizing: border-box; font-family: 'Segoe UI', system-ui, Arial, sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body { margin: 0; padding: 24px 26px; color: #12343b; background: #fff; }
+    .topo { display: flex; align-items: center; justify-content: space-between; padding-bottom: 14px; border-bottom: 3px solid #00B8C0; }
+    .topo img { height: 50px; }
     .topo .tit { text-align: right; }
-    .topo h1 { margin: 0; font-size: 20px; color: #0E8C96; }
-    .topo small { color: #557; text-transform: capitalize; }
-    table { width: 100%; border-collapse: collapse; font-size: 12px; }
-    th { background: #00B8C0; color: #fff; padding: 7px 9px; text-align: left; font-size: 11px; letter-spacing: .4px; }
-    td { padding: 7px 9px; border-bottom: 1px solid #e3eced; vertical-align: top; }
-    tr.sub td { border-bottom: 1px solid #e3eced; color: #567; font-size: 11px; padding-top: 0; }
-    small { color: #678; }
-    .rodape { margin-top: 18px; font-size: 10.5px; color: #789; display: flex; justify-content: space-between; }
-    @media print { body { padding: 10px 14px; } }
+    .topo h1 { margin: 0; font-size: 21px; color: #06424A; letter-spacing: -.3px; }
+    .topo .sub { color: #4a6b72; font-size: 12.5px; margin-top: 2px; text-transform: capitalize; }
+    .resumo { display: flex; gap: 10px; margin: 16px 0 18px; }
+    .chip { flex: 1; background: linear-gradient(160deg,#f3fbfc,#e8f5f7); border: 1px solid #d3e9ec; border-radius: 12px; padding: 11px 14px; }
+    .chip .n { font-size: 20px; font-weight: 800; color: #06424A; line-height: 1; }
+    .chip .l { font-size: 10.5px; color: #5a7c83; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; margin-top: 4px; }
+    .chip.destaque { background: linear-gradient(135deg,#00B8C0,#0E8C96); border: none; }
+    .chip.destaque .n, .chip.destaque .l { color: #fff; }
+    .card { display: flex; gap: 12px; align-items: stretch; border: 1px solid #e1edef; border-left: 4px solid #00B8C0; border-radius: 12px; padding: 11px 13px; margin-bottom: 9px; page-break-inside: avoid; }
+    .card.cancel { opacity: .5; border-left-color: #c0392b; }
+    .ordem { width: 26px; min-width: 26px; height: 26px; border-radius: 50%; background: #06424A; color: #fff; font-weight: 800; font-size: 12px; display: flex; align-items: center; justify-content: center; }
+    .hora { min-width: 64px; text-align: center; font-weight: 800; font-size: 16px; color: #0E8C96; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    .hora span { font-size: 16px; margin-top: 2px; }
+    .info { flex: 1; min-width: 0; }
+    .info .topo { display: flex; align-items: center; justify-content: space-between; gap: 8px; border: none; padding: 0; }
+    .paciente { font-size: 14.5px; font-weight: 800; color: #12343b; }
+    .status { font-size: 9.5px; font-weight: 800; padding: 2px 9px; border-radius: 20px; background: #e8f4fd; color: #1d6fb8; white-space: nowrap; }
+    .status.st-Confirmado { background: #e2f8ef; color: #0a8f5b; }
+    .status.st-Realizado { background: #eef2f6; color: #5a6b7b; }
+    .status.st-Cancelado { background: #fdecec; color: #c0392b; }
+    .servico { font-size: 11.5px; color: #557; margin: 2px 0 7px; }
+    .grade { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+    .bloco { background: #f7fbfc; border: 1px solid #eaf3f4; border-radius: 8px; padding: 6px 9px; min-width: 0; }
+    .bloco.end { grid-column: 1 / -1; }
+    .rot { display: block; font-size: 9px; font-weight: 800; color: #7c98a0; text-transform: uppercase; letter-spacing: .4px; }
+    .val { display: block; font-size: 12px; font-weight: 600; color: #1a3b42; margin-top: 1px; word-break: break-word; }
+    .val.valor { color: #0a8f5b; font-weight: 800; }
+    .val a { color: #0E8C96; font-weight: 700; }
+    .obs { margin-top: 7px; font-size: 11px; color: #6a7f86; background: #fffaf0; border: 1px solid #f3e6c8; border-radius: 7px; padding: 5px 9px; }
+    .rodape { margin-top: 18px; padding-top: 12px; border-top: 1.5px solid #e3eced; font-size: 10.5px; color: #8aa1a8; display: flex; justify-content: space-between; }
+    @media print { body { padding: 12px 14px; } .card { margin-bottom: 7px; } }
   </style></head><body>
     <div class="topo">
       <img src="${location.origin}/logos/logo-h-color.png" alt="Vittalis Saúde" onerror="this.style.display='none'">
-      <div class="tit"><h1>Agenda do Dia</h1><small>${esc(rotuloDia)}</small></div>
+      <div class="tit"><h1>Agenda do Dia</h1><div class="sub">${esc(rotuloDia)}</div></div>
     </div>
-    ${eventos.length === 0 ? '<p>Nenhum agendamento neste dia.</p>' : `
-    <table>
-      <thead><tr><th>Hora</th><th>Paciente</th><th>Serviço / Profissional</th><th>Contato</th><th>Valor</th><th>Status</th></tr></thead>
-      <tbody>${linhas}</tbody>
-    </table>`}
+    <div class="resumo">
+      <div class="chip"><div class="n">${ativos.length}</div><div class="l">Agendamentos</div></div>
+      <div class="chip"><div class="n">${confirmados}</div><div class="l">Confirmados</div></div>
+      <div class="chip destaque"><div class="n">${brl(totalReceber)}</div><div class="l">Total a receber</div></div>
+    </div>
+    ${eventos.length === 0 ? '<p style="color:#789">Nenhum agendamento neste dia.</p>' : cards}
     <div class="rodape">
       <span>Vittalis Saúde · VittaHub CRM 💎</span>
       <span>Gerado em ${new Date().toLocaleString('pt-BR')}</span>
     </div>
-    <script>window.onload = () => setTimeout(() => window.print(), 250);</script>
+    <script>window.onload = () => setTimeout(() => window.print(), 300);</script>
   </body></html>`;
 
   const w = window.open('', '_blank');
