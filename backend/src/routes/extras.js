@@ -26,11 +26,13 @@ r.get('/agenda', async (req, res) => {
     // Motorista único: a colega do MESMO setor vê que o horário está OCUPADO
     // (pra não agendar em cima), mas SEM o contato do cliente da outra. Dona e
     // gestão veem tudo. Atendente só vê o macro-setor dela.
+    // Cada setor tem a SUA agenda: a equipe de vacinas compartilha a agenda
+    // entre si (motorista único), mas NÃO com consultas nem terapias — e
+    // vice-versa. Gestão vê tudo.
     const isGestao = ['master', 'supervisor'].includes(req.user.role);
     const meuSetor = req.user.setor;
-    const ehVac = (s) => (s || 'vacinas') === 'vacinas';
     const out = rows
-      .filter(a => isGestao || !meuSetor || ehVac(a.setor) === (meuSetor === 'vacinas'))
+      .filter(a => isGestao || !meuSetor || (a.setor || 'vacinas') === meuSetor)
       .map(a => {
         if (isGestao || a.responsavel_id === req.user.id) return a;
         return {
@@ -326,9 +328,14 @@ r.get('/perdas/resumo', async (req, res) => {
 });
 
 /* ═══ PAINEL DE PROFISSIONAIS ════════════════════════════════════════════════ */
-// Quem gerencia profissionais: gestão (master/supervisor) E os times de consultas
-// e terapias (eles cadastram seus médicos/especialistas e a disponibilidade).
-const podeGerirProf = (req) => gestao(req) || ['consultas', 'terapias'].includes(req.user?.setor);
+// Painel de Profissionais é do setor de CONSULTAS (e da gestão).
+const podeGerirProf = (req) => gestao(req) || req.user?.setor === 'consultas';
+// Sanitiza a foto (data URL de imagem, até ~2,5MB) e os documentos anexados.
+const limparFoto = (f) => (f && /^data:image\/(jpeg|png|webp);base64,/.test(f) && f.length < 2_500_000) ? f : null;
+const limparDocs = (arr) => (Array.isArray(arr) ? arr : [])
+  .filter(d => d && d.arquivo && /^data:[\w/+.\-]+;base64,/.test(d.arquivo) && d.arquivo.length < 11_000_000)
+  .slice(0, 10)
+  .map(d => ({ nome: String(d.nome || 'documento').slice(0, 120), arquivo: d.arquivo, mimetype: String(d.mimetype || '').slice(0, 100) }));
 // Cadastro de médicos/especialistas + disponibilidade semanal.
 r.get('/profissionais', async (req, res) => {
   try {
@@ -345,11 +352,12 @@ r.post('/profissionais', async (req, res) => {
     if (!nome) return res.status(400).json({ error: 'Informe o nome do profissional.' });
     const setor = ['vacinas', 'consultas', 'terapias'].includes(b.setor) ? b.setor : 'consultas';
     const { rows: [p] } = await query(
-      `INSERT INTO profissionais (nome, especialidade, setor, cor, telefone, ativo, disponibilidade, observacoes)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      `INSERT INTO profissionais (nome, especialidade, setor, cor, telefone, ativo, disponibilidade, observacoes, foto, documentos)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
       [nome, cut(b.especialidade, 80), setor, cut(b.cor, 9) || '#00B8C0',
        cut(String(b.telefone || '').replace(/\D/g, ''), 13), b.ativo !== false,
-       JSON.stringify(b.disponibilidade || {}), cut(b.observacoes, 300)]);
+       JSON.stringify(b.disponibilidade || {}), cut(b.observacoes, 300),
+       limparFoto(b.foto), JSON.stringify(limparDocs(b.documentos))]);
     res.status(201).json(p);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -368,6 +376,8 @@ r.put('/profissionais/:id', async (req, res) => {
     if (b.ativo !== undefined) set('ativo', !!b.ativo);
     if (b.disponibilidade !== undefined) set('disponibilidade', JSON.stringify(b.disponibilidade || {}));
     if (b.observacoes !== undefined) set('observacoes', cut(b.observacoes, 300));
+    if (b.foto !== undefined) set('foto', limparFoto(b.foto));
+    if (b.documentos !== undefined) set('documentos', JSON.stringify(limparDocs(b.documentos)));
     if (!sets.length) return res.status(400).json({ error: 'Nada para atualizar' });
     params.push(req.params.id);
     const { rows: [p] } = await query(`UPDATE profissionais SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${i} RETURNING *`, params);

@@ -143,7 +143,7 @@ export default function App() {
           <Route path="/retornos"     element={<Retornos />} />
           <Route path="/relatorios"   element={<Relatorios />} />
           <Route path="/agenda" element={<Agenda />} />
-          <Route path="/profissionais" element={<Profissionais />} />
+          <Route path="/profissionais" element={(['master','supervisor'].includes(user.role) || user.setor === 'consultas') ? <Profissionais /> : <Navigate to="/" />} />
           <Route path="/metas" element={<Metas />} />
           <Route path="/equipe" element={<Equipe />} />
           <Route path="/classificar" element={<Classificar />} />

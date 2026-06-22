@@ -353,6 +353,9 @@ export default async function runMigrate() {
       cor TEXT DEFAULT '#00B8C0', telefone TEXT, ativo BOOLEAN DEFAULT true,
       disponibilidade JSONB DEFAULT '{}'::jsonb, observacoes TEXT,
       created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
+    // Foto do profissional + documentos complementares (diploma etc.)
+    await query(`ALTER TABLE profissionais ADD COLUMN IF NOT EXISTS foto TEXT`).catch(() => {});
+    await query(`ALTER TABLE profissionais ADD COLUMN IF NOT EXISTS documentos JSONB DEFAULT '[]'::jsonb`).catch(() => {});
     // VENDAS: espinha comercial — alimenta metas, dashboard e relatórios.
     // lead_id é TEXT porque os ids de lead/conversa são UUID (não inteiro).
     await query(`CREATE TABLE IF NOT EXISTS vendas (

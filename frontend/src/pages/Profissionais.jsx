@@ -1,20 +1,25 @@
-import React, { useEffect, useState } from 'react';
-import { Stethoscope, Plus, Pencil, Trash2, X, Check, Phone, Clock } from 'lucide-react';
+import React, { useEffect, useState, useRef } from 'react';
+import { Stethoscope, Plus, Pencil, Trash2, X, Check, Phone, Clock, Camera, Paperclip, FileText, Download } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt } from '../hooks/utils.js';
 
-/* Painel de Profissionais — cadastro de médicos/especialistas + disponibilidade. */
+/* Painel de Profissionais — cadastro de médicos/especialistas + disponibilidade.
+   Restrito ao setor de Consultas (e à gestão). */
 
 const DIAS = [['seg','Seg'],['ter','Ter'],['qua','Qua'],['qui','Qui'],['sex','Sex'],['sab','Sáb'],['dom','Dom']];
 const SETORES = [['vacinas','Vacinas'],['consultas','Consultas'],['terapias','Terapias']];
 const CORES = ['#00B8C0','#7c5cbf','#C4973B','#0fb07a','#e8671a','#3b82f6','#ec4899','#0E8C96'];
-const vazio = { nome:'', especialidade:'', setor:'consultas', cor:'#00B8C0', telefone:'', ativo:true, disponibilidade:{}, observacoes:'' };
+const vazio = { nome:'', especialidade:'', setor:'consultas', cor:'#00B8C0', telefone:'', ativo:true, disponibilidade:{}, observacoes:'', foto:null, documentos:[] };
+const fileToDataUrl = (file) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file); });
 
 export default function Profissionais() {
   const api = useApi();
   const { user } = useAuth();
-  // Gerenciam: gestão (master/supervisor) e os times de consultas e terapias.
-  const ehGestao = user?.role === 'master' || user?.role === 'supervisor' || ['consultas','terapias'].includes(user?.setor);
+  // Painel é do setor de Consultas (e da gestão). Os demais setores não veem.
+  const podeVer = ['master','supervisor'].includes(user?.role) || user?.setor === 'consultas';
+  const ehGestao = podeVer;
+  const fotoRef = useRef(null);
+  const docRef = useRef(null);
   const [lista, setLista] = useState([]);
   const [modal, setModal] = useState(null);
   const [salvando, setSalvando] = useState(false);
@@ -39,6 +44,26 @@ export default function Profissionais() {
     try { await api.del(`/extras/profissionais/${p.id}`); } catch { load(); }
   };
 
+  const escolherFoto = async (e) => {
+    const f = e.target.files?.[0]; e.target.value = '';
+    if (!f) return;
+    if (!f.type.startsWith('image/')) { setErro('A foto precisa ser uma imagem.'); return; }
+    const url = await fileToDataUrl(f);
+    if (url.length > 2_400_000) { setErro('Foto muito grande (máx. ~2MB). Tente outra.'); return; }
+    setErro(''); setModal(m => ({ ...m, foto: url }));
+  };
+  const anexarDocs = async (e) => {
+    const files = Array.from(e.target.files || []); e.target.value = '';
+    const novos = [];
+    for (const f of files) {
+      const url = await fileToDataUrl(f);
+      if (url.length > 11_000_000) { setErro(`"${f.name}" é muito grande (máx. ~8MB).`); continue; }
+      novos.push({ nome: f.name, arquivo: url, mimetype: f.type });
+    }
+    if (novos.length) setModal(m => ({ ...m, documentos: [...(m.documentos || []), ...novos].slice(0, 10) }));
+  };
+  const removerDoc = (idx) => setModal(m => ({ ...m, documentos: (m.documentos || []).filter((_, i) => i !== idx) }));
+
   const setDispDia = (dia, campo, valor) => setModal(m => ({
     ...m, disponibilidade: { ...m.disponibilidade, [dia]: { ...(m.disponibilidade?.[dia] || {}), [campo]: valor } },
   }));
@@ -47,6 +72,8 @@ export default function Profissionais() {
     if (!ds.length) return 'Sem horário definido';
     return ds.map(([k, lbl]) => `${lbl} ${disp[k].inicio}-${disp[k].fim}`).join(' · ');
   };
+
+  if (!podeVer) return <div style={{ padding:40, color:'var(--muted)' }}>🔒 O Painel de Profissionais é do setor de Consultas.</div>;
 
   return (
     <div style={{ padding:'28px' }}>
@@ -74,9 +101,9 @@ export default function Profissionais() {
           {lista.map(p => (
             <div key={p.id} className="card" style={{ padding:'16px 18px', opacity:p.ativo?1:.55 }}>
               <div style={{ display:'flex', alignItems:'flex-start', gap:11 }}>
-                <div style={{ width:42, height:42, borderRadius:'50%', background:p.cor||'var(--tq)', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:15, fontWeight:800, flexShrink:0 }}>
-                  {fmt.initials(p.nome)}
-                </div>
+                {p.foto
+                  ? <img src={p.foto} alt={p.nome} style={{ width:42, height:42, borderRadius:'50%', objectFit:'cover', flexShrink:0, border:`2px solid ${p.cor||'var(--tq)'}` }} />
+                  : <div style={{ width:42, height:42, borderRadius:'50%', background:p.cor||'var(--tq)', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:15, fontWeight:800, flexShrink:0 }}>{fmt.initials(p.nome)}</div>}
                 <div style={{ flex:1, minWidth:0 }}>
                   <div style={{ fontWeight:800, fontSize:15 }}>{p.nome}{!p.ativo && <span style={{ fontSize:10, color:'var(--err)', fontWeight:800, marginLeft:6 }}>INATIVO</span>}</div>
                   <div style={{ fontSize:12.5, color:'var(--muted)' }}>{p.especialidade || '—'}</div>
@@ -94,6 +121,18 @@ export default function Profissionais() {
                 <Clock size={12} style={{ marginTop:2, flexShrink:0 }}/>
                 <span>{resumoDisp(p.disponibilidade)}</span>
               </div>
+              {Array.isArray(p.documentos) && p.documentos.length > 0 && (
+                <div style={{ marginTop:9, paddingTop:9, borderTop:'1px solid var(--border)', display:'flex', flexWrap:'wrap', gap:6 }}>
+                  {p.documentos.map((d, i) => (
+                    <a key={i} href={d.arquivo} download={d.nome} title={d.nome}
+                      style={{ display:'flex', alignItems:'center', gap:5, fontSize:11, fontWeight:700, color:'var(--tq2)', background:'var(--tq4)', border:'1px solid var(--tq3)', borderRadius:8, padding:'4px 8px', textDecoration:'none', maxWidth:160 }}>
+                      <FileText size={12} style={{ flexShrink:0 }}/>
+                      <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{d.nome}</span>
+                      <Download size={11} style={{ flexShrink:0, opacity:.7 }}/>
+                    </a>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -107,6 +146,18 @@ export default function Profissionais() {
               <button onClick={()=>setModal(null)} style={{ padding:4, background:'none', border:'none', cursor:'pointer', color:'var(--muted)' }}><X size={16}/></button>
             </div>
             <div style={{ display:'flex', flexDirection:'column', gap:11 }}>
+              {/* Foto do profissional */}
+              <div className="field" style={{ margin:0 }}>
+                <label>Foto do profissional</label>
+                <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+                  {modal.foto
+                    ? <img src={modal.foto} alt="" style={{ width:60, height:60, borderRadius:'50%', objectFit:'cover', border:'2px solid var(--tq)' }} />
+                    : <div style={{ width:60, height:60, borderRadius:'50%', background:'var(--bg2)', display:'flex', alignItems:'center', justifyContent:'center', color:'var(--muted)' }}><Camera size={22}/></div>}
+                  <input ref={fotoRef} type="file" accept="image/*" style={{ display:'none' }} onChange={escolherFoto}/>
+                  <button type="button" onClick={()=>fotoRef.current?.click()} className="btn btn-s btn-sm" style={{ gap:6 }}><Camera size={14}/> {modal.foto?'Trocar foto':'Anexar foto'}</button>
+                  {modal.foto && <button type="button" onClick={()=>setModal({...modal,foto:null})} className="btn btn-sm" style={{ color:'var(--err)' }}>Remover</button>}
+                </div>
+              </div>
               <div className="field" style={{ margin:0 }}><label>Nome *</label><input value={modal.nome} onChange={e=>setModal({...modal,nome:e.target.value})} placeholder="Ex: Dra. Helena Brandão"/></div>
               <div className="field" style={{ margin:0 }}><label>Especialidade</label><input value={modal.especialidade} onChange={e=>setModal({...modal,especialidade:e.target.value})} placeholder="Ex: Neuropediatra"/></div>
               <div style={{ display:'flex', gap:10 }}>
@@ -136,6 +187,24 @@ export default function Profissionais() {
                     </div>
                   ))}
                 </div>
+              </div>
+
+              {/* Documentos complementares (diploma, registro, etc.) */}
+              <div className="field" style={{ margin:0 }}>
+                <label>Documentos complementares (diploma, registro…)</label>
+                <input ref={docRef} type="file" multiple accept="image/*,application/pdf,.doc,.docx" style={{ display:'none' }} onChange={anexarDocs}/>
+                <button type="button" onClick={()=>docRef.current?.click()} className="btn btn-s btn-sm" style={{ gap:6 }}><Paperclip size={14}/> Anexar documento</button>
+                {(modal.documentos || []).length > 0 && (
+                  <div style={{ display:'flex', flexDirection:'column', gap:6, marginTop:8 }}>
+                    {(modal.documentos || []).map((d, i) => (
+                      <div key={i} style={{ display:'flex', alignItems:'center', gap:8, background:'var(--bg2)', borderRadius:8, padding:'6px 10px' }}>
+                        <FileText size={14} style={{ flexShrink:0, color:'var(--tq2)' }}/>
+                        <span style={{ flex:1, minWidth:0, fontSize:12.5, fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{d.nome}</span>
+                        <button type="button" onClick={()=>removerDoc(i)} title="Remover" style={{ background:'none', border:'none', cursor:'pointer', color:'var(--err)' }}><X size={14}/></button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <label style={{ display:'flex', alignItems:'center', gap:9, cursor:'pointer' }}>
