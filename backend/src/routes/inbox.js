@@ -2578,6 +2578,7 @@ r.put('/pasta-funil/etapas/:id', masterOnly, async (req, res) => {
     const sets = [], params = []; let i = 1;
     if (req.body.nome !== undefined) { sets.push(`nome = $${i++}`); params.push(String(req.body.nome).trim().slice(0, 32)); }
     if (req.body.cor !== undefined && /^#[0-9a-fA-F]{6}$/.test(req.body.cor)) { sets.push(`cor = $${i++}`); params.push(req.body.cor); }
+    if (req.body.descricao !== undefined) { sets.push(`descricao = $${i++}`); params.push(String(req.body.descricao || '').slice(0, 1500) || null); }
     if (!sets.length) return res.status(400).json({ error: 'Nada para atualizar.' });
     params.push(req.params.id);
     const { rows: [e] } = await query(`UPDATE pasta_etapas SET ${sets.join(', ')} WHERE id = $${i} RETURNING *`, params);

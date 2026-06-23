@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { MessageSquare, Plus, X, Check, GripVertical } from 'lucide-react';
+import { MessageSquare, Plus, X, Check, GripVertical, FileText } from 'lucide-react';
 import { fmt } from '../hooks/utils.js';
 
 /* Funil DENTRO da pasta: Kanban de etapas (que o master cria/renomeia) pra
@@ -26,6 +26,7 @@ export default function PastaFunil({ api, contexto, cor, lista, setLista, nav, i
   const [overCol, setOverCol] = useState(null);
   const [editId, setEditId] = useState(null);
   const [editNome, setEditNome] = useState('');
+  const [descAlvo, setDescAlvo] = useState(null);      // etapa em edição do passo a passo
   const [vendaAlvo, setVendaAlvo] = useState(null);   // { card, etapa }
   const [perdaAlvo, setPerdaAlvo] = useState(null);    // { card, etapa }
 
@@ -102,10 +103,16 @@ export default function PastaFunil({ api, contexto, cor, lista, setLista, nav, i
                     style={{ flex: 1, fontWeight: 800, fontSize: 13, color: et.cor, cursor: isMaster ? 'text' : 'default' }}
                     title={isMaster ? 'Duplo clique para renomear' : ''}>{et.nome}</span>
                   <span style={{ fontSize: 11, fontWeight: 800, color: 'var(--muted)', background: 'var(--bg2)', borderRadius: 10, padding: '1px 7px' }}>{cards.length}</span>
+                  {isMaster && <button onClick={() => setDescAlvo(et)} title="Passo a passo desta etapa" style={{ border: 'none', background: 'none', cursor: 'pointer', color: et.descricao ? et.cor : 'var(--muted)' }}><FileText size={13} /></button>}
                   {isMaster && !et.fixa && <button onClick={() => excluirEtapa(et)} title="Excluir etapa" style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={13} /></button>}
                 </>
               )}
             </div>
+            {et.descricao && (
+              <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)', background: 'var(--bg2)', fontSize: 11, color: 'var(--txt2)', whiteSpace: 'pre-wrap', lineHeight: 1.45, maxHeight: 150, overflowY: 'auto' }}>
+                {et.descricao}
+              </div>
+            )}
             <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 7, minHeight: 60, maxHeight: 520, overflowY: 'auto' }}>
               {cards.map(c => (
                 <div key={c.id} draggable onDragStart={() => setDragId(c.id)} onDragEnd={() => setDragId(null)}
@@ -132,6 +139,11 @@ export default function PastaFunil({ api, contexto, cor, lista, setLista, nav, i
         </button>
       )}
 
+      {descAlvo && (
+        <DescModal api={api} etapa={descAlvo}
+          onClose={() => setDescAlvo(null)}
+          onSaved={() => { setDescAlvo(null); loadEtapas(); }} />
+      )}
       {vendaAlvo && (
         <VendaModal api={api} contexto={contexto} card={vendaAlvo.card}
           onClose={() => setVendaAlvo(null)}
@@ -143,6 +155,28 @@ export default function PastaFunil({ api, contexto, cor, lista, setLista, nav, i
           onSaved={() => { mover(perdaAlvo.card, perdaAlvo.etapa.nome); setPerdaAlvo(null); }} />
       )}
     </div>
+  );
+}
+
+/* Passo a passo da etapa: o que a atendente deve fazer quando o lead está aqui. */
+function DescModal({ api, etapa, onClose, onSaved }) {
+  const [txt, setTxt] = useState(etapa.descricao || '');
+  const [salvando, setSalvando] = useState(false);
+  const salvar = async () => {
+    setSalvando(true);
+    try { await api.put(`/inbox/pasta-funil/etapas/${etapa.id}`, { descricao: txt }); onSaved(); }
+    catch (e) { window.alert('Erro: ' + (e.message || e)); setSalvando(false); }
+  };
+  return (
+    <ModalShell titulo={`📋 Passo a passo — ${etapa.nome}`} onClose={onClose}>
+      <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>Escreva o que a atendente deve fazer quando o cliente estiver nesta etapa (instruções, checklist, mensagens-modelo…).</div>
+      <textarea autoFocus value={txt} onChange={e => setTxt(e.target.value)} rows={8}
+        placeholder={'Ex.:\n1. Mandar mensagem de acolhimento\n2. Entender a necessidade\n3. Enviar o combo ideal\n4. Combinar o pagamento'}
+        style={{ ...inputCss, resize: 'vertical', lineHeight: 1.5, fontFamily: 'inherit' }} />
+      <button onClick={salvar} disabled={salvando} className="btn btn-p" style={{ width: '100%', gap: 7, background: etapa.cor, borderColor: etapa.cor }}>
+        {salvando ? <span className="spin" style={{ width: 15, height: 15 }} /> : <Check size={15} />} Salvar passo a passo
+      </button>
+    </ModalShell>
   );
 }
 

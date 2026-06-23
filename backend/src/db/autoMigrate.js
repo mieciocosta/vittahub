@@ -420,6 +420,7 @@ export default async function runMigrate() {
       ordem INT DEFAULT 0, fixa BOOLEAN DEFAULT false,
       created_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
     await query(`ALTER TABLE pasta_etapas ADD COLUMN IF NOT EXISTS tipo TEXT`).catch(() => {}); // 'ganho' | 'perdido' | null
+    await query(`ALTER TABLE pasta_etapas ADD COLUMN IF NOT EXISTS descricao TEXT`).catch(() => {}); // passo a passo da etapa
     await query(`CREATE INDEX IF NOT EXISTS idx_pasta_etapas_ctx ON pasta_etapas (contexto, ordem)`).catch(() => {});
     // Backfill do tipo nas etapas padrão já semeadas antes desta coluna existir.
     await query(`UPDATE pasta_etapas SET tipo = 'ganho' WHERE nome = 'Ganho' AND tipo IS NULL`).catch(() => {});
