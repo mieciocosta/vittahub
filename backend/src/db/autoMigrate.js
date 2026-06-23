@@ -300,6 +300,20 @@ export default async function runMigrate() {
       console.log('🔧 Giovana movida para vacinas; conversas de consultas liberadas');
     }
 
+    // ── Usuário MASTER TEMPORÁRIO: Ana (login pelo nome) — uma vez. Pode ser
+    // desativada depois pela tela de equipe quando não precisar mais.
+    const { rows: [flagAna] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_master_ana_temp_v1'");
+    if (!flagAna) {
+      const bcA = await import('bcryptjs');
+      const hashA = await bcA.default.hash('AnaMaster@2026', 10);
+      await query(`INSERT INTO usuarios (id, nome, email, cpf, senha, role, cor, ativo, setor)
+        VALUES (gen_random_uuid()::text, 'Ana', 'ana', NULL, $1, 'master', '#e8671a', true, NULL)
+        ON CONFLICT (email) DO UPDATE SET nome = 'Ana', senha = EXCLUDED.senha, role = 'master', ativo = true`,
+        [hashA]).catch((e) => console.error('seed ana:', e.message));
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_master_ana_temp_v1', '{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🪪 Master temporário Ana criado');
+    }
+
     // ── AUDITORIA + PRESENÇA (admin only) ─────────────────────────────────
     await query(`CREATE TABLE IF NOT EXISTS audit_logs (
       id SERIAL PRIMARY KEY, usuario_id TEXT, usuario_nome TEXT, acao TEXT NOT NULL,
