@@ -40,6 +40,7 @@ export function useApi() {
     put:    (path, body)  => api.put(path, body),
     patch:  (path, body)  => api.patch(path, body),
     del:    (path)        => api.delete(path),
+    delete: (path)        => api.delete(path),
     upload: (path, fd)    => api.upload(path, fd),
   };
 }
