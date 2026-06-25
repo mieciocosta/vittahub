@@ -329,7 +329,11 @@ export default function Configuracoes() {
                 )}
                 <div style={{ flex:1, minWidth:0 }}>
                   <div style={{ fontWeight:700, fontSize:13 }}>{u.nome}{!u.ativo && <span style={{ fontSize:10, color:'var(--err)', fontWeight:800, marginLeft:6 }}>INATIVO</span>}</div>
-                  <div style={{ fontSize:11.5, color:'var(--muted)' }}>{u.cpf ? `CPF ${maskCpf(u.cpf)}` : 'Sem CPF cadastrado — entra pelo e-mail'}{u.setor ? ` · ${u.setor[0].toUpperCase()+u.setor.slice(1)}` : ''}</div>
+                  <div style={{ fontSize:11.5, color:'var(--muted)' }}>{u.cpf ? `CPF ${maskCpf(u.cpf)}` : 'Sem CPF cadastrado — entra pelo e-mail'}{(() => {
+                    const labs = { vacinas:'Vacinas', consultas:'Consultas', terapias:'Terapias' };
+                    const ss = (Array.isArray(u.setores) && u.setores.length) ? u.setores : (u.setor ? [u.setor] : []);
+                    return ss.length ? ` · ${ss.map(s=>labs[s]||s).join(', ')}` : '';
+                  })()}</div>
                 </div>
                 <span style={{ fontSize:11, fontWeight:700, padding:'3px 9px', borderRadius:12, background:u.role==='master'?'var(--gold2)':'var(--tq3)', color:u.role==='master'?'var(--gold)':'var(--tq)', flexShrink:0 }}>
                   {u.role==='master'?'Master':u.role==='supervisor'?'Supervisora':'Atendente'}

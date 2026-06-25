@@ -324,12 +324,13 @@ export default async function runMigrate() {
       await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_master_ana_cpf_v1', '{"ok":true}') ON CONFLICT DO NOTHING`);
     }
 
-    // Danielle: acesso a vacinas E consultas (só ela). Uma vez.
-    const { rows: [flagDani] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_danielle_multisetor_v1'");
+    // Danielle: acesso a vacinas E consultas (só ela). Deixa a conta redonda.
+    const { rows: [flagDani] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_danielle_multisetor_v2'");
     if (!flagDani) {
-      await query(`UPDATE usuarios SET setores = '{vacinas,consultas}' WHERE email = 'danielle@vittalissaude.com.br' OR cpf = '61867382300'`).catch(() => {});
-      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_danielle_multisetor_v1', '{"ok":true}') ON CONFLICT DO NOTHING`);
-      console.log('🔓 Danielle: acesso vacinas + consultas');
+      await query(`UPDATE usuarios SET setores = '{vacinas,consultas}', setor = COALESCE(setor,'vacinas'), ativo = true
+                   WHERE email = 'danielle@vittalissaude.com.br' OR cpf = '61867382300'`).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_danielle_multisetor_v2', '{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🔓 Danielle: vacinas + consultas (conta completa)');
     }
 
     // ── AUDITORIA + PRESENÇA (admin only) ─────────────────────────────────
