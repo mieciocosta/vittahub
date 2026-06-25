@@ -96,7 +96,7 @@ r.patch('/me/avatar', auth, async (req, res) => {
 r.get('/usuarios', auth, async (req, res) => {
   if (req.user.role !== 'master') return res.status(403).json({ error: 'Acesso negado' });
   try {
-    const { rows } = await query("SELECT id,nome,email,cpf,role,cor,ativo,avatar,setor FROM usuarios WHERE role!='bot' ORDER BY nome");
+    const { rows } = await query("SELECT id,nome,email,cpf,role,cor,ativo,avatar,setor,setores FROM usuarios WHERE role!='bot' ORDER BY nome");
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -140,6 +140,10 @@ r.put('/usuarios/:id', auth, async (req, res) => {
     if (role !== undefined && ['master', 'supervisor', 'atendente'].includes(role)) set('role', role);
     set('cor', cor);
     if (setor !== undefined) set('setor', ['vacinas','consultas','terapias'].includes(setor) ? setor : null);
+    if (req.body.setores !== undefined) {
+      const ss = Array.isArray(req.body.setores) ? req.body.setores.filter(s => ['vacinas','consultas','terapias'].includes(s)) : [];
+      set('setores', ss.length ? ss : null);
+    }
     set('ativo', ativo);
     if (senha) {
       if (String(senha).length < 8) return res.status(400).json({ error: 'A senha precisa de pelo menos 8 caracteres' });
@@ -149,7 +153,7 @@ r.put('/usuarios/:id', auth, async (req, res) => {
     if (!updates.length) return res.status(400).json({ error: 'Nada para atualizar' });
     params.push(req.params.id);
     const { rows } = await query(
-      `UPDATE usuarios SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${pi} RETURNING id,nome,email,cpf,role,cor,ativo,setor`,
+      `UPDATE usuarios SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${pi} RETURNING id,nome,email,cpf,role,cor,ativo,setor,setores`,
       params
     );
     if (!rows[0]) return res.status(404).json({ error: 'Usuário não encontrado' });

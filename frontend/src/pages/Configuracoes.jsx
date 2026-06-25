@@ -52,7 +52,7 @@ export default function Configuracoes() {
     if (editUser.cpf && cpfDig.length !== 11) return setUserErr('CPF incompleto — precisa de 11 dígitos.');
     if (editUser.senha && editUser.senha.length < 8) return setUserErr('A nova senha precisa de pelo menos 8 caracteres.');
     try {
-      const payload = { cpf: cpfDig, ativo: editUser.ativo, setor: editUser.setor || null };
+      const payload = { cpf: cpfDig, ativo: editUser.ativo, setor: editUser.setor || null, setores: (editUser.setores || []).length ? editUser.setores : null };
       if (editUser.senha) payload.senha = editUser.senha;
       const upd = await api.put(`/auth/usuarios/${editUser.id}`, payload);
       setUsers(prev => prev.map(u => u.id === upd.id ? { ...u, ...upd } : u));
@@ -335,7 +335,7 @@ export default function Configuracoes() {
                   {u.role==='master'?'Master':u.role==='supervisor'?'Supervisora':'Atendente'}
                 </span>
                 {isMaster && (
-                  <button onClick={()=>{setUserErr('');setEditUser(editUser?.id===u.id?null:{ id:u.id, cpf:maskCpf(u.cpf||''), senha:'', ativo:u.ativo, setor:u.setor||'' });}}
+                  <button onClick={()=>{setUserErr('');setEditUser(editUser?.id===u.id?null:{ id:u.id, cpf:maskCpf(u.cpf||''), senha:'', ativo:u.ativo, setor:u.setor||'', setores:Array.isArray(u.setores)?u.setores:[] });}}
                     style={{ width:26, height:26, borderRadius:8, border:'1.5px solid var(--border)', background:'var(--card)', color:'var(--muted)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
                     {editUser?.id===u.id?<X size={12}/>:<Pencil size={12}/>}
                   </button>
@@ -354,11 +354,25 @@ export default function Configuracoes() {
                     </div>
                   </div>
                   <div className="field">
-                    <label>Setor</label>
+                    <label>Setor principal</label>
                     <select value={editUser.setor||''} onChange={e=>setEditUser({...editUser, setor:e.target.value})}
                       style={{ width:'100%', padding:'8px 10px', borderRadius:10, border:'1.5px solid var(--border)', fontSize:12.5, background:'var(--card)', color:'var(--txt)' }}>
                       {[['','—'],['vacinas','Vacinas'],['consultas','Consultas'],['terapias','Terapias']].map(([v,l])=><option key={v} value={v}>{l}</option>)}
                     </select>
+                  </div>
+                  <div className="field">
+                    <label>Setores que enxerga (acesso)</label>
+                    <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+                      {[['vacinas','💉 Vacinas'],['consultas','🩺 Consultas'],['terapias','🧩 Terapias']].map(([v,l])=>{
+                        const on = (editUser.setores||[]).includes(v);
+                        return (
+                          <button key={v} type="button" onClick={()=>setEditUser(eu=>({...eu, setores: on ? (eu.setores||[]).filter(x=>x!==v) : [...(eu.setores||[]), v]}))}
+                            style={{ padding:'7px 12px', borderRadius:9, border:`1.5px solid ${on?'var(--tq)':'var(--border)'}`, cursor:'pointer', fontSize:12.5, fontWeight:700,
+                              background:on?'var(--tq3)':'var(--card)', color:on?'var(--tq)':'var(--muted)' }}>{on?'✓ ':''}{l}</button>
+                        );
+                      })}
+                    </div>
+                    <span style={{ fontSize:11, color:'var(--muted)', display:'block', marginTop:5 }}>Marque pra esta pessoa ver mais de um setor (ex.: vacinas + consultas). Em branco = regra normal pelo setor principal.</span>
                   </div>
                   <label style={{ display:'flex', alignItems:'center', gap:7, fontSize:12.5, fontWeight:600, color:'var(--txt2)', cursor:'pointer' }}>
                     <input type="checkbox" checked={editUser.ativo} onChange={e=>setEditUser({...editUser, ativo:e.target.checked})} style={{ width:15, height:15 }} />
