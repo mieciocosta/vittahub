@@ -32,9 +32,12 @@ r.get('/agenda', async (req, res) => {
     // consultas nem terapias, e vice-versa. Gestão vê tudo.
     const isGestao = ['master', 'supervisor'].includes(req.user.role);
     const meuSetor = req.user.setor;
-    const out = (isGestao || !meuSetor)
+    const meusSetores = Array.isArray(req.user.setores) && req.user.setores.length ? req.user.setores : null;
+    const out = isGestao
       ? rows
-      : rows.filter(a => (a.setor || 'vacinas') === meuSetor);
+      : meusSetores
+        ? rows.filter(a => meusSetores.includes(a.setor || 'vacinas'))   // multi-setor (Danielle)
+        : !meuSetor ? rows : rows.filter(a => (a.setor || 'vacinas') === meuSetor);
     res.json(out);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

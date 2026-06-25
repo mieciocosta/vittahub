@@ -15,6 +15,9 @@ export default async function runMigrate() {
     )`);
     await query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS cpf TEXT`).catch(() => {});
     await query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_usuarios_cpf ON usuarios(cpf) WHERE cpf IS NOT NULL`).catch(() => {});
+    // Acesso multi-setor: lista de setores exatos que o usuário pode ver, além da
+    // regra macro (ex.: Danielle vê vacinas E consultas). Vazio = regra normal.
+    await query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS setores TEXT[]`).catch(() => {});
 
     await query(`CREATE TABLE IF NOT EXISTS leads (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
@@ -319,6 +322,14 @@ export default async function runMigrate() {
     if (!flagAnaCpf) {
       await query(`UPDATE usuarios SET cpf = '11144477735' WHERE email = 'ana' AND (cpf IS NULL OR cpf = '')`).catch(() => {});
       await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_master_ana_cpf_v1', '{"ok":true}') ON CONFLICT DO NOTHING`);
+    }
+
+    // Danielle: acesso a vacinas E consultas (só ela). Uma vez.
+    const { rows: [flagDani] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_danielle_multisetor_v1'");
+    if (!flagDani) {
+      await query(`UPDATE usuarios SET setores = '{vacinas,consultas}' WHERE email = 'danielle@vittalissaude.com.br' OR cpf = '61867382300'`).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_danielle_multisetor_v1', '{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🔓 Danielle: acesso vacinas + consultas');
     }
 
     // ── AUDITORIA + PRESENÇA (admin only) ─────────────────────────────────

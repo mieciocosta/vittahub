@@ -102,10 +102,14 @@ const ehGrupo = (c) => String(c.contact_id || '').includes('g.us') || String(c.p
 // O cache de conversas não guarda o setor do responsável, então mantemos este mapa
 // atualizado (a cada 30s) e usamos de forma síncrona na filtragem.
 let usuariosSetor = new Map();
+let usuariosSetores = new Map(); // id → setores extras (acesso multi-setor, ex.: Danielle)
 async function carregarUsuariosSetor() {
   try {
-    const { rows } = await query('SELECT id, setor FROM usuarios');
+    let rows;
+    try { ({ rows } = await query('SELECT id, setor, setores FROM usuarios')); }
+    catch { ({ rows } = await query('SELECT id, setor FROM usuarios')); } // coluna 'setores' ainda não existe
     usuariosSetor = new Map(rows.map(u => [String(u.id), u.setor || null]));
+    usuariosSetores = new Map(rows.filter(u => Array.isArray(u.setores) && u.setores.length).map(u => [String(u.id), u.setores]));
   } catch { /* banco ainda não pronto — tenta de novo no próximo tick */ }
 }
 carregarUsuariosSetor();
@@ -131,8 +135,20 @@ setUserSetorFn((userId) => usuariosSetor.get(String(userId)) || null);
 // Regra de acesso (gestão): master e quem não tem setor veem tudo. Quem é de
 // VACINAS só acessa conversa do grupo vacina; quem é de consultas/terapias acessa
 // o grupo não-vacina. Conversa de grupo indefinido fica visível a todos.
+// Setor EXATO da conversa (vacinas | consultas | terapias | null).
+function setorEfetivo(conv) {
+  const respSetor = conv.responsavel_id ? usuariosSetor.get(String(conv.responsavel_id)) : null;
+  return conv.setor || respSetor || null;
+}
 function podeVerSetor(viewer, conv) {
   if (!viewer || viewer.role === 'master') return true;
+  // Acesso MULTI-SETOR (ex.: Danielle vê vacinas E consultas). Lista vinda do
+  // token ou do cache (id → setores). Vê o setor exato da lista, ou indefinido.
+  const extras = (Array.isArray(viewer.setores) && viewer.setores.length ? viewer.setores : usuariosSetores.get(String(viewer.id))) || null;
+  if (extras && extras.length) {
+    const ef = setorEfetivo(conv);
+    return ef === null || extras.includes(ef);
+  }
   // O setor pode não vir no token antigo — resolve pelo cache (id → setor).
   const viewerSetor = viewer.setor || usuariosSetor.get(String(viewer.id)) || null;
   if (!viewerSetor) return true;

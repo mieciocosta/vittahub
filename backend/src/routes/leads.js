@@ -61,11 +61,15 @@ r.get('/', async (req, res) => {
       conditions.push(`(l.nome ILIKE $${pi} OR l.telefone ILIKE $${pi} OR l.email ILIKE $${pi})`);
       params.push(`%${search}%`); pi++;
     }
-    // Acesso por SETOR (macro-grupo vacinas x não-vacinas): atendente E
-    // supervisora só veem leads do seu setor. Master vê tudo.
-    if (req.user.role !== 'master' && req.user.setor) {
-      const g = `COALESCE(l.setor,'vacinas')`;
-      conditions.push(req.user.setor === 'vacinas' ? `${g} = 'vacinas'` : `${g} <> 'vacinas'`);
+    // Acesso por SETOR: master vê tudo. Multi-setor (ex.: Danielle) vê os setores
+    // exatos da lista dela. Senão, regra macro (vacinas x não-vacinas).
+    if (req.user.role !== 'master') {
+      if (Array.isArray(req.user.setores) && req.user.setores.length) {
+        conditions.push(`COALESCE(l.setor,'vacinas') = ANY($${pi++})`); params.push(req.user.setores);
+      } else if (req.user.setor) {
+        const g = `COALESCE(l.setor,'vacinas')`;
+        conditions.push(req.user.setor === 'vacinas' ? `${g} = 'vacinas'` : `${g} <> 'vacinas'`);
+      }
     }
     // CARTEIRA: a atendente vê só os leads dela (responsável = ela). A gestão vê
     // todos do setor e pode filtrar por atendente (?responsavel_id=).
