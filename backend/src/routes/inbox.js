@@ -4694,6 +4694,28 @@ r.post('/whatsapp/zapi/disconnect', masterOnly, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// RECONECTAR SEM QR: só reinicia a instância (restart). Funciona SE o aparelho
+// ainda estiver com o dispositivo vinculado (queda temporária). Se o WhatsApp
+// tiver deslogado o dispositivo, aí não tem jeito — precisa do celular.
+r.post('/whatsapp/zapi/restart', masterOnly, async (req, res) => {
+  if (!zapiOk()) return res.status(400).json({ error: 'Z-API não configurada' });
+  try {
+    await zapiCall('/restart', 'GET').catch(() => {});
+    let connected = false, smartphone = null;
+    for (let i = 0; i < 6; i++) {
+      await new Promise(r => setTimeout(r, 3500));
+      const r2 = await zapiCall('/status', 'GET').catch(() => null);
+      if (r2?.ok) {
+        const d = await r2.json().catch(() => ({}));
+        smartphone = d.smartphoneConnected ?? smartphone;
+        if (d.connected === true || d.smartphoneConnected === true) { connected = true; break; }
+      }
+    }
+    if (connected) { await configurarWebhooksZapi().catch(() => {}); }
+    res.json({ ok: true, connected, smartphone });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ─── Z-API: status ────────────────────────────────────────────────────────────
 // ─── DEBUG: ver resposta raw do Z-API /chats ─────────────────────────────────
 r.get('/whatsapp/zapi/debug-chats', async (req, res) => {

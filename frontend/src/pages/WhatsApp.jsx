@@ -105,6 +105,19 @@ export default function WhatsApp() {
     setMsg('');
   };
 
+  // RECONECTAR SEM QR: tenta restaurar a sessão via restart (sem tocar no celular).
+  // Só funciona se o aparelho ainda estiver com o dispositivo vinculado.
+  const reconectarRestart = async () => {
+    setBusy(true);
+    setMsg('Tentando reconectar sem QR (reiniciando a sessão)… aguarde uns 25 segundos.');
+    try {
+      const d = await api.post('/inbox/whatsapp/zapi/restart', {});
+      if (d.connected) { setMsg('✅ Reconectado com sucesso, sem precisar do celular!'); await checkStatus(true); }
+      else { setMsg('Não deu pra reconectar sem o celular — o WhatsApp deslogou o dispositivo. Nesse caso é obrigatório escanear o QR no aparelho (Passo 1 abaixo).'); }
+    } catch (e) { setMsg('Erro ao tentar reconectar: ' + (e.message || e)); }
+    setBusy(false);
+  };
+
   // PASSO 2: Após confirmar que desconectou do celular, gera QR
   const generateQR = async () => {
     setBusy(true);
@@ -246,6 +259,13 @@ export default function WhatsApp() {
             <RefreshCw size={13}/>
           </button>
         </div>
+        {status !== 'connected' && status !== 'loading' && (
+          <button onClick={reconectarRestart} disabled={busy}
+            style={{ marginTop:14, width:'100%', padding:'11px', borderRadius:10, background:WA_GREEN, color:'#fff', border:'none', cursor:busy?'wait':'pointer', fontWeight:700, fontSize:13.5, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
+            {busy?<Loader2 size={15} style={{animation:'spin 1s linear infinite'}}/>:<RefreshCw size={15}/>}
+            Reconectar sem QR (tentar restaurar a sessão)
+          </button>
+        )}
         {msg === 'zapi-fallback' && (
           <div style={{ marginTop:12, padding:'14px', background:'#fef3c7', borderRadius:10, border:'1px solid #fde68a' }}>
             <div style={{ fontWeight:700, fontSize:13.5, marginBottom:6 }}>⚠️ Não foi possível gerar QR Code via API</div>
