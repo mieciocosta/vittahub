@@ -332,6 +332,81 @@ r.delete('/planejamento/notas/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* ─── Liderados: o líder cadastra sua equipe e vê o que cada um fez no dia ──────
+   Proatividade (mensagens, atendimentos, ações), presença e metas (vendas). */
+
+// Usuários que o líder pode adicionar (ainda não são liderados dele)
+r.get('/planejamento/liderados/disponiveis', async (req, res) => {
+  try {
+    if (!podePlan(req)) return res.status(403).json({ error: 'Acesso restrito.' });
+    const { rows } = await query(
+      `SELECT id, nome, setor, avatar, cor, lider_id FROM usuarios
+       WHERE id <> $1 AND role <> 'master' AND ativo IS NOT FALSE
+       ORDER BY nome`, [req.user.id]);
+    res.json(rows.map(u => ({ ...u, jaLiderado: u.lider_id === req.user.id, temOutroLider: u.lider_id && u.lider_id !== req.user.id })));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.post('/planejamento/liderados', async (req, res) => {
+  try {
+    if (!podePlan(req)) return res.status(403).json({ error: 'Acesso restrito.' });
+    const uid = String((req.body || {}).usuario_id || '');
+    if (!uid || uid === req.user.id) return res.status(400).json({ error: 'Selecione um liderado válido.' });
+    const { rows: [u] } = await query(`UPDATE usuarios SET lider_id = $1 WHERE id = $2 AND role <> 'master' RETURNING id, nome`, [req.user.id, uid]);
+    if (!u) return res.status(404).json({ error: 'Usuário não encontrado.' });
+    res.status(201).json({ ok: true, id: u.id, nome: u.nome });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.delete('/planejamento/liderados/:usuarioId', async (req, res) => {
+  try {
+    if (!podePlan(req)) return res.status(403).json({ error: 'Acesso restrito.' });
+    await query('UPDATE usuarios SET lider_id = NULL WHERE id = $1 AND lider_id = $2', [req.params.usuarioId, req.user.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Painel dos liderados: o que cada um fez HOJE + resultado do mês
+r.get('/planejamento/liderados', async (req, res) => {
+  try {
+    if (!podePlan(req)) return res.status(403).json({ error: 'Acesso restrito.' });
+    const { rows: liderados } = await query(
+      `SELECT id, nome, setor, avatar, cor FROM usuarios WHERE lider_id = $1 ORDER BY nome`, [req.user.id]);
+    if (!liderados.length) return res.json([]);
+    const ids = liderados.map(u => u.id);
+    const mes = new Date().toISOString().slice(0, 7);
+    const [vHoje, vMes, msgs, acoes, pres] = await Promise.all([
+      query(`SELECT atendente_id, COUNT(*)::int n, COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float v
+             FROM vendas WHERE atendente_id = ANY($1) AND data_venda = CURRENT_DATE GROUP BY atendente_id`, [ids]),
+      query(`SELECT atendente_id, COUNT(*)::int n, COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float v
+             FROM vendas WHERE atendente_id = ANY($1) AND to_char(data_venda,'YYYY-MM') = $2 GROUP BY atendente_id`, [ids, mes]),
+      query(`SELECT sender_id, COUNT(*)::int n, COUNT(DISTINCT conversa_id)::int convs
+             FROM mensagens WHERE sender_id = ANY($1) AND from_type = 'me' AND created_at::date = CURRENT_DATE GROUP BY sender_id`, [ids]),
+      query(`SELECT usuario_id, COUNT(*)::int n FROM audit_logs WHERE usuario_id = ANY($1) AND created_at::date = CURRENT_DATE GROUP BY usuario_id`, [ids]),
+      query(`SELECT usuario_id, ultimo_heartbeat, pagina FROM presenca WHERE usuario_id = ANY($1)`, [ids]),
+    ]);
+    const map = (rows, key = 'atendente_id') => Object.fromEntries(rows.map(r2 => [r2[key], r2]));
+    const mVHoje = map(vHoje.rows), mVMes = map(vMes.rows), mMsgs = map(msgs.rows, 'sender_id'), mAcoes = map(acoes.rows, 'usuario_id'), mPres = map(pres.rows, 'usuario_id');
+    const agora = Date.now();
+    const out = liderados.map(u => {
+      const pr = mPres[u.id];
+      const hb = pr?.ultimo_heartbeat ? new Date(pr.ultimo_heartbeat).getTime() : 0;
+      const online = hb && (agora - hb) < 5 * 60 * 1000;
+      const msgsHoje = mMsgs[u.id]?.n || 0, convsHoje = mMsgs[u.id]?.convs || 0, acoesHoje = mAcoes[u.id]?.n || 0;
+      // Proatividade simples (0-100): pondera mensagens, atendimentos e ações do dia
+      const prot = Math.min(100, Math.round(msgsHoje * 2 + convsHoje * 6 + acoesHoje * 1.5));
+      return {
+        id: u.id, nome: u.nome, setor: u.setor, avatar: u.avatar, cor: u.cor,
+        online, ultima_atividade: pr?.ultimo_heartbeat || null, pagina: pr?.pagina || null,
+        hoje: { mensagens: msgsHoje, atendimentos: convsHoje, acoes: acoesHoje, vendas: mVHoje[u.id]?.n || 0, vendas_valor: mVHoje[u.id]?.v || 0 },
+        mes: { vendas: mVMes[u.id]?.n || 0, vendas_valor: mVMes[u.id]?.v || 0 },
+        proatividade: prot,
+      };
+    });
+    res.json(out);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Lista de vendas (gestão vê tudo; atendente vê as suas). Filtros: setor, mes (YYYY-MM)
 r.get('/vendas', async (req, res) => {
   try {

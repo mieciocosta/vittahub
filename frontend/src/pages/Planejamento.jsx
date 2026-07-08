@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Rocket, Users, Trophy, Coins, ClipboardCheck, GraduationCap, Target, Lightbulb, StickyNote, Bell, Plus, X, Check, Trash2, Pencil, CalendarClock } from 'lucide-react';
+import { Rocket, Users, Trophy, Coins, ClipboardCheck, GraduationCap, Target, Lightbulb, StickyNote, Bell, Plus, X, Check, Trash2, Pencil, CalendarClock, UserPlus, Activity, MessageSquare, Zap, DollarSign, Circle } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt } from '../hooks/utils.js';
 
@@ -25,9 +25,30 @@ export default function Planejamento() {
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState('');
 
+  const [liderados, setLiderados] = useState([]);
+  const [modalAdd, setModalAdd] = useState(false);
+  const [disponiveis, setDisponiveis] = useState([]);
+
   useEffect(() => { api.get('/extras/planejamento').then(setPlan).catch(() => {}); }, []); // eslint-disable-line
   const loadNotas = () => api.get('/extras/planejamento/notas').then(d => setNotas(Array.isArray(d) ? d : [])).catch(() => setNotas([]));
   useEffect(() => { loadNotas(); }, []); // eslint-disable-line
+  const loadLiderados = () => api.get('/extras/planejamento/liderados').then(d => setLiderados(Array.isArray(d) ? d : [])).catch(() => setLiderados([]));
+  useEffect(() => { loadLiderados(); const t = setInterval(loadLiderados, 45000); return () => clearInterval(t); }, []); // eslint-disable-line
+
+  const abrirAdd = () => {
+    setModalAdd(true);
+    api.get('/extras/planejamento/liderados/disponiveis').then(d => setDisponiveis(Array.isArray(d) ? d : [])).catch(() => setDisponiveis([]));
+  };
+  const addLiderado = async (u) => {
+    try { await api.post('/extras/planejamento/liderados', { usuario_id: u.id }); setModalAdd(false); loadLiderados(); }
+    catch (e) { window.alert(e.message); }
+  };
+  const removerLiderado = async (u) => {
+    if (!window.confirm(`Remover ${u.nome.split(' ')[0]} da sua equipe?`)) return;
+    setLiderados(p => p.filter(x => x.id !== u.id));
+    try { await api.del(`/extras/planejamento/liderados/${u.id}`); } catch { loadLiderados(); }
+  };
+  const inic = (nome) => (nome || '?').split(' ').slice(0, 2).map(s => s[0]).join('').toUpperCase();
 
   const abrirNovo = (tipo) => { setErro(''); setModal({ tipo, titulo: '', conteudo: '', lembrete_em: '' }); };
   const abrirEdit = (n) => { setErro(''); setModal({ id: n.id, tipo: n.tipo, titulo: n.titulo || '', conteudo: n.conteudo || '', lembrete_em: n.lembrete_em ? String(n.lembrete_em).slice(0, 10) : '' }); };
@@ -120,6 +141,80 @@ export default function Planejamento() {
         </div>
       </div>
 
+      {/* Minha equipe: liderados + o que cada um fez hoje */}
+      <div style={{ marginTop: 22 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
+          <div style={{ fontWeight: 800, fontSize: 17, display: 'flex', alignItems: 'center', gap: 8 }}><Users size={18} color="var(--tq2)" /> Minha equipe {liderados.length > 0 && <span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 700 }}>({liderados.length})</span>}</div>
+          <button onClick={abrirAdd} className="btn btn-p btn-sm" style={{ gap: 6 }}><UserPlus size={14} /> Cadastrar liderado</button>
+        </div>
+
+        {liderados.length === 0 ? (
+          <div className="card" style={{ padding: 34, textAlign: 'center', color: 'var(--muted)' }}>
+            <Users size={30} color="var(--border)" style={{ marginBottom: 8 }} />
+            <div style={{ fontWeight: 700 }}>Você ainda não cadastrou liderados.</div>
+            <div style={{ fontSize: 12.5, marginTop: 4 }}>Cadastre sua equipe pra acompanhar <b>o que cada um faz no dia</b>, a proatividade e as metas.</div>
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(320px,1fr))', gap: 12 }}>
+            {liderados.map(l => {
+              const protCor = l.proatividade >= 70 ? '#16a34a' : l.proatividade >= 35 ? '#d97706' : '#dc2626';
+              return (
+                <div key={l.id} className="card" style={{ padding: '15px 17px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 11, marginBottom: 12 }}>
+                    <div style={{ position: 'relative' }}>
+                      <div style={{ width: 42, height: 42, borderRadius: '50%', background: l.cor || 'linear-gradient(135deg,#0E8C96,#00B8C0)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 14 }}>{inic(l.nome)}</div>
+                      <span style={{ position: 'absolute', bottom: 0, right: 0, width: 12, height: 12, borderRadius: '50%', background: l.online ? '#22c55e' : '#94a3b8', border: '2px solid var(--card)' }} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 800, fontSize: 14.5 }}>{l.nome.split(' ').slice(0, 2).join(' ')}</div>
+                      <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{l.setor || '—'} · {l.online ? 'online agora' : (l.ultima_atividade ? `visto ${new Date(l.ultima_atividade).toLocaleDateString('pt-BR') === new Date().toLocaleDateString('pt-BR') ? 'hoje ' + new Date(l.ultima_atividade).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : new Date(l.ultima_atividade).toLocaleDateString('pt-BR')}` : 'sem registro')}</div>
+                    </div>
+                    <button onClick={() => removerLiderado(l)} title="Remover da equipe" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={15} /></button>
+                  </div>
+
+                  {/* Proatividade */}
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 3 }}>
+                      <span style={{ fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .4 }}>⚡ Proatividade hoje</span>
+                      <span style={{ fontWeight: 800, color: protCor }}>{l.proatividade}%</span>
+                    </div>
+                    <div style={{ height: 7, borderRadius: 5, background: 'var(--bg2)', overflow: 'hidden' }}>
+                      <div style={{ width: `${l.proatividade}%`, height: '100%', borderRadius: 5, background: protCor, transition: 'width .4s' }} />
+                    </div>
+                  </div>
+
+                  {/* O que fez hoje */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 6, marginBottom: 10 }}>
+                    {[
+                      { Ic: MessageSquare, v: l.hoje.mensagens, lb: 'Msgs', cor: '#2563eb' },
+                      { Ic: Users, v: l.hoje.atendimentos, lb: 'Atend.', cor: '#00B8C0' },
+                      { Ic: Activity, v: l.hoje.acoes, lb: 'Ações', cor: '#7c3aed' },
+                      { Ic: DollarSign, v: l.hoje.vendas, lb: 'Vendas', cor: '#16a34a' },
+                    ].map((s, i) => (
+                      <div key={i} style={{ textAlign: 'center', background: 'var(--bg2)', borderRadius: 9, padding: '7px 4px' }}>
+                        <s.Ic size={13} color={s.cor} />
+                        <div style={{ fontSize: 15, fontWeight: 800, lineHeight: 1.1 }}>{s.v}</div>
+                        <div style={{ fontSize: 9, color: 'var(--muted)', fontWeight: 600 }}>{s.lb}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Metas / resultado */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 9, borderTop: '1px solid var(--border)', fontSize: 12 }}>
+                    <span style={{ color: 'var(--muted)', fontWeight: 600 }}>💰 Vendeu hoje</span>
+                    <span style={{ fontWeight: 800, color: 'var(--ok,#16a34a)' }}>{fmt.brl(l.hoje.vendas_valor)}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 5, fontSize: 12 }}>
+                    <span style={{ color: 'var(--muted)', fontWeight: 600 }}>🎯 Mês ({l.mes.vendas} venda{l.mes.vendas === 1 ? '' : 's'})</span>
+                    <span style={{ fontWeight: 800, color: 'var(--tq2)' }}>{fmt.brl(l.mes.vendas_valor)}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       {/* Meu planejamento: estratégias, notas e lembretes */}
       <div style={{ marginTop: 22 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
@@ -204,6 +299,35 @@ export default function Planejamento() {
                 <button onClick={salvar} disabled={salvando} className="btn btn-p" style={{ flex: 1, gap: 6 }}><Check size={14} /> {salvando ? 'Salvando…' : 'Salvar'}</button>
                 <button onClick={() => setModal(null)} className="btn">Cancelar</button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal cadastrar liderado */}
+      {modalAdd && (
+        <div onClick={() => setModalAdd(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
+          <div onClick={e => e.stopPropagation()} className="card" style={{ width: 440, maxWidth: '100%', maxHeight: '80vh', padding: 22, display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <h3 style={{ fontSize: 16, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 8 }}><UserPlus size={18} color="var(--tq2)" /> Cadastrar liderado</h3>
+              <button onClick={() => setModalAdd(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={16} /></button>
+            </div>
+            <div style={{ overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 7 }}>
+              {disponiveis.length === 0 && <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: 10 }}>Carregando equipe…</div>}
+              {disponiveis.map(u => (
+                <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 11px', borderRadius: 10, background: u.jaLiderado ? 'var(--tq4)' : 'var(--bg2)' }}>
+                  <div style={{ width: 34, height: 34, borderRadius: '50%', background: u.cor || 'linear-gradient(135deg,#0E8C96,#00B8C0)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 12 }}>{inic(u.nome)}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 13 }}>{u.nome}</div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)' }}>{u.setor || '—'}{u.temOutroLider ? ' · já tem líder' : ''}</div>
+                  </div>
+                  {u.jaLiderado ? (
+                    <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--tq2)' }}>✓ na equipe</span>
+                  ) : (
+                    <button onClick={() => addLiderado(u)} className="btn btn-p btn-sm" style={{ gap: 5 }}><Plus size={13} /> Add</button>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
         </div>

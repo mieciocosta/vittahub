@@ -20,6 +20,9 @@ export default async function runMigrate() {
     await query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS setores TEXT[]`).catch(() => {});
     // Líder de equipe: ganha a tela de Planejamento (plano de crescimento/bônus).
     await query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS lider BOOLEAN DEFAULT false`).catch(() => {});
+    // Vínculo de liderança: quem é o líder deste usuário (Planejamento → liderados).
+    await query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS lider_id TEXT`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS idx_usuarios_lider ON usuarios (lider_id)`).catch(() => {});
 
     await query(`CREATE TABLE IF NOT EXISTS leads (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
