@@ -445,6 +445,9 @@ export default async function runMigrate() {
     await query(`ALTER TABLE vendas ADD COLUMN IF NOT EXISTS conferido BOOLEAN DEFAULT false`).catch(() => {});
     await query(`ALTER TABLE vendas ADD COLUMN IF NOT EXISTS conferido_em TIMESTAMPTZ`).catch(() => {});
     await query(`ALTER TABLE vendas ADD COLUMN IF NOT EXISTS conferido_por TEXT`).catch(() => {});
+    // CAIXA: valor de repasse (ex.: pago à vacinadora/profissional) + análise IA do comprovante
+    await query(`ALTER TABLE vendas ADD COLUMN IF NOT EXISTS repasse NUMERIC(10,2) DEFAULT 0`).catch(() => {});
+    await query(`ALTER TABLE vendas ADD COLUMN IF NOT EXISTS comprovante_analise JSONB`).catch(() => {});
     // PLANEJAMENTO: estratégias, blocos de notas e lembretes do líder/gestão (pessoal)
     await query(`CREATE TABLE IF NOT EXISTS planejamento_notas (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,

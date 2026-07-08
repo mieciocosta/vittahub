@@ -349,7 +349,7 @@ r.get('/vendas', async (req, res) => {
              cliente_nome, paciente_nome, servico, valor, desconto, forma_pagamento,
              status_pagamento, data_venda, data_atendimento, origem, observacao,
              comprovante_nome, comprovante_tipo, (comprovante IS NOT NULL) AS tem_comprovante,
-             conferido, conferido_em, conferido_por,
+             conferido, conferido_em, conferido_por, repasse, comprovante_analise,
              created_at, updated_at
       FROM vendas ${where} ORDER BY data_venda DESC, created_at DESC LIMIT 500`, params);
     res.json(rows);
@@ -367,6 +367,17 @@ r.patch('/vendas/:id/conferido', async (req, res) => {
       [conf, conf ? req.user.nome : null, req.params.id]);
     if (!v) return res.status(404).json({ error: 'Venda não encontrada' });
     res.json({ ok: true, id: v.id, conferido: v.conferido });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// CAIXA — define o valor de repasse (ex.: pago à vacinadora/profissional). Só gestão.
+r.patch('/vendas/:id/repasse', async (req, res) => {
+  try {
+    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão define o repasse.' });
+    const rep = Math.max(0, Math.min(parseFloat((req.body || {}).repasse) || 0, 1000000));
+    const { rows: [v] } = await query(`UPDATE vendas SET repasse = $1, updated_at = NOW() WHERE id = $2 RETURNING id, repasse`, [rep, req.params.id]);
+    if (!v) return res.status(404).json({ error: 'Venda não encontrada' });
+    res.json({ ok: true, id: v.id, repasse: v.repasse });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -398,6 +409,50 @@ r.patch('/vendas/:id/comprovante', async (req, res) => {
       `UPDATE vendas SET comprovante = $1, comprovante_nome = $2, comprovante_tipo = $3, updated_at = NOW() WHERE id = $4 RETURNING id, comprovante_nome, comprovante_tipo`,
       [b.comprovante, cut(b.filename, 160), cut(b.mimetype, 80), req.params.id]);
     res.json({ ok: true, id: u.id, tem_comprovante: true, comprovante_nome: u.comprovante_nome, comprovante_tipo: u.comprovante_tipo });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// CAIXA — IA analisa o comprovante (imagem): extrai valor/data/pagador/forma e
+// confere se bate com a venda. Gestão ou o próprio atendente.
+r.post('/vendas/:id/analisar-comprovante', async (req, res) => {
+  try {
+    if (!process.env.OPENAI_API_KEY) return res.status(400).json({ error: 'IA não configurada (OPENAI_API_KEY ausente).' });
+    const { rows: [v] } = await query(`SELECT atendente_id, valor, cliente_nome, comprovante, comprovante_tipo FROM vendas WHERE id = $1`, [req.params.id]);
+    if (!v) return res.status(404).json({ error: 'Venda não encontrada' });
+    if (!gestao(req) && v.atendente_id !== req.user.id) return res.status(403).json({ error: 'Sem permissão.' });
+    if (!v.comprovante) return res.status(400).json({ error: 'Sem comprovante anexado.' });
+    if (!String(v.comprovante_tipo || '').startsWith('image')) return res.status(400).json({ error: 'A IA analisa comprovantes em imagem (foto/print). Para PDF, abra e confira manualmente.' });
+    const { default: fetch } = await import('node-fetch');
+    const sys = 'Você confere comprovantes de pagamento de uma clínica (Vittalis Saúde). Analise a imagem e responda APENAS um JSON válido, em português do Brasil, sem texto extra. Se a imagem não parecer um comprovante de pagamento, retorne parece_comprovante=false.';
+    const valorVenda = parseFloat(v.valor) || 0;
+    const prompt = `Extraia os dados deste comprovante de pagamento e devolva exatamente:
+{"parece_comprovante":true,"valor":0,"data":"YYYY-MM-DD ou null","pagador":"nome ou null","recebedor":"nome ou null","forma":"Pix|Cartão|Dinheiro|TED|Boleto|null","instituicao":"banco/instituição ou null","observacao":"1 frase"}
+O valor esperado desta venda é R$ ${valorVenda.toFixed(2)} — não force esse número; extraia o que estiver na imagem.`;
+    const body = {
+      model: 'gpt-4o-mini', max_tokens: 500, response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: sys },
+        { role: 'user', content: [ { type: 'text', text: prompt }, { type: 'image_url', image_url: { url: v.comprovante } } ] },
+      ],
+    };
+    const r2 = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` }, body: JSON.stringify(body),
+    });
+    const d = await r2.json();
+    if (d.error) return res.status(400).json({ error: d.error.message || 'Erro na IA.' });
+    let p = null;
+    try { p = JSON.parse(d.choices?.[0]?.message?.content || '{}'); } catch {}
+    if (!p) return res.status(400).json({ error: 'A IA devolveu um formato inesperado.' });
+    const valorExtraido = parseFloat(p.valor) || 0;
+    const confere = valorExtraido > 0 && Math.abs(valorExtraido - valorVenda) <= Math.max(1, valorVenda * 0.02);
+    const analise = {
+      parece_comprovante: !!p.parece_comprovante,
+      valor: valorExtraido, data: p.data || null, pagador: p.pagador || null, recebedor: p.recebedor || null,
+      forma: p.forma || null, instituicao: p.instituicao || null, observacao: p.observacao || null,
+      valor_venda: valorVenda, confere, analisado_por: req.user.nome,
+    };
+    await query(`UPDATE vendas SET comprovante_analise = $1::jsonb, updated_at = NOW() WHERE id = $2`, [JSON.stringify(analise), req.params.id]);
+    res.json(analise);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
