@@ -493,6 +493,13 @@ export default async function runMigrate() {
       UNIQUE (usuario_id, data)
     )`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS idx_quizresp_data ON quiz_respostas (data)`).catch(() => {});
+    // ARQUIVOS DAS ABAS: PDF/Word etc. anexados dentro de cada aba (Vacinas, Planos...)
+    await query(`CREATE TABLE IF NOT EXISTS pasta_arquivos (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      chave TEXT NOT NULL, nome TEXT, arquivo TEXT, mimetype TEXT,
+      criado_por TEXT, created_at TIMESTAMPTZ DEFAULT NOW()
+    )`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS idx_pastarq_chave ON pasta_arquivos (chave)`).catch(() => {});
     // MEU AMIGO: desabafo com IA acolhedora — PRIVADO por usuário (nem o master lê)
     await query(`CREATE TABLE IF NOT EXISTS amigo_mensagens (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,

@@ -1,9 +1,71 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Trash2, Star, Database, Phone, CalendarDays, UserPlus, X, Syringe, Stethoscope, Brain, MessageSquare, Pencil, List, Kanban, Check, ArrowRightLeft } from 'lucide-react';
+import { Search, Trash2, Star, Database, Phone, CalendarDays, UserPlus, X, Syringe, Stethoscope, Brain, MessageSquare, Pencil, List, Kanban, Check, ArrowRightLeft, Paperclip, FileText, Download, ChevronDown, ChevronRight } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt, openWA } from '../hooks/utils.js';
 import PastaFunil from './PastaFunil.jsx';
+
+const fileToDataUrl = (file) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file); });
+
+/* Arquivos da aba: PDF/Word/imagem anexados dentro de cada pasta (materiais,
+   tabelas de preço, protocolos etc.) — visíveis a todos do setor. */
+function ArquivosAba({ chave, cor }) {
+  const api = useApi();
+  const [arqs, setArqs] = useState([]);
+  const [aberto, setAberto] = useState(false);
+  const [enviando, setEnviando] = useState(false);
+  const [erro, setErro] = useState('');
+  const ref = React.useRef(null);
+  const load = () => api.get(`/extras/pasta-arquivos?chave=${chave}`).then(d => setArqs(Array.isArray(d) ? d : [])).catch(() => {});
+  useEffect(() => { load(); }, [chave]); // eslint-disable-line
+  const enviar = async (e) => {
+    const f = e.target.files?.[0]; e.target.value = ''; if (!f) return;
+    const url = await fileToDataUrl(f);
+    if (url.length > 15_500_000) { setErro('Arquivo muito grande (máx. ~12MB).'); return; }
+    setEnviando(true); setErro('');
+    try { const a = await api.post('/extras/pasta-arquivos', { chave, nome: f.name, arquivo: url, mimetype: f.type }); setArqs(p => [a, ...p]); setAberto(true); }
+    catch (err) { setErro(err.message); }
+    setEnviando(false);
+  };
+  const baixar = async (a) => {
+    const d = await api.get(`/extras/pasta-arquivos/${a.id}/download`).catch(() => null);
+    if (!d) return;
+    const el = document.createElement('a'); el.href = d.arquivo; el.download = d.nome || 'arquivo'; el.click();
+  };
+  const excluir = async (a) => {
+    if (!window.confirm(`Remover "${a.nome}"?`)) return;
+    setArqs(p => p.filter(x => x.id !== a.id));
+    try { await api.del(`/extras/pasta-arquivos/${a.id}`); } catch { load(); }
+  };
+  return (
+    <div className="card" style={{ padding: '10px 14px', marginBottom: 14, borderLeft: `3px solid ${cor}` }}>
+      <input ref={ref} type="file" accept="application/pdf,.doc,.docx,.xls,.xlsx,image/*" style={{ display: 'none' }} onChange={enviar} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <button onClick={() => setAberto(a => !a)} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontWeight: 800, fontSize: 13, color: 'var(--txt)', flex: 1 }}>
+          {aberto ? <ChevronDown size={15} /> : <ChevronRight size={15} />} <Paperclip size={14} color={cor} /> Arquivos desta aba {arqs.length > 0 && <span style={{ fontSize: 11, color: 'var(--muted)' }}>({arqs.length})</span>}
+        </button>
+        <button onClick={() => ref.current?.click()} disabled={enviando} className="btn btn-p btn-sm" style={{ gap: 5 }}><Paperclip size={13} /> {enviando ? 'Enviando…' : 'Anexar'}</button>
+      </div>
+      {erro && <div style={{ fontSize: 12, color: 'var(--err)', fontWeight: 600, marginTop: 6 }}>{erro}</div>}
+      {aberto && (
+        <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {arqs.length === 0 ? <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Nenhum arquivo ainda. Anexe PDF, Word, planilha ou imagem.</div>
+          : arqs.map(a => (
+            <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '7px 10px', background: 'var(--bg2)', borderRadius: 9 }}>
+              <FileText size={15} color={cor} style={{ flexShrink: 0 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.nome}</div>
+                <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>{a.criado_por?.split(' ')[0] || ''}{a.created_at ? ` · ${new Date(a.created_at).toLocaleDateString('pt-BR')}` : ''}</div>
+              </div>
+              <button onClick={() => baixar(a)} title="Baixar" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--tq2)' }}><Download size={15} /></button>
+              <button onClick={() => excluir(a)} title="Remover" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><Trash2 size={14} /></button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /* Pasta de organização de clientes — usada por Fidelidade, Banco de Dados e
    Planos Vacinais. Lista os clientes (por categoria OU por classificação),
@@ -119,6 +181,8 @@ export default function PastaClientes({ categoria, classificacao }) {
           <p style={{ color: 'var(--muted)', fontSize: 13, maxWidth: 620 }}>{cfg.sub}</p>
         </div>
       </div>
+
+      <ArquivosAba chave={valor} cor={cfg.cor} />
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '18px 0', flexWrap: 'wrap' }}>
         <div style={{ position: 'relative', flex: '1 1 280px', maxWidth: 360 }}>

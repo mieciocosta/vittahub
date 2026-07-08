@@ -544,6 +544,45 @@ r.get('/quiz/ranking', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* ─── ARQUIVOS DAS ABAS (PDF/Word/imagem dentro de cada pasta) ─────────────────── */
+const CHAVES_PASTA = ['fidelidade', 'banco_dados', 'planos_vacinais', 'vacinacao', 'consultas', 'terapias'];
+r.get('/pasta-arquivos', async (req, res) => {
+  try {
+    const chave = String(req.query.chave || '');
+    if (!CHAVES_PASTA.includes(chave)) return res.status(400).json({ error: 'Aba inválida.' });
+    const { rows } = await query(`SELECT id, nome, mimetype, criado_por, created_at FROM pasta_arquivos WHERE chave = $1 ORDER BY created_at DESC`, [chave]);
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.get('/pasta-arquivos/:id/download', async (req, res) => {
+  try {
+    const { rows: [a] } = await query(`SELECT arquivo, nome, mimetype FROM pasta_arquivos WHERE id = $1`, [req.params.id]);
+    if (!a) return res.status(404).json({ error: 'Arquivo não encontrado.' });
+    res.json({ arquivo: a.arquivo, nome: a.nome, mimetype: a.mimetype });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.post('/pasta-arquivos', async (req, res) => {
+  try {
+    const b = req.body || {};
+    if (!CHAVES_PASTA.includes(b.chave)) return res.status(400).json({ error: 'Aba inválida.' });
+    if (typeof b.arquivo !== 'string' || !b.arquivo.startsWith('data:')) return res.status(400).json({ error: 'Envie o arquivo (PDF, Word, imagem).' });
+    if (b.arquivo.length > 16 * 1024 * 1024) return res.status(413).json({ error: 'Arquivo muito grande (máx. ~12MB).' });
+    const { rows: [a] } = await query(
+      `INSERT INTO pasta_arquivos (chave, nome, arquivo, mimetype, criado_por) VALUES ($1,$2,$3,$4,$5) RETURNING id, nome, mimetype, criado_por, created_at`,
+      [b.chave, cut(b.nome, 160), b.arquivo, cut(b.mimetype, 80), req.user.nome]);
+    res.status(201).json(a);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.delete('/pasta-arquivos/:id', async (req, res) => {
+  try {
+    await query(`DELETE FROM pasta_arquivos WHERE id = $1`, [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 /* ─── MEU AMIGO: IA acolhedora pra desabafar ───────────────────────────────────
    Espaço PRIVADO: cada pessoa conversa só com a IA, ninguém mais lê (nem o
    master). A IA escuta, acolhe e dá conselhos com empatia. */
