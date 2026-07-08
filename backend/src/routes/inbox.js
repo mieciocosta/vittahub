@@ -4207,6 +4207,50 @@ r.get('/qualidade/resumo', masterOnly, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* ═══ AGENDAMENTO POR IA: lê a conversa e extrai o pedido de agendamento ══════
+   On-demand: a atendente clica e a IA puxa data/hora/serviço/endereço da
+   conversa, convertendo "amanhã/sexta/semana que vem" em data real. Devolve a
+   sugestão pra pré-preencher o Agendar e confirmar em 1 clique. */
+async function sugerirAgenda(convId) {
+  if (!process.env.OPENAI_API_KEY) return { error: 'IA não configurada (OPENAI_API_KEY ausente)' };
+  const t = await montarTranscriptConversa(convId);
+  if (!t) return { error: 'Conversa não encontrada' };
+  if (!t.hist.some(m => m.from_type === 'contact')) return { error: 'Sem mensagens do cliente para analisar' };
+  const hojeStr = new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' });
+  const sys = `Você extrai pedidos de AGENDAMENTO de conversas de uma clínica de pediatria e vacinação (Vittalis). Hoje é ${hojeStr}. Responda APENAS o JSON pedido, em português do Brasil, sem emojis. Se não houver pedido de agendamento claro do cliente, retorne tem_intencao=false.`;
+  const user = `Da conversa abaixo, extraia o agendamento SE o cliente pediu pra marcar/agendar algo. Converta referências de tempo ("amanhã", "sexta", "semana que vem", "dia 20") para uma DATA real (YYYY-MM-DD) a partir de hoje. Se algum dado não aparecer, deixe null.
+
+CONVERSA (cliente: ${t.conv.contact_name || 'cliente'}):
+${t.transcript}
+
+Devolva exatamente:
+{"tem_intencao":true,"paciente":"nome do paciente ou null","data":"YYYY-MM-DD ou null","hora":"HH:MM ou null","servico":"o que o cliente quer (ex: vacina 6 meses, consulta pediatria) ou null","setor":"vacinas|consultas|terapias","endereco":"endereço se for domiciliar, ou null","resumo":"1 frase do que o cliente quer"}`;
+  const data = await openaiMessages({ model: 'gpt-4o-mini', max_tokens: 320, json: true, system: sys, messages: [{ role: 'user', content: user }] });
+  if (data.error) return { error: data.error.message || 'Erro na IA' };
+  const raw = (data.content?.find(c => c.type === 'text')?.text || '').trim();
+  let p = null;
+  try { p = JSON.parse(raw.replace(/^```json\s*/i, '').replace(/^```\s*/, '').replace(/```\s*$/, '').trim()); } catch {}
+  if (!p) return { error: 'A IA devolveu um formato inesperado. Tente de novo.' };
+  const setor = ['vacinas', 'consultas', 'terapias'].includes(p.setor) ? p.setor : (t.conv.setor || 'vacinas');
+  return { sugestao: {
+    tem_intencao: !!p.tem_intencao,
+    paciente: p.paciente || t.conv.contact_name || '',
+    data: /^\d{4}-\d{2}-\d{2}$/.test(p.data || '') ? p.data : '',
+    hora: /^([01]\d|2[0-3]):[0-5]\d$/.test(p.hora || '') ? p.hora : '',
+    servico: p.servico || '',
+    setor, endereco: p.endereco || '',
+    telefone: (t.conv.phone || '').replace(/\D/g, ''),
+    resumo: p.resumo || '',
+  } };
+}
+r.post('/conversations/:id/sugerir-agenda', async (req, res) => {
+  try {
+    const r2 = await sugerirAgenda(req.params.id);
+    if (r2.error) return res.status(400).json({ error: r2.error });
+    res.json(r2.sugestao);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ─── QUICK REPLIES ────────────────────────────────────────────────────────────
 r.get('/quick-replies', async (req, res) => {
   try {

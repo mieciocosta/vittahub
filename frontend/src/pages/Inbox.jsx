@@ -456,6 +456,7 @@ export default function Inbox({ onUnreadChange }) {
   const [recorder, setRecorder]   = useState(null);
   const [showAI, setShowAI]     = useState(() => localStorage.getItem('vh_ia_aberta') !== 'off');
   const [agendarOpen, setAgendarOpen] = useState(false); // modal de agendamento
+  const [iaAgendaBusy, setIaAgendaBusy] = useState(false); // IA sugerindo agendamento
   const [agSaving, setAgSaving] = useState(false);
   const [transfOpen, setTransfOpen] = useState(false);   // modal de transferência
   const [atendentes, setAtendentes] = useState([]);
@@ -1117,6 +1118,25 @@ export default function Inbox({ onUnreadChange }) {
     setAgendarOpen(true);
     api.get('/extras/profissionais').then(d => setProfsAgenda(Array.isArray(d) ? d.filter(p => p.ativo) : [])).catch(()=>setProfsAgenda([]));
   };
+  // IA lê a conversa, extrai o pedido de agendamento e pré-preenche o Agendar
+  const sugerirAgendaIA = async () => {
+    if (iaAgendaBusy) return;
+    setIaAgendaBusy(true);
+    try {
+      const s = await api.post(`/inbox/conversations/${sel.id}/sugerir-agenda`, {});
+      if (!s.tem_intencao) { Toast.show('A IA não encontrou um pedido de agendamento nessa conversa.', 'info'); return; }
+      const setorS = ['vacinas','consultas','terapias'].includes(s.setor) ? s.setor : (['vacinas','consultas','terapias'].includes(sel.setor) ? sel.setor : 'consultas');
+      setAgForm({
+        data: s.data || hojeISO, hora: s.hora || '', servico: s.servico || '', valor: '',
+        setor: setorS, forma_pagamento: '', endereco: s.endereco || '', local_link: '', profissional: '',
+        observacoes: (s.paciente && s.paciente !== (sel.contact_name || '') ? `Paciente: ${s.paciente}. ` : '') + (s.resumo || ''),
+      });
+      setAgendarOpen(true);
+      api.get('/extras/profissionais').then(d => setProfsAgenda(Array.isArray(d) ? d.filter(p => p.ativo) : [])).catch(()=>setProfsAgenda([]));
+      Toast.show('🤖 Agendamento sugerido pela IA — revise e confirme.', 'success');
+    } catch (e) { Toast.show(e.message || 'Erro ao sugerir agendamento', 'error'); }
+    finally { setIaAgendaBusy(false); }
+  };
   // Resumo da disponibilidade de um profissional (pra mostrar ao agendar)
   const dispProf = (p) => {
     const D = [['seg','Seg'],['ter','Ter'],['qua','Qua'],['qui','Qui'],['sex','Sex'],['sab','Sáb'],['dom','Dom']];
@@ -1427,6 +1447,10 @@ export default function Inbox({ onUnreadChange }) {
               <button onClick={abrirAgendar} title="Agendar este atendimento (conta na meta do mês)"
                 className="btn btn-sm" style={{ background:'#1e3a5f', color:'#7cc4ff', border:'1.5px solid #2563eb', fontSize:11, padding:'4px 9px', fontWeight:700 }}>
                 <CalendarDays size={10}/> Agendar
+              </button>
+              <button onClick={sugerirAgendaIA} disabled={iaAgendaBusy} title="A IA lê a conversa e sugere o agendamento (data, hora, serviço) — você revisa e confirma"
+                className="btn btn-sm" style={{ background:'#3b0764', color:'#e9d5ff', border:'1.5px solid #7c3aed', fontSize:11, padding:'4px 9px', fontWeight:700 }}>
+                {iaAgendaBusy ? <span className="spin" style={{width:10,height:10}}/> : '🤖'} Agendar IA
               </button>
               <button onClick={abrirVenda} title="Registrar uma venda deste atendimento (entra na meta)"
                 className="btn btn-sm" style={{ background:'#14432a', color:'#7ee0a8', border:'1.5px solid #16a34a', fontSize:11, padding:'4px 9px', fontWeight:700 }}>
