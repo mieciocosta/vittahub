@@ -4317,34 +4317,58 @@ r.post('/cases-sucesso/gerar-padrao', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ─── QUICK REPLIES ────────────────────────────────────────────────────────────
+// ─── QUICK REPLIES (mensagens rápidas) ────────────────────────────────────────
+// Cada usuário vê os modelos GLOBAIS (da gestão) + os SEUS (personalizados).
+const gestaoUser = (req) => ['master', 'supervisor'].includes(req.user.role);
 r.get('/quick-replies', async (req, res) => {
   try {
-    const { rows } = await query('SELECT * FROM respostas_rapidas ORDER BY created_at');
-    res.json(rows);
+    const { rows } = await query(
+      `SELECT *, (usuario_id IS NULL) AS global FROM respostas_rapidas
+       WHERE usuario_id IS NULL OR usuario_id = $1
+       ORDER BY (usuario_id IS NULL) DESC, created_at`, [req.user.id]);
+    res.json(rows.map(r2 => ({ ...r2, minha: r2.usuario_id === req.user.id })));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 r.post('/quick-replies', async (req, res) => {
   try {
-    const { rows: [qr] } = await query('INSERT INTO respostas_rapidas (titulo,texto) VALUES ($1,$2) RETURNING *', [req.body.titulo, req.body.texto]);
-    res.json(qr);
+    const titulo = String(req.body.titulo || '').trim().slice(0, 60);
+    const texto = String(req.body.texto || '').trim().slice(0, 1000);
+    if (!titulo || !texto) return res.status(400).json({ error: 'Título e texto são obrigatórios' });
+    // Só a gestão cria modelo GLOBAL (escopo:'global'); os demais criam pessoal.
+    const dono = (gestaoUser(req) && req.body.escopo === 'global') ? null : req.user.id;
+    const { rows: [qr] } = await query('INSERT INTO respostas_rapidas (titulo,texto,usuario_id) VALUES ($1,$2,$3) RETURNING *', [titulo, texto, dono]);
+    res.json({ ...qr, minha: qr.usuario_id === req.user.id });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Só edita/exclui o que é SEU; global só a gestão mexe.
+async function podeMexerQR(req, id) {
+  const { rows: [qr] } = await query('SELECT usuario_id FROM respostas_rapidas WHERE id = $1', [id]);
+  if (!qr) return { erro: 404 };
+  if (qr.usuario_id === req.user.id) return { ok: true };
+  if (qr.usuario_id === null && gestaoUser(req)) return { ok: true };
+  return { erro: 403 };
+}
+
 r.put('/quick-replies/:id', async (req, res) => {
   try {
+    const perm = await podeMexerQR(req, req.params.id);
+    if (perm.erro === 404) return res.status(404).json({ error: 'Modelo não encontrado' });
+    if (perm.erro === 403) return res.status(403).json({ error: 'Você só edita os seus modelos.' });
     const titulo = String(req.body.titulo || '').trim().slice(0, 60);
     const texto = String(req.body.texto || '').trim().slice(0, 1000);
     if (!titulo || !texto) return res.status(400).json({ error: 'Título e texto são obrigatórios' });
     const { rows: [qr] } = await query('UPDATE respostas_rapidas SET titulo=$1, texto=$2 WHERE id=$3 RETURNING *', [titulo, texto, req.params.id]);
-    if (!qr) return res.status(404).json({ error: 'Modelo não encontrado' });
-    res.json(qr);
+    res.json({ ...qr, minha: qr.usuario_id === req.user.id });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 r.delete('/quick-replies/:id', async (req, res) => {
   try {
+    const perm = await podeMexerQR(req, req.params.id);
+    if (perm.erro === 404) return res.status(404).json({ error: 'Modelo não encontrado' });
+    if (perm.erro === 403) return res.status(403).json({ error: 'Você só exclui os seus modelos.' });
     await query('DELETE FROM respostas_rapidas WHERE id = $1', [req.params.id]);
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }

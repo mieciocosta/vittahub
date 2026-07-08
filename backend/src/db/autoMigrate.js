@@ -122,6 +122,8 @@ export default async function runMigrate() {
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
       titulo TEXT NOT NULL, texto TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW()
     )`);
+    // Mensagens rápidas personalizadas: usuario_id = dono (NULL = global da gestão)
+    await query(`ALTER TABLE respostas_rapidas ADD COLUMN IF NOT EXISTS usuario_id TEXT`).catch(() => {});
 
     await query(`CREATE TABLE IF NOT EXISTS notificacoes (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
