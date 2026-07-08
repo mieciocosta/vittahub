@@ -14,16 +14,16 @@
   /* Barra lateral — turquesa no claro, azul-escuro no escuro (sobrescrito abaixo) */
   --sidebar-bg: linear-gradient(178deg, #00B8C0 0%, #0AA0AA 55%, #0E8C96 100%);
 
-  /* Neutrals — elegant, not flat */
-  --bg:     #f0f4f7;
-  --bg2:    #e6ecf1;
+  /* Neutrals — premium, arejado */
+  --bg:     #f3f7fb;
+  --bg2:    #e9eff5;
   --card:   #ffffff;
-  --border: #dde5ec;
-  --bord2:  #c5d2db;
-  --txt:    #0a1520;
+  --border: #e4ebf2;
+  --bord2:  #cbd6e0;
+  --txt:    #0a1622;
   --txt2:   #2d4255;
   --muted:  #5a7285;
-  --light:  #8fa3b3;
+  --light:  #94a6b6;
 
   /* Status */
   --ok:   #0fb07a; --ok2:  #ebfaf4;
@@ -40,12 +40,12 @@
   /* Layout */
   --sw: 230px;
 
-  /* Shadows — layered for depth */
-  --s1: 0 1px 2px rgba(10,21,32,0.05);
-  --s2: 0 1px 3px rgba(10,21,32,0.06), 0 4px 14px rgba(10,21,32,0.05);
-  --s3: 0 4px 18px rgba(10,21,32,0.09), 0 1px 4px rgba(10,21,32,0.06);
-  --s4: 0 12px 44px rgba(10,21,32,0.14), 0 2px 8px rgba(10,21,32,0.08);
-  --s-tq: 0 4px 16px rgba(0,184,192,0.25);
+  /* Shadows — suaves e profundas (premium) */
+  --s1: 0 1px 2px rgba(16,42,64,0.05);
+  --s2: 0 1px 2px rgba(16,42,64,0.04), 0 6px 20px rgba(16,42,64,0.06);
+  --s3: 0 6px 26px rgba(16,42,64,0.09), 0 2px 6px rgba(16,42,64,0.05);
+  --s4: 0 18px 50px rgba(16,42,64,0.16), 0 3px 10px rgba(16,42,64,0.08);
+  --s-tq: 0 6px 20px rgba(0,184,192,0.28);
 
   /* Radii */
   --r1:4px; --r2:8px; --r3:12px; --r4:16px; --r5:24px;
@@ -145,7 +145,7 @@ a { text-decoration: none; color: inherit; }
 .tb-ico:active:not(:disabled) { transform: scale(.92); }
 
 /* ─── Cards ─────────────────────────────────────────────────────────────────── */
-.card { background: var(--card); border-radius: var(--r4); box-shadow: var(--s2); }
+.card { background: var(--card); border-radius: var(--r4); box-shadow: var(--s2); border: 1px solid rgba(16,42,64,0.06); }
 .card-hover { transition: box-shadow .2s, transform .2s; }
 .card-hover:hover { box-shadow: var(--s3); transform: translateY(-1px); }
 
