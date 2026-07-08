@@ -5,7 +5,7 @@ import {
   LogOut, Settings, Smartphone, Sun, Moon, ChevronLeft, ChevronRight,
   CalendarClock, CalendarDays, Bell, CheckCheck, UserPlus, Shield,
   Gift, Bot, Image, FileText, Smile, Phone, Star, Database, Stethoscope, Target,
-  Trophy, GraduationCap, Rocket, Wallet, Palette, Gamepad2,
+  Trophy, GraduationCap, Rocket, Wallet, Palette, Gamepad2, Heart,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useApi } from '../context/AuthContext.jsx';
@@ -25,6 +25,7 @@ const SETORES_MENU = [
 const NAV = [
   { to:'/',           icon:LayoutDashboard, label:'Resumo' },
   { to:'/quiz',       icon:Gamepad2,        label:'Quiz de Vendas', quiz:true },
+  { to:'/amigo',      icon:Heart,           label:'Meu Amigo' },
   { to:'/cases-sucesso', icon:Trophy,       label:'Cases de Sucesso' },
   { to:'/planejamento', icon:Rocket,        label:'Planejamento', lider:true, plan:true },
   { to:'/inbox',      icon:MessageSquare,   label:'Chat',     unread:true },

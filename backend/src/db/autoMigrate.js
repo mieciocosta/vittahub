@@ -476,6 +476,13 @@ export default async function runMigrate() {
       UNIQUE (usuario_id, data)
     )`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS idx_quizresp_data ON quiz_respostas (data)`).catch(() => {});
+    // MEU AMIGO: desabafo com IA acolhedora — PRIVADO por usuário (nem o master lê)
+    await query(`CREATE TABLE IF NOT EXISTS amigo_mensagens (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      usuario_id TEXT NOT NULL, role TEXT NOT NULL,
+      content TEXT, created_at TIMESTAMPTZ DEFAULT NOW()
+    )`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS idx_amigo_user ON amigo_mensagens (usuario_id, created_at)`).catch(() => {});
     // PLANEJAMENTO: estratégias, blocos de notas e lembretes do líder/gestão (pessoal)
     await query(`CREATE TABLE IF NOT EXISTS planejamento_notas (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,

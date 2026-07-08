@@ -433,24 +433,45 @@ const CTX_SETOR = {
   geral: 'saúde, vacinas, consultas e terapias',
 };
 
+// Quiz de reserva (sempre disponível se a IA falhar) — vendas no WhatsApp da clínica
+const FALLBACK_QUIZ = [
+  { q: 'A cliente diz "tá caro". Qual a melhor resposta?', opcoes: ['"É esse preço, não tem desconto."', '"Entendo! Posso te mostrar tudo o que está incluso pra ver se faz sentido pra você?"', '"Todo mundo acha caro no começo."', '"Então deixa pra lá."'], correta: 1, explicacao: 'Acolher a objeção e mostrar valor abre a conversa, em vez de encerrá-la.' },
+  { q: 'A cliente sumiu depois de receber o orçamento. O que fazer?', opcoes: ['Esperar ela voltar sozinha.', 'Mandar um follow-up gentil, lembrando e se colocando à disposição.', 'Reenviar o mesmo orçamento sem contexto.', 'Cobrar uma resposta.'], correta: 1, explicacao: 'Follow-up gentil recupera muitas vendas; o silêncio raramente vira compra sozinho.' },
+  { q: 'Qual a melhor forma de começar um atendimento?', opcoes: ['Já mandar a tabela de preços.', 'Cumprimentar pelo nome e entender a necessidade antes de oferecer.', 'Perguntar só "o que você quer?".', 'Colar uma mensagem padrão fria.'], correta: 1, explicacao: 'Entender a necessidade personaliza a oferta e aumenta a conversão.' },
+  { q: 'A cliente está indecisa entre dois serviços. Você:', opcoes: ['Escolhe por ela sem explicar.', 'Explica a diferença e recomenda o que melhor atende o caso dela.', 'Diz "tanto faz".', 'Manda ela pesquisar sozinha.'], correta: 1, explicacao: 'Orientar com clareza gera confiança e ajuda a cliente a decidir.' },
+  { q: 'A cliente pede desconto. A resposta mais estratégica é:', opcoes: ['Dar o maior desconto possível na hora.', 'Entender o contexto e oferecer uma condição/combo, mantendo o valor percebido.', 'Recusar de forma seca.', 'Ignorar o pedido.'], correta: 1, explicacao: 'Negociar com combo/condição preserva a margem e o valor percebido do serviço.' },
+];
+
 async function gerarQuizIA(setor) {
-  const { default: fetch } = await import('node-fetch');
-  const ctx = CTX_SETOR[setor] || CTX_SETOR.geral;
-  const sys = 'Você é um treinador de vendas de uma clínica de saúde (Vittalis Saúde) que cria quizzes curtos e práticos para as atendentes venderem melhor no WhatsApp. Responda APENAS um JSON válido, em português do Brasil.';
-  const user = `Crie um quiz de 5 perguntas de múltipla escolha sobre VENDAS no dia a dia de uma atendente do setor de ${ctx}. As situações devem parecer conversas reais de WhatsApp (cliente com dúvida de preço, objeção, indecisão, pedido de desconto, etc.). Cada pergunta com 4 alternativas, só UMA correta, e uma explicação curta do porquê. Varie a dificuldade. Formato EXATO:
+  if (!process.env.OPENAI_API_KEY) return FALLBACK_QUIZ;
+  try {
+    const { default: fetch } = await import('node-fetch');
+    const ctx = CTX_SETOR[setor] || CTX_SETOR.geral;
+    const sys = 'Você é um treinador de vendas de uma clínica de saúde (Vittalis Saúde) que cria quizzes curtos e práticos para as atendentes venderem melhor no WhatsApp. Responda APENAS um JSON válido, em português do Brasil.';
+    const user = `Crie um quiz de 5 perguntas de múltipla escolha sobre VENDAS no dia a dia de uma atendente do setor de ${ctx}. As situações devem parecer conversas reais de WhatsApp (cliente com dúvida de preço, objeção, indecisão, pedido de desconto, etc.). Cada pergunta com 4 alternativas, só UMA correta, e uma explicação curta do porquê. Varie a dificuldade. Formato EXATO:
 {"perguntas":[{"q":"pergunta","opcoes":["a","b","c","d"],"correta":0,"explicacao":"por que essa é a melhor"}]}`;
-  const body = { model: 'gpt-4o-mini', max_tokens: 1400, response_format: { type: 'json_object' }, messages: [{ role: 'system', content: sys }, { role: 'user', content: user }] };
-  const r = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` }, body: JSON.stringify(body),
-  });
-  const d = await r.json();
-  if (d.error) throw new Error(d.error.message || 'Erro na IA');
-  let p = null;
-  try { p = JSON.parse(d.choices?.[0]?.message?.content || '{}'); } catch {}
-  const perguntas = (p?.perguntas || []).filter(x => x && x.q && Array.isArray(x.opcoes) && x.opcoes.length >= 2 && Number.isInteger(x.correta))
-    .slice(0, 5).map(x => ({ q: String(x.q).slice(0, 300), opcoes: x.opcoes.slice(0, 4).map(o => String(o).slice(0, 200)), correta: Math.min(x.correta, x.opcoes.length - 1), explicacao: String(x.explicacao || '').slice(0, 300) }));
-  if (perguntas.length < 3) throw new Error('Quiz insuficiente');
-  return perguntas;
+    const body = { model: 'gpt-4o-mini', max_tokens: 1400, response_format: { type: 'json_object' }, messages: [{ role: 'system', content: sys }, { role: 'user', content: user }] };
+    const r = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` }, body: JSON.stringify(body),
+    });
+    const d = await r.json();
+    if (d.error) throw new Error(d.error.message || 'Erro na IA');
+    let p = null;
+    try { p = JSON.parse(d.choices?.[0]?.message?.content || '{}'); } catch {}
+    const perguntas = (p?.perguntas || [])
+      .map(x => {
+        if (!x || !x.q || !Array.isArray(x.opcoes) || x.opcoes.length < 2) return null;
+        let correta = parseInt(x.correta); if (!Number.isInteger(correta)) correta = 0;
+        const opcoes = x.opcoes.slice(0, 4).map(o => String(o).slice(0, 200));
+        return { q: String(x.q).slice(0, 300), opcoes, correta: Math.max(0, Math.min(correta, opcoes.length - 1)), explicacao: String(x.explicacao || '').slice(0, 300) };
+      })
+      .filter(Boolean).slice(0, 5);
+    if (perguntas.length < 3) throw new Error('Quiz insuficiente');
+    return perguntas;
+  } catch (e) {
+    console.error('QUIZ IA falhou, usando fallback:', e.message);
+    return FALLBACK_QUIZ; // nunca deixa o quiz sem carregar
+  }
 }
 
 // Busca (ou gera) o quiz de HOJE do setor + estado do usuário (já respondeu?)
@@ -459,10 +480,7 @@ r.get('/quiz/hoje', async (req, res) => {
     const setor = setorQuiz(req);
     let { rows } = await query(`SELECT perguntas FROM quiz_diario WHERE data = CURRENT_DATE AND setor = $1`, [setor]);
     if (!rows.length) {
-      if (!process.env.OPENAI_API_KEY) return res.status(400).json({ error: 'Quiz indisponível (IA não configurada).' });
-      let perguntas;
-      try { perguntas = await gerarQuizIA(setor); }
-      catch (e) { return res.status(400).json({ error: 'Não consegui montar o quiz de hoje. Tente novamente em instantes.' }); }
+      const perguntas = await gerarQuizIA(setor); // sempre retorna (IA ou fallback)
       await query(`INSERT INTO quiz_diario (data, setor, perguntas) VALUES (CURRENT_DATE, $1, $2::jsonb) ON CONFLICT (data, setor) DO NOTHING`, [setor, JSON.stringify(perguntas)]);
       ({ rows } = await query(`SELECT perguntas FROM quiz_diario WHERE data = CURRENT_DATE AND setor = $1`, [setor]));
     }
@@ -511,6 +529,47 @@ r.get('/quiz/ranking', async (req, res) => {
   try {
     const { rows } = await query(`SELECT usuario_nome nome, score, acertos, total FROM quiz_respostas WHERE data = CURRENT_DATE ORDER BY score DESC, created_at ASC LIMIT 20`);
     res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* ─── MEU AMIGO: IA acolhedora pra desabafar ───────────────────────────────────
+   Espaço PRIVADO: cada pessoa conversa só com a IA, ninguém mais lê (nem o
+   master). A IA escuta, acolhe e dá conselhos com empatia. */
+r.get('/amigo/historico', async (req, res) => {
+  try {
+    const { rows } = await query(`SELECT role, content, created_at FROM amigo_mensagens WHERE usuario_id = $1 ORDER BY created_at ASC LIMIT 200`, [req.user.id]);
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.delete('/amigo/historico', async (req, res) => {
+  try {
+    await query(`DELETE FROM amigo_mensagens WHERE usuario_id = $1`, [req.user.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.post('/amigo/mensagem', async (req, res) => {
+  try {
+    const texto = String((req.body || {}).texto || '').trim();
+    if (!texto) return res.status(400).json({ error: 'Escreva algo pra desabafar.' });
+    if (!process.env.OPENAI_API_KEY) return res.status(400).json({ error: 'Seu amigo virtual está indisponível no momento.' });
+    await query(`INSERT INTO amigo_mensagens (usuario_id, role, content) VALUES ($1,'user',$2)`, [req.user.id, cut(texto, 4000)]);
+    // Histórico recente pra dar contexto (últimas ~16 mensagens)
+    const { rows: hist } = await query(`SELECT role, content FROM amigo_mensagens WHERE usuario_id = $1 ORDER BY created_at DESC LIMIT 16`, [req.user.id]);
+    const mensagens = hist.reverse().map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: String(m.content || '').slice(0, 2000) }));
+    const primeiro = (req.user.nome || '').split(' ')[0];
+    const sys = `Você é o "Amigo", um companheiro virtual acolhedor da equipe da Vittalis Saúde. ${primeiro} veio desabafar com você. Seja caloroso, empático e sem julgamentos, como um amigo de verdade — em português do Brasil, informal e humano. Escute de verdade, valide o sentimento, e só então ofereça conselhos práticos e gentis, um de cada vez. Faça perguntas abertas pra entender melhor. Nada de respostas longas demais nem de clichês frios. Use o nome ${primeiro} com naturalidade e, quando fizer sentido, um emoji leve. IMPORTANTE (segurança): se ${primeiro} demonstrar sofrimento intenso, pensamentos de se machucar, autolesão ou crise, acolha com carinho, leve a sério, incentive procurar alguém de confiança e um profissional, e informe o CVV: ligue 188 (24h, gratuito) ou cvv.org.br. Você não substitui ajuda profissional — deixe isso claro com gentileza quando for grave.`;
+    const { default: fetch } = await import('node-fetch');
+    const body = { model: 'gpt-4o-mini', max_tokens: 600, temperature: 0.8, messages: [{ role: 'system', content: sys }, ...mensagens] };
+    const r2 = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` }, body: JSON.stringify(body),
+    });
+    const d = await r2.json();
+    if (d.error) return res.status(400).json({ error: 'Não consegui responder agora. Tenta de novo em instantes.' });
+    const resposta = (d.choices?.[0]?.message?.content || '').trim() || 'Tô aqui com você. Me conta mais?';
+    await query(`INSERT INTO amigo_mensagens (usuario_id, role, content) VALUES ($1,'assistant',$2)`, [req.user.id, cut(resposta, 4000)]);
+    res.json({ resposta });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
