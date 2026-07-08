@@ -393,6 +393,11 @@ export default async function runMigrate() {
     await query(`ALTER TABLE agenda_eventos ADD COLUMN IF NOT EXISTS parcelas INT`).catch(() => {});
     await query(`ALTER TABLE agenda_eventos ADD COLUMN IF NOT EXISTS conversa_id TEXT`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS idx_agenda_conversa ON agenda_eventos (conversa_id)`).catch(() => {});
+    // CURSOS / treinamento da equipe (links, vídeos, materiais).
+    await query(`CREATE TABLE IF NOT EXISTS cursos (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      titulo TEXT NOT NULL, descricao TEXT, url TEXT, categoria TEXT DEFAULT 'Geral',
+      criado_por TEXT, created_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
     // Painel de Profissionais: cadastro de médicos/especialistas + disponibilidade
     await query(`CREATE TABLE IF NOT EXISTS profissionais (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,

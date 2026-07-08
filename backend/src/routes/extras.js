@@ -414,6 +414,33 @@ r.delete('/profissionais/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* ═══ CURSOS / TREINAMENTO ═══════════════════════════════════════════════════ */
+r.get('/cursos', async (req, res) => {
+  try {
+    const { rows } = await query('SELECT * FROM cursos ORDER BY created_at DESC');
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+r.post('/cursos', async (req, res) => {
+  try {
+    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão adiciona cursos.' });
+    const b = req.body || {};
+    const titulo = cut((b.titulo || '').trim(), 120);
+    if (!titulo) return res.status(400).json({ error: 'Informe o título do curso.' });
+    const { rows: [c] } = await query(
+      `INSERT INTO cursos (titulo, descricao, url, categoria, criado_por) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+      [titulo, cut(b.descricao, 600), cut(b.url, 500), cut(b.categoria, 40) || 'Geral', cut(req.user?.nome, 80)]);
+    res.status(201).json(c);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+r.delete('/cursos/:id', async (req, res) => {
+  try {
+    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão remove cursos.' });
+    await query('DELETE FROM cursos WHERE id = $1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 /* ═══ PROGRAMA DE INDICAÇÕES ═════════════════════════════════════════════════ */
 const IND_STATUS = ['Cadastrada', 'Em atendimento', 'Orçamento enviado', 'Convertida', 'Não convertida'];
 const PONTOS_PADRAO = { 'Plano Vacinal': 100, 'Pacote Infantil': 70, 'Pacote Adulto': 50, 'Vacina Avulsa': 20 };

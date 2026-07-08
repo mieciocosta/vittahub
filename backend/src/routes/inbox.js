@@ -4251,6 +4251,25 @@ r.post('/conversations/:id/sugerir-agenda', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// CASES DE SUCESSO: conversas que viraram VENDA (padrão de atendimento vencedor)
+// pra equipe estudar e replicar. Respeita o acesso por setor.
+r.get('/cases-sucesso', async (req, res) => {
+  try {
+    const { rows } = await query(`
+      SELECT DISTINCT ON (v.conversa_id)
+             v.conversa_id id, c.contact_name, c.phone, c.setor, c.classificacao, c.responsavel_id,
+             v.categoria, v.servico, v.valor, v.atendente_nome, v.data_venda
+      FROM vendas v JOIN conversas c ON c.id = v.conversa_id
+      WHERE v.status_pagamento IN ('pago','cortesia') AND v.conversa_id IS NOT NULL
+      ORDER BY v.conversa_id, v.data_venda DESC, v.created_at DESC
+      LIMIT 400`);
+    const out = rows
+      .filter(r2 => podeVerSetor(req.user, r2))
+      .sort((a, b) => new Date(b.data_venda) - new Date(a.data_venda));
+    res.json(out);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ─── QUICK REPLIES ────────────────────────────────────────────────────────────
 r.get('/quick-replies', async (req, res) => {
   try {
