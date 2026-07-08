@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Target, TrendingUp, Save } from 'lucide-react';
+import { Target, TrendingUp, Save, CalendarCheck } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt } from '../hooks/utils.js';
 
@@ -20,12 +20,32 @@ export default function Metas() {
   const [metaEdit, setMetaEdit] = useState({ vacinas: '', consultas: '', terapias: '' });
   const [salvando, setSalvando] = useState(false);
   const [salvo, setSalvo] = useState(false);
+  const [agResumo, setAgResumo] = useState(null);
+  const [agEdit, setAgEdit] = useState({ vacinas: '', consultas: '', terapias: '' });
+  const [agSalvo, setAgSalvo] = useState(false);
+  const [agSalvando, setAgSalvando] = useState(false);
 
   const load = () => api.get('/extras/vendas/resumo').then(d => {
     setData(d);
     setMetaEdit({ vacinas: d.setores?.vacinas?.meta || '', consultas: d.setores?.consultas?.meta || '', terapias: d.setores?.terapias?.meta || '' });
   }).catch(() => {});
-  useEffect(() => { load(); }, []); // eslint-disable-line
+  const loadAg = () => Promise.all([
+    api.get('/extras/agendamentos/resumo').catch(() => null),
+    api.get('/extras/agendamentos/meta').catch(() => null),
+  ]).then(([resumo, meta]) => {
+    setAgResumo(resumo);
+    if (meta) setAgEdit({ vacinas: meta.vacinas || '', consultas: meta.consultas || '', terapias: meta.terapias || '' });
+  });
+  useEffect(() => { load(); loadAg(); }, []); // eslint-disable-line
+
+  const salvarAgMeta = async () => {
+    setAgSalvando(true);
+    try {
+      await api.put('/extras/agendamentos/meta', { vacinas: +agEdit.vacinas || 0, consultas: +agEdit.consultas || 0, terapias: +agEdit.terapias || 0 });
+      setAgSalvo(true); setTimeout(() => setAgSalvo(false), 2000); loadAg();
+    } catch (e) { window.alert('Erro: ' + e.message); }
+    setAgSalvando(false);
+  };
 
   const salvarMeta = async () => {
     setSalvando(true);
@@ -101,6 +121,41 @@ export default function Metas() {
           </div>
         </div>
       )}
+
+      {/* Metas de AGENDAMENTO (quantidade) por setor */}
+      <div className="card" style={{ padding: '18px 20px', marginBottom: 22 }}>
+        <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}><CalendarCheck size={16} color="var(--tq2)" /> Metas de agendamento do mês (quantidade)</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(220px,1fr))', gap: 14, marginBottom: 16 }}>
+          {SETORES.map(([k, rotulo, cor]) => {
+            const a = agResumo?.setores?.[k] || { feito: 0, meta: 0, falta: 0, pct: null };
+            const pct = Math.min(a.pct || 0, 100);
+            return (
+              <div key={k} style={{ background: 'var(--bg2)', borderRadius: 12, padding: '13px 15px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <span style={{ fontWeight: 700, fontSize: 13 }}>{rotulo}</span>
+                  <span style={{ fontSize: 12.5, fontWeight: 800, color: cor }}>{a.pct != null ? `${a.pct}%` : '—'}</span>
+                </div>
+                <div style={{ fontSize: 20, fontWeight: 800 }}>{a.feito}<span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 600 }}> / {a.meta || 0} agend.</span></div>
+                <div style={{ height: 7, borderRadius: 5, background: 'var(--card)', overflow: 'hidden', margin: '7px 0 4px' }}>
+                  <div style={{ width: `${pct}%`, height: '100%', borderRadius: 5, background: a.meta > 0 && a.falta === 0 ? 'var(--ok)' : cor }} />
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--muted)' }}>{a.meta > 0 ? (a.falta > 0 ? `faltam ${a.falta}` : '🏆 meta batida!') : 'sem meta definida'}</div>
+              </div>
+            );
+          })}
+        </div>
+        {ehGestao && (
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end', borderTop: '1px solid var(--border)', paddingTop: 14 }}>
+            {SETORES.map(([k, rotulo]) => (
+              <div key={k} className="field" style={{ flex: '1 1 150px', margin: 0 }}>
+                <label>{rotulo} (nº)</label>
+                <input type="number" min={0} value={agEdit[k]} onChange={e => setAgEdit(p => ({ ...p, [k]: e.target.value }))} placeholder="0" />
+              </div>
+            ))}
+            <button onClick={salvarAgMeta} disabled={agSalvando} className="btn btn-p" style={{ gap: 6, height: 40 }}><Save size={14} /> {agSalvando ? '…' : agSalvo ? 'Salvo!' : 'Salvar metas'}</button>
+          </div>
+        )}
+      </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(280px,1fr))', gap: 16 }}>
         {/* Ranking por atendente */}
