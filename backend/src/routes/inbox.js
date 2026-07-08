@@ -1528,7 +1528,9 @@ r.post('/webhook/zapi', async (req, res) => {
       }
       return;
     }
-    if (body.isGroup === true || body.isGroup === 'true') return;
+    // GRUPOS: antes eram descartados. Agora aparecem no inbox (aba Grupos). O BOT
+    // nunca responde em grupo (seria spam). Newsletter/status seguem ignorados.
+    const isGroupMsg = (body.isGroup === true || body.isGroup === 'true') || String(body.phone || '').includes('@g.us');
     if (body.isNewsletter || body.isStatusReply) return;
 
     const chatLid = body.chatLid || null;
@@ -1552,7 +1554,7 @@ r.post('/webhook/zapi', async (req, res) => {
     // (privacidade do WhatsApp, sem número real). Tenta casar pela chatLid → a
     // conversa que já foi criada pelas mensagens com telefone real (mesma chatLid).
     // Vale tanto pra ENVIADAS pelo celular quanto pra RECEBIDAS que venham só com @lid.
-    if (String(phone).includes('@lid')) {
+    if (!isGroupMsg && String(phone).includes('@lid')) {
       if (chatLid) {
         const { rows: [cLid] } = await query('SELECT contact_id FROM conversas WHERE chat_lid = $1 LIMIT 1', [chatLid]).catch(() => ({ rows: [] }));
         // Usa o telefone COMPLETO do contact_id (com 55) — senão o remoteJid não
@@ -1566,7 +1568,8 @@ r.post('/webhook/zapi', async (req, res) => {
     }
     if (String(phone).includes('broadcast') || String(phone).includes('status')) return;
     const phoneDigits = String(phone).replace(/\D/g, '');
-    if (phoneDigits.length < 10 || phoneDigits.length > 15) { console.warn(`SYNC-DROP: telefone inválido "${phone}" (isMe=${isMe}, msgId=${msgId})`); return; }
+    // Grupos têm id longo (@g.us) — não passam pela regra de telefone normal.
+    if (!isGroupMsg && (phoneDigits.length < 10 || phoneDigits.length > 15)) { console.warn(`SYNC-DROP: telefone inválido "${phone}" (isMe=${isMe}, msgId=${msgId})`); return; }
 
     const senderName = body.senderName || body.chatName || '';
     const profilePic = body.photo || body.senderPhoto || body.profilePicUrl || '';
@@ -1649,11 +1652,13 @@ r.post('/webhook/zapi', async (req, res) => {
     // Foto de perfil: já vem no campo "photo" do webhook
     let fetchedPic = profilePic && profilePic !== 'null' ? profilePic : null;
 
-    const remoteJid = `${phone}@s.whatsapp.net`;
+    const remoteJid = isGroupMsg ? `${String(phone).replace('@g.us', '')}@g.us` : `${phone}@s.whatsapp.net`;
     const displayPhone = phone.startsWith('55') ? phone.slice(2) : phone;
     // Em mensagem ENVIADA por mim, o senderName é o nome da CLÍNICA, não do
     // cliente — não pode sobrescrever o nome da conversa. Mantém o que já existe.
-    const contactName = (!isMe && senderName && senderName.length > 2) ? senderName : displayPhone;
+    // Em grupo, o nome da conversa é o NOME DO GRUPO (chatName).
+    const contactName = isGroupMsg ? (body.chatName || body.senderName || 'Grupo')
+      : ((!isMe && senderName && senderName.length > 2) ? senderName : displayPhone);
     // Ordena pela hora de RECEBIMENTO no servidor (mesmo relógio das mensagens
     // enviadas pelo VittaHub/bot, que usam NOW()). Usar o "momment" do WhatsApp
     // — que pode vir minutos atrasado por retry/lag — embaralhava a ordem do chat.
@@ -1684,7 +1689,7 @@ r.post('/webhook/zapi', async (req, res) => {
     const { rows: [cfgIns] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'").catch(() => ({ rows: [{}] }));
     const botGeralOn = (cfgIns?.valor?.ativo) !== false;
     const iaConsultasOn = (cfgIns?.valor?.consultaIA) !== false;
-    const novoBotAtivo = !isMe && (botGeralOn || iaConsultasOn);
+    const novoBotAtivo = !isMe && !isGroupMsg && (botGeralOn || iaConsultasOn);
 
     const { rows: [conv] } = await query(`
       INSERT INTO conversas (channel, contact_name, contact_id, phone, unread, last_message, last_message_at, profile_pic, chat_lid, bot_ativo)
@@ -1806,6 +1811,10 @@ r.post('/webhook/zapi', async (req, res) => {
     // A RESPOSTA em si é controlada pelo bot_ativo de CADA conversa (botão BOT),
     // então o master pode ligar/desligar o bot conversa a conversa mesmo com o
     // global desligado — e nada se religa sozinho.
+    // Em GRUPO o bot nunca atua (nem reabertura, nem triagem, nem IA). A mensagem
+    // já foi salva e exibida acima; encerra aqui.
+    if (isGroupMsg) return;
+
     const { rows: [cfgBotRow] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'").catch(() => ({ rows: [] }));
     const botGlobalAtivo = cfgBotRow?.valor?.ativo !== false;
 
