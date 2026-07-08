@@ -280,9 +280,50 @@ r.get('/vendas', async (req, res) => {
     if (!gestao(req)) { cond.push(`atendente_id = $${i++}`); params.push(req.user.id); }
     if (['vacinas', 'consultas', 'terapias'].includes(req.query.setor)) { cond.push(`setor = $${i++}`); params.push(req.query.setor); }
     if (/^\d{4}-\d{2}$/.test(req.query.mes || '')) { cond.push(`to_char(data_venda,'YYYY-MM') = $${i++}`); params.push(req.query.mes); }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(req.query.dia || '')) { cond.push(`data_venda = $${i++}`); params.push(req.query.dia); }
+    if (STATUS_PG.includes(req.query.status)) { cond.push(`status_pagamento = $${i++}`); params.push(req.query.status); }
     const where = cond.length ? 'WHERE ' + cond.join(' AND ') : '';
-    const { rows } = await query(`SELECT * FROM vendas ${where} ORDER BY data_venda DESC, created_at DESC LIMIT 500`, params);
+    // Lista leve: NÃO traz o base64 do comprovante (só um booleano) — o arquivo é
+    // buscado sob demanda em /vendas/:id/comprovante ao clicar em visualizar.
+    const { rows } = await query(`
+      SELECT id, conversa_id, lead_id, atendente_id, atendente_nome, setor, categoria,
+             cliente_nome, paciente_nome, servico, valor, desconto, forma_pagamento,
+             status_pagamento, data_venda, data_atendimento, origem, observacao,
+             comprovante_nome, comprovante_tipo, (comprovante IS NOT NULL) AS tem_comprovante,
+             created_at, updated_at
+      FROM vendas ${where} ORDER BY data_venda DESC, created_at DESC LIMIT 500`, params);
     res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// CAIXA — baixa o comprovante (data URL) de uma venda. Gestão ou o próprio atendente.
+r.get('/vendas/:id/comprovante', async (req, res) => {
+  try {
+    const { rows: [v] } = await query(`SELECT atendente_id, comprovante, comprovante_nome, comprovante_tipo FROM vendas WHERE id = $1`, [req.params.id]);
+    if (!v) return res.status(404).json({ error: 'Venda não encontrada' });
+    if (!gestao(req) && v.atendente_id !== req.user.id) return res.status(403).json({ error: 'Sem permissão para ver este comprovante.' });
+    if (!v.comprovante) return res.status(404).json({ error: 'Sem comprovante anexado.' });
+    res.json({ comprovante: v.comprovante, comprovante_nome: v.comprovante_nome, comprovante_tipo: v.comprovante_tipo });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// CAIXA — anexa/remove o comprovante de pagamento. Gestão ou o próprio atendente.
+r.patch('/vendas/:id/comprovante', async (req, res) => {
+  try {
+    const { rows: [v] } = await query(`SELECT atendente_id FROM vendas WHERE id = $1`, [req.params.id]);
+    if (!v) return res.status(404).json({ error: 'Venda não encontrada' });
+    if (!gestao(req) && v.atendente_id !== req.user.id) return res.status(403).json({ error: 'Sem permissão para anexar comprovante.' });
+    const b = req.body || {};
+    if (b.comprovante === null || b.comprovante === '') {
+      const { rows: [u] } = await query(`UPDATE vendas SET comprovante = NULL, comprovante_nome = NULL, comprovante_tipo = NULL, updated_at = NOW() WHERE id = $1 RETURNING id`, [req.params.id]);
+      return res.json({ ok: true, id: u.id, tem_comprovante: false });
+    }
+    if (typeof b.comprovante !== 'string' || !b.comprovante.startsWith('data:')) return res.status(400).json({ error: 'Envie o comprovante como data URL (imagem ou PDF).' });
+    if (b.comprovante.length > 16 * 1024 * 1024) return res.status(413).json({ error: 'Comprovante muito grande (máx. ~12MB).' });
+    const { rows: [u] } = await query(
+      `UPDATE vendas SET comprovante = $1, comprovante_nome = $2, comprovante_tipo = $3, updated_at = NOW() WHERE id = $4 RETURNING id, comprovante_nome, comprovante_tipo`,
+      [b.comprovante, cut(b.filename, 160), cut(b.mimetype, 80), req.params.id]);
+    res.json({ ok: true, id: u.id, tem_comprovante: true, comprovante_nome: u.comprovante_nome, comprovante_tipo: u.comprovante_tipo });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

@@ -437,6 +437,10 @@ export default async function runMigrate() {
     await query(`CREATE INDEX IF NOT EXISTS idx_vendas_data ON vendas (data_venda)`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS idx_vendas_setor ON vendas (setor)`).catch(() => {});
     await query(`ALTER TABLE vendas ADD COLUMN IF NOT EXISTS desconto NUMERIC(10,2) DEFAULT 0`).catch(() => {});
+    // CAIXA: comprovante de pagamento anexado à venda (data URL base64 — imagem ou PDF)
+    await query(`ALTER TABLE vendas ADD COLUMN IF NOT EXISTS comprovante TEXT`).catch(() => {});
+    await query(`ALTER TABLE vendas ADD COLUMN IF NOT EXISTS comprovante_nome TEXT`).catch(() => {});
+    await query(`ALTER TABLE vendas ADD COLUMN IF NOT EXISTS comprovante_tipo TEXT`).catch(() => {});
     // PERDAS: lead marcado como perdido (motivo obrigatório) — alimenta relatórios.
     await query(`CREATE TABLE IF NOT EXISTS perdas (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,

@@ -5,7 +5,7 @@ import {
   LogOut, Settings, Smartphone, Sun, Moon, ChevronLeft, ChevronRight,
   CalendarClock, CalendarDays, Bell, CheckCheck, UserPlus, Shield,
   Gift, Bot, Image, FileText, Smile, Phone, Star, Database, Stethoscope, Target,
-  Trophy, GraduationCap, Rocket,
+  Trophy, GraduationCap, Rocket, Wallet,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useApi } from '../context/AuthContext.jsx';
@@ -32,6 +32,7 @@ const NAV = [
   { to:'/retornos',   icon:Bell,            label:'Follow-up',  retornos:true },
   { to:'/agenda',     icon:CalendarDays,    label:'Agenda' },
   { to:'/metas',      icon:Target,          label:'Metas', masterOnly:true },
+  { to:'/caixa',      icon:Wallet,          label:'Caixa' },
   { to:'/profissionais', icon:Stethoscope,  label:'Profissionais', consultas:true },
   { to:'/relatorios', icon:BarChart2,       label:'Relatórios' },
   { to:'/cases-sucesso', icon:Trophy,       label:'Cases de Sucesso' },

@@ -21,6 +21,7 @@ import Cursos from './pages/Cursos.jsx';
 import Planejamento from './pages/Planejamento.jsx';
 import Profissionais from './pages/Profissionais.jsx';
 import Metas from './pages/Metas.jsx';
+import Caixa from './pages/Caixa.jsx';
 import Equipe from './pages/Equipe.jsx';
 import Biblioteca from './pages/Biblioteca.jsx';
 import Figurinhas from './pages/Figurinhas.jsx';
@@ -209,6 +210,7 @@ export default function App() {
           <Route path="/agenda" element={<Agenda />} />
           <Route path="/profissionais" element={(['master','supervisor'].includes(user.role) || user.setor === 'consultas') ? <Profissionais /> : <Navigate to="/" />} />
           <Route path="/metas" element={<Metas />} />
+          <Route path="/caixa" element={<Caixa />} />
           <Route path="/equipe" element={<Equipe />} />
           <Route path="/classificar" element={<Classificar />} />
           <Route path="/cases-sucesso" element={<CasesSucesso />} />
