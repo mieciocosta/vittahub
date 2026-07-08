@@ -2105,22 +2105,34 @@ function FaixaContexto({ sel, leadInfo, setLeadInfo, api, scoreChip, setScoreChi
         const nomeSetor = metaSetor.setor && metaSetor.setor !== 'geral'
           ? metaSetor.setor.charAt(0).toUpperCase() + metaSetor.setor.slice(1)
           : 'Geral';
+        const Bloco = ({ rotulo, valor, cor }) => (
+          <div style={{ display:'flex', flexDirection:'column', lineHeight:1.1 }}>
+            <span style={{ fontSize:8.5, fontWeight:800, color:'rgba(255,255,255,.55)', textTransform:'uppercase', letterSpacing:.6 }}>{rotulo}</span>
+            <span style={{ fontSize:13, fontWeight:900, color:cor }}>{valor}</span>
+          </div>
+        );
         return (
-          <div style={{ display:'flex', alignItems:'center', gap:10, padding:'2px 16px', marginLeft:4, borderRadius:12, background: batida ? 'linear-gradient(135deg,#065f46,#10b981)' : 'linear-gradient(135deg,#1e1b4b,#4c1d95)', boxShadow:'0 2px 8px rgba(76,29,149,.28)' }}>
-            <span style={{ fontSize:18 }}>{batida ? '🏆' : '🎯'}</span>
-            <div style={{ minWidth:210 }}>
-              <div style={{ fontSize:9.5, fontWeight:800, color:'rgba(255,255,255,.72)', textTransform:'uppercase', letterSpacing:.5 }}>
-                Meta {nomeSetor} · {fmt.brl(metaSetor.metaGlobal)}
+          <div style={{ display:'flex', alignItems:'center', gap:14, padding:'5px 18px', marginLeft:4, borderRadius:14, position:'relative', overflow:'hidden',
+            background: batida
+              ? 'linear-gradient(135deg,#052e16 0%,#065f46 55%,#0f766e 100%)'
+              : 'linear-gradient(135deg,#0b1023 0%,#1b1740 55%,#2a1a52 100%)',
+            border:'1px solid rgba(212,175,55,.35)',
+            boxShadow:'0 6px 20px rgba(10,8,30,.45), inset 0 1px 0 rgba(255,255,255,.06)' }}>
+            <span style={{ position:'absolute', inset:0, background:'radial-gradient(120% 120% at 0% 0%, rgba(212,175,55,.14), transparent 55%)', pointerEvents:'none' }} />
+            <div style={{ display:'flex', alignItems:'center', gap:7, position:'relative' }}>
+              <span style={{ fontSize:19, filter:'drop-shadow(0 1px 2px rgba(0,0,0,.4))' }}>{batida ? '🏆' : '🎯'}</span>
+              <span style={{ fontSize:9, fontWeight:900, color:'#e9d8a6', textTransform:'uppercase', letterSpacing:.8 }}>Meta<br/>{nomeSetor}</span>
+            </div>
+            <Bloco rotulo="Meta" valor={fmt.brl(metaSetor.metaGlobal)} cor="#f5e6b3" />
+            <Bloco rotulo="Alcançado" valor={`${fmt.brl(metaSetor.confirmado || 0)}`} cor="#7ee7c7" />
+            <Bloco rotulo={batida ? 'Status' : 'Falta'} valor={batida ? '✅ Batida' : fmt.brl(metaSetor.faltaGlobal)} cor={batida ? '#7ee7c7' : '#fca5a5'} />
+            <div style={{ position:'relative', minWidth:120 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', marginBottom:3 }}>
+                <span style={{ fontSize:10, fontWeight:900, color:'#fbbf24' }}>{pct}%</span>
+                <span style={{ fontSize:9, fontWeight:800, color:'rgba(255,255,255,.8)' }}>{batida ? 'Bora além! 🔥' : 'Fecha essa! 🔥'}</span>
               </div>
-              <div style={{ display:'flex', alignItems:'baseline', gap:6, marginTop:1 }}>
-                <span style={{ fontSize:13, fontWeight:900, color:'#fff' }}>{fmt.brl(metaSetor.confirmado || 0)}</span>
-                <span style={{ fontSize:10.5, fontWeight:800, color:'#a7f3d0' }}>({pct}%)</span>
-                <span style={{ fontSize:10.5, fontWeight:700, color:'rgba(255,255,255,.82)' }}>
-                  {batida ? '🔥 Meta batida! Bora além!' : `Faltam ${fmt.brl(metaSetor.faltaGlobal)} · Vamos fechar essa venda! 🔥`}
-                </span>
-              </div>
-              <div style={{ width:'100%', height:5, borderRadius:4, background:'rgba(255,255,255,.18)', overflow:'hidden', marginTop:3 }}>
-                <div style={{ width:`${pct}%`, height:'100%', background: batida ? '#fff' : 'linear-gradient(90deg,#f59e0b,#fbbf24)', transition:'width .4s ease' }} />
+              <div style={{ width:'100%', height:6, borderRadius:5, background:'rgba(255,255,255,.14)', overflow:'hidden' }}>
+                <div style={{ width:`${pct}%`, height:'100%', borderRadius:5, background: batida ? 'linear-gradient(90deg,#34d399,#a7f3d0)' : 'linear-gradient(90deg,#d4af37,#fbbf24,#fde68a)', boxShadow:'0 0 8px rgba(251,191,36,.5)', transition:'width .4s ease' }} />
               </div>
             </div>
           </div>
