@@ -262,6 +262,7 @@ r.get('/vendas/resumo', async (req, res) => {
       query(`SELECT setor,
           COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float confirmado,
           COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('sinal','aguardando','parcelado','pendente')),0)::float pendente,
+          COALESCE(SUM(desconto),0)::float desconto,
           COUNT(*)::int n
         FROM vendas WHERE to_char(data_venda,'YYYY-MM') = $1 ${soMinhas} GROUP BY setor`, [mes]),
       query(`SELECT COALESCE(atendente_nome,'(sem nome)') nome, COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float confirmado, COUNT(*)::int n
@@ -275,16 +276,16 @@ r.get('/vendas/resumo', async (req, res) => {
     const metaV = cfg.rows[0]?.valor?.vendas || {};
     const vMap = Object.fromEntries(vendasSetor.rows.map(r2 => [r2.setor, r2]));
     const aMap = Object.fromEntries(agSetor.rows.map(r2 => [r2.setor, r2.agendado]));
-    const setores = {}; let totConf = 0, totPend = 0, totAg = 0, totMeta = 0;
+    const setores = {}; let totConf = 0, totPend = 0, totAg = 0, totMeta = 0, totDesc = 0;
     for (const s of SET3) {
-      const conf = vMap[s]?.confirmado || 0, pend = vMap[s]?.pendente || 0, ag = aMap[s] || 0;
+      const conf = vMap[s]?.confirmado || 0, pend = vMap[s]?.pendente || 0, ag = aMap[s] || 0, desc = vMap[s]?.desconto || 0;
       const meta = parseFloat(metaV[s]) || 0;
-      setores[s] = { meta, confirmado: conf, pendente: pend, agendado: ag, falta: Math.max(meta - conf, 0), pct: meta ? +((conf / meta) * 100).toFixed(1) : null, n: vMap[s]?.n || 0 };
-      totConf += conf; totPend += pend; totAg += ag; totMeta += meta;
+      setores[s] = { meta, confirmado: conf, pendente: pend, agendado: ag, desconto: desc, falta: Math.max(meta - conf, 0), pct: meta ? +((conf / meta) * 100).toFixed(1) : null, n: vMap[s]?.n || 0 };
+      totConf += conf; totPend += pend; totAg += ag; totMeta += meta; totDesc += desc;
     }
     res.json({
       mes, setores,
-      total: { meta: totMeta, confirmado: totConf, pendente: totPend, agendado: totAg, falta: Math.max(totMeta - totConf, 0), pct: totMeta ? +((totConf / totMeta) * 100).toFixed(1) : null },
+      total: { meta: totMeta, confirmado: totConf, pendente: totPend, agendado: totAg, desconto: totDesc, falta: Math.max(totMeta - totConf, 0), pct: totMeta ? +((totConf / totMeta) * 100).toFixed(1) : null },
       porAtendente: porAtendente.rows, porCategoria: porCategoria.rows,
     });
   } catch (err) { res.status(500).json({ error: err.message }); }

@@ -76,6 +76,10 @@ export default function Metas() {
                   <div style={{ color: 'var(--muted)' }}>Pendente</div>
                   <div style={{ fontWeight: 800, color: '#d97706' }}>{fmt.brl(s.pendente)}</div>
                 </div>
+                <div style={{ flex: 1, background: 'var(--bg2)', borderRadius: 8, padding: '6px 8px' }}>
+                  <div style={{ color: 'var(--muted)' }}>Desconto</div>
+                  <div style={{ fontWeight: 800, color: '#b45309' }}>{s.desconto > 0 ? `− ${fmt.brl(s.desconto)}` : '—'}</div>
+                </div>
               </div>
             </div>
           );

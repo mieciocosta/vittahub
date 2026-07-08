@@ -221,6 +221,12 @@ export default function Relatorios() {
                   </div>
                 ))}
               </div>
+              {vendasR.total?.desconto > 0 && (
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'7px 11px', borderRadius:9, background:'#fff7ed', border:'1px solid #fed7aa', marginBottom:14, fontSize:12 }}>
+                  <span style={{ fontWeight:700, color:'#b45309' }}>🏷️ Descontos concedidos no mês</span>
+                  <span style={{ fontWeight:800, color:'#b45309' }}>− {fmt.brl(vendasR.total.desconto)}</span>
+                </div>
+              )}
               <div style={{ fontSize:11.5, fontWeight:700, color:'var(--muted)', marginBottom:6 }}>Por categoria</div>
               {(vendasR.porCategoria||[]).slice(0,6).map((c,i)=>(
                 <div key={i} style={{ display:'flex', justifyContent:'space-between', padding:'5px 0', borderBottom:'1px solid var(--border)', fontSize:12.5 }}>
