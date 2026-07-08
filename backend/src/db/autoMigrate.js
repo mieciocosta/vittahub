@@ -441,6 +441,19 @@ export default async function runMigrate() {
     await query(`ALTER TABLE vendas ADD COLUMN IF NOT EXISTS comprovante TEXT`).catch(() => {});
     await query(`ALTER TABLE vendas ADD COLUMN IF NOT EXISTS comprovante_nome TEXT`).catch(() => {});
     await query(`ALTER TABLE vendas ADD COLUMN IF NOT EXISTS comprovante_tipo TEXT`).catch(() => {});
+    // PLANEJAMENTO: estratégias, blocos de notas e lembretes do líder/gestão (pessoal)
+    await query(`CREATE TABLE IF NOT EXISTS planejamento_notas (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      usuario_id TEXT,
+      tipo TEXT DEFAULT 'nota',
+      titulo TEXT,
+      conteudo TEXT,
+      lembrete_em DATE,
+      concluido BOOLEAN DEFAULT false,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS idx_plannotas_user ON planejamento_notas (usuario_id)`).catch(() => {});
     // PERDAS: lead marcado como perdido (motivo obrigatório) — alimenta relatórios.
     await query(`CREATE TABLE IF NOT EXISTS perdas (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,

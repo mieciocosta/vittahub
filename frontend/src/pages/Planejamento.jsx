@@ -1,8 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Rocket, Users, Trophy, Coins, ClipboardCheck, GraduationCap, ArrowRight, Target } from 'lucide-react';
+import { Rocket, Users, Trophy, Coins, ClipboardCheck, GraduationCap, Target, Lightbulb, StickyNote, Bell, Plus, X, Check, Trash2, Pencil, CalendarClock } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt } from '../hooks/utils.js';
+
+const TIPOS = {
+  estrategia: { label: 'Estratégia', Icon: Lightbulb, cor: '#C4973B' },
+  nota:       { label: 'Nota',       Icon: StickyNote, cor: '#0E8C96' },
+  lembrete:   { label: 'Lembrete',   Icon: Bell,       cor: '#7c3aed' },
+};
+function fmtDia(s) { if (!s) return ''; const d = String(s).slice(0, 10).split('-'); return d.length === 3 ? `${d[2]}/${d[1]}/${d[0]}` : s; }
 
 /* PLANEJAMENTO — plano de crescimento e bônus da líder. Motiva a formar equipe
    e padronizar o atendimento pra bater a meta e ganhar os bônus. */
@@ -13,8 +20,38 @@ export default function Planejamento() {
   const { user } = useAuth();
   const nome = (user?.nome || '').split(' ')[0];
   const [plan, setPlan] = useState(null);
+  const [notas, setNotas] = useState([]);
+  const [modal, setModal] = useState(null); // { id?, tipo, titulo, conteudo, lembrete_em }
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState('');
 
   useEffect(() => { api.get('/extras/planejamento').then(setPlan).catch(() => {}); }, []); // eslint-disable-line
+  const loadNotas = () => api.get('/extras/planejamento/notas').then(d => setNotas(Array.isArray(d) ? d : [])).catch(() => setNotas([]));
+  useEffect(() => { loadNotas(); }, []); // eslint-disable-line
+
+  const abrirNovo = (tipo) => { setErro(''); setModal({ tipo, titulo: '', conteudo: '', lembrete_em: '' }); };
+  const abrirEdit = (n) => { setErro(''); setModal({ id: n.id, tipo: n.tipo, titulo: n.titulo || '', conteudo: n.conteudo || '', lembrete_em: n.lembrete_em ? String(n.lembrete_em).slice(0, 10) : '' }); };
+
+  const salvar = async () => {
+    if (!modal.titulo.trim() && !modal.conteudo.trim()) { setErro('Escreva um título ou conteúdo.'); return; }
+    setSalvando(true); setErro('');
+    try {
+      const payload = { tipo: modal.tipo, titulo: modal.titulo, conteudo: modal.conteudo, lembrete_em: modal.tipo === 'lembrete' ? modal.lembrete_em : null };
+      if (modal.id) { const n = await api.put(`/extras/planejamento/notas/${modal.id}`, payload); setNotas(p => p.map(x => x.id === n.id ? n : x)); }
+      else { const n = await api.post('/extras/planejamento/notas', payload); setNotas(p => [n, ...p]); }
+      setModal(null); loadNotas();
+    } catch (e) { setErro(e.message); }
+    setSalvando(false);
+  };
+  const toggle = async (n) => {
+    setNotas(p => p.map(x => x.id === n.id ? { ...x, concluido: !x.concluido } : x));
+    try { await api.put(`/extras/planejamento/notas/${n.id}`, { concluido: !n.concluido }); } catch { loadNotas(); }
+  };
+  const excluir = async (n) => {
+    if (!window.confirm('Remover este item?')) return;
+    setNotas(p => p.filter(x => x.id !== n.id));
+    try { await api.del(`/extras/planejamento/notas/${n.id}`); } catch { loadNotas(); }
+  };
 
   const pct = plan ? Math.min(plan.pct || 0, 100) : 0;
 
@@ -78,11 +115,99 @@ export default function Planejamento() {
           Construa esse padrão a partir do que já deu certo e ensine cada pessoa a repetir.
         </p>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <button onClick={() => nav('/cases-sucesso')} className="btn btn-p" style={{ gap: 7 }}><Trophy size={15} /> Ver Cases de Sucesso <ArrowRight size={14} /></button>
           <button onClick={() => nav('/cursos')} className="btn btn-s" style={{ gap: 7 }}><GraduationCap size={15} /> Cursos de treinamento</button>
           <button onClick={() => nav('/planos-vacinais')} className="btn btn-s" style={{ gap: 7 }}><ClipboardCheck size={15} /> Passo a passo dos funis</button>
         </div>
       </div>
+
+      {/* Meu planejamento: estratégias, notas e lembretes */}
+      <div style={{ marginTop: 22 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
+          <div style={{ fontWeight: 800, fontSize: 17, display: 'flex', alignItems: 'center', gap: 8 }}><Pencil size={18} color="var(--tq2)" /> Meu planejamento</div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {Object.entries(TIPOS).map(([k, t]) => (
+              <button key={k} onClick={() => abrirNovo(k)} className="btn btn-sm" style={{ gap: 6, background: t.cor + '18', color: t.cor, border: `1.5px solid ${t.cor}44`, fontWeight: 700 }}>
+                <Plus size={13} /> {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {notas.length === 0 ? (
+          <div className="card" style={{ padding: 34, textAlign: 'center', color: 'var(--muted)' }}>
+            <Lightbulb size={30} color="var(--border)" style={{ marginBottom: 8 }} />
+            <div style={{ fontWeight: 700 }}>Nada por aqui ainda.</div>
+            <div style={{ fontSize: 12.5, marginTop: 4 }}>Crie suas <b>estratégias</b>, <b>notas</b> e <b>lembretes</b> pra organizar o crescimento da equipe.</div>
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(280px,1fr))', gap: 12 }}>
+            {notas.map(n => {
+              const t = TIPOS[n.tipo] || TIPOS.nota;
+              const atrasado = n.tipo === 'lembrete' && n.lembrete_em && !n.concluido && String(n.lembrete_em).slice(0, 10) < new Date().toISOString().slice(0, 10);
+              return (
+                <div key={n.id} className="card" style={{ padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', opacity: n.concluido ? .62 : 1 }}>
+                  <div style={{ height: 4, background: t.cor }} />
+                  <div style={{ padding: '13px 15px', display: 'flex', flexDirection: 'column', gap: 7, flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 800, color: t.cor, background: t.cor + '18', borderRadius: 20, padding: '2px 9px' }}><t.Icon size={12} /> {t.label}</span>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        <button onClick={() => abrirEdit(n)} title="Editar" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><Pencil size={13} /></button>
+                        <button onClick={() => excluir(n)} title="Remover" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><Trash2 size={13} /></button>
+                      </div>
+                    </div>
+                    {n.titulo && <div style={{ fontWeight: 800, fontSize: 14.5, textDecoration: n.concluido ? 'line-through' : 'none' }}>{n.titulo}</div>}
+                    {n.conteudo && <div style={{ fontSize: 12.5, color: 'var(--txt2)', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>{n.conteudo}</div>}
+                    <div style={{ flex: 1 }} />
+                    {n.tipo === 'lembrete' && n.lembrete_em && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: atrasado ? 'var(--err)' : 'var(--muted)' }}>
+                        <CalendarClock size={13} /> {fmtDia(n.lembrete_em)}{atrasado ? ' · atrasado' : ''}
+                      </div>
+                    )}
+                    <button onClick={() => toggle(n)} className="btn btn-sm" style={{ gap: 6, marginTop: 4, background: n.concluido ? 'var(--bg2)' : t.cor, color: n.concluido ? 'var(--txt2)' : '#fff', border: 'none', fontWeight: 700 }}>
+                      <Check size={13} /> {n.concluido ? 'Concluído' : 'Marcar como feito'}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Modal criar/editar */}
+      {modal && (
+        <div onClick={() => setModal(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
+          <div onClick={e => e.stopPropagation()} className="card" style={{ width: 480, maxWidth: '100%', padding: 22 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <h3 style={{ fontSize: 16, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 8 }}>
+                {React.createElement((TIPOS[modal.tipo] || TIPOS.nota).Icon, { size: 18, color: (TIPOS[modal.tipo] || TIPOS.nota).cor })}
+                {modal.id ? 'Editar' : 'Nova'} {(TIPOS[modal.tipo] || TIPOS.nota).label.toLowerCase()}
+              </h3>
+              <button onClick={() => setModal(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={16} /></button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {Object.entries(TIPOS).map(([k, t]) => (
+                  <button key={k} onClick={() => setModal(m => ({ ...m, tipo: k }))} className="btn btn-sm" style={{ flex: 1, gap: 5, fontWeight: 700,
+                    background: modal.tipo === k ? t.cor : 'var(--bg2)', color: modal.tipo === k ? '#fff' : 'var(--txt2)', border: 'none' }}>
+                    <t.Icon size={13} /> {t.label}
+                  </button>
+                ))}
+              </div>
+              <div className="field" style={{ margin: 0 }}><label>Título</label><input value={modal.titulo} onChange={e => setModal({ ...modal, titulo: e.target.value })} placeholder={modal.tipo === 'estrategia' ? 'Ex: Follow-up em 24h de todo orçamento' : modal.tipo === 'lembrete' ? 'Ex: Reunião de alinhamento' : 'Título'} /></div>
+              <div className="field" style={{ margin: 0 }}><label>Conteúdo</label><textarea value={modal.conteudo} onChange={e => setModal({ ...modal, conteudo: e.target.value })} rows={5} placeholder="Escreva aqui…" style={{ resize: 'vertical' }} /></div>
+              {modal.tipo === 'lembrete' && (
+                <div className="field" style={{ margin: 0 }}><label>Data do lembrete</label><input type="date" value={modal.lembrete_em} onChange={e => setModal({ ...modal, lembrete_em: e.target.value })} /></div>
+              )}
+              {erro && <div style={{ fontSize: 12, color: 'var(--err)', fontWeight: 600 }}>{erro}</div>}
+              <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                <button onClick={salvar} disabled={salvando} className="btn btn-p" style={{ flex: 1, gap: 6 }}><Check size={14} /> {salvando ? 'Salvando…' : 'Salvar'}</button>
+                <button onClick={() => setModal(null)} className="btn">Cancelar</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

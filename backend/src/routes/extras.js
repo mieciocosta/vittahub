@@ -273,6 +273,65 @@ r.get('/planejamento', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* ─── Planejamento: estratégias, notas e lembretes (do líder/gestão) ───────────
+   Cada líder organiza o próprio planejamento: cria estratégias, blocos de notas
+   e lembretes com data. Pessoal — cada um vê os seus. */
+const PLAN_TIPOS = ['estrategia', 'nota', 'lembrete'];
+const podePlan = (req) => gestao(req) || req.user.lider;
+
+r.get('/planejamento/notas', async (req, res) => {
+  try {
+    if (!podePlan(req)) return res.status(403).json({ error: 'Acesso restrito.' });
+    const { rows } = await query(
+      `SELECT * FROM planejamento_notas WHERE usuario_id = $1
+       ORDER BY concluido ASC, COALESCE(lembrete_em, '9999-12-31') ASC, created_at DESC`, [req.user.id]);
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.post('/planejamento/notas', async (req, res) => {
+  try {
+    if (!podePlan(req)) return res.status(403).json({ error: 'Acesso restrito.' });
+    const b = req.body || {};
+    const tipo = PLAN_TIPOS.includes(b.tipo) ? b.tipo : 'nota';
+    if (!String(b.titulo || '').trim() && !String(b.conteudo || '').trim()) return res.status(400).json({ error: 'Escreva um título ou conteúdo.' });
+    const lembrete = /^\d{4}-\d{2}-\d{2}$/.test(b.lembrete_em || '') ? b.lembrete_em : null;
+    const { rows: [n] } = await query(
+      `INSERT INTO planejamento_notas (usuario_id, tipo, titulo, conteudo, lembrete_em)
+       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+      [req.user.id, tipo, cut(b.titulo, 160), cut(b.conteudo, 4000), lembrete]);
+    res.status(201).json(n);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.put('/planejamento/notas/:id', async (req, res) => {
+  try {
+    if (!podePlan(req)) return res.status(403).json({ error: 'Acesso restrito.' });
+    const b = req.body || {};
+    const sets = [], params = []; let i = 1;
+    const set = (c, v) => { sets.push(`${c} = $${i++}`); params.push(v); };
+    if (b.tipo !== undefined && PLAN_TIPOS.includes(b.tipo)) set('tipo', b.tipo);
+    if (b.titulo !== undefined) set('titulo', cut(b.titulo, 160));
+    if (b.conteudo !== undefined) set('conteudo', cut(b.conteudo, 4000));
+    if (b.lembrete_em !== undefined) set('lembrete_em', /^\d{4}-\d{2}-\d{2}$/.test(b.lembrete_em || '') ? b.lembrete_em : null);
+    if (b.concluido !== undefined) set('concluido', !!b.concluido);
+    if (!sets.length) return res.status(400).json({ error: 'Nada para atualizar.' });
+    params.push(req.user.id, req.params.id);
+    const { rows: [n] } = await query(
+      `UPDATE planejamento_notas SET ${sets.join(', ')}, updated_at = NOW() WHERE usuario_id = $${i++} AND id = $${i} RETURNING *`, params);
+    if (!n) return res.status(404).json({ error: 'Não encontrado.' });
+    res.json(n);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.delete('/planejamento/notas/:id', async (req, res) => {
+  try {
+    if (!podePlan(req)) return res.status(403).json({ error: 'Acesso restrito.' });
+    await query('DELETE FROM planejamento_notas WHERE usuario_id = $1 AND id = $2', [req.user.id, req.params.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Lista de vendas (gestão vê tudo; atendente vê as suas). Filtros: setor, mes (YYYY-MM)
 r.get('/vendas', async (req, res) => {
   try {
