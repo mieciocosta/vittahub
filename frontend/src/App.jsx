@@ -43,6 +43,17 @@ const CORES_DIA = [
   { nome: 'Índigo',            tq: '#4f46e5', tq2: '#4338ca', l3: '#ecebfe', l4: '#f6f6ff', rgb: '79,70,229',  sidebar: 'linear-gradient(178deg,#4f46e5 0%,#4338ca 55%,#3730a3 100%)' },
   { nome: 'Âmbar Dourado',     tq: '#d97706', tq2: '#b45309', l3: '#fdf3e5', l4: '#fffaf2', rgb: '217,119,6',  sidebar: 'linear-gradient(178deg,#e08610 0%,#d97706 55%,#b45309 100%)' },
   { nome: 'Ciano Petróleo',    tq: '#0891b2', tq2: '#0e7490', l3: '#e4f6fb', l4: '#f1fbfd', rgb: '8,145,178',  sidebar: 'linear-gradient(178deg,#0891b2 0%,#0a82a0 55%,#0e7490 100%)' },
+  // Extras — só para escolha manual (a rotação automática usa os 7 primeiros)
+  { nome: 'Menta',             tq: '#14b8a6', tq2: '#0f766e', l3: '#e3f8f5', l4: '#f1fdfb', rgb: '20,184,166', sidebar: 'linear-gradient(178deg,#14b8a6 0%,#119488 55%,#0f766e 100%)' },
+  { nome: 'Azul Céu',          tq: '#0ea5e9', tq2: '#0369a1', l3: '#e4f4fd', l4: '#f1fafe', rgb: '14,165,233', sidebar: 'linear-gradient(178deg,#0ea5e9 0%,#0284c7 55%,#0369a1 100%)' },
+  { nome: 'Violeta',           tq: '#9333ea', tq2: '#6b21a8', l3: '#f4e9fd', l4: '#faf5ff', rgb: '147,51,234', sidebar: 'linear-gradient(178deg,#9333ea 0%,#7e22ce 55%,#6b21a8 100%)' },
+  { nome: 'Rosé',              tq: '#db2777', tq2: '#9d174d', l3: '#fdeaf3', l4: '#fef5f9', rgb: '219,39,119', sidebar: 'linear-gradient(178deg,#db2777 0%,#be185d 55%,#9d174d 100%)' },
+  { nome: 'Coral',             tq: '#f43f5e', tq2: '#be123c', l3: '#ffe9ed', l4: '#fff5f7', rgb: '244,63,94',  sidebar: 'linear-gradient(178deg,#f43f5e 0%,#e11d48 55%,#be123c 100%)' },
+  { nome: 'Tangerina',         tq: '#ea580c', tq2: '#c2410c', l3: '#fdeee2', l4: '#fff7f1', rgb: '234,88,12',  sidebar: 'linear-gradient(178deg,#ea580c 0%,#d24a0a 55%,#c2410c 100%)' },
+  { nome: 'Verde Floresta',    tq: '#16a34a', tq2: '#15803d', l3: '#e6f8ec', l4: '#f2fdf5', rgb: '22,163,74',  sidebar: 'linear-gradient(178deg,#16a34a 0%,#159443 55%,#15803d 100%)' },
+  { nome: 'Bordô',             tq: '#be123c', tq2: '#881337', l3: '#fdeaee', l4: '#fef5f7', rgb: '190,18,60',  sidebar: 'linear-gradient(178deg,#be123c 0%,#a01235 55%,#881337 100%)' },
+  { nome: 'Grafite',           tq: '#475569', tq2: '#334155', l3: '#eef1f6', l4: '#f8fafc', rgb: '71,85,105',  sidebar: 'linear-gradient(178deg,#475569 0%,#3d4a5c 55%,#334155 100%)' },
+  { nome: 'Ouro Velho',        tq: '#b08428', tq2: '#8a6417', l3: '#faf1dc', l4: '#fdf9ef', rgb: '176,132,40',  sidebar: 'linear-gradient(178deg,#b08428 0%,#9c7420 55%,#8a6417 100%)' },
 ];
 
 /* vh_cor: 'off' (usa a marca padrão) | 'auto' (cor do dia) | '0'..'6' (fixa escolhida) */
