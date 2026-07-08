@@ -24,10 +24,10 @@ const SETORES_MENU = [
 
 const NAV = [
   { to:'/',           icon:LayoutDashboard, label:'Resumo' },
-  { to:'/quiz',       icon:Gamepad2,        label:'Quiz de Vendas', quiz:true },
-  { to:'/amigo',      icon:Heart,           label:'Meu Amigo' },
   { to:'/cases-sucesso', icon:Trophy,       label:'Cases de Sucesso' },
   { to:'/planejamento', icon:Rocket,        label:'Planejamento', lider:true, plan:true },
+  { to:'/quiz',       icon:Gamepad2,        label:'Quiz de Vendas', quiz:true },
+  { to:'/amigo',      icon:Heart,           label:'Meu Amigo' },
   { to:'/inbox',      icon:MessageSquare,   label:'Chat',     unread:true },
   { to:'/equipe',     icon:Users,           label:'Chat da Equipe', equipe:true },
   { to:'/leads',      icon:Users,           label:'Clientes' },

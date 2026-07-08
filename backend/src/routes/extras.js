@@ -549,6 +549,29 @@ r.delete('/amigo/historico', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Só o MASTER: lista quem usou o "Meu Amigo" e pode abrir a conversa (cuidado/apoio).
+r.get('/amigo/usuarios', async (req, res) => {
+  try {
+    if (req.user.role !== 'master') return res.status(403).json({ error: 'Apenas o master.' });
+    const { rows } = await query(`
+      SELECT a.usuario_id, u.nome, u.setor, u.avatar, u.cor,
+             COUNT(*)::int total, MAX(a.created_at) ultima
+      FROM amigo_mensagens a LEFT JOIN usuarios u ON u.id = a.usuario_id
+      GROUP BY a.usuario_id, u.nome, u.setor, u.avatar, u.cor
+      ORDER BY ultima DESC`);
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.get('/amigo/conversa/:usuarioId', async (req, res) => {
+  try {
+    if (req.user.role !== 'master') return res.status(403).json({ error: 'Apenas o master.' });
+    const { rows } = await query(`SELECT role, content, created_at FROM amigo_mensagens WHERE usuario_id = $1 ORDER BY created_at ASC LIMIT 500`, [req.params.usuarioId]);
+    const { rows: [u] } = await query(`SELECT nome, setor FROM usuarios WHERE id = $1`, [req.params.usuarioId]);
+    res.json({ usuario: u || null, mensagens: rows });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.post('/amigo/mensagem', async (req, res) => {
   try {
     const texto = String((req.body || {}).texto || '').trim();
