@@ -30,6 +30,53 @@ import IAssistente from './pages/IAssistente.jsx';
 import Auditoria from './pages/Auditoria.jsx';
 import WhatsApp from './pages/WhatsApp.jsx';
 
+/* ─── Cor do dia ──────────────────────────────────────────────────────────────
+   Paleta premium curada: uma cor de acento por dia da semana (0=Dom … 6=Sáb).
+   Troca só o acento (--tq/--tq2/--tq3/--tq4 + gradiente da sidebar no tema claro),
+   mantendo a base da marca Vittalis. Pode ser desligada com localStorage vh_cordia='off'. */
+const CORES_DIA = [
+  { nome: 'Turquesa Vittalis', tq: '#00B8C0', tq2: '#007d83', l3: '#e5f8f9', l4: '#f0fdfe', rgb: '0,184,192',  sidebar: 'linear-gradient(178deg,#00B8C0 0%,#0AA0AA 55%,#0E8C96 100%)' },
+  { nome: 'Azul Safira',       tq: '#2563eb', tq2: '#1d4ed8', l3: '#eaf1ff', l4: '#f5f9ff', rgb: '37,99,235',  sidebar: 'linear-gradient(178deg,#2563eb 0%,#1e50c8 55%,#1741a8 100%)' },
+  { nome: 'Esmeralda',         tq: '#059669', tq2: '#047857', l3: '#e6f8f1', l4: '#f2fdf9', rgb: '5,150,105',  sidebar: 'linear-gradient(178deg,#059669 0%,#048a5f 55%,#047857 100%)' },
+  { nome: 'Ametista',          tq: '#7c3aed', tq2: '#6d28d9', l3: '#f2ecfe', l4: '#f9f6ff', rgb: '124,58,237', sidebar: 'linear-gradient(178deg,#7c3aed 0%,#6d28d9 55%,#5b21b6 100%)' },
+  { nome: 'Índigo',            tq: '#4f46e5', tq2: '#4338ca', l3: '#ecebfe', l4: '#f6f6ff', rgb: '79,70,229',  sidebar: 'linear-gradient(178deg,#4f46e5 0%,#4338ca 55%,#3730a3 100%)' },
+  { nome: 'Âmbar Dourado',     tq: '#d97706', tq2: '#b45309', l3: '#fdf3e5', l4: '#fffaf2', rgb: '217,119,6',  sidebar: 'linear-gradient(178deg,#e08610 0%,#d97706 55%,#b45309 100%)' },
+  { nome: 'Ciano Petróleo',    tq: '#0891b2', tq2: '#0e7490', l3: '#e4f6fb', l4: '#f1fbfd', rgb: '8,145,178',  sidebar: 'linear-gradient(178deg,#0891b2 0%,#0a82a0 55%,#0e7490 100%)' },
+];
+
+/* vh_cor: 'off' (usa a marca padrão) | 'auto' (cor do dia) | '0'..'6' (fixa escolhida) */
+function corSelecionada() {
+  const v = localStorage.getItem('vh_cor') || 'auto';
+  if (v === 'off') return null;
+  if (v === 'auto') return CORES_DIA[new Date().getDay()] || CORES_DIA[0];
+  const i = parseInt(v, 10);
+  return Number.isInteger(i) && CORES_DIA[i] ? CORES_DIA[i] : (CORES_DIA[new Date().getDay()] || CORES_DIA[0]);
+}
+
+function aplicarCorDoDia(theme) {
+  const root = document.documentElement;
+  const props = ['--tq', '--tq2', '--tq3', '--tq4', '--sidebar-bg'];
+  const c = corSelecionada();
+  if (!c) {
+    props.forEach(p => root.style.removeProperty(p));
+    root.removeAttribute('data-cor-dia');
+    return null;
+  }
+  root.style.setProperty('--tq', c.tq);
+  root.style.setProperty('--tq2', c.tq2);
+  if (theme === 'dark') {
+    root.style.setProperty('--tq3', `rgba(${c.rgb},0.12)`);
+    root.style.setProperty('--tq4', `rgba(${c.rgb},0.06)`);
+    root.style.removeProperty('--sidebar-bg'); // no escuro a sidebar segue azul-escuro
+  } else {
+    root.style.setProperty('--tq3', c.l3);
+    root.style.setProperty('--tq4', c.l4);
+    root.style.setProperty('--sidebar-bg', c.sidebar);
+  }
+  root.setAttribute('data-cor-dia', c.nome);
+  return c;
+}
+
 // Heartbeat isolado — roda em background, sem afetar o render do App
 function Heartbeat({ userId }) {
   const started = React.useRef(false);
@@ -85,6 +132,7 @@ export default function App() {
   const { user, loading } = useAuth();
   const [unread, setUnread] = useState(0);
   const [theme, setTheme] = useState(() => localStorage.getItem('vh_theme') || 'light');
+  const [corDia, setCorDiaState] = useState(() => localStorage.getItem('vh_cor') || 'auto');
   const [mobileMenu, setMobileMenu] = useState(false);
   // Sidebar navigation collapsed state (persiste entre sessões)
   const [navCollapsed, setNavCollapsed] = useState(
@@ -95,6 +143,16 @@ export default function App() {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('vh_theme', theme);
   }, [theme]);
+
+  // Aplica a cor do dia / cor escolhida sempre que o tema ou a escolha mudar
+  useEffect(() => {
+    aplicarCorDoDia(theme);
+  }, [theme, corDia]);
+
+  const setCorDia = React.useCallback((valor) => {
+    localStorage.setItem('vh_cor', valor);
+    setCorDiaState(valor);
+  }, []);
 
   // Atualiza a CSS variable --sw ao colapsar/expandir sidebar
   useEffect(() => {
@@ -134,6 +192,9 @@ export default function App() {
         onToggleCollapse={toggleNav}
         mobileOpen={mobileMenu}
         onCloseMobile={closeMobile}
+        corDia={corDia}
+        onSetCorDia={setCorDia}
+        paletaCores={CORES_DIA}
       />
       {user && <Heartbeat userId={user.id} />}
       <main className='vh-main' style={{ marginLeft:'var(--sw)', flex:1, minHeight:'100vh', overflowX:'hidden', transition:'margin-left .2s ease' }}>

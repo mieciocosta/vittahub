@@ -121,7 +121,7 @@ function BellPanel({ collapsed }) {
 
 const initials = n => (n||'?').split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase();
 
-export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, collapsed = false, onToggleCollapse, mobileOpen = false, onCloseMobile }) {
+export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, collapsed = false, onToggleCollapse, mobileOpen = false, onCloseMobile, corDia = 'auto', onSetCorDia, paletaCores = [] }) {
   const { user, setUser, logout, isMaster } = useAuth();
 
   const avatarFileRef = useRef(null);
@@ -424,6 +424,39 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
               onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,.62)'}>
               <LogOut size={13} />
             </button>
+          </div>
+        )}
+
+        {/* Paleta de cores — escolha manual ou "Cor do dia" automática */}
+        {!collapsed && paletaCores.length > 0 && (
+          <div style={{ marginTop:8, padding:'9px 10px', borderRadius:12, background:'rgba(255,255,255,.1)', border:'1px solid rgba(255,255,255,.16)' }}>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:7 }}>
+              <span style={{ fontSize:10, fontWeight:800, color:'rgba(255,255,255,.82)', textTransform:'uppercase', letterSpacing:.5 }}>🎨 Cor do CRM</span>
+              <button
+                onClick={() => onSetCorDia && onSetCorDia('auto')}
+                title="Trocar automaticamente a cada dia"
+                style={{ fontSize:9.5, fontWeight:800, padding:'2px 7px', borderRadius:20, cursor:'pointer',
+                  border: corDia === 'auto' ? '1px solid #fff' : '1px solid rgba(255,255,255,.3)',
+                  background: corDia === 'auto' ? 'rgba(255,255,255,.9)' : 'transparent',
+                  color: corDia === 'auto' ? '#0a1622' : 'rgba(255,255,255,.85)' }}>
+                Cor do dia
+              </button>
+            </div>
+            <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+              {paletaCores.map((c, i) => {
+                const ativo = String(corDia) === String(i);
+                return (
+                  <button key={i} onClick={() => onSetCorDia && onSetCorDia(String(i))} title={c.nome}
+                    style={{ width:22, height:22, borderRadius:'50%', cursor:'pointer', padding:0,
+                      background:c.tq,
+                      border: ativo ? '2px solid #fff' : '2px solid rgba(255,255,255,.25)',
+                      boxShadow: ativo ? '0 0 0 2px rgba(255,255,255,.35)' : 'none',
+                      transition:'transform .12s' }}
+                    onMouseEnter={e => e.currentTarget.style.transform='scale(1.15)'}
+                    onMouseLeave={e => e.currentTarget.style.transform='scale(1)'} />
+                );
+              })}
+            </div>
           </div>
         )}
       </div>
