@@ -61,9 +61,9 @@ r.post('/login', async (req, res) => {
     const ok = await bcrypt.compare(senha, u.senha);
     if (!ok) { registraFalhaLogin(ip); logAudit(req, null, id, 'login_falha', { motivo: 'Senha incorreta' }); return res.status(401).json({ error: 'Senha incorreta' }); }
     limpaFalhasLogin(ip);
-    const token = jwt.sign({ id: u.id, nome: u.nome, email: u.email, role: u.role, cor: u.cor, setor: u.setor || null, setores: u.setores || null }, SECRET, { expiresIn: '30d' });
+    const token = jwt.sign({ id: u.id, nome: u.nome, email: u.email, role: u.role, cor: u.cor, setor: u.setor || null, setores: u.setores || null, lider: !!u.lider }, SECRET, { expiresIn: '30d' });
     logAudit(req, u.id, u.nome, 'login', { metodo: 'cpf' });
-    res.json({ token, user: { id: u.id, nome: u.nome, email: u.email, cpf: u.cpf, role: u.role, cor: u.cor, avatar: u.avatar || null, setor: u.setor || null } });
+    res.json({ token, user: { id: u.id, nome: u.nome, email: u.email, cpf: u.cpf, role: u.role, cor: u.cor, avatar: u.avatar || null, setor: u.setor || null, lider: !!u.lider } });
   } catch (err) {
     console.error('Login error:', err.message); // detalhe só no log do servidor
     res.status(500).json({ error: 'Erro interno. Tente novamente.' }); // não vaza o motivo
@@ -72,7 +72,7 @@ r.post('/login', async (req, res) => {
 
 r.get('/me', auth, async (req, res) => {
   try {
-    const { rows } = await query('SELECT id,nome,email,cpf,role,cor,avatar,setor FROM usuarios WHERE id=$1', [req.user.id]);
+    const { rows } = await query('SELECT id,nome,email,cpf,role,cor,avatar,setor,setores,lider FROM usuarios WHERE id=$1', [req.user.id]);
     if (!rows[0]) return res.status(404).json({ error: 'Não encontrado' });
     res.json(rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -96,7 +96,7 @@ r.patch('/me/avatar', auth, async (req, res) => {
 r.get('/usuarios', auth, async (req, res) => {
   if (req.user.role !== 'master') return res.status(403).json({ error: 'Acesso negado' });
   try {
-    const { rows } = await query("SELECT id,nome,email,cpf,role,cor,ativo,avatar,setor,setores FROM usuarios WHERE role!='bot' ORDER BY nome");
+    const { rows } = await query("SELECT id,nome,email,cpf,role,cor,ativo,avatar,setor,setores,lider FROM usuarios WHERE role!='bot' ORDER BY nome");
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -144,6 +144,7 @@ r.put('/usuarios/:id', auth, async (req, res) => {
       const ss = Array.isArray(req.body.setores) ? req.body.setores.filter(s => ['vacinas','consultas','terapias'].includes(s)) : [];
       set('setores', ss.length ? ss : null);
     }
+    if (req.body.lider !== undefined) set('lider', !!req.body.lider);
     set('ativo', ativo);
     if (senha) {
       if (String(senha).length < 8) return res.status(400).json({ error: 'A senha precisa de pelo menos 8 caracteres' });
@@ -153,7 +154,7 @@ r.put('/usuarios/:id', auth, async (req, res) => {
     if (!updates.length) return res.status(400).json({ error: 'Nada para atualizar' });
     params.push(req.params.id);
     const { rows } = await query(
-      `UPDATE usuarios SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${pi} RETURNING id,nome,email,cpf,role,cor,ativo,setor,setores`,
+      `UPDATE usuarios SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${pi} RETURNING id,nome,email,cpf,role,cor,ativo,setor,setores,lider`,
       params
     );
     if (!rows[0]) return res.status(404).json({ error: 'Usuário não encontrado' });

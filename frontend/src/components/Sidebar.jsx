@@ -5,7 +5,7 @@ import {
   LogOut, Settings, Smartphone, Sun, Moon, ChevronLeft, ChevronRight,
   CalendarClock, CalendarDays, Bell, CheckCheck, UserPlus, Shield,
   Gift, Bot, Image, FileText, Smile, Phone, Star, Database, Stethoscope, Target,
-  Trophy, GraduationCap,
+  Trophy, GraduationCap, Rocket,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useApi } from '../context/AuthContext.jsx';
@@ -23,6 +23,7 @@ const SETORES_MENU = [
 
 const NAV = [
   { to:'/',           icon:LayoutDashboard, label:'Resumo' },
+  { to:'/planejamento', icon:Rocket,        label:'Planejamento', lider:true },
   { to:'/inbox',      icon:MessageSquare,   label:'Chat',     unread:true },
   { to:'/equipe',     icon:Users,           label:'Chat da Equipe', equipe:true },
   { to:'/leads',      icon:Users,           label:'Clientes' },
@@ -244,6 +245,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
         {!collapsed && <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:1.6, color:'rgba(255,255,255,.62)', padding:'0 12px 6px', textTransform:'uppercase' }}>Menu</div>}
         {NAV.filter(n => (!n.masterOnly || user?.role === 'master')
             && (!n.consultas || ['master','supervisor'].includes(user?.role) || user?.setor === 'consultas')
+            && (!n.lider || user?.lider || user?.role === 'master')
           ).map(({ to, icon:Icon, label, unread:showU, retornos:retBadge, equipe:eqBadge }) => (
           <React.Fragment key={to}>
           <NavLink to={to} end={to==='/'} title={collapsed ? label : ''} style={({ isActive }) => ({

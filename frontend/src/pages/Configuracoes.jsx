@@ -52,7 +52,7 @@ export default function Configuracoes() {
     if (editUser.cpf && cpfDig.length !== 11) return setUserErr('CPF incompleto — precisa de 11 dígitos.');
     if (editUser.senha && editUser.senha.length < 8) return setUserErr('A nova senha precisa de pelo menos 8 caracteres.');
     try {
-      const payload = { cpf: cpfDig, ativo: editUser.ativo, setor: editUser.setor || null, setores: (editUser.setores || []).length ? editUser.setores : null };
+      const payload = { cpf: cpfDig, ativo: editUser.ativo, setor: editUser.setor || null, setores: (editUser.setores || []).length ? editUser.setores : null, lider: !!editUser.lider };
       if (editUser.senha) payload.senha = editUser.senha;
       const upd = await api.put(`/auth/usuarios/${editUser.id}`, payload);
       setUsers(prev => prev.map(u => u.id === upd.id ? { ...u, ...upd } : u));
@@ -339,7 +339,7 @@ export default function Configuracoes() {
                   {u.role==='master'?'Master':u.role==='supervisor'?'Supervisora':'Atendente'}
                 </span>
                 {isMaster && (
-                  <button onClick={()=>{setUserErr('');setEditUser(editUser?.id===u.id?null:{ id:u.id, cpf:maskCpf(u.cpf||''), senha:'', ativo:u.ativo, setor:u.setor||'', setores:Array.isArray(u.setores)?u.setores:[] });}}
+                  <button onClick={()=>{setUserErr('');setEditUser(editUser?.id===u.id?null:{ id:u.id, cpf:maskCpf(u.cpf||''), senha:'', ativo:u.ativo, setor:u.setor||'', setores:Array.isArray(u.setores)?u.setores:[], lider:!!u.lider });}}
                     style={{ width:26, height:26, borderRadius:8, border:'1.5px solid var(--border)', background:'var(--card)', color:'var(--muted)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
                     {editUser?.id===u.id?<X size={12}/>:<Pencil size={12}/>}
                   </button>
@@ -381,6 +381,10 @@ export default function Configuracoes() {
                   <label style={{ display:'flex', alignItems:'center', gap:7, fontSize:12.5, fontWeight:600, color:'var(--txt2)', cursor:'pointer' }}>
                     <input type="checkbox" checked={editUser.ativo} onChange={e=>setEditUser({...editUser, ativo:e.target.checked})} style={{ width:15, height:15 }} />
                     Usuário ativo (pode entrar no sistema)
+                  </label>
+                  <label style={{ display:'flex', alignItems:'center', gap:7, fontSize:12.5, fontWeight:600, color:'var(--txt2)', cursor:'pointer' }}>
+                    <input type="checkbox" checked={!!editUser.lider} onChange={e=>setEditUser({...editUser, lider:e.target.checked})} style={{ width:15, height:15 }} />
+                    🚀 Líder de equipe (ganha a tela de Planejamento)
                   </label>
                   {userErr && <div style={{ fontSize:12, color:'var(--err)', fontWeight:600 }}>{userErr}</div>}
                   <div style={{ display:'flex', gap:8 }}>

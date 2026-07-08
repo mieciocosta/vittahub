@@ -236,6 +236,19 @@ r.get('/vendas/hoje', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Planejamento (líder/gestão): progresso do setor rumo à meta de bônus (R$ 500k).
+r.get('/planejamento', async (req, res) => {
+  try {
+    if (!(gestao(req) || req.user.lider)) return res.status(403).json({ error: 'Acesso restrito.' });
+    const setor = ['vacinas', 'consultas', 'terapias'].includes(req.user.setor) ? req.user.setor : 'vacinas';
+    const { rows: [r2] } = await query(
+      `SELECT COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float confirmado
+       FROM vendas WHERE COALESCE(setor,'vacinas') = $1 AND to_char(data_venda,'YYYY-MM') = to_char(NOW(),'YYYY-MM')`, [setor]);
+    const meta = 500000, conf = r2?.confirmado || 0;
+    res.json({ setor, confirmado: conf, meta, pct: +((conf / meta) * 100).toFixed(1), falta: Math.max(meta - conf, 0) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Lista de vendas (gestão vê tudo; atendente vê as suas). Filtros: setor, mes (YYYY-MM)
 r.get('/vendas', async (req, res) => {
   try {

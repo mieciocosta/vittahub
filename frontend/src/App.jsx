@@ -18,6 +18,7 @@ import PastaClientes from './pages/PastaClientes.jsx';
 import Classificar from './pages/Classificar.jsx';
 import CasesSucesso from './pages/CasesSucesso.jsx';
 import Cursos from './pages/Cursos.jsx';
+import Planejamento from './pages/Planejamento.jsx';
 import Profissionais from './pages/Profissionais.jsx';
 import Metas from './pages/Metas.jsx';
 import Equipe from './pages/Equipe.jsx';
@@ -151,6 +152,7 @@ export default function App() {
           <Route path="/classificar" element={<Classificar />} />
           <Route path="/cases-sucesso" element={<CasesSucesso />} />
           <Route path="/cursos" element={<Cursos />} />
+          <Route path="/planejamento" element={(user.lider || user.role === 'master') ? <Planejamento /> : <Navigate to="/" />} />
           <Route path="/fidelidade" element={<PastaClientes categoria="fidelidade" key="fidelidade" />} />
           <Route path="/planos-vacinais" element={<PastaClientes classificacao="planos_vacinais" key="planos_vacinais" />} />
           <Route path="/vacinacao" element={<PastaClientes classificacao="vacinacao" key="vacinacao" />} />

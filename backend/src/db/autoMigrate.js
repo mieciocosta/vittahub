@@ -18,6 +18,8 @@ export default async function runMigrate() {
     // Acesso multi-setor: lista de setores exatos que o usuário pode ver, além da
     // regra macro (ex.: Danielle vê vacinas E consultas). Vazio = regra normal.
     await query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS setores TEXT[]`).catch(() => {});
+    // Líder de equipe: ganha a tela de Planejamento (plano de crescimento/bônus).
+    await query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS lider BOOLEAN DEFAULT false`).catch(() => {});
 
     await query(`CREATE TABLE IF NOT EXISTS leads (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
@@ -336,6 +338,14 @@ export default async function runMigrate() {
           updated_at = NOW()`).catch((e) => console.error('seed metas:', e.message));
       await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_metas_vendas_v1', '{"ok":true}') ON CONFLICT DO NOTHING`);
       console.log('🎯 Metas de vendas: vacinas 250k, consultas 259k, terapias 250k');
+    }
+
+    // Raylane: líder de equipe (ganha a tela de Planejamento). Uma vez.
+    const { rows: [flagRayLid] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_raylane_lider_v1'");
+    if (!flagRayLid) {
+      await query(`UPDATE usuarios SET lider = true WHERE email = 'raylane@vittalissaude.com.br' OR cpf = '63358210367'`).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_raylane_lider_v1', '{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('👑 Raylane: líder de equipe (Planejamento)');
     }
 
     // Danielle: acesso a vacinas E consultas (só ela). Deixa a conta redonda.
