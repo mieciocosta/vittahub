@@ -4270,6 +4270,51 @@ r.get('/cases-sucesso', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Roteiro-padrão de atendimento salvo (gerado pela IA a partir dos cases). Todos leem.
+r.get('/cases-sucesso/padrao', async (req, res) => {
+  try {
+    const setor = ['vacinas', 'consultas', 'terapias'].includes(req.query.setor) ? req.query.setor : 'geral';
+    const { rows } = await query("SELECT valor FROM configuracoes WHERE chave = 'padrao_atendimento'");
+    const todos = rows[0]?.valor || {};
+    res.json(todos[setor] || null);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Gera (IA) o roteiro-padrão "do oi ao fechamento" a partir das conversas que
+// viraram venda. Gestão ou líder. Salva pra consulta de toda a equipe.
+r.post('/cases-sucesso/gerar-padrao', async (req, res) => {
+  try {
+    if (!(['master', 'supervisor'].includes(req.user.role) || req.user.lider)) return res.status(403).json({ error: 'Acesso restrito à liderança.' });
+    if (!process.env.OPENAI_API_KEY) return res.status(400).json({ error: 'IA não configurada (OPENAI_API_KEY ausente).' });
+    const setor = ['vacinas', 'consultas', 'terapias'].includes((req.body || {}).setor) ? req.body.setor : null;
+    const { rows } = await query(`
+      SELECT DISTINCT ON (v.conversa_id) v.conversa_id id, c.setor, c.classificacao, c.responsavel_id, c.contact_name, v.data_venda
+      FROM vendas v JOIN conversas c ON c.id = v.conversa_id
+      WHERE v.status_pagamento IN ('pago','cortesia') AND v.conversa_id IS NOT NULL ${setor ? 'AND c.setor = $1' : ''}
+      ORDER BY v.conversa_id, v.data_venda DESC, v.created_at DESC LIMIT 60`, setor ? [setor] : []);
+    const visiveis = rows.filter(r2 => podeVerSetor(req.user, r2)).slice(0, 6);
+    if (!visiveis.length) return res.status(400).json({ error: 'Ainda não há cases de sucesso suficientes para gerar o padrão.' });
+    const transcripts = [];
+    for (const cv of visiveis) {
+      const t = await montarTranscriptConversa(cv.id, 30);
+      if (t && t.transcript) transcripts.push(`### Case (${cv.contact_name || 'cliente'}):\n${t.transcript.slice(0, 1800)}`);
+    }
+    if (!transcripts.length) return res.status(400).json({ error: 'Não consegui ler as conversas dos cases.' });
+    const sys = `Você é um treinador de vendas de uma clínica de pediatria, vacinação e terapias (Vittalis Saúde). A partir de conversas REAIS que fecharam venda, extraia o PADRÃO de atendimento vencedor e escreva um roteiro claro, replicável e motivador, em português do Brasil. Foque no que funcionou: abordagem, descoberta da necessidade, apresentação de valor, contorno de objeções, condução ao fechamento e pós. Seja prático — frases-modelo que a atendente possa usar. Não invente dados; baseie-se no que aparece nas conversas.`;
+    const user = `Analise estes atendimentos que viraram VENDA${setor ? ` (setor ${setor})` : ''} e produza o ROTEIRO-PADRÃO da equipe, organizado em etapas numeradas do "oi" ao fechamento. Em cada etapa: (a) objetivo, (b) 1-2 frases-modelo prontas, (c) erro comum a evitar. Ao final, liste os "3 gatilhos que mais fecharam" observados. Use markdown com títulos e listas.\n\n${transcripts.join('\n\n')}`;
+    const data = await openaiMessages({ model: 'gpt-4o-mini', max_tokens: 1600, system: sys, messages: [{ role: 'user', content: user }] });
+    if (data.error) return res.status(400).json({ error: data.error.message || 'Erro na IA.' });
+    const texto = (data.content?.find(c => c.type === 'text')?.text || '').trim();
+    if (!texto) return res.status(400).json({ error: 'A IA não retornou conteúdo. Tente de novo.' });
+    const chave = setor || 'geral';
+    const registro = { texto, base: visiveis.length, por: req.user.nome };
+    await query(`INSERT INTO configuracoes (chave, valor) VALUES ('padrao_atendimento', jsonb_build_object($1::text, $2::jsonb))
+                 ON CONFLICT (chave) DO UPDATE SET valor = jsonb_set(COALESCE(configuracoes.valor,'{}'::jsonb), ARRAY[$1::text], $2::jsonb), updated_at = NOW()`,
+      [chave, JSON.stringify(registro)]);
+    res.json({ ...registro, setor: chave });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ─── QUICK REPLIES ────────────────────────────────────────────────────────────
 r.get('/quick-replies', async (req, res) => {
   try {

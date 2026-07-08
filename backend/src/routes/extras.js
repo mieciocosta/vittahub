@@ -349,9 +349,24 @@ r.get('/vendas', async (req, res) => {
              cliente_nome, paciente_nome, servico, valor, desconto, forma_pagamento,
              status_pagamento, data_venda, data_atendimento, origem, observacao,
              comprovante_nome, comprovante_tipo, (comprovante IS NOT NULL) AS tem_comprovante,
+             conferido, conferido_em, conferido_por,
              created_at, updated_at
       FROM vendas ${where} ORDER BY data_venda DESC, created_at DESC LIMIT 500`, params);
     res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// CAIXA — marca/desmarca a venda como conferida (conciliação financeira). Só gestão.
+r.patch('/vendas/:id/conferido', async (req, res) => {
+  try {
+    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão confere o caixa.' });
+    const conf = !!(req.body || {}).conferido; // booleano — seguro interpolar NOW()/NULL
+    const { rows: [v] } = await query(
+      `UPDATE vendas SET conferido = $1, conferido_em = ${conf ? 'NOW()' : 'NULL'}, conferido_por = $2, updated_at = NOW()
+       WHERE id = $3 RETURNING id, conferido`,
+      [conf, conf ? req.user.nome : null, req.params.id]);
+    if (!v) return res.status(404).json({ error: 'Venda não encontrada' });
+    res.json({ ok: true, id: v.id, conferido: v.conferido });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -438,6 +453,50 @@ r.put('/vendas/meta', async (req, res) => {
     await query(`INSERT INTO configuracoes (chave, valor) VALUES ('metas', jsonb_build_object('vendas', $1::jsonb))
                  ON CONFLICT (chave) DO UPDATE SET valor = jsonb_set(COALESCE(configuracoes.valor,'{}'::jsonb), '{vendas}', $1::jsonb), updated_at = NOW()`, [JSON.stringify(vendas)]);
     res.json({ ok: true, vendas });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── METAS DE AGENDAMENTO (quantidade por setor no mês) ───────────────────────
+// Configuráveis pela gestão. Guardadas em configuracoes.metas.agendamentos.
+r.get('/agendamentos/meta', async (req, res) => {
+  try {
+    const { rows } = await query("SELECT valor FROM configuracoes WHERE chave = 'metas'");
+    const ag = rows[0]?.valor?.agendamentos || {};
+    res.json({ vacinas: +ag.vacinas || 0, consultas: +ag.consultas || 0, terapias: +ag.terapias || 0 });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.put('/agendamentos/meta', async (req, res) => {
+  try {
+    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão define metas.' });
+    const b = req.body || {};
+    const clamp = (v) => Math.max(0, Math.min(parseInt(v) || 0, 100000));
+    const agendamentos = { vacinas: clamp(b.vacinas), consultas: clamp(b.consultas), terapias: clamp(b.terapias) };
+    await query(`INSERT INTO configuracoes (chave, valor) VALUES ('metas', jsonb_build_object('agendamentos', $1::jsonb))
+                 ON CONFLICT (chave) DO UPDATE SET valor = jsonb_set(COALESCE(configuracoes.valor,'{}'::jsonb), '{agendamentos}', $1::jsonb), updated_at = NOW()`, [JSON.stringify(agendamentos)]);
+    res.json({ ok: true, agendamentos });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Resumo de agendamentos do mês por setor (feitos vs meta). Gestão ou líder.
+r.get('/agendamentos/resumo', async (req, res) => {
+  try {
+    if (!(gestao(req) || req.user.lider)) return res.status(403).json({ error: 'Acesso restrito.' });
+    const mes = /^\d{4}-\d{2}$/.test(req.query.mes || '') ? req.query.mes : new Date().toISOString().slice(0, 7);
+    const [feitosQ, cfgQ] = await Promise.all([
+      query(`SELECT COALESCE(setor,'vacinas') setor, COUNT(*)::int n FROM agenda_eventos
+             WHERE to_char(data,'YYYY-MM') = $1 AND status IN ('Agendado','Confirmado','Realizado','Reagendado')
+             GROUP BY setor`, [mes]),
+      query("SELECT valor FROM configuracoes WHERE chave = 'metas'"),
+    ]);
+    const metaAg = cfgQ.rows[0]?.valor?.agendamentos || {};
+    const feitos = Object.fromEntries(feitosQ.rows.map(r2 => [r2.setor, r2.n]));
+    const setores = {};
+    for (const s of SET3) {
+      const feito = feitos[s] || 0, meta = +metaAg[s] || 0;
+      setores[s] = { feito, meta, falta: Math.max(meta - feito, 0), pct: meta ? +((feito / meta) * 100).toFixed(1) : null };
+    }
+    res.json({ mes, setores });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

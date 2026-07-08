@@ -1,35 +1,38 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from './context/AuthContext.jsx';
 import Sidebar from './components/Sidebar.jsx';
 import CelebracaoGlobal from './components/CelebracaoGlobal.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 import Login from './pages/Login.jsx';
-import Dashboard from './pages/Dashboard.jsx';
-import Inbox from './pages/Inbox.jsx';
-import Leads from './pages/Leads.jsx';
-import Funil from './pages/Funil.jsx';
-import Retornos from './pages/Retornos.jsx';
-import Relatorios from './pages/Relatorios.jsx';
-import Configuracoes from './pages/Configuracoes.jsx';
-import Agenda from './pages/Agenda.jsx';
-import Indicacoes from './pages/Indicacoes.jsx';
-import PastaClientes from './pages/PastaClientes.jsx';
-import Classificar from './pages/Classificar.jsx';
-import CasesSucesso from './pages/CasesSucesso.jsx';
-import Cursos from './pages/Cursos.jsx';
-import Planejamento from './pages/Planejamento.jsx';
-import Profissionais from './pages/Profissionais.jsx';
-import Metas from './pages/Metas.jsx';
-import Caixa from './pages/Caixa.jsx';
-import Equipe from './pages/Equipe.jsx';
-import Biblioteca from './pages/Biblioteca.jsx';
-import Figurinhas from './pages/Figurinhas.jsx';
-import Modelos from './pages/Modelos.jsx';
-import Ligacoes from './pages/Ligacoes.jsx';
-import IAssistente from './pages/IAssistente.jsx';
-import Auditoria from './pages/Auditoria.jsx';
-import WhatsApp from './pages/WhatsApp.jsx';
+
+// Páginas carregadas sob demanda (code-splitting) — cada tela vira um pedaço
+// separado, baixado só quando abre. Deixa o carregamento inicial bem mais leve.
+const Dashboard = lazy(() => import('./pages/Dashboard.jsx'));
+const Inbox = lazy(() => import('./pages/Inbox.jsx'));
+const Leads = lazy(() => import('./pages/Leads.jsx'));
+const Funil = lazy(() => import('./pages/Funil.jsx'));
+const Retornos = lazy(() => import('./pages/Retornos.jsx'));
+const Relatorios = lazy(() => import('./pages/Relatorios.jsx'));
+const Configuracoes = lazy(() => import('./pages/Configuracoes.jsx'));
+const Agenda = lazy(() => import('./pages/Agenda.jsx'));
+const Indicacoes = lazy(() => import('./pages/Indicacoes.jsx'));
+const PastaClientes = lazy(() => import('./pages/PastaClientes.jsx'));
+const Classificar = lazy(() => import('./pages/Classificar.jsx'));
+const CasesSucesso = lazy(() => import('./pages/CasesSucesso.jsx'));
+const Cursos = lazy(() => import('./pages/Cursos.jsx'));
+const Planejamento = lazy(() => import('./pages/Planejamento.jsx'));
+const Profissionais = lazy(() => import('./pages/Profissionais.jsx'));
+const Metas = lazy(() => import('./pages/Metas.jsx'));
+const Caixa = lazy(() => import('./pages/Caixa.jsx'));
+const Equipe = lazy(() => import('./pages/Equipe.jsx'));
+const Biblioteca = lazy(() => import('./pages/Biblioteca.jsx'));
+const Figurinhas = lazy(() => import('./pages/Figurinhas.jsx'));
+const Modelos = lazy(() => import('./pages/Modelos.jsx'));
+const Ligacoes = lazy(() => import('./pages/Ligacoes.jsx'));
+const IAssistente = lazy(() => import('./pages/IAssistente.jsx'));
+const Auditoria = lazy(() => import('./pages/Auditoria.jsx'));
+const WhatsApp = lazy(() => import('./pages/WhatsApp.jsx'));
 
 /* ─── Cor do dia ──────────────────────────────────────────────────────────────
    Paleta premium curada: uma cor de acento por dia da semana (0=Dom … 6=Sáb).
@@ -211,6 +214,7 @@ export default function App() {
       {user && <Heartbeat userId={user.id} />}
       <main className='vh-main' style={{ marginLeft:'var(--sw)', flex:1, minHeight:'100vh', overflowX:'hidden', transition:'margin-left .2s ease' }}>
         <ErrorBoundary>
+        <Suspense fallback={<div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'70vh' }}><span className="spin" style={{ width:26, height:26, borderColor:'rgba(0,184,192,0.2)', borderTopColor:'var(--tq)' }} /></div>}>
         <Routes>
           <Route path="/"             element={<Dashboard />} />
           <Route path="/inbox"        element={<Inbox onUnreadChange={setUnread} />} />
@@ -244,6 +248,7 @@ export default function App() {
           <Route path="/configuracoes" element={<Configuracoes />} />
           <Route path="*"             element={<Navigate to="/" />} />
         </Routes>
+        </Suspense>
         </ErrorBoundary>
       </main>
     </div>
