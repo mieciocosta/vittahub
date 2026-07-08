@@ -398,6 +398,9 @@ export default async function runMigrate() {
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
       titulo TEXT NOT NULL, descricao TEXT, url TEXT, categoria TEXT DEFAULT 'Geral',
       criado_por TEXT, created_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
+    await query(`ALTER TABLE cursos ADD COLUMN IF NOT EXISTS arquivo TEXT`).catch(() => {});   // data URL (PDF/vídeo/imagem)
+    await query(`ALTER TABLE cursos ADD COLUMN IF NOT EXISTS filename TEXT`).catch(() => {});
+    await query(`ALTER TABLE cursos ADD COLUMN IF NOT EXISTS mimetype TEXT`).catch(() => {});
     // Painel de Profissionais: cadastro de médicos/especialistas + disponibilidade
     await query(`CREATE TABLE IF NOT EXISTS profissionais (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,

@@ -427,9 +427,16 @@ r.post('/cursos', async (req, res) => {
     const b = req.body || {};
     const titulo = cut((b.titulo || '').trim(), 120);
     if (!titulo) return res.status(400).json({ error: 'Informe o título do curso.' });
+    let arquivo = null;
+    if (b.arquivo) {
+      if (!/^data:[\w/+.\-]+;base64,/.test(b.arquivo)) return res.status(400).json({ error: 'Arquivo inválido.' });
+      if (b.arquivo.length > 16_000_000) return res.status(400).json({ error: 'Arquivo muito grande (máx. ~12MB). Para vídeos grandes, use um link (YouTube/Drive).' });
+      arquivo = b.arquivo;
+    }
     const { rows: [c] } = await query(
-      `INSERT INTO cursos (titulo, descricao, url, categoria, criado_por) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-      [titulo, cut(b.descricao, 600), cut(b.url, 500), cut(b.categoria, 40) || 'Geral', cut(req.user?.nome, 80)]);
+      `INSERT INTO cursos (titulo, descricao, url, categoria, criado_por, arquivo, filename, mimetype) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      [titulo, cut(b.descricao, 600), cut(b.url, 500), cut(b.categoria, 40) || 'Geral', cut(req.user?.nome, 80),
+       arquivo, arquivo ? cut(b.filename, 160) : null, arquivo ? cut(b.mimetype, 100) : null]);
     res.status(201).json(c);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
