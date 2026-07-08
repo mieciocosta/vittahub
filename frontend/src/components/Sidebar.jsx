@@ -5,7 +5,7 @@ import {
   LogOut, Settings, Smartphone, Sun, Moon, ChevronLeft, ChevronRight,
   CalendarClock, CalendarDays, Bell, CheckCheck, UserPlus, Shield,
   Gift, Bot, Image, FileText, Smile, Phone, Star, Database, Stethoscope, Target,
-  Trophy, GraduationCap, Rocket, Wallet, Palette,
+  Trophy, GraduationCap, Rocket, Wallet, Palette, Gamepad2,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useApi } from '../context/AuthContext.jsx';
@@ -24,6 +24,7 @@ const SETORES_MENU = [
 
 const NAV = [
   { to:'/',           icon:LayoutDashboard, label:'Resumo' },
+  { to:'/quiz',       icon:Gamepad2,        label:'Quiz de Vendas', quiz:true },
   { to:'/cases-sucesso', icon:Trophy,       label:'Cases de Sucesso' },
   { to:'/planejamento', icon:Rocket,        label:'Planejamento', lider:true, plan:true },
   { to:'/inbox',      icon:MessageSquare,   label:'Chat',     unread:true },
@@ -186,6 +187,14 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
     return () => clearInterval(t);
   }, [user?.lider, user?.role]); // eslint-disable-line
 
+  // Quiz do dia: "chegou a hora do quiz" (badge pulsante enquanto não responde)
+  const [quizPendente, setQuizPendente] = useState(false);
+  useEffect(() => {
+    const load = () => api.get('/extras/quiz/status').then(d => setQuizPendente(!!d.pendente)).catch(() => {});
+    load(); const t = setInterval(load, 120000);
+    return () => clearInterval(t);
+  }, []); // eslint-disable-line
+
   // Chat da equipe: não-lidas (badge)
   const [eqNaoLidas, setEqNaoLidas] = useState(0);
   useEffect(() => {
@@ -262,7 +271,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
         {NAV.filter(n => (!n.masterOnly || user?.role === 'master')
             && (!n.consultas || ['master','supervisor'].includes(user?.role) || user?.setor === 'consultas')
             && (!n.lider || user?.lider || user?.role === 'master')
-          ).map(({ to, icon:Icon, label, unread:showU, retornos:retBadge, equipe:eqBadge, plan:planBadge }) => (
+          ).map(({ to, icon:Icon, label, unread:showU, retornos:retBadge, equipe:eqBadge, plan:planBadge, quiz:quizBadge }) => (
           <React.Fragment key={to}>
           <NavLink to={to} end={to==='/'} title={collapsed ? label : ''} style={({ isActive }) => ({
             display:'flex', alignItems:'center', gap: collapsed ? 0 : 10,
@@ -298,8 +307,13 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                 {lembretes > 99 ? '99+' : lembretes}
               </span>
             )}
-            {collapsed && ((retBadge && vencidos > 0) || (planBadge && lembretes > 0)) && (
-              <span style={{ position:'absolute', top:4, right:4, width:8, height:8, borderRadius:'50%', background: retBadge ? 'var(--err)' : '#7c3aed', border:'2px solid #fff' }} />
+            {!collapsed && quizBadge && quizPendente && (
+              <span className="vh-quiz-pulse" style={{ background:'#f59e0b', color:'#fff', borderRadius:10, padding:'1px 8px', fontSize:9.5, fontWeight:800, textAlign:'center', whiteSpace:'nowrap' }}>
+                é a hora! 🎯
+              </span>
+            )}
+            {collapsed && ((retBadge && vencidos > 0) || (planBadge && lembretes > 0) || (quizBadge && quizPendente)) && (
+              <span className={quizBadge && quizPendente ? 'vh-quiz-pulse' : ''} style={{ position:'absolute', top:4, right:4, width:8, height:8, borderRadius:'50%', background: retBadge ? 'var(--err)' : quizBadge ? '#f59e0b' : '#7c3aed', border:'2px solid #fff' }} />
             )}
             {/* Badge no ícone quando colapsado */}
             {collapsed && showU && unread > 0 && (

@@ -422,6 +422,98 @@ r.get('/planejamento/liderados', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* ─── QUIZ DIÁRIO DE VENDAS (gamificação) ──────────────────────────────────────
+   Cada dia, um quiz de perguntas e respostas sobre vendas no contexto do setor.
+   Gerado por IA, com pontuação. Objetivo: a equipe se aperfeiçoar em vendas. */
+const setorQuiz = (req) => ['vacinas', 'consultas', 'terapias'].includes(req.user.setor) ? req.user.setor : 'geral';
+const CTX_SETOR = {
+  vacinas: 'vacinação infantil e adulta, planos vacinais, aplicação domiciliar',
+  consultas: 'consultas pediátricas e especializadas, agendamento com profissionais',
+  terapias: 'terapias (fono, psico, TO, etc.), pacotes de sessões',
+  geral: 'saúde, vacinas, consultas e terapias',
+};
+
+async function gerarQuizIA(setor) {
+  const { default: fetch } = await import('node-fetch');
+  const ctx = CTX_SETOR[setor] || CTX_SETOR.geral;
+  const sys = 'Você é um treinador de vendas de uma clínica de saúde (Vittalis Saúde) que cria quizzes curtos e práticos para as atendentes venderem melhor no WhatsApp. Responda APENAS um JSON válido, em português do Brasil.';
+  const user = `Crie um quiz de 5 perguntas de múltipla escolha sobre VENDAS no dia a dia de uma atendente do setor de ${ctx}. As situações devem parecer conversas reais de WhatsApp (cliente com dúvida de preço, objeção, indecisão, pedido de desconto, etc.). Cada pergunta com 4 alternativas, só UMA correta, e uma explicação curta do porquê. Varie a dificuldade. Formato EXATO:
+{"perguntas":[{"q":"pergunta","opcoes":["a","b","c","d"],"correta":0,"explicacao":"por que essa é a melhor"}]}`;
+  const body = { model: 'gpt-4o-mini', max_tokens: 1400, response_format: { type: 'json_object' }, messages: [{ role: 'system', content: sys }, { role: 'user', content: user }] };
+  const r = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` }, body: JSON.stringify(body),
+  });
+  const d = await r.json();
+  if (d.error) throw new Error(d.error.message || 'Erro na IA');
+  let p = null;
+  try { p = JSON.parse(d.choices?.[0]?.message?.content || '{}'); } catch {}
+  const perguntas = (p?.perguntas || []).filter(x => x && x.q && Array.isArray(x.opcoes) && x.opcoes.length >= 2 && Number.isInteger(x.correta))
+    .slice(0, 5).map(x => ({ q: String(x.q).slice(0, 300), opcoes: x.opcoes.slice(0, 4).map(o => String(o).slice(0, 200)), correta: Math.min(x.correta, x.opcoes.length - 1), explicacao: String(x.explicacao || '').slice(0, 300) }));
+  if (perguntas.length < 3) throw new Error('Quiz insuficiente');
+  return perguntas;
+}
+
+// Busca (ou gera) o quiz de HOJE do setor + estado do usuário (já respondeu?)
+r.get('/quiz/hoje', async (req, res) => {
+  try {
+    const setor = setorQuiz(req);
+    let { rows } = await query(`SELECT perguntas FROM quiz_diario WHERE data = CURRENT_DATE AND setor = $1`, [setor]);
+    if (!rows.length) {
+      if (!process.env.OPENAI_API_KEY) return res.status(400).json({ error: 'Quiz indisponível (IA não configurada).' });
+      let perguntas;
+      try { perguntas = await gerarQuizIA(setor); }
+      catch (e) { return res.status(400).json({ error: 'Não consegui montar o quiz de hoje. Tente novamente em instantes.' }); }
+      await query(`INSERT INTO quiz_diario (data, setor, perguntas) VALUES (CURRENT_DATE, $1, $2::jsonb) ON CONFLICT (data, setor) DO NOTHING`, [setor, JSON.stringify(perguntas)]);
+      ({ rows } = await query(`SELECT perguntas FROM quiz_diario WHERE data = CURRENT_DATE AND setor = $1`, [setor]));
+    }
+    const perguntas = rows[0].perguntas || [];
+    const { rows: resp } = await query(`SELECT score, acertos, total, respostas FROM quiz_respostas WHERE usuario_id = $1 AND data = CURRENT_DATE`, [req.user.id]);
+    // Nunca envia a resposta correta antes de responder
+    const semGabarito = perguntas.map(p => ({ q: p.q, opcoes: p.opcoes }));
+    res.json({
+      setor, total: perguntas.length, perguntas: semGabarito,
+      jaRespondeu: resp.length > 0,
+      resultado: resp.length ? { score: resp[0].score, acertos: resp[0].acertos, total: resp[0].total, respostas: resp[0].respostas, gabarito: perguntas.map(p => ({ correta: p.correta, explicacao: p.explicacao })) } : null,
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Responde o quiz de hoje → corrige e pontua
+r.post('/quiz/responder', async (req, res) => {
+  try {
+    const setor = setorQuiz(req);
+    const { rows } = await query(`SELECT perguntas FROM quiz_diario WHERE data = CURRENT_DATE AND setor = $1`, [setor]);
+    if (!rows.length) return res.status(400).json({ error: 'Quiz de hoje não encontrado.' });
+    const { rows: ja } = await query(`SELECT score, acertos, total, respostas FROM quiz_respostas WHERE usuario_id = $1 AND data = CURRENT_DATE`, [req.user.id]);
+    const perguntas = rows[0].perguntas || [];
+    const gabarito = perguntas.map(p => ({ correta: p.correta, explicacao: p.explicacao }));
+    if (ja.length) return res.json({ jaRespondeu: true, score: ja[0].score, acertos: ja[0].acertos, total: ja[0].total, respostas: ja[0].respostas, gabarito });
+    const marcadas = Array.isArray((req.body || {}).respostas) ? req.body.respostas : [];
+    let acertos = 0;
+    perguntas.forEach((p, i) => { if (marcadas[i] === p.correta) acertos++; });
+    const total = perguntas.length, score = total ? Math.round((acertos / total) * 100) : 0;
+    await query(`INSERT INTO quiz_respostas (usuario_id, usuario_nome, data, setor, score, acertos, total, respostas)
+                 VALUES ($1,$2,CURRENT_DATE,$3,$4,$5,$6,$7::jsonb) ON CONFLICT (usuario_id, data) DO NOTHING`,
+      [req.user.id, req.user.nome, setor, score, acertos, total, JSON.stringify(marcadas)]);
+    res.json({ score, acertos, total, respostas: marcadas, gabarito });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Status pro aviso "chegou a hora do quiz" (badge) + ranking simples do dia
+r.get('/quiz/status', async (req, res) => {
+  try {
+    const { rows } = await query(`SELECT 1 FROM quiz_respostas WHERE usuario_id = $1 AND data = CURRENT_DATE`, [req.user.id]);
+    res.json({ pendente: rows.length === 0 });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.get('/quiz/ranking', async (req, res) => {
+  try {
+    const { rows } = await query(`SELECT usuario_nome nome, score, acertos, total FROM quiz_respostas WHERE data = CURRENT_DATE ORDER BY score DESC, created_at ASC LIMIT 20`);
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Lista de vendas (gestão vê tudo; atendente vê as suas). Filtros: setor, mes (YYYY-MM)
 r.get('/vendas', async (req, res) => {
   try {

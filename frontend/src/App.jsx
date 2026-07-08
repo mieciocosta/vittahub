@@ -25,6 +25,7 @@ const Planejamento = lazy(() => import('./pages/Planejamento.jsx'));
 const Profissionais = lazy(() => import('./pages/Profissionais.jsx'));
 const Metas = lazy(() => import('./pages/Metas.jsx'));
 const Caixa = lazy(() => import('./pages/Caixa.jsx'));
+const Quiz = lazy(() => import('./pages/Quiz.jsx'));
 const Equipe = lazy(() => import('./pages/Equipe.jsx'));
 const Biblioteca = lazy(() => import('./pages/Biblioteca.jsx'));
 const Figurinhas = lazy(() => import('./pages/Figurinhas.jsx'));
@@ -226,6 +227,7 @@ export default function App() {
           <Route path="/profissionais" element={(['master','supervisor'].includes(user.role) || user.setor === 'consultas') ? <Profissionais /> : <Navigate to="/" />} />
           <Route path="/metas" element={<Metas />} />
           <Route path="/caixa" element={<Caixa />} />
+          <Route path="/quiz" element={<Quiz />} />
           <Route path="/equipe" element={<Equipe />} />
           <Route path="/classificar" element={<Classificar />} />
           <Route path="/cases-sucesso" element={<CasesSucesso />} />

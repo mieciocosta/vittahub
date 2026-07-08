@@ -461,6 +461,21 @@ export default async function runMigrate() {
       criado_por TEXT, created_at TIMESTAMPTZ DEFAULT NOW()
     )`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS idx_despesas_data ON despesas (data)`).catch(() => {});
+    // QUIZ DIÁRIO de vendas (gamificação do aprendizado) — 1 quiz por dia por setor
+    await query(`CREATE TABLE IF NOT EXISTS quiz_diario (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      data DATE NOT NULL, setor TEXT NOT NULL DEFAULT 'geral',
+      perguntas JSONB NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (data, setor)
+    )`).catch(() => {});
+    await query(`CREATE TABLE IF NOT EXISTS quiz_respostas (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      usuario_id TEXT NOT NULL, usuario_nome TEXT, data DATE NOT NULL, setor TEXT,
+      score INT DEFAULT 0, acertos INT DEFAULT 0, total INT DEFAULT 0,
+      respostas JSONB, created_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (usuario_id, data)
+    )`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS idx_quizresp_data ON quiz_respostas (data)`).catch(() => {});
     // PLANEJAMENTO: estratégias, blocos de notas e lembretes do líder/gestão (pessoal)
     await query(`CREATE TABLE IF NOT EXISTS planejamento_notas (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,

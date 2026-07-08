@@ -286,6 +286,13 @@ h1 { letter-spacing: -0.7px; }
 }
 .inbox-resize-handle:hover { background: var(--tq); }
 
+/* Badge pulsante do Quiz do dia — "chegou a hora do quiz" */
+.vh-quiz-pulse { animation: vh-quiz-pulse 1.4s ease-in-out infinite; }
+@keyframes vh-quiz-pulse {
+  0%, 100% { transform: scale(1);    box-shadow: 0 0 0 0 rgba(245,158,11,.55); }
+  50%      { transform: scale(1.08); box-shadow: 0 0 0 5px rgba(245,158,11,0); }
+}
+
 /* ─── DARK THEME COMPLETE FIX ───────────────────────────────────────────── */
 [data-theme="dark"] * { border-color: var(--border) !important; }
 [data-theme="dark"] div, [data-theme="dark"] span, [data-theme="dark"] p,
