@@ -4694,6 +4694,26 @@ r.post('/whatsapp/zapi/disconnect', masterOnly, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// CÓDIGO DE PAREAMENTO: gera um código de 8 dígitos que se digita no celular
+// (WhatsApp → Aparelhos conectados → Conectar com número). Não precisa de câmera,
+// mas AINDA precisa de alguém no aparelho pra digitar o código.
+r.post('/whatsapp/zapi/phone-code', masterOnly, async (req, res) => {
+  if (!zapiOk()) return res.status(400).json({ error: 'Z-API não configurada' });
+  try {
+    const phone = String(req.body.phone || '').replace(/\D/g, '');
+    if (phone.length < 12) return res.status(400).json({ error: 'Informe o número com DDI + DDD (ex.: 5598912345678).' });
+    const r2 = await zapiCall(`/phone-code/${phone}`, 'GET');
+    if (!r2?.ok) {
+      const t = await r2?.text().catch(() => '');
+      return res.status(502).json({ error: 'A Z-API não gerou o código. ' + (t?.slice(0, 120) || `HTTP ${r2?.status}`) });
+    }
+    const d = await r2.json().catch(() => ({}));
+    const code = d.code || d.value || d.pairingCode || null;
+    if (!code) return res.status(502).json({ error: 'A Z-API não retornou um código. Tente pelo QR.' });
+    res.json({ code: String(code) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // RECONECTAR SEM QR: só reinicia a instância (restart). Funciona SE o aparelho
 // ainda estiver com o dispositivo vinculado (queda temporária). Se o WhatsApp
 // tiver deslogado o dispositivo, aí não tem jeito — precisa do celular.

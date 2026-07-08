@@ -14,6 +14,8 @@ export default function WhatsApp() {
   const [busy, setBusy]         = useState(false);
   const [step, setStep]         = useState(null); // null | 'phone-step' | 'qr-ready'
   const [clearConvs, setClearConvs] = useState(false);
+  const [phoneInput, setPhoneInput] = useState('55');
+  const [pairCode, setPairCode]     = useState(null);
   const pollRef = useRef(null);
 
   const stopPoll = () => { clearInterval(pollRef.current); pollRef.current = null; };
@@ -115,6 +117,20 @@ export default function WhatsApp() {
       if (d.connected) { setMsg('✅ Reconectado com sucesso, sem precisar do celular!'); await checkStatus(true); }
       else { setMsg('Não deu pra reconectar sem o celular — o WhatsApp deslogou o dispositivo. Nesse caso é obrigatório escanear o QR no aparelho (Passo 1 abaixo).'); }
     } catch (e) { setMsg('Erro ao tentar reconectar: ' + (e.message || e)); }
+    setBusy(false);
+  };
+
+  // CÓDIGO DE PAREAMENTO: sem câmera. Digita o número → recebe código de 8
+  // dígitos → alguém digita no celular (Aparelhos conectados → Conectar número).
+  const pedirCodigo = async () => {
+    const num = (phoneInput || '').replace(/\D/g, '');
+    if (num.length < 12) { setMsg('Digite o número com DDI + DDD (ex.: 55 98 9xxxxxxxx).'); return; }
+    setBusy(true); setPairCode(null); setMsg('Gerando código de pareamento…');
+    try {
+      const d = await api.post('/inbox/whatsapp/zapi/phone-code', { phone: num });
+      if (d.code) { setPairCode(d.code); setMsg(''); startPoll(); }
+      else setMsg('Não consegui gerar o código — tente pelo QR Code.');
+    } catch (e) { setMsg('Erro: ' + (e.message || e)); }
     setBusy(false);
   };
 
@@ -298,6 +314,32 @@ export default function WhatsApp() {
           <div style={{ marginTop:12, padding:'9px 13px', background:'var(--bg)', borderRadius:8, fontSize:13 }}>{msg}</div>
         )}
       </div>
+
+      {/* ── Conectar por CÓDIGO (sem câmera/QR) ── */}
+      {status !== 'connected' && status !== 'loading' && (
+        <div style={{ background:'var(--card,#fff)', borderRadius:14, padding:'18px 20px', border:'1px solid var(--border)', marginBottom:16 }}>
+          <div style={{ fontWeight:800, fontSize:14, marginBottom:4, display:'flex', alignItems:'center', gap:7 }}>🔢 Conectar por código (sem câmera)</div>
+          <p style={{ fontSize:12.5, color:'var(--muted)', lineHeight:1.5, marginBottom:12 }}>
+            Digite o número do WhatsApp da clínica (com DDI 55 + DDD) e receba um <strong>código de 8 dígitos</strong>.
+            Alguém no celular digita o código em <strong>WhatsApp → ⋮ → Aparelhos conectados → Conectar com número</strong>. Dá pra ditar o código por telefone.
+          </p>
+          <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+            <input value={phoneInput} onChange={e=>setPhoneInput(e.target.value.replace(/\D/g,'').slice(0,13))} placeholder="55 98 9xxxxxxxx" inputMode="numeric"
+              style={{ flex:'1 1 200px', padding:'10px 12px', borderRadius:10, border:'1.5px solid var(--border)', fontSize:14, fontWeight:700, background:'var(--card)', color:'var(--txt)' }} />
+            <button onClick={pedirCodigo} disabled={busy}
+              style={{ padding:'10px 18px', borderRadius:10, background:WA_GREEN, color:'#fff', border:'none', cursor:busy?'wait':'pointer', fontWeight:800, fontSize:13.5, display:'flex', alignItems:'center', justifyContent:'center', gap:7 }}>
+              {busy?<Loader2 size={15} style={{animation:'spin 1s linear infinite'}}/>:null} Gerar código
+            </button>
+          </div>
+          {pairCode && (
+            <div style={{ marginTop:14, padding:'16px', borderRadius:12, background:'#ecfdf3', border:'1.5px solid #86efac', textAlign:'center' }}>
+              <div style={{ fontSize:11.5, fontWeight:700, color:'#166534', textTransform:'uppercase', letterSpacing:1 }}>Código de pareamento</div>
+              <div style={{ fontSize:34, fontWeight:800, color:'#15803d', letterSpacing:6, margin:'6px 0' }}>{pairCode}</div>
+              <div style={{ fontSize:12, color:'#166534' }}>Digite este código no celular em <b>Aparelhos conectados → Conectar com número</b>. Expira em alguns minutos.</div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── PASSO 1: Instruções para desconectar do celular ── */}
       {(step === 'phone-step' || step === 'switch-step') && (
