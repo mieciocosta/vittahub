@@ -493,6 +493,15 @@ export default async function runMigrate() {
       UNIQUE (usuario_id, data)
     )`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS idx_quizresp_data ON quiz_respostas (data)`).catch(() => {});
+    // MENSAGENS AGENDADAS: disparo automático de mensagem pro cliente em data/hora
+    await query(`CREATE TABLE IF NOT EXISTS mensagens_agendadas (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      conversa_id TEXT NOT NULL, texto TEXT NOT NULL,
+      enviar_em TIMESTAMPTZ NOT NULL, status TEXT DEFAULT 'pendente',
+      criado_por TEXT, criado_por_id TEXT, erro TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(), enviada_em TIMESTAMPTZ
+    )`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS idx_msgag_due ON mensagens_agendadas (status, enviar_em)`).catch(() => {});
     // ARQUIVOS DAS ABAS: PDF/Word etc. anexados dentro de cada aba (Vacinas, Planos...)
     await query(`CREATE TABLE IF NOT EXISTS pasta_arquivos (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,

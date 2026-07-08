@@ -502,6 +502,7 @@ export default function Inbox({ onUnreadChange }) {
   const [showBib, setShowBib] = useState(false);
   const [bibAba, setBibAba] = useState('foto');
   const [showAgendar, setShowAgendar] = useState(false);
+  const [showAgendarMsg, setShowAgendarMsg] = useState(false);
   const [showIndicar, setShowIndicar] = useState(false);
   const [scoreChip, setScoreChip] = useState(null); // null | 'calc' | número
   const [leadInfo, setLeadInfo] = useState(null);   // lead vinculado (faixa de contexto)
@@ -1708,6 +1709,8 @@ export default function Inbox({ onUnreadChange }) {
                 className="btn btn-ico tb-ico" style={{ background:showQR?'var(--tq3)':undefined, color:showQR?'var(--tq)':'var(--muted)' }}><Zap size={17}/></button>
               <button onClick={()=>setShowBib(true)} title="Biblioteca de Experiências (fotos, vídeos, figurinhas)"
                 className="btn btn-ico tb-ico" style={{ color:'var(--muted)' }}><Image size={17}/></button>
+              <button onClick={()=>setShowAgendarMsg(true)} title="Agendar mensagem (enviar depois)"
+                className="btn btn-ico tb-ico" style={{ color:'var(--muted)' }}><Clock size={17}/></button>
               <Calculadora />
               <input ref={fileRef} type="file" accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.gif" style={{ display:'none' }} onChange={handleFile}/>
               <textarea ref={textRef} onPaste={handlePaste} spellCheck lang="pt-BR" value={input} onChange={e=>setInput(e.target.value)}
@@ -1737,6 +1740,9 @@ export default function Inbox({ onUnreadChange }) {
 
       {showAgendar && sel && (
         <AgendarModal sel={sel} api={api} onClose={(ok) => { setShowAgendar(false); if (ok) { Toast.show('Agendamento criado! 📅', 'success'); window.__auditLog?.('agendar', 'agenda', '', { paciente: sel?.contact_name }); } }} />
+      )}
+      {showAgendarMsg && sel && (
+        <AgendarMsgModal sel={sel} api={api} textoInicial={input} onClose={(ok) => { setShowAgendarMsg(false); if (ok) Toast.show('Mensagem agendada! ⏰', 'success'); }} />
       )}
       {showIndicar && sel && (
         <IndicarModal sel={sel} api={api} onClose={() => setShowIndicar(false)} />
@@ -2145,6 +2151,74 @@ function FaixaContexto({ sel, leadInfo, setLeadInfo, api, scoreChip, setScoreChi
 }
 
 /* ── Modal Agendar dentro da conversa (mock): cria evento + funil + confirmação ── */
+/* ── Agendar MENSAGEM: dispara um texto pro cliente numa data/hora futura ── */
+function AgendarMsgModal({ sel, api, textoInicial, onClose }) {
+  const [texto, setTexto] = React.useState(textoInicial || '');
+  const [quando, setQuando] = React.useState('');
+  const [lista, setLista] = React.useState([]);
+  const [erro, setErro] = React.useState('');
+  const [salvando, setSalvando] = React.useState(false);
+
+  const load = () => api.get(`/inbox/conversations/${sel.id}/agendadas`).then(d => setLista(Array.isArray(d) ? d : [])).catch(() => {});
+  React.useEffect(() => { load(); }, []); // eslint-disable-line
+
+  const fmtQuando = (s) => { try { return new Date(s).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); } catch { return s; } };
+
+  const agendar = async () => {
+    if (!texto.trim()) { setErro('Escreva a mensagem.'); return; }
+    if (!quando) { setErro('Escolha a data e a hora.'); return; }
+    setSalvando(true); setErro('');
+    try {
+      await api.post(`/inbox/conversations/${sel.id}/agendar`, { texto: texto.trim(), enviar_em: new Date(quando).toISOString() });
+      setTexto(''); setQuando(''); load(); onClose?.(true);
+    } catch (e) { setErro(e.message || 'Falha ao agendar.'); setSalvando(false); }
+  };
+  const cancelar = async (ag) => {
+    setLista(p => p.filter(x => x.id !== ag.id));
+    try { await api.del(`/inbox/agendadas/${ag.id}`); } catch { load(); }
+  };
+
+  const ST = { pendente: { l: 'Agendada', c: '#d97706' }, enviada: { l: 'Enviada', c: '#16a34a' }, cancelada: { l: 'Cancelada', c: 'var(--muted)' }, erro: { l: 'Falhou', c: 'var(--err)' } };
+
+  return (
+    <div onClick={() => onClose?.(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
+      <div onClick={e => e.stopPropagation()} className="card" style={{ width: 460, maxWidth: '100%', maxHeight: '88vh', padding: 22, display: 'flex', flexDirection: 'column' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <h3 style={{ fontSize: 16, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 8 }}><Clock size={18} color="var(--tq2)" /> Agendar mensagem</h3>
+          <button onClick={() => onClose?.(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={16} /></button>
+        </div>
+        <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12 }}>Para {sel?.contact_name || 'o cliente'} — será enviada automaticamente na hora marcada.</div>
+        <div className="field" style={{ margin: 0, marginBottom: 10 }}><label>Mensagem</label>
+          <textarea value={texto} onChange={e => setTexto(e.target.value)} rows={3} placeholder="Ex: Oi! Passando pra lembrar da sua vacina amanhã 💉" style={{ resize: 'vertical' }} /></div>
+        <div className="field" style={{ margin: 0, marginBottom: 10 }}><label>Quando enviar</label>
+          <input type="datetime-local" value={quando} onChange={e => setQuando(e.target.value)} /></div>
+        {erro && <div style={{ fontSize: 12, color: 'var(--err)', fontWeight: 600, marginBottom: 8 }}>{erro}</div>}
+        <button onClick={agendar} disabled={salvando} className="btn btn-p" style={{ gap: 6 }}><Clock size={14} /> {salvando ? 'Agendando…' : 'Agendar envio'}</button>
+
+        {lista.length > 0 && (
+          <div style={{ marginTop: 16, overflow: 'auto' }}>
+            <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .4, marginBottom: 8 }}>Agendadas</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+              {lista.map(ag => {
+                const st = ST[ag.status] || ST.pendente;
+                return (
+                  <div key={ag.id} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '8px 11px', background: 'var(--bg2)', borderRadius: 9 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ag.texto}</div>
+                      <div style={{ fontSize: 10.5, color: st.c, fontWeight: 700 }}>{st.l} · {fmtQuando(ag.enviar_em)}</div>
+                    </div>
+                    {ag.status === 'pendente' && <button onClick={() => cancelar(ag)} title="Cancelar" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={15} /></button>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function AgendarModal({ sel, api, onClose }) {
   const hoje = new Date().toISOString().slice(0, 10);
   const [m, setM] = React.useState({ paciente: sel?.contact_name || '', responsavel: '', email: '', endereco: '', local_link: '', servico: '', profissional: '', data: hoje, hora: '', observacoes: '', valor: '', forma_pagamento: '', confirmar: true });

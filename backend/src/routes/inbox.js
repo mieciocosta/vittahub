@@ -3371,6 +3371,81 @@ r.post('/conversations/:id/send', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* ─── MENSAGENS AGENDADAS: dispara texto pro cliente em data/hora marcada ──────── */
+// Envia um texto pela conversa (usado pelo agendador) e registra no histórico.
+async function enviarTextoConversa(conv, texto, senderNome) {
+  const { rows: [msg] } = await query(
+    `INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome, status) VALUES ($1,'me','text',$2,$3,'sent') RETURNING *`,
+    [conv.id, texto, senderNome || 'Agendada']);
+  const { rows: [convUpd] } = await query("UPDATE conversas SET last_message=$1, last_from='me', last_message_at=NOW(), bot_ativo=false WHERE id=$2 RETURNING *", [texto.slice(0, 100), conv.id]);
+  if (convUpd) cacheUpdate(convUpd);
+  socketEmit('new_message', { convId: conv.id, message: msg, conv: convUpd || conv });
+  if (conv.channel === 'whatsapp' && zapiOk()) {
+    const waNumber = conv.contact_id ? conv.contact_id.replace('@s.whatsapp.net', '') : `55${conv.phone}`;
+    const phone55 = waNumber.startsWith('55') ? waNumber : `55${waNumber}`;
+    await zapiCall('/send-text', 'POST', { phone: phone55, message: texto });
+  }
+  return msg;
+}
+
+// Agendador: a cada 60s dispara as pendentes cujo horário chegou.
+let agendadorRodando = false;
+async function processarAgendadas() {
+  if (agendadorRodando) return;
+  agendadorRodando = true;
+  try {
+    const { rows } = await query(`SELECT * FROM mensagens_agendadas WHERE status = 'pendente' AND enviar_em <= NOW() ORDER BY enviar_em LIMIT 20`).catch(() => ({ rows: [] }));
+    for (const ag of rows) {
+      try {
+        const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [ag.conversa_id]);
+        if (!conv) { await query(`UPDATE mensagens_agendadas SET status='erro', erro='conversa não encontrada' WHERE id=$1`, [ag.id]); continue; }
+        await enviarTextoConversa(conv, ag.texto, ag.criado_por);
+        await query(`UPDATE mensagens_agendadas SET status='enviada', enviada_em=NOW() WHERE id=$1`, [ag.id]);
+      } catch (e) {
+        await query(`UPDATE mensagens_agendadas SET status='erro', erro=$2 WHERE id=$1`, [ag.id, String(e.message).slice(0, 200)]).catch(() => {});
+      }
+    }
+  } finally { agendadorRodando = false; }
+}
+setInterval(processarAgendadas, 60000);
+setTimeout(processarAgendadas, 15000); // primeira passada logo após subir
+
+// Agenda uma mensagem pra ser enviada no futuro
+r.post('/conversations/:id/agendar', async (req, res) => {
+  try {
+    const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
+    if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso a esta conversa.' });
+    const texto = String((req.body || {}).texto || '').trim();
+    if (!texto) return res.status(400).json({ error: 'Escreva a mensagem.' });
+    const quando = new Date((req.body || {}).enviar_em);
+    if (isNaN(quando.getTime())) return res.status(400).json({ error: 'Data/hora inválida.' });
+    if (quando.getTime() < Date.now() - 60000) return res.status(400).json({ error: 'Escolha uma data/hora no futuro.' });
+    const { rows: [ag] } = await query(
+      `INSERT INTO mensagens_agendadas (conversa_id, texto, enviar_em, criado_por, criado_por_id) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+      [req.params.id, texto.slice(0, 4000), quando.toISOString(), req.user.nome, req.user.id]);
+    res.status(201).json(ag);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Lista as agendadas de uma conversa (pendentes primeiro)
+r.get('/conversations/:id/agendadas', async (req, res) => {
+  try {
+    const { rows } = await query(
+      `SELECT id, texto, enviar_em, status, criado_por, enviada_em FROM mensagens_agendadas
+       WHERE conversa_id = $1 ORDER BY (status='pendente') DESC, enviar_em`, [req.params.id]);
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Cancela uma mensagem agendada (só se ainda pendente)
+r.delete('/agendadas/:id', async (req, res) => {
+  try {
+    await query(`UPDATE mensagens_agendadas SET status='cancelada' WHERE id=$1 AND status='pendente'`, [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ─── UPLOAD FILE ──────────────────────────────────────────────────────────────
 r.post('/conversations/:id/upload', upload.single('file'), async (req, res) => {
   try {
