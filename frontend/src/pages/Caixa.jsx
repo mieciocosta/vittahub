@@ -131,10 +131,25 @@ export default function Caixa() {
   const comComp = filtrada.filter(v => v.tem_comprovante).length;
   const conferidas = filtrada.filter(v => v.conferido).length;
 
-  // Fechamento por forma de pagamento
-  const porForma = {};
-  filtrada.forEach(v => { const f = v.forma_pagamento || 'Não informado'; porForma[f] = (porForma[f] || 0) + (parseFloat(v.valor) || 0); });
-  const formasOrdenadas = Object.entries(porForma).sort((a, b) => b[1] - a[1]);
+  // Fechamento por forma de pagamento — as 3 principais sempre visíveis + Outros
+  const RECEBIDO_ST = ['pago', 'cortesia'];
+  const ARECEBER_ST = ['sinal', 'aguardando', 'parcelado', 'pendente'];
+  const fech = { Pix: { v: 0, n: 0 }, 'Cartão': { v: 0, n: 0 }, Dinheiro: { v: 0, n: 0 }, Outros: { v: 0, n: 0 } };
+  filtrada.forEach(v => {
+    const val = parseFloat(v.valor) || 0;
+    const chave = ['Pix', 'Cartão', 'Dinheiro'].includes(v.forma_pagamento) ? v.forma_pagamento : 'Outros';
+    fech[chave].v += val; fech[chave].n += 1;
+  });
+  const formasFixas = ['Pix', 'Cartão', 'Dinheiro'];
+  const formaCor = { Pix: '#059669', 'Cartão': '#2563eb', Dinheiro: '#d97706', Outros: '#7c3aed' };
+  const formaIcone = { Pix: '⚡', 'Cartão': '💳', Dinheiro: '💵', Outros: '🔗' };
+  const formasOrdenadas = [...formasFixas, ...(fech.Outros.v > 0 ? ['Outros'] : [])].map(f => [f, fech[f].v]);
+
+  // Ferramentas do fechamento
+  const recebido = filtrada.filter(v => RECEBIDO_ST.includes(v.status_pagamento)).reduce((s, v) => s + (parseFloat(v.valor) || 0), 0);
+  const aReceber = filtrada.filter(v => ARECEBER_ST.includes(v.status_pagamento)).reduce((s, v) => s + (parseFloat(v.valor) || 0), 0);
+  const nAReceber = filtrada.filter(v => ARECEBER_ST.includes(v.status_pagamento)).length;
+  const ticket = filtrada.length ? total / filtrada.length : 0;
 
   const podeAnexar = (v) => gestao || v.atendente_id === user?.id;
 
@@ -175,8 +190,11 @@ export default function Caixa() {
       <tbody>${linhas}</tbody></table>
       <div class="tot">
         <span class="box"><b>Total vendido:</b> ${fmt.brl(total)}</span>
+        <span class="box"><b>Recebido:</b> ${fmt.brl(recebido)}</span>
+        <span class="box"><b>A receber:</b> ${fmt.brl(aReceber)}</span>
         <span class="box"><b>Repasse:</b> ${fmt.brl(totalRepasse)}</span>
         <span class="box"><b>Líquido:</b> ${fmt.brl(liquido)}</span>
+        <span class="box"><b>Ticket médio:</b> ${fmt.brl(ticket)}</span>
         <span class="box"><b>Descontos:</b> ${fmt.brl(totalDesc)}</span>
         <span class="box"><b>Conferidas:</b> ${conferidas}/${filtrada.length}</span>
       </div>
@@ -211,21 +229,39 @@ export default function Caixa() {
         </div>
       </div>
 
-      {/* Fechamento por forma de pagamento */}
-      {formasOrdenadas.length > 0 && (
-        <div className="card" style={{ padding: '12px 16px', marginBottom: 16 }}>
-          <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 9 }}>💳 Fechamento por forma de pagamento</div>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            {formasOrdenadas.map(([f, val]) => (
-              <div key={f} style={{ flex: '1 1 130px', minWidth: 120, background: 'var(--bg2)', borderRadius: 10, padding: '8px 12px' }}>
-                <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>{f}</div>
-                <div style={{ fontSize: 16, fontWeight: 900, color: 'var(--tq2)' }}>{fmt.brl(val)}</div>
-                <div style={{ fontSize: 10.5, color: 'var(--light)' }}>{total > 0 ? Math.round((val / total) * 100) : 0}% do total</div>
+      {/* Fechamento por forma de pagamento + ferramentas */}
+      <div className="card" style={{ padding: '13px 16px', marginBottom: 16 }}>
+        <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 9 }}>💳 Fechamento por forma de pagamento</div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          {[...formasFixas, 'Outros'].filter(f => f !== 'Outros' || fech.Outros.v > 0).map(f => {
+            const cor = formaCor[f]; const val = fech[f].v;
+            return (
+              <div key={f} style={{ flex: '1 1 140px', minWidth: 130, background: 'var(--bg2)', borderRadius: 11, padding: '9px 13px', borderLeft: `3px solid ${cor}` }}>
+                <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>{formaIcone[f]} {f}</div>
+                <div style={{ fontSize: 17, fontWeight: 900, color: cor }}>{fmt.brl(val)}</div>
+                <div style={{ fontSize: 10.5, color: 'var(--light)' }}>{fech[f].n} venda(s) · {total > 0 ? Math.round((val / total) * 100) : 0}%</div>
               </div>
-            ))}
-          </div>
+            );
+          })}
         </div>
-      )}
+
+        {/* Ferramentas do fechamento */}
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+          {[
+            { rot: 'Recebido', val: fmt.brl(recebido), cor: '#16a34a', sub: 'pago / cortesia' },
+            { rot: 'A receber', val: fmt.brl(aReceber), cor: '#d97706', sub: `${nAReceber} pendente(s)` },
+            { rot: 'Ticket médio', val: fmt.brl(ticket), cor: 'var(--tq2)', sub: `${filtrada.length} venda(s)` },
+            ...(gestao ? [{ rot: 'Repasse', val: fmt.brl(totalRepasse), cor: '#b45309', sub: 'saídas' }] : []),
+            ...(gestao ? [{ rot: 'Líquido', val: fmt.brl(liquido), cor: '#0891b2', sub: 'vendido − repasse' }] : []),
+          ].map(t => (
+            <div key={t.rot} style={{ flex: '1 1 130px', minWidth: 120, textAlign: 'center', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 11, padding: '9px 10px' }}>
+              <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .4 }}>{t.rot}</div>
+              <div style={{ fontSize: 16.5, fontWeight: 900, color: t.cor, marginTop: 2 }}>{t.val}</div>
+              <div style={{ fontSize: 10, color: 'var(--light)' }}>{t.sub}</div>
+            </div>
+          ))}
+        </div>
+      </div>
 
       {/* Filtros */}
       <div className="card" style={{ padding: '12px 14px', marginBottom: 16, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
