@@ -381,6 +381,64 @@ r.patch('/vendas/:id/repasse', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// CAIXA — baixa de pendência: marca a venda como recebida (1 clique). Gestão ou dono.
+r.patch('/vendas/:id/receber', async (req, res) => {
+  try {
+    const { rows: [v] } = await query(`SELECT atendente_id, setor, valor FROM vendas WHERE id = $1`, [req.params.id]);
+    if (!v) return res.status(404).json({ error: 'Venda não encontrada' });
+    if (!gestao(req) && v.atendente_id !== req.user.id) return res.status(403).json({ error: 'Sem permissão.' });
+    const novo = STATUS_PG.includes((req.body || {}).status) ? req.body.status : 'pago';
+    const forma = FORMAS_PG.includes((req.body || {}).forma_pagamento) ? req.body.forma_pagamento : null;
+    const sets = ['status_pagamento = $1']; const params = [novo];
+    if (forma) { sets.push(`forma_pagamento = $${params.length + 1}`); params.push(forma); }
+    params.push(req.params.id);
+    const { rows: [u] } = await query(`UPDATE vendas SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${params.length} RETURNING id, status_pagamento, forma_pagamento`, params);
+    // Recebido muda o "confirmado" do setor → atualiza banners de meta em tempo real
+    socketEmit('venda_registrada', { id: u.id, setor: v.setor, valor: v.valor });
+    res.json({ ok: true, ...u });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── SAÍDAS / DESPESAS (fecham o saldo real do caixa) ─────────────────────────
+const DESPESA_CATS = ['Repasse', 'Insumos', 'Salário', 'Aluguel', 'Marketing', 'Imposto', 'Manutenção', 'Outros'];
+r.get('/despesas', async (req, res) => {
+  try {
+    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão vê as saídas.' });
+    const cond = [], params = []; let i = 1;
+    if (/^\d{4}-\d{2}$/.test(req.query.mes || '')) { cond.push(`to_char(data,'YYYY-MM') = $${i++}`); params.push(req.query.mes); }
+    if (['vacinas', 'consultas', 'terapias'].includes(req.query.setor)) { cond.push(`setor = $${i++}`); params.push(req.query.setor); }
+    const where = cond.length ? 'WHERE ' + cond.join(' AND ') : '';
+    const { rows } = await query(`SELECT * FROM despesas ${where} ORDER BY data DESC, created_at DESC LIMIT 500`, params);
+    const total = rows.reduce((s, d) => s + (parseFloat(d.valor) || 0), 0);
+    res.json({ despesas: rows, total });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.post('/despesas', async (req, res) => {
+  try {
+    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão lança saídas.' });
+    const b = req.body || {};
+    if (!String(b.descricao || '').trim()) return res.status(400).json({ error: 'Descreva a despesa.' });
+    const valor = Math.max(0, Math.min(parseFloat(b.valor) || 0, 100000000));
+    const categoria = DESPESA_CATS.includes(b.categoria) ? b.categoria : 'Outros';
+    const setor = ['vacinas', 'consultas', 'terapias'].includes(b.setor) ? b.setor : null;
+    const data = /^\d{4}-\d{2}-\d{2}$/.test(b.data || '') ? b.data : null;
+    const { rows: [d] } = await query(
+      `INSERT INTO despesas (descricao, categoria, valor, setor, forma_pagamento, data, criado_por)
+       VALUES ($1,$2,$3,$4,$5,COALESCE($6,CURRENT_DATE),$7) RETURNING *`,
+      [cut(b.descricao, 160), categoria, valor, setor, FORMAS_PG.includes(b.forma_pagamento) ? b.forma_pagamento : null, data, req.user.nome]);
+    res.status(201).json(d);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.delete('/despesas/:id', async (req, res) => {
+  try {
+    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão remove saídas.' });
+    await query('DELETE FROM despesas WHERE id = $1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // CAIXA — baixa o comprovante (data URL) de uma venda. Gestão ou o próprio atendente.
 r.get('/vendas/:id/comprovante', async (req, res) => {
   try {

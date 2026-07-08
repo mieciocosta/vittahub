@@ -448,6 +448,14 @@ export default async function runMigrate() {
     // CAIXA: valor de repasse (ex.: pago à vacinadora/profissional) + análise IA do comprovante
     await query(`ALTER TABLE vendas ADD COLUMN IF NOT EXISTS repasse NUMERIC(10,2) DEFAULT 0`).catch(() => {});
     await query(`ALTER TABLE vendas ADD COLUMN IF NOT EXISTS comprovante_analise JSONB`).catch(() => {});
+    // CAIXA: saídas/despesas — pra fechar o saldo real (entrou − saiu)
+    await query(`CREATE TABLE IF NOT EXISTS despesas (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      descricao TEXT, categoria TEXT, valor NUMERIC(10,2) DEFAULT 0,
+      setor TEXT, forma_pagamento TEXT, data DATE DEFAULT CURRENT_DATE,
+      criado_por TEXT, created_at TIMESTAMPTZ DEFAULT NOW()
+    )`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS idx_despesas_data ON despesas (data)`).catch(() => {});
     // PLANEJAMENTO: estratégias, blocos de notas e lembretes do líder/gestão (pessoal)
     await query(`CREATE TABLE IF NOT EXISTS planejamento_notas (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,

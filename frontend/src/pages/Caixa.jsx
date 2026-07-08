@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Wallet, Paperclip, FileText, X, Check, Download, Eye, Search, Filter, Image as ImageIcon, CheckCircle2, Circle, FileSpreadsheet, Printer, Sparkles, AlertTriangle, Pencil } from 'lucide-react';
+import { Wallet, Paperclip, FileText, X, Check, Download, Eye, Search, Filter, Image as ImageIcon, CheckCircle2, Circle, FileSpreadsheet, Printer, Sparkles, AlertTriangle, Pencil, HandCoins, TrendingDown, TrendingUp, Plus, Trash2 } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt } from '../hooks/utils.js';
 
@@ -17,6 +17,8 @@ const STATUS_INFO = {
   pendente:    { label: 'Pendente',    cor: '#e84040', bg: '#fdecec' },
 };
 const SETOR_COR = { vacinas: '#7c5cbf', consultas: '#00B8C0', terapias: '#C4973B' };
+const DESPESA_CATS = ['Repasse', 'Insumos', 'Salário', 'Aluguel', 'Marketing', 'Imposto', 'Manutenção', 'Outros'];
+const FORMAS = ['Pix', 'Cartão', 'Dinheiro', 'Link de pagamento', 'Parcelado', 'Cortesia'];
 
 function mesAtual() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; }
 function fmtData(s) { if (!s) return '—'; const d = String(s).slice(0, 10).split('-'); return d.length === 3 ? `${d[2]}/${d[1]}/${d[0]}` : s; }
@@ -119,6 +121,44 @@ export default function Caixa() {
     setAnalisando(null);
   };
 
+  // Baixa de pendência: marca a venda como recebida (1 clique)
+  const [recebendo, setRecebendo] = useState(null);
+  const marcarRecebido = async (v) => {
+    setRecebendo(v.id); setErro('');
+    setLista(p => p.map(x => x.id === v.id ? { ...x, status_pagamento: 'pago' } : x));
+    try { await api.patch(`/extras/vendas/${v.id}/receber`, { status: 'pago' }); }
+    catch (err) { setErro(err.message || 'Falha ao dar baixa.'); load(); }
+    setRecebendo(null);
+  };
+
+  // Saídas / despesas (gestão) — pra fechar o saldo real
+  const [aba, setAba] = useState('entradas'); // 'entradas' | 'saidas'
+  const [despesas, setDespesas] = useState([]);
+  const [despTotal, setDespTotal] = useState(0);
+  const [modalDesp, setModalDesp] = useState(null);
+  const [salvandoDesp, setSalvandoDesp] = useState(false);
+  const loadDespesas = () => {
+    if (!gestao) return;
+    const qs = new URLSearchParams(); if (mes) qs.set('mes', mes); if (setor) qs.set('setor', setor);
+    api.get(`/extras/despesas?${qs.toString()}`).then(d => { setDespesas(d.despesas || []); setDespTotal(d.total || 0); }).catch(() => {});
+  };
+  useEffect(() => { loadDespesas(); }, [mes, setor]); // eslint-disable-line
+
+  const salvarDespesa = async () => {
+    if (!modalDesp.descricao?.trim()) { setErro('Descreva a despesa.'); return; }
+    setSalvandoDesp(true); setErro('');
+    try {
+      const d = await api.post('/extras/despesas', { ...modalDesp, valor: parseFloat(String(modalDesp.valor).replace(',', '.')) || 0 });
+      setDespesas(p => [d, ...p]); setDespTotal(t => t + (parseFloat(d.valor) || 0)); setModalDesp(null);
+    } catch (e) { setErro(e.message); }
+    setSalvandoDesp(false);
+  };
+  const excluirDespesa = async (d) => {
+    if (!window.confirm(`Remover "${d.descricao}"?`)) return;
+    setDespesas(p => p.filter(x => x.id !== d.id)); setDespTotal(t => t - (parseFloat(d.valor) || 0));
+    try { await api.del(`/extras/despesas/${d.id}`); } catch { loadDespesas(); }
+  };
+
   const filtrada = lista.filter(v => {
     if (!busca.trim()) return true;
     const q = busca.toLowerCase();
@@ -151,6 +191,9 @@ export default function Caixa() {
   const aReceber = filtrada.filter(v => ARECEBER_ST.includes(v.status_pagamento)).reduce((s, v) => s + (parseFloat(v.valor) || 0), 0);
   const nAReceber = filtrada.filter(v => ARECEBER_ST.includes(v.status_pagamento)).length;
   const ticket = filtrada.length ? total / filtrada.length : 0;
+  // Saldo real do caixa: entrou (recebido) − saiu (despesas + repasses)
+  const saidas = despTotal + totalRepasse;
+  const saldo = recebido - saidas;
 
   // Filtro rápido afeta só a LISTA exibida — os totais do fechamento continuam do mês inteiro
   const listaExibida = filtrada.filter(v => {
@@ -260,8 +303,8 @@ export default function Caixa() {
             { rot: 'Recebido', val: fmt.brl(recebido), cor: '#16a34a', sub: 'pago / cortesia' },
             { rot: 'A receber', val: fmt.brl(aReceber), cor: '#d97706', sub: `${nAReceber} pendente(s)`, click: 'areceber', destaque: aReceber > 0 },
             { rot: 'Ticket médio', val: fmt.brl(ticket), cor: 'var(--tq2)', sub: `${filtrada.length} venda(s)` },
-            ...(gestao ? [{ rot: 'Repasse', val: fmt.brl(totalRepasse), cor: '#b45309', sub: 'saídas' }] : []),
-            ...(gestao ? [{ rot: 'Líquido', val: fmt.brl(liquido), cor: '#0891b2', sub: 'vendido − repasse' }] : []),
+            ...(gestao ? [{ rot: 'Saídas', val: fmt.brl(saidas), cor: '#dc2626', sub: 'despesas + repasse' }] : []),
+            ...(gestao ? [{ rot: 'Saldo', val: fmt.brl(saldo), cor: saldo >= 0 ? '#0891b2' : '#dc2626', sub: 'recebido − saídas', destaque: false }] : []),
           ].map(t => {
             const ativo = t.click && filtroRapido === t.click;
             return (
@@ -279,6 +322,47 @@ export default function Caixa() {
         </div>
       </div>
 
+      {/* Toggle Entradas / Saídas (gestão) */}
+      {gestao && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+          <button onClick={() => setAba('entradas')} className="btn btn-sm" style={{ gap: 6, fontWeight: 800, background: aba === 'entradas' ? '#16a34a' : 'var(--card)', color: aba === 'entradas' ? '#fff' : 'var(--txt2)', border: aba === 'entradas' ? 'none' : '1.5px solid var(--border)' }}><TrendingUp size={14} /> Entradas</button>
+          <button onClick={() => setAba('saidas')} className="btn btn-sm" style={{ gap: 6, fontWeight: 800, background: aba === 'saidas' ? '#dc2626' : 'var(--card)', color: aba === 'saidas' ? '#fff' : 'var(--txt2)', border: aba === 'saidas' ? 'none' : '1.5px solid var(--border)' }}><TrendingDown size={14} /> Saídas{despesas.length ? ` (${despesas.length})` : ''}</button>
+        </div>
+      )}
+
+      {aba === 'saidas' ? (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
+            <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--txt)' }}>Saídas de {mes} · <span style={{ color: '#dc2626' }}>{fmt.brl(despTotal)}</span></div>
+            <button onClick={() => { setErro(''); setModalDesp({ descricao: '', categoria: 'Outros', valor: '', setor: '', forma_pagamento: '', data: new Date().toISOString().slice(0, 10) }); }} className="btn btn-p btn-sm" style={{ gap: 6 }}><Plus size={14} /> Lançar saída</button>
+          </div>
+          {despesas.length === 0 ? (
+            <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}>
+              <TrendingDown size={30} color="var(--border)" style={{ marginBottom: 8 }} />
+              <div style={{ fontWeight: 700 }}>Nenhuma saída neste mês.</div>
+              <div style={{ fontSize: 12.5, marginTop: 4 }}>Lance despesas, repasses e custos pra fechar o saldo real do caixa.</div>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {despesas.map(d => (
+                <div key={d.id} className="card" style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                  <div style={{ flex: 1, minWidth: 180 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <span style={{ fontWeight: 800, fontSize: 14 }}>{d.descricao}</span>
+                      <span style={{ fontSize: 10, fontWeight: 800, color: '#dc2626', background: '#fdecec', borderRadius: 20, padding: '2px 8px' }}>{d.categoria}</span>
+                      {d.setor && <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)' }}>{d.setor}</span>}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>{fmtData(d.data)}{d.forma_pagamento ? ` · ${d.forma_pagamento}` : ''}{d.criado_por ? ` · ${d.criado_por.split(' ')[0]}` : ''}</div>
+                  </div>
+                  <div style={{ fontSize: 16, fontWeight: 900, color: '#dc2626' }}>− {fmt.brl(d.valor)}</div>
+                  <button onClick={() => excluirDespesa(d)} title="Remover" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><Trash2 size={14} /></button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+      <>
       {/* Filtros */}
       <div className="card" style={{ padding: '12px 14px', marginBottom: 16, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
         <input type="month" value={mes} onChange={e => setMes(e.target.value)} style={{ padding: '7px 10px', borderRadius: 9, border: '1.5px solid var(--border)', background: 'var(--card)', color: 'var(--txt)' }} />
@@ -351,6 +435,11 @@ export default function Caixa() {
                     <div style={{ fontSize: 16.5, fontWeight: 900, color: '#16a34a' }}>{fmt.brl(v.valor)}</div>
                     {parseFloat(v.desconto) > 0 && <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>desc. {fmt.brl(v.desconto)}</div>}
                   </div>
+                  {ARECEBER_ST.includes(v.status_pagamento) && podeAnexar(v) && (
+                    <button onClick={() => marcarRecebido(v)} disabled={recebendo === v.id} className="btn btn-sm" style={{ gap: 5, background: '#16a34a', color: '#fff', border: 'none', fontWeight: 800 }} title="Dar baixa: marcar como recebido">
+                      <HandCoins size={13} /> {recebendo === v.id ? '…' : 'Receber'}
+                    </button>
+                  )}
                   {gestao && (
                     <div style={{ minWidth: 92, textAlign: 'right' }}>
                       <div style={{ fontSize: 9, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .4 }}>Repasse</div>
@@ -408,6 +497,8 @@ export default function Caixa() {
           })}
         </div>
       )}
+      </>
+      )}
 
       {/* Análise da IA */}
       {preview?.analise && (
@@ -458,6 +549,47 @@ export default function Caixa() {
               ) : (
                 <iframe src={preview.url} title={preview.nome} style={{ width: '100%', height: '72vh', border: 'none', borderRadius: 10 }} />
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal lançar saída/despesa */}
+      {modalDesp && (
+        <div onClick={() => setModalDesp(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
+          <div onClick={e => e.stopPropagation()} className="card" style={{ width: 460, maxWidth: '100%', padding: 22 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <h3 style={{ fontSize: 16, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 8 }}><TrendingDown size={18} color="#dc2626" /> Lançar saída</h3>
+              <button onClick={() => setModalDesp(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={16} /></button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
+              <div className="field" style={{ margin: 0 }}><label>Descrição *</label><input value={modalDesp.descricao} onChange={e => setModalDesp({ ...modalDesp, descricao: e.target.value })} placeholder="Ex: Repasse vacinadora, compra de insumos…" /></div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <div className="field" style={{ margin: 0, flex: 1 }}><label>Valor (R$) *</label><input value={modalDesp.valor} onChange={e => setModalDesp({ ...modalDesp, valor: e.target.value })} placeholder="0,00" /></div>
+                <div className="field" style={{ margin: 0, flex: 1 }}><label>Data</label><input type="date" value={modalDesp.data} onChange={e => setModalDesp({ ...modalDesp, data: e.target.value })} /></div>
+              </div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <div className="field" style={{ margin: 0, flex: 1 }}><label>Categoria</label>
+                  <select value={modalDesp.categoria} onChange={e => setModalDesp({ ...modalDesp, categoria: e.target.value })} style={{ width: '100%', padding: '8px 10px', borderRadius: 10, border: '1.5px solid var(--border)', background: 'var(--card)', color: 'var(--txt)' }}>
+                    {DESPESA_CATS.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div className="field" style={{ margin: 0, flex: 1 }}><label>Setor</label>
+                  <select value={modalDesp.setor} onChange={e => setModalDesp({ ...modalDesp, setor: e.target.value })} style={{ width: '100%', padding: '8px 10px', borderRadius: 10, border: '1.5px solid var(--border)', background: 'var(--card)', color: 'var(--txt)' }}>
+                    <option value="">Geral</option><option value="vacinas">Vacinas</option><option value="consultas">Consultas</option><option value="terapias">Terapias</option>
+                  </select>
+                </div>
+              </div>
+              <div className="field" style={{ margin: 0 }}><label>Forma de pagamento</label>
+                <select value={modalDesp.forma_pagamento} onChange={e => setModalDesp({ ...modalDesp, forma_pagamento: e.target.value })} style={{ width: '100%', padding: '8px 10px', borderRadius: 10, border: '1.5px solid var(--border)', background: 'var(--card)', color: 'var(--txt)' }}>
+                  <option value="">—</option>{FORMAS.map(f => <option key={f} value={f}>{f}</option>)}
+                </select>
+              </div>
+              {erro && <div style={{ fontSize: 12, color: 'var(--err)', fontWeight: 600 }}>{erro}</div>}
+              <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                <button onClick={salvarDespesa} disabled={salvandoDesp} className="btn btn-p" style={{ flex: 1, gap: 6 }}><Check size={14} /> {salvandoDesp ? 'Salvando…' : 'Lançar saída'}</button>
+                <button onClick={() => setModalDesp(null)} className="btn">Cancelar</button>
+              </div>
             </div>
           </div>
         </div>
