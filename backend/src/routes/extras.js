@@ -366,12 +366,25 @@ r.delete('/planejamento/liderados/:usuarioId', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Define a meta individual mensal (R$) de um liderado
+r.patch('/planejamento/liderados/:usuarioId/meta', async (req, res) => {
+  try {
+    if (!podePlan(req)) return res.status(403).json({ error: 'Acesso restrito.' });
+    const meta = Math.max(0, Math.min(parseFloat((req.body || {}).meta) || 0, 100000000));
+    const cond = gestao(req) ? '' : ' AND lider_id = $3';
+    const params = gestao(req) ? [meta, req.params.usuarioId] : [meta, req.params.usuarioId, req.user.id];
+    const { rows: [u] } = await query(`UPDATE usuarios SET meta_mensal = $1 WHERE id = $2${cond} RETURNING id, meta_mensal`, params);
+    if (!u) return res.status(404).json({ error: 'Liderado não encontrado.' });
+    res.json({ ok: true, id: u.id, meta_mensal: parseFloat(u.meta_mensal) || 0 });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Painel dos liderados: o que cada um fez HOJE + resultado do mês
 r.get('/planejamento/liderados', async (req, res) => {
   try {
     if (!podePlan(req)) return res.status(403).json({ error: 'Acesso restrito.' });
     const { rows: liderados } = await query(
-      `SELECT id, nome, setor, avatar, cor FROM usuarios WHERE lider_id = $1 ORDER BY nome`, [req.user.id]);
+      `SELECT id, nome, setor, avatar, cor, COALESCE(meta_mensal,0)::float meta_mensal FROM usuarios WHERE lider_id = $1 ORDER BY nome`, [req.user.id]);
     if (!liderados.length) return res.json([]);
     const ids = liderados.map(u => u.id);
     const mes = new Date().toISOString().slice(0, 7);
@@ -400,6 +413,8 @@ r.get('/planejamento/liderados', async (req, res) => {
         online, ultima_atividade: pr?.ultimo_heartbeat || null, pagina: pr?.pagina || null,
         hoje: { mensagens: msgsHoje, atendimentos: convsHoje, acoes: acoesHoje, vendas: mVHoje[u.id]?.n || 0, vendas_valor: mVHoje[u.id]?.v || 0 },
         mes: { vendas: mVMes[u.id]?.n || 0, vendas_valor: mVMes[u.id]?.v || 0 },
+        meta_mensal: u.meta_mensal || 0,
+        meta_pct: u.meta_mensal > 0 ? +(((mVMes[u.id]?.v || 0) / u.meta_mensal) * 100).toFixed(1) : null,
         proatividade: prot,
       };
     });

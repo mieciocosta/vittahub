@@ -48,6 +48,14 @@ export default function Planejamento() {
     setLiderados(p => p.filter(x => x.id !== u.id));
     try { await api.del(`/extras/planejamento/liderados/${u.id}`); } catch { loadLiderados(); }
   };
+  const [editMeta, setEditMeta] = useState(null); // { id, valor }
+  const salvarMetaInd = async () => {
+    if (!editMeta) return;
+    const val = parseFloat(String(editMeta.valor).replace(/\./g, '').replace(',', '.')) || 0;
+    const id = editMeta.id; setEditMeta(null);
+    setLiderados(p => p.map(x => x.id === id ? { ...x, meta_mensal: val, meta_pct: val > 0 ? +((x.mes.vendas_valor / val) * 100).toFixed(1) : null } : x));
+    try { await api.patch(`/extras/planejamento/liderados/${id}/meta`, { meta: val }); } catch { loadLiderados(); }
+  };
   const inic = (nome) => (nome || '?').split(' ').slice(0, 2).map(s => s[0]).join('').toUpperCase();
 
   const abrirNovo = (tipo) => { setErro(''); setModal({ tipo, titulo: '', conteudo: '', lembrete_em: '' }); };
@@ -207,6 +215,42 @@ export default function Planejamento() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 5, fontSize: 12 }}>
                     <span style={{ color: 'var(--muted)', fontWeight: 600 }}>🎯 Mês ({l.mes.vendas} venda{l.mes.vendas === 1 ? '' : 's'})</span>
                     <span style={{ fontWeight: 800, color: 'var(--tq2)' }}>{fmt.brl(l.mes.vendas_valor)}</span>
+                  </div>
+
+                  {/* Meta individual do mês */}
+                  <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11.5, marginBottom: 4 }}>
+                      <span style={{ fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .4 }}>🏆 Meta individual</span>
+                      {editMeta?.id === l.id ? (
+                        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                          <input autoFocus value={editMeta.valor} onChange={e => setEditMeta({ id: l.id, valor: e.target.value })}
+                            onKeyDown={e => { if (e.key === 'Enter') salvarMetaInd(); if (e.key === 'Escape') setEditMeta(null); }}
+                            placeholder="0" style={{ width: 84, padding: '3px 6px', borderRadius: 7, border: '1.5px solid var(--tq)', fontSize: 12, textAlign: 'right' }} />
+                          <button onClick={salvarMetaInd} style={{ background: 'var(--tq)', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', padding: '3px 5px', display: 'flex' }}><Check size={12} /></button>
+                        </div>
+                      ) : (
+                        <button onClick={() => setEditMeta({ id: l.id, valor: l.meta_mensal ? String(Math.round(l.meta_mensal)) : '' })}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, color: l.meta_mensal > 0 ? 'var(--txt)' : 'var(--tq2)', fontWeight: 800, fontSize: 12.5 }}>
+                          {l.meta_mensal > 0 ? fmt.brl(l.meta_mensal) : 'definir meta'} <Pencil size={11} style={{ opacity: .6 }} />
+                        </button>
+                      )}
+                    </div>
+                    {l.meta_mensal > 0 && (() => {
+                      const pct = Math.min(l.meta_pct || 0, 100);
+                      const cor = pct >= 100 ? '#16a34a' : pct >= 60 ? '#0891b2' : pct >= 30 ? '#d97706' : '#dc2626';
+                      const falta = Math.max(l.meta_mensal - l.mes.vendas_valor, 0);
+                      return (
+                        <>
+                          <div style={{ height: 8, borderRadius: 6, background: 'var(--bg2)', overflow: 'hidden' }}>
+                            <div style={{ width: `${pct}%`, height: '100%', borderRadius: 6, background: cor, transition: 'width .4s' }} />
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, marginTop: 3, color: 'var(--muted)' }}>
+                            <span style={{ fontWeight: 800, color: cor }}>{l.meta_pct}%</span>
+                            <span>{falta > 0 ? `faltam ${fmt.brl(falta)}` : '🏆 meta batida!'}</span>
+                          </div>
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
               );
