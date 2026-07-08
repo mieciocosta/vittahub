@@ -1476,28 +1476,9 @@ export default function Inbox({ onUnreadChange }) {
             </div>
           </div>
 
-          {/* Faixa de contexto (mock): Interesse · Responsável · Etapa · Score */}
+          {/* Faixa de contexto: Interesse · Responsável · Etapa · Meta do setor */}
           <FaixaContexto sel={sel} leadInfo={leadInfo} setLeadInfo={setLeadInfo} api={api}
-            scoreChip={scoreChip} setScoreChip={setScoreChip} usersById={usersById} />
-
-          {/* Meta global do setor — lembrete no atendimento (atualiza a cada venda) */}
-          {metaSetor && metaSetor.metaGlobal > 0 && (() => {
-            const pg = Math.min(metaSetor.pctGlobal || 0, 100);
-            const batida = (metaSetor.faltaGlobal || 0) <= 0;
-            return (
-              <div style={{ flexShrink:0, padding:'7px 14px', display:'flex', alignItems:'center', gap:10, flexWrap:'wrap',
-                background:'linear-gradient(90deg, rgba(196,151,59,.14), rgba(0,184,192,.12))', borderBottom:'1px solid var(--border)' }}>
-                <span style={{ fontSize:12, fontWeight:800, color:'var(--txt2)', whiteSpace:'nowrap' }}>🎯 Meta {metaSetor.setor==='geral'?'geral':metaSetor.setor}: <b style={{ color:'#b45309' }}>{fmt.brl(metaSetor.metaGlobal)}</b></span>
-                <div style={{ flex:'1 1 120px', minWidth:100, height:8, borderRadius:6, background:'var(--bg2)', overflow:'hidden' }}>
-                  <div style={{ width:`${pg}%`, height:'100%', borderRadius:6, background:'linear-gradient(90deg,#C4973B,#16a34a)', transition:'width .5s' }} />
-                </div>
-                <span style={{ fontSize:12, fontWeight:800, color:'var(--ok,#16a34a)', whiteSpace:'nowrap' }}>Alcançado {fmt.brl(metaSetor.confirmado)} ({Math.round(metaSetor.pctGlobal||0)}%)</span>
-                <span style={{ fontSize:12, fontWeight:800, color: batida ? 'var(--ok,#16a34a)' : 'var(--tq2)', whiteSpace:'nowrap' }}>
-                  {batida ? '🏆 Meta batida! Bora manter!' : `Faltam ${fmt.brl(metaSetor.faltaGlobal)} · Vamos fechar essa venda! 🔥`}
-                </span>
-              </div>
-            );
-          })()}
+            scoreChip={scoreChip} setScoreChip={setScoreChip} usersById={usersById} metaSetor={metaSetor} />
 
           {/* Área de mensagens + info panel */}
           <div style={{ flex:1, display:'flex', minHeight:0, overflow:'hidden' }}>
@@ -2065,7 +2046,7 @@ function BibliotecaPicker({ convId, setor, api, onClose, abaInicial = 'foto' }) 
 
 
 /* ── Faixa de contexto sob o header (Interesse · Responsável · Etapa · Score) ── */
-function FaixaContexto({ sel, leadInfo, setLeadInfo, api, scoreChip, setScoreChip, usersById }) {
+function FaixaContexto({ sel, leadInfo, setLeadInfo, api, scoreChip, setScoreChip, usersById, metaSetor }) {
   React.useEffect(() => {
     setLeadInfo(null); setScoreChip(null);
     if (!sel?.lead_id) return;
@@ -2118,24 +2099,33 @@ function FaixaContexto({ sel, leadInfo, setLeadInfo, api, scoreChip, setScoreChi
           </div>
         );
       })()}
-      <div style={{ display:'flex', alignItems:'center', gap:8, padding:'0 14px' }}>
-        <span style={{ fontSize:14 }}>❤️</span>
-        <div>
-          <div style={{ fontSize:9.5, fontWeight:800, color:'var(--tq2)', textTransform:'uppercase', letterSpacing:.4 }}>Score do atendimento</div>
-          {typeof scoreChip === 'number' ? (
-            <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-              <span style={{ fontSize:13, fontWeight:800, color: scoreChip >= 80 ? 'var(--ok)' : scoreChip >= 50 ? '#a07514' : 'var(--err)' }}>{scoreChip}%</span>
-              <div style={{ width:54, height:5, borderRadius:4, background:'var(--card)', overflow:'hidden' }}>
-                <div style={{ width:`${scoreChip}%`, height:'100%', background:'var(--tq)' }} />
+      {metaSetor && metaSetor.metaGlobal > 0 && (() => {
+        const batida = (metaSetor.faltaGlobal ?? 0) <= 0;
+        const pct = Math.min(metaSetor.pctGlobal ?? 0, 100);
+        const nomeSetor = metaSetor.setor && metaSetor.setor !== 'geral'
+          ? metaSetor.setor.charAt(0).toUpperCase() + metaSetor.setor.slice(1)
+          : 'Geral';
+        return (
+          <div style={{ display:'flex', alignItems:'center', gap:10, padding:'2px 16px', marginLeft:4, borderRadius:12, background: batida ? 'linear-gradient(135deg,#065f46,#10b981)' : 'linear-gradient(135deg,#1e1b4b,#4c1d95)', boxShadow:'0 2px 8px rgba(76,29,149,.28)' }}>
+            <span style={{ fontSize:18 }}>{batida ? '🏆' : '🎯'}</span>
+            <div style={{ minWidth:210 }}>
+              <div style={{ fontSize:9.5, fontWeight:800, color:'rgba(255,255,255,.72)', textTransform:'uppercase', letterSpacing:.5 }}>
+                Meta {nomeSetor} · {fmt.brl(metaSetor.metaGlobal)}
+              </div>
+              <div style={{ display:'flex', alignItems:'baseline', gap:6, marginTop:1 }}>
+                <span style={{ fontSize:13, fontWeight:900, color:'#fff' }}>{fmt.brl(metaSetor.confirmado || 0)}</span>
+                <span style={{ fontSize:10.5, fontWeight:800, color:'#a7f3d0' }}>({pct}%)</span>
+                <span style={{ fontSize:10.5, fontWeight:700, color:'rgba(255,255,255,.82)' }}>
+                  {batida ? '🔥 Meta batida! Bora além!' : `Faltam ${fmt.brl(metaSetor.faltaGlobal)} · Vamos fechar essa venda! 🔥`}
+                </span>
+              </div>
+              <div style={{ width:'100%', height:5, borderRadius:4, background:'rgba(255,255,255,.18)', overflow:'hidden', marginTop:3 }}>
+                <div style={{ width:`${pct}%`, height:'100%', background: batida ? '#fff' : 'linear-gradient(90deg,#f59e0b,#fbbf24)', transition:'width .4s ease' }} />
               </div>
             </div>
-          ) : (
-            <button onClick={calcularScore} style={{ border:'none', background:'none', color:'var(--tq2)', fontSize:11.5, fontWeight:800, cursor:'pointer', padding:0 }}>
-              {scoreChip === 'calc' ? 'Analisando…' : 'Calcular ✨'}
-            </button>
-          )}
-        </div>
-      </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
