@@ -222,7 +222,17 @@ r.get('/vendas/hoje', async (req, res) => {
       `SELECT COUNT(*)::int n,
               COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float total
        FROM vendas WHERE data_venda = CURRENT_DATE`);
-    res.json({ n: r2?.n || 0, total: podeValor ? (r2?.total || 0) : null });
+    // Campeã(o) do dia — quem mais fechou hoje. Só pra gestão (nomeia pessoas).
+    let campeao = null;
+    if (podeValor) {
+      const { rows: [c] } = await query(
+        `SELECT COALESCE(atendente_nome,'—') nome, COUNT(*)::int n,
+                COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float total
+         FROM vendas WHERE data_venda = CURRENT_DATE
+         GROUP BY atendente_nome ORDER BY n DESC, total DESC LIMIT 1`);
+      if (c && c.n > 0) campeao = c;
+    }
+    res.json({ n: r2?.n || 0, total: podeValor ? (r2?.total || 0) : null, campeao });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

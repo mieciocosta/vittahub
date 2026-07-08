@@ -109,6 +109,15 @@ export default function Classificar() {
                 </div>
               </div>
             )}
+            {placar?.campeao && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(255,255,255,.16)', border: '1px solid rgba(255,255,255,.3)', borderRadius: 12, padding: '8px 14px' }}>
+                <span style={{ fontSize: 20 }}>🏆</span>
+                <div style={{ lineHeight: 1.15 }}>
+                  <div style={{ fontSize: 15, fontWeight: 800 }}>{(placar.campeao.nome || '—').split(' ')[0]}</div>
+                  <div style={{ fontSize: 10.5, fontWeight: 700, opacity: .9 }}>campeã(o) do dia · {placar.campeao.n} venda{placar.campeao.n === 1 ? '' : 's'}</div>
+                </div>
+              </div>
+            )}
             <button onClick={load} className="btn" style={{ gap: 7, background: 'rgba(255,255,255,.9)', color: 'var(--tq2)', border: 'none', fontWeight: 800 }}>
               <RefreshCw size={14} /> Atualizar
             </button>
