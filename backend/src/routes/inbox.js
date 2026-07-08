@@ -152,9 +152,11 @@ function podeVerSetor(viewer, conv) {
   // O setor pode não vir no token antigo — resolve pelo cache (id → setor).
   const viewerSetor = viewer.setor || usuariosSetor.get(String(viewer.id)) || null;
   if (!viewerSetor) return true;
-  const g = grupoConversa(conv);
-  if (g === null) return true;
-  return viewerSetor === 'vacinas' ? g === 'vacina' : g === 'nao-vacina';
+  // Separação EXATA por setor: vacinas vê só vacinas, consultas só consultas,
+  // terapias só terapias. Conversa ainda não triada (sem setor) aparece pra todos
+  // (são os leads novos que precisam ser distribuídos).
+  const ef = setorEfetivo(conv);
+  return ef === null || ef === viewerSetor;
 }
 
 function cacheGetList({ channel, search, unread_only, waiting, minhas, responsavel, grupos, setor, categoria, classificacao, page = 1, limit = 100, extraIds = null, viewer = null }) {

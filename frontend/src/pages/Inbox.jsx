@@ -2100,10 +2100,12 @@ function FaixaContexto({ sel, leadInfo, setLeadInfo, api, scoreChip, setScoreChi
         );
       })()}
       {metaSetor && metaSetor.metaGlobal > 0 && (() => {
-        const batida = (metaSetor.faltaGlobal ?? 0) <= 0;
-        const pct = Math.min(metaSetor.pctGlobal ?? 0, 100);
-        const nomeSetor = metaSetor.setor && metaSetor.setor !== 'geral'
-          ? metaSetor.setor.charAt(0).toUpperCase() + metaSetor.setor.slice(1)
+        // Multi-setor: mostra a meta do setor DESTA conversa (ex.: atendendo consulta → meta consultas)
+        const m = (metaSetor.porSetor || []).find(p => p.setor === sel?.setor) || metaSetor;
+        const batida = (m.faltaGlobal ?? 0) <= 0;
+        const pct = Math.min(m.pctGlobal ?? 0, 100);
+        const nomeSetor = m.setor && m.setor !== 'geral'
+          ? m.setor.charAt(0).toUpperCase() + m.setor.slice(1)
           : 'Geral';
         const Bloco = ({ rotulo, valor, cor, tam = 12, principal = false }) => (
           <div style={{ display:'flex', flexDirection:'column', lineHeight:1.1 }}>
@@ -2123,9 +2125,9 @@ function FaixaContexto({ sel, leadInfo, setLeadInfo, api, scoreChip, setScoreChi
               <span style={{ fontSize:19, filter:'drop-shadow(0 1px 2px rgba(0,0,0,.4))' }}>{batida ? '🏆' : '🎯'}</span>
               <span style={{ fontSize:9, fontWeight:900, color:'#e9d8a6', textTransform:'uppercase', letterSpacing:.8 }}>Meta<br/>{nomeSetor}</span>
             </div>
-            <Bloco rotulo="Meta" valor={fmt.brl(metaSetor.metaGlobal)} cor="#fde68a" tam={17} principal />
-            <Bloco rotulo="Alcançado" valor={`${fmt.brl(metaSetor.confirmado || 0)}`} cor="rgba(126,231,199,.9)" tam={11.5} />
-            <Bloco rotulo={batida ? 'Status' : 'Falta'} valor={batida ? '✅ Batida' : fmt.brl(metaSetor.faltaGlobal)} cor={batida ? 'rgba(126,231,199,.9)' : 'rgba(252,165,165,.9)'} tam={11.5} />
+            <Bloco rotulo="Meta" valor={fmt.brl(m.metaGlobal)} cor="#fde68a" tam={17} principal />
+            <Bloco rotulo="Alcançado" valor={`${fmt.brl(m.confirmado || 0)}`} cor="rgba(126,231,199,.9)" tam={11.5} />
+            <Bloco rotulo={batida ? 'Status' : 'Falta'} valor={batida ? '✅ Batida' : fmt.brl(m.faltaGlobal)} cor={batida ? 'rgba(126,231,199,.9)' : 'rgba(252,165,165,.9)'} tam={11.5} />
             <div style={{ position:'relative', minWidth:120 }}>
               <div style={{ display:'flex', justifyContent:'space-between', marginBottom:3 }}>
                 <span style={{ fontSize:10, fontWeight:900, color:'#fbbf24' }}>{pct}%</span>

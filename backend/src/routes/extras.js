@@ -245,18 +245,30 @@ r.get('/meta-setor', async (req, res) => {
     const mesCol = "to_char(data_venda,'YYYY-MM') = to_char(NOW(),'YYYY-MM')";
     const METfilter = "status_pagamento IN ('pago','cortesia')";
     const META_GLOBAL = 500000; // meta global do setor (bônus) — mostrada no atendimento
-    const setor = ['vacinas', 'consultas', 'terapias'].includes(req.user.setor) ? req.user.setor : null;
-    if (setor) {
-      const { rows: [r2] } = await query(`SELECT COALESCE(SUM(valor) FILTER (WHERE ${METfilter}),0)::float conf FROM vendas WHERE COALESCE(setor,'vacinas') = $1 AND ${mesCol}`, [setor]);
-      const meta = parseFloat(metaV[setor]) || 0, conf = r2?.conf || 0;
-      return res.json({ setor, confirmado: conf, meta, pct: meta ? +((conf / meta) * 100).toFixed(1) : 0, falta: Math.max(meta - conf, 0),
-        metaGlobal: META_GLOBAL, pctGlobal: +((conf / META_GLOBAL) * 100).toFixed(1), faltaGlobal: Math.max(META_GLOBAL - conf, 0) });
+    // Setores do usuário (autoridade: banco — evita token velho). Multi-setor separa.
+    const { rows: [u] } = await query('SELECT setor, setores FROM usuarios WHERE id = $1', [req.user.id]);
+    let setores = [];
+    if (u && Array.isArray(u.setores) && u.setores.length) setores = u.setores.filter(s => ['vacinas', 'consultas', 'terapias'].includes(s));
+    else if (u && ['vacinas', 'consultas', 'terapias'].includes(u.setor)) setores = [u.setor];
+    const confDe = async (s) => {
+      const { rows: [r2] } = await query(`SELECT COALESCE(SUM(valor) FILTER (WHERE ${METfilter}),0)::float conf FROM vendas WHERE COALESCE(setor,'vacinas') = $1 AND ${mesCol}`, [s]);
+      const meta = parseFloat(metaV[s]) || 0, conf = r2?.conf || 0;
+      return { setor: s, confirmado: conf, meta, pct: meta ? +((conf / meta) * 100).toFixed(1) : 0, falta: Math.max(meta - conf, 0),
+        metaGlobal: META_GLOBAL, pctGlobal: +((conf / META_GLOBAL) * 100).toFixed(1), faltaGlobal: Math.max(META_GLOBAL - conf, 0) };
+    };
+    if (setores.length) {
+      const porSetor = [];
+      for (const s of setores) porSetor.push(await confDe(s));
+      // Topo = primeiro setor (compat com quem lê os campos direto); porSetor separa cada um.
+      return res.json({ ...porSetor[0], porSetor, multi: porSetor.length > 1 });
     }
+    // Master / sem setor → geral (soma de todos)
     const { rows: [r3] } = await query(`SELECT COALESCE(SUM(valor) FILTER (WHERE ${METfilter}),0)::float conf FROM vendas WHERE ${mesCol}`);
     const metaTot = ['vacinas', 'consultas', 'terapias'].reduce((s, k) => s + (parseFloat(metaV[k]) || 0), 0);
     const conf = r3?.conf || 0;
-    res.json({ setor: 'geral', confirmado: conf, meta: metaTot, pct: metaTot ? +((conf / metaTot) * 100).toFixed(1) : 0, falta: Math.max(metaTot - conf, 0),
-      metaGlobal: META_GLOBAL, pctGlobal: +((conf / META_GLOBAL) * 100).toFixed(1), faltaGlobal: Math.max(META_GLOBAL - conf, 0) });
+    const geral = { setor: 'geral', confirmado: conf, meta: metaTot, pct: metaTot ? +((conf / metaTot) * 100).toFixed(1) : 0, falta: Math.max(metaTot - conf, 0),
+      metaGlobal: META_GLOBAL, pctGlobal: +((conf / META_GLOBAL) * 100).toFixed(1), faltaGlobal: Math.max(META_GLOBAL - conf, 0) };
+    res.json({ ...geral, porSetor: [geral], multi: false });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

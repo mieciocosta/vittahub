@@ -57,18 +57,27 @@ export default function PlacarVendas() {
 
       <div style={{ width: 1, height: 26, background: 'rgba(255,255,255,.25)' }} />
 
-      {/* Progresso da meta do mês */}
-      <div style={{ flex: 1, minWidth: 200, display: 'flex', alignItems: 'center', gap: 10 }}>
-        <span style={{ fontSize: 18 }}>{batida ? '🏆' : '🎯'}</span>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 11, marginBottom: 3 }}>
-            <span style={{ fontWeight: 800 }}>Meta {nomeSetor}: <b style={{ color: '#fde68a' }}>{fmt.brl(meta.confirmado || 0)}</b> de {fmt.brl(meta.metaGlobal)}</span>
-            <span style={{ fontWeight: 900, color: '#fde68a' }}>{pct}%</span>
-          </div>
-          <div style={{ height: 6, borderRadius: 5, background: 'rgba(255,255,255,.2)', overflow: 'hidden' }}>
-            <div style={{ width: `${pct}%`, height: '100%', borderRadius: 5, background: batida ? '#fff' : 'linear-gradient(90deg,#f59e0b,#fbbf24,#fde68a)', boxShadow: '0 0 8px rgba(251,191,36,.6)', transition: 'width .5s' }} />
-          </div>
-        </div>
+      {/* Progresso da meta do mês — separado por setor (multi-setor mostra cada um) */}
+      <div style={{ flex: 1, minWidth: 200, display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+        {(meta.porSetor && meta.porSetor.length ? meta.porSetor : [meta]).map((s) => {
+          const p = Math.min(s.pctGlobal ?? 0, 100);
+          const ok = (s.faltaGlobal ?? 0) <= 0;
+          const nome = s.setor && s.setor !== 'geral' ? s.setor[0].toUpperCase() + s.setor.slice(1) : 'Geral';
+          return (
+            <div key={s.setor} style={{ flex: 1, minWidth: 170, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 16 }}>{ok ? '🏆' : '🎯'}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 10.5, marginBottom: 3 }}>
+                  <span style={{ fontWeight: 800 }}>Meta {nome}: <b style={{ color: '#fde68a' }}>{fmt.brl(s.confirmado || 0)}</b> de {fmt.brl(s.metaGlobal)}</span>
+                  <span style={{ fontWeight: 900, color: '#fde68a' }}>{p}%</span>
+                </div>
+                <div style={{ height: 6, borderRadius: 5, background: 'rgba(255,255,255,.2)', overflow: 'hidden' }}>
+                  <div style={{ width: `${p}%`, height: '100%', borderRadius: 5, background: ok ? '#fff' : 'linear-gradient(90deg,#f59e0b,#fbbf24,#fde68a)', boxShadow: '0 0 8px rgba(251,191,36,.6)', transition: 'width .5s' }} />
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       {/* Grito de guerra */}
