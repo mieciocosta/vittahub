@@ -213,6 +213,19 @@ r.post('/vendas', async (req, res) => {
   } catch (err) { console.error('VENDA ERRO:', err.message); res.status(500).json({ error: err.message }); }
 });
 
+// Placar do dia (motivacional): quantas vendas a equipe fechou HOJE. O VALOR em
+// R$ só vai para a gestão (regra do painel comercial); a contagem é pra todos.
+r.get('/vendas/hoje', async (req, res) => {
+  try {
+    const podeValor = gestao(req);
+    const { rows: [r2] } = await query(
+      `SELECT COUNT(*)::int n,
+              COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float total
+       FROM vendas WHERE data_venda = CURRENT_DATE`);
+    res.json({ n: r2?.n || 0, total: podeValor ? (r2?.total || 0) : null });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Lista de vendas (gestão vê tudo; atendente vê as suas). Filtros: setor, mes (YYYY-MM)
 r.get('/vendas', async (req, res) => {
   try {

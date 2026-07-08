@@ -45,6 +45,7 @@ export default function Classificar() {
   const [feitas, setFeitas] = useState(0);
   const [busy, setBusy] = useState(null);
   const [flash, setFlash] = useState('');       // micro-elogio ao classificar
+  const [placar, setPlacar] = useState(null);   // vendas de hoje (equipe)
   const hoje = Math.floor(Date.now() / 864e5);
   const frase = FRASES[hoje % FRASES.length];
 
@@ -56,6 +57,12 @@ export default function Classificar() {
       .finally(() => setCarregando(false));
   }, []); // eslint-disable-line
   useEffect(load, [load]);
+
+  // Placar de vendas do dia — reforça o clima de meta (atualiza a cada 30s)
+  useEffect(() => {
+    const p = () => api.get('/extras/vendas/hoje').then(setPlacar).catch(() => {});
+    p(); const t = setInterval(p, 30000); return () => clearInterval(t);
+  }, []); // eslint-disable-line
 
   const classificar = async (c, dest) => {
     if (busy) return;
@@ -92,9 +99,20 @@ export default function Classificar() {
             </div>
             <div style={{ fontSize: 13.5, opacity: .95, marginTop: 5, maxWidth: 520, lineHeight: 1.5 }}>{frase}</div>
           </div>
-          <button onClick={load} className="btn" style={{ gap: 7, background: 'rgba(255,255,255,.9)', color: 'var(--tq2)', border: 'none', fontWeight: 800 }}>
-            <RefreshCw size={14} /> Atualizar
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            {placar && (placar.n > 0 || placar.total > 0) && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(255,255,255,.16)', border: '1px solid rgba(255,255,255,.3)', borderRadius: 12, padding: '8px 14px' }}>
+                <span style={{ fontSize: 20 }}>💰</span>
+                <div style={{ lineHeight: 1.15 }}>
+                  <div style={{ fontSize: 17, fontWeight: 800 }}>{placar.total != null ? fmt.brl(placar.total) : `${placar.n} venda${placar.n === 1 ? '' : 's'}`}</div>
+                  <div style={{ fontSize: 10.5, fontWeight: 700, opacity: .9 }}>{placar.total != null ? `${placar.n} venda${placar.n === 1 ? '' : 's'} · fechadas hoje` : 'fechadas hoje pela equipe'}</div>
+                </div>
+              </div>
+            )}
+            <button onClick={load} className="btn" style={{ gap: 7, background: 'rgba(255,255,255,.9)', color: 'var(--tq2)', border: 'none', fontWeight: 800 }}>
+              <RefreshCw size={14} /> Atualizar
+            </button>
+          </div>
         </div>
         {/* barra de progresso */}
         <div style={{ marginTop: 16 }}>
