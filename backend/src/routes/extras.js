@@ -236,6 +236,30 @@ r.get('/vendas/hoje', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Meta GLOBAL do setor do mês — visível pra TODA a equipe (clima de time). Cada
+// um vê a meta do seu setor; master/sem setor vê a geral (todos os setores).
+r.get('/meta-setor', async (req, res) => {
+  try {
+    const { rows: cfg } = await query("SELECT valor FROM configuracoes WHERE chave = 'metas'");
+    const metaV = cfg[0]?.valor?.vendas || {};
+    const mesCol = "to_char(data_venda,'YYYY-MM') = to_char(NOW(),'YYYY-MM')";
+    const METfilter = "status_pagamento IN ('pago','cortesia')";
+    const META_GLOBAL = 500000; // meta global do setor (bônus) — mostrada no atendimento
+    const setor = ['vacinas', 'consultas', 'terapias'].includes(req.user.setor) ? req.user.setor : null;
+    if (setor) {
+      const { rows: [r2] } = await query(`SELECT COALESCE(SUM(valor) FILTER (WHERE ${METfilter}),0)::float conf FROM vendas WHERE COALESCE(setor,'vacinas') = $1 AND ${mesCol}`, [setor]);
+      const meta = parseFloat(metaV[setor]) || 0, conf = r2?.conf || 0;
+      return res.json({ setor, confirmado: conf, meta, pct: meta ? +((conf / meta) * 100).toFixed(1) : 0, falta: Math.max(meta - conf, 0),
+        metaGlobal: META_GLOBAL, pctGlobal: +((conf / META_GLOBAL) * 100).toFixed(1), faltaGlobal: Math.max(META_GLOBAL - conf, 0) });
+    }
+    const { rows: [r3] } = await query(`SELECT COALESCE(SUM(valor) FILTER (WHERE ${METfilter}),0)::float conf FROM vendas WHERE ${mesCol}`);
+    const metaTot = ['vacinas', 'consultas', 'terapias'].reduce((s, k) => s + (parseFloat(metaV[k]) || 0), 0);
+    const conf = r3?.conf || 0;
+    res.json({ setor: 'geral', confirmado: conf, meta: metaTot, pct: metaTot ? +((conf / metaTot) * 100).toFixed(1) : 0, falta: Math.max(metaTot - conf, 0),
+      metaGlobal: META_GLOBAL, pctGlobal: +((conf / META_GLOBAL) * 100).toFixed(1), faltaGlobal: Math.max(META_GLOBAL - conf, 0) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Planejamento (líder/gestão): progresso do setor rumo à meta de bônus (R$ 500k).
 r.get('/planejamento', async (req, res) => {
   try {

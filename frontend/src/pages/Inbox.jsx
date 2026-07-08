@@ -457,6 +457,7 @@ export default function Inbox({ onUnreadChange }) {
   const [showAI, setShowAI]     = useState(() => localStorage.getItem('vh_ia_aberta') !== 'off');
   const [agendarOpen, setAgendarOpen] = useState(false); // modal de agendamento
   const [iaAgendaBusy, setIaAgendaBusy] = useState(false); // IA sugerindo agendamento
+  const [metaSetor, setMetaSetor] = useState(null);       // meta global do setor (banner no atendimento)
   const [agSaving, setAgSaving] = useState(false);
   const [transfOpen, setTransfOpen] = useState(false);   // modal de transferência
   const [atendentes, setAtendentes] = useState([]);
@@ -508,6 +509,11 @@ export default function Inbox({ onUnreadChange }) {
   const [users, setUsers] = useState([]);
   const usersById = useMemo(() => Object.fromEntries(users.map(u => [u.id, u])), [users]);
   useEffect(() => { api.get('/leads/meta').then(m => setUsers(m.users || [])).catch(() => {}); }, []);
+  // Meta global do setor — banner motivacional dentro do atendimento (atualiza 60s)
+  useEffect(() => {
+    const f = () => api.get('/extras/meta-setor').then(setMetaSetor).catch(() => {});
+    f(); const t = setInterval(f, 60000); return () => clearInterval(t);
+  }, []); // eslint-disable-line
   const [listH, setListH]       = useState(500);
 
   const endRef           = useRef(null);
@@ -624,6 +630,10 @@ export default function Inbox({ onUnreadChange }) {
       socket.on('bots_global', ({ ativo }) => {
         setConvos(prev => prev.map(c => ({ ...c, bot_ativo: !!ativo })));
         setSel(prev => prev ? { ...prev, bot_ativo: !!ativo } : prev);
+      });
+      // Cada venda registrada atualiza a meta do setor na hora (o "falta" desce)
+      socket.on('venda_registrada', () => {
+        api.get('/extras/meta-setor').then(setMetaSetor).catch(() => {});
       });
       socket.on('conv_transferida', ({ convId, para_id, para_nome }) => {
         const me = userRef.current?.id;
@@ -1208,6 +1218,7 @@ export default function Inbox({ onUnreadChange }) {
       ]);
       window.__auditLog?.('registrar_venda', 'venda', sel.id, { categoria: vendaForm.categoria, valor: valFinal, desconto: desc, status: vendaForm.status_pagamento, cliente: sel.contact_name });
       Toast.show('Venda registrada! 💰 Entrou na meta do mês 🎯', 'success');
+      api.get('/extras/meta-setor').then(setMetaSetor).catch(() => {});
       setVendaOpen(false);
     } catch (e) { setVendaErro('Erro: ' + (e.message || 'não foi possível registrar')); }
     finally { setVendaSaving(false); }
@@ -1468,6 +1479,25 @@ export default function Inbox({ onUnreadChange }) {
           {/* Faixa de contexto (mock): Interesse · Responsável · Etapa · Score */}
           <FaixaContexto sel={sel} leadInfo={leadInfo} setLeadInfo={setLeadInfo} api={api}
             scoreChip={scoreChip} setScoreChip={setScoreChip} usersById={usersById} />
+
+          {/* Meta global do setor — lembrete no atendimento (atualiza a cada venda) */}
+          {metaSetor && metaSetor.metaGlobal > 0 && (() => {
+            const pg = Math.min(metaSetor.pctGlobal || 0, 100);
+            const batida = (metaSetor.faltaGlobal || 0) <= 0;
+            return (
+              <div style={{ flexShrink:0, padding:'7px 14px', display:'flex', alignItems:'center', gap:10, flexWrap:'wrap',
+                background:'linear-gradient(90deg, rgba(196,151,59,.14), rgba(0,184,192,.12))', borderBottom:'1px solid var(--border)' }}>
+                <span style={{ fontSize:12, fontWeight:800, color:'var(--txt2)', whiteSpace:'nowrap' }}>🎯 Meta {metaSetor.setor==='geral'?'geral':metaSetor.setor}: <b style={{ color:'#b45309' }}>{fmt.brl(metaSetor.metaGlobal)}</b></span>
+                <div style={{ flex:'1 1 120px', minWidth:100, height:8, borderRadius:6, background:'var(--bg2)', overflow:'hidden' }}>
+                  <div style={{ width:`${pg}%`, height:'100%', borderRadius:6, background:'linear-gradient(90deg,#C4973B,#16a34a)', transition:'width .5s' }} />
+                </div>
+                <span style={{ fontSize:12, fontWeight:800, color:'var(--ok,#16a34a)', whiteSpace:'nowrap' }}>Alcançado {fmt.brl(metaSetor.confirmado)} ({Math.round(metaSetor.pctGlobal||0)}%)</span>
+                <span style={{ fontSize:12, fontWeight:800, color: batida ? 'var(--ok,#16a34a)' : 'var(--tq2)', whiteSpace:'nowrap' }}>
+                  {batida ? '🏆 Meta batida! Bora manter!' : `Faltam ${fmt.brl(metaSetor.faltaGlobal)} · Vamos fechar essa venda! 🔥`}
+                </span>
+              </div>
+            );
+          })()}
 
           {/* Área de mensagens + info panel */}
           <div style={{ flex:1, display:'flex', minHeight:0, overflow:'hidden' }}>

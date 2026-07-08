@@ -147,7 +147,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
   };
   const [metaMini, setMetaMini] = useState(null);
   useEffect(() => {
-    api.get('/reports/dashboard').then(d => d?.metas && setMetaMini(d.metas.vacinas)).catch(() => {});
+    api.get('/extras/meta-setor').then(setMetaMini).catch(() => {});
   }, []); // eslint-disable-line
 
   const VERS_DIA = (() => {
@@ -427,17 +427,17 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
           </div>
         )}
       </div>
-      {!collapsed && metaMini && (
+      {!collapsed && metaMini && metaMini.metaGlobal > 0 && (
         <div style={{ margin:'0 12px 8px', padding:'10px 13px', borderRadius:13, background:'rgba(255,255,255,.14)', border:'1px solid rgba(255,255,255,.22)' }}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:5 }}>
-            <span style={{ fontSize:10.5, fontWeight:800, color:'#fff' }}>Meta do mês — Vacinas</span>
-            <span style={{ fontSize:13, fontWeight:800, color:'#fff' }}>{Math.round(metaMini.pct)}%</span>
+            <span style={{ fontSize:10.5, fontWeight:800, color:'#fff' }}>🎯 Meta {metaMini.setor==='geral'?'geral':metaMini.setor[0].toUpperCase()+metaMini.setor.slice(1)}</span>
+            <span style={{ fontSize:13, fontWeight:800, color:'#fff' }}>{Math.round(metaMini.pctGlobal||0)}%</span>
           </div>
           <div style={{ height:7, borderRadius:6, background:'rgba(255,255,255,.25)', overflow:'hidden' }}>
-            <div style={{ width:`${Math.min(metaMini.pct,100)}%`, height:'100%', background:'#fff', borderRadius:6 }} />
+            <div style={{ width:`${Math.min(metaMini.pctGlobal||0,100)}%`, height:'100%', background:'#fff', borderRadius:6 }} />
           </div>
-          <div style={{ fontSize:9.5, color:'rgba(255,255,255,.75)', marginTop:4 }}>
-            {Number(metaMini.vendido).toLocaleString('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:0})} / {Number(metaMini.meta).toLocaleString('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:0})}
+          <div style={{ fontSize:9.5, color:'rgba(255,255,255,.78)', marginTop:4 }}>
+            {Number(metaMini.confirmado).toLocaleString('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:0})} / {Number(metaMini.metaGlobal).toLocaleString('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:0})}
           </div>
         </div>
       )}
