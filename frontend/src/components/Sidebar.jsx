@@ -23,6 +23,7 @@ const SETORES_MENU = [
 
 const NAV = [
   { to:'/',           icon:LayoutDashboard, label:'Resumo' },
+  { to:'/cases-sucesso', icon:Trophy,       label:'Cases de Sucesso' },
   { to:'/planejamento', icon:Rocket,        label:'Planejamento', lider:true },
   { to:'/inbox',      icon:MessageSquare,   label:'Chat',     unread:true },
   { to:'/equipe',     icon:Users,           label:'Chat da Equipe', equipe:true },
@@ -35,7 +36,6 @@ const NAV = [
   { to:'/caixa',      icon:Wallet,          label:'Caixa' },
   { to:'/profissionais', icon:Stethoscope,  label:'Profissionais', consultas:true },
   { to:'/relatorios', icon:BarChart2,       label:'Relatórios' },
-  { to:'/cases-sucesso', icon:Trophy,       label:'Cases de Sucesso' },
   { to:'/cursos',     icon:GraduationCap,   label:'Cursos' },
   { to:'/indicacoes', icon:Gift,            label:'Indicações' },
   { to:'/ia',         icon:Bot,             label:'IA Assistente' },
