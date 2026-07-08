@@ -324,6 +324,20 @@ export default async function runMigrate() {
       await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_master_ana_cpf_v1', '{"ok":true}') ON CONFLICT DO NOTHING`);
     }
 
+    // Metas de vendas do mês por setor (pedido do master). Uma vez — depois o
+    // master ajusta pela tela de Metas quando quiser.
+    const { rows: [flagMetas] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_metas_vendas_v1'");
+    if (!flagMetas) {
+      await query(`INSERT INTO configuracoes (chave, valor)
+        VALUES ('metas', jsonb_build_object('vendas', jsonb_build_object('vacinas', 250000, 'consultas', 259000, 'terapias', 250000)))
+        ON CONFLICT (chave) DO UPDATE SET
+          valor = jsonb_set(COALESCE(configuracoes.valor,'{}'::jsonb), '{vendas}',
+                            jsonb_build_object('vacinas',250000,'consultas',259000,'terapias',250000), true),
+          updated_at = NOW()`).catch((e) => console.error('seed metas:', e.message));
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_metas_vendas_v1', '{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🎯 Metas de vendas: vacinas 250k, consultas 259k, terapias 250k');
+    }
+
     // Danielle: acesso a vacinas E consultas (só ela). Deixa a conta redonda.
     const { rows: [flagDani] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_danielle_multisetor_v2'");
     if (!flagDani) {
