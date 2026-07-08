@@ -31,6 +31,7 @@ export default function Caixa() {
   const [setor, setSetor] = useState('');
   const [status, setStatus] = useState('');
   const [busca, setBusca] = useState('');
+  const [filtroRapido, setFiltroRapido] = useState(''); // '' | 'areceber' | 'sem_comprovante' | 'nao_conferidas'
   const [preview, setPreview] = useState(null); // { url, nome, tipo }
   const [erro, setErro] = useState('');
   const fileRef = useRef(null);
@@ -151,6 +152,14 @@ export default function Caixa() {
   const nAReceber = filtrada.filter(v => ARECEBER_ST.includes(v.status_pagamento)).length;
   const ticket = filtrada.length ? total / filtrada.length : 0;
 
+  // Filtro rápido afeta só a LISTA exibida — os totais do fechamento continuam do mês inteiro
+  const listaExibida = filtrada.filter(v => {
+    if (filtroRapido === 'areceber') return ARECEBER_ST.includes(v.status_pagamento);
+    if (filtroRapido === 'sem_comprovante') return !v.tem_comprovante;
+    if (filtroRapido === 'nao_conferidas') return !v.conferido;
+    return true;
+  });
+
   const podeAnexar = (v) => gestao || v.atendente_id === user?.id;
 
   const exportarCSV = () => {
@@ -249,17 +258,24 @@ export default function Caixa() {
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
           {[
             { rot: 'Recebido', val: fmt.brl(recebido), cor: '#16a34a', sub: 'pago / cortesia' },
-            { rot: 'A receber', val: fmt.brl(aReceber), cor: '#d97706', sub: `${nAReceber} pendente(s)` },
+            { rot: 'A receber', val: fmt.brl(aReceber), cor: '#d97706', sub: `${nAReceber} pendente(s)`, click: 'areceber', destaque: aReceber > 0 },
             { rot: 'Ticket médio', val: fmt.brl(ticket), cor: 'var(--tq2)', sub: `${filtrada.length} venda(s)` },
             ...(gestao ? [{ rot: 'Repasse', val: fmt.brl(totalRepasse), cor: '#b45309', sub: 'saídas' }] : []),
             ...(gestao ? [{ rot: 'Líquido', val: fmt.brl(liquido), cor: '#0891b2', sub: 'vendido − repasse' }] : []),
-          ].map(t => (
-            <div key={t.rot} style={{ flex: '1 1 130px', minWidth: 120, textAlign: 'center', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 11, padding: '9px 10px' }}>
-              <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .4 }}>{t.rot}</div>
-              <div style={{ fontSize: 16.5, fontWeight: 900, color: t.cor, marginTop: 2 }}>{t.val}</div>
-              <div style={{ fontSize: 10, color: 'var(--light)' }}>{t.sub}</div>
-            </div>
-          ))}
+          ].map(t => {
+            const ativo = t.click && filtroRapido === t.click;
+            return (
+              <div key={t.rot} onClick={t.click ? () => setFiltroRapido(f => f === t.click ? '' : t.click) : undefined}
+                title={t.click ? 'Clique para ver quem está a receber' : undefined}
+                style={{ flex: '1 1 130px', minWidth: 120, textAlign: 'center', borderRadius: 11, padding: '9px 10px', cursor: t.click ? 'pointer' : 'default',
+                  background: ativo ? t.cor + '18' : (t.destaque ? '#fdf3e5' : 'var(--card)'),
+                  border: `1.5px solid ${ativo ? t.cor : (t.destaque ? '#f5d9ad' : 'var(--border)')}`, transition: 'all .15s' }}>
+                <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .4 }}>{t.rot}{t.click ? (ativo ? ' ▾' : ' →') : ''}</div>
+                <div style={{ fontSize: 16.5, fontWeight: 900, color: t.cor, marginTop: 2 }}>{t.val}</div>
+                <div style={{ fontSize: 10, color: 'var(--light)' }}>{t.sub}</div>
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -282,19 +298,39 @@ export default function Caixa() {
         </div>
       </div>
 
+      {/* Filtros rápidos (chips) */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14, alignItems: 'center' }}>
+        {[
+          { k: '', rot: 'Todas' },
+          { k: 'areceber', rot: `💰 A receber${nAReceber ? ` (${nAReceber})` : ''}`, cor: '#d97706' },
+          { k: 'sem_comprovante', rot: 'Sem comprovante', cor: '#7c3aed' },
+          ...(gestao ? [{ k: 'nao_conferidas', rot: 'Não conferidas', cor: '#0891b2' }] : []),
+        ].map(c => {
+          const ativo = filtroRapido === c.k;
+          return (
+            <button key={c.k} onClick={() => setFiltroRapido(c.k)} style={{ padding: '5px 12px', borderRadius: 20, cursor: 'pointer', fontSize: 12, fontWeight: 700,
+              border: `1.5px solid ${ativo ? (c.cor || 'var(--tq)') : 'var(--border)'}`,
+              background: ativo ? (c.cor || 'var(--tq)') : 'var(--card)', color: ativo ? '#fff' : 'var(--txt2)' }}>{c.rot}</button>
+          );
+        })}
+        <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, marginLeft: 'auto' }}>
+          {listaExibida.length} de {filtrada.length}{filtroRapido === 'areceber' && aReceber > 0 ? ` · ${fmt.brl(aReceber)} a receber` : ''}
+        </div>
+      </div>
+
       {erro && <div style={{ fontSize: 13, color: 'var(--err)', fontWeight: 600, marginBottom: 10 }}>{erro}</div>}
 
       {carregando ? (
         <div style={{ color: 'var(--muted)', padding: 30 }}>Carregando…</div>
-      ) : filtrada.length === 0 ? (
+      ) : listaExibida.length === 0 ? (
         <div className="card" style={{ padding: 44, textAlign: 'center', color: 'var(--muted)' }}>
           <Wallet size={34} color="var(--border)" style={{ marginBottom: 10 }} />
-          <div style={{ fontWeight: 700 }}>Nenhuma venda neste filtro.</div>
-          <div style={{ fontSize: 12.5, marginTop: 4 }}>As vendas registradas nos atendimentos aparecem aqui automaticamente.</div>
+          <div style={{ fontWeight: 700 }}>{filtroRapido ? 'Nada neste filtro rápido.' : 'Nenhuma venda neste filtro.'}</div>
+          <div style={{ fontSize: 12.5, marginTop: 4 }}>{filtroRapido === 'areceber' ? 'Tudo recebido por aqui! 🎉' : 'As vendas registradas nos atendimentos aparecem aqui automaticamente.'}</div>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-          {filtrada.map(v => {
+          {listaExibida.map(v => {
             const st = STATUS_INFO[v.status_pagamento] || { label: v.status_pagamento || '—', cor: 'var(--muted)', bg: 'var(--bg2)' };
             const cor = SETOR_COR[v.setor] || '#0E8C96';
             return (
