@@ -37,8 +37,6 @@ export default function Caixa() {
   const [preview, setPreview] = useState(null); // { url, nome, tipo }
   const [erro, setErro] = useState('');
   const fileRef = useRef(null);
-  const [alvoAnexo, setAlvoAnexo] = useState(null); // venda id sendo anexada
-  const [anexando, setAnexando] = useState(null);
 
   const load = () => {
     setCarregando(true);
@@ -64,34 +62,51 @@ export default function Caixa() {
     return () => { try { sock?.disconnect(); } catch {} };
   }, []); // eslint-disable-line
 
-  const escolherArquivo = (id) => { setAlvoAnexo(id); setErro(''); fileRef.current?.click(); };
+  // ── Comprovantes (múltiplos por venda) via modal ──
+  const [compModal, setCompModal] = useState(null); // venda selecionada
+  const [comps, setComps] = useState([]);
+  const [compLoad, setCompLoad] = useState(false);
+  const [anexando, setAnexandoComp] = useState(false);
+  const [analisandoComp, setAnalisandoComp] = useState(null);
 
-  const anexar = async (e) => {
+  const abrirComprovantes = (v) => { setCompModal(v); setErro(''); carregarComps(v.id); };
+  const carregarComps = (vid) => {
+    setCompLoad(true);
+    api.get(`/extras/vendas/${vid}/comprovantes`).then(d => setComps(Array.isArray(d) ? d : [])).catch(() => setComps([])).finally(() => setCompLoad(false));
+  };
+  const setN = (vid, delta) => setLista(p => p.map(v => v.id === vid ? { ...v, n_comprovantes: Math.max(0, (v.n_comprovantes || 0) + delta) } : v));
+
+  const anexarComp = async (e) => {
     const f = e.target.files?.[0]; e.target.value = '';
-    if (!f || !alvoAnexo) return;
+    if (!f || !compModal) return;
     const url = await fileToDataUrl(f);
     if (url.length > 15_500_000) { setErro('Comprovante muito grande (máx. ~12MB).'); return; }
-    setAnexando(alvoAnexo); setErro('');
+    setAnexandoComp(true); setErro('');
     try {
-      const r = await api.patch(`/extras/vendas/${alvoAnexo}/comprovante`, { comprovante: url, filename: f.name, mimetype: f.type });
-      setLista(p => p.map(v => v.id === alvoAnexo ? { ...v, tem_comprovante: true, comprovante_nome: r.comprovante_nome || f.name, comprovante_tipo: r.comprovante_tipo || f.type } : v));
+      const c = await api.post(`/extras/vendas/${compModal.id}/comprovantes`, { comprovante: url, filename: f.name, mimetype: f.type });
+      setComps(p => [...p, c]); setN(compModal.id, 1);
     } catch (err) { setErro(err.message || 'Falha ao anexar.'); }
-    setAnexando(null); setAlvoAnexo(null);
+    setAnexandoComp(false);
   };
 
-  const verComprovante = async (v) => {
+  const verComp = async (c) => {
     try {
-      const d = await api.get(`/extras/vendas/${v.id}/comprovante`);
+      const d = await api.get(`/extras/vendas/${compModal.id}/comprovantes/${c.id}`);
       setPreview({ url: d.comprovante, nome: d.comprovante_nome || 'comprovante', tipo: d.comprovante_tipo || '' });
-    } catch (err) { setErro(err.message || 'Não foi possível abrir o comprovante.'); }
+    } catch (err) { setErro(err.message || 'Não foi possível abrir.'); }
   };
-
-  const removerComprovante = async (v) => {
-    if (!window.confirm('Remover o comprovante desta venda?')) return;
+  const removerComp = async (c) => {
+    if (!window.confirm('Remover este comprovante?')) return;
+    setComps(p => p.filter(x => x.id !== c.id)); setN(compModal.id, -1);
+    try { await api.del(`/extras/vendas/${compModal.id}/comprovantes/${c.id}`); } catch { carregarComps(compModal.id); }
+  };
+  const analisarComp = async (c) => {
+    setAnalisandoComp(c.id); setErro('');
     try {
-      await api.patch(`/extras/vendas/${v.id}/comprovante`, { comprovante: null });
-      setLista(p => p.map(x => x.id === v.id ? { ...x, tem_comprovante: false, comprovante_nome: null } : x));
-    } catch (err) { setErro(err.message || 'Falha ao remover.'); }
+      const a = await api.post(`/extras/vendas/${compModal.id}/comprovantes/${c.id}/analisar`, {});
+      setComps(p => p.map(x => x.id === c.id ? { ...x, analise: a } : x));
+    } catch (err) { setErro(err.message || 'Falha na análise da IA.'); }
+    setAnalisandoComp(null);
   };
 
   const toggleConferido = async (v) => {
@@ -109,16 +124,6 @@ export default function Caixa() {
     const id = editRepasse.id; setEditRepasse(null);
     try { await api.patch(`/extras/vendas/${id}/repasse`, { repasse: val }); }
     catch (err) { setErro(err.message || 'Falha ao salvar repasse.'); load(); }
-  };
-
-  const [analisando, setAnalisando] = useState(null);
-  const analisarComprovante = async (v) => {
-    setAnalisando(v.id); setErro('');
-    try {
-      const a = await api.post(`/extras/vendas/${v.id}/analisar-comprovante`, {});
-      setLista(p => p.map(x => x.id === v.id ? { ...x, comprovante_analise: a } : x));
-    } catch (err) { setErro(err.message || 'Falha na análise da IA.'); }
-    setAnalisando(null);
   };
 
   // Baixa de pendência: marca a venda como recebida (1 clique)
@@ -169,7 +174,7 @@ export default function Caixa() {
   const totalDesc = filtrada.reduce((s, v) => s + (parseFloat(v.desconto) || 0), 0);
   const totalRepasse = filtrada.reduce((s, v) => s + (parseFloat(v.repasse) || 0), 0);
   const liquido = total - totalRepasse;
-  const comComp = filtrada.filter(v => v.tem_comprovante).length;
+  const comComp = filtrada.filter(v => (v.n_comprovantes || 0) > 0).length;
   const conferidas = filtrada.filter(v => v.conferido).length;
 
   // Fechamento por forma de pagamento — as 3 principais sempre visíveis + Outros
@@ -198,7 +203,7 @@ export default function Caixa() {
   // Filtro rápido afeta só a LISTA exibida — os totais do fechamento continuam do mês inteiro
   const listaExibida = filtrada.filter(v => {
     if (filtroRapido === 'areceber') return ARECEBER_ST.includes(v.status_pagamento);
-    if (filtroRapido === 'sem_comprovante') return !v.tem_comprovante;
+    if (filtroRapido === 'sem_comprovante') return !(v.n_comprovantes || 0);
     if (filtroRapido === 'nao_conferidas') return !v.conferido;
     return true;
   });
@@ -213,7 +218,7 @@ export default function Caixa() {
       v.forma_pagamento, (STATUS_INFO[v.status_pagamento]?.label || v.status_pagamento),
       (parseFloat(v.valor) || 0).toFixed(2).replace('.', ','), (parseFloat(v.desconto) || 0).toFixed(2).replace('.', ','),
       (parseFloat(v.repasse) || 0).toFixed(2).replace('.', ','),
-      v.atendente_nome, v.conferido ? 'Sim' : 'Nao', v.tem_comprovante ? 'Sim' : 'Nao',
+      v.atendente_nome, v.conferido ? 'Sim' : 'Nao', (v.n_comprovantes || 0) > 0 ? `Sim (${v.n_comprovantes})` : 'Nao',
     ].map(esc).join(';'));
     const csv = '﻿' + [head.map(esc).join(';'), ...linhas].join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -256,7 +261,7 @@ export default function Caixa() {
 
   return (
     <div style={{ padding: 28, maxWidth: 1140, margin: '0 auto' }}>
-      <input ref={fileRef} type="file" accept="application/pdf,image/*" style={{ display: 'none' }} onChange={anexar} />
+      <input ref={fileRef} type="file" accept="application/pdf,image/*" style={{ display: 'none' }} onChange={anexarComp} />
 
       {/* Header premium */}
       <div style={{ borderRadius: 18, padding: '22px 26px', marginBottom: 18, color: '#fff', position: 'relative', overflow: 'hidden',
@@ -465,27 +470,13 @@ export default function Caixa() {
                     </button>
                   )}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    {v.tem_comprovante ? (
-                      <>
-                        <button onClick={() => verComprovante(v)} className="btn btn-s btn-sm" style={{ gap: 5 }} title={v.comprovante_nome || 'Comprovante'}><Eye size={13} /> Comprovante</button>
-                        {(v.comprovante_tipo || '').startsWith('image') && (
-                          v.comprovante_analise ? (
-                            <button onClick={() => setPreview({ analise: v.comprovante_analise, nome: v.comprovante_nome })} title="Ver análise da IA"
-                              style={{ display: 'flex', alignItems: 'center', gap: 4, borderRadius: 8, padding: '5px 9px', cursor: 'pointer', fontWeight: 800, fontSize: 11,
-                                border: 'none', background: v.comprovante_analise.confere ? '#e7f8ef' : '#fdf3e5', color: v.comprovante_analise.confere ? '#16a34a' : '#b45309' }}>
-                              {v.comprovante_analise.confere ? <CheckCircle2 size={13} /> : <AlertTriangle size={13} />} IA {v.comprovante_analise.confere ? 'confere' : 'verificar'}
-                            </button>
-                          ) : (
-                            <button onClick={() => analisarComprovante(v)} disabled={analisando === v.id} className="btn btn-sm" style={{ gap: 5, background: '#f2ecfe', color: '#7c3aed', border: 'none', fontWeight: 700 }} title="IA analisa o comprovante">
-                              <Sparkles size={13} /> {analisando === v.id ? 'Analisando…' : 'Analisar IA'}
-                            </button>
-                          )
-                        )}
-                        {podeAnexar(v) && <button onClick={() => removerComprovante(v)} title="Remover comprovante" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={14} /></button>}
-                      </>
+                    {(v.n_comprovantes || 0) > 0 ? (
+                      <button onClick={() => abrirComprovantes(v)} className="btn btn-s btn-sm" style={{ gap: 5 }}>
+                        <Paperclip size={13} /> {v.n_comprovantes} comprovante{v.n_comprovantes === 1 ? '' : 's'}
+                      </button>
                     ) : podeAnexar(v) ? (
-                      <button onClick={() => escolherArquivo(v.id)} disabled={anexando === v.id} className="btn btn-p btn-sm" style={{ gap: 5 }}>
-                        <Paperclip size={13} /> {anexando === v.id ? 'Enviando…' : 'Anexar comprovante'}
+                      <button onClick={() => abrirComprovantes(v)} className="btn btn-p btn-sm" style={{ gap: 5 }}>
+                        <Paperclip size={13} /> Anexar comprovante
                       </button>
                     ) : (
                       <span style={{ fontSize: 11.5, color: 'var(--light)', fontWeight: 600 }}>sem comprovante</span>
@@ -550,6 +541,47 @@ export default function Caixa() {
                 <iframe src={preview.url} title={preview.nome} style={{ width: '100%', height: '72vh', border: 'none', borderRadius: 10 }} />
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal gerenciar comprovantes (múltiplos) */}
+      {compModal && (
+        <div onClick={() => setCompModal(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
+          <div onClick={e => e.stopPropagation()} className="card" style={{ width: 540, maxWidth: '100%', maxHeight: '88vh', padding: 20, display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <h3 style={{ fontSize: 16, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 8 }}><Paperclip size={17} color="var(--tq2)" /> Comprovantes</h3>
+              <button onClick={() => setCompModal(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={16} /></button>
+            </div>
+            <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12 }}>{compModal.cliente_nome || compModal.paciente_nome || 'Venda'} · {fmt.brl(compModal.valor)}</div>
+            {erro && <div style={{ fontSize: 12.5, color: 'var(--err)', fontWeight: 600, marginBottom: 8 }}>{erro}</div>}
+            <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {compLoad ? <div style={{ color: 'var(--muted)', padding: 16 }}>Carregando…</div>
+              : comps.length === 0 ? <div style={{ color: 'var(--muted)', padding: 16, textAlign: 'center' }}>Nenhum comprovante ainda. Anexe abaixo.</div>
+              : comps.map(c => (
+                <div key={c.id} className="card" style={{ padding: '10px 13px', display: 'flex', alignItems: 'center', gap: 10 }}>
+                  {(c.tipo || '').startsWith('image') ? <ImageIcon size={16} color="var(--tq2)" /> : <FileText size={16} color="var(--tq2)" />}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.nome || 'Comprovante'}</div>
+                    {c.analise && <div style={{ fontSize: 10.5, fontWeight: 700, color: c.analise.confere ? '#16a34a' : '#b45309' }}>{c.analise.confere ? '✓ IA confere' : '⚠ IA: verificar'} · {fmt.brl(c.analise.valor)}</div>}
+                  </div>
+                  <button onClick={() => verComp(c)} className="btn btn-s btn-sm" style={{ gap: 4 }} title="Ver"><Eye size={13} /></button>
+                  {(c.tipo || '').startsWith('image') && (
+                    c.analise ? (
+                      <button onClick={() => setPreview({ analise: c.analise, nome: c.nome })} title="Ver análise" style={{ border: 'none', borderRadius: 8, padding: '5px 8px', cursor: 'pointer', background: c.analise.confere ? '#e7f8ef' : '#fdf3e5', color: c.analise.confere ? '#16a34a' : '#b45309' }}>{c.analise.confere ? <CheckCircle2 size={13} /> : <AlertTriangle size={13} />}</button>
+                    ) : (
+                      <button onClick={() => analisarComp(c)} disabled={analisandoComp === c.id} className="btn btn-sm" style={{ gap: 4, background: '#f2ecfe', color: '#7c3aed', border: 'none', fontWeight: 700 }} title="Analisar com IA"><Sparkles size={13} /> {analisandoComp === c.id ? '…' : 'IA'}</button>
+                    )
+                  )}
+                  {podeAnexar(compModal) && <button onClick={() => removerComp(c)} title="Excluir" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--err)' }}><Trash2 size={14} /></button>}
+                </div>
+              ))}
+            </div>
+            {podeAnexar(compModal) && (
+              <button onClick={() => fileRef.current?.click()} disabled={anexando} className="btn btn-p" style={{ gap: 6, marginTop: 12 }}>
+                <Plus size={14} /> {anexando ? 'Enviando…' : 'Anexar mais um comprovante'}
+              </button>
+            )}
           </div>
         </div>
       )}

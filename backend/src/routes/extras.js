@@ -621,13 +621,13 @@ r.get('/vendas', async (req, res) => {
     // Lista leve: NÃO traz o base64 do comprovante (só um booleano) — o arquivo é
     // buscado sob demanda em /vendas/:id/comprovante ao clicar em visualizar.
     const { rows } = await query(`
-      SELECT id, conversa_id, lead_id, atendente_id, atendente_nome, setor, categoria,
-             cliente_nome, paciente_nome, servico, valor, desconto, forma_pagamento,
-             status_pagamento, data_venda, data_atendimento, origem, observacao,
-             comprovante_nome, comprovante_tipo, (comprovante IS NOT NULL) AS tem_comprovante,
-             conferido, conferido_em, conferido_por, repasse, comprovante_analise,
-             created_at, updated_at
-      FROM vendas ${where} ORDER BY data_venda DESC, created_at DESC LIMIT 500`, params);
+      SELECT v.id, v.conversa_id, v.lead_id, v.atendente_id, v.atendente_nome, v.setor, v.categoria,
+             v.cliente_nome, v.paciente_nome, v.servico, v.valor, v.desconto, v.forma_pagamento,
+             v.status_pagamento, v.data_venda, v.data_atendimento, v.origem, v.observacao,
+             v.conferido, v.conferido_em, v.conferido_por, v.repasse,
+             COALESCE((SELECT COUNT(*) FROM venda_comprovantes c WHERE c.venda_id = v.id),0)::int n_comprovantes,
+             v.created_at, v.updated_at
+      FROM vendas v ${where} ORDER BY v.data_venda DESC, v.created_at DESC LIMIT 500`, params);
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -715,59 +715,78 @@ r.delete('/despesas/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// CAIXA — baixa o comprovante (data URL) de uma venda. Gestão ou o próprio atendente.
-r.get('/vendas/:id/comprovante', async (req, res) => {
+// CAIXA — permissão de mexer nos comprovantes da venda (gestão ou dono)
+async function podeComprovante(req, vendaId) {
+  const { rows: [v] } = await query(`SELECT atendente_id, valor FROM vendas WHERE id = $1`, [vendaId]);
+  if (!v) return { erro: 404 };
+  if (!gestao(req) && v.atendente_id !== req.user.id) return { erro: 403 };
+  return { ok: true, venda: v };
+}
+
+// Lista os comprovantes de uma venda (sem o base64 — só metadados + análise)
+r.get('/vendas/:id/comprovantes', async (req, res) => {
   try {
-    const { rows: [v] } = await query(`SELECT atendente_id, comprovante, comprovante_nome, comprovante_tipo FROM vendas WHERE id = $1`, [req.params.id]);
-    if (!v) return res.status(404).json({ error: 'Venda não encontrada' });
-    if (!gestao(req) && v.atendente_id !== req.user.id) return res.status(403).json({ error: 'Sem permissão para ver este comprovante.' });
-    if (!v.comprovante) return res.status(404).json({ error: 'Sem comprovante anexado.' });
-    res.json({ comprovante: v.comprovante, comprovante_nome: v.comprovante_nome, comprovante_tipo: v.comprovante_tipo });
+    const perm = await podeComprovante(req, req.params.id);
+    if (perm.erro) return res.status(perm.erro).json({ error: perm.erro === 404 ? 'Venda não encontrada' : 'Sem permissão.' });
+    const { rows } = await query(`SELECT id, nome, tipo, analise, criado_por, created_at FROM venda_comprovantes WHERE venda_id = $1 ORDER BY created_at`, [req.params.id]);
+    res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// CAIXA — anexa/remove o comprovante de pagamento. Gestão ou o próprio atendente.
-r.patch('/vendas/:id/comprovante', async (req, res) => {
+// Baixa 1 comprovante (data URL) pra visualizar
+r.get('/vendas/:id/comprovantes/:compId', async (req, res) => {
   try {
-    const { rows: [v] } = await query(`SELECT atendente_id FROM vendas WHERE id = $1`, [req.params.id]);
-    if (!v) return res.status(404).json({ error: 'Venda não encontrada' });
-    if (!gestao(req) && v.atendente_id !== req.user.id) return res.status(403).json({ error: 'Sem permissão para anexar comprovante.' });
+    const perm = await podeComprovante(req, req.params.id);
+    if (perm.erro) return res.status(perm.erro).json({ error: perm.erro === 404 ? 'Venda não encontrada' : 'Sem permissão.' });
+    const { rows: [c] } = await query(`SELECT data_url, nome, tipo FROM venda_comprovantes WHERE id = $1 AND venda_id = $2`, [req.params.compId, req.params.id]);
+    if (!c) return res.status(404).json({ error: 'Comprovante não encontrado.' });
+    res.json({ comprovante: c.data_url, comprovante_nome: c.nome, comprovante_tipo: c.tipo });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Anexa MAIS um comprovante (2+ por venda)
+r.post('/vendas/:id/comprovantes', async (req, res) => {
+  try {
+    const perm = await podeComprovante(req, req.params.id);
+    if (perm.erro) return res.status(perm.erro).json({ error: perm.erro === 404 ? 'Venda não encontrada' : 'Sem permissão.' });
     const b = req.body || {};
-    if (b.comprovante === null || b.comprovante === '') {
-      const { rows: [u] } = await query(`UPDATE vendas SET comprovante = NULL, comprovante_nome = NULL, comprovante_tipo = NULL, updated_at = NOW() WHERE id = $1 RETURNING id`, [req.params.id]);
-      return res.json({ ok: true, id: u.id, tem_comprovante: false });
-    }
     if (typeof b.comprovante !== 'string' || !b.comprovante.startsWith('data:')) return res.status(400).json({ error: 'Envie o comprovante como data URL (imagem ou PDF).' });
     if (b.comprovante.length > 16 * 1024 * 1024) return res.status(413).json({ error: 'Comprovante muito grande (máx. ~12MB).' });
-    const { rows: [u] } = await query(
-      `UPDATE vendas SET comprovante = $1, comprovante_nome = $2, comprovante_tipo = $3, updated_at = NOW() WHERE id = $4 RETURNING id, comprovante_nome, comprovante_tipo`,
-      [b.comprovante, cut(b.filename, 160), cut(b.mimetype, 80), req.params.id]);
-    res.json({ ok: true, id: u.id, tem_comprovante: true, comprovante_nome: u.comprovante_nome, comprovante_tipo: u.comprovante_tipo });
+    const { rows: [c] } = await query(
+      `INSERT INTO venda_comprovantes (venda_id, data_url, nome, tipo, criado_por) VALUES ($1,$2,$3,$4,$5) RETURNING id, nome, tipo, created_at`,
+      [req.params.id, b.comprovante, cut(b.filename, 160), cut(b.mimetype, 80), req.user.nome]);
+    res.status(201).json(c);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// CAIXA — IA analisa o comprovante (imagem): extrai valor/data/pagador/forma e
-// confere se bate com a venda. Gestão ou o próprio atendente.
-r.post('/vendas/:id/analisar-comprovante', async (req, res) => {
+// Exclui 1 comprovante (se anexou errado)
+r.delete('/vendas/:id/comprovantes/:compId', async (req, res) => {
+  try {
+    const perm = await podeComprovante(req, req.params.id);
+    if (perm.erro) return res.status(perm.erro).json({ error: perm.erro === 404 ? 'Venda não encontrada' : 'Sem permissão.' });
+    await query(`DELETE FROM venda_comprovantes WHERE id = $1 AND venda_id = $2`, [req.params.compId, req.params.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// IA analisa 1 comprovante (imagem): extrai valor/data/pagador/forma e confere com a venda
+r.post('/vendas/:id/comprovantes/:compId/analisar', async (req, res) => {
   try {
     if (!process.env.OPENAI_API_KEY) return res.status(400).json({ error: 'IA não configurada (OPENAI_API_KEY ausente).' });
-    const { rows: [v] } = await query(`SELECT atendente_id, valor, cliente_nome, comprovante, comprovante_tipo FROM vendas WHERE id = $1`, [req.params.id]);
-    if (!v) return res.status(404).json({ error: 'Venda não encontrada' });
-    if (!gestao(req) && v.atendente_id !== req.user.id) return res.status(403).json({ error: 'Sem permissão.' });
-    if (!v.comprovante) return res.status(400).json({ error: 'Sem comprovante anexado.' });
-    if (!String(v.comprovante_tipo || '').startsWith('image')) return res.status(400).json({ error: 'A IA analisa comprovantes em imagem (foto/print). Para PDF, abra e confira manualmente.' });
+    const perm = await podeComprovante(req, req.params.id);
+    if (perm.erro) return res.status(perm.erro).json({ error: perm.erro === 404 ? 'Venda não encontrada' : 'Sem permissão.' });
+    const { rows: [c] } = await query(`SELECT data_url, tipo FROM venda_comprovantes WHERE id = $1 AND venda_id = $2`, [req.params.compId, req.params.id]);
+    if (!c) return res.status(404).json({ error: 'Comprovante não encontrado.' });
+    if (!String(c.tipo || '').startsWith('image')) return res.status(400).json({ error: 'A IA analisa comprovantes em imagem (foto/print). Para PDF, confira manualmente.' });
     const { default: fetch } = await import('node-fetch');
     const sys = 'Você confere comprovantes de pagamento de uma clínica (Vittalis Saúde). Analise a imagem e responda APENAS um JSON válido, em português do Brasil, sem texto extra. Se a imagem não parecer um comprovante de pagamento, retorne parece_comprovante=false.';
-    const valorVenda = parseFloat(v.valor) || 0;
+    const valorVenda = parseFloat(perm.venda.valor) || 0;
     const prompt = `Extraia os dados deste comprovante de pagamento e devolva exatamente:
 {"parece_comprovante":true,"valor":0,"data":"YYYY-MM-DD ou null","pagador":"nome ou null","recebedor":"nome ou null","forma":"Pix|Cartão|Dinheiro|TED|Boleto|null","instituicao":"banco/instituição ou null","observacao":"1 frase"}
 O valor esperado desta venda é R$ ${valorVenda.toFixed(2)} — não force esse número; extraia o que estiver na imagem.`;
     const body = {
       model: 'gpt-4o-mini', max_tokens: 500, response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: sys },
-        { role: 'user', content: [ { type: 'text', text: prompt }, { type: 'image_url', image_url: { url: v.comprovante } } ] },
-      ],
+      messages: [{ role: 'system', content: sys }, { role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: c.data_url } }] }],
     };
     const r2 = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` }, body: JSON.stringify(body),
@@ -785,7 +804,7 @@ O valor esperado desta venda é R$ ${valorVenda.toFixed(2)} — não force esse 
       forma: p.forma || null, instituicao: p.instituicao || null, observacao: p.observacao || null,
       valor_venda: valorVenda, confere, analisado_por: req.user.nome,
     };
-    await query(`UPDATE vendas SET comprovante_analise = $1::jsonb, updated_at = NOW() WHERE id = $2`, [JSON.stringify(analise), req.params.id]);
+    await query(`UPDATE venda_comprovantes SET analise = $1::jsonb WHERE id = $2`, [JSON.stringify(analise), req.params.compId]);
     res.json(analise);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

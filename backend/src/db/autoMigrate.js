@@ -455,6 +455,21 @@ export default async function runMigrate() {
     // CAIXA: valor de repasse (ex.: pago à vacinadora/profissional) + análise IA do comprovante
     await query(`ALTER TABLE vendas ADD COLUMN IF NOT EXISTS repasse NUMERIC(10,2) DEFAULT 0`).catch(() => {});
     await query(`ALTER TABLE vendas ADD COLUMN IF NOT EXISTS comprovante_analise JSONB`).catch(() => {});
+    // CAIXA: múltiplos comprovantes por venda (2+), cada um com análise da IA própria
+    await query(`CREATE TABLE IF NOT EXISTS venda_comprovantes (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      venda_id TEXT NOT NULL, data_url TEXT, nome TEXT, tipo TEXT,
+      analise JSONB, criado_por TEXT, created_at TIMESTAMPTZ DEFAULT NOW()
+    )`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS idx_vcomp_venda ON venda_comprovantes (venda_id)`).catch(() => {});
+    // Migra comprovantes antigos (coluna única) para a nova tabela, uma vez.
+    const { rows: [fVc] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'migra_comprovantes_v1'").catch(() => ({ rows: [] }));
+    if (!fVc) {
+      await query(`INSERT INTO venda_comprovantes (venda_id, data_url, nome, tipo, analise)
+                   SELECT id, comprovante, comprovante_nome, comprovante_tipo, comprovante_analise
+                   FROM vendas WHERE comprovante IS NOT NULL`).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('migra_comprovantes_v1','{"ok":true}') ON CONFLICT DO NOTHING`).catch(() => {});
+    }
     // CAIXA: saídas/despesas — pra fechar o saldo real (entrou − saiu)
     await query(`CREATE TABLE IF NOT EXISTS despesas (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
