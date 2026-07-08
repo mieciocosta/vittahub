@@ -5,11 +5,12 @@ import {
   LogOut, Settings, Smartphone, Sun, Moon, ChevronLeft, ChevronRight,
   CalendarClock, CalendarDays, Bell, CheckCheck, UserPlus, Shield,
   Gift, Bot, Image, FileText, Smile, Phone, Star, Database, Stethoscope, Target,
-  Trophy, GraduationCap, Rocket, Wallet,
+  Trophy, GraduationCap, Rocket, Wallet, Palette,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useApi } from '../context/AuthContext.jsx';
 import { fmt } from '../hooks/utils.js';
+import AvatarBuilder from './AvatarBuilder.jsx';
 
 // Atalhos coloridos por classificação → abrem o chat filtrado (?cls=).
 // Fidelidade abre a PASTA (as conversas dela saem do inbox).
@@ -125,6 +126,7 @@ const initials = n => (n||'?').split(' ').slice(0,2).map(w=>w[0]).join('').toUpp
 export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, collapsed = false, onToggleCollapse, mobileOpen = false, onCloseMobile, corDia = 'auto', onSetCorDia, paletaCores = [] }) {
   const { user, setUser, logout, isMaster } = useAuth();
 
+  const [showAvatarBuilder, setShowAvatarBuilder] = useState(false);
   const avatarFileRef = useRef(null);
   // Foto de perfil: reduz no navegador (128px jpeg) e salva no próprio usuário
   const trocarAvatar = (e) => {
@@ -433,6 +435,11 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
               <div style={{ color:'#fff', fontSize:13, fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{user?.nome?.split(' ')[0]}</div>
               <div style={{ color:'rgba(255,255,255,.85)', fontSize:10.5 }}>{user?.role === 'master' ? '◆ Master' : user?.role === 'supervisor' ? '◆ Supervisora' : 'Atendente'}<span style={{ marginLeft:6 }}><span style={{ display:'inline-block', width:6, height:6, borderRadius:'50%', background:'#3ef58f', marginRight:3, verticalAlign:'1px' }}/>Online</span></div>
             </div>
+            <button onClick={()=>setShowAvatarBuilder(true)} title="Criar meu avatar" style={{ padding:6, background:'none', color:'rgba(255,255,255,.62)', borderRadius:6, transition:'color .15s', cursor:'pointer', border:'none' }}
+              onMouseEnter={e=>e.currentTarget.style.color='#ffffff'}
+              onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,.62)'}>
+              <Palette size={13} />
+            </button>
             <button onClick={onToggleTheme} title={theme === 'dark' ? 'Modo claro' : 'Modo escuro'} style={{ padding:6, background:'none', color:'rgba(255,255,255,.62)', borderRadius:6, transition:'color .15s', cursor:'pointer', border:'none' }}
               onMouseEnter={e=>e.currentTarget.style.color='#ffffff'}
               onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,.62)'}>
@@ -501,6 +508,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
         </div>
       )}
       <input ref={avatarFileRef} type="file" accept="image/*" style={{ display:'none' }} onChange={trocarAvatar} />
+      {showAvatarBuilder && <AvatarBuilder onClose={() => setShowAvatarBuilder(false)} />}
     </aside>
   );
 }
