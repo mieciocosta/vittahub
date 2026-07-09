@@ -393,13 +393,23 @@ export default async function runMigrate() {
       const bcryptN = await import('bcryptjs');
       const hashN = await bcryptN.default.hash('Vittalis@2026', 10);
       await query(`INSERT INTO usuarios (id, nome, email, cpf, senha, role, cor, ativo, setor, setores)
-        VALUES (gen_random_uuid()::text, 'Fernanda Costa Moraes', 'fernanda.costa@vittahub.local', '06105959389', $1, 'atendente', '#ec4899', true, 'consultas', '{vacinas,consultas,terapias}')
+        VALUES (gen_random_uuid()::text, 'Fernanda Costa Moraes', 'fernanda.costa@vittahub.local', '06105959389', $1, 'atendente', '#ec4899', true, 'consultas', '{consultas,terapias}')
         ON CONFLICT (email) DO NOTHING`, [hashN]).catch((e) => console.error('seed Fernanda:', e.message));
       await query(`INSERT INTO usuarios (id, nome, email, cpf, senha, role, cor, ativo, setor, setores)
-        VALUES (gen_random_uuid()::text, 'Steicy Kamilly Alves', 'steicy.alves@vittahub.local', '62339059313', $1, 'atendente', '#14b8a6', true, 'consultas', '{vacinas,consultas,terapias}')
+        VALUES (gen_random_uuid()::text, 'Steicy Kamilly Alves', 'steicy.alves@vittahub.local', '62339059313', $1, 'atendente', '#14b8a6', true, 'consultas', '{consultas,terapias}')
         ON CONFLICT (email) DO NOTHING`, [hashN]).catch((e) => console.error('seed Steicy:', e.message));
       await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_novas_atendentes_v1', '{"ok":true}') ON CONFLICT DO NOTHING`);
-      console.log('🌱 Novas atendentes híbridas: Fernanda + Steicy');
+      console.log('🌱 Novas atendentes: Fernanda + Steicy');
+    }
+
+    // Garante que Fernanda e Steicy fiquem em CONSULTAS + TERAPIAS (corrige se já
+    // tinham sido criadas com vacinas).
+    const { rows: [flagNovas2] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_novas_consulterapia_v2'");
+    if (!flagNovas2) {
+      await query(`UPDATE usuarios SET setores = '{consultas,terapias}', setor = 'consultas'
+                   WHERE cpf IN ('06105959389','62339059313')`).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_novas_consulterapia_v2', '{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🩺🧩 Fernanda + Steicy: consultas + terapias');
     }
 
     // ── AUDITORIA + PRESENÇA (admin only) ─────────────────────────────────
