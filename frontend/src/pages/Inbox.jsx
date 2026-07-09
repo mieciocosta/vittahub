@@ -1709,8 +1709,8 @@ export default function Inbox({ onUnreadChange }) {
                 className="btn btn-ico tb-ico" style={{ background:showQR?'var(--tq3)':undefined, color:showQR?'var(--tq)':'var(--muted)' }}><Zap size={17}/></button>
               <button onClick={()=>setShowBib(true)} title="Biblioteca de Experiências (fotos, vídeos, figurinhas)"
                 className="btn btn-ico tb-ico" style={{ color:'var(--muted)' }}><Image size={17}/></button>
-              <button onClick={()=>setShowAgendarMsg(true)} title="Agendar mensagem (enviar depois)"
-                className="btn btn-ico tb-ico" style={{ color:'var(--muted)' }}><Clock size={17}/></button>
+              <button onClick={()=>setShowAgendarMsg(true)} title="⏰ Agendar mensagem — escolha o dia e a hora pra disparar pro cliente"
+                className="btn btn-ico tb-ico" style={{ color:'#7c3aed', background:'#f2ecfe' }}><Clock size={17}/></button>
               <Calculadora />
               <input ref={fileRef} type="file" accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.gif" style={{ display:'none' }} onChange={handleFile}/>
               <textarea ref={textRef} onPaste={handlePaste} spellCheck lang="pt-BR" value={input} onChange={e=>setInput(e.target.value)}
