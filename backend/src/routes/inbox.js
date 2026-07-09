@@ -77,6 +77,15 @@ async function openaiMessages({ model = 'gpt-4o-mini', max_tokens = 800, system,
   return { content };
 }
 
+// Mensagem de erro da IA em PT amigável (esconde o texto técnico da OpenAI)
+export function erroIAamigavel(err) {
+  const msg = String(err?.message || err || '');
+  if (/quota|billing|insufficient_quota|exceeded/i.test(msg)) return 'IA temporariamente indisponível — os créditos da conta OpenAI acabaram. Avise a gestão pra recarregar o saldo.';
+  if (/rate limit|429|too many/i.test(msg)) return 'A IA está sobrecarregada agora. Tente de novo em alguns segundos.';
+  if (/api key|invalid.*key|unauthorized|401/i.test(msg)) return 'IA não configurada corretamente (chave da OpenAI). Avise a gestão.';
+  return 'Não consegui usar a IA agora. Tente de novo em instantes.';
+}
+
 // Transcreve áudio (base64) com Whisper — usado no chat do Copiloto
 async function transcreverAudio(base64, mime = 'audio/webm') {
   const { default: fetch } = await import('node-fetch');
@@ -3532,7 +3541,7 @@ r.post('/conversations/:id/sugerir-resposta', async (req, res) => {
     const sys = `Você é ${primeiro}, uma atendente HUMANA da clínica Vittalis Saúde, no setor de ${CTX}. Você fala com clientes pelo WhatsApp. Escreva a PRÓXIMA mensagem que você (${primeiro}) mandaria — do jeito que uma pessoa de verdade escreve: calorosa, natural, gentil e objetiva. Regras: em português do Brasil; NADA de som de robô, script decorado ou formalidade fria; use o nome do cliente se aparecer; responda ao que a pessoa realmente disse/pediu; no máximo 1 emoji leve e só se combinar; não invente preços, datas nem informações que não estão na conversa (se precisar do valor, diga que já vai verificar/passar); 2 a 4 linhas no máximo. Responda SOMENTE com o texto da mensagem, sem aspas e sem explicações.`;
     const user = `Conversa até aqui (cliente: ${conv.contact_name || 'cliente'}):\n\n${t.transcript}\n\nEscreva a sua próxima mensagem pra esse cliente.`;
     const data = await openaiMessages({ model: 'gpt-4o-mini', max_tokens: 320, system: sys, messages: [{ role: 'user', content: user }] });
-    if (data.error) return res.status(400).json({ error: data.error.message || 'Erro na IA.' });
+    if (data.error) return res.status(400).json({ error: erroIAamigavel(data.error) });
     let msg = (data.content?.find(c => c.type === 'text')?.text || '').trim().replace(/^["'"]|["'"]$/g, '');
     if (!msg) return res.status(400).json({ error: 'A IA não retornou sugestão. Tente de novo.' });
     res.json({ mensagem: msg });
@@ -3836,7 +3845,7 @@ r.post('/ai-extrair', async (req, res) => {
       system: `Extraia da conversa abaixo os dados cadastrais que o CLIENTE informou. Devolva APENAS um JSON com as chaves: paciente (nome do paciente/bebê), responsavel (nome do responsável/mãe/pai), endereco (endereço completo com bairro), email, nascimento (data de nascimento do paciente no formato YYYY-MM-DD), telefone_extra (outro telefone citado), observacao (preferências relevantes, ex: atendimento domiciliar). Use null quando o dado não foi informado. Não invente nada.`,
       messages: [{ role: 'user', content: texto.slice(0, 8000) }],
     });
-    if (data.error) return res.status(502).json({ error: data.error.message || 'Erro na IA' });
+    if (data.error) return res.status(502).json({ error: erroIAamigavel(data.error) });
     const raw = (data.content?.find(c => c.type === 'text')?.text || '{}').trim();
     let extraido = {};
     try { extraido = JSON.parse(raw.replace(/^```json|```$/g, '')); } catch {}
@@ -4128,7 +4137,7 @@ ${tabelaPrecos}${contexto}`;
       body: JSON.stringify({ model: 'gpt-4o', max_output_tokens: 1000, instructions: sysPrompt, input }),
     });
     const data = await resp.json();
-    if (data.error) return res.status(502).json({ error: data.error.message || 'Erro na IA' });
+    if (data.error) return res.status(502).json({ error: erroIAamigavel(data.error) });
     const texto = (data.output_text
       || data.output?.flatMap(o => o.content || []).find(c => c.type === 'output_text')?.text
       || '').trim();
@@ -4204,7 +4213,7 @@ r.post('/ai-assist', async (req, res) => {
         system: 'Corrija APENAS ortografia, acentuação e pontuação do texto em português, preservando o tom, gírias leves, emojis e o sentido. NÃO reescreva, NÃO formalize, NÃO acrescente nada. Responda somente JSON: {"texto":"..."}',
         messages: [{ role: 'user', content: texto }],
       });
-      if (data.error) return res.status(502).json({ error: data.error.message || 'Erro na IA' });
+      if (data.error) return res.status(502).json({ error: erroIAamigavel(data.error) });
       const raw = (data.content?.find(c => c.type === 'text')?.text || '{}').trim();
       let out = null;
       try { out = JSON.parse(raw.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim()); } catch {}
@@ -4250,7 +4259,7 @@ ${cfgMode.schema}`;
       json: true,
       messages: [{ role: 'user', content: userPrompt }],
     });
-    if (data.error) return res.status(502).json({ error: data.error.message || 'Erro na IA' });
+    if (data.error) return res.status(502).json({ error: erroIAamigavel(data.error) });
 
     const raw = (data.content?.find(c => c.type === 'text')?.text || '').trim();
     let parsed = null;
@@ -4323,7 +4332,7 @@ ${t.transcript}
 Devolva exatamente:
 {"score":0,"criterios":{"agilidade":0,"cordialidade":0,"clareza":0,"conducao":0,"fechamento":0},"pontos_fortes":"1 a 2 frases","pontos_fracos":"1 a 2 frases","resumo":"1 frase resumindo o atendimento"}`;
   const data = await openaiMessages({ model: 'gpt-4o-mini', max_tokens: 500, json: true, system: sys, messages: [{ role: 'user', content: user }] });
-  if (data.error) return { error: data.error.message || 'Erro na IA' };
+  if (data.error) return { error: erroIAamigavel(data.error) };
   const raw = (data.content?.find(c => c.type === 'text')?.text || '').trim();
   let p = null;
   try { p = JSON.parse(raw.replace(/^```json\s*/i, '').replace(/^```\s*/, '').replace(/```\s*$/, '').trim()); } catch {}
@@ -4405,7 +4414,7 @@ ${t.transcript}
 Devolva exatamente:
 {"tem_intencao":true,"paciente":"nome do paciente ou null","data":"YYYY-MM-DD ou null","hora":"HH:MM ou null","servico":"o que o cliente quer (ex: vacina 6 meses, consulta pediatria) ou null","setor":"vacinas|consultas|terapias","endereco":"endereço se for domiciliar, ou null","resumo":"1 frase do que o cliente quer"}`;
   const data = await openaiMessages({ model: 'gpt-4o-mini', max_tokens: 320, json: true, system: sys, messages: [{ role: 'user', content: user }] });
-  if (data.error) return { error: data.error.message || 'Erro na IA' };
+  if (data.error) return { error: erroIAamigavel(data.error) };
   const raw = (data.content?.find(c => c.type === 'text')?.text || '').trim();
   let p = null;
   try { p = JSON.parse(raw.replace(/^```json\s*/i, '').replace(/^```\s*/, '').replace(/```\s*$/, '').trim()); } catch {}
@@ -4482,7 +4491,7 @@ r.post('/cases-sucesso/gerar-padrao', async (req, res) => {
     const sys = `Você é um treinador de vendas de uma clínica de pediatria, vacinação e terapias (Vittalis Saúde). A partir de conversas REAIS que fecharam venda, extraia o PADRÃO de atendimento vencedor e escreva um roteiro claro, replicável e motivador, em português do Brasil. Foque no que funcionou: abordagem, descoberta da necessidade, apresentação de valor, contorno de objeções, condução ao fechamento e pós. Seja prático — frases-modelo que a atendente possa usar. Não invente dados; baseie-se no que aparece nas conversas.`;
     const user = `Analise estes atendimentos que viraram VENDA${setor ? ` (setor ${setor})` : ''} e produza o ROTEIRO-PADRÃO da equipe, organizado em etapas numeradas do "oi" ao fechamento. Em cada etapa: (a) objetivo, (b) 1-2 frases-modelo prontas, (c) erro comum a evitar. Ao final, liste os "3 gatilhos que mais fecharam" observados. Use markdown com títulos e listas.\n\n${transcripts.join('\n\n')}`;
     const data = await openaiMessages({ model: 'gpt-4o-mini', max_tokens: 1600, system: sys, messages: [{ role: 'user', content: user }] });
-    if (data.error) return res.status(400).json({ error: data.error.message || 'Erro na IA.' });
+    if (data.error) return res.status(400).json({ error: erroIAamigavel(data.error) });
     const texto = (data.content?.find(c => c.type === 'text')?.text || '').trim();
     if (!texto) return res.status(400).json({ error: 'A IA não retornou conteúdo. Tente de novo.' });
     const chave = setor || 'geral';

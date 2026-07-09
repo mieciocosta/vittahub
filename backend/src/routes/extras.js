@@ -12,6 +12,13 @@ r.use(auth);
 
 const cut = (v, n) => (v == null ? null : String(v).slice(0, n));
 const gestao = (req) => ['master', 'supervisor'].includes(req.user.role);
+// Erro da IA em PT amigável (esconde o texto técnico da OpenAI)
+const erroIA = (err) => {
+  const m = String(err?.message || err || '');
+  if (/quota|billing|insufficient_quota|exceeded/i.test(m)) return 'IA temporariamente indisponível — os créditos da conta OpenAI acabaram. Avise a gestão pra recarregar o saldo.';
+  if (/rate limit|429|too many/i.test(m)) return 'A IA está sobrecarregada agora. Tente de novo em alguns segundos.';
+  return 'Não consegui usar a IA agora. Tente de novo em instantes.';
+};
 
 /* ═══ AGENDA ═════════════════════════════════════════════════════════════════ */
 const AG_STATUS = ['Agendado', 'Confirmado', 'Realizado', 'Cancelado', 'Reagendado'];
@@ -829,7 +836,7 @@ O valor esperado desta venda é R$ ${valorVenda.toFixed(2)} — não force esse 
       method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` }, body: JSON.stringify(body),
     });
     const d = await r2.json();
-    if (d.error) return res.status(400).json({ error: d.error.message || 'Erro na IA.' });
+    if (d.error) return res.status(400).json({ error: erroIA(d.error) });
     let p = null;
     try { p = JSON.parse(d.choices?.[0]?.message?.content || '{}'); } catch {}
     if (!p) return res.status(400).json({ error: 'A IA devolveu um formato inesperado.' });
