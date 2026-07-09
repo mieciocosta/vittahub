@@ -57,10 +57,12 @@ export default function Dashboard() {
   const [agMeta, setAgMeta] = useState(null);
   const [vendasResumo, setVendasResumo] = useState(null);
   const [atencao, setAtencao] = useState(null);
+  const [metaSetor, setMetaSetor] = useState(null);
   useEffect(() => {
     api.get('/reports/dashboard').then(setData).catch(() => {});
     api.get(`/extras/agenda?data=${new Date().toISOString().slice(0, 10)}`).then(d => setAgendaHoje(Array.isArray(d) ? d : [])).catch(() => {});
     api.get('/extras/agenda/meta').then(setAgMeta).catch(() => {});
+    api.get('/extras/meta-setor').then(setMetaSetor).catch(() => {});
     if (isMaster) api.get('/extras/vendas/resumo').then(setVendasResumo).catch(() => {}); // painel comercial é só do master
     const loadAt = () => api.get('/inbox/atencao-agora').then(setAtencao).catch(() => {});
     loadAt(); const t = setInterval(loadAt, 20000); return () => clearInterval(t);
@@ -165,6 +167,32 @@ export default function Dashboard() {
             </button>
           ))}
         </div>
+
+        {/* ── Meta por SETOR (master vê todos; cada usuário vê o seu, conforme produziu) ── */}
+        {metaSetor && (metaSetor.porSetor || []).length > 0 && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: 14, marginBottom: 20 }}>
+            {(metaSetor.porSetor || []).map((s) => {
+              const nome = s.setor && s.setor !== 'geral' ? s.setor[0].toUpperCase() + s.setor.slice(1) : 'Geral';
+              const cor = { vacinas: '#7c5cbf', consultas: '#00B8C0', terapias: '#C4973B' }[s.setor] || '#0E8C96';
+              const emoji = { vacinas: '💉', consultas: '🩺', terapias: '🧩' }[s.setor] || '🎯';
+              const pct = Math.min(s.pctGlobal ?? 0, 100);
+              const batida = (s.faltaGlobal ?? 0) <= 0;
+              return (
+                <div key={s.setor} className="card" style={{ padding: '16px 18px', borderTop: `3px solid ${cor}` }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <span style={{ fontWeight: 800, fontSize: 14.5 }}>{emoji} Meta {nome}</span>
+                    <span style={{ fontSize: 13, fontWeight: 900, color: cor }}>{pct}%</span>
+                  </div>
+                  <div style={{ fontSize: 22, fontWeight: 900 }}>{fmt.brl(s.confirmado || 0)}</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>de {fmt.brl(s.metaGlobal)}{batida ? ' · 🏆 batida!' : ` · faltam ${fmt.brl(s.faltaGlobal)}`}</div>
+                  <div style={{ height: 9, borderRadius: 6, background: 'var(--bg2)', overflow: 'hidden' }}>
+                    <div style={{ width: `${pct}%`, height: '100%', borderRadius: 6, background: batida ? 'var(--ok,#16a34a)' : cor, transition: 'width .5s' }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {/* ── ATENÇÃO AGORA + Resumo comercial ── */}
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(300px,1.3fr) minmax(280px,1fr)', gap: 16, marginBottom: 16 }}>

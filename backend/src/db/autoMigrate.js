@@ -347,6 +347,14 @@ export default async function runMigrate() {
       console.log('🎯 Metas de vendas: vacinas 250k, consultas 259k, terapias 250k');
     }
 
+    // Raylane: setor VACINAS (cobre vacinas + planos vacinais). Só ela vê vacinas.
+    const { rows: [flagRaySetor] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_raylane_vacinas_v1'");
+    if (!flagRaySetor) {
+      await query(`UPDATE usuarios SET setor = 'vacinas', setores = NULL WHERE email = 'raylane@vittalissaude.com.br' OR cpf = '63358210367'`).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_raylane_vacinas_v1', '{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('💉 Raylane: setor vacinas');
+    }
+
     // Raylane: líder de equipe (ganha a tela de Planejamento). Uma vez.
     const { rows: [flagRayLid] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_raylane_lider_v1'");
     if (!flagRayLid) {
