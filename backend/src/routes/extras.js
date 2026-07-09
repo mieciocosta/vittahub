@@ -12,13 +12,8 @@ r.use(auth);
 
 const cut = (v, n) => (v == null ? null : String(v).slice(0, n));
 const gestao = (req) => ['master', 'supervisor'].includes(req.user.role);
-// Erro da IA em PT amigável (esconde o texto técnico da OpenAI)
-const erroIA = (err) => {
-  const m = String(err?.message || err || '');
-  if (/quota|billing|insufficient_quota|exceeded/i.test(m)) return 'IA temporariamente indisponível — os créditos da conta OpenAI acabaram. Avise a gestão pra recarregar o saldo.';
-  if (/rate limit|429|too many/i.test(m)) return 'A IA está sobrecarregada agora. Tente de novo em alguns segundos.';
-  return 'Não consegui usar a IA agora. Tente de novo em instantes.';
-};
+// Erro da IA — mostra só "IA inativa" (sem detalhe técnico)
+const erroIA = () => 'IA inativa';
 
 /* ═══ AGENDA ═════════════════════════════════════════════════════════════════ */
 const AG_STATUS = ['Agendado', 'Confirmado', 'Realizado', 'Cancelado', 'Reagendado'];

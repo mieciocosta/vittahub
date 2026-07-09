@@ -78,13 +78,7 @@ async function openaiMessages({ model = 'gpt-4o-mini', max_tokens = 800, system,
 }
 
 // Mensagem de erro da IA em PT amigável (esconde o texto técnico da OpenAI)
-export function erroIAamigavel(err) {
-  const msg = String(err?.message || err || '');
-  if (/quota|billing|insufficient_quota|exceeded/i.test(msg)) return 'IA temporariamente indisponível — os créditos da conta OpenAI acabaram. Avise a gestão pra recarregar o saldo.';
-  if (/rate limit|429|too many/i.test(msg)) return 'A IA está sobrecarregada agora. Tente de novo em alguns segundos.';
-  if (/api key|invalid.*key|unauthorized|401/i.test(msg)) return 'IA não configurada corretamente (chave da OpenAI). Avise a gestão.';
-  return 'Não consegui usar a IA agora. Tente de novo em instantes.';
-}
+export function erroIAamigavel() { return 'IA inativa'; }
 
 // Transcreve áudio (base64) com Whisper — usado no chat do Copiloto
 async function transcreverAudio(base64, mime = 'audio/webm') {
