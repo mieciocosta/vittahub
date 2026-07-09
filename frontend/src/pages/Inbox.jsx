@@ -1696,21 +1696,21 @@ export default function Inbox({ onUnreadChange }) {
 
           {/* Input bar */}
           <div className="chat-input-bar" style={{ background:'var(--card,#fff)', padding:'9px 12px', borderTop:'1px solid var(--border)', flexShrink:0 }}>
-            <div style={{ display:'flex', gap:5, alignItems:'flex-end' }}>
+            <div style={{ display:'flex', gap:6, alignItems:'flex-end' }}>
               <button onClick={corrigirTexto} disabled={!input.trim() || corrigindo} title="Corrigir ortografia com IA (não muda o tom)"
-                className="btn btn-ico tb-ico" style={{ color: corrigindo ? 'var(--tq)' : 'var(--muted)', opacity:!input.trim()?.4:1 }}>
+                className="btn btn-ico tb-ico-color" style={{ '--ic':'#8b5cf6', color:'#8b5cf6', background:'rgba(139,92,246,.12)', opacity:!input.trim()?.45:1 }}>
                 {corrigindo ? <Loader2 size={17} className="spin"/> : <Sparkles size={17}/>}
               </button>
               <button onClick={()=>fileRef.current?.click()} title="Anexar arquivo"
-                className="btn btn-ico tb-ico" style={{ color:'var(--muted)' }}><Paperclip size={17}/></button>
+                className="btn btn-ico tb-ico-color" style={{ '--ic':'#2563eb', color:'#2563eb', background:'rgba(37,99,235,.12)' }}><Paperclip size={17}/></button>
               <button onClick={()=>{setShowEmoji(p=>!p);setShowQR(false);}} title="Emojis"
-                className="btn btn-ico tb-ico" style={{ background:showEmoji?'var(--tq3)':undefined, color:showEmoji?'var(--tq)':'var(--muted)' }}><Smile size={17}/></button>
+                className="btn btn-ico tb-ico-color" style={{ '--ic':'#f59e0b', color:showEmoji?'#fff':'#f59e0b', background:showEmoji?'#f59e0b':'rgba(245,158,11,.14)' }}><Smile size={17}/></button>
               <button onClick={()=>{setShowQR(p=>!p);setShowEmoji(false);}} title="Mensagens automáticas"
-                className="btn btn-ico tb-ico" style={{ background:showQR?'var(--tq3)':undefined, color:showQR?'var(--tq)':'var(--muted)' }}><Zap size={17}/></button>
+                className="btn btn-ico tb-ico-color" style={{ '--ic':'#00B8C0', color:showQR?'#fff':'#0891b2', background:showQR?'#00B8C0':'rgba(0,184,192,.14)' }}><Zap size={17}/></button>
               <button onClick={()=>setShowBib(true)} title="Biblioteca de Experiências (fotos, vídeos, figurinhas)"
-                className="btn btn-ico tb-ico" style={{ color:'var(--muted)' }}><Image size={17}/></button>
+                className="btn btn-ico tb-ico-color" style={{ '--ic':'#ec4899', color:'#ec4899', background:'rgba(236,72,153,.12)' }}><Image size={17}/></button>
               <button onClick={()=>setShowAgendarMsg(true)} title="⏰ Agendar mensagem — escolha o dia e a hora pra disparar pro cliente"
-                className="btn btn-ico tb-ico" style={{ color:'#7c3aed', background:'#f2ecfe' }}><Clock size={17}/></button>
+                className="btn btn-ico tb-ico-color" style={{ '--ic':'#7c3aed', color:'#7c3aed', background:'rgba(124,58,237,.13)' }}><Clock size={17}/></button>
               <Calculadora />
               <input ref={fileRef} type="file" accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.gif" style={{ display:'none' }} onChange={handleFile}/>
               <textarea ref={textRef} onPaste={handlePaste} spellCheck lang="pt-BR" value={input} onChange={e=>setInput(e.target.value)}

@@ -39,7 +39,7 @@ export default function Calculadora() {
   return (
     <div ref={ref} style={{ position:'relative', display:'inline-flex' }}>
       <button onClick={() => setOpen(o => !o)} title="Calculadora"
-        className="btn btn-ico tb-ico" style={{ background: open ? 'var(--tq3)' : undefined, color: open ? 'var(--tq)' : 'var(--muted)' }}>
+        className="btn btn-ico tb-ico-color" style={{ '--ic':'#16a34a', background: open ? '#16a34a' : 'rgba(22,163,74,.13)', color: open ? '#fff' : '#16a34a' }}>
         <Calculator size={17} />
       </button>
       {open && (
