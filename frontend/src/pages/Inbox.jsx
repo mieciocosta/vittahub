@@ -1428,7 +1428,7 @@ export default function Inbox({ onUnreadChange }) {
         <div style={{ flex:1, display:'flex', flexDirection:'column', minWidth:0 }}>
 
           {/* Header do chat */}
-          <div className="chat-header" style={{ background:'var(--card,#fff)', padding:'11px 14px', display:'flex', alignItems:'center', gap:9, flexShrink:0 }}>
+          <div className="chat-header" style={{ background:'var(--card,#fff)', padding:'11px 14px', display:'flex', alignItems:'center', gap:9, rowGap:8, flexWrap:'wrap', flexShrink:0 }}>
             {listCollapsed && (
               <button onClick={()=>setListCollapsed(false)} style={{ padding:'5px 7px', borderRadius:8, background:'var(--bg2)', border:'1.5px solid var(--border)', cursor:'pointer', color:'var(--muted)', display:'flex', alignItems:'center', flexShrink:0 }}>
                 <PanelLeftOpen size={13}/>
@@ -1437,7 +1437,7 @@ export default function Inbox({ onUnreadChange }) {
             <div className={sel.profile_pic ? 'avatar-clickable' : ''} onClick={()=>sel.profile_pic && setLightbox(sel.profile_pic)} title={sel.profile_pic ? 'Ver foto de perfil' : ''}>
               <Avatar conv={sel} size={34} fontSize={11}/>
             </div>
-            <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ flex:'1 1 160px', minWidth:0 }}>
               <div style={{ fontWeight:600, fontSize:13.5, display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
                 <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{sel.contact_name}</span>
                 {sel.bot_ativo && <span style={{ display:'inline-flex', alignItems:'center', gap:2, background:'var(--ok2)', color:'var(--ok)', borderRadius:6, padding:'1px 6px', fontSize:9.5, fontWeight:700, flexShrink:0 }}><Bot size={7}/>Bot</span>}
@@ -1446,6 +1446,8 @@ export default function Inbox({ onUnreadChange }) {
               {sel.phone && <div style={{ fontSize:10.5, color:'var(--muted)' }}>{fmt.phone(sel.phone)}</div>}
             </div>
 
+            {/* Ferramentas do atendimento — agrupadas com quebra automática (não cortam ao dar zoom) */}
+            <div style={{ display:'flex', alignItems:'center', gap:6, rowGap:6, flexWrap:'wrap', minWidth:0 }}>
             {/* Responsável pela conversa */}
             <div style={{ display:'flex', alignItems:'center', gap:5, flexShrink:0 }}>
               <span title={sel.responsavel_nome ? `Responsável: ${sel.responsavel_nome}` : 'Sem responsável'}
@@ -1476,7 +1478,7 @@ export default function Inbox({ onUnreadChange }) {
               </select>
             </div>
 
-            <div style={{ display:'flex', gap:4, flexShrink:0 }}>
+            <div style={{ display:'flex', gap:4, flexWrap:'wrap' }}>
               {user?.role !== 'atendente' && (
                 <button onClick={async ()=>{ try { await api.post(`/inbox/conversations/${sel.id}/reset-triagem`); Toast.show('Triagem reiniciada — o próximo "oi" do cliente recebe o menu de boas-vindas 💎', 'success'); } catch(e){ Toast.show(e.message, 'error'); } }}
                   title="Reiniciar boas-vindas: a próxima mensagem do cliente recebe o menu com botões"
@@ -1521,6 +1523,7 @@ export default function Inbox({ onUnreadChange }) {
               <button onClick={()=>{setShowInfo(p=>!p);setShowAI(false);}} className="btn btn-sm" style={{ background:showInfo?'var(--tq3)':'var(--bg2)', color:showInfo?'var(--tq2)':'var(--muted)', border:`1.5px solid ${showInfo?'var(--tq)':'var(--border)'}`, fontSize:11, padding:'4px 9px' }}>
                 <Tag size={10}/> Info
               </button>
+            </div>
             </div>
           </div>
 
