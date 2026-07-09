@@ -144,7 +144,7 @@ function setorEfetivo(conv) {
   return conv.setor || respSetor || null;
 }
 function podeVerSetor(viewer, conv) {
-  if (!viewer || viewer.role === 'master') return true;
+  if (!viewer || viewer.role === 'master' || viewer.ve_tudo) return true;
   // Acesso MULTI-SETOR (ex.: Danielle vê vacinas E consultas). Lista vinda do
   // token ou do cache (id → setores). Vê o setor exato da lista, ou indefinido.
   const extras = (Array.isArray(viewer.setores) && viewer.setores.length ? viewer.setores : usuariosSetores.get(String(viewer.id))) || null;

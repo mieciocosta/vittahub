@@ -10,7 +10,7 @@ const ORIGENS = ['Instagram','Google','WhatsApp','Indicação','Facebook','Tráf
 export default function Leads() {
   const api = useApi();
   const { user, isMaster } = useAuth();
-  const gestao = user?.role === 'master' || user?.role === 'supervisor';
+  const gestao = user?.role === 'master' || user?.role === 'supervisor' || user?.ve_tudo;
   const [leads, setLeads] = useState([]);
   const [total, setTotal] = useState(0);
   const [modal, setModal] = useState(null);

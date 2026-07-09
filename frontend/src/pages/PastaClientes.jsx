@@ -89,7 +89,7 @@ export default function PastaClientes({ categoria, classificacao }) {
   const api = useApi();
   const nav = useNavigate();
   const { user, isMaster } = useAuth();
-  const gestao = user?.role === 'master' || user?.role === 'supervisor';
+  const gestao = user?.role === 'master' || user?.role === 'supervisor' || user?.ve_tudo;
   const valor = classificacao || categoria;          // o que filtra a pasta
   const cfg = CFG[valor] || CFG.banco_dados;
   const modo = cfg.modo;                              // 'categoria' | 'classificacao'

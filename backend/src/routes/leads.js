@@ -63,7 +63,8 @@ r.get('/', async (req, res) => {
     }
     // Acesso por SETOR: master vê tudo. Multi-setor (ex.: Danielle) vê os setores
     // exatos da lista dela. Senão, regra macro (vacinas x não-vacinas).
-    if (req.user.role !== 'master') {
+    // ve_tudo (ex.: Danielle) vê TODOS os leads, sem trava de setor nem carteira.
+    if (req.user.role !== 'master' && !req.user.ve_tudo) {
       if (Array.isArray(req.user.setores) && req.user.setores.length) {
         conditions.push(`COALESCE(l.setor,'vacinas') = ANY($${pi++})`); params.push(req.user.setores);
       } else if (req.user.setor) {
@@ -71,9 +72,9 @@ r.get('/', async (req, res) => {
         conditions.push(req.user.setor === 'vacinas' ? `${g} = 'vacinas'` : `${g} <> 'vacinas'`);
       }
     }
-    // CARTEIRA: a atendente vê só os leads dela (responsável = ela). A gestão vê
-    // todos do setor e pode filtrar por atendente (?responsavel_id=).
-    if (!['master', 'supervisor'].includes(req.user.role)) {
+    // CARTEIRA: a atendente vê só os leads dela (responsável = ela). A gestão e
+    // quem tem acesso total veem todos e podem filtrar por atendente (?responsavel_id=).
+    if (!['master', 'supervisor'].includes(req.user.role) && !req.user.ve_tudo) {
       conditions.push(`l.responsavel_id = $${pi++}`);
       params.push(req.user.id);
     }
@@ -121,7 +122,7 @@ r.get('/meta', async (req, res) => {
 r.get('/retornos', async (req, res) => {
   try {
     const uid = String(req.user.id).replace(/[^a-zA-Z0-9-]/g, ''); // anti-injection
-    const uFilter = ['master','supervisor'].includes(req.user.role) ? '' : ` AND l.responsavel_id = '${uid}'`;
+    const uFilter = (['master','supervisor'].includes(req.user.role) || req.user.ve_tudo) ? '' : ` AND l.responsavel_id = '${uid}'`;
     const { rows } = await query(`
       SELECT l.*, u.nome AS responsavel_nome, u.cor AS responsavel_cor,
         CASE

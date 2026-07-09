@@ -544,6 +544,72 @@ r.get('/quiz/ranking', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* ─── MEU PAINEL: mural pessoal (notas, tarefas e documentos) ───────────────────
+   Cada um monta o seu mural. Privado por usuário. */
+const PAINEL_TIPOS = ['nota', 'tarefa', 'documento'];
+r.get('/painel', async (req, res) => {
+  try {
+    const { rows } = await query(
+      `SELECT id, tipo, titulo, conteudo, filename, mimetype, concluido, ordem, created_at,
+              (arquivo IS NOT NULL) AS tem_arquivo
+       FROM painel_itens WHERE usuario_id = $1 ORDER BY ordem, created_at DESC`, [req.user.id]);
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.get('/painel/:id/download', async (req, res) => {
+  try {
+    const { rows: [it] } = await query(`SELECT arquivo, filename, mimetype FROM painel_itens WHERE id = $1 AND usuario_id = $2`, [req.params.id, req.user.id]);
+    if (!it || !it.arquivo) return res.status(404).json({ error: 'Arquivo não encontrado.' });
+    res.json({ arquivo: it.arquivo, filename: it.filename, mimetype: it.mimetype });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.post('/painel', async (req, res) => {
+  try {
+    const b = req.body || {};
+    const tipo = PAINEL_TIPOS.includes(b.tipo) ? b.tipo : 'nota';
+    if (tipo === 'documento') {
+      if (typeof b.arquivo !== 'string' || !b.arquivo.startsWith('data:')) return res.status(400).json({ error: 'Envie o documento.' });
+      if (b.arquivo.length > 16 * 1024 * 1024) return res.status(413).json({ error: 'Documento muito grande (máx. ~12MB).' });
+    } else if (!String(b.titulo || '').trim() && !String(b.conteudo || '').trim()) {
+      return res.status(400).json({ error: 'Escreva um título ou conteúdo.' });
+    }
+    const { rows: [it] } = await query(
+      `INSERT INTO painel_itens (usuario_id, tipo, titulo, conteudo, arquivo, filename, mimetype)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       RETURNING id, tipo, titulo, conteudo, filename, mimetype, concluido, ordem, created_at, (arquivo IS NOT NULL) AS tem_arquivo`,
+      [req.user.id, tipo, cut(b.titulo, 200), cut(b.conteudo, 8000), tipo === 'documento' ? b.arquivo : null, cut(b.filename, 160), cut(b.mimetype, 80)]);
+    res.status(201).json(it);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.put('/painel/:id', async (req, res) => {
+  try {
+    const b = req.body || {};
+    const sets = [], params = []; let i = 1;
+    const set = (c, v) => { sets.push(`${c} = $${i++}`); params.push(v); };
+    if (b.titulo !== undefined) set('titulo', cut(b.titulo, 200));
+    if (b.conteudo !== undefined) set('conteudo', cut(b.conteudo, 8000));
+    if (b.concluido !== undefined) set('concluido', !!b.concluido);
+    if (b.ordem !== undefined) set('ordem', parseInt(b.ordem) || 0);
+    if (!sets.length) return res.status(400).json({ error: 'Nada para atualizar.' });
+    params.push(req.user.id, req.params.id);
+    const { rows: [it] } = await query(
+      `UPDATE painel_itens SET ${sets.join(', ')}, updated_at = NOW() WHERE usuario_id = $${i++} AND id = $${i}
+       RETURNING id, tipo, titulo, conteudo, filename, mimetype, concluido, ordem, created_at, (arquivo IS NOT NULL) AS tem_arquivo`, params);
+    if (!it) return res.status(404).json({ error: 'Não encontrado.' });
+    res.json(it);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.delete('/painel/:id', async (req, res) => {
+  try {
+    await query(`DELETE FROM painel_itens WHERE id = $1 AND usuario_id = $2`, [req.params.id, req.user.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 /* ─── ARQUIVOS DAS ABAS (PDF/Word/imagem dentro de cada pasta) ─────────────────── */
 const CHAVES_PASTA = ['fidelidade', 'banco_dados', 'planos_vacinais', 'vacinacao', 'consultas', 'terapias'];
 r.get('/pasta-arquivos', async (req, res) => {

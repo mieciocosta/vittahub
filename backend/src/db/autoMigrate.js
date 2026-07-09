@@ -25,6 +25,17 @@ export default async function runMigrate() {
     await query(`CREATE INDEX IF NOT EXISTS idx_usuarios_lider ON usuarios (lider_id)`).catch(() => {});
     // Meta individual mensal (R$) do liderado — cobrança de meta pessoal.
     await query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS meta_mensal NUMERIC(10,2) DEFAULT 0`).catch(() => {});
+    // Acesso total: vê TODAS as conversas e leads, sem trava de setor (ex.: Danielle).
+    await query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS ve_tudo BOOLEAN DEFAULT false`).catch(() => {});
+    // MEU PAINEL: mural pessoal — notas, tarefas e documentos (por usuário).
+    await query(`CREATE TABLE IF NOT EXISTS painel_itens (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      usuario_id TEXT NOT NULL, tipo TEXT DEFAULT 'nota',
+      titulo TEXT, conteudo TEXT, arquivo TEXT, filename TEXT, mimetype TEXT,
+      concluido BOOLEAN DEFAULT false, ordem INT DEFAULT 0,
+      created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()
+    )`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS idx_painel_user ON painel_itens (usuario_id)`).catch(() => {});
 
     await query(`CREATE TABLE IF NOT EXISTS leads (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
@@ -363,13 +374,13 @@ export default async function runMigrate() {
       console.log('👑 Raylane: líder de equipe (Planejamento)');
     }
 
-    // Danielle: conta HÍBRIDA — acessa vacinas + consultas + terapias (só ela).
-    const { rows: [flagDani] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_danielle_multisetor_v4'");
+    // Danielle: acesso TOTAL — vê tudo e todos os leads sempre (híbrida completa).
+    const { rows: [flagDani] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_danielle_vetudo_v5'");
     if (!flagDani) {
-      await query(`UPDATE usuarios SET setores = '{vacinas,consultas,terapias}', setor = 'consultas', ativo = true
+      await query(`UPDATE usuarios SET setores = '{vacinas,consultas,terapias}', setor = 'consultas', ve_tudo = true, ativo = true
                    WHERE email = 'danielle@vittalissaude.com.br' OR cpf = '61867382300'`).catch(() => {});
-      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_danielle_multisetor_v4', '{"ok":true}') ON CONFLICT DO NOTHING`);
-      console.log('🔓 Danielle: hibrida — vacinas + consultas + terapias');
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_danielle_vetudo_v5', '{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🔓 Danielle: acesso total (vê tudo e todos os leads)');
     }
 
     // ── AUDITORIA + PRESENÇA (admin only) ─────────────────────────────────
