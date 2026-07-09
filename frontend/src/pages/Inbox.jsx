@@ -1780,9 +1780,10 @@ export default function Inbox({ onUnreadChange }) {
           {/* Input bar */}
           <div className="chat-input-bar" style={{ background:'var(--card,#fff)', padding:'9px 12px', borderTop:'1px solid var(--border)', flexShrink:0 }}>
             <div style={{ display:'flex', gap:6, alignItems:'flex-end' }}>
-              <button onClick={sugerirResposta} disabled={!sel || sugerindo} title="✍️ IA sugere uma resposta humanizada (lê a conversa e escreve no seu tom)"
-                className="btn btn-ico tb-ico-color" style={{ '--ic':'#e11d48', color:sugerindo?'#fff':'#e11d48', background:sugerindo?'#e11d48':'rgba(225,29,72,.12)' }}>
-                {sugerindo ? <Loader2 size={17} className="spin"/> : <MessageCircle size={17}/>}
+              <button onClick={sugerirResposta} disabled={!sel || sugerindo} title="Lê a conversa e escreve uma resposta humanizada, no seu tom"
+                className="tb-ico-color" style={{ '--ic':'#e11d48', display:'flex', alignItems:'center', gap:6, padding:'7px 12px', borderRadius:10, cursor: sel?'pointer':'not-allowed', fontSize:12.5, fontWeight:800, whiteSpace:'nowrap',
+                  color: sugerindo?'#fff':'#e11d48', background: sugerindo?'#e11d48':'rgba(225,29,72,.12)', opacity:!sel?.5:1 }}>
+                {sugerindo ? <Loader2 size={16} className="spin"/> : <MessageCircle size={16}/>} {sugerindo ? 'Escrevendo…' : 'IA responde'}
               </button>
               <button onClick={corrigirTexto} disabled={!input.trim() || corrigindo} title="Corrigir ortografia com IA (não muda o tom)"
                 className="btn btn-ico tb-ico-color" style={{ '--ic':'#8b5cf6', color:'#8b5cf6', background:'rgba(139,92,246,.12)', opacity:!input.trim()?.45:1 }}>
