@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Rocket, Users, Trophy, Coins, ClipboardCheck, GraduationCap, Target, Lightbulb, StickyNote, Bell, Plus, X, Check, Trash2, Pencil, CalendarClock, UserPlus, Activity, MessageSquare, Zap, DollarSign, Circle } from 'lucide-react';
+import { Rocket, Users, Trophy, Coins, ClipboardCheck, GraduationCap, Target, Lightbulb, StickyNote, Bell, Plus, X, Check, Trash2, Pencil, CalendarClock, UserPlus, Activity, MessageSquare, Zap, DollarSign, Circle, Calculator, Package, Paperclip, Download, Upload, FileText } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt } from '../hooks/utils.js';
 
@@ -10,6 +10,67 @@ const TIPOS = {
   lembrete:   { label: 'Lembrete',   Icon: Bell,       cor: '#7c3aed' },
 };
 function fmtDia(s) { if (!s) return ''; const d = String(s).slice(0, 10).split('-'); return d.length === 3 ? `${d[2]}/${d[1]}/${d[0]}` : s; }
+
+/* Calculadora simples da líder — 100% client-side, sem eval (máquina de 2 operandos). */
+function Calculadora() {
+  const [disp, setDisp] = React.useState('0');
+  const [prev, setPrev] = React.useState(null);
+  const [op, setOp] = React.useState(null);
+  const [fresh, setFresh] = React.useState(true);
+  const mostra = (n) => { if (!isFinite(n)) return 'Erro'; return String(Math.round(n * 1e8) / 1e8); };
+  const digito = (d) => {
+    setDisp(cur => {
+      if (d === '.') { if (fresh) return '0.'; return cur.includes('.') ? cur : cur + '.'; }
+      if (fresh || cur === '0') return d;
+      return cur.length < 14 ? cur + d : cur;
+    });
+    setFresh(false);
+  };
+  const calc = (a, b, o) => o === '+' ? a + b : o === '−' ? a - b : o === '×' ? a * b : o === '÷' ? (b === 0 ? NaN : a / b) : b;
+  const operar = (o) => {
+    const cur = parseFloat(disp);
+    if (prev !== null && op && !fresh) { const r = calc(prev, cur, op); setPrev(r); setDisp(mostra(r)); }
+    else setPrev(cur);
+    setOp(o); setFresh(true);
+  };
+  const igual = () => {
+    if (prev === null || !op) return;
+    setDisp(mostra(calc(prev, parseFloat(disp), op))); setPrev(null); setOp(null); setFresh(true);
+  };
+  const limpar = () => { setDisp('0'); setPrev(null); setOp(null); setFresh(true); };
+  const apagar = () => setDisp(c => (c.length <= 1 ? '0' : c.slice(0, -1)));
+  const pct = () => { setDisp(c => mostra(parseFloat(c) / 100)); setFresh(true); };
+  const sinal = () => setDisp(c => c.startsWith('-') ? c.slice(1) : (c === '0' ? c : '-' + c));
+  const B = ({ children, onClick, cor, span }) => (
+    <button onClick={onClick} style={{ gridColumn: span ? 'span 2' : 'auto', padding: '13px 0', borderRadius: 11, border: 'none', cursor: 'pointer',
+      fontSize: 17, fontWeight: 800, background: cor || 'var(--bg2)', color: cor ? '#fff' : 'var(--txt)' }}>{children}</button>
+  );
+  return (
+    <div className="card" style={{ padding: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 800, fontSize: 14, marginBottom: 10 }}><Calculator size={17} color="var(--tq2)" /> Calculadora</div>
+      <div style={{ background: 'var(--bg)', borderRadius: 12, padding: '12px 16px', textAlign: 'right', fontWeight: 800, marginBottom: 10, overflow: 'hidden' }}>
+        <div style={{ fontSize: 12.5, color: 'var(--muted)', fontWeight: 700, minHeight: 16 }}>{op && prev !== null ? `${mostra(prev)} ${op}` : ''}</div>
+        <div style={{ fontSize: 30, lineHeight: 1.1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{disp}</div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 7 }}>
+        <B onClick={limpar} cor="#dc2626">C</B>
+        <B onClick={sinal}>±</B>
+        <B onClick={pct}>%</B>
+        <B onClick={() => operar('÷')} cor="#0E8C96">÷</B>
+        {['7', '8', '9'].map(d => <B key={d} onClick={() => digito(d)}>{d}</B>)}
+        <B onClick={() => operar('×')} cor="#0E8C96">×</B>
+        {['4', '5', '6'].map(d => <B key={d} onClick={() => digito(d)}>{d}</B>)}
+        <B onClick={() => operar('−')} cor="#0E8C96">−</B>
+        {['1', '2', '3'].map(d => <B key={d} onClick={() => digito(d)}>{d}</B>)}
+        <B onClick={() => operar('+')} cor="#0E8C96">+</B>
+        <B onClick={() => digito('0')} span>0</B>
+        <B onClick={() => digito('.')}>.</B>
+        <B onClick={igual} cor="#16a34a">=</B>
+      </div>
+      <button onClick={apagar} style={{ marginTop: 7, width: '100%', padding: '8px 0', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--card)', color: 'var(--muted)', cursor: 'pointer', fontWeight: 700, fontSize: 12.5 }}>← Apagar</button>
+    </div>
+  );
+}
 
 /* PLANEJAMENTO — plano de crescimento e bônus da líder. Motiva a formar equipe
    e padronizar o atendimento pra bater a meta e ganhar os bônus. */
@@ -28,12 +89,45 @@ export default function Planejamento() {
   const [liderados, setLiderados] = useState([]);
   const [modalAdd, setModalAdd] = useState(false);
   const [disponiveis, setDisponiveis] = useState([]);
+  const [pacotes, setPacotes] = useState(null);
+  const [anexos, setAnexos] = useState([]);
+  const [subindo, setSubindo] = useState(false);
+  const anexoRef = React.useRef(null);
 
   useEffect(() => { api.get('/extras/planejamento').then(setPlan).catch(() => {}); }, []); // eslint-disable-line
   const loadNotas = () => api.get('/extras/planejamento/notas').then(d => setNotas(Array.isArray(d) ? d : [])).catch(() => setNotas([]));
   useEffect(() => { loadNotas(); }, []); // eslint-disable-line
   const loadLiderados = () => api.get('/extras/planejamento/liderados').then(d => setLiderados(Array.isArray(d) ? d : [])).catch(() => setLiderados([]));
   useEffect(() => { loadLiderados(); const t = setInterval(loadLiderados, 45000); return () => clearInterval(t); }, []); // eslint-disable-line
+  useEffect(() => { api.get('/extras/planejamento/pacotes').then(setPacotes).catch(() => setPacotes({ itens: [] })); }, []); // eslint-disable-line
+  const loadAnexos = () => api.get('/extras/planejamento/anexos').then(d => setAnexos(Array.isArray(d) ? d : [])).catch(() => setAnexos([]));
+  useEffect(() => { loadAnexos(); }, []); // eslint-disable-line
+
+  const subirAnexo = async (e) => {
+    const f = e.target.files?.[0]; e.target.value = '';
+    if (!f) return;
+    if (f.size > 12 * 1024 * 1024) { window.alert('Arquivo muito grande (máx. ~12MB).'); return; }
+    setSubindo(true);
+    try {
+      const dataUrl = await new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = no; r.readAsDataURL(f); });
+      const a = await api.post('/extras/planejamento/anexos', { nome: f.name, tipo: f.type, data_url: dataUrl });
+      setAnexos(p => [a, ...p]);
+    } catch (err) { window.alert(err.message || 'Falha ao anexar.'); }
+    setSubindo(false);
+  };
+  const verAnexo = async (a) => {
+    try {
+      const d = await api.get(`/extras/planejamento/anexos/${a.id}`);
+      const link = document.createElement('a');
+      link.href = d.data_url; link.download = d.nome || 'arquivo';
+      document.body.appendChild(link); link.click(); link.remove();
+    } catch (err) { window.alert(err.message || 'Não foi possível baixar.'); }
+  };
+  const excluirAnexo = async (a) => {
+    if (!window.confirm(`Remover "${a.nome}"?`)) return;
+    setAnexos(p => p.filter(x => x.id !== a.id));
+    try { await api.del(`/extras/planejamento/anexos/${a.id}`); } catch { loadAnexos(); }
+  };
 
   const abrirAdd = () => {
     setModalAdd(true);
@@ -85,9 +179,9 @@ export default function Planejamento() {
   const pct = plan ? Math.min(plan.pct || 0, 100) : 0;
 
   const BONUS = [
-    { Icon: Users, cor: '#00B8C0', titulo: 'Forme e ganhe em cima de cada uma', txt: 'Com 2 pessoas bem treinadas na sua equipe, você passa a ganhar sobre o resultado de cada uma delas. Quanto melhor você treina, mais você fatura junto.' },
-    { Icon: Trophy, cor: '#C4973B', titulo: 'Setor bateu R$ 500 mil no mês', txt: 'Quando o setor alcança R$ 500 mil no mês, você recebe um bônus de R$ 10.000 — e todo mês que bater, ganha de novo.', destaque: 'R$ 10.000 / mês' },
-    { Icon: Coins, cor: '#16a34a', titulo: 'Bônus por cada pessoa liderada', txt: 'Cada pessoa que você lidera e desenvolve gera pra você um bônus de R$ 2.000. Liderar dá resultado no seu bolso.', destaque: 'R$ 2.000 por pessoa' },
+    { Icon: Users, cor: '#00B8C0', titulo: 'Monte seu time de Consultas e Terapias', txt: 'Coloque 2 pessoas bem treinadas em Consultas e Terapias e ganhe em cima do resultado de cada uma. Quanto melhor você treina, mais você fatura junto.' },
+    { Icon: Trophy, cor: '#C4973B', titulo: 'Setor bateu R$ 500 mil no mês', txt: 'Quando o setor alcança R$ 500 mil no mês, você — como supervisora — recebe R$ 10.000. E todo mês que bater, ganha de novo.', destaque: 'R$ 10.000 / mês' },
+    { Icon: Coins, cor: '#16a34a', titulo: 'Cada liderado ganha também', txt: 'Batendo a meta do setor, cada pessoa que você lidera recebe R$ 2.000 no mês. Time motivado é resultado que se paga.', destaque: 'R$ 2.000 por liderado' },
   ];
 
   return (
@@ -311,6 +405,87 @@ export default function Planejamento() {
             })}
           </div>
         )}
+      </div>
+
+      {/* Sugestões de pacotes — a partir dos valores reais já praticados no setor */}
+      <div style={{ marginTop: 22 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 800, fontSize: 17, marginBottom: 4 }}><Package size={18} color="var(--tq2)" /> Sugestões de pacotes</div>
+        <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12 }}>Montadas a partir do <b>ticket médio real</b> do setor{pacotes?.setor ? ` (${pacotes.setor})` : ''} nos últimos meses. Use como ponto de partida e ajuste no atendimento.</div>
+        {!pacotes ? (
+          <div className="card" style={{ padding: 20, color: 'var(--muted)' }}>Carregando…</div>
+        ) : !(pacotes.itens || []).length ? (
+          <div className="card" style={{ padding: 28, textAlign: 'center', color: 'var(--muted)' }}>
+            <Package size={28} color="var(--border)" style={{ marginBottom: 8 }} />
+            <div style={{ fontWeight: 700 }}>Ainda não há vendas suficientes pra sugerir pacotes.</div>
+            <div style={{ fontSize: 12.5, marginTop: 4 }}>Conforme o setor registra vendas, as sugestões aparecem aqui sozinhas.</div>
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(280px,1fr))', gap: 12 }}>
+            {pacotes.itens.map((it, idx) => {
+              const base = it.valor_medio || 0;
+              const tiers = [
+                { rot: 'Avulso', qtd: 1, off: 0 },
+                { rot: 'Pacote mensal (4x)', qtd: 4, off: 0.05 },
+                { rot: 'Intensivo (8x)', qtd: 8, off: 0.10 },
+              ];
+              return (
+                <div key={idx} className="card" style={{ padding: '15px 17px', borderTop: '3px solid #0E8C96' }}>
+                  <div style={{ fontWeight: 800, fontSize: 14.5, marginBottom: 2 }}>{it.servico}</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 10 }}>ticket médio {fmt.brl(base)} · {it.qtd} venda{it.qtd === 1 ? '' : 's'}</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                    {tiers.map(t => {
+                      const total = base * t.qtd * (1 - t.off);
+                      return (
+                        <div key={t.rot} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg2)', borderRadius: 9, padding: '8px 11px' }}>
+                          <div>
+                            <div style={{ fontSize: 12.5, fontWeight: 700 }}>{t.rot}</div>
+                            {t.off > 0 && <div style={{ fontSize: 10.5, color: '#16a34a', fontWeight: 700 }}>{Math.round(t.off * 100)}% à vista</div>}
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--tq2)' }}>{fmt.brl(total)}</div>
+                            {t.qtd > 1 && <div style={{ fontSize: 10, color: 'var(--muted)' }}>{fmt.brl(total / t.qtd)}/sessão</div>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Ferramentas da líder: calculadora + anexos */}
+      <div style={{ marginTop: 22, display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(300px,1fr))', gap: 14, alignItems: 'start' }}>
+        <Calculadora />
+        <div className="card" style={{ padding: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 800, fontSize: 14 }}><Paperclip size={17} color="var(--tq2)" /> Anexos {anexos.length > 0 && <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>({anexos.length})</span>}</div>
+            <button onClick={() => anexoRef.current?.click()} disabled={subindo} className="btn btn-p btn-sm" style={{ gap: 6 }}><Upload size={14} /> {subindo ? 'Enviando…' : 'Anexar'}</button>
+            <input ref={anexoRef} type="file" style={{ display: 'none' }} onChange={subirAnexo} />
+          </div>
+          {anexos.length === 0 ? (
+            <div style={{ padding: '18px 6px', textAlign: 'center', color: 'var(--muted)', fontSize: 12.5 }}>
+              <FileText size={26} color="var(--border)" style={{ marginBottom: 6 }} />
+              <div>Anexe documentos, tabelas, contratos — o que precisar guardar aqui.</div>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+              {anexos.map(a => (
+                <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 9, background: 'var(--bg2)', borderRadius: 9, padding: '8px 11px' }}>
+                  <FileText size={16} color="var(--tq2)" style={{ flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.nome}</div>
+                    <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>{a.tamanho ? `~${Math.max(1, Math.round(a.tamanho / 1024))} KB` : ''}{a.created_at ? ` · ${new Date(a.created_at).toLocaleDateString('pt-BR')}` : ''}</div>
+                  </div>
+                  <button onClick={() => verAnexo(a)} title="Abrir" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><Download size={15} /></button>
+                  <button onClick={() => excluirAnexo(a)} title="Remover" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><Trash2 size={15} /></button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Modal criar/editar */}

@@ -344,6 +344,69 @@ r.delete('/planejamento/notas/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* ─── Planejamento: sugestões de pacotes a partir dos valores já praticados ─────
+   Agrupa as vendas do setor da líder (últimos meses) por serviço e devolve o
+   ticket médio + volume. A montagem dos pacotes (avulso/mensal/intensivo) é feita
+   no front, a partir desses valores reais — nada de número inventado. */
+r.get('/planejamento/pacotes', async (req, res) => {
+  try {
+    if (!podePlan(req)) return res.status(403).json({ error: 'Acesso restrito.' });
+    const setor = ['vacinas', 'consultas', 'terapias'].includes(req.user.setor) ? req.user.setor : 'vacinas';
+    const { rows } = await query(
+      `SELECT COALESCE(NULLIF(TRIM(servico), ''), NULLIF(TRIM(categoria), ''), 'Serviço') AS servico,
+              ROUND(AVG(valor)::numeric, 2)::float AS valor_medio,
+              COUNT(*)::int AS qtd
+         FROM vendas
+        WHERE COALESCE(setor, 'vacinas') = $1 AND valor > 0
+          AND data_venda >= (CURRENT_DATE - INTERVAL '120 days')
+        GROUP BY 1
+        ORDER BY qtd DESC, valor_medio DESC
+        LIMIT 6`, [setor]);
+    res.json({ setor, itens: rows });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* ─── Planejamento: anexos (documentos) da líder — arquivo em base64 ──────────── */
+r.get('/planejamento/anexos', async (req, res) => {
+  try {
+    if (!podePlan(req)) return res.status(403).json({ error: 'Acesso restrito.' });
+    const { rows } = await query(
+      `SELECT id, nome, tipo, created_at, LENGTH(data_url) AS tamanho
+         FROM planejamento_anexos WHERE usuario_id = $1 ORDER BY created_at DESC`, [req.user.id]);
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+r.get('/planejamento/anexos/:id', async (req, res) => {
+  try {
+    if (!podePlan(req)) return res.status(403).json({ error: 'Acesso restrito.' });
+    const { rows: [a] } = await query(
+      `SELECT nome, tipo, data_url FROM planejamento_anexos WHERE usuario_id = $1 AND id = $2`, [req.user.id, req.params.id]);
+    if (!a) return res.status(404).json({ error: 'Não encontrado.' });
+    res.json(a);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+r.post('/planejamento/anexos', async (req, res) => {
+  try {
+    if (!podePlan(req)) return res.status(403).json({ error: 'Acesso restrito.' });
+    const b = req.body || {};
+    const dataUrl = String(b.data_url || '');
+    if (!dataUrl.startsWith('data:')) return res.status(400).json({ error: 'Arquivo inválido.' });
+    if (dataUrl.length > 16 * 1024 * 1024) return res.status(413).json({ error: 'Arquivo muito grande (máx. ~12MB).' });
+    const { rows: [a] } = await query(
+      `INSERT INTO planejamento_anexos (usuario_id, nome, tipo, data_url)
+       VALUES ($1,$2,$3,$4) RETURNING id, nome, tipo, created_at`,
+      [req.user.id, cut(b.nome, 200) || 'arquivo', cut(b.tipo, 100), dataUrl]);
+    res.status(201).json(a);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+r.delete('/planejamento/anexos/:id', async (req, res) => {
+  try {
+    if (!podePlan(req)) return res.status(403).json({ error: 'Acesso restrito.' });
+    await query('DELETE FROM planejamento_anexos WHERE usuario_id = $1 AND id = $2', [req.user.id, req.params.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 /* ─── Liderados: o líder cadastra sua equipe e vê o que cada um fez no dia ──────
    Proatividade (mensagens, atendimentos, ações), presença e metas (vendas). */
 

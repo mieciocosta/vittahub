@@ -554,6 +554,16 @@ export default async function runMigrate() {
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS idx_plannotas_user ON planejamento_notas (usuario_id)`).catch(() => {});
+    // ANEXOS do planejamento (documentos da líder) — arquivo guardado em base64 (data URL).
+    await query(`CREATE TABLE IF NOT EXISTS planejamento_anexos (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      usuario_id TEXT,
+      nome TEXT,
+      tipo TEXT,
+      data_url TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS idx_plananexos_user ON planejamento_anexos (usuario_id)`).catch(() => {});
     // PERDAS: lead marcado como perdido (motivo obrigatório) — alimenta relatórios.
     await query(`CREATE TABLE IF NOT EXISTS perdas (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
