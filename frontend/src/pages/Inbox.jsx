@@ -1024,6 +1024,18 @@ export default function Inbox({ onUnreadChange }) {
     finally { setCorrigindo(false); textRef.current?.focus(); }
   };
 
+  // IA humanizada: lê a conversa e escreve a próxima mensagem no tom da atendente
+  const [sugerindo, setSugerindo] = useState(false);
+  const sugerirResposta = async () => {
+    if (!sel || sugerindo) return;
+    setSugerindo(true);
+    try {
+      const d = await api.post(`/inbox/conversations/${sel.id}/sugerir-resposta`, {});
+      if (d?.mensagem) { setInput(d.mensagem); textRef.current?.focus(); }
+    } catch (e) { Toast.show(e.message, 'error'); }
+    finally { setSugerindo(false); }
+  };
+
   const handlePaste = (e) => {
     const item = Array.from(e.clipboardData?.items || []).find(i => i.type.startsWith('image/'));
     if (!item) return; // texto cola normal
@@ -1768,6 +1780,10 @@ export default function Inbox({ onUnreadChange }) {
           {/* Input bar */}
           <div className="chat-input-bar" style={{ background:'var(--card,#fff)', padding:'9px 12px', borderTop:'1px solid var(--border)', flexShrink:0 }}>
             <div style={{ display:'flex', gap:6, alignItems:'flex-end' }}>
+              <button onClick={sugerirResposta} disabled={!sel || sugerindo} title="✍️ IA sugere uma resposta humanizada (lê a conversa e escreve no seu tom)"
+                className="btn btn-ico tb-ico-color" style={{ '--ic':'#e11d48', color:sugerindo?'#fff':'#e11d48', background:sugerindo?'#e11d48':'rgba(225,29,72,.12)' }}>
+                {sugerindo ? <Loader2 size={17} className="spin"/> : <MessageCircle size={17}/>}
+              </button>
               <button onClick={corrigirTexto} disabled={!input.trim() || corrigindo} title="Corrigir ortografia com IA (não muda o tom)"
                 className="btn btn-ico tb-ico-color" style={{ '--ic':'#8b5cf6', color:'#8b5cf6', background:'rgba(139,92,246,.12)', opacity:!input.trim()?.45:1 }}>
                 {corrigindo ? <Loader2 size={17} className="spin"/> : <Sparkles size={17}/>}

@@ -3511,6 +3511,34 @@ r.post('/conversations/:id/enviar-documento', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* ─── IA HUMANIZADA: lê a conversa e sugere a resposta inicial da atendente ─────
+   Escreve como PESSOA (não robô), no tom da atendente, conforme o setor e o que
+   o cliente disse. Volta um rascunho pra atendente revisar e enviar. */
+r.post('/conversations/:id/sugerir-resposta', async (req, res) => {
+  try {
+    if (!process.env.OPENAI_API_KEY) return res.status(400).json({ error: 'IA não configurada.' });
+    const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
+    if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso a esta conversa.' });
+    const t = await montarTranscriptConversa(req.params.id, 25);
+    if (!t) return res.status(400).json({ error: 'Sem conversa pra ler.' });
+    const primeiro = (req.user.nome || '').split(' ')[0] || 'atendente';
+    const setor = conv.setor || setorEfetivo(conv) || '';
+    const CTX = {
+      vacinas: 'vacinação (avulsas, planos vacinais, aplicação em casa)',
+      consultas: 'consultas pediátricas e especializadas',
+      terapias: 'terapias (fono, psico, terapia ocupacional, etc.)',
+    }[setor] || 'saúde (vacinas, consultas e terapias)';
+    const sys = `Você é ${primeiro}, uma atendente HUMANA da clínica Vittalis Saúde, no setor de ${CTX}. Você fala com clientes pelo WhatsApp. Escreva a PRÓXIMA mensagem que você (${primeiro}) mandaria — do jeito que uma pessoa de verdade escreve: calorosa, natural, gentil e objetiva. Regras: em português do Brasil; NADA de som de robô, script decorado ou formalidade fria; use o nome do cliente se aparecer; responda ao que a pessoa realmente disse/pediu; no máximo 1 emoji leve e só se combinar; não invente preços, datas nem informações que não estão na conversa (se precisar do valor, diga que já vai verificar/passar); 2 a 4 linhas no máximo. Responda SOMENTE com o texto da mensagem, sem aspas e sem explicações.`;
+    const user = `Conversa até aqui (cliente: ${conv.contact_name || 'cliente'}):\n\n${t.transcript}\n\nEscreva a sua próxima mensagem pra esse cliente.`;
+    const data = await openaiMessages({ model: 'gpt-4o-mini', max_tokens: 320, system: sys, messages: [{ role: 'user', content: user }] });
+    if (data.error) return res.status(400).json({ error: data.error.message || 'Erro na IA.' });
+    let msg = (data.content?.find(c => c.type === 'text')?.text || '').trim().replace(/^["'"]|["'"]$/g, '');
+    if (!msg) return res.status(400).json({ error: 'A IA não retornou sugestão. Tente de novo.' });
+    res.json({ mensagem: msg });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ─── UPLOAD FILE ──────────────────────────────────────────────────────────────
 r.post('/conversations/:id/upload', upload.single('file'), async (req, res) => {
   try {
