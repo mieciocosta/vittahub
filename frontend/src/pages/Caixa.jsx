@@ -172,7 +172,11 @@ export default function Caixa() {
 
   const total = filtrada.reduce((s, v) => s + (parseFloat(v.valor) || 0), 0);
   const totalDesc = filtrada.reduce((s, v) => s + (parseFloat(v.desconto) || 0), 0);
-  const totalRepasse = filtrada.reduce((s, v) => s + (parseFloat(v.repasse) || 0), 0);
+  // Repasse = 1% sobre cada venda (padrão automático). Gestão ainda pode ajustar
+  // manualmente uma venda específica; nesse caso o valor definido prevalece sobre o 1%.
+  const TAXA_REPASSE = 0.01;
+  const repasseDe = (v) => { const m = parseFloat(v.repasse) || 0; return m > 0 ? m : (parseFloat(v.valor) || 0) * TAXA_REPASSE; };
+  const totalRepasse = filtrada.reduce((s, v) => s + repasseDe(v), 0);
   const liquido = total - totalRepasse;
   const comComp = filtrada.filter(v => (v.n_comprovantes || 0) > 0).length;
   const conferidas = filtrada.filter(v => v.conferido).length;
@@ -195,7 +199,6 @@ export default function Caixa() {
   const recebido = filtrada.filter(v => RECEBIDO_ST.includes(v.status_pagamento)).reduce((s, v) => s + (parseFloat(v.valor) || 0), 0);
   const aReceber = filtrada.filter(v => ARECEBER_ST.includes(v.status_pagamento)).reduce((s, v) => s + (parseFloat(v.valor) || 0), 0);
   const nAReceber = filtrada.filter(v => ARECEBER_ST.includes(v.status_pagamento)).length;
-  const ticket = filtrada.length ? total / filtrada.length : 0;
   // Saldo real do caixa: entrou (recebido) − saiu (despesas + repasses)
   const saidas = despTotal + totalRepasse;
   const saldo = recebido - saidas;
@@ -225,7 +228,7 @@ export default function Caixa() {
       fmtData(v.data_venda), v.cliente_nome, v.paciente_nome, v.setor, v.categoria, v.servico,
       v.forma_pagamento, (STATUS_INFO[v.status_pagamento]?.label || v.status_pagamento),
       (parseFloat(v.valor) || 0).toFixed(2).replace('.', ','), (parseFloat(v.desconto) || 0).toFixed(2).replace('.', ','),
-      (parseFloat(v.repasse) || 0).toFixed(2).replace('.', ','),
+      repasseDe(v).toFixed(2).replace('.', ','),
       v.atendente_nome, v.conferido ? 'Sim' : 'Nao', (v.n_comprovantes || 0) > 0 ? `Sim (${v.n_comprovantes})` : 'Nao',
     ].map(esc).join(';'));
     const csv = '﻿' + [head.map(esc).join(';'), ...linhas].join('\n');
@@ -240,7 +243,7 @@ export default function Caixa() {
       <td>${fmtData(v.data_venda)}</td><td>${v.cliente_nome || v.paciente_nome || '—'}</td>
       <td>${v.setor || '—'}</td><td>${v.servico || v.categoria || '—'}</td>
       <td>${v.forma_pagamento || '—'}</td><td>${STATUS_INFO[v.status_pagamento]?.label || v.status_pagamento || '—'}</td>
-      <td style="text-align:right">${fmt.brl(v.valor)}</td><td style="text-align:right">${parseFloat(v.repasse) > 0 ? fmt.brl(v.repasse) : '—'}</td><td style="text-align:center">${v.conferido ? '✓' : ''}</td></tr>`).join('');
+      <td style="text-align:right">${fmt.brl(v.valor)}</td><td style="text-align:right">${fmt.brl(repasseDe(v))}</td><td style="text-align:center">${v.conferido ? '✓' : ''}</td></tr>`).join('');
     const resumoForma = formasOrdenadas.map(([f, val]) => `<span style="margin-right:16px"><b>${f}:</b> ${fmt.brl(val)}</span>`).join('');
     w.document.write(`<html><head><title>Caixa ${mes}</title><meta charset="utf-8">
       <style>body{font-family:Arial,Helvetica,sans-serif;color:#111;padding:26px}h1{color:#065f46;margin:0 0 4px}
@@ -259,7 +262,6 @@ export default function Caixa() {
         <span class="box"><b>A receber:</b> ${fmt.brl(aReceber)}</span>
         <span class="box"><b>Repasse:</b> ${fmt.brl(totalRepasse)}</span>
         <span class="box"><b>Líquido:</b> ${fmt.brl(liquido)}</span>
-        <span class="box"><b>Ticket médio:</b> ${fmt.brl(ticket)}</span>
         <span class="box"><b>Descontos:</b> ${fmt.brl(totalDesc)}</span>
         <span class="box"><b>Bônus (1% c/ comprovante):</b> ${fmt.brl(bonus)}</span>
         <span class="box"><b>Sem comprovante:</b> ${semComprovante}</span>
@@ -325,7 +327,7 @@ export default function Caixa() {
         </div>
         <div style={{ display: 'flex', gap: 22, marginTop: 16, flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <div><div style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: .6, opacity: .8 }}>Total vendido{gestao ? '' : ' (suas)'}</div><div style={{ fontSize: 22, fontWeight: 900, color: '#a7f3d0' }}>{fmt.brl(total)}</div></div>
-          {gestao && <div><div style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: .6, opacity: .8 }}>Repasse</div><div style={{ fontSize: 22, fontWeight: 900, color: '#fca5a5' }}>{fmt.brl(totalRepasse)}</div></div>}
+          {gestao && <div><div style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: .6, opacity: .8 }}>Repasse (1%)</div><div style={{ fontSize: 22, fontWeight: 900, color: '#fca5a5' }}>{fmt.brl(totalRepasse)}</div></div>}
           {gestao && <div><div style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: .6, opacity: .8 }}>Líquido</div><div style={{ fontSize: 22, fontWeight: 900, color: '#fde68a' }}>{fmt.brl(liquido)}</div></div>}
           <div><div style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: .6, opacity: .8 }}>Vendas</div><div style={{ fontSize: 22, fontWeight: 900 }}>{filtrada.length}</div></div>
           <div><div style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: .6, opacity: .8 }}>C/ comprovante</div><div style={{ fontSize: 20, fontWeight: 900, color: '#c7d2fe' }}>{comComp}/{filtrada.length}</div></div>
@@ -360,7 +362,6 @@ export default function Caixa() {
           {[
             { rot: 'Recebido', val: fmt.brl(recebido), cor: '#16a34a', sub: 'pago / cortesia' },
             { rot: 'A receber', val: fmt.brl(aReceber), cor: '#d97706', sub: `${nAReceber} pendente(s)`, click: 'areceber', destaque: aReceber > 0 },
-            { rot: 'Ticket médio', val: fmt.brl(ticket), cor: 'var(--tq2)', sub: `${filtrada.length} venda(s)` },
             ...(gestao ? [{ rot: 'Bônus (1%)', val: fmt.brl(bonus), cor: '#C4973B', sub: 'só vendas c/ comprovante' }] : []),
             ...(gestao ? [{ rot: 'Saídas', val: fmt.brl(saidas), cor: '#dc2626', sub: 'despesas + repasse' }] : []),
             ...(gestao ? [{ rot: 'Saldo', val: fmt.brl(saldo), cor: saldo >= 0 ? '#0891b2' : '#dc2626', sub: 'recebido − saídas', destaque: false }] : []),
@@ -516,8 +517,9 @@ export default function Caixa() {
                         </div>
                       ) : (
                         <button onClick={() => setEditRepasse({ id: v.id, valor: parseFloat(v.repasse) ? String(v.repasse).replace('.', ',') : '' })}
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, marginLeft: 'auto', color: parseFloat(v.repasse) > 0 ? '#b45309' : 'var(--light)', fontWeight: 800, fontSize: 13.5 }}>
-                          {parseFloat(v.repasse) > 0 ? fmt.brl(v.repasse) : 'definir'} <Pencil size={11} style={{ opacity: .6 }} />
+                          title={parseFloat(v.repasse) > 0 ? 'Repasse ajustado manualmente — clique para editar' : 'Repasse automático (1% da venda) — clique para ajustar'}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, marginLeft: 'auto', color: parseFloat(v.repasse) > 0 ? '#b45309' : 'var(--muted)', fontWeight: 800, fontSize: 13.5 }}>
+                          {fmt.brl(repasseDe(v))} <Pencil size={11} style={{ opacity: .6 }} />
                         </button>
                       )}
                     </div>
