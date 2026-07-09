@@ -199,8 +199,11 @@ export default function Caixa() {
   // Saldo real do caixa: entrou (recebido) − saiu (despesas + repasses)
   const saidas = despTotal + totalRepasse;
   const saldo = recebido - saidas;
-  // Bônus: 1% em cima de cada venda realizada (recebida)
-  const bonus = recebido * 0.01;
+  // Bônus: 1% SÓ das vendas COM comprovante (venda concluída/comprovada).
+  // Venda sem comprovante NÃO conta pro bônus (pode ter sido registrada antes do pagamento).
+  const baseBonus = filtrada.filter(v => (v.n_comprovantes || 0) > 0).reduce((s, v) => s + (parseFloat(v.valor) || 0), 0);
+  const bonus = baseBonus * 0.01;
+  const semComprovante = filtrada.filter(v => !(v.n_comprovantes || 0)).length;
   // Caixa do DIA: vendas de hoje (dentro do filtro atual)
   const hojeISO = new Date().toISOString().slice(0, 10);
   const vendasHoje = filtrada.filter(v => String(v.data_venda || '').slice(0, 10) === hojeISO);
@@ -258,7 +261,8 @@ export default function Caixa() {
         <span class="box"><b>Líquido:</b> ${fmt.brl(liquido)}</span>
         <span class="box"><b>Ticket médio:</b> ${fmt.brl(ticket)}</span>
         <span class="box"><b>Descontos:</b> ${fmt.brl(totalDesc)}</span>
-        <span class="box"><b>Bônus (1%):</b> ${fmt.brl(bonus)}</span>
+        <span class="box"><b>Bônus (1% c/ comprovante):</b> ${fmt.brl(bonus)}</span>
+        <span class="box"><b>Sem comprovante:</b> ${semComprovante}</span>
         <span class="box"><b>Conferidas:</b> ${conferidas}/${filtrada.length}</span>
       </div>
       <script>window.onload=()=>window.print()</script></body></html>`);
@@ -274,11 +278,16 @@ export default function Caixa() {
     const aRecDia = dia.filter(v => ARECEBER_ST.includes(v.status_pagamento)).reduce((s, v) => s + (parseFloat(v.valor) || 0), 0);
     const formaDia = {}; dia.forEach(v => { const f = ['Pix', 'Cartão', 'Dinheiro'].includes(v.forma_pagamento) ? v.forma_pagamento : 'Outros'; formaDia[f] = (formaDia[f] || 0) + (parseFloat(v.valor) || 0); });
     const resumoForma = Object.entries(formaDia).map(([f, val]) => `<span style="margin-right:16px"><b>${f}:</b> ${fmt.brl(val)}</span>`).join('') || '—';
-    const linhas = dia.map(v => `<tr>
+    const bonusDia = dia.filter(v => (v.n_comprovantes || 0) > 0).reduce((s, v) => s + (parseFloat(v.valor) || 0), 0) * 0.01;
+    const semCompDia = dia.filter(v => !(v.n_comprovantes || 0)).length;
+    const linhas = dia.map(v => {
+      const semC = !(v.n_comprovantes || 0);
+      return `<tr${semC ? ' style="background:#fef3c7"' : ''}>
       <td>${v.cliente_nome || v.paciente_nome || '—'}</td><td>${v.setor || '—'}</td>
       <td>${v.servico || v.categoria || '—'}</td><td>${v.forma_pagamento || '—'}</td>
       <td>${STATUS_INFO[v.status_pagamento]?.label || v.status_pagamento || '—'}</td>
-      <td style="text-align:right">${fmt.brl(v.valor)}</td>${gestao ? `<td>${(v.atendente_nome || '').split(' ')[0]}</td>` : ''}</tr>`).join('');
+      <td style="text-align:right">${fmt.brl(v.valor)}</td><td style="text-align:center">${semC ? '⚠ confirmar' : '✓'}</td>${gestao ? `<td>${(v.atendente_nome || '').split(' ')[0]}</td>` : ''}</tr>`;
+    }).join('');
     const hojeFmt = new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' });
     w.document.write(`<html><head><title>Caixa do dia</title><meta charset="utf-8">
       <style>body{font-family:Arial,Helvetica,sans-serif;color:#111;padding:26px}h1{color:#065f46;margin:0 0 4px}
@@ -289,13 +298,14 @@ export default function Caixa() {
       <h1>Caixa do dia — Vittalis Saúde</h1>
       <div class="sub">${hojeFmt}${setor ? ' · setor ' + setor : ''} · ${dia.length} venda(s)</div>
       <div class="forma"><b>Por forma de pagamento:</b><br/>${resumoForma}</div>
-      <table><thead><tr><th>Cliente</th><th>Setor</th><th>Serviço</th><th>Pagamento</th><th>Status</th><th>Valor</th>${gestao ? '<th>Atendente</th>' : ''}</tr></thead>
-      <tbody>${linhas || `<tr><td colspan="${gestao ? 7 : 6}" style="text-align:center;color:#888">Nenhuma venda hoje ainda.</td></tr>`}</tbody></table>
+      <table><thead><tr><th>Cliente</th><th>Setor</th><th>Serviço</th><th>Pagamento</th><th>Status</th><th>Valor</th><th>Comprov.</th>${gestao ? '<th>Atendente</th>' : ''}</tr></thead>
+      <tbody>${linhas || `<tr><td colspan="${gestao ? 8 : 7}" style="text-align:center;color:#888">Nenhuma venda hoje ainda.</td></tr>`}</tbody></table>
+      ${semCompDia ? `<div style="margin-top:10px;padding:8px 12px;background:#fef3c7;border-radius:8px;font-size:12.5px;color:#92400e"><b>⚠ ${semCompDia} venda(s) sem comprovante</b> — confirmar se foram concluídas (não entram no bônus).</div>` : ''}
       <div class="tot">
         <span class="box"><b>Total do dia:</b> ${fmt.brl(totDia)}</span>
         <span class="box"><b>Recebido:</b> ${fmt.brl(recDia)}</span>
         <span class="box"><b>A receber:</b> ${fmt.brl(aRecDia)}</span>
-        ${gestao ? `<span class="box"><b>Bônus (1%):</b> ${fmt.brl(recDia * 0.01)}</span>` : ''}
+        ${gestao ? `<span class="box"><b>Bônus (1% c/ comprovante):</b> ${fmt.brl(bonusDia)}</span>` : ''}
       </div>
       <script>window.onload=()=>window.print()</script></body></html>`);
     w.document.close();
@@ -351,7 +361,7 @@ export default function Caixa() {
             { rot: 'Recebido', val: fmt.brl(recebido), cor: '#16a34a', sub: 'pago / cortesia' },
             { rot: 'A receber', val: fmt.brl(aReceber), cor: '#d97706', sub: `${nAReceber} pendente(s)`, click: 'areceber', destaque: aReceber > 0 },
             { rot: 'Ticket médio', val: fmt.brl(ticket), cor: 'var(--tq2)', sub: `${filtrada.length} venda(s)` },
-            ...(gestao ? [{ rot: 'Bônus (1%)', val: fmt.brl(bonus), cor: '#C4973B', sub: '1% de cada venda' }] : []),
+            ...(gestao ? [{ rot: 'Bônus (1%)', val: fmt.brl(bonus), cor: '#C4973B', sub: 'só vendas c/ comprovante' }] : []),
             ...(gestao ? [{ rot: 'Saídas', val: fmt.brl(saidas), cor: '#dc2626', sub: 'despesas + repasse' }] : []),
             ...(gestao ? [{ rot: 'Saldo', val: fmt.brl(saldo), cor: saldo >= 0 ? '#0891b2' : '#dc2626', sub: 'recebido − saídas', destaque: false }] : []),
           ].map(t => {
@@ -475,6 +485,11 @@ export default function Caixa() {
                       <span style={{ fontWeight: 800, fontSize: 14.5 }}>{v.cliente_nome || v.paciente_nome || 'Cliente'}</span>
                       <span style={{ fontSize: 10, fontWeight: 800, color: cor, background: cor + '18', borderRadius: 20, padding: '2px 8px' }}>{v.setor || '—'}</span>
                       <span style={{ fontSize: 10, fontWeight: 800, color: st.cor, background: st.bg, borderRadius: 20, padding: '2px 8px' }}>{st.label}</span>
+                      {!(v.n_comprovantes || 0) && (
+                        <span title="Registrada sem comprovante — confirme se a venda foi concluída. Não entra no bônus." style={{ fontSize: 10, fontWeight: 800, color: '#92400e', background: '#fef3c7', borderRadius: 20, padding: '2px 8px', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                          <AlertTriangle size={11} /> confirmar conclusão
+                        </span>
+                      )}
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
                       {v.servico || v.categoria}{v.forma_pagamento ? ` · ${v.forma_pagamento}` : ''} · {fmtData(v.data_venda)}{v.atendente_nome ? ` · ${v.atendente_nome.split(' ')[0]}` : ''}
