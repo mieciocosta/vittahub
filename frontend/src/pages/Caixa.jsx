@@ -27,6 +27,7 @@ export default function Caixa() {
   const api = useApi();
   const { user } = useAuth();
   const gestao = user?.role === 'master' || user?.role === 'supervisor';
+  const veRepasse = gestao || user?.role === 'atendente'; // atendente enxerga o próprio repasse (1%)
   const [lista, setLista] = useState([]);
   const [carregando, setCarregando] = useState(true);
   const [mes, setMes] = useState(mesAtual());
@@ -172,10 +173,15 @@ export default function Caixa() {
 
   const total = filtrada.reduce((s, v) => s + (parseFloat(v.valor) || 0), 0);
   const totalDesc = filtrada.reduce((s, v) => s + (parseFloat(v.desconto) || 0), 0);
-  // Repasse = 1% sobre cada venda (padrão automático). Gestão ainda pode ajustar
+  // Repasse (comissão) é da função "atendente": 1% sobre cada venda feita por um atendente.
+  // Assim vale para a Danielle e para quem entrar como atendente. Gestão ainda pode ajustar
   // manualmente uma venda específica; nesse caso o valor definido prevalece sobre o 1%.
   const TAXA_REPASSE = 0.01;
-  const repasseDe = (v) => { const m = parseFloat(v.repasse) || 0; return m > 0 ? m : (parseFloat(v.valor) || 0) * TAXA_REPASSE; };
+  const repasseDe = (v) => {
+    const m = parseFloat(v.repasse) || 0;
+    if (m > 0) return m;
+    return v.atendente_role === 'atendente' ? (parseFloat(v.valor) || 0) * TAXA_REPASSE : 0;
+  };
   const totalRepasse = filtrada.reduce((s, v) => s + repasseDe(v), 0);
   const liquido = total - totalRepasse;
   const comComp = filtrada.filter(v => (v.n_comprovantes || 0) > 0).length;
@@ -335,7 +341,7 @@ export default function Caixa() {
         </div>
         <div style={{ display: 'flex', gap: 22, marginTop: 16, flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <div><div style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: .6, opacity: .8 }}>Total vendido{gestao ? '' : ' (suas)'}</div><div style={{ fontSize: 22, fontWeight: 900, color: '#a7f3d0' }}>{fmt.brl(total)}</div></div>
-          {gestao && <div><div style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: .6, opacity: .8 }}>Repasse (1%)</div><div style={{ fontSize: 22, fontWeight: 900, color: '#fca5a5' }}>{fmt.brl(totalRepasse)}</div></div>}
+          {veRepasse && <div><div style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: .6, opacity: .8 }}>{gestao ? 'Repasse (1%)' : 'Seu repasse (1%)'}</div><div style={{ fontSize: 22, fontWeight: 900, color: '#fca5a5' }}>{fmt.brl(totalRepasse)}</div></div>}
           {gestao && <div><div style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: .6, opacity: .8 }}>Líquido</div><div style={{ fontSize: 22, fontWeight: 900, color: '#fde68a' }}>{fmt.brl(liquido)}</div></div>}
           <div><div style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: .6, opacity: .8 }}>Vendas</div><div style={{ fontSize: 22, fontWeight: 900 }}>{filtrada.length}</div></div>
           <div><div style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: .6, opacity: .8 }}>C/ comprovante</div><div style={{ fontSize: 20, fontWeight: 900, color: '#c7d2fe' }}>{comComp}/{filtrada.length}</div></div>

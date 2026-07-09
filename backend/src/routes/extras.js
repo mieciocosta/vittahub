@@ -730,6 +730,7 @@ r.get('/vendas', async (req, res) => {
              v.cliente_nome, v.paciente_nome, v.servico, v.valor, v.desconto, v.forma_pagamento,
              v.status_pagamento, v.data_venda, v.data_atendimento, v.origem, v.observacao,
              v.conferido, v.conferido_em, v.conferido_por, v.repasse,
+             (SELECT u.role FROM usuarios u WHERE u.id = v.atendente_id) AS atendente_role,
              COALESCE((SELECT COUNT(*) FROM venda_comprovantes c WHERE c.venda_id = v.id),0)::int n_comprovantes,
              v.created_at, v.updated_at
       FROM vendas v ${where} ORDER BY v.data_venda DESC, v.created_at DESC LIMIT 500`, params);
