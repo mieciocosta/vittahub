@@ -386,6 +386,22 @@ export default async function runMigrate() {
       console.log('🔓 Danielle: acesso total (vê tudo e todos os leads)');
     }
 
+    // Novas atendentes (híbridas: vacinas + consultas + terapias). Login por CPF,
+    // senha padrão Vittalis@2026 (trocam depois no sistema).
+    const { rows: [flagNovas] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_novas_atendentes_v1'");
+    if (!flagNovas) {
+      const bcryptN = await import('bcryptjs');
+      const hashN = await bcryptN.default.hash('Vittalis@2026', 10);
+      await query(`INSERT INTO usuarios (id, nome, email, cpf, senha, role, cor, ativo, setor, setores)
+        VALUES (gen_random_uuid()::text, 'Fernanda Costa Moraes', 'fernanda.costa@vittahub.local', '06105959389', $1, 'atendente', '#ec4899', true, 'consultas', '{vacinas,consultas,terapias}')
+        ON CONFLICT (email) DO NOTHING`, [hashN]).catch((e) => console.error('seed Fernanda:', e.message));
+      await query(`INSERT INTO usuarios (id, nome, email, cpf, senha, role, cor, ativo, setor, setores)
+        VALUES (gen_random_uuid()::text, 'Steicy Kamilly Alves', 'steicy.alves@vittahub.local', '62339059313', $1, 'atendente', '#14b8a6', true, 'consultas', '{vacinas,consultas,terapias}')
+        ON CONFLICT (email) DO NOTHING`, [hashN]).catch((e) => console.error('seed Steicy:', e.message));
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_novas_atendentes_v1', '{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🌱 Novas atendentes híbridas: Fernanda + Steicy');
+    }
+
     // ── AUDITORIA + PRESENÇA (admin only) ─────────────────────────────────
     await query(`CREATE TABLE IF NOT EXISTS audit_logs (
       id SERIAL PRIMARY KEY, usuario_id TEXT, usuario_nome TEXT, acao TEXT NOT NULL,
