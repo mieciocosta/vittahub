@@ -501,6 +501,12 @@ export default async function runMigrate() {
       UNIQUE (usuario_id, data)
     )`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS idx_quizresp_data ON quiz_respostas (data)`).catch(() => {});
+    // BANCO DE DOCUMENTOS: docs que a equipe envia ao cliente no dia a dia (PDF/Word/imagem)
+    await query(`CREATE TABLE IF NOT EXISTS documentos_banco (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      nome TEXT, arquivo TEXT, mimetype TEXT,
+      criado_por TEXT, criado_por_id TEXT, created_at TIMESTAMPTZ DEFAULT NOW()
+    )`).catch(() => {});
     // MENSAGENS AGENDADAS: disparo automático de mensagem pro cliente em data/hora
     await query(`CREATE TABLE IF NOT EXISTS mensagens_agendadas (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,

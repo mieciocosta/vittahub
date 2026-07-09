@@ -3446,6 +3446,71 @@ r.delete('/agendadas/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* ─── BANCO DE DOCUMENTOS: docs prontos pra enviar ao cliente em 1 clique ──────── */
+r.get('/documentos', async (req, res) => {
+  try {
+    const { rows } = await query(`SELECT id, nome, mimetype, criado_por, criado_por_id, created_at FROM documentos_banco ORDER BY created_at DESC LIMIT 200`);
+    res.json(rows.map(d => ({ ...d, meu: d.criado_por_id === req.user.id })));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.post('/documentos', async (req, res) => {
+  try {
+    const b = req.body || {};
+    if (typeof b.arquivo !== 'string' || !b.arquivo.startsWith('data:')) return res.status(400).json({ error: 'Envie o documento (PDF, Word, imagem).' });
+    if (b.arquivo.length > 16 * 1024 * 1024) return res.status(413).json({ error: 'Documento muito grande (máx. ~12MB).' });
+    const { rows: [d] } = await query(
+      `INSERT INTO documentos_banco (nome, arquivo, mimetype, criado_por, criado_por_id) VALUES ($1,$2,$3,$4,$5) RETURNING id, nome, mimetype, criado_por, criado_por_id, created_at`,
+      [String(b.nome || 'Documento').slice(0, 160), b.arquivo, String(b.mimetype || '').slice(0, 80), req.user.nome, req.user.id]);
+    res.status(201).json({ ...d, meu: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.delete('/documentos/:id', async (req, res) => {
+  try {
+    const { rows: [d] } = await query(`SELECT criado_por_id FROM documentos_banco WHERE id = $1`, [req.params.id]);
+    if (!d) return res.status(404).json({ error: 'Documento não encontrado.' });
+    const gestaoU = ['master', 'supervisor'].includes(req.user.role);
+    if (!gestaoU && d.criado_por_id !== req.user.id) return res.status(403).json({ error: 'Você só exclui os documentos que adicionou.' });
+    await query(`DELETE FROM documentos_banco WHERE id = $1`, [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Envia um documento do banco pro cliente da conversa
+r.post('/conversations/:id/enviar-documento', async (req, res) => {
+  try {
+    const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
+    if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso a esta conversa.' });
+    const { rows: [doc] } = await query(`SELECT nome, arquivo, mimetype FROM documentos_banco WHERE id = $1`, [(req.body || {}).docId]);
+    if (!doc) return res.status(404).json({ error: 'Documento não encontrado.' });
+    const ehImg = String(doc.mimetype || '').startsWith('image');
+    const tipo = ehImg ? 'image' : 'document';
+    const { rows: [msg] } = await query(
+      `INSERT INTO mensagens (conversa_id, from_type, type, content, filename, mimetype, sender_id, sender_nome, status)
+       VALUES ($1,'me',$2,$3,$4,$5,$6,$7,'sent') RETURNING *`,
+      [req.params.id, tipo, doc.arquivo, doc.nome, doc.mimetype, req.user.id, req.user.nome]);
+    const preview = ehImg ? '📷 Imagem' : `📎 ${doc.nome}`;
+    const { rows: [convUpd] } = await query("UPDATE conversas SET last_message=$1, last_from='me', last_message_at=NOW(), bot_ativo=false WHERE id=$2 RETURNING *", [preview, req.params.id]);
+    if (convUpd) cacheUpdate(convUpd);
+    socketEmit('new_message', { convId: req.params.id, message: msg, conv: convUpd || conv });
+    // Envio pelo WhatsApp
+    if (conv.channel === 'whatsapp' && zapiOk()) {
+      const waNumber = conv.contact_id ? conv.contact_id.replace('@s.whatsapp.net', '') : `55${conv.phone}`;
+      const phone55 = waNumber.startsWith('55') ? waNumber : `55${waNumber}`;
+      try {
+        if (ehImg) await zapiCall('/send-image', 'POST', { phone: phone55, image: doc.arquivo, caption: '' });
+        else {
+          const ext = (doc.nome.split('.').pop() || 'pdf').toLowerCase().slice(0, 5);
+          await zapiCall(`/send-document/${ext}`, 'POST', { phone: phone55, document: doc.arquivo, fileName: doc.nome });
+        }
+      } catch (e) { console.error('enviar-documento WA:', e.message); }
+    }
+    res.json(msg);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ─── UPLOAD FILE ──────────────────────────────────────────────────────────────
 r.post('/conversations/:id/upload', upload.single('file'), async (req, res) => {
   try {

@@ -829,6 +829,33 @@ export default function Inbox({ onUnreadChange }) {
 
   useEffect(() => { api.get('/inbox/quick-replies').then(setQr).catch(() => {}); }, []);
   const [qrNovo, setQrNovo] = useState(null);
+
+  // Banco de documentos (enviar em 1 clique ao cliente)
+  const [showDocs, setShowDocs] = useState(false);
+  const [docs, setDocs] = useState([]);
+  const docFileRef = useRef(null);
+  const [docEnviando, setDocEnviando] = useState(null);
+  useEffect(() => { api.get('/inbox/documentos').then(d => setDocs(Array.isArray(d) ? d : [])).catch(() => {}); }, []);
+  const anexarDoc = async (e) => {
+    const f = e.target.files?.[0]; e.target.value = ''; if (!f) return;
+    const url = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f); });
+    if (url.length > 15_500_000) { Toast.show('Documento muito grande (máx. ~12MB)', 'error'); return; }
+    try { const d = await api.post('/inbox/documentos', { nome: f.name, arquivo: url, mimetype: f.type }); setDocs(p => [d, ...p]); Toast.show('Documento salvo no banco! 📄', 'success'); }
+    catch (err) { Toast.show(err.message, 'error'); }
+  };
+  const enviarDoc = async (d) => {
+    if (!sel) return;
+    setDocEnviando(d.id);
+    try { await api.post(`/inbox/conversations/${sel.id}/enviar-documento`, { docId: d.id }); setShowDocs(false); Toast.show('Documento enviado! 📎', 'success'); }
+    catch (err) { Toast.show(err.message, 'error'); }
+    setDocEnviando(null);
+  };
+  const excluirDoc = async (d, e) => {
+    e.stopPropagation();
+    if (!window.confirm(`Excluir "${d.nome}" do banco?`)) return;
+    setDocs(p => p.filter(x => x.id !== d.id));
+    try { await api.del(`/inbox/documentos/${d.id}`); } catch (err) { Toast.show(err.message, 'error'); api.get('/inbox/documentos').then(setDocs).catch(() => {}); }
+  };
   const salvarQrNovo = async () => {
     if (!qrNovo?.titulo.trim() || !qrNovo?.texto.trim()) return;
     try {
@@ -1657,6 +1684,34 @@ export default function Inbox({ onUnreadChange }) {
             </div>
           )}
 
+          {/* Banco de documentos — envie os principais ao cliente em 1 clique */}
+          {showDocs && (
+            <div style={{ background:'var(--card,#fff)', borderTop:'1px solid var(--border)', padding:'8px 12px', flexShrink:0 }}>
+              <input ref={docFileRef} type="file" accept="application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,image/*" style={{ display:'none' }} onChange={anexarDoc} />
+              <div style={{ display:'flex', gap:6, flexWrap:'wrap', maxHeight:110, overflowY:'auto', alignItems:'flex-start' }}>
+                <button onClick={()=>docFileRef.current?.click()}
+                  style={{ padding:'6px 12px', borderRadius:9, background:'var(--card,#fff)', color:'#0d9488', border:'1.5px dashed #0d9488', fontSize:12, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:5 }}>
+                  <Plus size={12}/> Adicionar documento
+                </button>
+                {docs.length === 0 && <span style={{ fontSize:12, color:'var(--muted)', alignSelf:'center' }}>Nenhum documento ainda. Adicione os que você mais envia (tabela de preços, protocolos, contrato…).</span>}
+                {docs.map(d=>{
+                  const podeExcluir = d.meu || gestaoUser;
+                  return (
+                    <span key={d.id} style={{ display:'inline-flex', alignItems:'center', background:'rgba(13,148,136,.12)', border:'1px solid rgba(13,148,136,.25)', borderRadius:9, overflow:'hidden', maxWidth:210 }}>
+                      <button onClick={()=>enviarDoc(d)} disabled={docEnviando===d.id || !sel} title={sel ? `Enviar "${d.nome}" ao cliente` : 'Abra uma conversa'}
+                        style={{ padding:'6px 6px 6px 11px', background:'none', color:'#0d9488', border:'none', fontSize:12, fontWeight:700, cursor: sel?'pointer':'not-allowed', display:'flex', alignItems:'center', gap:5, minWidth:0 }}>
+                        <FileText size={13} style={{ flexShrink:0 }}/>
+                        <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{docEnviando===d.id ? 'Enviando…' : d.nome}</span>
+                      </button>
+                      {podeExcluir && <button onClick={(e)=>excluirDoc(d,e)} title="Excluir do banco" style={{ padding:'6px 8px 6px 3px', background:'none', border:'none', color:'#0d9488', opacity:.55, cursor:'pointer', display:'flex' }}><X size={11}/></button>}
+                    </span>
+                  );
+                })}
+              </div>
+              <div style={{ fontSize:10.5, color:'var(--muted)', marginTop:6 }}>💡 Clique num documento pra enviar ao cliente da conversa aberta.</div>
+            </div>
+          )}
+
           {/* Preview de arquivo (imagem / vídeo / PDF) */}
           {filePreview && (
             <div style={{ background:'var(--bg)', borderTop:'1px solid var(--border)', padding:'10px 12px', flexShrink:0, display:'flex', alignItems:'center', gap:10 }}>
@@ -1725,6 +1780,8 @@ export default function Inbox({ onUnreadChange }) {
                 className="btn btn-ico tb-ico-color" style={{ '--ic':'#00B8C0', color:showQR?'#fff':'#0891b2', background:showQR?'#00B8C0':'rgba(0,184,192,.14)' }}><Zap size={17}/></button>
               <button onClick={()=>setShowBib(true)} title="Biblioteca de Experiências (fotos, vídeos, figurinhas)"
                 className="btn btn-ico tb-ico-color" style={{ '--ic':'#ec4899', color:'#ec4899', background:'rgba(236,72,153,.12)' }}><Image size={17}/></button>
+              <button onClick={()=>{setShowDocs(p=>!p);setShowQR(false);setShowEmoji(false);}} title="Banco de documentos — envie os principais em 1 clique"
+                className="btn btn-ico tb-ico-color" style={{ '--ic':'#0d9488', color:showDocs?'#fff':'#0d9488', background:showDocs?'#0d9488':'rgba(13,148,136,.13)' }}><FileText size={17}/></button>
               <button onClick={()=>setShowAgendarMsg(true)} title="⏰ Agendar mensagem — escolha o dia e a hora pra disparar pro cliente"
                 className="btn btn-ico tb-ico-color" style={{ '--ic':'#7c3aed', color:'#7c3aed', background:'rgba(124,58,237,.13)' }}><Clock size={17}/></button>
               <Calculadora />
