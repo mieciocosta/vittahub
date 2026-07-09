@@ -262,13 +262,11 @@ r.get('/meta-setor', async (req, res) => {
       // Topo = primeiro setor (compat com quem lê os campos direto); porSetor separa cada um.
       return res.json({ ...porSetor[0], porSetor, multi: porSetor.length > 1 });
     }
-    // Master / sem setor → geral (soma de todos)
-    const { rows: [r3] } = await query(`SELECT COALESCE(SUM(valor) FILTER (WHERE ${METfilter}),0)::float conf FROM vendas WHERE ${mesCol}`);
-    const metaTot = ['vacinas', 'consultas', 'terapias'].reduce((s, k) => s + (parseFloat(metaV[k]) || 0), 0);
-    const conf = r3?.conf || 0;
-    const geral = { setor: 'geral', confirmado: conf, meta: metaTot, pct: metaTot ? +((conf / metaTot) * 100).toFixed(1) : 0, falta: Math.max(metaTot - conf, 0),
-      metaGlobal: META_GLOBAL, pctGlobal: +((conf / META_GLOBAL) * 100).toFixed(1), faltaGlobal: Math.max(META_GLOBAL - conf, 0) };
-    res.json({ ...geral, porSetor: [geral], multi: false });
+    // Master / sem setor → mostra CADA setor separado (cada um tem sua meta e produção);
+    // nada de "Geral" que mistura vacinas com consultas/terapias.
+    const porSetor = [];
+    for (const s of ['vacinas', 'consultas', 'terapias']) porSetor.push(await confDe(s));
+    res.json({ ...porSetor[0], porSetor, multi: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

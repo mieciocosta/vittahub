@@ -129,6 +129,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
   const { user, setUser, logout, isMaster } = useAuth();
 
   const [showAvatarBuilder, setShowAvatarBuilder] = useState(false);
+  const [paletaAberta, setPaletaAberta] = useState(false);
   const avatarFileRef = useRef(null);
   // Foto de perfil: reduz no navegador (128px jpeg) e salva no próprio usuário
   const trocarAvatar = (e) => {
@@ -455,53 +456,48 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
           </div>
         )}
 
-        {/* Paleta de cores — escolha manual ou "Cor do dia" automática */}
-        {!collapsed && paletaCores.length > 0 && (
-          <div style={{ marginTop:8, padding:'9px 10px', borderRadius:12, background:'rgba(255,255,255,.1)', border:'1px solid rgba(255,255,255,.16)' }}>
-            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:7 }}>
-              <span style={{ fontSize:10, fontWeight:800, color:'rgba(255,255,255,.82)', textTransform:'uppercase', letterSpacing:.5 }}>🎨 Cor do CRM</span>
-              <button
-                onClick={() => onSetCorDia && onSetCorDia('auto')}
-                title="Trocar automaticamente a cada dia"
-                style={{ fontSize:9.5, fontWeight:800, padding:'2px 7px', borderRadius:20, cursor:'pointer',
-                  border: corDia === 'auto' ? '1px solid #fff' : '1px solid rgba(255,255,255,.3)',
-                  background: corDia === 'auto' ? 'rgba(255,255,255,.9)' : 'transparent',
-                  color: corDia === 'auto' ? '#0a1622' : 'rgba(255,255,255,.85)' }}>
-                Cor do dia
-              </button>
-            </div>
-            <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
-              {paletaCores.map((c, i) => {
-                const ativo = String(corDia) === String(i);
-                return (
-                  <button key={i} onClick={() => onSetCorDia && onSetCorDia(String(i))} title={c.nome}
-                    style={{ width:22, height:22, borderRadius:'50%', cursor:'pointer', padding:0,
-                      background:c.tq,
-                      border: ativo ? '2px solid #fff' : '2px solid rgba(255,255,255,.25)',
-                      boxShadow: ativo ? '0 0 0 2px rgba(255,255,255,.35)' : 'none',
-                      transition:'transform .12s' }}
-                    onMouseEnter={e => e.currentTarget.style.transform='scale(1.15)'}
-                    onMouseLeave={e => e.currentTarget.style.transform='scale(1)'} />
-                );
-              })}
-            </div>
+        {/* Paleta de cores — compacta: 1 linha, abre só ao clicar (não rouba espaço do menu) */}
+        {!collapsed && paletaCores.length > 0 && (() => {
+          const corAtual = corDia === 'auto' || corDia === 'off' ? null : paletaCores[parseInt(corDia)];
+          return (
+          <div style={{ marginTop:8, borderRadius:12, background:'rgba(255,255,255,.08)', border:'1px solid rgba(255,255,255,.14)', overflow:'hidden' }}>
+            <button onClick={() => setPaletaAberta(a => !a)}
+              style={{ width:'100%', display:'flex', alignItems:'center', gap:7, padding:'7px 10px', background:'none', border:'none', cursor:'pointer', color:'#fff' }}>
+              <span style={{ width:15, height:15, borderRadius:'50%', flexShrink:0, background: corAtual?.tq || 'conic-gradient(#00B8C0,#7c3aed,#f59e0b,#16a34a,#00B8C0)', border:'1.5px solid rgba(255,255,255,.5)' }} />
+              <span style={{ fontSize:11, fontWeight:800, flex:1, textAlign:'left', color:'rgba(255,255,255,.9)' }}>Cor do CRM</span>
+              <span style={{ fontSize:9, fontWeight:700, color:'rgba(255,255,255,.6)' }}>{corDia === 'auto' ? 'do dia' : (corAtual?.nome || '')}</span>
+              {paletaAberta ? <ChevronDown size={13} color="rgba(255,255,255,.7)" /> : <ChevronRight size={13} color="rgba(255,255,255,.7)" />}
+            </button>
+            {paletaAberta && (
+              <div style={{ padding:'0 10px 10px' }}>
+                <button onClick={() => onSetCorDia && onSetCorDia('auto')} title="Trocar automaticamente a cada dia"
+                  style={{ fontSize:9.5, fontWeight:800, padding:'3px 9px', borderRadius:20, cursor:'pointer', marginBottom:8,
+                    border: corDia === 'auto' ? '1px solid #fff' : '1px solid rgba(255,255,255,.3)',
+                    background: corDia === 'auto' ? 'rgba(255,255,255,.9)' : 'transparent',
+                    color: corDia === 'auto' ? '#0a1622' : 'rgba(255,255,255,.85)' }}>
+                  ✨ Cor do dia (automático)
+                </button>
+                <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+                  {paletaCores.map((c, i) => {
+                    const ativo = String(corDia) === String(i);
+                    return (
+                      <button key={i} onClick={() => onSetCorDia && onSetCorDia(String(i))} title={c.nome}
+                        style={{ width:20, height:20, borderRadius:'50%', cursor:'pointer', padding:0, background:c.tq,
+                          border: ativo ? '2px solid #fff' : '2px solid rgba(255,255,255,.25)',
+                          boxShadow: ativo ? '0 0 0 2px rgba(255,255,255,.35)' : 'none', transition:'transform .12s' }}
+                        onMouseEnter={e => e.currentTarget.style.transform='scale(1.15)'}
+                        onMouseLeave={e => e.currentTarget.style.transform='scale(1)'} />
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
-        )}
+          );
+        })()}
       </div>
-      {!collapsed && metaMini && metaMini.metaGlobal > 0 && (
-        <div style={{ margin:'0 12px 8px', padding:'10px 13px', borderRadius:13, background:'rgba(255,255,255,.14)', border:'1px solid rgba(255,255,255,.22)' }}>
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:5 }}>
-            <span style={{ fontSize:10.5, fontWeight:800, color:'#fff' }}>🎯 Meta {metaMini.setor==='geral'?'geral':metaMini.setor[0].toUpperCase()+metaMini.setor.slice(1)}</span>
-            <span style={{ fontSize:13, fontWeight:800, color:'#fff' }}>{Math.round(metaMini.pctGlobal||0)}%</span>
-          </div>
-          <div style={{ height:7, borderRadius:6, background:'rgba(255,255,255,.25)', overflow:'hidden' }}>
-            <div style={{ width:`${Math.min(metaMini.pctGlobal||0,100)}%`, height:'100%', background:'#fff', borderRadius:6 }} />
-          </div>
-          <div style={{ fontSize:9.5, color:'rgba(255,255,255,.78)', marginTop:4 }}>
-            {Number(metaMini.confirmado).toLocaleString('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:0})} / {Number(metaMini.metaGlobal).toLocaleString('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:0})}
-          </div>
-        </div>
-      )}
+      {/* Meta agora fica só no Placar do topo (por setor). Removida daqui pra dar
+         destaque ao menu e não duplicar a informação. */}
       {!collapsed && (
         <div style={{ margin:'0 12px 10px', padding:'10px 13px', borderRadius:13, background:'rgba(255,255,255,.14)', border:'1px solid rgba(255,255,255,.22)' }}>
           <div style={{ fontSize:11.5, fontWeight:800, color:'#fff', marginBottom:3 }}>{saudDia}, {(user?.nome||'').split(' ')[0]}! ☀️</div>
