@@ -10,6 +10,7 @@ import { useSearchParams } from 'react-router-dom';
 import { fmt, openWA, avatarGrad } from '../hooks/utils.js';
 import { Toast } from '../hooks/toast.js';
 import PropostaModal from '../components/PropostaModal.jsx';
+import TerapiaOrcamentoModal from '../components/TerapiaOrcamentoModal.jsx';
 import Calculadora from '../components/Calculadora.jsx';
 import Copiloto from '../components/Copiloto.jsx';
 
@@ -499,6 +500,7 @@ export default function Inbox({ onUnreadChange }) {
   useEffect(() => { somRef.current = somAtivo; localStorage.setItem('vh_sound', somAtivo ? 'on' : 'off'); }, [somAtivo]);
   useEffect(() => { localStorage.setItem('vh_ia_aberta', showAI ? 'on' : 'off'); }, [showAI]);
   const [showProposta, setShowProposta] = useState(false);
+  const [showTerapia, setShowTerapia] = useState(false);
   const [showBib, setShowBib] = useState(false);
   const [bibAba, setBibAba] = useState('foto');
   const [showAgendar, setShowAgendar] = useState(false);
@@ -1635,7 +1637,7 @@ export default function Inbox({ onUnreadChange }) {
             <div style={{ display:'flex', gap:6, padding:'8px 14px 0', overflowX:'auto', flexShrink:0 }}>
               {[
                 ['📅','Agendar', ()=>setShowAgendar(true)],
-                ['💰','Orçamento', ()=>setShowProposta(true)],
+                ['💰','Orçamento', ()=> sel?.setor === 'terapias' ? setShowTerapia(true) : setShowProposta(true)],
                 ['📷','Experiência', ()=>{setBibAba('foto');setShowBib(true);}],
                 ['🎁','Indicação', ()=>setShowIndicar(true)],
                 ['📋','Dados', ()=>{setShowInfo(p=>!p);setShowAI(false);}],
@@ -1847,6 +1849,10 @@ export default function Inbox({ onUnreadChange }) {
       {showProposta && sel && (
         <PropostaModal convId={sel.id} token={token} contactName={sel.contact_name} atendente={user?.nome}
           onClose={txt=>{setShowProposta(false);if(txt)setMsgs(p=>[...p,{id:Date.now(),from_type:'me',type:'text',content:txt,created_at:new Date().toISOString(),status:'sent',sender_nome:user?.nome}]);}}/>
+      )}
+
+      {showTerapia && sel && (
+        <TerapiaOrcamentoModal contactName={sel.contact_name} atendente={user?.nome} onClose={()=>setShowTerapia(false)} />
       )}
 
       {transfOpen && sel && (
