@@ -195,6 +195,14 @@ export default function Caixa() {
   const formaIcone = { Pix: '⚡', 'Cartão': '💳', Dinheiro: '💵', Outros: '🔗' };
   const formasOrdenadas = [...formasFixas, ...(fech.Outros.v > 0 ? ['Outros'] : [])].map(f => [f, fech[f].v]);
 
+  // Vendas POR SETOR (quantas e quanto cada setor fez)
+  const porSetor = { vacinas: { v: 0, n: 0 }, consultas: { v: 0, n: 0 }, terapias: { v: 0, n: 0 }, outros: { v: 0, n: 0 } };
+  filtrada.forEach(v => {
+    const s = ['vacinas', 'consultas', 'terapias'].includes(v.setor) ? v.setor : 'outros';
+    porSetor[s].v += parseFloat(v.valor) || 0; porSetor[s].n += 1;
+  });
+  const setorMeta = { vacinas: { l: '💉 Vacinas', c: '#7c5cbf' }, consultas: { l: '🩺 Consultas', c: '#00B8C0' }, terapias: { l: '🧩 Terapias', c: '#C4973B' }, outros: { l: '📦 Outros', c: '#64748b' } };
+
   // Ferramentas do fechamento
   const recebido = filtrada.filter(v => RECEBIDO_ST.includes(v.status_pagamento)).reduce((s, v) => s + (parseFloat(v.valor) || 0), 0);
   const aReceber = filtrada.filter(v => ARECEBER_ST.includes(v.status_pagamento)).reduce((s, v) => s + (parseFloat(v.valor) || 0), 0);
@@ -352,6 +360,22 @@ export default function Caixa() {
                 <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>{formaIcone[f]} {f}</div>
                 <div style={{ fontSize: 17, fontWeight: 900, color: cor }}>{fmt.brl(val)}</div>
                 <div style={{ fontSize: 10.5, color: 'var(--light)' }}>{fech[f].n} venda(s) · {total > 0 ? Math.round((val / total) * 100) : 0}%</div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Vendas por SETOR */}
+        <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5, margin: '14px 0 9px', paddingTop: 12, borderTop: '1px solid var(--border)' }}>🏷️ Vendas por setor</div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          {['vacinas', 'consultas', 'terapias', ...(porSetor.outros.n ? ['outros'] : [])].map(s => {
+            const m = setorMeta[s]; const d = porSetor[s];
+            return (
+              <div key={s} onClick={() => setSetor(s === 'outros' ? '' : (setor === s ? '' : s))} title={s !== 'outros' ? 'Filtrar por este setor' : ''}
+                style={{ flex: '1 1 150px', minWidth: 140, background: setor === s ? m.c + '18' : 'var(--bg2)', borderRadius: 11, padding: '9px 13px', borderLeft: `3px solid ${m.c}`, cursor: s !== 'outros' ? 'pointer' : 'default', border: setor === s ? `1.5px solid ${m.c}` : '1.5px solid transparent' }}>
+                <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>{m.l}</div>
+                <div style={{ fontSize: 17, fontWeight: 900, color: m.c }}>{fmt.brl(d.v)}</div>
+                <div style={{ fontSize: 10.5, color: 'var(--light)' }}>{d.n} venda(s) · {total > 0 ? Math.round((d.v / total) * 100) : 0}%</div>
               </div>
             );
           })}
