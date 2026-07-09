@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Wallet, Paperclip, FileText, X, Check, Download, Eye, Search, Filter, Image as ImageIcon, CheckCircle2, Circle, FileSpreadsheet, Printer, Sparkles, AlertTriangle, Pencil, HandCoins, TrendingDown, TrendingUp, Plus, Trash2 } from 'lucide-react';
+import { Wallet, Paperclip, FileText, X, Check, Download, Eye, Search, Filter, Image as ImageIcon, CheckCircle2, Circle, FileSpreadsheet, Printer, Sparkles, AlertTriangle, Pencil, HandCoins, TrendingDown, TrendingUp, Plus, Trash2, CalendarCheck, Gift } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt } from '../hooks/utils.js';
 
@@ -199,6 +199,11 @@ export default function Caixa() {
   // Saldo real do caixa: entrou (recebido) − saiu (despesas + repasses)
   const saidas = despTotal + totalRepasse;
   const saldo = recebido - saidas;
+  // Bônus: 1% em cima de cada venda realizada (recebida)
+  const bonus = recebido * 0.01;
+  // Caixa do DIA: vendas de hoje (dentro do filtro atual)
+  const hojeISO = new Date().toISOString().slice(0, 10);
+  const vendasHoje = filtrada.filter(v => String(v.data_venda || '').slice(0, 10) === hojeISO);
 
   // Filtro rápido afeta só a LISTA exibida — os totais do fechamento continuam do mês inteiro
   const listaExibida = filtrada.filter(v => {
@@ -253,7 +258,44 @@ export default function Caixa() {
         <span class="box"><b>Líquido:</b> ${fmt.brl(liquido)}</span>
         <span class="box"><b>Ticket médio:</b> ${fmt.brl(ticket)}</span>
         <span class="box"><b>Descontos:</b> ${fmt.brl(totalDesc)}</span>
+        <span class="box"><b>Bônus (1%):</b> ${fmt.brl(bonus)}</span>
         <span class="box"><b>Conferidas:</b> ${conferidas}/${filtrada.length}</span>
+      </div>
+      <script>window.onload=()=>window.print()</script></body></html>`);
+    w.document.close();
+  };
+
+  // Caixa do DIA — fechamento em PDF só das vendas de hoje
+  const exportarCaixaDia = () => {
+    const w = window.open('', '_blank'); if (!w) return;
+    const dia = vendasHoje;
+    const totDia = dia.reduce((s, v) => s + (parseFloat(v.valor) || 0), 0);
+    const recDia = dia.filter(v => RECEBIDO_ST.includes(v.status_pagamento)).reduce((s, v) => s + (parseFloat(v.valor) || 0), 0);
+    const aRecDia = dia.filter(v => ARECEBER_ST.includes(v.status_pagamento)).reduce((s, v) => s + (parseFloat(v.valor) || 0), 0);
+    const formaDia = {}; dia.forEach(v => { const f = ['Pix', 'Cartão', 'Dinheiro'].includes(v.forma_pagamento) ? v.forma_pagamento : 'Outros'; formaDia[f] = (formaDia[f] || 0) + (parseFloat(v.valor) || 0); });
+    const resumoForma = Object.entries(formaDia).map(([f, val]) => `<span style="margin-right:16px"><b>${f}:</b> ${fmt.brl(val)}</span>`).join('') || '—';
+    const linhas = dia.map(v => `<tr>
+      <td>${v.cliente_nome || v.paciente_nome || '—'}</td><td>${v.setor || '—'}</td>
+      <td>${v.servico || v.categoria || '—'}</td><td>${v.forma_pagamento || '—'}</td>
+      <td>${STATUS_INFO[v.status_pagamento]?.label || v.status_pagamento || '—'}</td>
+      <td style="text-align:right">${fmt.brl(v.valor)}</td>${gestao ? `<td>${(v.atendente_nome || '').split(' ')[0]}</td>` : ''}</tr>`).join('');
+    const hojeFmt = new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' });
+    w.document.write(`<html><head><title>Caixa do dia</title><meta charset="utf-8">
+      <style>body{font-family:Arial,Helvetica,sans-serif;color:#111;padding:26px}h1{color:#065f46;margin:0 0 4px}
+      .sub{color:#555;font-size:13px;margin-bottom:14px;text-transform:capitalize}table{width:100%;border-collapse:collapse;font-size:12px}
+      th,td{border:1px solid #ddd;padding:6px 8px;text-align:left}th{background:#f0fdf9;color:#065f46}
+      .tot{margin-top:14px;font-size:15px;line-height:1.8}.forma{margin:10px 0;font-size:13px}
+      .box{display:inline-block;border:1px solid #ddd;border-radius:8px;padding:8px 14px;margin:4px 8px 4px 0}</style></head><body>
+      <h1>Caixa do dia — Vittalis Saúde</h1>
+      <div class="sub">${hojeFmt}${setor ? ' · setor ' + setor : ''} · ${dia.length} venda(s)</div>
+      <div class="forma"><b>Por forma de pagamento:</b><br/>${resumoForma}</div>
+      <table><thead><tr><th>Cliente</th><th>Setor</th><th>Serviço</th><th>Pagamento</th><th>Status</th><th>Valor</th>${gestao ? '<th>Atendente</th>' : ''}</tr></thead>
+      <tbody>${linhas || `<tr><td colspan="${gestao ? 7 : 6}" style="text-align:center;color:#888">Nenhuma venda hoje ainda.</td></tr>`}</tbody></table>
+      <div class="tot">
+        <span class="box"><b>Total do dia:</b> ${fmt.brl(totDia)}</span>
+        <span class="box"><b>Recebido:</b> ${fmt.brl(recDia)}</span>
+        <span class="box"><b>A receber:</b> ${fmt.brl(aRecDia)}</span>
+        ${gestao ? `<span class="box"><b>Bônus (1%):</b> ${fmt.brl(recDia * 0.01)}</span>` : ''}
       </div>
       <script>window.onload=()=>window.print()</script></body></html>`);
     w.document.close();
@@ -280,8 +322,9 @@ export default function Caixa() {
           {gestao && <div><div style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: .6, opacity: .8 }}>Conferidas</div><div style={{ fontSize: 20, fontWeight: 900, color: '#7ee7c7' }}>{conferidas}/{filtrada.length}</div></div>}
           <div style={{ flex: 1 }} />
           <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={exportarCaixaDia} className="btn btn-sm" style={{ gap: 6, background: '#fde68a', color: '#7c2d12', border: 'none', fontWeight: 800 }} title="Fechamento do dia de hoje (PDF)"><CalendarCheck size={14} /> Caixa do dia{vendasHoje.length ? ` (${vendasHoje.length})` : ''}</button>
             <button onClick={exportarCSV} className="btn btn-sm" style={{ gap: 6, background: 'rgba(255,255,255,.92)', color: '#065f46', border: 'none', fontWeight: 800 }} title="Exportar planilha (CSV)"><FileSpreadsheet size={14} /> Planilha</button>
-            <button onClick={exportarPDF} className="btn btn-sm" style={{ gap: 6, background: 'rgba(255,255,255,.2)', color: '#fff', border: '1px solid rgba(255,255,255,.4)', fontWeight: 800 }} title="Gerar PDF / imprimir"><Printer size={14} /> PDF</button>
+            <button onClick={exportarPDF} className="btn btn-sm" style={{ gap: 6, background: 'rgba(255,255,255,.2)', color: '#fff', border: '1px solid rgba(255,255,255,.4)', fontWeight: 800 }} title="Gerar PDF do mês / imprimir"><Printer size={14} /> PDF do mês</button>
           </div>
         </div>
       </div>
@@ -308,6 +351,7 @@ export default function Caixa() {
             { rot: 'Recebido', val: fmt.brl(recebido), cor: '#16a34a', sub: 'pago / cortesia' },
             { rot: 'A receber', val: fmt.brl(aReceber), cor: '#d97706', sub: `${nAReceber} pendente(s)`, click: 'areceber', destaque: aReceber > 0 },
             { rot: 'Ticket médio', val: fmt.brl(ticket), cor: 'var(--tq2)', sub: `${filtrada.length} venda(s)` },
+            ...(gestao ? [{ rot: 'Bônus (1%)', val: fmt.brl(bonus), cor: '#C4973B', sub: '1% de cada venda' }] : []),
             ...(gestao ? [{ rot: 'Saídas', val: fmt.brl(saidas), cor: '#dc2626', sub: 'despesas + repasse' }] : []),
             ...(gestao ? [{ rot: 'Saldo', val: fmt.brl(saldo), cor: saldo >= 0 ? '#0891b2' : '#dc2626', sub: 'recebido − saídas', destaque: false }] : []),
           ].map(t => {
