@@ -40,6 +40,9 @@ export default function Equipe() {
       socket = io(BASE || undefined, { auth: { token: localStorage.getItem('vh_token') } });
       socket.on('chat_interno', (m) => {
         loadContatos();
+        // Minha própria mensagem já foi adicionada localmente (otimista) — o eco
+        // do socket duplicaria. Só processo mensagens de OUTRA pessoa.
+        if (m.de_id === user?.id) return;
         if (sel && (m.de_id === sel.id || m.para_id === sel.id)) setMsgs(p => p.some(x => x.id === m.id) ? p : [...p, m]);
       });
     }).catch(() => {});
