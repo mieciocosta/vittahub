@@ -363,13 +363,13 @@ export default async function runMigrate() {
       console.log('👑 Raylane: líder de equipe (Planejamento)');
     }
 
-    // Danielle: acesso a CONSULTAS E TERAPIAS (só ela) — não vê mais vacinas.
-    const { rows: [flagDani] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_danielle_multisetor_v3'");
+    // Danielle: conta HÍBRIDA — acessa vacinas + consultas + terapias (só ela).
+    const { rows: [flagDani] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_danielle_multisetor_v4'");
     if (!flagDani) {
-      await query(`UPDATE usuarios SET setores = '{consultas,terapias}', setor = 'consultas', ativo = true
+      await query(`UPDATE usuarios SET setores = '{vacinas,consultas,terapias}', setor = 'consultas', ativo = true
                    WHERE email = 'danielle@vittalissaude.com.br' OR cpf = '61867382300'`).catch(() => {});
-      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_danielle_multisetor_v3', '{"ok":true}') ON CONFLICT DO NOTHING`);
-      console.log('🔓 Danielle: consultas + terapias (conta ajustada)');
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_danielle_multisetor_v4', '{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🔓 Danielle: hibrida — vacinas + consultas + terapias');
     }
 
     // ── AUDITORIA + PRESENÇA (admin only) ─────────────────────────────────
