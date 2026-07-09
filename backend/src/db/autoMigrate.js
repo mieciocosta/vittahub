@@ -36,6 +36,9 @@ export default async function runMigrate() {
       created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()
     )`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS idx_painel_user ON painel_itens (usuario_id)`).catch(() => {});
+    // Painel: item tipo 'cliente' aponta pra uma conversa/atendimento (com nota própria)
+    await query(`ALTER TABLE painel_itens ADD COLUMN IF NOT EXISTS ref_id TEXT`).catch(() => {});
+    await query(`ALTER TABLE painel_itens ADD COLUMN IF NOT EXISTS telefone TEXT`).catch(() => {});
 
     await query(`CREATE TABLE IF NOT EXISTS leads (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,

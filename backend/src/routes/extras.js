@@ -609,11 +609,11 @@ r.get('/quiz/ranking', async (req, res) => {
 
 /* ─── MEU PAINEL: mural pessoal (notas, tarefas e documentos) ───────────────────
    Cada um monta o seu mural. Privado por usuário. */
-const PAINEL_TIPOS = ['nota', 'tarefa', 'documento'];
+const PAINEL_TIPOS = ['nota', 'tarefa', 'documento', 'cliente'];
 r.get('/painel', async (req, res) => {
   try {
     const { rows } = await query(
-      `SELECT id, tipo, titulo, conteudo, filename, mimetype, concluido, ordem, created_at,
+      `SELECT id, tipo, titulo, conteudo, filename, mimetype, concluido, ordem, ref_id, telefone, created_at,
               (arquivo IS NOT NULL) AS tem_arquivo
        FROM painel_itens WHERE usuario_id = $1 ORDER BY ordem, created_at DESC`, [req.user.id]);
     res.json(rows);
@@ -635,14 +635,16 @@ r.post('/painel', async (req, res) => {
     if (tipo === 'documento') {
       if (typeof b.arquivo !== 'string' || !b.arquivo.startsWith('data:')) return res.status(400).json({ error: 'Envie o documento.' });
       if (b.arquivo.length > 16 * 1024 * 1024) return res.status(413).json({ error: 'Documento muito grande (máx. ~12MB).' });
+    } else if (tipo === 'cliente') {
+      if (!String(b.titulo || '').trim()) return res.status(400).json({ error: 'Cliente sem nome.' });
     } else if (!String(b.titulo || '').trim() && !String(b.conteudo || '').trim()) {
       return res.status(400).json({ error: 'Escreva um título ou conteúdo.' });
     }
     const { rows: [it] } = await query(
-      `INSERT INTO painel_itens (usuario_id, tipo, titulo, conteudo, arquivo, filename, mimetype)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)
-       RETURNING id, tipo, titulo, conteudo, filename, mimetype, concluido, ordem, created_at, (arquivo IS NOT NULL) AS tem_arquivo`,
-      [req.user.id, tipo, cut(b.titulo, 200), cut(b.conteudo, 8000), tipo === 'documento' ? b.arquivo : null, cut(b.filename, 160), cut(b.mimetype, 80)]);
+      `INSERT INTO painel_itens (usuario_id, tipo, titulo, conteudo, arquivo, filename, mimetype, ref_id, telefone)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       RETURNING id, tipo, titulo, conteudo, filename, mimetype, concluido, ordem, ref_id, telefone, created_at, (arquivo IS NOT NULL) AS tem_arquivo`,
+      [req.user.id, tipo, cut(b.titulo, 200), cut(b.conteudo, 8000), tipo === 'documento' ? b.arquivo : null, cut(b.filename, 160), cut(b.mimetype, 80), cut(b.ref_id, 60), cut(b.telefone, 30)]);
     res.status(201).json(it);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -660,7 +662,7 @@ r.put('/painel/:id', async (req, res) => {
     params.push(req.user.id, req.params.id);
     const { rows: [it] } = await query(
       `UPDATE painel_itens SET ${sets.join(', ')}, updated_at = NOW() WHERE usuario_id = $${i++} AND id = $${i}
-       RETURNING id, tipo, titulo, conteudo, filename, mimetype, concluido, ordem, created_at, (arquivo IS NOT NULL) AS tem_arquivo`, params);
+       RETURNING id, tipo, titulo, conteudo, filename, mimetype, concluido, ordem, ref_id, telefone, created_at, (arquivo IS NOT NULL) AS tem_arquivo`, params);
     if (!it) return res.status(404).json({ error: 'Não encontrado.' });
     res.json(it);
   } catch (err) { res.status(500).json({ error: err.message }); }

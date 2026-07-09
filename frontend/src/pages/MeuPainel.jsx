@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { LayoutGrid, StickyNote, CheckSquare, Square, Paperclip, FileText, Download, Trash2, Plus, X, Check, Pencil } from 'lucide-react';
+import { LayoutGrid, StickyNote, CheckSquare, Square, Paperclip, FileText, Download, Trash2, Plus, X, Check, Pencil, UserPlus, Search, MessageSquare } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 
 /* MEU PAINEL — mural pessoal: notas, tarefas (o que eu fiz) e documentos.
@@ -9,6 +10,7 @@ const fileToDataUrl = (file) => new Promise((res, rej) => { const r = new FileRe
 
 export default function MeuPainel() {
   const api = useApi();
+  const nav = useNavigate();
   const { user } = useAuth();
   const primeiro = (user?.nome || '').split(' ')[0];
   const [itens, setItens] = useState([]);
@@ -16,6 +18,7 @@ export default function MeuPainel() {
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState('');
   const docRef = useRef(null);
+  const [buscaCli, setBuscaCli] = useState(null); // modal de adicionar cliente
 
   const load = () => api.get('/extras/painel').then(d => setItens(Array.isArray(d) ? d : [])).catch(() => {});
   useEffect(() => { load(); }, []); // eslint-disable-line
@@ -23,6 +26,18 @@ export default function MeuPainel() {
   const notas = itens.filter(i => i.tipo === 'nota');
   const tarefas = itens.filter(i => i.tipo === 'tarefa');
   const docs = itens.filter(i => i.tipo === 'documento');
+  const clientes = itens.filter(i => i.tipo === 'cliente');
+
+  const addCliente = async (c) => {
+    try {
+      const it = await api.post('/extras/painel', { tipo: 'cliente', titulo: c.contact_name || c.phone || 'Cliente', ref_id: c.id, telefone: c.phone || '' });
+      setItens(p => [it, ...p]); setBuscaCli(null);
+    } catch (e) { setErro(e.message); }
+  };
+  const salvarNotaCliente = async (c, texto) => {
+    setItens(p => p.map(x => x.id === c.id ? { ...x, conteudo: texto } : x));
+    try { await api.put(`/extras/painel/${c.id}`, { conteudo: texto }); } catch { load(); }
+  };
 
   const salvar = async () => {
     if (!modal.titulo?.trim() && !modal.conteudo?.trim()) { setErro('Escreva algo.'); return; }
@@ -138,6 +153,79 @@ export default function MeuPainel() {
             </div>}
         </div>
       </div>
+
+      {/* MEUS CLIENTES — atendimentos trazidos pro painel, cada um com sua nota */}
+      <div style={{ marginTop: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 10 }}>
+          <span style={{ fontWeight: 800, fontSize: 16, display: 'flex', alignItems: 'center', gap: 8 }}><UserPlus size={18} color="#7c3aed" /> Meus clientes {clientes.length > 0 && <span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 700 }}>({clientes.length})</span>}</span>
+          <button onClick={() => { setErro(''); setBuscaCli({ q: '', res: [] }); }} className="btn btn-p btn-sm" style={{ gap: 6 }}><Plus size={14} /> Trazer cliente</button>
+        </div>
+        {clientes.length === 0 ? (
+          <div className="card" style={{ padding: 34, textAlign: 'center', color: 'var(--muted)' }}>
+            <UserPlus size={30} color="var(--border)" style={{ marginBottom: 8 }} />
+            <div style={{ fontWeight: 700 }}>Nenhum cliente no painel ainda.</div>
+            <div style={{ fontSize: 12.5, marginTop: 4 }}>Traga os atendimentos que você quer acompanhar de perto — cada um com seu <b>bloco de notas próprio</b>.</div>
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(320px,1fr))', gap: 14 }}>
+            {clientes.map(c => (
+              <div key={c.id} className="card" style={{ padding: '15px 17px', borderTop: '3px solid #7c3aed' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                  <div style={{ width: 38, height: 38, borderRadius: '50%', background: 'linear-gradient(135deg,#7c3aed,#a78bfa)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 14, flexShrink: 0 }}>{(c.titulo || '?')[0]?.toUpperCase()}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 800, fontSize: 14.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.titulo}</div>
+                    {c.telefone && <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{c.telefone}</div>}
+                  </div>
+                  {c.ref_id && <button onClick={() => nav(`/inbox?conv=${c.ref_id}`)} title="Abrir conversa" className="btn btn-s btn-sm" style={{ gap: 4, padding: '5px 9px' }}><MessageSquare size={13} /></button>}
+                  <button onClick={() => excluir(c)} title="Tirar do painel" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={15} /></button>
+                </div>
+                <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .4, marginBottom: 4 }}>📝 Notas deste cliente</div>
+                <textarea defaultValue={c.conteudo || ''} onBlur={e => { if (e.target.value !== (c.conteudo || '')) salvarNotaCliente(c, e.target.value); }}
+                  rows={3} placeholder="Anote aqui tudo sobre este atendimento…"
+                  style={{ width: '100%', padding: '9px 11px', borderRadius: 10, border: '1.5px solid var(--border)', background: '#faf5ff', color: 'var(--txt)', fontSize: 12.5, resize: 'vertical', fontFamily: 'inherit' }} />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Modal buscar/trazer cliente */}
+      {buscaCli && (
+        <div onClick={() => setBuscaCli(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 1000, padding: '80px 16px' }}>
+          <div onClick={e => e.stopPropagation()} className="card" style={{ width: 460, maxWidth: '100%', padding: 20 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <h3 style={{ fontSize: 16, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 8 }}><UserPlus size={18} color="#7c3aed" /> Trazer cliente pro painel</h3>
+              <button onClick={() => setBuscaCli(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={16} /></button>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--bg2)', borderRadius: 9, padding: '8px 11px', marginBottom: 10 }}>
+              <Search size={15} color="var(--muted)" />
+              <input autoFocus value={buscaCli.q} onChange={async e => {
+                const q = e.target.value; setBuscaCli(s => ({ ...s, q }));
+                if (q.trim().length >= 2) { const r = await api.get(`/inbox/conversations/buscar?q=${encodeURIComponent(q)}`).catch(() => []); setBuscaCli(s => ({ ...s, res: Array.isArray(r) ? r : [] })); }
+                else setBuscaCli(s => ({ ...s, res: [] }));
+              }} placeholder="Buscar por nome ou telefone…" style={{ border: 'none', background: 'none', outline: 'none', flex: 1, color: 'var(--txt)', fontSize: 13.5 }} />
+            </div>
+            <div style={{ maxHeight: 320, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {(buscaCli.res || []).length === 0 && <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: 8 }}>Digite pelo menos 2 letras pra buscar.</div>}
+              {(buscaCli.res || []).map(c => {
+                const ja = clientes.some(x => x.ref_id === c.id);
+                return (
+                  <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '8px 10px', background: 'var(--bg2)', borderRadius: 9 }}>
+                    <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(135deg,#7c3aed,#a78bfa)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 12 }}>{(c.contact_name || c.phone || '?')[0]?.toUpperCase()}</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.contact_name || 'Sem nome'}</div>
+                      <div style={{ fontSize: 11, color: 'var(--muted)' }}>{c.phone || ''}</div>
+                    </div>
+                    {ja ? <span style={{ fontSize: 11.5, fontWeight: 700, color: '#7c3aed' }}>✓ no painel</span>
+                    : <button onClick={() => addCliente(c)} className="btn btn-p btn-sm" style={{ gap: 4 }}><Plus size={13} /> Trazer</button>}
+                  </div>
+                );
+              })}
+            </div>
+            {erro && <div style={{ fontSize: 12, color: 'var(--err)', fontWeight: 600, marginTop: 8 }}>{erro}</div>}
+          </div>
+        </div>
+      )}
 
       {/* Modal nota */}
       {modal && (
