@@ -838,6 +838,14 @@ export default function Inbox({ onUnreadChange }) {
       Toast.show('Mensagem automática cadastrada! ⚡', 'success');
     } catch (e) { Toast.show(e.message, 'error'); }
   };
+  const gestaoUser = user?.role === 'master' || user?.role === 'supervisor';
+  const excluirQr = async (q, e) => {
+    e.stopPropagation();
+    if (!window.confirm(`Excluir a mensagem "${q.titulo}"?`)) return;
+    setQr(p => p.filter(x => x.id !== q.id));
+    try { await api.del(`/inbox/quick-replies/${q.id}`); Toast.show('Mensagem excluída', 'success'); }
+    catch (err) { Toast.show(err.message, 'error'); api.get('/inbox/quick-replies').then(setQr).catch(() => {}); }
+  };
 
   // ── Abre conversa ─────────────────────────────────────────────────────────
   // Trocar o responsável pela conversa (auto-assign acontece ao abrir; aqui troca manual)
@@ -1625,7 +1633,15 @@ export default function Inbox({ onUnreadChange }) {
                   style={{ padding:'4px 11px', borderRadius:8, background: qrNovo ? 'var(--tq)' : 'var(--card,#fff)', color: qrNovo ? '#fff' : 'var(--tq2)', border:'1.5px dashed var(--tq)', fontSize:12, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}>
                   <Plus size={11}/> Cadastrar mensagem
                 </button>
-                {qr.map(q=><button key={q.id} onClick={()=>{setInput(q.texto);setShowQR(false);textRef.current?.focus();}} style={{ padding:'4px 11px', borderRadius:8, background:'var(--tq3)', color:'var(--tq2)', border:'1px solid var(--tq3)', fontSize:12, fontWeight:600, cursor:'pointer' }}>{q.titulo}</button>)}
+                {qr.map(q=>{
+                  const podeExcluir = q.minha || (gestaoUser && q.global) || q.minha === undefined;
+                  return (
+                    <span key={q.id} style={{ display:'inline-flex', alignItems:'center', background:'var(--tq3)', border:'1px solid var(--tq3)', borderRadius:8, overflow:'hidden' }}>
+                      <button onClick={()=>{setInput(q.texto);setShowQR(false);textRef.current?.focus();}} title={q.texto} style={{ padding:'4px 6px 4px 11px', background:'none', color:'var(--tq2)', border:'none', fontSize:12, fontWeight:600, cursor:'pointer' }}>{q.titulo}</button>
+                      {podeExcluir && <button onClick={(e)=>excluirQr(q,e)} title="Excluir mensagem" style={{ padding:'4px 7px 4px 3px', background:'none', border:'none', color:'var(--tq2)', opacity:.55, cursor:'pointer', display:'flex' }}><X size={11}/></button>}
+                    </span>
+                  );
+                })}
               </div>
               {qrNovo && (
                 <div style={{ display:'flex', gap:6, marginTop:8, alignItems:'center', flexWrap:'wrap' }}>
