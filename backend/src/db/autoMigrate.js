@@ -412,6 +412,18 @@ export default async function runMigrate() {
       console.log('🩺🧩 Fernanda + Steicy: consultas + terapias');
     }
 
+    // Beatriz dos Santos Duarte — HÍBRIDA (vacinas + consultas + terapias). CPF, Vittalis@2026.
+    const { rows: [flagBeatriz] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_beatriz_v1'");
+    if (!flagBeatriz) {
+      const bcryptB = await import('bcryptjs');
+      const hashB = await bcryptB.default.hash('Vittalis@2026', 10);
+      await query(`INSERT INTO usuarios (id, nome, email, cpf, senha, role, cor, ativo, setor, setores)
+        VALUES (gen_random_uuid()::text, 'Beatriz dos Santos Duarte', 'beatriz.duarte@vittahub.local', '17210177710', $1, 'atendente', '#8b5cf6', true, 'consultas', '{vacinas,consultas,terapias}')
+        ON CONFLICT (email) DO NOTHING`, [hashB]).catch((e) => console.error('seed Beatriz:', e.message));
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_beatriz_v1', '{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🌱 Beatriz: híbrida (vacinas + consultas + terapias)');
+    }
+
     // ── AUDITORIA + PRESENÇA (admin only) ─────────────────────────────────
     await query(`CREATE TABLE IF NOT EXISTS audit_logs (
       id SERIAL PRIMARY KEY, usuario_id TEXT, usuario_nome TEXT, acao TEXT NOT NULL,
