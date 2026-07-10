@@ -424,6 +424,14 @@ export default async function runMigrate() {
       console.log('🌱 Beatriz: híbrida (vacinas + consultas + terapias)');
     }
 
+    // Inativa a Fernanda (não loga mais). Reversível: é só reativar no sistema.
+    const { rows: [flagFernOff] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_fernanda_inativa_v1'");
+    if (!flagFernOff) {
+      await query(`UPDATE usuarios SET ativo = false WHERE cpf = '06105959389'`).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_fernanda_inativa_v1', '{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🚫 Fernanda: inativada');
+    }
+
     // ── AUDITORIA + PRESENÇA (admin only) ─────────────────────────────────
     await query(`CREATE TABLE IF NOT EXISTS audit_logs (
       id SERIAL PRIMARY KEY, usuario_id TEXT, usuario_nome TEXT, acao TEXT NOT NULL,
