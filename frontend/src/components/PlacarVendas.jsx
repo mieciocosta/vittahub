@@ -68,34 +68,7 @@ export default function PlacarVendas() {
         </div>
       </div>
 
-      <div style={{ width: 1, height: 26, background: 'rgba(255,255,255,.25)' }} />
-
-      {/* Progresso da meta do mês — separado por setor (multi-setor mostra cada um) */}
-      <div style={{ flex: 1, minWidth: 200, display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-        {(meta.porSetor && meta.porSetor.length ? meta.porSetor : [meta]).map((s) => {
-          const p = Math.min(s.pctGlobal ?? 0, 100);
-          const ok = (s.faltaGlobal ?? 0) <= 0;
-          const nome = s.setor && s.setor !== 'geral' ? s.setor[0].toUpperCase() + s.setor.slice(1) : 'Geral';
-          // Cada setor com a sua cor
-          const CORES = { vacinas: '#a78bfa', consultas: '#22d3ee', terapias: '#fbbf24', geral: '#fde68a' };
-          const EMOJI = { vacinas: '💉', consultas: '🩺', terapias: '🧩' };
-          const cor = CORES[s.setor] || '#fde68a';
-          return (
-            <div key={s.setor} style={{ flex: 1, minWidth: 170, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 16 }}>{ok ? '🏆' : (EMOJI[s.setor] || '🎯')}</span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 10.5, marginBottom: 3 }}>
-                  <span style={{ fontWeight: 800 }}>Meta {nome}: <b style={{ color: cor }}>{fmt.brl(s.confirmado || 0)}</b> de {fmt.brl(s.metaGlobal)}</span>
-                  <span style={{ fontWeight: 900, color: cor }}>{p}%</span>
-                </div>
-                <div style={{ height: 6, borderRadius: 5, background: 'rgba(255,255,255,.2)', overflow: 'hidden' }}>
-                  <div style={{ width: `${p}%`, height: '100%', borderRadius: 5, background: ok ? '#fff' : cor, boxShadow: `0 0 8px ${cor}99`, transition: 'width .5s' }} />
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+      <div style={{ flex: 1 }} />
 
       {/* Grito de guerra */}
       <div style={{ fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap' }}>
