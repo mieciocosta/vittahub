@@ -106,13 +106,15 @@ const ehGrupo = (c) => String(c.contact_id || '').includes('g.us') || String(c.p
 // atualizado (a cada 30s) e usamos de forma síncrona na filtragem.
 let usuariosSetor = new Map();
 let usuariosSetores = new Map(); // id → setores extras (acesso multi-setor, ex.: Danielle)
+let usuariosNome = new Map();    // id → nome ATUAL (assinatura sempre com o nome vigente)
 async function carregarUsuariosSetor() {
   try {
     let rows;
-    try { ({ rows } = await query('SELECT id, setor, setores FROM usuarios')); }
-    catch { ({ rows } = await query('SELECT id, setor FROM usuarios')); } // coluna 'setores' ainda não existe
+    try { ({ rows } = await query('SELECT id, setor, setores, nome FROM usuarios')); }
+    catch { ({ rows } = await query('SELECT id, setor, nome FROM usuarios')); } // coluna 'setores' ainda não existe
     usuariosSetor = new Map(rows.map(u => [String(u.id), u.setor || null]));
     usuariosSetores = new Map(rows.filter(u => Array.isArray(u.setores) && u.setores.length).map(u => [String(u.id), u.setores]));
+    usuariosNome = new Map(rows.map(u => [String(u.id), u.nome || null]));
   } catch { /* banco ainda não pronto — tenta de novo no próximo tick */ }
 }
 carregarUsuariosSetor();
@@ -3343,7 +3345,10 @@ r.post('/conversations/:id/send', async (req, res) => {
           let zr;
           // Identifica a atendente pro cliente (padrão da equipe: "*Raylane:*")
           // — só no WhatsApp; no sistema a mensagem fica limpa com o rótulo visual
-          const primeiroNome = (req.user?.nome || '').trim().split(' ')[0];
+          // Assinatura com o nome ATUAL do usuário (cache do banco) — reflete rename
+          // na hora, sem precisar relogar. Cai pro nome do token se o cache não tiver.
+          const nomeAtual = usuariosNome.get(String(req.user?.id)) || req.user?.nome || '';
+          const primeiroNome = nomeAtual.trim().split(' ')[0];
           const comAssinatura = (type === 'text' && primeiroNome && !content.trimStart().startsWith('*'))
             ? `*${primeiroNome}:*\n${content}` : content;
           if (type === 'text')     zr = await zapiCall('/send-text',     'POST', { phone: phone55, message: comAssinatura });
