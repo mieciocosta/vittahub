@@ -2231,7 +2231,8 @@ function FaixaContexto({ sel, leadInfo, setLeadInfo, api, scoreChip, setScoreChi
           </div>
         );
       })()}
-      {metaSetor && metaSetor.metaGlobal > 0 && (() => {
+      {/* Faixa de meta escondida por enquanto (a pedido) — trocar 'false' por 'true' pra reativar */}
+      {false && metaSetor && metaSetor.metaGlobal > 0 && (() => {
         // Multi-setor: mostra a meta do setor DESTA conversa (ex.: atendendo consulta → meta consultas)
         const m = (metaSetor.porSetor || []).find(p => p.setor === sel?.setor) || metaSetor;
         const batida = (m.faltaGlobal ?? 0) <= 0;
