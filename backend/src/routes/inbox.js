@@ -3267,11 +3267,13 @@ r.post('/conversations/:id/send', async (req, res) => {
     if (!conv) return res.status(404).json({ error: 'Não encontrado' });
     if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso: esta conversa é de outro setor.' });
 
+    // Nome gravado no rótulo = nome ATUAL do banco (reflete rename sem relogar).
+    const nomeGravar = usuariosNome.get(String(req.user.id)) || req.user.nome;
     const { rows: [msg] } = await query(`
       INSERT INTO mensagens (conversa_id, from_type, type, content, sender_id, sender_nome, status)
       VALUES ($1, 'me', $2, $3, $4, $5, 'sent')
       RETURNING *`,
-      [req.params.id, type, content, req.user.id, req.user.nome]
+      [req.params.id, type, content, req.user.id, nomeGravar]
     );
 
     const preview = type === 'text' ? content : type === 'audio' ? '🎵 Áudio' : type === 'image' ? '📷 Imagem' : type === 'sticker' ? '🎭 Figurinha' : `📎 Arquivo`;
@@ -3500,7 +3502,7 @@ r.post('/conversations/:id/enviar-documento', async (req, res) => {
     const { rows: [msg] } = await query(
       `INSERT INTO mensagens (conversa_id, from_type, type, content, filename, mimetype, sender_id, sender_nome, status)
        VALUES ($1,'me',$2,$3,$4,$5,$6,$7,'sent') RETURNING *`,
-      [req.params.id, tipo, doc.arquivo, doc.nome, doc.mimetype, req.user.id, req.user.nome]);
+      [req.params.id, tipo, doc.arquivo, doc.nome, doc.mimetype, req.user.id, usuariosNome.get(String(req.user.id)) || req.user.nome]);
     const preview = ehImg ? '📷 Imagem' : `📎 ${doc.nome}`;
     const { rows: [convUpd] } = await query("UPDATE conversas SET last_message=$1, last_from='me', last_message_at=NOW(), bot_ativo=false WHERE id=$2 RETURNING *", [preview, req.params.id]);
     if (convUpd) cacheUpdate(convUpd);
@@ -3574,7 +3576,7 @@ r.post('/conversations/:id/upload', upload.single('file'), async (req, res) => {
     const { rows: [msg] } = await query(`
       INSERT INTO mensagens (conversa_id, from_type, type, content, filename, mimetype, file_size, sender_id, sender_nome)
       VALUES ($1, 'me', $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-      [req.params.id, type, dataUrl, f.originalname, f.mimetype, f.size, req.user.id, req.user.nome]
+      [req.params.id, type, dataUrl, f.originalname, f.mimetype, f.size, req.user.id, usuariosNome.get(String(req.user.id)) || req.user.nome]
     );
 
     await query("UPDATE conversas SET last_message = $1, last_from = 'me', last_message_at = NOW() WHERE id = $2", [preview, req.params.id]);
