@@ -29,6 +29,7 @@ const Caixa = lazy(() => import('./pages/Caixa.jsx'));
 const Quiz = lazy(() => import('./pages/Quiz.jsx'));
 const Amigo = lazy(() => import('./pages/Amigo.jsx'));
 const MeuPainel = lazy(() => import('./pages/MeuPainel.jsx'));
+const Recuperacao = lazy(() => import('./pages/Recuperacao.jsx'));
 const Equipe = lazy(() => import('./pages/Equipe.jsx'));
 const Biblioteca = lazy(() => import('./pages/Biblioteca.jsx'));
 const Figurinhas = lazy(() => import('./pages/Figurinhas.jsx'));
@@ -234,6 +235,7 @@ export default function App() {
           <Route path="/quiz" element={<Quiz />} />
           <Route path="/amigo" element={<Amigo />} />
           <Route path="/meu-painel" element={<MeuPainel />} />
+          <Route path="/recuperacao" element={<Recuperacao />} />
           <Route path="/equipe" element={<Equipe />} />
           <Route path="/classificar" element={<Classificar />} />
           <Route path="/cases-sucesso" element={<CasesSucesso />} />

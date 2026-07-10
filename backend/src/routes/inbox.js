@@ -2532,6 +2532,38 @@ r.post('/conversations/:id/load-from-zapi', async (req, res) => {
 
 // Busca conversas (qualquer categoria) para PUXAR um cliente para uma pasta.
 // IMPORTANTE: fica ANTES de GET /conversations/:id, senão "buscar" casa com :id.
+// RECUPERAÇÃO: leads que esfriaram (sem resposta há X dias) e ainda dá pra retomar.
+r.get('/recuperacao', async (req, res) => {
+  try {
+    const dias = Math.max(1, Math.min(parseInt(req.query.dias) || 2, 30));
+    const agora = Date.now();
+    const minMs = dias * 86400000;      // silêncio mínimo pra entrar na lista
+    const maxMs = 45 * 86400000;        // janela: não pega conversas mortas há meses
+    let list = Array.from(convoCache.values()).filter(c => {
+      if (ehGrupo(c)) return false;
+      if (c.categoria) return false;    // já organizadas numa pasta
+      const t = c.last_message_at ? new Date(c.last_message_at).getTime() : 0;
+      if (!t) return false;
+      const silencio = agora - t;
+      if (silencio < minMs || silencio > maxMs) return false;
+      return podeVerSetor(req.user, c);
+    });
+    // Carteira: atendente vê os seus (ou sem dono); gestão/ve_tudo vê todos.
+    const gestaoU = ['master', 'supervisor'].includes(req.user.role) || req.user.ve_tudo;
+    if (!gestaoU) list = list.filter(c => c.responsavel_id === req.user.id || !c.responsavel_id);
+    const out = list.map(c => ({
+      id: c.id, contact_name: c.contact_name, phone: c.phone, setor: setorEfetivo(c),
+      last_message: c.last_message, last_from: c.last_from, last_message_at: c.last_message_at,
+      responsavel_id: c.responsavel_id, classificacao: c.classificacao,
+      dias_silencio: Math.floor((agora - new Date(c.last_message_at).getTime()) / 86400000),
+      esperando: c.last_from === 'contact', // cliente falou por último = mais urgente
+    }))
+      .sort((a, b) => (Number(b.esperando) - Number(a.esperando)) || (b.dias_silencio - a.dias_silencio))
+      .slice(0, 120);
+    res.json(out);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.get('/conversations/buscar', async (req, res) => {
   try {
     const q = String(req.query.q || '').trim();
