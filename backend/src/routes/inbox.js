@@ -2663,11 +2663,13 @@ r.get('/conversations/:id', async (req, res) => {
       if (cached) cacheUpdate({ ...cached, responsavel_id: req.user.id });
     }
 
-    const MSG_LIMIT = 15;
+    const MSG_LIMIT = 50;
     const beforeTs = req.query.before_ts ? new Date(req.query.before_ts).toISOString() : null;
 
+    // Usa <= (não <) pra NÃO pular mensagens que têm o mesmo horário na virada do
+    // bloco. O frontend deduplica por id, então a mensagem-limite não se repete.
     const msgQuery = beforeTs
-      ? `SELECT * FROM (SELECT * FROM mensagens WHERE conversa_id = $1 AND created_at < $2 ORDER BY created_at DESC LIMIT $3) sub ORDER BY created_at ASC`
+      ? `SELECT * FROM (SELECT * FROM mensagens WHERE conversa_id = $1 AND created_at <= $2 ORDER BY created_at DESC LIMIT $3) sub ORDER BY created_at ASC`
       : `SELECT * FROM (SELECT * FROM mensagens WHERE conversa_id = $1 ORDER BY created_at DESC LIMIT $2) sub ORDER BY created_at ASC`;
 
     const { rows: rawMsgs } = await query(msgQuery, beforeTs

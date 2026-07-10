@@ -948,11 +948,15 @@ export default function Inbox({ onUnreadChange }) {
       const firstTs = msgs[0]?.created_at;
       const data = await api.get(`/inbox/conversations/${sel.id}?before_ts=${encodeURIComponent(firstTs)}`);
       const older = data.messages || [];
+      let novas = 0;
       setMsgs(prev => {
         const ids = new Set(prev.map(m => m.id));
-        return [...older.filter(m => !ids.has(m.id)), ...prev];
+        const add = older.filter(m => !ids.has(m.id));
+        novas = add.length;
+        return [...add, ...prev];
       });
-      setMsgsHasMore(!!data.has_more);
+      // Se o bloco só trouxe mensagens já conhecidas (boundary), chegou ao início.
+      setMsgsHasMore(!!data.has_more && novas > 0);
       const el = msgAreaRef.current;
       if (el) { const ph = el.scrollHeight; requestAnimationFrame(() => { el.scrollTop = el.scrollHeight - ph; }); }
     } catch {}
