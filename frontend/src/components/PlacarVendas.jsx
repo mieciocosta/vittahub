@@ -57,16 +57,19 @@ export default function PlacarVendas() {
         </div>
       </div>
 
-      <div style={{ width: 1, height: 26, background: 'rgba(255,255,255,.25)' }} />
-
-      {/* Faturamento do mês */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ fontSize: 18 }}>💵</span>
-        <div style={{ lineHeight: 1.1 }}>
-          <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: .6, textTransform: 'uppercase', color: 'rgba(255,255,255,.7)' }}>Faturamento do mês</div>
-          <div style={{ fontSize: 16, fontWeight: 900, color: '#a7f3d0' }}>{fmt.brl(faturamento)}</div>
-        </div>
-      </div>
+      {/* Faturamento do mês — só a gestão vê o valor */}
+      {gestao && (
+        <>
+          <div style={{ width: 1, height: 26, background: 'rgba(255,255,255,.25)' }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 18 }}>💵</span>
+            <div style={{ lineHeight: 1.1 }}>
+              <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: .6, textTransform: 'uppercase', color: 'rgba(255,255,255,.7)' }}>Faturamento do mês</div>
+              <div style={{ fontSize: 16, fontWeight: 900, color: '#a7f3d0' }}>{fmt.brl(faturamento)}</div>
+            </div>
+          </div>
+        </>
+      )}
 
       <div style={{ flex: 1 }} />
 
