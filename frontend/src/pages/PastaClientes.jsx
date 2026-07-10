@@ -21,7 +21,7 @@ function ArquivosAba({ chave, cor }) {
   const enviar = async (e) => {
     const f = e.target.files?.[0]; e.target.value = ''; if (!f) return;
     const url = await fileToDataUrl(f);
-    if (url.length > 42_000_000) { setErro('Arquivo muito grande (máx. ~30MB).'); return; }
+    if (url.length > 52_000_000) { setErro('Arquivo muito grande (máx. ~40MB).'); return; }
     setEnviando(true); setErro('');
     try { const a = await api.post('/extras/pasta-arquivos', { chave, nome: f.name, arquivo: url, mimetype: f.type }); setArqs(p => [a, ...p]); setAberto(true); }
     catch (err) { setErro(err.message); }

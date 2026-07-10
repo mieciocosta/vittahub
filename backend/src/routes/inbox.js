@@ -240,7 +240,7 @@ function notifyWaiters(convId, message) {
 }
 
 // Upload em memória
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 45 * 1024 * 1024 } });
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 const EVO_URL  = () => process.env.EVOLUTION_API_URL  || '';
@@ -3461,7 +3461,7 @@ r.post('/documentos', async (req, res) => {
   try {
     const b = req.body || {};
     if (typeof b.arquivo !== 'string' || !b.arquivo.startsWith('data:')) return res.status(400).json({ error: 'Envie o documento (PDF, Word, imagem).' });
-    if (b.arquivo.length > 44 * 1024 * 1024) return res.status(413).json({ error: 'Documento muito grande (máx. ~30MB).' });
+    if (b.arquivo.length > 52 * 1024 * 1024) return res.status(413).json({ error: 'Documento muito grande (máx. ~40MB).' });
     const { rows: [d] } = await query(
       `INSERT INTO documentos_banco (nome, arquivo, mimetype, criado_por, criado_por_id) VALUES ($1,$2,$3,$4,$5) RETURNING id, nome, mimetype, criado_por, criado_por_id, created_at`,
       [String(b.nome || 'Documento').slice(0, 160), b.arquivo, String(b.mimetype || '').slice(0, 80), req.user.nome, req.user.id]);

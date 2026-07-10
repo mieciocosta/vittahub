@@ -391,7 +391,7 @@ r.post('/planejamento/anexos', async (req, res) => {
     const b = req.body || {};
     const dataUrl = String(b.data_url || '');
     if (!dataUrl.startsWith('data:')) return res.status(400).json({ error: 'Arquivo inválido.' });
-    if (dataUrl.length > 44 * 1024 * 1024) return res.status(413).json({ error: 'Arquivo muito grande (máx. ~30MB).' });
+    if (dataUrl.length > 52 * 1024 * 1024) return res.status(413).json({ error: 'Arquivo muito grande (máx. ~40MB).' });
     const { rows: [a] } = await query(
       `INSERT INTO planejamento_anexos (usuario_id, nome, tipo, data_url)
        VALUES ($1,$2,$3,$4) RETURNING id, nome, tipo, created_at`,
@@ -634,7 +634,7 @@ r.post('/painel', async (req, res) => {
     const tipo = PAINEL_TIPOS.includes(b.tipo) ? b.tipo : 'nota';
     if (tipo === 'documento') {
       if (typeof b.arquivo !== 'string' || !b.arquivo.startsWith('data:')) return res.status(400).json({ error: 'Envie o documento.' });
-      if (b.arquivo.length > 44 * 1024 * 1024) return res.status(413).json({ error: 'Documento muito grande (máx. ~30MB).' });
+      if (b.arquivo.length > 52 * 1024 * 1024) return res.status(413).json({ error: 'Documento muito grande (máx. ~40MB).' });
     } else if (tipo === 'cliente') {
       if (!String(b.titulo || '').trim()) return res.status(400).json({ error: 'Cliente sem nome.' });
     } else if (!String(b.titulo || '').trim() && !String(b.conteudo || '').trim()) {
@@ -699,7 +699,7 @@ r.post('/pasta-arquivos', async (req, res) => {
     const b = req.body || {};
     if (!CHAVES_PASTA.includes(b.chave)) return res.status(400).json({ error: 'Aba inválida.' });
     if (typeof b.arquivo !== 'string' || !b.arquivo.startsWith('data:')) return res.status(400).json({ error: 'Envie o arquivo (PDF, Word, imagem).' });
-    if (b.arquivo.length > 44 * 1024 * 1024) return res.status(413).json({ error: 'Arquivo muito grande (máx. ~30MB).' });
+    if (b.arquivo.length > 52 * 1024 * 1024) return res.status(413).json({ error: 'Arquivo muito grande (máx. ~40MB).' });
     const { rows: [a] } = await query(
       `INSERT INTO pasta_arquivos (chave, nome, arquivo, mimetype, criado_por) VALUES ($1,$2,$3,$4,$5) RETURNING id, nome, mimetype, criado_por, created_at`,
       [b.chave, cut(b.nome, 160), b.arquivo, cut(b.mimetype, 80), req.user.nome]);
@@ -922,7 +922,7 @@ r.post('/vendas/:id/comprovantes', async (req, res) => {
     if (perm.erro) return res.status(perm.erro).json({ error: perm.erro === 404 ? 'Venda não encontrada' : 'Sem permissão.' });
     const b = req.body || {};
     if (typeof b.comprovante !== 'string' || !b.comprovante.startsWith('data:')) return res.status(400).json({ error: 'Envie o comprovante como data URL (imagem ou PDF).' });
-    if (b.comprovante.length > 44 * 1024 * 1024) return res.status(413).json({ error: 'Comprovante muito grande (máx. ~30MB).' });
+    if (b.comprovante.length > 52 * 1024 * 1024) return res.status(413).json({ error: 'Comprovante muito grande (máx. ~40MB).' });
     const { rows: [c] } = await query(
       `INSERT INTO venda_comprovantes (venda_id, data_url, nome, tipo, criado_por) VALUES ($1,$2,$3,$4,$5) RETURNING id, nome, tipo, created_at`,
       [req.params.id, b.comprovante, cut(b.filename, 160), cut(b.mimetype, 80), req.user.nome]);
@@ -1205,7 +1205,7 @@ r.post('/cursos', async (req, res) => {
     let arquivo = null;
     if (b.arquivo) {
       if (!/^data:[\w/+.\-]+;base64,/.test(b.arquivo)) return res.status(400).json({ error: 'Arquivo inválido.' });
-      if (b.arquivo.length > 44_000_000) return res.status(400).json({ error: 'Arquivo muito grande (máx. ~30MB). Para vídeos grandes, use um link (YouTube/Drive).' });
+      if (b.arquivo.length > 52_000_000) return res.status(400).json({ error: 'Arquivo muito grande (máx. ~40MB). Para vídeos grandes, use um link (YouTube/Drive).' });
       arquivo = b.arquivo;
     }
     const { rows: [c] } = await query(
@@ -1380,7 +1380,7 @@ r.post('/biblioteca', async (req, res) => {
     if (!titulo) return res.status(400).json({ error: 'Dê um título pra mídia' });
     if (!MIDIA_TIPOS.includes(b.tipo)) return res.status(400).json({ error: 'Tipo inválido' });
     if (typeof b.data !== 'string' || b.data.length < 100) return res.status(400).json({ error: 'Arquivo inválido' });
-    const limite = b.tipo === 'video' ? 44_000_000 : 4_000_000; // base64: ~12MB vídeo / ~3MB imagem
+    const limite = b.tipo === 'video' ? 52_000_000 : 4_000_000; // base64: ~12MB vídeo / ~3MB imagem
     if (b.data.length > limite) return res.status(400).json({ error: `Arquivo muito grande (máx ${b.tipo === 'video' ? '12MB' : '3MB'})` });
     const setor = ['vacinas', 'consultas', 'terapias', 'geral'].includes(b.setor) ? b.setor : 'geral';
     const { rows: [m] } = await query(`

@@ -38,7 +38,7 @@ app.use(cors({
   allowedHeaders: ['Content-Type','Authorization','Accept','Origin','Cache-Control'],
 }));
 app.options('*', cors());
-app.use(express.json({ limit: '50mb' }));
+app.use(express.json({ limit: '60mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use('/uploads', express.static(path.join(__dirname, '../../uploads')));
 

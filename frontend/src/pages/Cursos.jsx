@@ -25,7 +25,7 @@ export default function Cursos() {
     const f = e.target.files?.[0]; e.target.value = '';
     if (!f) return;
     const url = await fileToDataUrl(f);
-    if (url.length > 42_000_000) { setErro('Arquivo muito grande (máx. ~30MB). Para vídeos grandes, use um link.'); return; }
+    if (url.length > 52_000_000) { setErro('Arquivo muito grande (máx. ~40MB). Para vídeos grandes, use um link.'); return; }
     setErro(''); setModal(m => ({ ...m, arquivo: url, filename: f.name, mimetype: f.type }));
   };
 
@@ -116,7 +116,7 @@ export default function Cursos() {
               </div>
               <div className="field" style={{ margin: 0 }}><label>Link (YouTube, PDF, Drive…)</label><input value={modal.url} onChange={e => setModal({ ...modal, url: e.target.value })} placeholder="https://..." /></div>
               <div className="field" style={{ margin: 0 }}>
-                <label>Anexar arquivo (PDF, vídeo, imagem — até ~30MB)</label>
+                <label>Anexar arquivo (PDF, vídeo, imagem — até ~40MB)</label>
                 <input ref={fileRef} type="file" accept="application/pdf,video/*,image/*,.doc,.docx,.ppt,.pptx" style={{ display: 'none' }} onChange={anexar} />
                 {modal.arquivo ? (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--bg2)', borderRadius: 9, padding: '7px 11px' }}>

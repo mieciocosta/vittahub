@@ -106,7 +106,7 @@ export default function Planejamento() {
   const subirAnexo = async (e) => {
     const f = e.target.files?.[0]; e.target.value = '';
     if (!f) return;
-    if (f.size > 30 * 1024 * 1024) { window.alert('Arquivo muito grande (máx. ~30MB).'); return; }
+    if (f.size > 40 * 1024 * 1024) { window.alert('Arquivo muito grande (máx. ~40MB).'); return; }
     setSubindo(true);
     try {
       const dataUrl = await new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = no; r.readAsDataURL(f); });
