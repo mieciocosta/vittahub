@@ -38,6 +38,8 @@ export default function PlacarVendas() {
   const pct = Math.min(meta.pctGlobal ?? 0, 100);
   const batida = (meta.faltaGlobal ?? 0) <= 0;
   const nHoje = hoje?.n ?? 0;
+  // Faturamento do mês = soma do confirmado dos setores do usuário
+  const faturamento = (meta.porSetor && meta.porSetor.length ? meta.porSetor : [meta]).reduce((s, x) => s + (x.confirmado || 0), 0);
 
   return (
     <div style={{ position: 'sticky', top: 0, zIndex: 90, display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap',
@@ -52,6 +54,17 @@ export default function PlacarVendas() {
         <div style={{ lineHeight: 1.1 }}>
           <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: .6, textTransform: 'uppercase', color: 'rgba(255,255,255,.7)' }}>Vendas hoje</div>
           <div style={{ fontSize: 15, fontWeight: 900 }}>{nHoje} {nHoje === 1 ? 'fechada' : 'fechadas'}{gestao && hoje?.total != null ? ` · ${fmt.brl(hoje.total)}` : ''}</div>
+        </div>
+      </div>
+
+      <div style={{ width: 1, height: 26, background: 'rgba(255,255,255,.25)' }} />
+
+      {/* Faturamento do mês */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ fontSize: 18 }}>💵</span>
+        <div style={{ lineHeight: 1.1 }}>
+          <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: .6, textTransform: 'uppercase', color: 'rgba(255,255,255,.7)' }}>Faturamento do mês</div>
+          <div style={{ fontSize: 16, fontWeight: 900, color: '#a7f3d0' }}>{fmt.brl(faturamento)}</div>
         </div>
       </div>
 
