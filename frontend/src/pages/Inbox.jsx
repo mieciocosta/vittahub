@@ -4,7 +4,7 @@ import {
   UserPlus, Hash, Bot, FileText, Volume2, File, Tag,
   Smile, PanelLeftClose, PanelLeftOpen, Play, ChevronUp, Loader2, Zap, Plus,
   CheckCircle2, Clock, MessageCircle, Phone, Image,
-  MailOpen, VolumeX, CalendarDays, Bell } from 'lucide-react';
+  MailOpen, VolumeX, CalendarDays, Bell, Trash2 } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { useSearchParams } from 'react-router-dom';
 import { fmt, openWA, avatarGrad } from '../hooks/utils.js';
@@ -665,6 +665,11 @@ export default function Inbox({ onUnreadChange }) {
         setConvos(prev => prev.filter(c => c.id !== convId));
         setSel(prev => prev?.id === convId ? null : prev);
       });
+      // Conversa EXCLUÍDA do CRM → some da lista pra todos.
+      socket.on('conversa_removida', ({ convId }) => {
+        setConvos(prev => prev.filter(c => c.id !== convId));
+        setSel(prev => prev?.id === convId ? null : prev);
+      });
       // Conversa movida pra uma pasta (Fidelidade/Banco) → sai do inbox normal.
       socket.on('conv_categoria', ({ convId, categoria }) => {
         if (categoria) {
@@ -1117,6 +1122,18 @@ export default function Inbox({ onUnreadChange }) {
     } catch (e) { Toast.show(e.message || 'Não foi possível alterar o bot', 'error'); }
   };
 
+  const excluirConversa = async () => {
+    if (!sel) return;
+    if (!window.confirm(`Excluir a conversa de "${sel.contact_name || 'cliente'}"? Isso apaga a conversa e todas as mensagens do CRM e não pode ser desfeito.`)) return;
+    try {
+      await api.del(`/inbox/conversations/${sel.id}`);
+      window.__auditLog?.('excluir', 'conversa', sel.id, { nome: sel.contact_name });
+      setConvos(p => p.filter(c => c.id !== sel.id));
+      setSel(null);
+      Toast.show('Conversa excluída do CRM', 'success');
+    } catch (e) { Toast.show(e.message || 'Não foi possível excluir', 'error'); }
+  };
+
   const marcarExemplo = async () => {
     if (!window.confirm('Marcar esta conversa como EXEMPLO de sucesso?\n\nA IA vai estudar o jeito desta conversa pra copiar o tom que converteu.')) return;
     try {
@@ -1515,6 +1532,12 @@ export default function Inbox({ onUnreadChange }) {
                 className="btn btn-sm" style={{ background:'#3b0764', color:'#e9d5ff', border:'1.5px solid #7c3aed', fontSize:11, padding:'4px 9px', fontWeight:700 }}>
                 {iaAgendaBusy ? <span className="spin" style={{width:10,height:10}}/> : '🤖'} Agendar IA
               </button>
+              {['master','supervisor'].includes(user?.role) && (
+                <button onClick={excluirConversa} title="Excluir esta conversa do CRM (apaga tudo, não pode desfazer)"
+                  className="btn btn-sm" style={{ background:'var(--err2,#fdecec)', color:'var(--err,#dc2626)', border:'1.5px solid var(--err,#dc2626)', fontSize:11, padding:'4px 9px', fontWeight:700 }}>
+                  <Trash2 size={10}/> Excluir
+                </button>
+              )}
               <button onClick={abrirVenda} title="Registrar uma venda deste atendimento (entra na meta)"
                 className="btn btn-sm" style={{ background:'#14432a', color:'#7ee0a8', border:'1.5px solid #16a34a', fontSize:11, padding:'4px 9px', fontWeight:700 }}>
                 💰 Venda

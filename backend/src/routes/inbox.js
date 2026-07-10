@@ -3770,6 +3770,20 @@ r.put('/conversations/:id/messages/:msgId', async (req, res) => {
 });
 
 // ─── APAGAR mensagem enviada (apaga pra todos no WhatsApp) ───────────────────
+// Excluir a CONVERSA inteira do CRM (some da lista pra todos). Só a gestão.
+r.delete('/conversations/:id', async (req, res) => {
+  try {
+    if (!['master', 'supervisor'].includes(req.user.role)) return res.status(403).json({ error: 'Apenas a gestão pode excluir conversas.' });
+    const { rows: [conv] } = await query('SELECT id FROM conversas WHERE id = $1', [req.params.id]);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
+    await query('DELETE FROM mensagens WHERE conversa_id = $1', [req.params.id]).catch(() => {});
+    await query('DELETE FROM conversas WHERE id = $1', [req.params.id]);
+    convoCache.delete(req.params.id);
+    socketEmit('conversa_removida', { convId: req.params.id });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.delete('/conversations/:id/messages/:msgId', async (req, res) => {
   try {
     const { rows: [m] } = await query('SELECT * FROM mensagens WHERE id = $1 AND conversa_id = $2', [req.params.msgId, req.params.id]);
