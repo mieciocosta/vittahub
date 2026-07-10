@@ -840,12 +840,15 @@ export default async function runMigrate() {
       console.log('🪪 Nomes atualizados: Dr Miécio e Dra. Nágila');
     }
 
-    // Renomeia a conta "Dra. Nágila" para apenas "Maria" (a pedido).
-    const { rows: [flagMaria] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_nome_maria_v1'");
+    // Renomeia a conta "Dra. Nágila" para apenas "Maria" (a pedido) — inclusive as
+    // mensagens JÁ enviadas (o nome fica gravado em cada mensagem).
+    const { rows: [flagMaria] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_nome_maria_v2'");
     if (!flagMaria) {
       await query(`UPDATE usuarios SET nome = 'Maria' WHERE email = 'nagila@vittalissaude.com.br'`).catch(() => {});
-      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_nome_maria_v1', '{"ok":true}') ON CONFLICT DO NOTHING`);
-      console.log('🪪 Conta renomeada para Maria');
+      // Mensagens antigas: reescreve o remetente gravado.
+      await query(`UPDATE mensagens SET sender_nome = 'Maria' WHERE sender_nome IN ('Dra. Nágila','Dra.','Dra','Nágila Santos','Nágila')`).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_nome_maria_v2', '{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🪪 Conta e mensagens renomeadas para Maria');
     }
 
     console.log('✅ Auto-migrate complete');
