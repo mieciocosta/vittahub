@@ -412,6 +412,30 @@ export default async function runMigrate() {
       console.log('🩺🧩 Fernanda + Steicy: consultas + terapias');
     }
 
+    // ── CORREÇÃO DE LOGIN: Danielle e Steicy — garante conta ATIVA e senha conhecida
+    // (Vittalis@2026), independente do estado anterior. Roda uma vez; elas trocam depois.
+    const { rows: [flagFixLogin] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'fix_login_dani_steicy_v1'");
+    if (!flagFixLogin) {
+      const bcryptFL = await import('bcryptjs');
+      const hashFL = await bcryptFL.default.hash('Vittalis@2026', 10);
+      // Danielle (já existe): reseta a senha e garante ativa.
+      await query(`UPDATE usuarios SET senha = $1, ativo = true WHERE cpf = '61867382300'`, [hashFL])
+        .catch((e) => console.error('fix login Danielle:', e.message));
+      // Steicy: se existir, reseta senha/ativa; se não existir, cria.
+      const { rows: steicyRow } = await query("SELECT id FROM usuarios WHERE cpf = '62339059313' LIMIT 1").catch(() => ({ rows: [] }));
+      if (steicyRow.length) {
+        await query(`UPDATE usuarios SET senha = $1, ativo = true WHERE cpf = '62339059313'`, [hashFL])
+          .catch((e) => console.error('fix login Steicy (update):', e.message));
+      } else {
+        await query(`INSERT INTO usuarios (id, nome, email, cpf, senha, role, cor, ativo, setor, setores)
+          VALUES (gen_random_uuid()::text, 'Steicy Kamilly Alves', 'steicy.alves@vittahub.local', '62339059313', $1, 'atendente', '#14b8a6', true, 'consultas', '{consultas,terapias}')
+          ON CONFLICT (email) DO UPDATE SET senha = EXCLUDED.senha, ativo = true, cpf = EXCLUDED.cpf`, [hashFL])
+          .catch((e) => console.error('fix login Steicy (insert):', e.message));
+      }
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('fix_login_dani_steicy_v1', '{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🔧 Login corrigido: Danielle + Steicy (ativas, senha Vittalis@2026)');
+    }
+
     // Beatriz dos Santos Duarte — HÍBRIDA (vacinas + consultas + terapias). CPF, Vittalis@2026.
     const { rows: [flagBeatriz] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_beatriz_v1'");
     if (!flagBeatriz) {
