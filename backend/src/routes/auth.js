@@ -93,6 +93,20 @@ r.patch('/me/avatar', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Editar o PRÓPRIO nome de exibição — instantâneo (reemite o token com o nome novo).
+r.patch('/me/nome', auth, async (req, res) => {
+  try {
+    const nome = String(req.body?.nome || '').trim().slice(0, 60);
+    if (nome.length < 2) return res.status(400).json({ error: 'Digite um nome válido.' });
+    const { rows: [u] } = await query(
+      'UPDATE usuarios SET nome = $1, updated_at = NOW() WHERE id = $2 RETURNING id, nome, email, cpf, role, cor, avatar, setor, setores, lider, ve_tudo',
+      [nome, req.user.id]);
+    if (!u) return res.status(404).json({ error: 'Usuário não encontrado.' });
+    const token = jwt.sign({ id: u.id, nome: u.nome, email: u.email, role: u.role, cor: u.cor, setor: u.setor || null, setores: u.setores || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo }, SECRET, { expiresIn: '30d' });
+    res.json({ ok: true, token, user: { id: u.id, nome: u.nome, email: u.email, cpf: u.cpf, role: u.role, cor: u.cor, avatar: u.avatar || null, setor: u.setor || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo } });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.get('/usuarios', auth, async (req, res) => {
   if (req.user.role !== 'master') return res.status(403).json({ error: 'Acesso negado' });
   try {

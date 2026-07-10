@@ -5,10 +5,11 @@ import {
   LogOut, Settings, Smartphone, Sun, Moon, ChevronLeft, ChevronRight,
   CalendarClock, CalendarDays, Bell, CheckCheck, UserPlus, Shield,
   Gift, Bot, Image, FileText, Smile, Phone, Star, Database, Stethoscope, Target,
-  Trophy, GraduationCap, Rocket, Wallet, Palette, Gamepad2, Heart, LayoutGrid,
+  Trophy, GraduationCap, Rocket, Wallet, Palette, Gamepad2, Heart, LayoutGrid, Pencil,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useApi } from '../context/AuthContext.jsx';
+import { setToken } from '../hooks/api.js';
 import { fmt } from '../hooks/utils.js';
 import AvatarBuilder from './AvatarBuilder.jsx';
 
@@ -151,6 +152,18 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
       } catch {}
     };
     img.src = URL.createObjectURL(f);
+  };
+  // Editar o próprio nome — instantâneo (novo token com o nome novo)
+  const editarNome = async () => {
+    const novo = window.prompt('Seu nome de exibição:', user?.nome || '');
+    if (novo == null) return;
+    const n = novo.trim();
+    if (n.length < 2) return;
+    try {
+      const r = await api.patch('/auth/me/nome', { nome: n });
+      if (r?.token) setToken(r.token);
+      if (r?.user) setUser?.(r.user);
+    } catch (e) { window.alert(e.message || 'Não foi possível mudar o nome.'); }
   };
   const [metaMini, setMetaMini] = useState(null);
   useEffect(() => {
@@ -436,7 +449,10 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
               <UserAvatar size={34} />
             </button>
             <div style={{ flex:1, minWidth:0 }}>
-              <div style={{ color:'#fff', fontSize:13, fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{user?.nome?.split(' ')[0]}</div>
+              <button onClick={editarNome} title="Editar meu nome" style={{ background:'none', border:'none', padding:0, cursor:'pointer', display:'flex', alignItems:'center', gap:4, maxWidth:'100%' }}>
+                <span style={{ color:'#fff', fontSize:13, fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{user?.nome?.split(' ')[0]}</span>
+                <Pencil size={10} color="rgba(255,255,255,.55)" style={{ flexShrink:0 }} />
+              </button>
               <div style={{ color:'rgba(255,255,255,.85)', fontSize:10.5 }}>{user?.role === 'master' ? '◆ Master' : user?.role === 'supervisor' ? '◆ Supervisora' : 'Atendente'}<span style={{ marginLeft:6 }}><span style={{ display:'inline-block', width:6, height:6, borderRadius:'50%', background:'#3ef58f', marginRight:3, verticalAlign:'1px' }}/>Online</span></div>
             </div>
             <button onClick={()=>setShowAvatarBuilder(true)} title="Criar meu avatar" style={{ padding:6, background:'none', color:'rgba(255,255,255,.62)', borderRadius:6, transition:'color .15s', cursor:'pointer', border:'none' }}
