@@ -65,7 +65,7 @@ export default function MeuPainel() {
   const anexarDoc = async (e) => {
     const f = e.target.files?.[0]; e.target.value = ''; if (!f) return;
     const url = await fileToDataUrl(f);
-    if (url.length > 15_500_000) { setErro('Documento muito grande (máx. ~12MB).'); return; }
+    if (url.length > 42_000_000) { setErro('Documento muito grande (máx. ~30MB).'); return; }
     setErro('');
     try { const it = await api.post('/extras/painel', { tipo: 'documento', titulo: f.name, arquivo: url, filename: f.name, mimetype: f.type }); setItens(p => [it, ...p]); }
     catch (e) { setErro(e.message); }

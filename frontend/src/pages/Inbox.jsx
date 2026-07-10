@@ -841,7 +841,7 @@ export default function Inbox({ onUnreadChange }) {
   const anexarDoc = async (e) => {
     const f = e.target.files?.[0]; e.target.value = ''; if (!f) return;
     const url = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f); });
-    if (url.length > 15_500_000) { Toast.show('Documento muito grande (máx. ~12MB)', 'error'); return; }
+    if (url.length > 42_000_000) { Toast.show('Documento muito grande (máx. ~30MB)', 'error'); return; }
     try { const d = await api.post('/inbox/documentos', { nome: f.name, arquivo: url, mimetype: f.type }); setDocs(p => [d, ...p]); Toast.show('Documento salvo no banco! 📄', 'success'); }
     catch (err) { Toast.show(err.message, 'error'); }
   };

@@ -81,7 +81,7 @@ export default function Caixa() {
     const f = e.target.files?.[0]; e.target.value = '';
     if (!f || !compModal) return;
     const url = await fileToDataUrl(f);
-    if (url.length > 15_500_000) { setErro('Comprovante muito grande (máx. ~12MB).'); return; }
+    if (url.length > 42_000_000) { setErro('Comprovante muito grande (máx. ~30MB).'); return; }
     setAnexandoComp(true); setErro('');
     try {
       const c = await api.post(`/extras/vendas/${compModal.id}/comprovantes`, { comprovante: url, filename: f.name, mimetype: f.type });

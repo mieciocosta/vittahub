@@ -3461,7 +3461,7 @@ r.post('/documentos', async (req, res) => {
   try {
     const b = req.body || {};
     if (typeof b.arquivo !== 'string' || !b.arquivo.startsWith('data:')) return res.status(400).json({ error: 'Envie o documento (PDF, Word, imagem).' });
-    if (b.arquivo.length > 16 * 1024 * 1024) return res.status(413).json({ error: 'Documento muito grande (máx. ~12MB).' });
+    if (b.arquivo.length > 44 * 1024 * 1024) return res.status(413).json({ error: 'Documento muito grande (máx. ~30MB).' });
     const { rows: [d] } = await query(
       `INSERT INTO documentos_banco (nome, arquivo, mimetype, criado_por, criado_por_id) VALUES ($1,$2,$3,$4,$5) RETURNING id, nome, mimetype, criado_por, criado_por_id, created_at`,
       [String(b.nome || 'Documento').slice(0, 160), b.arquivo, String(b.mimetype || '').slice(0, 80), req.user.nome, req.user.id]);
