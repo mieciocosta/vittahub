@@ -33,7 +33,9 @@ let cacheReady = false;
 
 async function loadCache() {
   try {
-    const { rows } = await query(`SELECT * FROM conversas ORDER BY last_message_at DESC LIMIT 2000`);
+    // Limite alto para não "esconder" conversas quando o histórico é grande.
+    // São só metadados (preview + URL de foto), então cabe bem em memória.
+    const { rows } = await query(`SELECT * FROM conversas ORDER BY last_message_at DESC LIMIT 20000`);
     rows.forEach(c => convoCache.set(c.id, c));
     cacheReady = true;
     console.log(`✅ ConvoCache: ${rows.length} conversas`);
@@ -4906,26 +4908,50 @@ r.get('/whatsapp/status', async (req, res) => {
 r.post('/whatsapp/import-history', masterOnly, async (req, res) => {
   if (!zapiOk()) return res.status(400).json({ error: 'Z-API não configurada' });
   try {
-    let imported = 0;
-    let page = 1;
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    let imported = 0;   // conversas inseridas/atualizadas
+    let seen = 0;       // chats retornados pelo Z-API
+    let pagesOk = 0;    // páginas lidas com sucesso
+    let pageErrors = 0; // páginas que falharam (após retries)
     const pageSize = 50;
+    const MAX_PAGES = 500;        // teto de segurança (~25k chats)
+    let consecutiveFail = 0;
 
-    while (true) {
-      const r2 = await zapiCall(`/chats?page=${page}&pageSize=${pageSize}`, 'GET');
-      if (!r2?.ok) break;
+    for (let page = 1; page <= MAX_PAGES; page++) {
+      // Busca a página com até 3 tentativas + backoff (Z-API faz rate-limit)
+      let chats = null;
+      let hadError = false;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          const r2 = await zapiCall(`/chats?page=${page}&pageSize=${pageSize}`, 'GET');
+          if (!r2?.ok) { hadError = true; await sleep(600 * attempt); continue; }
+          const d = await r2.json();
+          chats = Array.isArray(d) ? d : (d.chats || d.data || []);
+          hadError = false;
+          break;
+        } catch { hadError = true; await sleep(600 * attempt); }
+      }
 
-      let chats = [];
-      try {
-        const d = await r2.json();
-        chats = Array.isArray(d) ? d : (d.chats || d.data || []);
-      } catch { break; }
+      // Página falhou mesmo após retries: NÃO aborta tudo — pula e segue.
+      // Só desiste depois de 3 páginas seguidas falhando (Z-API realmente indisponível).
+      if (hadError || chats === null) {
+        pageErrors++;
+        consecutiveFail++;
+        console.log(`IMPORT Z-API: página ${page} falhou após retries (${consecutiveFail} seguidas)`);
+        if (consecutiveFail >= 3) { console.log('IMPORT Z-API: 3 páginas seguidas falharam, encerrando'); break; }
+        await sleep(800);
+        continue;
+      }
 
-      if (!chats.length) break;
+      consecutiveFail = 0;
+      pagesOk++;
+      if (!chats.length) break; // fim real da lista
 
       console.log(`IMPORT Z-API: página ${page}, ${chats.length} chats`);
 
       for (const chat of chats) {
         try {
+          seen++;
           const phone = (chat.phone || '').replace(/\D/g, '');
           if (!phone || phone.length < 8) continue;
           if (chat.isGroup === true || chat.isGroup === 'true') continue;
@@ -4937,23 +4963,25 @@ r.post('/whatsapp/import-history', masterOnly, async (req, res) => {
             ? new Date(parseInt(chat.lastMessageTime))
             : new Date();
           const unread = parseInt(chat.messagesUnread || chat.unread || 0) || 0;
+          // Se o Z-API já mandar a miniatura, aproveita (reduz trabalho do fetch de fotos)
+          const pic = (chat.profileThumbnail || chat.imgUrl || '') || null;
 
           await query(`
-            INSERT INTO conversas (contact_id, phone, contact_name, channel, last_message, last_message_at, unread)
-            VALUES ($1, $2, $3, 'whatsapp', '', $4, $5)
+            INSERT INTO conversas (contact_id, phone, contact_name, channel, last_message, last_message_at, unread, profile_pic)
+            VALUES ($1, $2, $3, 'whatsapp', '', $4, $5, $6)
             ON CONFLICT (contact_id) DO UPDATE SET
               contact_name    = CASE WHEN length(EXCLUDED.contact_name) > 3 THEN EXCLUDED.contact_name ELSE conversas.contact_name END,
               last_message_at = EXCLUDED.last_message_at,
-              unread          = EXCLUDED.unread`,
-            [contactId, phone, contactName, lastMsgAt, unread]
+              unread          = EXCLUDED.unread,
+              profile_pic     = COALESCE(NULLIF(conversas.profile_pic, ''), EXCLUDED.profile_pic)`,
+            [contactId, phone, contactName, lastMsgAt, unread, pic]
           );
           imported++;
         } catch {}
       }
 
       if (chats.length < pageSize) break;
-      page++;
-      await new Promise(r => setTimeout(r, 300));
+      await sleep(300);
     }
 
     // Recarrega cache
@@ -4999,8 +5027,15 @@ r.post('/whatsapp/import-history', masterOnly, async (req, res) => {
       console.log(`IMPORT FOTOS: ${totalPhotos} fotos carregadas em background`);
     });
 
-    console.log(`IMPORT Z-API DONE: ${imported} conversas`);
-    res.json({ ok: true, imported, message: `${imported} conversas importadas. Fotos sendo carregadas em background...` });
+    console.log(`IMPORT Z-API DONE: ${imported} conversas (vistas ${seen}, páginas ok ${pagesOk}, páginas com erro ${pageErrors})`);
+    const aviso = pageErrors > 0
+      ? ` (${pageErrors} página(s) do Z-API falharam mesmo com retry — se faltar conversa, rode de novo)`
+      : '';
+    res.json({
+      ok: true,
+      imported, seen, pagesOk, pageErrors,
+      message: `${imported} conversas importadas${aviso}. Fotos sendo carregadas em background...`
+    });
   } catch (err) {
     console.error('Import error:', err.message);
     res.status(500).json({ error: err.message });
