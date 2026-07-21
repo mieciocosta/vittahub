@@ -5008,6 +5008,33 @@ async function autoSyncZapi() {
 setInterval(autoSyncZapi, 3 * 60 * 1000);
 setTimeout(autoSyncZapi, 25000);
 
+// ─── BACKFILL COMPLETO DIÁRIO ─────────────────────────────────────────────────
+// O auto-sync acima cobre as conversas recentes. Uma vez por dia, de madrugada
+// (baixo movimento), varremos TODAS as páginas para trazer também o histórico
+// antigo/quieto que não aparece nas primeiras páginas. Continua só inserindo
+// as novas (não mexe no estado das existentes).
+let _lastFullSyncDay = null;
+async function dailyFullSyncZapi() {
+  if (!zapiOk()) return;
+  const now = new Date();
+  // ~04:00 em São Luís (UTC-3) = 07:00 UTC
+  if (now.getUTCHours() !== 7) return;
+  const dayKey = now.toISOString().slice(0, 10);
+  if (_lastFullSyncDay === dayKey) return; // já rodou hoje
+  if (_autoSyncBusy) return;               // ocupado — tenta de novo na próxima verificação
+  _autoSyncBusy = true;
+  _lastFullSyncDay = dayKey;
+  try {
+    console.log('FULL-SYNC Z-API: backfill diário iniciado');
+    const { newConvos, seen, pagesOk, pageErrors } = await syncZapiChats({ updateExisting: false });
+    if (newConvos > 0) { convoCache.clear(); cacheReady = false; await loadCache(); }
+    console.log(`FULL-SYNC Z-API: concluído — novas ${newConvos}, vistas ${seen}, páginas ok ${pagesOk}, erros ${pageErrors}`);
+  } catch (e) { console.error('FULL-SYNC Z-API erro:', e.message); }
+  finally { _autoSyncBusy = false; }
+}
+// Verifica a cada 20 min se está na janela do backfill diário.
+setInterval(dailyFullSyncZapi, 20 * 60 * 1000);
+
 // ─── IMPORT WHATSAPP HISTORY (via Z-API) ──────────────────────────────────────
 r.post('/whatsapp/import-history', masterOnly, async (req, res) => {
   if (!zapiOk()) return res.status(400).json({ error: 'Z-API não configurada' });
