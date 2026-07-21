@@ -4904,85 +4904,115 @@ r.get('/whatsapp/status', async (req, res) => {
   } catch (e) { res.json({ connected: false, status: 'error', message: e.message }); }
 });
 
+// ─── SINCRONIZAÇÃO Z-API (reutilizável: manual e automática) ──────────────────
+// Puxa a lista de chats do Z-API e insere/atualiza em `conversas`, de forma
+// robusta (retry por página, não aborta tudo num erro isolado).
+//  - updateExisting=true  → refresh completo (usado no "Importar histórico")
+//  - updateExisting=false → só INSERE conversas novas, sem mexer no estado
+//    (unread, última mensagem) das já existentes — ideal para o auto-sync.
+async function syncZapiChats({ maxPages = 500, updateExisting = true } = {}) {
+  if (!zapiOk()) return { imported: 0, seen: 0, pagesOk: 0, pageErrors: 0, newConvos: 0, skipped: true };
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  const pageSize = 50;
+  let imported = 0, newConvos = 0, seen = 0, pagesOk = 0, pageErrors = 0, consecutiveFail = 0;
+
+  const conflict = updateExisting
+    ? `ON CONFLICT (contact_id) DO UPDATE SET
+         contact_name    = CASE WHEN length(EXCLUDED.contact_name) > 3 THEN EXCLUDED.contact_name ELSE conversas.contact_name END,
+         last_message_at = EXCLUDED.last_message_at,
+         unread          = EXCLUDED.unread,
+         profile_pic     = COALESCE(NULLIF(conversas.profile_pic, ''), EXCLUDED.profile_pic)`
+    : `ON CONFLICT (contact_id) DO NOTHING`;
+
+  for (let page = 1; page <= maxPages; page++) {
+    // Busca a página com até 3 tentativas + backoff (Z-API faz rate-limit)
+    let chats = null, hadError = false;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const r2 = await zapiCall(`/chats?page=${page}&pageSize=${pageSize}`, 'GET');
+        if (!r2?.ok) { hadError = true; await sleep(600 * attempt); continue; }
+        const d = await r2.json();
+        chats = Array.isArray(d) ? d : (d.chats || d.data || []);
+        hadError = false;
+        break;
+      } catch { hadError = true; await sleep(600 * attempt); }
+    }
+
+    // Página falhou mesmo após retries: NÃO aborta tudo — pula e segue.
+    // Só desiste depois de 3 páginas seguidas falhando.
+    if (hadError || chats === null) {
+      pageErrors++; consecutiveFail++;
+      console.log(`SYNC Z-API: página ${page} falhou após retries (${consecutiveFail} seguidas)`);
+      if (consecutiveFail >= 3) { console.log('SYNC Z-API: 3 páginas seguidas falharam, encerrando'); break; }
+      await sleep(800);
+      continue;
+    }
+
+    consecutiveFail = 0; pagesOk++;
+    if (!chats.length) break; // fim real da lista
+
+    for (const chat of chats) {
+      try {
+        seen++;
+        const phone = (chat.phone || '').replace(/\D/g, '');
+        if (!phone || phone.length < 8) continue;
+        if (chat.isGroup === true || chat.isGroup === 'true') continue;
+
+        const contactId   = `${phone}@s.whatsapp.net`;
+        const contactName = chat.name || chat.phone || phone;
+        // Z-API usa lastMessageTime em milissegundos (string)
+        const lastMsgAt   = chat.lastMessageTime ? new Date(parseInt(chat.lastMessageTime)) : new Date();
+        const unread      = parseInt(chat.messagesUnread || chat.unread || 0) || 0;
+        // Se o Z-API já mandar a miniatura, aproveita (reduz trabalho do fetch de fotos)
+        const pic         = (chat.profileThumbnail || chat.imgUrl || '') || null;
+
+        // RETURNING (xmax = 0): true = inseriu conversa nova; false = atualizou
+        const { rows: rr } = await query(`
+          INSERT INTO conversas (contact_id, phone, contact_name, channel, last_message, last_message_at, unread, profile_pic)
+          VALUES ($1, $2, $3, 'whatsapp', '', $4, $5, $6)
+          ${conflict}
+          RETURNING (xmax = 0) AS inserted`,
+          [contactId, phone, contactName, lastMsgAt, unread, pic]
+        );
+        if (rr.length) { imported++; if (rr[0].inserted) newConvos++; }
+      } catch {}
+    }
+
+    if (chats.length < pageSize) break;
+    await sleep(300);
+  }
+
+  return { imported, seen, pagesOk, pageErrors, newConvos };
+}
+
+// ─── AUTO-SYNC PERIÓDICO ──────────────────────────────────────────────────────
+// Mantém as conversas subindo SOZINHAS, sem depender de clicar em "Importar
+// histórico". Conversas novas/reativadas têm o timestamp mais recente, então
+// aparecem já nas primeiras páginas — puxamos poucas páginas e só INSERIMOS as
+// novas, preservando o estado (unread, última msg) das já existentes.
+let _autoSyncBusy = false;
+async function autoSyncZapi() {
+  if (!zapiOk() || _autoSyncBusy) return;
+  _autoSyncBusy = true;
+  try {
+    const { newConvos, pageErrors } = await syncZapiChats({ maxPages: 6, updateExisting: false });
+    if (newConvos > 0) {
+      convoCache.clear(); cacheReady = false; await loadCache();
+      console.log(`AUTO-SYNC Z-API: ${newConvos} conversa(s) nova(s) subiram automaticamente`);
+    }
+    if (pageErrors > 0) console.log(`AUTO-SYNC Z-API: ${pageErrors} página(s) com erro nesta rodada`);
+  } catch (e) { console.error('AUTO-SYNC Z-API erro:', e.message); }
+  finally { _autoSyncBusy = false; }
+}
+// Roda a cada 3 min; primeira rodada 25s após subir (dá tempo do pool/cache).
+setInterval(autoSyncZapi, 3 * 60 * 1000);
+setTimeout(autoSyncZapi, 25000);
+
 // ─── IMPORT WHATSAPP HISTORY (via Z-API) ──────────────────────────────────────
 r.post('/whatsapp/import-history', masterOnly, async (req, res) => {
   if (!zapiOk()) return res.status(400).json({ error: 'Z-API não configurada' });
   try {
-    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-    let imported = 0;   // conversas inseridas/atualizadas
-    let seen = 0;       // chats retornados pelo Z-API
-    let pagesOk = 0;    // páginas lidas com sucesso
-    let pageErrors = 0; // páginas que falharam (após retries)
-    const pageSize = 50;
-    const MAX_PAGES = 500;        // teto de segurança (~25k chats)
-    let consecutiveFail = 0;
-
-    for (let page = 1; page <= MAX_PAGES; page++) {
-      // Busca a página com até 3 tentativas + backoff (Z-API faz rate-limit)
-      let chats = null;
-      let hadError = false;
-      for (let attempt = 1; attempt <= 3; attempt++) {
-        try {
-          const r2 = await zapiCall(`/chats?page=${page}&pageSize=${pageSize}`, 'GET');
-          if (!r2?.ok) { hadError = true; await sleep(600 * attempt); continue; }
-          const d = await r2.json();
-          chats = Array.isArray(d) ? d : (d.chats || d.data || []);
-          hadError = false;
-          break;
-        } catch { hadError = true; await sleep(600 * attempt); }
-      }
-
-      // Página falhou mesmo após retries: NÃO aborta tudo — pula e segue.
-      // Só desiste depois de 3 páginas seguidas falhando (Z-API realmente indisponível).
-      if (hadError || chats === null) {
-        pageErrors++;
-        consecutiveFail++;
-        console.log(`IMPORT Z-API: página ${page} falhou após retries (${consecutiveFail} seguidas)`);
-        if (consecutiveFail >= 3) { console.log('IMPORT Z-API: 3 páginas seguidas falharam, encerrando'); break; }
-        await sleep(800);
-        continue;
-      }
-
-      consecutiveFail = 0;
-      pagesOk++;
-      if (!chats.length) break; // fim real da lista
-
-      console.log(`IMPORT Z-API: página ${page}, ${chats.length} chats`);
-
-      for (const chat of chats) {
-        try {
-          seen++;
-          const phone = (chat.phone || '').replace(/\D/g, '');
-          if (!phone || phone.length < 8) continue;
-          if (chat.isGroup === true || chat.isGroup === 'true') continue;
-
-          const contactId   = `${phone}@s.whatsapp.net`;
-          const contactName = chat.name || chat.phone || phone;
-          // Z-API usa lastMessageTime em milissegundos (string)
-          const lastMsgAt = chat.lastMessageTime
-            ? new Date(parseInt(chat.lastMessageTime))
-            : new Date();
-          const unread = parseInt(chat.messagesUnread || chat.unread || 0) || 0;
-          // Se o Z-API já mandar a miniatura, aproveita (reduz trabalho do fetch de fotos)
-          const pic = (chat.profileThumbnail || chat.imgUrl || '') || null;
-
-          await query(`
-            INSERT INTO conversas (contact_id, phone, contact_name, channel, last_message, last_message_at, unread, profile_pic)
-            VALUES ($1, $2, $3, 'whatsapp', '', $4, $5, $6)
-            ON CONFLICT (contact_id) DO UPDATE SET
-              contact_name    = CASE WHEN length(EXCLUDED.contact_name) > 3 THEN EXCLUDED.contact_name ELSE conversas.contact_name END,
-              last_message_at = EXCLUDED.last_message_at,
-              unread          = EXCLUDED.unread,
-              profile_pic     = COALESCE(NULLIF(conversas.profile_pic, ''), EXCLUDED.profile_pic)`,
-            [contactId, phone, contactName, lastMsgAt, unread, pic]
-          );
-          imported++;
-        } catch {}
-      }
-
-      if (chats.length < pageSize) break;
-      await sleep(300);
-    }
+    const { imported, seen, pagesOk, pageErrors } = await syncZapiChats({ updateExisting: true });
 
     // Recarrega cache
     convoCache.clear(); cacheReady = false;
