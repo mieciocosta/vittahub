@@ -189,7 +189,11 @@ function cacheGetList({ channel, search, unread_only, waiting, minhas, responsav
   if (viewer) list = list.filter(c => podeVerSetor(viewer, c));
   if (unread_only === 'true') list = list.filter(c => (c.unread || 0) > 0);
   // Aguardando resposta: a última mensagem é do CLIENTE (fila de quem espera)
-  if (waiting === 'true') list = list.filter(c => c.last_from === 'contact');
+  if (waiting === 'true') {
+    list = list.filter(c => c.last_from === 'contact');
+    // Fila de venda: quem espera HÁ MAIS TEMPO primeiro (mais perto de desistir).
+    list = list.sort((a, b) => new Date(a.last_message_at || 0) - new Date(b.last_message_at || 0));
+  }
   // Filtros do mock: Minhas (sou a responsável) e Grupos (conversas de grupo)
   if (minhas === 'true' && viewer) list = list.filter(c => c.responsavel_id === viewer.id);
   // Carteira de um atendente específico (gestão vê a carteira de cada um)
@@ -2493,6 +2497,8 @@ r.get('/conversations', async (req, res) => {
     minhas: tudo.filter(c => c.responsavel_id === req.user.id).length,
     naoLidas: tudo.filter(c => (c.unread || 0) > 0).length,
     grupos: tudo.filter(c => ehGrupo(c)).length,
+    // Fila de venda: clientes que mandaram a última mensagem e esperam resposta
+    esperando: tudo.filter(c => c.last_from === 'contact' && !ehGrupo(c)).length,
   };
   res.json(result);
 });

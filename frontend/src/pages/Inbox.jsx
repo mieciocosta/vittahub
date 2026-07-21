@@ -135,6 +135,13 @@ const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect, usersB
   const hasUnread = conv.unread > 0;
   const resp = conv.responsavel_id ? usersById?.[conv.responsavel_id] : null;
   const preview = MEDIA_PREVIEW[conv.last_message] || conv.last_message || '…';
+  // Cliente esperando resposta (última msg foi dele): cronômetro de urgência
+  const esperando = conv.last_from === 'contact' && !String(conv.contact_id || '').endsWith('@g.us');
+  const waitMin = esperando && conv.last_message_at
+    ? Math.max(0, Math.floor((Date.now() - new Date(conv.last_message_at).getTime()) / 60000))
+    : 0;
+  const waitColor = waitMin >= 120 ? '#dc2626' : waitMin >= 30 ? '#f97316' : '#f59e0b';
+  const waitLabel = waitMin >= 60 ? `${Math.floor(waitMin / 60)}h${waitMin % 60 ? ' ' + (waitMin % 60) + 'm' : ''}` : `${waitMin}m`;
   return (
     <div onClick={() => onSelect(conv)} className={`conv-row${selected ? ' sel' : ''}`}
       style={{
@@ -150,9 +157,16 @@ const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect, usersB
             {conv.lead_score === 'quente' && <span title="Lead quente" style={{ marginRight: 3 }}>🔥</span>}
             {conv.contact_name || fmt.phone(conv.phone) || '…'}
           </span>
-          <span style={{ fontSize: 10.5, fontWeight: hasUnread ? 800 : 500, color: hasUnread ? 'var(--tq)' : 'var(--light)', flexShrink: 0 }}>
-            {fmt.relTime(conv.last_message_at)}
-          </span>
+          {esperando ? (
+            <span title={`Cliente esperando resposta há ${fmt.relTime(conv.last_message_at)}`}
+              style={{ fontSize: 10, fontWeight: 800, color: '#fff', background: waitColor, borderRadius: 8, padding: '1px 6px', flexShrink: 0, whiteSpace: 'nowrap' }}>
+              ⏱ {waitLabel}
+            </span>
+          ) : (
+            <span style={{ fontSize: 10.5, fontWeight: hasUnread ? 800 : 500, color: hasUnread ? 'var(--tq)' : 'var(--light)', flexShrink: 0 }}>
+              {fmt.relTime(conv.last_message_at)}
+            </span>
+          )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
           <span style={{ fontSize: 12, color: hasUnread ? 'var(--txt2)' : 'var(--muted)', fontWeight: hasUnread ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
@@ -204,7 +218,7 @@ function SearchBar({ value, onChange, filter, setFilter, totalUnread, unreadOnly
         <button onClick={() => setWaiting(p => !p)} title="Fila de atendimento: clientes que mandaram a última mensagem e ainda esperam resposta"
           style={{ padding: '4px 8px', borderRadius: 8, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', border: '1.5px solid',
             background: waiting ? 'var(--warn)' : 'var(--card,#fff)', color: waiting ? '#fff' : 'var(--warn)', borderColor: waiting ? 'var(--warn)' : 'var(--border)' }}>
-          <Clock size={10} style={{ verticalAlign:'-1px', marginRight:3 }}/>Sem resposta
+          <Clock size={10} style={{ verticalAlign:'-1px', marginRight:3 }}/>Sem resposta{counts?.esperando ? ` ${counts.esperando}` : ''}
         </button>
         {totalUnread > 0 && (
           <button onClick={() => setUnreadOnly(p => !p)}
