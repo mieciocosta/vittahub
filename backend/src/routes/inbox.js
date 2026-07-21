@@ -2501,6 +2501,81 @@ r.get('/conversations', async (req, res) => {
 // NOTA: A Z-API NÃO fornece endpoint para buscar mensagens antigas do histórico.
 // O histórico fica apenas no celular. Mensagens novas chegam via webhook.
 // Este endpoint apenas atualiza a foto de perfil do contato.
+// Extrai conteúdo de uma mensagem do Z-API (mesmo formato do webhook e do
+// endpoint /chat-messages). Retorna { content, type, filename, mediaData }.
+function zapiMsgContent(m) {
+  let content = '', type = 'text', filename = null, mediaData = null;
+  const textMsg = m.text?.message
+    || (typeof m.text === 'string' ? m.text : null)
+    || m.message?.text
+    || m.body || m.conversation
+    || m.buttonsResponseMessage?.message
+    || m.listResponseMessage?.title || m.listResponseMessage?.message
+    || m.extendedTextMessage?.text
+    || null;
+  if (textMsg && typeof textMsg === 'string')          { content = textMsg; type = 'text'; }
+  else if (m.image?.imageUrl || m.image?.url)          { content = m.image.caption || '📷 Imagem'; type = 'image'; mediaData = m.image.imageUrl || m.image.url; }
+  else if (m.audio?.audioUrl || m.audio?.url)          { content = '🎵 Áudio'; type = 'audio'; mediaData = m.audio.audioUrl || m.audio.url; }
+  else if (m.video?.videoUrl || m.video?.url)          { content = m.video.caption || '🎥 Vídeo'; type = 'video'; mediaData = m.video.videoUrl || m.video.url; }
+  else if (m.document?.documentUrl)                    { filename = m.document.fileName || m.document.title || 'Documento'; content = `📎 ${filename}`; type = 'document'; mediaData = m.document.documentUrl; }
+  else if (m.sticker?.stickerUrl)                      { content = '🎭 Sticker'; type = 'image'; mediaData = m.sticker.stickerUrl; }
+  else if (m.gif?.gifUrl)                              { content = '🎬 GIF'; type = 'video'; mediaData = m.gif.gifUrl; }
+  else if (m.location)                                 { content = `📍 ${m.location.address || 'Localização'}`; }
+  else if (m.contact?.displayName)                     { content = `👤 ${m.contact.displayName}`; }
+  else if (m.reaction?.text || m.reaction?.value)      { content = `${m.reaction.text || m.reaction.value} (reação)`; }
+  return { content, type, filename, mediaData };
+}
+
+// Baixa o histórico de mensagens de UMA conversa via Z-API e SALVA no nosso
+// banco (dedup por wa_msg_id). É isto que garante "não perder nada": mesmo que
+// o Z-API descarte a conversa depois, o histórico fica preservado aqui.
+// Retorna o nº de mensagens salvas (>= 0) ou -1 se NÃO conseguiu falar com o
+// Z-API (falha transitória — o chamador deve tentar de novo depois, sem marcar
+// a conversa como preservada).
+async function importZapiMessages(conv, phone, amount = 200) {
+  let loaded = 0;
+  let r2;
+  try { r2 = await zapiCall(`/chat-messages/${phone}?amount=${amount}`, 'GET'); }
+  catch { return -1; }
+  if (!r2?.ok) return -1;
+  let msgs;
+  try {
+    const d = await r2.json();
+    msgs = Array.isArray(d) ? d : (d?.messages || d?.data || []);
+  } catch { return -1; }
+  if (!Array.isArray(msgs) || !msgs.length) return 0;
+
+  {
+    for (const m of msgs) {
+      try {
+        const waId = m.messageId || m.id || m.zaapId || null;
+        const fromMe = !!(m.fromMe || m.isFromMe);
+        const { content, type, filename, mediaData } = zapiMsgContent(m);
+        if (!content && !mediaData) continue; // sem conteúdo útil (status, etc.)
+        // Z-API manda "momment" em ms; alguns campos vêm em segundos
+        const rawTs = m.momment || m.moment || m.messageTimestamp || m.timestamp;
+        const createdAt = rawTs
+          ? new Date(parseInt(String(rawTs)) * (String(rawTs).length <= 10 ? 1000 : 1))
+          : new Date();
+        const fromType = fromMe ? 'me' : 'contact';
+
+        // Dedup: por wa_msg_id quando existe; senão por (conversa, instante, conteúdo)
+        const { rows: rr } = await query(
+          `INSERT INTO mensagens (conversa_id, from_type, type, content, filename, created_at, wa_msg_id)
+           SELECT $1, $2, $3, $4, $5, $6, $7
+           WHERE ($7 IS NOT NULL AND NOT EXISTS (SELECT 1 FROM mensagens WHERE wa_msg_id = $7))
+              OR ($7 IS NULL AND NOT EXISTS (
+                    SELECT 1 FROM mensagens WHERE conversa_id = $1 AND created_at = $6 AND content = $4))
+           RETURNING id`,
+          [conv.id, fromType, type, mediaData || content, filename, createdAt, waId]
+        );
+        if (rr.length) loaded++;
+      } catch {}
+    }
+  }
+  return loaded;
+}
+
 r.post('/conversations/:id/load-from-zapi', async (req, res) => {
   if (!zapiOk()) return res.json({ ok: false, loaded: 0 });
   try {
@@ -2526,8 +2601,20 @@ r.post('/conversations/:id/load-from-zapi', async (req, res) => {
       } catch {}
     }
 
-    // Z-API não tem API de histórico de mensagens — retorna 0
-    res.json({ ok: true, loaded: 0, note: 'Z-API não fornece histórico antigo. Mensagens novas chegam via webhook.' });
+    // Preserva o histórico do Z-API no nosso banco (uma vez por conversa).
+    // Só marca como preservada se realmente conseguiu falar com o Z-API (n >= 0).
+    let loaded = 0;
+    if (!conv.historico_zapi) {
+      const n = await importZapiMessages(conv, phone, 200);
+      if (n >= 0) {
+        loaded = n;
+        await query('UPDATE conversas SET historico_zapi = true WHERE id = $1', [conv.id]).catch(() => {});
+        const cached = convoCache.get(conv.id);
+        if (cached) cacheUpdate({ ...cached, historico_zapi: true });
+      }
+    }
+
+    res.json({ ok: true, loaded });
   } catch (err) { res.json({ ok: false, loaded: 0, error: err.message }); }
 });
 
@@ -5028,7 +5115,29 @@ async function dailyFullSyncZapi() {
     console.log('FULL-SYNC Z-API: backfill diário iniciado');
     const { newConvos, seen, pagesOk, pageErrors } = await syncZapiChats({ updateExisting: false });
     if (newConvos > 0) { convoCache.clear(); cacheReady = false; await loadCache(); }
-    console.log(`FULL-SYNC Z-API: concluído — novas ${newConvos}, vistas ${seen}, páginas ok ${pagesOk}, erros ${pageErrors}`);
+    console.log(`FULL-SYNC Z-API: lista concluída — novas ${newConvos}, vistas ${seen}, páginas ok ${pagesOk}, erros ${pageErrors}`);
+
+    // Preserva o histórico de mensagens das conversas ainda não salvas.
+    // Limite por noite (não sobrecarrega o Z-API); ao longo dos dias cobre tudo.
+    const { rows: pend } = await query(
+      `SELECT id, phone FROM conversas
+       WHERE historico_zapi IS NOT true AND phone IS NOT NULL AND channel = 'whatsapp'
+       ORDER BY last_message_at DESC NULLS LAST LIMIT 300`
+    ).catch(() => ({ rows: [] }));
+    let histConvos = 0, histMsgs = 0;
+    for (const c of pend) {
+      let ph = (c.phone || '').replace(/\D/g, '');
+      if (ph.startsWith('55') && ph.length >= 12) ph = ph.slice(2);
+      if (ph.length < 8) { await query('UPDATE conversas SET historico_zapi = true WHERE id = $1', [c.id]).catch(() => {}); continue; }
+      const n = await importZapiMessages({ id: c.id }, ph, 200);
+      if (n >= 0) {
+        await query('UPDATE conversas SET historico_zapi = true WHERE id = $1', [c.id]).catch(() => {});
+        histConvos++; histMsgs += n;
+      }
+      await new Promise(r => setTimeout(r, 400)); // respeita rate-limit
+    }
+    if (histMsgs > 0) { convoCache.clear(); cacheReady = false; await loadCache(); }
+    console.log(`FULL-SYNC Z-API: histórico preservado — ${histConvos} conversa(s), ${histMsgs} mensagem(ns)`);
   } catch (e) { console.error('FULL-SYNC Z-API erro:', e.message); }
   finally { _autoSyncBusy = false; }
 }
@@ -5211,6 +5320,29 @@ r.get('/whatsapp/zapi/debug-chats', async (req, res) => {
       raw: text.slice(0, 3000),
       parsed_type: Array.isArray(parsed) ? 'array' : typeof parsed,
       first_item: Array.isArray(parsed) ? parsed[0] : (parsed?.chats?.[0] || parsed?.data?.[0] || parsed)
+    });
+  } catch (e) { res.json({ error: e.message }); }
+});
+
+// DEBUG: ver o formato bruto das mensagens de uma conversa (validar o parser
+// de histórico). Uso: /whatsapp/zapi/debug-messages?phone=5599XXXXXXXX
+r.get('/whatsapp/zapi/debug-messages', async (req, res) => {
+  if (!zapiOk()) return res.json({ error: 'Z-API não configurada' });
+  try {
+    let ph = String(req.query.phone || '').replace(/\D/g, '');
+    if (ph.startsWith('55') && ph.length >= 12) ph = ph.slice(2);
+    if (ph.length < 8) return res.json({ error: 'informe ?phone=' });
+    const r2 = await zapiCall(`/chat-messages/${ph}?amount=5`, 'GET');
+    const text = await r2?.text() || '{}';
+    let parsed = null;
+    try { parsed = JSON.parse(text); } catch {}
+    const first = Array.isArray(parsed) ? parsed[0] : (parsed?.messages?.[0] || parsed?.data?.[0] || parsed);
+    res.json({
+      status: r2?.status,
+      parsed_type: Array.isArray(parsed) ? 'array' : typeof parsed,
+      amostra_parseada: first ? zapiMsgContent(first) : null,
+      first_item: first,
+      raw: text.slice(0, 3000),
     });
   } catch (e) { res.json({ error: e.message }); }
 });

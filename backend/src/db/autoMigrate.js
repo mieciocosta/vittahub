@@ -104,6 +104,9 @@ export default async function runMigrate() {
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS lead_score_at TIMESTAMPTZ`).catch(() => {});
     // Memória do lead: perfil persistente (paciente, idade, o que já cotou…)
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS memoria JSONB DEFAULT '{}'::jsonb`).catch(() => {});
+    // Marca conversas cujo histórico do Z-API já foi preservado no nosso banco
+    // (para não perder mensagens antigas quando o Z-API as descartar).
+    await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS historico_zapi BOOLEAN DEFAULT false`).catch(() => {});
     // WhatsApp LID: casa mensagens enviadas pelo celular (que chegam só com @lid)
     // com a conversa real criada pelas mensagens recebidas.
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS chat_lid TEXT`).catch(() => {});
