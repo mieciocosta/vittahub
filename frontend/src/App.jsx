@@ -148,6 +148,67 @@ function Heartbeat({ userId }) {
   return null; // never renders anything
 }
 
+/* ─── SecurityLock ────────────────────────────────────────────────────────────
+   Trava anti-vazamento de dados do cliente (aplicada a todos menos o master):
+   - Bloqueia copiar (Ctrl+C/X), botão direito, arrastar texto e imprimir (Ctrl+P).
+   - Impede seleção de texto (telefones e lista não podem ser selecionados/copiados),
+     mantendo campos de digitação normais.
+   - Marca d'água com o nome do usuário logado por cima de tudo: não impede foto de
+     tela (nenhum site consegue), mas deixa qualquer vazamento RASTREÁVEL.
+   Observação honesta: print de tela pelo SO ou foto com outro celular não têm como
+   ser bloqueados por um site — por isso a marca d'água é a proteção real contra isso. */
+function SecurityLock({ user }) {
+  React.useEffect(() => {
+    const bloqueia = (e) => { e.preventDefault(); return false; };
+    const bloqueiaTeclas = (e) => {
+      const k = (e.key || '').toLowerCase();
+      if ((e.ctrlKey || e.metaKey) && ['c', 'x', 'p', 's'].includes(k)) { e.preventDefault(); return false; }
+      if (k === 'printscreen') { try { navigator.clipboard?.writeText(''); } catch {} }
+    };
+    document.addEventListener('contextmenu', bloqueia);
+    document.addEventListener('copy', bloqueia);
+    document.addEventListener('cut', bloqueia);
+    document.addEventListener('dragstart', bloqueia);
+    document.addEventListener('keydown', bloqueiaTeclas);
+
+    const style = document.createElement('style');
+    style.id = 'vh-seclock';
+    style.textContent = `
+      *:not(input):not(textarea):not([contenteditable="true"]) {
+        -webkit-user-select: none !important; -moz-user-select: none !important; user-select: none !important;
+        -webkit-touch-callout: none !important;
+      }
+      input, textarea, [contenteditable="true"] { -webkit-user-select: text !important; user-select: text !important; }
+      @media print { body { display: none !important; } }
+    `;
+    document.head.appendChild(style);
+
+    return () => {
+      document.removeEventListener('contextmenu', bloqueia);
+      document.removeEventListener('copy', bloqueia);
+      document.removeEventListener('cut', bloqueia);
+      document.removeEventListener('dragstart', bloqueia);
+      document.removeEventListener('keydown', bloqueiaTeclas);
+      document.getElementById('vh-seclock')?.remove();
+    };
+  }, []);
+
+  // Marca d'água diagonal repetida com a identidade de quem está logado.
+  const nome = String(user?.nome || user?.email || 'usuário').replace(/[<>&"']/g, '').slice(0, 40);
+  const marca = `${nome} · ${new Date().toLocaleDateString('pt-BR')}`;
+  const svg = encodeURIComponent(
+    `<svg xmlns='http://www.w3.org/2000/svg' width='360' height='200'>` +
+    `<text x='10' y='110' transform='rotate(-28 10 110)' fill='rgba(130,130,130,0.12)' ` +
+    `font-size='15' font-family='sans-serif' font-weight='600'>${marca}</text></svg>`
+  );
+  return (
+    <div aria-hidden style={{
+      position: 'fixed', inset: 0, zIndex: 2147483000, pointerEvents: 'none',
+      backgroundImage: `url("data:image/svg+xml,${svg}")`, backgroundRepeat: 'repeat',
+    }} />
+  );
+}
+
 export default function App() {
   const { user, loading } = useAuth();
   const [unread, setUnread] = useState(0);
@@ -201,6 +262,7 @@ export default function App() {
 
   return (
     <div style={{ display:'flex', minHeight:'100vh' }}>
+      {user.role !== 'master' && <SecurityLock user={user} />}
       <CelebracaoGlobal />
       <button className="vh-hamburger" onClick={() => setMobileMenu(true)} aria-label="Menu">☰</button>
       <div className={`vh-overlay${mobileMenu ? ' open' : ''}`} onClick={() => setMobileMenu(false)} />
