@@ -164,6 +164,16 @@ export default function Caixa() {
     setDespesas(p => p.filter(x => x.id !== d.id)); setDespTotal(t => t - (parseFloat(d.valor) || 0));
     try { await api.del(`/extras/despesas/${d.id}`); } catch { loadDespesas(); }
   };
+  // Excluir uma venda (gestão): remove do caixa, do faturamento e das metas.
+  const excluirVenda = async (v) => {
+    if (!gestao) return;
+    const nome = v.cliente_nome || v.paciente_nome || 'esta venda';
+    if (!window.confirm(`Excluir a venda de ${nome} (${fmt.brl(v.valor)})?\n\nRemove a venda do caixa, do faturamento e das metas. Não dá pra desfazer.`)) return;
+    const antes = lista;
+    setLista(p => p.filter(x => x.id !== v.id));
+    try { await api.del(`/extras/vendas/${v.id}`); }
+    catch (err) { setErro(err.message || 'Falha ao excluir a venda.'); setLista(antes); }
+  };
 
   const filtrada = lista.filter(v => {
     if (!busca.trim()) return true;
@@ -573,6 +583,12 @@ export default function Caixa() {
                       <span style={{ fontSize: 11.5, color: 'var(--light)', fontWeight: 600 }}>sem comprovante</span>
                     )}
                   </div>
+                  {gestao && (
+                    <button onClick={() => excluirVenda(v)} title="Excluir venda"
+                      style={{ display: 'flex', alignItems: 'center', gap: 5, background: '#fdecec', color: '#dc2626', border: 'none', borderRadius: 8, padding: '6px 10px', cursor: 'pointer', fontWeight: 700, fontSize: 11.5 }}>
+                      <Trash2 size={14} /> Excluir
+                    </button>
+                  )}
                 </div>
               </div>
             );

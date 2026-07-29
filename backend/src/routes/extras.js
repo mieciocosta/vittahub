@@ -846,6 +846,22 @@ r.patch('/vendas/:id/receber', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// CAIXA — EXCLUIR uma venda (e seus comprovantes). Só gestão (master/supervisor).
+// Remove a venda do faturamento/metas; emite socket para atualizar caixa e placar.
+r.delete('/vendas/:id', async (req, res) => {
+  try {
+    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão pode excluir vendas.' });
+    const { rows: [v] } = await query('SELECT id, setor, valor FROM vendas WHERE id = $1', [req.params.id]);
+    if (!v) return res.status(404).json({ error: 'Venda não encontrada' });
+    // Apaga os comprovantes ligados (não há cascade nessa tabela) e a venda.
+    await query('DELETE FROM venda_comprovantes WHERE venda_id = $1', [req.params.id]).catch(() => {});
+    await query('DELETE FROM vendas WHERE id = $1', [req.params.id]);
+    // Atualiza caixa/placar/metas em tempo real (mesmo evento do registro).
+    socketEmit('venda_registrada', { id: v.id, setor: v.setor, valor: v.valor, excluida: true });
+    res.json({ ok: true, id: v.id });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ─── SAÍDAS / DESPESAS (fecham o saldo real do caixa) ─────────────────────────
 const DESPESA_CATS = ['Repasse', 'Insumos', 'Salário', 'Aluguel', 'Marketing', 'Imposto', 'Manutenção', 'Outros'];
 r.get('/despesas', async (req, res) => {
