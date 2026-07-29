@@ -557,6 +557,13 @@ export default async function runMigrate() {
       analise JSONB, criado_por TEXT, created_at TIMESTAMPTZ DEFAULT NOW()
     )`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS idx_vcomp_venda ON venda_comprovantes (venda_id)`).catch(() => {});
+    // CAIXA: arquivo de vendas excluídas — guarda um snapshot completo antes de
+    // remover das contas, para nada se perder (rastreável e recuperável).
+    await query(`CREATE TABLE IF NOT EXISTS vendas_excluidas (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      venda_id TEXT, dados JSONB,
+      excluida_por TEXT, excluida_em TIMESTAMPTZ DEFAULT NOW()
+    )`).catch(() => {});
     // Migra comprovantes antigos (coluna única) para a nova tabela, uma vez.
     const { rows: [fVc] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'migra_comprovantes_v1'").catch(() => ({ rows: [] }));
     if (!fVc) {

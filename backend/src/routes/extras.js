@@ -853,12 +853,44 @@ r.delete('/vendas/:id', async (req, res) => {
     if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão pode excluir vendas.' });
     const { rows: [v] } = await query('SELECT id, setor, valor FROM vendas WHERE id = $1', [req.params.id]);
     if (!v) return res.status(404).json({ error: 'Venda não encontrada' });
+    // Arquiva a venda completa ANTES de excluir — nada se perde (recuperável).
+    await query(
+      `INSERT INTO vendas_excluidas (venda_id, dados, excluida_por)
+       SELECT id, to_jsonb(vendas.*), $2 FROM vendas WHERE id = $1`,
+      [req.params.id, req.user.nome || req.user.email || 'gestão']
+    ).catch(() => {});
     // Apaga os comprovantes ligados (não há cascade nessa tabela) e a venda.
     await query('DELETE FROM venda_comprovantes WHERE venda_id = $1', [req.params.id]).catch(() => {});
     await query('DELETE FROM vendas WHERE id = $1', [req.params.id]);
     // Atualiza caixa/placar/metas em tempo real (mesmo evento do registro).
     socketEmit('venda_registrada', { id: v.id, setor: v.setor, valor: v.valor, excluida: true });
     res.json({ ok: true, id: v.id });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// CAIXA — lista as vendas excluídas (arquivo, para conferência/recuperação). Só gestão.
+r.get('/vendas/excluidas', async (req, res) => {
+  try {
+    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão.' });
+    const { rows } = await query('SELECT * FROM vendas_excluidas ORDER BY excluida_em DESC LIMIT 200');
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// CAIXA — restaura uma venda excluída (volta para as contas). Só gestão.
+r.post('/vendas/excluidas/:id/restaurar', async (req, res) => {
+  try {
+    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão.' });
+    const { rows: [arq] } = await query('SELECT * FROM vendas_excluidas WHERE id = $1', [req.params.id]);
+    if (!arq) return res.status(404).json({ error: 'Registro não encontrado' });
+    // Reinsere a venda a partir do snapshot (não duplica se o id já existir).
+    await query(
+      `INSERT INTO vendas SELECT (jsonb_populate_record(null::vendas, $1)).* ON CONFLICT (id) DO NOTHING`,
+      [arq.dados]
+    );
+    await query('DELETE FROM vendas_excluidas WHERE id = $1', [req.params.id]);
+    socketEmit('venda_registrada', { id: arq.venda_id, setor: arq.dados?.setor, valor: arq.dados?.valor, restaurada: true });
+    res.json({ ok: true, id: arq.venda_id });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
