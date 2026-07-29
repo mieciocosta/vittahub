@@ -850,7 +850,7 @@ r.patch('/vendas/:id/receber', async (req, res) => {
 // Remove a venda do faturamento/metas; emite socket para atualizar caixa e placar.
 r.delete('/vendas/:id', async (req, res) => {
   try {
-    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão pode excluir vendas.' });
+    // Liberado para toda a equipe (a venda fica arquivada em vendas_excluidas).
     const { rows: [v] } = await query('SELECT id, setor, valor FROM vendas WHERE id = $1', [req.params.id]);
     if (!v) return res.status(404).json({ error: 'Venda não encontrada' });
     // Arquiva a venda completa ANTES de excluir — nada se perde (recuperável).
