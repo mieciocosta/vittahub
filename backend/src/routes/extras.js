@@ -1147,13 +1147,7 @@ r.put('/vendas/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-r.delete('/vendas/:id', async (req, res) => {
-  try {
-    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão remove vendas.' });
-    await query('DELETE FROM vendas WHERE id = $1', [req.params.id]);
-    res.json({ ok: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
+// (rota DELETE /vendas/:id definida acima — arquiva e libera p/ toda a equipe)
 
 // Resumo de PERDAS do mês: total, valor potencial perdido, por motivo e setor.
 r.get('/perdas/resumo', async (req, res) => {
