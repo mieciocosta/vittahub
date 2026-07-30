@@ -138,7 +138,22 @@ export default function Caixa() {
   };
 
   // Saídas / despesas (gestão) — pra fechar o saldo real
-  const [aba, setAba] = useState('entradas'); // 'entradas' | 'saidas'
+  const [aba, setAba] = useState('entradas'); // 'entradas' | 'saidas' | 'excluidas'
+  const [excluidas, setExcluidas] = useState([]);
+  const [excLoad, setExcLoad] = useState(false);
+  const loadExcluidas = async () => {
+    setExcLoad(true);
+    try { const d = await api.get('/extras/vendas/excluidas'); setExcluidas(Array.isArray(d) ? d : []); }
+    catch { setExcluidas([]); }
+    setExcLoad(false);
+  };
+  const restaurarVenda = async (arq) => {
+    const v = arq.dados || {};
+    if (!window.confirm(`Restaurar a venda de ${v.cliente_nome || v.paciente_nome || 'cliente'} (${fmt.brl(v.valor)})?\n\nEla volta pro caixa, faturamento e metas.`)) return;
+    setExcluidas(p => p.filter(x => x.id !== arq.id));
+    try { await api.post(`/extras/vendas/excluidas/${arq.id}/restaurar`, {}); load(); }
+    catch (e) { setErro(e.message || 'Falha ao restaurar.'); loadExcluidas(); }
+  };
   const [despesas, setDespesas] = useState([]);
   const [despTotal, setDespTotal] = useState(0);
   const [modalDesp, setModalDesp] = useState(null);
@@ -427,10 +442,56 @@ export default function Caixa() {
         <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
           <button onClick={() => setAba('entradas')} className="btn btn-sm" style={{ gap: 6, fontWeight: 800, background: aba === 'entradas' ? '#16a34a' : 'var(--card)', color: aba === 'entradas' ? '#fff' : 'var(--txt2)', border: aba === 'entradas' ? 'none' : '1.5px solid var(--border)' }}><TrendingUp size={14} /> Entradas</button>
           <button onClick={() => setAba('saidas')} className="btn btn-sm" style={{ gap: 6, fontWeight: 800, background: aba === 'saidas' ? '#dc2626' : 'var(--card)', color: aba === 'saidas' ? '#fff' : 'var(--txt2)', border: aba === 'saidas' ? 'none' : '1.5px solid var(--border)' }}><TrendingDown size={14} /> Saídas{despesas.length ? ` (${despesas.length})` : ''}</button>
+          <button onClick={() => { setAba('excluidas'); loadExcluidas(); }} className="btn btn-sm" style={{ gap: 6, fontWeight: 800, background: aba === 'excluidas' ? '#6b7280' : 'var(--card)', color: aba === 'excluidas' ? '#fff' : 'var(--txt2)', border: aba === 'excluidas' ? 'none' : '1.5px solid var(--border)' }}><Trash2 size={14} /> Excluídas{aba === 'excluidas' && excluidas.length ? ` (${excluidas.length})` : ''}</button>
         </div>
       )}
 
-      {aba === 'saidas' ? (
+      {aba === 'excluidas' && (
+        <div>
+          <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>
+            Vendas excluídas ficam guardadas aqui com quem excluiu e quando — nada se perde. Clique em <b>Restaurar</b> pra devolver ao caixa.
+          </div>
+          {excLoad ? (
+            <div style={{ color: 'var(--muted)', padding: 30 }}>Carregando…</div>
+          ) : excluidas.length === 0 ? (
+            <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}>
+              <Trash2 size={30} color="var(--border)" style={{ marginBottom: 8 }} />
+              <div style={{ fontWeight: 700 }}>Nenhuma venda excluída.</div>
+              <div style={{ fontSize: 12.5, marginTop: 4 }}>Quando alguém excluir uma venda, ela aparece aqui — pronta pra restaurar.</div>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+              {excluidas.map(arq => {
+                const v = arq.dados || {};
+                return (
+                  <div key={arq.id} className="card" style={{ padding: 0, overflow: 'hidden', display: 'flex', opacity: .92 }}>
+                    <div style={{ width: 5, background: '#6b7280', flexShrink: 0 }} />
+                    <div style={{ padding: '13px 16px', flex: 1, display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <div style={{ flex: 1, minWidth: 190 }}>
+                        <div style={{ fontWeight: 800, fontSize: 14.5, textDecoration: 'line-through', textDecorationColor: '#9ca3af' }}>{v.cliente_nome || v.paciente_nome || 'Cliente'}</div>
+                        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
+                          {v.servico || v.categoria || '—'}{v.setor ? ` · ${v.setor}` : ''}{v.data_venda ? ` · venda de ${fmtData(v.data_venda)}` : ''}
+                        </div>
+                        <div style={{ fontSize: 11, color: '#b45309', marginTop: 3, fontWeight: 600 }}>
+                          Excluída por {arq.excluida_por || '—'} em {arq.excluida_em ? new Date(arq.excluida_em).toLocaleString('pt-BR') : '—'}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'right', minWidth: 96 }}>
+                        <div style={{ fontSize: 16.5, fontWeight: 900, color: '#6b7280' }}>{fmt.brl(v.valor)}</div>
+                      </div>
+                      <button onClick={() => restaurarVenda(arq)} className="btn btn-sm" style={{ gap: 5, background: '#16a34a', color: '#fff', border: 'none', fontWeight: 800 }}>
+                        ↩️ Restaurar
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {aba === 'excluidas' ? null : aba === 'saidas' ? (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
             <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--txt)' }}>Saídas de {mes} · <span style={{ color: '#dc2626' }}>{fmt.brl(despTotal)}</span></div>

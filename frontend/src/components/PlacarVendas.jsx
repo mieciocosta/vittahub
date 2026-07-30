@@ -57,6 +57,32 @@ export default function PlacarVendas() {
         </div>
       </div>
 
+      {/* QUANTO FALTA por setor (só gestão vê valores) — atualiza a cada venda */}
+      {gestao && (meta.porSetor || []).length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ width: 1, height: 26, background: 'rgba(255,255,255,.25)' }} />
+          {meta.porSetor.map((s) => {
+            const nome = s.setor && s.setor !== 'geral' ? s.setor[0].toUpperCase() + s.setor.slice(1) : 'Geral';
+            const EMOJI = { vacinas: '💉', consultas: '🩺', terapias: '🧩' };
+            const CORES = { vacinas: '#a78bfa', consultas: '#22d3ee', terapias: '#fbbf24' };
+            const falta = Math.max(0, s.faltaGlobal ?? 0);
+            const ok = (s.faltaGlobal ?? 0) <= 0;
+            const p = Math.min(s.pctGlobal ?? 0, 100);
+            return (
+              <div key={s.setor} title={`${nome}: ${fmt.brl(s.confirmado || 0)} de ${fmt.brl(s.metaGlobal || 0)} (${p}%)`}
+                style={{ lineHeight: 1.15, transition: 'transform .3s', transform: pulse ? 'scale(1.06)' : 'scale(1)' }}>
+                <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: .6, textTransform: 'uppercase', color: 'rgba(255,255,255,.7)' }}>
+                  {EMOJI[s.setor] || '🎯'} {nome} · {p}%
+                </div>
+                <div style={{ fontSize: 13.5, fontWeight: 900, color: ok ? '#6ee7b7' : (CORES[s.setor] || '#fde68a') }}>
+                  {ok ? '🏆 Meta batida!' : `falta ${fmt.brl(falta)}`}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       <div style={{ flex: 1 }} />
 
       {/* Grito de guerra */}
