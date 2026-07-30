@@ -248,6 +248,7 @@ r.get('/meta-setor', async (req, res) => {
     const mesCol = "to_char(data_venda,'YYYY-MM') = to_char(NOW(),'YYYY-MM')";
     const METfilter = "status_pagamento IN ('pago','cortesia')";
     const META_GLOBAL = 500000; // meta global do setor (bônus) — mostrada no atendimento
+    const META_MINIMA = 100000; // meta MÍNIMA por setor (primeiro degrau)
     // Setores do usuário (autoridade: banco — evita token velho). Multi-setor separa.
     const { rows: [u] } = await query('SELECT setor, setores FROM usuarios WHERE id = $1', [req.user.id]);
     let setores = [];
@@ -257,7 +258,8 @@ r.get('/meta-setor', async (req, res) => {
       const { rows: [r2] } = await query(`SELECT COALESCE(SUM(valor) FILTER (WHERE ${METfilter}),0)::float conf FROM vendas WHERE COALESCE(setor,'vacinas') = $1 AND ${mesCol}`, [s]);
       const meta = parseFloat(metaV[s]) || 0, conf = r2?.conf || 0;
       return { setor: s, confirmado: conf, meta, pct: meta ? +((conf / meta) * 100).toFixed(1) : 0, falta: Math.max(meta - conf, 0),
-        metaGlobal: META_GLOBAL, pctGlobal: +((conf / META_GLOBAL) * 100).toFixed(1), faltaGlobal: Math.max(META_GLOBAL - conf, 0) };
+        metaGlobal: META_GLOBAL, pctGlobal: +((conf / META_GLOBAL) * 100).toFixed(1), faltaGlobal: Math.max(META_GLOBAL - conf, 0),
+        metaMinima: META_MINIMA, pctMinima: +((conf / META_MINIMA) * 100).toFixed(1), faltaMinima: Math.max(META_MINIMA - conf, 0) };
     };
     if (setores.length) {
       const porSetor = [];

@@ -67,15 +67,23 @@ export default function PlacarVendas() {
             const CORES = { vacinas: '#a78bfa', consultas: '#22d3ee', terapias: '#fbbf24' };
             const falta = Math.max(0, s.faltaGlobal ?? 0);
             const ok = (s.faltaGlobal ?? 0) <= 0;
+            const minMeta = s.metaMinima || 100000;
+            const faltaMin = Math.max(0, s.faltaMinima ?? Math.max(minMeta - (s.confirmado || 0), 0));
+            const minOk = faltaMin <= 0;
             const p = Math.min(s.pctGlobal ?? 0, 100);
             return (
-              <div key={s.setor} title={`${nome}: ${fmt.brl(s.confirmado || 0)} de ${fmt.brl(s.metaGlobal || 0)} (${p}%)`}
+              <div key={s.setor}
+                title={`${nome}: ${fmt.brl(s.confirmado || 0)} · mínima ${fmt.brl(minMeta)} · meta ${fmt.brl(s.metaGlobal || 0)} (${p}%)`}
                 style={{ lineHeight: 1.15, transition: 'transform .3s', transform: pulse ? 'scale(1.06)' : 'scale(1)' }}>
                 <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: .6, textTransform: 'uppercase', color: 'rgba(255,255,255,.7)' }}>
                   {EMOJI[s.setor] || '🎯'} {nome} · {p}%
                 </div>
-                <div style={{ fontSize: 13.5, fontWeight: 900, color: ok ? '#6ee7b7' : (CORES[s.setor] || '#fde68a') }}>
-                  {ok ? '🏆 Meta batida!' : `falta ${fmt.brl(falta)}`}
+                <div style={{ fontSize: 13, fontWeight: 900, color: ok ? '#6ee7b7' : (CORES[s.setor] || '#fde68a') }}>
+                  {ok
+                    ? '🏆 Meta batida!'
+                    : minOk
+                      ? <span><span style={{ color: '#6ee7b7' }}>✅ mínima</span> · falta {fmt.brl(falta)} p/ meta</span>
+                      : <span>falta {fmt.brl(faltaMin)} <span style={{ fontWeight: 600, opacity: .75 }}>p/ mínima de {fmt.brl(minMeta)}</span></span>}
                 </div>
               </div>
             );
