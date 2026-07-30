@@ -107,6 +107,8 @@ export default async function runMigrate() {
     // Marca conversas cujo histórico do Z-API já foi preservado no nosso banco
     // (para não perder mensagens antigas quando o Z-API as descartar).
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS historico_zapi BOOLEAN DEFAULT false`).catch(() => {});
+    // Meta INDIVIDUAL de vendas por usuário (R$/mês) — 0 = sem meta individual
+    await query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS meta_individual NUMERIC(12,2) DEFAULT 0`).catch(() => {});
     // LIMPEZA (one-time, idempotente): conversas fantasma criadas pelo sync com
     // identificador @lid como nome, e eventos de ligação gravados como texto cru.
     await query(`UPDATE conversas SET contact_name = COALESCE(NULLIF(regexp_replace(phone, '\\D', '', 'g'), ''), 'Contato')

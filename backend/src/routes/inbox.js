@@ -2668,6 +2668,40 @@ r.get('/conversations', async (req, res) => {
   res.json(result);
 });
 
+// ─── 📣 CAMPANHA DE REATIVAÇÃO (master) ──────────────────────────────────────
+// Agenda mensagens calorosas para clientes em silêncio há 60-180 dias — de
+// forma CONSERVADORA (anti-bloqueio): máx. 30 por vez, espaçadas 7 min,
+// começando no próximo horário comercial. Nunca repete quem já tem pendente.
+r.post('/campanha-reativacao', masterOnly, async (req, res) => {
+  try {
+    const limite = Math.max(1, Math.min(parseInt(req.body?.limite) || 30, 60));
+    const { rows: alvos } = await query(`
+      SELECT c.id, c.contact_name, c.phone FROM conversas c
+      WHERE c.channel = 'whatsapp' AND c.phone IS NOT NULL
+        AND COALESCE(c.contact_id,'') NOT LIKE '%g.us%'
+        AND c.last_message_at BETWEEN NOW() - interval '180 days' AND NOW() - interval '60 days'
+        AND NOT EXISTS (SELECT 1 FROM mensagens_agendadas ma WHERE ma.conversa_id = c.id AND ma.status = 'pendente')
+      ORDER BY c.last_message_at DESC LIMIT $1`, [limite]);
+    if (!alvos.length) return res.json({ ok: true, agendadas: 0, message: 'Nenhum cliente elegível (60-180 dias de silêncio).' });
+
+    // Próximo horário comercial: hoje 9h-17h SLZ, senão amanhã 9h (12h UTC)
+    const inicio = new Date();
+    const hSLZ = (inicio.getUTCHours() - 3 + 24) % 24;
+    if (hSLZ < 9) inicio.setUTCHours(12, 0, 0, 0);
+    else if (hSLZ >= 17) { inicio.setUTCDate(inicio.getUTCDate() + 1); inicio.setUTCHours(12, 0, 0, 0); }
+    let n = 0;
+    for (const c of alvos) {
+      const quando = new Date(inicio.getTime() + n * 7 * 60000); // 7 min entre cada
+      const nome = String(c.contact_name || '').split(' ')[0];
+      const texto = `Oi${nome && !/^\d+$/.test(nome) ? `, ${nome}` : ''}! 💙 Aqui é da Vittalis Saúde. Faz um tempinho que não nos falamos e lembramos de você! Como está o calendário de proteção da família? Se quiser conferir vacinas em dia, tirar dúvidas ou agendar, é só responder por aqui 😊`;
+      await query(`INSERT INTO mensagens_agendadas (conversa_id, texto, enviar_em, criado_por) VALUES ($1, $2, $3, 'Campanha · Reativação')`,
+        [c.id, texto, quando.toISOString()]);
+      n++;
+    }
+    res.json({ ok: true, agendadas: n, inicio: inicio.toISOString() });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ─── CARREGAR MENSAGENS DO Z-API (ao abrir conversa vazia) ───────────────────
 // NOTA: A Z-API NÃO fornece endpoint para buscar mensagens antigas do histórico.
 // O histórico fica apenas no celular. Mensagens novas chegam via webhook.

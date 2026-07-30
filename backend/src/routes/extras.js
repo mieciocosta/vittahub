@@ -244,6 +244,19 @@ r.post('/vendas', async (req, res) => {
       }
     } catch (e) { console.error('PRÓXIMA DOSE erro (venda salva normalmente):', e.message); }
 
+    // ── 💙 PÓS-VENDA + INDICAÇÃO: 2 dias depois, mensagem de carinho + pedido
+    // de indicação (programa de indicações da clínica). Só vendas com conversa.
+    try {
+      if (v.conversa_id && ['pago', 'cortesia'].includes(v.status_pagamento || 'pago')) {
+        const qd = new Date(Date.now() + 2 * 86400000);
+        qd.setHours(17, 0, 0, 0); // 14h em São Luís (UTC-3)
+        const nomeCli = cut(b.cliente_nome, 40);
+        const txt = `Oi${nomeCli ? `, ${String(nomeCli).split(' ')[0]}` : ''}! 💙 Passando pra saber como foi a experiência de vocês com a gente — sua opinião vale ouro pra nossa equipe! E se você conhecer outra mamãe que cuida do calendário de proteção do bebê, indica a Vittalis 😊 Temos mimos especiais no nosso programa de indicações!`;
+        await query(`INSERT INTO mensagens_agendadas (conversa_id, texto, enviar_em, criado_por) VALUES ($1, $2, $3, 'Vitta · Pós-venda')`,
+          [v.conversa_id, txt, qd.toISOString()]);
+      }
+    } catch (e) { console.error('PÓS-VENDA erro (venda salva normalmente):', e.message); }
+
     res.status(201).json(v);
   } catch (err) { console.error('VENDA ERRO:', err.message); res.status(500).json({ error: err.message }); }
 });
@@ -304,17 +317,29 @@ r.get('/meta-setor', async (req, res) => {
         premio: premioDe(s), premioConquistado: conf >= MG,
         premioMinimo: premioMinDe(s), premioMinimoConquistado: conf >= MM };
     };
+    // Meta INDIVIDUAL do usuário (se definida no cadastro): produção própria no mês
+    let individual = null;
+    const { rows: [meU] } = await query('SELECT meta_individual FROM usuarios WHERE id = $1', [req.user.id]).catch(() => ({ rows: [{}] }));
+    const metaInd = parseFloat(meU?.meta_individual) || 0;
+    if (metaInd > 0) {
+      const { rows: [mv] } = await query(
+        `SELECT COALESCE(SUM(valor) FILTER (WHERE ${METfilter}),0)::float conf FROM vendas WHERE atendente_id = $1 AND ${mesCol}`,
+        [req.user.id]).catch(() => ({ rows: [{ conf: 0 }] }));
+      const confI = mv?.conf || 0;
+      individual = { meta: metaInd, confirmado: confI, falta: Math.max(metaInd - confI, 0), pct: +((confI / metaInd) * 100).toFixed(1) };
+    }
+
     if (setores.length) {
       const porSetor = [];
       for (const s of setores) porSetor.push(await confDe(s));
       // Topo = primeiro setor (compat com quem lê os campos direto); porSetor separa cada um.
-      return res.json({ ...porSetor[0], porSetor, multi: porSetor.length > 1 });
+      return res.json({ ...porSetor[0], porSetor, multi: porSetor.length > 1, individual });
     }
     // Master / sem setor → mostra CADA setor separado (cada um tem sua meta e produção);
     // nada de "Geral" que mistura vacinas com consultas/terapias.
     const porSetor = [];
     for (const s of ['vacinas', 'consultas', 'terapias']) porSetor.push(await confDe(s));
-    res.json({ ...porSetor[0], porSetor, multi: true });
+    res.json({ ...porSetor[0], porSetor, multi: true, individual });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1561,3 +1586,38 @@ r.delete('/ligacoes/:id', async (req, res) => {
 });
 
 export default r;
+
+
+// ─── 📊 RELATÓRIO SEMANAL AUTOMÁTICO ─────────────────────────────────────────
+// Toda segunda-feira ~8h (São Luís) gera um resumo da semana anterior e publica
+// como notificação: vendas por setor, top vendedora, leads novos e atividade da
+// Vitta. Dedup por semana em configuracoes.relatorio_semanal.
+async function relatorioSemanal() {
+  try {
+    const agora = new Date();
+    if (agora.getUTCDay() !== 1 || agora.getUTCHours() !== 11) return; // segunda 11h UTC = 8h SLZ
+    const chave = agora.toISOString().slice(0, 10);
+    const { rows: [cfgR] } = await query("SELECT valor FROM configuracoes WHERE chave = 'relatorio_semanal'").catch(() => ({ rows: [] }));
+    if (cfgR?.valor?.ultima === chave) return; // já rodou hoje
+    await query(`INSERT INTO configuracoes (chave, valor) VALUES ('relatorio_semanal', $1::jsonb)
+                 ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`, [JSON.stringify({ ultima: chave })]);
+
+    const [vendasQ, topQ, leadsQ, vittaQ] = await Promise.all([
+      query(`SELECT COALESCE(setor,'vacinas') s, COUNT(*)::int n, COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float v
+             FROM vendas WHERE data_venda >= CURRENT_DATE - 7 GROUP BY 1`),
+      query(`SELECT COALESCE(atendente_nome,'—') nome, COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float v
+             FROM vendas WHERE data_venda >= CURRENT_DATE - 7 GROUP BY 1 ORDER BY v DESC LIMIT 1`),
+      query(`SELECT COUNT(*)::int n FROM conversas WHERE created_at >= NOW() - interval '7 days'`),
+      query(`SELECT COUNT(*)::int n FROM mensagens WHERE from_type = 'bot' AND created_at >= NOW() - interval '7 days'`),
+    ]);
+    const porSetor = vendasQ.rows.map(r2 => `${r2.s}: ${r2.n} venda(s) · R$ ${Number(r2.v).toLocaleString('pt-BR')}`).join(' | ') || 'nenhuma venda';
+    const totalV = vendasQ.rows.reduce((sum, r2) => sum + Number(r2.v || 0), 0);
+    const top = topQ.rows[0];
+    const texto = `Semana: R$ ${totalV.toLocaleString('pt-BR')} confirmados (${porSetor}). ` +
+      `${top && top.v > 0 ? `🏅 Destaque: ${top.nome} (R$ ${Number(top.v).toLocaleString('pt-BR')}). ` : ''}` +
+      `Leads novos: ${leadsQ.rows[0]?.n ?? 0}. Mensagens da Vitta: ${vittaQ.rows[0]?.n ?? 0}.`;
+    await query(`INSERT INTO notificacoes (tipo, titulo, texto) VALUES ('novo_lead', '📊 Relatório semanal de vendas', $1)`, [texto.slice(0, 500)]);
+    console.log('📊 Relatório semanal publicado:', texto);
+  } catch (e) { console.error('Relatório semanal erro:', e.message); }
+}
+setInterval(relatorioSemanal, 20 * 60 * 1000);

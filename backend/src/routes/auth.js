@@ -110,7 +110,7 @@ r.patch('/me/nome', auth, async (req, res) => {
 r.get('/usuarios', auth, async (req, res) => {
   if (req.user.role !== 'master') return res.status(403).json({ error: 'Acesso negado' });
   try {
-    const { rows } = await query("SELECT id,nome,email,cpf,role,cor,ativo,avatar,setor,setores,lider FROM usuarios WHERE role!='bot' ORDER BY nome");
+    const { rows } = await query("SELECT id,nome,email,cpf,role,cor,ativo,avatar,setor,setores,lider,meta_individual FROM usuarios WHERE role!='bot' ORDER BY nome");
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -159,6 +159,7 @@ r.put('/usuarios/:id', auth, async (req, res) => {
       set('setores', ss.length ? ss : null);
     }
     if (req.body.lider !== undefined) set('lider', !!req.body.lider);
+    if (req.body.meta_individual !== undefined) set('meta_individual', Math.max(0, Math.min(parseFloat(req.body.meta_individual) || 0, 100000000)));
     set('ativo', ativo);
     if (senha) {
       if (String(senha).length < 8) return res.status(400).json({ error: 'A senha precisa de pelo menos 8 caracteres' });

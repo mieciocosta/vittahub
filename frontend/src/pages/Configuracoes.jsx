@@ -62,7 +62,7 @@ export default function Configuracoes() {
     if (editUser.cpf && cpfDig.length !== 11) return setUserErr('CPF incompleto — precisa de 11 dígitos.');
     if (editUser.senha && editUser.senha.length < 8) return setUserErr('A nova senha precisa de pelo menos 8 caracteres.');
     try {
-      const payload = { cpf: cpfDig, ativo: editUser.ativo, setor: editUser.setor || null, setores: (editUser.setores || []).length ? editUser.setores : null, lider: !!editUser.lider };
+      const payload = { cpf: cpfDig, ativo: editUser.ativo, setor: editUser.setor || null, setores: (editUser.setores || []).length ? editUser.setores : null, lider: !!editUser.lider, meta_individual: parseFloat(editUser.meta_individual) || 0 };
       if (editUser.senha) payload.senha = editUser.senha;
       const upd = await api.put(`/auth/usuarios/${editUser.id}`, payload);
       setUsers(prev => prev.map(u => u.id === upd.id ? { ...u, ...upd } : u));
@@ -417,6 +417,10 @@ export default function Configuracoes() {
                       style={{ width:'100%', padding:'8px 10px', borderRadius:10, border:'1.5px solid var(--border)', fontSize:12.5, background:'var(--card)', color:'var(--txt)' }}>
                       {[['','—'],['vacinas','Vacinas'],['consultas','Consultas'],['terapias','Terapias']].map(([v,l])=><option key={v} value={v}>{l}</option>)}
                     </select>
+                  </div>
+                  <div className="field">
+                    <label>🎯 Meta individual do mês (R$ — 0 = sem meta própria)</label>
+                    <input type="number" min={0} step={1000} value={editUser.meta_individual ?? ''} onChange={e=>setEditUser({...editUser, meta_individual:e.target.value})} placeholder="ex: 50000" />
                   </div>
                   <div className="field">
                     <label>Setores que enxerga (acesso)</label>

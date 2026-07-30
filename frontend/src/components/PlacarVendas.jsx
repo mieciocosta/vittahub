@@ -79,16 +79,36 @@ export default function PlacarVendas() {
                 <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: .6, textTransform: 'uppercase', color: 'rgba(255,255,255,.7)' }}>
                   {EMOJI[s.setor] || '🎯'} {nome} · {p}%
                 </div>
-                <div style={{ fontSize: 13, fontWeight: 900, color: ok ? '#6ee7b7' : (CORES[s.setor] || '#fde68a') }}>
+                <div style={{ fontSize: 12.5, fontWeight: 900, color: ok ? '#6ee7b7' : (CORES[s.setor] || '#fde68a') }}>
                   {ok
                     ? '🏆 Meta batida!'
-                    : minOk
-                      ? <span><span style={{ color: '#6ee7b7' }}>✅ mínima</span> · falta {fmt.brl(falta)} p/ meta</span>
-                      : <span>falta {fmt.brl(faltaMin)} <span style={{ fontWeight: 600, opacity: .75 }}>p/ mínima de {fmt.brl(minMeta)}</span></span>}
+                    : <span>
+                        {minOk
+                          ? <span style={{ color: '#6ee7b7' }}>✅ mínima</span>
+                          : <span>mínima: falta {fmt.brl(faltaMin)}</span>}
+                        <span style={{ opacity: .6 }}> · </span>
+                        <span>ideal: falta {fmt.brl(falta)}</span>
+                      </span>}
                 </div>
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* 🎯 META INDIVIDUAL do usuário logado (se definida no cadastro) */}
+      {meta.individual && meta.individual.meta > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 1, height: 26, background: 'rgba(255,255,255,.25)' }} />
+          <div title={`Sua produção: ${fmt.brl(meta.individual.confirmado)} de ${fmt.brl(meta.individual.meta)}`}
+            style={{ lineHeight: 1.15, transition: 'transform .3s', transform: pulse ? 'scale(1.06)' : 'scale(1)' }}>
+            <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: .6, textTransform: 'uppercase', color: 'rgba(255,255,255,.7)' }}>
+              🎯 Sua meta · {Math.min(meta.individual.pct, 100)}%
+            </div>
+            <div style={{ fontSize: 12.5, fontWeight: 900, color: meta.individual.falta <= 0 ? '#6ee7b7' : '#f9a8d4' }}>
+              {meta.individual.falta <= 0 ? '🏆 Sua meta batida!' : `falta ${fmt.brl(meta.individual.falta)}`}
+            </div>
+          </div>
         </div>
       )}
 

@@ -15,6 +15,14 @@ export default function Recuperacao() {
   const [carregando, setCarregando] = useState(true);
   const [rascunho, setRascunho] = useState({}); // convId -> texto do follow-up
   const [gerando, setGerando] = useState(null);
+  const [campLoad, setCampLoad] = useState(false);
+  const dispararCampanha = async () => {
+    if (!window.confirm('Agendar CAMPANHA DE REATIVAÇÃO?\n\nAté 30 clientes em silêncio há 60-180 dias recebem uma mensagem calorosa, espaçadas 7 min, em horário comercial. Conservador pra proteger o número.')) return;
+    setCampLoad(true);
+    try { const r = await api.post('/inbox/campanha-reativacao', { limite: 30 }); window.alert(`✅ ${r.agendadas} mensagem(ns) agendada(s)!${r.agendadas ? ' Começam no próximo horário comercial.' : ''}`); }
+    catch (e) { window.alert('Erro: ' + e.message); }
+    setCampLoad(false);
+  };
   const [enviando, setEnviando] = useState(null);
   const [aberto, setAberto] = useState(null); // convId com o compositor aberto
 
@@ -54,7 +62,15 @@ export default function Recuperacao() {
       <div style={{ borderRadius: 18, padding: '22px 26px', marginBottom: 18, color: '#fff', position: 'relative', overflow: 'hidden',
         background: 'linear-gradient(135deg,#7c2d12 0%,#c2410c 55%,#f59e0b 130%)', boxShadow: '0 10px 30px rgba(194,65,12,.3)' }}>
         <div style={{ position: 'absolute', right: -25, top: -25, width: 140, height: 140, borderRadius: '50%', background: 'rgba(255,255,255,.1)' }} />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 23, fontWeight: 800 }}><Flame size={24} /> Recuperação de leads</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 23, fontWeight: 800, flexWrap: 'wrap' }}>
+          <Flame size={24} /> Recuperação de leads
+          {user?.role === 'master' && (
+            <button onClick={dispararCampanha} disabled={campLoad}
+              style={{ marginLeft: 'auto', padding: '8px 14px', borderRadius: 10, border: 'none', cursor: 'pointer', fontSize: 12.5, fontWeight: 800, background: 'rgba(255,255,255,.92)', color: '#c2410c' }}>
+              {campLoad ? '…' : '📣 Campanha 60+ dias'}
+            </button>
+          )}
+        </div>
         <div style={{ fontSize: 13.5, opacity: .95, marginTop: 6, maxWidth: 620, lineHeight: 1.5 }}>
           Clientes que esfriaram — mandou orçamento, tirou dúvida e sumiu. Um follow-up gentil recupera muita venda que já estava quase fechada. 🔥
         </div>
