@@ -565,6 +565,15 @@ export default function Caixa() {
                       </>
                     )}
                   </div>
+                  {/* 🎁 Prêmios — repasse futuro provisionado quando a meta é batida */}
+                  <div style={{ fontSize: 11, marginTop: 3, color: 'var(--muted)', fontWeight: 600, lineHeight: 1.5 }}>
+                    🎁 Prêmios: <span style={{ color: minOk ? '#16a34a' : 'inherit', fontWeight: minOk ? 800 : 600 }}>{fmt.brl(ms.premioMinimo ?? 1500)} na mínima{minOk ? ' ✅' : ''}</span>
+                    <span> · </span>
+                    <span style={{ color: ok ? '#16a34a' : 'inherit', fontWeight: ok ? 800 : 600 }}>{fmt.brl(ms.premio ?? 10000)} na global{ok ? ' ✅' : ''}</span>
+                    {(minOk || ok) && (
+                      <span style={{ color: '#b45309', fontWeight: 800 }}> — repasse futuro: {fmt.brl((minOk ? (ms.premioMinimo ?? 1500) : 0) + (ok ? (ms.premio ?? 10000) : 0))}</span>
+                    )}
+                  </div>
                 </div>
               );
             })}

@@ -190,7 +190,7 @@ export default function Configuracoes() {
               {metasFat && (
                 <div className="field" style={{ background:'var(--bg2,#f8fafc)', padding:'10px 12px', borderRadius:10 }}>
                   <label>💰 Metas de FATURAMENTO do mês — por setor (R$)</label>
-                  {[['minimas','Meta mínima'],['globais','Meta global']].map(([g, rotulo]) => (
+                  {[['minimas','Meta mínima'],['globais','Meta global'],['premiosMin','🎁 Prêmio ao bater a MÍNIMA'],['premios','🎁 Prêmio ao bater a GLOBAL']].map(([g, rotulo]) => (
                     <div key={g} style={{ marginTop:6 }}>
                       <span style={{ fontSize:11, fontWeight:700, color:'var(--muted)' }}>{rotulo}</span>
                       <div style={{ display:'flex', gap:8, marginTop:3 }}>

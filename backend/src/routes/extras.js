@@ -251,8 +251,12 @@ r.get('/meta-setor', async (req, res) => {
     // Padrões: mínima R$ 100 mil, global R$ 500 mil.
     const minimasCfg = cfg[0]?.valor?.minimas || {};
     const globaisCfg = cfg[0]?.valor?.globais || {};
+    const premiosCfg = cfg[0]?.valor?.premios || {};
+    const premiosMinCfg = cfg[0]?.valor?.premiosMin || {};
     const metaMinimaDe = (s) => Math.max(0, parseFloat(minimasCfg[s]) || 100000);
     const metaGlobalDe = (s) => Math.max(1, parseFloat(globaisCfg[s]) || 500000);
+    const premioDe     = (s) => Math.max(0, parseFloat(premiosCfg[s]) || 10000);
+    const premioMinDe  = (s) => Math.max(0, parseFloat(premiosMinCfg[s]) || 1500);
     // Setores do usuário (autoridade: banco — evita token velho). Multi-setor separa.
     const { rows: [u] } = await query('SELECT setor, setores FROM usuarios WHERE id = $1', [req.user.id]);
     let setores = [];
@@ -264,7 +268,9 @@ r.get('/meta-setor', async (req, res) => {
       const MG = metaGlobalDe(s), MM = metaMinimaDe(s);
       return { setor: s, confirmado: conf, meta, pct: meta ? +((conf / meta) * 100).toFixed(1) : 0, falta: Math.max(meta - conf, 0),
         metaGlobal: MG, pctGlobal: +((conf / MG) * 100).toFixed(1), faltaGlobal: Math.max(MG - conf, 0),
-        metaMinima: MM, pctMinima: MM ? +((conf / MM) * 100).toFixed(1) : 100, faltaMinima: Math.max(MM - conf, 0) };
+        metaMinima: MM, pctMinima: MM ? +((conf / MM) * 100).toFixed(1) : 100, faltaMinima: Math.max(MM - conf, 0),
+        premio: premioDe(s), premioConquistado: conf >= MG,
+        premioMinimo: premioMinDe(s), premioMinimoConquistado: conf >= MM };
     };
     if (setores.length) {
       const porSetor = [];
@@ -1107,8 +1113,10 @@ r.get('/vendas/metas-faturamento', async (req, res) => {
     const { rows: cfg } = await query("SELECT valor FROM configuracoes WHERE chave = 'metas'");
     const minimas = cfg[0]?.valor?.minimas || {};
     const globais = cfg[0]?.valor?.globais || {};
+    const premios = cfg[0]?.valor?.premios || {};
+    const premiosMin = cfg[0]?.valor?.premiosMin || {};
     const preencher = (o, padrao) => ({ vacinas: parseFloat(o.vacinas) || padrao, consultas: parseFloat(o.consultas) || padrao, terapias: parseFloat(o.terapias) || padrao });
-    res.json({ minimas: preencher(minimas, 100000), globais: preencher(globais, 500000) });
+    res.json({ minimas: preencher(minimas, 100000), globais: preencher(globais, 500000), premios: preencher(premios, 10000), premiosMin: preencher(premiosMin, 1500) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1119,10 +1127,12 @@ r.put('/vendas/metas-faturamento', async (req, res) => {
     const clamp = (v, padrao) => Math.max(0, Math.min(parseFloat(v) || padrao, 100000000));
     const minimas = { vacinas: clamp(b.minimas?.vacinas, 100000), consultas: clamp(b.minimas?.consultas, 100000), terapias: clamp(b.minimas?.terapias, 100000) };
     const globais = { vacinas: clamp(b.globais?.vacinas, 500000), consultas: clamp(b.globais?.consultas, 500000), terapias: clamp(b.globais?.terapias, 500000) };
-    await query(`INSERT INTO configuracoes (chave, valor) VALUES ('metas', jsonb_build_object('minimas', $1::jsonb, 'globais', $2::jsonb))
-                 ON CONFLICT (chave) DO UPDATE SET valor = jsonb_set(jsonb_set(COALESCE(configuracoes.valor,'{}'::jsonb), '{minimas}', $1::jsonb), '{globais}', $2::jsonb), updated_at = NOW()`,
-      [JSON.stringify(minimas), JSON.stringify(globais)]);
-    res.json({ ok: true, minimas, globais });
+    const premios = { vacinas: clamp(b.premios?.vacinas, 10000), consultas: clamp(b.premios?.consultas, 10000), terapias: clamp(b.premios?.terapias, 10000) };
+    const premiosMin = { vacinas: clamp(b.premiosMin?.vacinas, 1500), consultas: clamp(b.premiosMin?.consultas, 1500), terapias: clamp(b.premiosMin?.terapias, 1500) };
+    await query(`INSERT INTO configuracoes (chave, valor) VALUES ('metas', jsonb_build_object('minimas', $1::jsonb, 'globais', $2::jsonb, 'premios', $3::jsonb, 'premiosMin', $4::jsonb))
+                 ON CONFLICT (chave) DO UPDATE SET valor = jsonb_set(jsonb_set(jsonb_set(jsonb_set(COALESCE(configuracoes.valor,'{}'::jsonb), '{minimas}', $1::jsonb), '{globais}', $2::jsonb), '{premios}', $3::jsonb), '{premiosMin}', $4::jsonb), updated_at = NOW()`,
+      [JSON.stringify(minimas), JSON.stringify(globais), JSON.stringify(premios), JSON.stringify(premiosMin)]);
+    res.json({ ok: true, minimas, globais, premios, premiosMin });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
