@@ -552,8 +552,18 @@ export default function Caixa() {
                     <div style={{ width: `${pctG}%`, height: '100%', borderRadius: 6, background: ok ? '#16a34a' : COR, transition: 'width .5s' }} />
                     <div title={`Mínima: ${fmt.brl(minM)}`} style={{ position: 'absolute', left: `${posMin}%`, top: -1, bottom: -1, width: 2, background: minOk ? '#16a34a' : '#b45309' }} />
                   </div>
-                  <div style={{ fontSize: 11.5, marginTop: 4, fontWeight: 700, color: ok ? '#16a34a' : minOk ? '#0891b2' : '#b45309' }}>
-                    {ok ? '🏆 Meta batida!' : minOk ? `✅ mínima batida · falta ${fmt.brl(metaG - conf)} p/ meta` : `falta ${fmt.brl(minM - conf)} p/ mínima`}
+                  <div style={{ fontSize: 11.5, marginTop: 4, fontWeight: 700, lineHeight: 1.5 }}>
+                    {ok ? (
+                      <span style={{ color: '#16a34a' }}>🏆 Meta global batida!</span>
+                    ) : (
+                      <>
+                        <span style={{ color: minOk ? '#16a34a' : '#b45309' }}>
+                          {minOk ? '✅ Mínima batida' : `Falta ${fmt.brl(minM - conf)} para a meta mínima`}
+                        </span>
+                        <span style={{ color: 'var(--muted)' }}> · </span>
+                        <span style={{ color: '#0891b2' }}>Falta {fmt.brl(metaG - conf)} para a meta global</span>
+                      </>
+                    )}
                   </div>
                 </div>
               );
