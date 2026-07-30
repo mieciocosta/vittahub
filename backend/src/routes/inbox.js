@@ -3485,7 +3485,10 @@ r.patch('/conversations/:id/bot', async (req, res) => {
         "SELECT from_type FROM mensagens WHERE conversa_id=$1 AND type IN ('text','document') AND from_type<>'system' ORDER BY created_at DESC LIMIT 1",
         [req.params.id]).catch(() => ({ rows: [] }));
       const { rows: [cv] } = await query('SELECT setor FROM conversas WHERE id=$1', [req.params.id]).catch(() => ({ rows: [] }));
-      if (last?.from_type === 'contact' && cv?.setor && cv.setor !== 'vacinas') agendarVitta(req.params.id);
+      // Vacinas também religa a Vitta quando a IA de Vacinas está ligada
+      const { rows: [cfgV] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'").catch(() => ({ rows: [{}] }));
+      const vacinasOk = cfgV?.valor?.vacinasIA !== false;
+      if (last?.from_type === 'contact' && cv?.setor && (cv.setor !== 'vacinas' || vacinasOk)) agendarVitta(req.params.id);
     }
     res.json({ ok: true, botAtivo: c?.bot_ativo });
   } catch (err) { res.status(500).json({ error: err.message }); }
