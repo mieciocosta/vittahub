@@ -1663,6 +1663,20 @@ r.post('/webhook/zapi', async (req, res) => {
     const isMe = !!body.isFromMe || !!body.fromMe;
     const msgId = body.messageId || body.zaapId || null;
 
+    // LIGAÇÕES (voz/vídeo): o Z-API manda como notification CALL_* — vira um
+    // registro amigável no chat ("📞 Ligação"), nunca o código técnico cru.
+    const notifRaw = String(body.notification || '').toUpperCase();
+    if (notifRaw.startsWith('CALL_') || String(body.type || '') === 'CallCallback') {
+      const rotulo = notifRaw.includes('MISSED') || notifRaw.includes('REJECT')
+        ? '📞 Ligação perdida' : '📞 Ligação recebida';
+      body.notification = null; // não deixa o código virar texto lá embaixo
+      body.text = { message: rotulo };
+    } else if (/^[A-Z0-9_]{4,40}$/.test(notifRaw) && !body.text && !body.image && !body.audio && !body.video && !body.document) {
+      // Outros códigos técnicos (eventos internos) sem conteúdo real: ignora.
+      console.log(`ZAPI notificação técnica ignorada: ${notifRaw}`);
+      return;
+    }
+
     // Mensagem APAGADA no WhatsApp (revoke) → marca a mensagem como apagada na
     // thread; NÃO grava "REVOKE" como se fosse texto novo.
     if (String(body.notification || '').toUpperCase().includes('REVOKE') || String(body.type || '') === 'RevokeCallback') {
@@ -5234,8 +5248,11 @@ async function syncZapiChats({ maxPages = 500, updateExisting = true } = {}) {
     for (const chat of chats) {
       try {
         seen++;
-        const phone = (chat.phone || '').replace(/\D/g, '');
-        if (!phone || phone.length < 8) continue;
+        const rawId = String(chat.phone || '');
+        if (rawId.includes('@lid') || rawId.includes('broadcast') || rawId.includes('status')) continue;
+        const phone = rawId.replace(/\D/g, '');
+        // BR: 10-13 dígitos (com DDI 55). LIDs têm 14-15 — nunca importar.
+        if (!phone || phone.length < 8 || phone.length > 13) continue;
         if (chat.isGroup === true || chat.isGroup === 'true') continue;
 
         const contactId   = `${phone}@s.whatsapp.net`;

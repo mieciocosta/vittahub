@@ -107,6 +107,12 @@ export default async function runMigrate() {
     // Marca conversas cujo histórico do Z-API já foi preservado no nosso banco
     // (para não perder mensagens antigas quando o Z-API as descartar).
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS historico_zapi BOOLEAN DEFAULT false`).catch(() => {});
+    // LIMPEZA (one-time, idempotente): conversas fantasma criadas pelo sync com
+    // identificador @lid como nome, e eventos de ligação gravados como texto cru.
+    await query(`UPDATE conversas SET contact_name = COALESCE(NULLIF(regexp_replace(phone, '\\D', '', 'g'), ''), 'Contato')
+                 WHERE contact_name LIKE '%@lid%'`).catch(() => {});
+    await query(`UPDATE mensagens SET content = '📞 Ligação recebida' WHERE content = 'CALL_RECEIVED'`).catch(() => {});
+    await query(`UPDATE mensagens SET content = '📞 Ligação perdida' WHERE content IN ('CALL_MISSED','CALL_REJECTED')`).catch(() => {});
     // WhatsApp LID: casa mensagens enviadas pelo celular (que chegam só com @lid)
     // com a conversa real criada pelas mensagens recebidas.
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS chat_lid TEXT`).catch(() => {});
