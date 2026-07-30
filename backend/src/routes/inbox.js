@@ -48,11 +48,80 @@ function cacheUpdate(conv) {
   convoCache.set(conv.id, conv);
 }
 
-/* ─── OpenAI (motor de IA do sistema) ─────────────────────────────────────────
-   Adaptador: chama a Chat Completions e devolve { content:[{type:'text'},
-   {type:'tool_use',name,input}] } — mesmo formato que o código já consumia,
-   então a lógica da Vitta/Copiloto não muda, só o provedor.                 */
+/* ─── MOTOR DE IA (Claude / OpenAI) ───────────────────────────────────────────
+   Adaptador único: devolve { content:[{type:'text'},{type:'tool_use',name,
+   input}] } — o formato que a Vitta/Copiloto já consomem.
+   PROVEDOR: com ANTHROPIC_API_KEY configurada, usa o Claude (Anthropic) —
+   preferido. Sem ela, cai para a OpenAI (OPENAI_API_KEY), como antes.       */
+const temIA = () => !!(process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY);
+const usaClaude = () => !!process.env.ANTHROPIC_API_KEY;
+
+// Mapeia o "tier" pedido pelo código legado para o modelo Claude equivalente:
+// gpt-4o (conversa principal) → Claude Opus 5; gpt-4o-mini (tarefas de fundo
+// baratas: score, follow-up, resumo) → Claude Haiku 4.5. Ajustável por env.
+const CLAUDE_MODEL      = () => process.env.ANTHROPIC_MODEL      || 'claude-opus-5';
+const CLAUDE_MODEL_MINI = () => process.env.ANTHROPIC_MODEL_MINI || 'claude-haiku-4-5';
+
+let _anthropic = null;
+async function anthropicClient() {
+  if (!_anthropic) {
+    const { default: Anthropic } = await import('@anthropic-ai/sdk');
+    _anthropic = new Anthropic(); // lê ANTHROPIC_API_KEY do ambiente
+  }
+  return _anthropic;
+}
+
+async function claudeMessages({ model = 'gpt-4o-mini', max_tokens = 800, system, messages, tools = null, json = false }) {
+  try {
+    const client = await anthropicClient();
+    const ehMini = /mini|haiku/i.test(model);
+    const claudeModel = ehMini ? CLAUDE_MODEL_MINI() : CLAUDE_MODEL();
+
+    // Conversa no formato Anthropic: sem mensagens vazias e começando por 'user'.
+    const msgs = (messages || [])
+      .filter(m => m && String(m.content || '').trim())
+      .map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: String(m.content) }));
+    if (!msgs.length || msgs[0].role !== 'user') msgs.unshift({ role: 'user', content: '(início da conversa)' });
+
+    let sys = String(system || '');
+    if (json) sys += '\n\nIMPORTANTE: responda SOMENTE com um objeto JSON válido, sem markdown, sem texto antes ou depois.';
+
+    const params = {
+      model: claudeModel,
+      // Nos modelos Opus o max_tokens cobre pensamento + resposta — dá folga.
+      max_tokens: ehMini ? Math.max(max_tokens, 1024) : Math.max(max_tokens, 4096),
+      system: sys,
+      messages: msgs,
+    };
+    if (!ehMini) params.output_config = { effort: 'low' }; // respostas rápidas p/ WhatsApp
+    if (tools) params.tools = tools; // já vêm no formato {name, description, input_schema}
+
+    const resp = await client.messages.create(params);
+
+    if (resp.stop_reason === 'refusal') {
+      return { error: { message: 'A IA recusou responder este conteúdo (classificador de segurança).' } };
+    }
+    const content = [];
+    for (const block of (resp.content || [])) {
+      if (block.type === 'text' && block.text) {
+        let text = block.text;
+        // json mode: remove cercas de markdown se o modelo insistir nelas
+        if (json) text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+        if (text) content.push({ type: 'text', text });
+      } else if (block.type === 'tool_use') {
+        content.push({ type: 'tool_use', name: block.name, input: block.input || {} });
+      }
+    }
+    return { content };
+  } catch (e) {
+    return { error: { message: e?.message || 'erro Claude' } };
+  }
+}
+
 async function openaiMessages({ model = 'gpt-4o-mini', max_tokens = 800, system, messages, tools = null, json = false }) {
+  // Claude configurado? Ele assume — todos os chamadores passam por aqui.
+  if (usaClaude()) return claudeMessages({ model, max_tokens, system, messages, tools, json });
+
   const { default: fetch } = await import('node-fetch');
   const body = {
     model,
@@ -1003,7 +1072,7 @@ async function vittaResponder(convId) {
   if (phoneNum.startsWith('55') && phoneNum.length >= 12) phoneNum = phoneNum.slice(2);
 
   // Sem API key: só uma saudação simples na primeira mensagem, sem inventar
-  if (!process.env.OPENAI_API_KEY) {
+  if (!temIA()) {
     const jaRespondeu = hist.some(m => m.from_type === 'bot' || m.from_type === 'me');
     if (!jaRespondeu && zapiOk()) {
       const saud = 'Oi! Sou a Vitta, da Vittalis Saúde. Como posso te ajudar?';
@@ -1243,7 +1312,7 @@ ${memoriaTexto}` : ''}`;
   // Consultas não enviam PDF de vacina — só passam o lead quente pra equipe.
   const toolsAtivas = ehConsulta ? tools.filter(t => t.name === 'passar_para_equipe') : tools;
 
-  console.log(`VITTA conv=${convId} → chamando OpenAI (setor=${conv.setor || '-'}, turns=${turns.length})`);
+  console.log(`VITTA conv=${convId} → chamando ${usaClaude() ? 'Claude' : 'OpenAI'} (setor=${conv.setor || '-'}, turns=${turns.length})`);
   const aiData = await openaiMessages({
     model: 'gpt-4o',
     max_tokens: 600,
@@ -1257,7 +1326,7 @@ ${memoriaTexto}` : ''}`;
     // falhar em silêncio, registra uma notificação pra equipe perceber que a IA caiu.
     await query(
       `INSERT INTO notificacoes (tipo, titulo, texto, conv_id) VALUES ('erro_ia',$1,$2,$3)`,
-      ['⚠️ IA fora do ar', `A IA não conseguiu responder: ${aiData.error?.message || aiData.error?.code || 'erro OpenAI'}. Confira a OPENAI_API_KEY no Railway.`, convId]
+      ['⚠️ IA fora do ar', `A IA não conseguiu responder: ${aiData.error?.message || aiData.error?.code || 'erro do provedor'}. Confira a ANTHROPIC_API_KEY (ou OPENAI_API_KEY) no Railway.`, convId]
     ).catch(() => {});
     return;
   }
@@ -1465,7 +1534,7 @@ async function classificarLead(convId) {
     let score = 'morno', motivo = '';
     let memoria = memoriaAtual;
 
-    if (process.env.OPENAI_API_KEY) {
+    if (temIA()) {
       const resumo = hist.map(m => {
         const quem = m.from_type === 'contact' ? 'Cliente' : 'Vitta';
         const txt = m.type === 'document' ? `[Vitta enviou PDF: ${m.filename || 'proposta'}]` : String(m.content || '').slice(0, 200);
@@ -2110,24 +2179,19 @@ r.use(auth);
 // ─── DEBUG: testar IA Claude (somente logado) ───────────────────────────────
 r.get('/whatsapp/test-ia', masterOnly, async (req, res) => {
   if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
-  if (!process.env.OPENAI_API_KEY) return res.json({ error: 'OPENAI_API_KEY não configurada' });
+  if (!temIA()) return res.json({ error: 'Nenhuma chave de IA configurada (ANTHROPIC_API_KEY ou OPENAI_API_KEY)' });
   try {
-    const { default: fetch } = await import('node-fetch');
-    const r2 = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        max_tokens: 100,
-        messages: [{ role: 'user', content: 'Diga apenas: IA funcionando!' }],
-      }),
+    const data = await openaiMessages({
+      model: 'gpt-4o-mini', max_tokens: 100,
+      system: 'Responda exatamente o que for pedido.',
+      messages: [{ role: 'user', content: 'Diga apenas: IA funcionando!' }],
     });
-    const d = await r2.json();
     res.json({
-      http_status: r2.status,
-      resposta: d.choices?.[0]?.message?.content || null,
-      erro: d.error || null,
-      key_configurada: !!process.env.OPENAI_API_KEY,
+      provedor: usaClaude() ? `Claude (${CLAUDE_MODEL_MINI()})` : 'OpenAI (gpt-4o-mini)',
+      resposta: (data.content || []).filter(b => b.type === 'text').map(b => b.text).join(' ') || null,
+      erro: data.error || null,
+      anthropic_key: !!process.env.ANTHROPIC_API_KEY,
+      openai_key: !!process.env.OPENAI_API_KEY,
     });
   } catch (e) { res.json({ error: e.message }); }
 });
@@ -2140,21 +2204,16 @@ r.get('/whatsapp/diag-bot', masterOnly, async (req, res) => {
     const out = { passos: [], veredito: null };
     const add = (ok, msg) => out.passos.push({ ok, msg });
 
-    // 1) Chave da OpenAI — testa de verdade (1 chamada curtinha)
-    if (!process.env.OPENAI_API_KEY) {
-      add(false, 'OPENAI_API_KEY NÃO está configurada no Railway.');
+    // 1) Chave de IA — testa o provedor ATIVO de verdade (1 chamada curtinha)
+    if (!temIA()) {
+      add(false, 'Nenhuma chave de IA configurada no Railway. Adicione ANTHROPIC_API_KEY (Claude, recomendado) ou OPENAI_API_KEY.');
     } else {
+      const provedor = usaClaude() ? 'Claude (Anthropic)' : 'OpenAI';
       try {
-        const { default: fetch } = await import('node-fetch');
-        const r2 = await fetch('https://api.openai.com/v1/chat/completions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
-          body: JSON.stringify({ model: 'gpt-4o-mini', max_tokens: 5, messages: [{ role: 'user', content: 'ok' }] }),
-        });
-        const d = await r2.json();
-        if (r2.ok && d.choices) add(true, 'OpenAI respondeu OK — a chave está válida e com crédito.');
-        else add(false, `OpenAI RECUSOU (HTTP ${r2.status}): ${d.error?.message || d.error?.code || 'erro'}. ➜ Provável chave inválida/revogada ou sem crédito. Atualize a OPENAI_API_KEY no Railway.`);
-      } catch (e) { add(false, `Falha ao falar com a OpenAI: ${e.message}`); }
+        const d = await openaiMessages({ model: 'gpt-4o-mini', max_tokens: 20, system: 'Responda com uma palavra.', messages: [{ role: 'user', content: 'ok' }] });
+        if (!d.error) add(true, `${provedor} respondeu OK — a chave está válida e com crédito.`);
+        else add(false, `${provedor} RECUSOU: ${d.error?.message || d.error?.code || 'erro'}. ➜ Provável chave inválida/revogada ou sem crédito. Atualize a ${usaClaude() ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY'} no Railway.`);
+      } catch (e) { add(false, `Falha ao falar com a ${provedor}: ${e.message}`); }
     }
 
     // 2) Z-API conectada (sem ela o bot não consegue ENVIAR a resposta)
@@ -3688,7 +3747,7 @@ r.post('/conversations/:id/enviar-documento', async (req, res) => {
    o cliente disse. Volta um rascunho pra atendente revisar e enviar. */
 r.post('/conversations/:id/sugerir-resposta', async (req, res) => {
   try {
-    if (!process.env.OPENAI_API_KEY) return res.status(400).json({ error: 'IA não configurada.' });
+    if (!temIA()) return res.status(400).json({ error: 'IA não configurada.' });
     const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
     if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
     if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso a esta conversa.' });
@@ -4008,7 +4067,7 @@ r.post('/conversations/:id/reset-triagem', async (req, res) => {
 // ─── IA EXTRAI DADOS DA CONVERSA (pré-preenche o agendamento/ficha) ──────────
 r.post('/ai-extrair', async (req, res) => {
   try {
-    if (!process.env.OPENAI_API_KEY) return res.status(503).json({ error: 'IA não configurada' });
+    if (!temIA()) return res.status(503).json({ error: 'IA não configurada' });
     const { convId } = req.body;
     if (!convId) return res.status(400).json({ error: 'convId é obrigatório' });
     const { rows: msgs } = await query(
@@ -4170,7 +4229,7 @@ r.post('/proposta/enviar', async (req, res) => {
 r.post('/ai-image', async (req, res) => {
   try {
     const KEY = process.env.OPENAI_API_KEY;
-    if (!KEY) return res.status(503).json({ error: 'IA não configurada (OPENAI_API_KEY ausente)' });
+    if (!KEY) return res.status(503).json({ error: 'Geração/edição de imagem usa a OpenAI (DALL-E) — configure a OPENAI_API_KEY.' });
 
     const { message = '', image } = req.body;
     const promptUsuario = String(message || '').trim();
@@ -4241,8 +4300,7 @@ REGRAS OBRIGATÓRIAS:
 
 r.post('/ai-chat', async (req, res) => {
   try {
-    const KEY = process.env.OPENAI_API_KEY;
-    if (!KEY) return res.status(503).json({ error: 'IA não configurada' });
+    if (!temIA()) return res.status(503).json({ error: 'IA não configurada' });
     const { convId, history = [], message = '', image } = req.body;
     if (!message.trim() && !image && !req.body.pdf && !req.body.audio) return res.status(400).json({ error: 'Mensagem vazia' });
 
@@ -4280,16 +4338,50 @@ PLANOS COMPLETOS:
 ${conhecimento.planos}
 ${tabelaPrecos}${contexto}`;
 
-    // Áudio da atendente? Transcreve primeiro (Whisper) e usa como pergunta
+    // Áudio da atendente? Transcreve primeiro (Whisper/OpenAI — o Claude não
+    // transcreve áudio; se só houver Claude, avisa em vez de falhar mudo).
     let pergunta = String(message || '').trim();
     let transcricao = null;
     if (req.body.audio?.data) {
+      if (!process.env.OPENAI_API_KEY) return res.status(400).json({ error: 'Transcrição de áudio requer a OPENAI_API_KEY (Whisper). Digite a pergunta em texto.' });
       transcricao = await transcreverAudio(req.body.audio.data, req.body.audio.media_type || 'audio/webm');
       pergunta = pergunta ? `${pergunta}\n${transcricao}` : transcricao;
       if (!pergunta) return res.status(400).json({ error: 'Não entendi o áudio — tente de novo' });
     }
 
-    // Histórico (turnos texto) no formato da Responses API
+    // ── Caminho Claude (Anthropic) — com visão (imagem) e PDF nativos ────────
+    if (usaClaude()) {
+      const client = await anthropicClient();
+      const msgs = [];
+      for (const h of (history || []).slice(-12)) {
+        if (!h?.content) continue;
+        msgs.push({ role: h.role === 'assistant' ? 'assistant' : 'user', content: String(h.content).slice(0, 1500) });
+      }
+      if (msgs.length && msgs[0].role !== 'user') msgs.unshift({ role: 'user', content: '(início da conversa)' });
+      const userContent = [];
+      if (image?.data && image?.media_type) {
+        userContent.push({ type: 'image', source: { type: 'base64', media_type: image.media_type, data: image.data } });
+      }
+      if (req.body.pdf?.data) {
+        userContent.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: String(req.body.pdf.data).replace(/\n/g, '') } });
+      }
+      userContent.push({ type: 'text', text: pergunta || 'Analise o arquivo anexado.' });
+      msgs.push({ role: 'user', content: userContent });
+      try {
+        const resp = await client.messages.create({
+          model: CLAUDE_MODEL(),
+          max_tokens: 4096,
+          output_config: { effort: 'low' },
+          system: sysPrompt,
+          messages: msgs,
+        });
+        if (resp.stop_reason === 'refusal') return res.status(502).json({ error: 'A IA recusou este conteúdo.' });
+        const texto = (resp.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
+        return res.json({ texto, transcricao });
+      } catch (e) { return res.status(502).json({ error: erroIAamigavel(e) }); }
+    }
+
+    // ── Caminho OpenAI (fallback quando não há ANTHROPIC_API_KEY) ────────────
     const input = [];
     for (const h of (history || []).slice(-12)) {
       if (!h?.content) continue;
@@ -4330,21 +4422,17 @@ r.post('/ai-assist', async (req, res) => {
 
     // ── Modo legado: repassa o prompt cru (compatibilidade) ──────────────────
     if (prompt && !mode) {
-      if (!KEY) return res.json({ text: 'IA não configurada (OPENAI_API_KEY ausente).' });
-      const resp = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${KEY}` },
-        body: JSON.stringify({ model: 'gpt-4o-mini', max_tokens: 500, messages: [{ role: 'user', content: prompt }] })
-      });
-      const data = await resp.json();
-      return res.json({ text: data.choices?.[0]?.message?.content || 'Sem resposta' });
+      if (!temIA()) return res.json({ text: 'IA não configurada.' });
+      const data = await openaiMessages({ model: 'gpt-4o-mini', max_tokens: 500, system: 'Você é um assistente útil da equipe da clínica Vittalis Saúde. Responda em português.', messages: [{ role: 'user', content: prompt }] });
+      if (data.error) return res.json({ text: 'Sem resposta' });
+      return res.json({ text: (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n') || 'Sem resposta' });
     }
 
     // ── Modo estruturado ──────────────────────────────────────────────────────
     const cfgMode = AI_ASSIST_MODES[mode];
     if (!cfgMode) return res.status(400).json({ error: 'Modo inválido' });
     if (!convId) return res.status(400).json({ error: 'convId é obrigatório' });
-    if (!KEY) return res.status(503).json({ error: 'IA não configurada (OPENAI_API_KEY ausente)' });
+    if (!temIA()) return res.status(503).json({ error: 'IA não configurada' });
 
     const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [convId]);
     if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
@@ -4489,7 +4577,7 @@ async function resolverAtendente(conv, hist) {
 }
 
 async function analisarQualidade(convId) {
-  if (!process.env.OPENAI_API_KEY) return { error: 'IA não configurada' };
+  if (!temIA()) return { error: 'IA não configurada' };
   const t = await montarTranscriptConversa(convId);
   if (!t) return { error: 'Conversa não encontrada' };
   if (t.hist.filter(m => m.from_type === 'me').length < 1) return { error: 'Sem mensagens da atendente para avaliar' };
@@ -4529,7 +4617,7 @@ Devolva exatamente:
 // Lote: avalia as conversas recentes ainda não avaliadas (máx 8/chamada — custo)
 r.post('/qualidade/analisar', masterOnly, async (req, res) => {
   try {
-    if (!process.env.OPENAI_API_KEY) return res.status(503).json({ error: 'IA não configurada (OPENAI_API_KEY ausente)' });
+    if (!temIA()) return res.status(503).json({ error: 'IA não configurada' });
     const limite = Math.max(1, Math.min(parseInt(req.body?.limite) || 6, 8));
     const { rows: alvos } = await query(`
       SELECT c.id FROM conversas c
@@ -4577,7 +4665,7 @@ r.get('/qualidade/resumo', masterOnly, async (req, res) => {
    conversa, convertendo "amanhã/sexta/semana que vem" em data real. Devolve a
    sugestão pra pré-preencher o Agendar e confirmar em 1 clique. */
 async function sugerirAgenda(convId) {
-  if (!process.env.OPENAI_API_KEY) return { error: 'IA não configurada (OPENAI_API_KEY ausente)' };
+  if (!temIA()) return { error: 'IA não configurada' };
   const t = await montarTranscriptConversa(convId);
   if (!t) return { error: 'Conversa não encontrada' };
   if (!t.hist.some(m => m.from_type === 'contact')) return { error: 'Sem mensagens do cliente para analisar' };
@@ -4650,7 +4738,7 @@ r.get('/cases-sucesso/padrao', async (req, res) => {
 r.post('/cases-sucesso/gerar-padrao', async (req, res) => {
   try {
     if (!(['master', 'supervisor'].includes(req.user.role) || req.user.lider)) return res.status(403).json({ error: 'Acesso restrito à liderança.' });
-    if (!process.env.OPENAI_API_KEY) return res.status(400).json({ error: 'IA não configurada (OPENAI_API_KEY ausente).' });
+    if (!temIA()) return res.status(400).json({ error: 'IA não configurada.' });
     const setor = ['vacinas', 'consultas', 'terapias'].includes((req.body || {}).setor) ? req.body.setor : null;
     const { rows } = await query(`
       SELECT DISTINCT ON (v.conversa_id) v.conversa_id id, c.setor, c.classificacao, c.responsavel_id, c.contact_name, v.data_venda
@@ -5635,7 +5723,7 @@ async function gerarMensagemFollowup(conv, count) {
     return `Oi, ${trato}! Não quero te incomodar 😊 Só deixar registrado que estou por aqui quando quiser seguir. Será um prazer receber vocês na Vittalis 💎`;
   })();
 
-  if (!process.env.OPENAI_API_KEY || !hist.length) return fallback;
+  if (!temIA() || !hist.length) return fallback;
 
   try {
     const resumo = hist.map(m => {
