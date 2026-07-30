@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Plus, Phone, MessageSquare, Check, X as XIcon, CalendarClock, Trash2, ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt } from '../hooks/utils.js';
 
@@ -12,6 +13,7 @@ const ST_CLR = { Agendado: ['#e8f4fd', '#1d6fb8'], Confirmado: ['#e2f8ef', '#0a8
 const hojeISO = () => new Date().toISOString().slice(0, 10);
 
 export default function Agenda() {
+  const navigate = useNavigate();
   const api = useApi();
   const { user } = useAuth();
   const [data, setData] = useState(hojeISO());
@@ -137,7 +139,7 @@ export default function Agenda() {
                 {ev.telefone && (
                   <>
                     <a href={`tel:+55${ev.telefone}`} title="Ligar" style={btnAcao}><Phone size={13} /></a>
-                    <a href={`https://wa.me/55${ev.telefone}`} target="_blank" rel="noreferrer" title="WhatsApp" style={{ ...btnAcao, color: '#1da955', borderColor: '#bfe8cf', background: '#eafbf1' }}><MessageSquare size={13} /></a>
+                    <button onClick={() => navigate(`/inbox?phone=${String(ev.telefone || '').replace(/\D/g, '')}`)} title="Abrir conversa no CRM" style={{ ...btnAcao, color: '#1da955', borderColor: '#bfe8cf', background: '#eafbf1', cursor: 'pointer' }}><MessageSquare size={13} /></button>
                   </>
                 )}
                 {ev.status !== 'Confirmado' && ev.status !== 'Realizado' && (

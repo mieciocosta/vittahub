@@ -498,7 +498,7 @@ export default function Inbox({ onUnreadChange }) {
   const [lightbox, setLightbox] = useState(null);
   const [waiting, setWaiting] = useState(false);
   const [setorFiltro, setSetorFiltro] = useState('all');
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const clsFiltro = searchParams.get('cls') || 'all';
   const [setorResumo, setSetorResumo] = useState(null);
   useEffect(() => {
@@ -904,6 +904,25 @@ export default function Inbox({ onUnreadChange }) {
     setConvos(prev => prev.map(x => x.id === sel.id ? { ...x, responsavel_id: respId || null } : x));
     try { await api.patch(`/inbox/conversations/${sel.id}/assign`, { responsavel_id: respId || null }); } catch {}
   };
+
+  // Vindo de outra tela com ?phone= (ex.: botão Conversa da Agenda): acha a
+  // conversa desse telefone e abre AQUI no CRM, sem sair pro WhatsApp.
+  useEffect(() => {
+    const ph = (searchParams.get('phone') || '').replace(/\D/g, '');
+    if (!ph) return;
+    (async () => {
+      try {
+        const sufixo = ph.slice(-8);
+        const rows = await api.get(`/inbox/conversations/buscar?q=${encodeURIComponent(sufixo)}`);
+        const lista = Array.isArray(rows) ? rows : [];
+        const alvo = lista.find(r => String(r.phone || '').replace(/\D/g, '').endsWith(sufixo)) || lista[0];
+        if (alvo) openConvo(alvo);
+        else setSearch(ph); // não achou: deixa o telefone na busca pra facilitar
+      } catch {}
+      searchParams.delete('phone');
+      setSearchParams(searchParams, { replace: true });
+    })();
+  }, []); // eslint-disable-line
 
   const openConvo = async (c) => {
     window.__auditLog?.('abrir_conversa', 'conversa', c.id, { nome: c.contact_name, telefone: c.phone });
