@@ -212,6 +212,38 @@ r.post('/vendas', async (req, res) => {
        cut(b.origem, 40), cut(b.observacao, 300)]);
     socketEmit('venda_registrada', { id: v.id, setor, valor });
     console.log(`VENDA OK: ${categoria} R$${valor} (id=${v.id})`);
+
+    // ── 🔁 PRÓXIMA DOSE (recompra automática de vacinas) ─────────────────────
+    // Venda de pacote mensal ("vacinas de X meses") agenda sozinha um lembrete
+    // amigável para ~2 dias antes da próxima etapa do calendário. É o motor de
+    // recompra da clínica: o cliente é chamado de volta no momento certo.
+    try {
+      if (setor === 'vacinas' && v.conversa_id) {
+        const SEQ = [2, 3, 4, 5, 6, 7, 9, 12, 13, 15, 16, 18];
+        const mtxt = `${b.servico || ''} ${categoria || ''}`.toLowerCase();
+        const m = mtxt.match(/(\d{1,2})\s*m(?:es|eses|\b)/);
+        const atual = m ? parseInt(m[1]) : null;
+        const idx = atual != null ? SEQ.indexOf(atual) : -1;
+        if (idx >= 0 && idx < SEQ.length - 1) {
+          const prox = SEQ[idx + 1];
+          const dias = Math.max(5, (prox - atual) * 30 - 2); // ~2 dias antes da etapa
+          const base = /^\d{4}-\d{2}-\d{2}$/.test(b.data_atendimento || '') ? new Date(b.data_atendimento)
+                     : /^\d{4}-\d{2}-\d{2}$/.test(b.data_venda || '') ? new Date(b.data_venda) : new Date();
+          const quando = new Date(base.getTime() + dias * 86400000);
+          quando.setHours(13, 0, 0, 0); // 10h em São Luís (UTC-3) — horário comercial
+          if (quando.getTime() > Date.now()) {
+            const bebe = cut(b.paciente_nome, 40);
+            const texto = `Oi! 💙 Aqui é da Vittalis. ${bebe ? `O(a) ${bebe} já` : 'Seu bebê já'} está chegando na fase das *vacinas de ${prox} meses* — as próximas do calendário de proteção. Quer garantir seu horário? Atendemos também no conforto da sua casa 🏠😊`;
+            await query(
+              `INSERT INTO mensagens_agendadas (conversa_id, texto, enviar_em, criado_por)
+               VALUES ($1, $2, $3, 'Vitta · Próxima dose')`,
+              [v.conversa_id, texto, quando.toISOString()]);
+            console.log(`PRÓXIMA DOSE agendada: conv=${v.conversa_id} ${atual}m→${prox}m em ${quando.toISOString().slice(0, 10)}`);
+          }
+        }
+      }
+    } catch (e) { console.error('PRÓXIMA DOSE erro (venda salva normalmente):', e.message); }
+
     res.status(201).json(v);
   } catch (err) { console.error('VENDA ERRO:', err.message); res.status(500).json({ error: err.message }); }
 });

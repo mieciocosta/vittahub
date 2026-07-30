@@ -1597,8 +1597,14 @@ MEMÓRIA: preencha SÓ com fatos que o cliente informou ou que a Vitta confirmou
       else { score = 'frio'; motivo = 'pouco engajamento'; }
     }
 
+    // Virou QUENTE agora? Notifica a equipe na hora — lead pronto é pra atacar já.
+    const { rows: [antes] } = await query('SELECT lead_score, contact_name, phone FROM conversas WHERE id = $1', [convId]).catch(() => ({ rows: [{}] }));
     await query('UPDATE conversas SET lead_score = $1, lead_score_motivo = $2, lead_score_at = NOW(), memoria = $3 WHERE id = $4',
       [score, motivo, JSON.stringify(memoria || {}), convId]);
+    if (score === 'quente' && antes?.lead_score !== 'quente') {
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, conv_id) VALUES ('novo_lead',$1,$2,$3)`,
+        [`🔥 Lead QUENTE: ${antes?.contact_name || antes?.phone || 'cliente'}`, `${motivo}. Responder AGORA aumenta muito a chance de fechar!`, convId]).catch(() => {});
+    }
     const { rows: [c] } = await query('SELECT * FROM conversas WHERE id = $1', [convId]);
     if (c) { cacheUpdate(c); socketEmit('lead_score', { convId, lead_score: score, lead_score_motivo: motivo, memoria: c.memoria }); }
   } catch (e) { console.error('classificarLead erro:', e.message); }
