@@ -803,9 +803,14 @@ async function triagemSetor(conv, texto, phoneNum) {
   if (conv.setor && conv.menu_enviado) return false; // já triado neste ciclo
   if (!conv.bot_ativo) return false;                 // equipe assumiu
   const escolha = detectarSetor(texto);
-  const { rows: [cfgT] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'").catch(() => ({ rows: [{}] }));
+  // FAIL-CLOSED: erro na leitura da config = desligado (não envia menu por engano)
+  const { rows: [cfgT] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'")
+    .catch(() => ({ rows: [{ valor: { ativo: false, consultaIA: false } }] }));
   const consultaIAon = (cfgT?.valor?.consultaIA ?? true) !== false;
   const botGeralOn   = (cfgT?.valor?.ativo ?? true) !== false;
+  // DISJUNTOR GLOBAL: tudo desligado → consome a mensagem sem enviar nada
+  // (nem menu, nem confirmações, nem Vitta).
+  if (!botGeralOn && !consultaIAon) return true;
   // Modo DEDICADO à consulta: o bot geral (vacina) está desligado e só a IA de
   // Consultas está ligada → a IA assume TUDO direto, sem menu de triagem.
   const soConsultaIA = !botGeralOn && consultaIAon;
@@ -967,11 +972,16 @@ async function vittaResponder(convId) {
   // Estado mais recente — o humano pode ter assumido (bot_ativo=false) nesse meio-tempo
   const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [convId]);
   if (!conv || !conv.bot_ativo) { console.log(`VITTA skip conv=${convId}: bot_ativo=${conv?.bot_ativo} (conversa inexistente ou bot desligado)`); return; }
-  const { rows: [cfgRow] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'");
+  // FAIL-CLOSED: se a leitura da config falhar, trata como DESLIGADO (nunca
+  // responde cliente por engano em falha de banco).
+  const { rows: [cfgRow] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'")
+    .catch(() => ({ rows: [{ valor: { ativo: false, consultaIA: false } }] }));
   const cfg = cfgRow?.valor || {};
-  // Quem decide a resposta é o bot_ativo DA CONVERSA (checado acima). O "Bot ativo
-  // para TODOS" (cfg.ativo) controla o AUTOMÁTICO (conversa nova nasce ligada?) e o
-  // liga/desliga em massa — mas NÃO bloqueia uma conversa que o master ligou na mão.
+  // DISJUNTOR GLOBAL (regra do master): com os DOIS interruptores globais
+  // desligados, a IA NÃO responde NUNCA — nem em conversa ligada na mão, nem
+  // religada por reabertura. O global manda; o bot_ativo da conversa é o
+  // interruptor fino, válido só com o global ligado.
+  if (cfg.ativo === false && cfg.consultaIA === false) { console.log(`VITTA skip conv=${convId}: IA global DESLIGADA (ativo=false e consultaIA=false)`); return; }
   const ehConsulta = !!conv.setor && conv.setor !== 'vacinas';
   if (ehConsulta && cfg.consultaIA === false) { console.log(`VITTA skip conv=${convId}: cfg.consultaIA=false (IA de consulta desligada)`); return; }
 
@@ -1706,7 +1716,9 @@ r.post('/webhook/zapi', async (req, res) => {
     //  • cfg.consultaIA  = "IA de Consultas" (assume sozinha tudo que não é vacina)
     // Se QUALQUER um estiver ligado, a conversa nova nasce ativa pra ser triada —
     // a triagem decide o setor e a IA de consulta assume se for não-vacina.
-    const { rows: [cfgIns] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'").catch(() => ({ rows: [{}] }));
+    // FAIL-CLOSED: se a leitura falhar, conversa nova nasce com bot DESLIGADO.
+    const { rows: [cfgIns] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'")
+      .catch(() => ({ rows: [{ valor: { ativo: false, consultaIA: false } }] }));
     const botGeralOn = (cfgIns?.valor?.ativo) !== false;
     const iaConsultasOn = (cfgIns?.valor?.consultaIA) !== false;
     const novoBotAtivo = !isMe && !isGroupMsg && (botGeralOn || iaConsultasOn);
@@ -1835,8 +1847,20 @@ r.post('/webhook/zapi', async (req, res) => {
     // já foi salva e exibida acima; encerra aqui.
     if (isGroupMsg) return;
 
-    const { rows: [cfgBotRow] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'").catch(() => ({ rows: [] }));
+    // FAIL-CLOSED: erro ao ler a config = tudo DESLIGADO (nunca dispara por engano).
+    const { rows: [cfgBotRow] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'")
+      .catch(() => ({ rows: [{ valor: { ativo: false, consultaIA: false } }] }));
     const botGlobalAtivo = cfgBotRow?.valor?.ativo !== false;
+    const iaConsultasOnD = cfgBotRow?.valor?.consultaIA !== false;
+
+    // ── DISJUNTOR GLOBAL ─────────────────────────────────────────────────────
+    // Com os DOIS interruptores desligados, NADA automático acontece a partir
+    // daqui: sem reabertura, sem captura, sem menu de triagem, sem Vitta.
+    // (Só o master liga/desliga esses interruptores, em Configurações.)
+    if (!botGlobalAtivo && !iaConsultasOnD) {
+      console.log(`TRIAGEM conv=${conv.id}: IA global DESLIGADA — nenhum envio automático`);
+      return;
+    }
 
     // Auto-reabertura: vale quando o bot geral está ligado OU quando só a IA de
     // Consultas está ligada (aí a IA reassume a conversa sozinha após 24h paradas).
@@ -3375,7 +3399,7 @@ r.patch('/conversations/:id/status', async (req, res) => {
 // ─── BOT TOGGLE ────────────────────────────────────────────────────────────────
 r.patch('/conversations/:id/bot', async (req, res) => {
   try {
-    if (req.user?.role !== 'master') return res.status(403).json({ error: 'Apenas o master (Miécio ou Nágila) pode ligar ou desligar o bot.' });
+    if (req.user?.role !== 'master') return res.status(403).json({ error: 'Apenas o master pode ligar ou desligar o bot.' });
     const { rows: [c] } = await query('UPDATE conversas SET bot_ativo = $1 WHERE id = $2 RETURNING bot_ativo', [req.body.ativo, req.params.id]);
     if (c) { const cached = convoCache.get(req.params.id); if (cached) cacheUpdate({ ...cached, bot_ativo: c.bot_ativo }); }
     socketEmit('bot_status', { convId: req.params.id, bot_ativo: c?.bot_ativo });
@@ -4723,18 +4747,26 @@ r.get('/bot-config', async (req, res) => {
 
 r.put('/bot-config', async (req, res) => {
   try {
-    if (req.user?.role !== 'master') return res.status(403).json({ error: 'Apenas o master (Miécio ou Nágila) pode alterar a configuração do bot.' });
+    if (req.user?.role !== 'master') return res.status(403).json({ error: 'Apenas o master pode alterar a configuração do bot.' });
     // Estado anterior, pra saber se os toggles mudaram de liga<->desliga
     const { rows: [antes] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'").catch(() => ({ rows: [{}] }));
     const antesAtivo = antes?.valor?.ativo !== false;
     const antesConsultaIA = antes?.valor?.consultaIA !== false;
 
-    await query("INSERT INTO configuracoes (chave,valor) VALUES ('bot',$1) ON CONFLICT (chave) DO UPDATE SET valor=$1, updated_at=NOW()", [JSON.stringify(req.body)]);
+    // MERGE com a config atual: campo OMITIDO no body mantém o valor anterior.
+    // (Antes o body substituía o JSON inteiro — um save parcial religava tudo,
+    // porque campo ausente era interpretado como "ligado".)
+    const novoValor = { ...(antes?.valor || {}), ...(req.body || {}) };
+    // Persiste os dois interruptores SEMPRE explícitos (true/false), pra nunca
+    // mais depender do "ausente = ligado".
+    novoValor.ativo = novoValor.ativo !== false;
+    novoValor.consultaIA = novoValor.consultaIA !== false;
+    await query("INSERT INTO configuracoes (chave,valor) VALUES ('bot',$1) ON CONFLICT (chave) DO UPDATE SET valor=$1, updated_at=NOW()", [JSON.stringify(novoValor)]);
 
     // O toggle "Bot ativo" é o interruptor MESTRE: ao mudar, aplica pra TODAS as
     // conversas (liga/desliga o bot pra todos os usuários de uma vez).
-    const novoAtivo = req.body?.ativo !== false;
-    const novoConsultaIA = req.body?.consultaIA !== false;
+    const novoAtivo = novoValor.ativo;
+    const novoConsultaIA = novoValor.consultaIA;
     if (novoAtivo !== antesAtivo) {
       await query('UPDATE conversas SET bot_ativo = $1', [novoAtivo]);
       await loadCache();
@@ -4753,7 +4785,7 @@ r.put('/bot-config', async (req, res) => {
       socketEmit('bots_global', { ativo: true, soConsultas: true });
       console.log(`IA de Consultas LIGADA por ${req.user?.nome || 'master'} — ${rowCount} conversa(s) não-vacina reassumidas`);
     }
-    res.json(req.body);
+    res.json(novoValor);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -4761,10 +4793,12 @@ r.put('/bot-config', async (req, res) => {
 // bot_ativo de todas as conversas E o interruptor global.
 r.post('/bot/desligar-todos', async (req, res) => {
   try {
-    if (req.user?.role !== 'master') return res.status(403).json({ error: 'Apenas o master (Miécio ou Nágila) pode desligar os bots.' });
+    if (req.user?.role !== 'master') return res.status(403).json({ error: 'Apenas o master pode desligar os bots.' });
     const { rowCount } = await query('UPDATE conversas SET bot_ativo = false WHERE bot_ativo = true');
-    await query(`INSERT INTO configuracoes (chave, valor) VALUES ('bot', '{"ativo":false}'::jsonb)
-                 ON CONFLICT (chave) DO UPDATE SET valor = jsonb_set(COALESCE(configuracoes.valor, '{}'::jsonb), '{ativo}', 'false'::jsonb), updated_at = NOW()`);
+    // Desliga TUDO de verdade: bot geral E IA de Consultas. (Antes só desligava o
+    // geral — e conversas novas continuavam nascendo com bot ligado via consultaIA.)
+    await query(`INSERT INTO configuracoes (chave, valor) VALUES ('bot', '{"ativo":false,"consultaIA":false}'::jsonb)
+                 ON CONFLICT (chave) DO UPDATE SET valor = jsonb_set(jsonb_set(COALESCE(configuracoes.valor, '{}'::jsonb), '{ativo}', 'false'::jsonb), '{consultaIA}', 'false'::jsonb), updated_at = NOW()`);
     await loadCache();
     socketEmit('bots_desligados', { por: req.user?.nome || 'master', total: rowCount });
     console.log(`🔌 ${req.user?.nome || 'master'} desligou TODOS os bots (${rowCount} conversas)`);

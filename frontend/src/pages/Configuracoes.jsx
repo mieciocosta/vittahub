@@ -92,8 +92,8 @@ export default function Configuracoes() {
     setKilling(true);
     try {
       const r = await api.post('/inbox/bot/desligar-todos', {});
-      setBot(p => ({ ...(p||{}), ativo:false }));
-      window.alert(`✅ Pronto! ${r.desligados ?? 0} conversa(s) com bot foram desligadas e o bot global está OFF.`);
+      setBot(p => ({ ...(p||{}), ativo:false, consultaIA:false }));
+      window.alert(`✅ Pronto! ${r.desligados ?? 0} conversa(s) com bot foram desligadas.\n\nBot geral E IA de Consultas estão OFF — a IA não responde mais NENHUM cliente até você religar aqui.`);
     } catch (e) { window.alert('Erro ao desligar: ' + e.message); }
     setKilling(false);
   };
@@ -129,7 +129,7 @@ export default function Configuracoes() {
         <div className="card" style={{ padding:'22px' }}>
           <div style={{ display:'flex', alignItems:'center', gap:9, marginBottom:18 }}>
             <div style={{ width:36, height:36, borderRadius:10, background:'var(--ok2)', display:'flex', alignItems:'center', justifyContent:'center' }}><Bot size={18} color="var(--ok)"/></div>
-            <div><h2 style={{ fontSize:16, fontWeight:800 }}>Bot de Atendimento</h2><p style={{ fontSize:12, color:'var(--muted)', marginTop:1 }}>A Vitta responde sozinha enquanto a equipe não assume. Apenas o master (Miécio ou Nágila) liga ou desliga o bot.</p></div>
+            <div><h2 style={{ fontSize:16, fontWeight:800 }}>Bot de Atendimento</h2><p style={{ fontSize:12, color:'var(--muted)', marginTop:1 }}>A Vitta responde sozinha enquanto a equipe não assume. Somente o master (Miécio) liga ou desliga — geral ou por conversa. Com os dois interruptores desligados, a IA não responde nenhum cliente.</p></div>
           </div>
 
           {bot && (
@@ -175,9 +175,15 @@ export default function Configuracoes() {
               {/* Botão de emergência: desliga todos os bots de uma vez */}
               <div style={{ borderTop:'1px solid var(--border)', marginTop:4, paddingTop:14 }}>
                 <div style={{ fontSize:12, color:'var(--muted)', marginBottom:8 }}>
-                  Bot global agora: {bot.ativo
+                  Bot geral: {bot.ativo
                     ? <strong style={{ color:'var(--ok)' }}>LIGADO</strong>
                     : <strong style={{ color:'var(--err,#dc2626)' }}>DESLIGADO</strong>}
+                  {' · '}IA de Consultas: {bot.consultaIA !== false
+                    ? <strong style={{ color:'var(--ok)' }}>LIGADA</strong>
+                    : <strong style={{ color:'var(--err,#dc2626)' }}>DESLIGADA</strong>}
+                  {bot.ativo === false && bot.consultaIA === false && (
+                    <div style={{ marginTop:4, fontWeight:800, color:'var(--err,#dc2626)' }}>⛔ IA totalmente desligada — nenhum cliente recebe resposta automática.</div>
+                  )}
                 </div>
                 <button onClick={desligarTodos} disabled={killing} className="btn"
                   style={{ width:'100%', background:'#fee2e2', color:'#dc2626', border:'1.5px solid #fecaca', fontWeight:800 }}>
