@@ -45,6 +45,7 @@ export default function Caixa() {
     if (mes) qs.set('mes', mes);
     if (setor) qs.set('setor', setor);
     if (status) qs.set('status', status);
+    api.get('/extras/meta-setor').then(d => setMetasSetor(d?.porSetor || [])).catch(() => {});
     api.get(`/extras/vendas?${qs.toString()}`)
       .then(d => setLista(Array.isArray(d) ? d : []))
       .catch(() => setLista([]))
@@ -156,6 +157,7 @@ export default function Caixa() {
   };
   const [despesas, setDespesas] = useState([]);
   const [despTotal, setDespTotal] = useState(0);
+  const [metasSetor, setMetasSetor] = useState([]); // metas minima/global por setor (gestao)
   const [modalDesp, setModalDesp] = useState(null);
   const [salvandoDesp, setSalvandoDesp] = useState(false);
   const loadDespesas = () => {
@@ -524,6 +526,41 @@ export default function Caixa() {
         </div>
       ) : (
       <>
+      {/* 🎯 Metas do mês por setor — mínima R$ 100 mil → meta R$ 500 mil */}
+      {gestao && metasSetor.length > 0 && (
+        <div className="card" style={{ padding: '14px 16px', marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 800, textTransform: 'uppercase', letterSpacing: .5, color: 'var(--muted)', marginBottom: 10 }}>🎯 Metas do mês — mínima {fmt.brl(100000)} · meta {fmt.brl(500000)}</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 14 }}>
+            {metasSetor.map(ms => {
+              const EMOJI = { vacinas: '💉', consultas: '🩺', terapias: '🧩' };
+              const COR = { vacinas: '#8b5cf6', consultas: '#0891b2', terapias: '#d97706' }[ms.setor] || 'var(--tq)';
+              const nome = ms.setor ? ms.setor[0].toUpperCase() + ms.setor.slice(1) : '—';
+              const conf = ms.confirmado || 0;
+              const metaG = ms.metaGlobal || 500000;
+              const minM = ms.metaMinima || 100000;
+              const pctG = Math.min((conf / metaG) * 100, 100);
+              const posMin = Math.min((minM / metaG) * 100, 100);
+              const minOk = conf >= minM;
+              const ok = conf >= metaG;
+              return (
+                <div key={ms.setor}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, marginBottom: 4 }}>
+                    <span style={{ fontWeight: 800 }}>{EMOJI[ms.setor] || '🎯'} {nome}</span>
+                    <span style={{ fontWeight: 800, color: COR }}>{fmt.brl(conf)} <span style={{ color: 'var(--muted)', fontWeight: 600 }}>· {pctG.toFixed(1)}%</span></span>
+                  </div>
+                  <div style={{ position: 'relative', height: 10, borderRadius: 6, background: 'var(--bg2, #eef2f6)', overflow: 'hidden' }}>
+                    <div style={{ width: `${pctG}%`, height: '100%', borderRadius: 6, background: ok ? '#16a34a' : COR, transition: 'width .5s' }} />
+                    <div title={`Mínima: ${fmt.brl(minM)}`} style={{ position: 'absolute', left: `${posMin}%`, top: -1, bottom: -1, width: 2, background: minOk ? '#16a34a' : '#b45309' }} />
+                  </div>
+                  <div style={{ fontSize: 11.5, marginTop: 4, fontWeight: 700, color: ok ? '#16a34a' : minOk ? '#0891b2' : '#b45309' }}>
+                    {ok ? '🏆 Meta batida!' : minOk ? `✅ mínima batida · falta ${fmt.brl(metaG - conf)} p/ meta` : `falta ${fmt.brl(minM - conf)} p/ mínima`}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
       {/* Filtros */}
       <div className="card" style={{ padding: '12px 14px', marginBottom: 16, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
         <input type="month" value={mes} onChange={e => setMes(e.target.value)} style={{ padding: '7px 10px', borderRadius: 9, border: '1.5px solid var(--border)', background: 'var(--card)', color: 'var(--txt)' }} />
