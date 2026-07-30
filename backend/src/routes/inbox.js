@@ -2266,7 +2266,8 @@ r.get('/whatsapp/diag-bot', masterOnly, async (req, res) => {
       const c = alvo;
       out.conversa = { id: c.id, nome: c.contact_name, setor: c.setor, bot_ativo: c.bot_ativo, menu_enviado: c.menu_enviado };
       const ehConsulta = !!c.setor && c.setor !== 'vacinas';
-      add(true, `Conversa analisada: "${c.contact_name || c.phone}" · setor=${c.setor || '(sem setor)'} · ${ehConsulta ? 'IA de consulta' : c.setor === 'vacinas' ? 'vacina (sem IA)' : 'aguardando triagem'}.`);
+      const vacIAd = cfg.vacinasIA !== false;
+      add(true, `Conversa analisada: "${c.contact_name || c.phone}" · setor=${c.setor || '(sem setor)'} · ${ehConsulta ? 'IA de consulta' : c.setor === 'vacinas' ? (vacIAd ? 'IA de Vacinas LIGADA (Vitta responde)' : 'IA de Vacinas DESLIGADA — vacinação vai pro humano') : 'aguardando triagem'}.`);
       add(!!c.bot_ativo, c.bot_ativo ? 'Está com "Bot ON".' : 'Está com "Bot OFF" — ligue o botão BOT na conversa.');
       const { rows: [last] } = await query("SELECT from_type FROM mensagens WHERE conversa_id=$1 AND type IN ('text','document') AND from_type<>'system' ORDER BY created_at DESC LIMIT 1", [c.id]).catch(() => ({ rows: [{}] }));
       add(last?.from_type === 'contact', last?.from_type === 'contact'
@@ -2274,8 +2275,31 @@ r.get('/whatsapp/diag-bot', masterOnly, async (req, res) => {
         : `A última mensagem é '${last?.from_type || 'nenhuma'}' — o bot só responde quando a última é do cliente (humano assumiu?).`);
     }
 
+    // Teste do MODELO PRINCIPAL (o que a Vitta usa de verdade, com tools) —
+    // o teste rápido acima usa o modelo mini; erros de acesso/modelo só aparecem aqui.
+    if (temIA()) {
+      try {
+        const tMain = await openaiMessages({
+          model: 'gpt-4o', max_tokens: 200,
+          system: 'Você é a Vitta. Responda em uma frase curta.',
+          messages: [{ role: 'user', content: 'Diga: modelo principal OK' }],
+          tools: [{ name: 'teste_tool', description: 'ferramenta de teste (não use)', input_schema: { type: 'object', properties: { x: { type: 'string' } } } }],
+        });
+        if (!tMain.error) add(true, `Modelo PRINCIPAL da Vitta OK (${usaClaude() ? CLAUDE_MODEL() : 'gpt-4o'}): "${(tMain.content || []).filter(b => b.type === 'text').map(b => b.text).join(' ').slice(0, 80)}"`);
+        else add(false, `Modelo PRINCIPAL da Vitta FALHOU (${usaClaude() ? CLAUDE_MODEL() : 'gpt-4o'}): ${tMain.error?.message || 'erro'} ➜ É ESTE erro que deixa a Vitta muda nas conversas.`);
+      } catch (e) { add(false, `Modelo PRINCIPAL da Vitta FALHOU: ${e.message}`); }
+    }
+
+    // Últimos erros reais registrados pela Vitta (notificações "IA fora do ar")
+    try {
+      const { rows: errosIA } = await query(
+        "SELECT texto, created_at FROM notificacoes WHERE tipo = 'erro_ia' ORDER BY created_at DESC LIMIT 3");
+      for (const n of errosIA) add(false, `Erro recente da IA (${new Date(n.created_at).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}): ${n.texto}`);
+      if (!errosIA.length) add(true, 'Nenhum erro de IA registrado nas notificações.');
+    } catch {}
+
     const falhas = out.passos.filter(p => !p.ok).map(p => p.msg);
-    out.versao_backend = '2026-06-18b · IA-consultas-dedicada (geral-off NÃO bloqueia consulta)';
+    out.versao_backend = '2026-07-30 · Claude + IA de Vacinas';
     out.veredito = falhas.length
       ? `Encontrei ${falhas.length} ponto(s) de atenção: ` + falhas.join(' | ')
       : 'Tudo certo — o bot deveria responder. Se não responder, o deploy do backend pode estar atrasado (confira a versao_backend abaixo) ou me chame pros logs.';
