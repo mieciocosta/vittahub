@@ -57,8 +57,9 @@ export default function PlacarVendas() {
         </div>
       </div>
 
-      {/* QUANTO FALTA por setor (só gestão vê valores) — atualiza a cada venda */}
-      {gestao && (meta.porSetor || []).length > 0 && (
+      {/* QUANTO FALTA por setor — cada usuário vê a meta DO SEU setor
+          (o backend já filtra: atendente recebe só o setor dela; master vê todos) */}
+      {(meta.porSetor || []).length > 0 && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <div style={{ width: 1, height: 26, background: 'rgba(255,255,255,.25)' }} />
           {meta.porSetor.map((s) => {

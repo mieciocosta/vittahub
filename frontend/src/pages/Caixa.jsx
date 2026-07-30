@@ -526,8 +526,8 @@ export default function Caixa() {
         </div>
       ) : (
       <>
-      {/* 🎯 Metas do mês por setor — mínima R$ 100 mil → meta R$ 500 mil */}
-      {gestao && metasSetor.length > 0 && (
+      {/* 🎯 Metas do mês — cada usuário vê o(s) setor(es) dele; master vê todos */}
+      {metasSetor.length > 0 && (
         <div className="card" style={{ padding: '14px 16px', marginBottom: 16 }}>
           <div style={{ fontSize: 12, fontWeight: 800, textTransform: 'uppercase', letterSpacing: .5, color: 'var(--muted)', marginBottom: 10 }}>🎯 Metas do mês por setor <span style={{ fontWeight: 600, textTransform: 'none' }}>(mínima e global configuráveis em Configurações)</span></div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 14 }}>
