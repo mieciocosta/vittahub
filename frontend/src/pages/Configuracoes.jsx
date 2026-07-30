@@ -53,6 +53,16 @@ export default function Configuracoes() {
       setNovoUser(null);
     } catch (e) { setUserErr(e.message); }
   };
+  // 👤 Entrar como outro usuário (impersonação) — guarda o token do master pra voltar
+  const entrarComo = async (u) => {
+    if (!window.confirm(`Entrar como ${u.nome}?\n\nVocê verá e operará o sistema exatamente como este usuário. Pra voltar, use a barra roxa "Voltar ao meu usuário" no topo.`)) return;
+    try {
+      const r = await api.post(`/auth/impersonar/${u.id}`, {});
+      if (!localStorage.getItem('vh_token_master')) localStorage.setItem('vh_token_master', localStorage.getItem('vh_token') || '');
+      localStorage.setItem('vh_token', r.token);
+      window.location.href = '/';
+    } catch (e) { window.alert('Erro: ' + e.message); }
+  };
   const maskCpf = v => v.replace(/\D/g,'').slice(0,11).replace(/(\d{3})(\d)/,'$1.$2').replace(/(\d{3})\.(\d{3})(\d)/,'$1.$2.$3').replace(/\.(\d{3})(\d{1,2})$/,'.$1-$2');
   const salvarUsuario = async () => {
     if (!editUser) return;
@@ -393,9 +403,15 @@ export default function Configuracoes() {
                   {u.role==='master'?'Master':u.role==='supervisor'?'Supervisora':'Atendente'}
                 </span>
                 {isMaster && (
-                  <button onClick={()=>{setUserErr('');setEditUser(editUser?.id===u.id?null:{ id:u.id, cpf:maskCpf(u.cpf||''), senha:'', ativo:u.ativo, setor:u.setor||'', setores:Array.isArray(u.setores)?u.setores:[], lider:!!u.lider });}}
+                  <button onClick={()=>{setUserErr('');setEditUser(editUser?.id===u.id?null:{ id:u.id, cpf:maskCpf(u.cpf||''), senha:'', ativo:u.ativo, setor:u.setor||'', setores:Array.isArray(u.setores)?u.setores:[], lider:!!u.lider, meta_individual:u.meta_individual||'' });}}
                     style={{ width:26, height:26, borderRadius:8, border:'1.5px solid var(--border)', background:'var(--card)', color:'var(--muted)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
                     {editUser?.id===u.id?<X size={12}/>:<Pencil size={12}/>}
+                  </button>
+                )}
+                {isMaster && (
+                  <button onClick={()=>entrarComo(u)} title={`Entrar como ${u.nome} — ver o sistema como este usuário`}
+                    style={{ height:26, padding:'0 9px', borderRadius:8, border:'1.5px solid #c4b5fd', background:'#f5f3ff', color:'#7c3aed', cursor:'pointer', fontSize:10.5, fontWeight:800, flexShrink:0 }}>
+                    👤 Entrar como
                   </button>
                 )}
               </div>

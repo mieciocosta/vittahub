@@ -107,6 +107,22 @@ r.patch('/me/nome', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ─── 👤 ENTRAR COMO (impersonação, só master) ────────────────────────────────
+// Gera um token do usuário-alvo pro master ver/operar o sistema como ele.
+// O token carrega impersonadoPor pra rastreabilidade nos logs.
+r.post('/impersonar/:id', auth, async (req, res) => {
+  try {
+    if (req.user.role !== 'master') return res.status(403).json({ error: 'Apenas o master pode entrar como outro usuário.' });
+    const { rows: [u] } = await query('SELECT id,nome,email,cpf,role,cor,avatar,setor,setores,lider,ve_tudo FROM usuarios WHERE id = $1', [req.params.id]);
+    if (!u) return res.status(404).json({ error: 'Usuário não encontrado' });
+    const token = jwt.sign(
+      { id: u.id, nome: u.nome, email: u.email, role: u.role, cor: u.cor, setor: u.setor || null, setores: u.setores || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo, impersonadoPor: req.user.id },
+      SECRET, { expiresIn: '12h' });
+    console.log(`👤 IMPERSONAÇÃO: ${req.user.nome} entrou como ${u.nome} (${u.id})`);
+    res.json({ token, user: { id: u.id, nome: u.nome, email: u.email, cpf: u.cpf, role: u.role, cor: u.cor, avatar: u.avatar || null, setor: u.setor || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo } });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.get('/usuarios', auth, async (req, res) => {
   if (req.user.role !== 'master') return res.status(403).json({ error: 'Acesso negado' });
   try {
