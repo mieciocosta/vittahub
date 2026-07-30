@@ -53,17 +53,17 @@ function cacheUpdate(conv) {
    input}] } — o formato que a Vitta/Copiloto já consomem.
    PROVEDOR: com ANTHROPIC_API_KEY configurada, usa o Claude (Anthropic) —
    preferido. Sem ela, cai para a OpenAI (OPENAI_API_KEY), como antes.       */
-const temIA = () => !!(process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY);
-const usaClaude = () => !!process.env.ANTHROPIC_API_KEY;
+export const temIA = () => !!(process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY);
+export const usaClaude = () => !!process.env.ANTHROPIC_API_KEY;
 
 // Mapeia o "tier" pedido pelo código legado para o modelo Claude equivalente:
 // gpt-4o (conversa principal) → Claude Opus 5; gpt-4o-mini (tarefas de fundo
 // baratas: score, follow-up, resumo) → Claude Haiku 4.5. Ajustável por env.
-const CLAUDE_MODEL      = () => process.env.ANTHROPIC_MODEL      || 'claude-opus-5';
-const CLAUDE_MODEL_MINI = () => process.env.ANTHROPIC_MODEL_MINI || 'claude-haiku-4-5';
+export const CLAUDE_MODEL      = () => process.env.ANTHROPIC_MODEL      || 'claude-opus-5';
+export const CLAUDE_MODEL_MINI = () => process.env.ANTHROPIC_MODEL_MINI || 'claude-haiku-4-5';
 
 let _anthropic = null;
-async function anthropicClient() {
+export async function anthropicClient() {
   if (!_anthropic) {
     const { default: Anthropic } = await import('@anthropic-ai/sdk');
     _anthropic = new Anthropic(); // lê ANTHROPIC_API_KEY do ambiente
@@ -71,7 +71,7 @@ async function anthropicClient() {
   return _anthropic;
 }
 
-async function claudeMessages({ model = 'gpt-4o-mini', max_tokens = 800, system, messages, tools = null, json = false }) {
+export async function claudeMessages({ model = 'gpt-4o-mini', max_tokens = 800, system, messages, tools = null, json = false }) {
   try {
     const client = await anthropicClient();
     const ehMini = /mini|haiku/i.test(model);
@@ -93,7 +93,7 @@ async function claudeMessages({ model = 'gpt-4o-mini', max_tokens = 800, system,
       system: sys,
       messages: msgs,
     };
-    if (!ehMini) params.output_config = { effort: 'low' }; // respostas rápidas p/ WhatsApp
+    if (!ehMini && !/haiku|mini/i.test(claudeModel)) params.output_config = { effort: 'low' }; // respostas rápidas p/ WhatsApp (haiku não aceita effort)
     if (tools) params.tools = tools; // já vêm no formato {name, description, input_schema}
 
     const resp = await client.messages.create(params);
@@ -118,7 +118,7 @@ async function claudeMessages({ model = 'gpt-4o-mini', max_tokens = 800, system,
   }
 }
 
-async function openaiMessages({ model = 'gpt-4o-mini', max_tokens = 800, system, messages, tools = null, json = false }) {
+export async function openaiMessages({ model = 'gpt-4o-mini', max_tokens = 800, system, messages, tools = null, json = false }) {
   // Claude configurado? Ele assume — todos os chamadores passam por aqui.
   if (usaClaude()) return claudeMessages({ model, max_tokens, system, messages, tools, json });
 
@@ -926,6 +926,20 @@ async function triagemSetor(conv, texto, phoneNum) {
     return true;
   }
 
+  // ─── IA DE VACINAS (cfg.vacinasIA, padrão LIGADO): a Vitta assume a venda de
+  // vacinação com o prompt comercial (calendário, pacotes, preços e PDF), em vez
+  // de repassar direto ao atendimento humano. Desligável em Configurações.
+  const vacinasIAon = (cfgT?.valor?.vacinasIA ?? true) !== false;
+  if (escolha === 'vacinas' && botGeralOn && vacinasIAon) {
+    await query('UPDATE conversas SET setor = $1, menu_enviado = true WHERE id = $2', ['vacinas', conv.id]).catch(() => {});
+    const cachedV = convoCache.get(conv.id);
+    if (cachedV) cacheUpdate({ ...cachedV, setor: 'vacinas' });
+    conv.setor = 'vacinas'; // reflete na hora pra o agendarVitta disparar já nesta msg
+    // Rodízio continua definindo a dona da conversa; a Vitta responde por ela.
+    await distribuirSetor(conv.id, 'vacinas').catch(() => {});
+    return false; // a IA (agendarVitta) responde
+  }
+
   // ─── REGRA: só VACINA segue o fluxo determinístico. Tudo o que NÃO é vacina
   // (consultas, terapias, outros assuntos) entra na IA de consulta, que assume
   // a conversa lendo o histórico. (cfg.consultaIA liga/desliga, padrão LIGADO.)
@@ -1053,6 +1067,7 @@ async function vittaResponder(convId) {
   if (cfg.ativo === false && cfg.consultaIA === false) { console.log(`VITTA skip conv=${convId}: IA global DESLIGADA (ativo=false e consultaIA=false)`); return; }
   const ehConsulta = !!conv.setor && conv.setor !== 'vacinas';
   if (ehConsulta && cfg.consultaIA === false) { console.log(`VITTA skip conv=${convId}: cfg.consultaIA=false (IA de consulta desligada)`); return; }
+  if (conv.setor === 'vacinas' && cfg.vacinasIA === false) { console.log(`VITTA skip conv=${convId}: cfg.vacinasIA=false (IA de vacinas desligada)`); return; }
 
   // Histórico em ordem cronológica: textos + documentos (a Vitta precisa saber
   // que JÁ enviou um PDF para não oferecer de novo)
@@ -1972,7 +1987,8 @@ r.post('/webhook/zapi', async (req, res) => {
       // multidisciplinar, com prompt acolhedor próprio). Vacinas seguem o fluxo
       // determinístico (menu/sorteio/captura) — a IA de vacina foi desligada pela
       // gestão por queimar leads. O liga-desliga de consultas é cfg.consultaIA.
-      const vaiResponder = !consumido && convAtual.setor && convAtual.setor !== 'vacinas';
+      const vacinasIAonD = cfgBotRow?.valor?.vacinasIA !== false;
+      const vaiResponder = !consumido && convAtual.setor && (convAtual.setor !== 'vacinas' || vacinasIAonD);
       console.log(`TRIAGEM conv=${conv.id} consumido=${consumido} setor=${convAtual.setor || '-'} → agendarVitta=${vaiResponder}`);
       if (vaiResponder) agendarVitta(conv.id);
     }
@@ -4849,6 +4865,7 @@ r.put('/bot-config', async (req, res) => {
     // mais depender do "ausente = ligado".
     novoValor.ativo = novoValor.ativo !== false;
     novoValor.consultaIA = novoValor.consultaIA !== false;
+    novoValor.vacinasIA = novoValor.vacinasIA !== false;
     await query("INSERT INTO configuracoes (chave,valor) VALUES ('bot',$1) ON CONFLICT (chave) DO UPDATE SET valor=$1, updated_at=NOW()", [JSON.stringify(novoValor)]);
 
     // O toggle "Bot ativo" é o interruptor MESTRE: ao mudar, aplica pra TODAS as

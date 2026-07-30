@@ -2,6 +2,7 @@ import express from 'express';
 import { query } from '../db/pool.js';
 import { auth, masterOnly } from '../middleware/auth.js';
 import { socketEmit } from '../socketServer.js';
+import { temIA, usaClaude, openaiMessages, anthropicClient, CLAUDE_MODEL_MINI } from './inbox.js';
 
 /* ─── FERRAMENTAS VITTAHUB ────────────────────────────────────────────────────
    Agenda · Programa de Indicações · Biblioteca de Experiências (fotos, vídeos,
@@ -518,21 +519,17 @@ const FALLBACK_QUIZ = [
 ];
 
 async function gerarQuizIA(setor) {
-  if (!process.env.OPENAI_API_KEY) return FALLBACK_QUIZ;
+  if (!temIA()) return FALLBACK_QUIZ;
   try {
-    const { default: fetch } = await import('node-fetch');
     const ctx = CTX_SETOR[setor] || CTX_SETOR.geral;
     const sys = 'Você é um treinador de vendas de uma clínica de saúde (Vittalis Saúde) que cria quizzes curtos e práticos para as atendentes venderem melhor no WhatsApp. Responda APENAS um JSON válido, em português do Brasil.';
     const user = `Crie um quiz de 5 perguntas de múltipla escolha sobre VENDAS no dia a dia de uma atendente do setor de ${ctx}. As situações devem parecer conversas reais de WhatsApp (cliente com dúvida de preço, objeção, indecisão, pedido de desconto, etc.). Cada pergunta com 4 alternativas, só UMA correta, e uma explicação curta do porquê. Varie a dificuldade. Formato EXATO:
 {"perguntas":[{"q":"pergunta","opcoes":["a","b","c","d"],"correta":0,"explicacao":"por que essa é a melhor"}]}`;
-    const body = { model: 'gpt-4o-mini', max_tokens: 1400, response_format: { type: 'json_object' }, messages: [{ role: 'system', content: sys }, { role: 'user', content: user }] };
-    const r = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` }, body: JSON.stringify(body),
-    });
-    const d = await r.json();
+    const d = await openaiMessages({ model: 'gpt-4o-mini', max_tokens: 1400, json: true, system: sys, messages: [{ role: 'user', content: user }] });
     if (d.error) throw new Error(d.error.message || 'Erro na IA');
+    const txt = (d.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
     let p = null;
-    try { p = JSON.parse(d.choices?.[0]?.message?.content || '{}'); } catch {}
+    try { p = JSON.parse(txt || '{}'); } catch {}
     const perguntas = (p?.perguntas || [])
       .map(x => {
         if (!x || !x.q || !Array.isArray(x.opcoes) || x.opcoes.length < 2) return null;
@@ -758,21 +755,16 @@ r.post('/amigo/mensagem', async (req, res) => {
   try {
     const texto = String((req.body || {}).texto || '').trim();
     if (!texto) return res.status(400).json({ error: 'Escreva algo pra desabafar.' });
-    if (!process.env.OPENAI_API_KEY) return res.status(400).json({ error: 'Seu amigo virtual está indisponível no momento.' });
+    if (!temIA()) return res.status(400).json({ error: 'Seu amigo virtual está indisponível no momento.' });
     await query(`INSERT INTO amigo_mensagens (usuario_id, role, content) VALUES ($1,'user',$2)`, [req.user.id, cut(texto, 4000)]);
     // Histórico recente pra dar contexto (últimas ~16 mensagens)
     const { rows: hist } = await query(`SELECT role, content FROM amigo_mensagens WHERE usuario_id = $1 ORDER BY created_at DESC LIMIT 16`, [req.user.id]);
     const mensagens = hist.reverse().map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: String(m.content || '').slice(0, 2000) }));
     const primeiro = (req.user.nome || '').split(' ')[0];
     const sys = `Você é o "Amigo", um companheiro virtual acolhedor da equipe da Vittalis Saúde. ${primeiro} veio desabafar com você. Seja caloroso, empático e sem julgamentos, como um amigo de verdade — em português do Brasil, informal e humano. Escute de verdade, valide o sentimento, e só então ofereça conselhos práticos e gentis, um de cada vez. Faça perguntas abertas pra entender melhor. Nada de respostas longas demais nem de clichês frios. Use o nome ${primeiro} com naturalidade e, quando fizer sentido, um emoji leve. IMPORTANTE (segurança): se ${primeiro} demonstrar sofrimento intenso, pensamentos de se machucar, autolesão ou crise, acolha com carinho, leve a sério, incentive procurar alguém de confiança e um profissional, e informe o CVV: ligue 188 (24h, gratuito) ou cvv.org.br. Você não substitui ajuda profissional — deixe isso claro com gentileza quando for grave.`;
-    const { default: fetch } = await import('node-fetch');
-    const body = { model: 'gpt-4o-mini', max_tokens: 600, temperature: 0.8, messages: [{ role: 'system', content: sys }, ...mensagens] };
-    const r2 = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` }, body: JSON.stringify(body),
-    });
-    const d = await r2.json();
+    const d = await openaiMessages({ model: 'gpt-4o-mini', max_tokens: 600, system: sys, messages: mensagens });
     if (d.error) return res.status(400).json({ error: 'Não consegui responder agora. Tenta de novo em instantes.' });
-    const resposta = (d.choices?.[0]?.message?.content || '').trim() || 'Tô aqui com você. Me conta mais?';
+    const resposta = ((d.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n')).trim() || 'Tô aqui com você. Me conta mais?';
     await query(`INSERT INTO amigo_mensagens (usuario_id, role, content) VALUES ($1,'assistant',$2)`, [req.user.id, cut(resposta, 4000)]);
     res.json({ resposta });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -991,7 +983,7 @@ r.delete('/vendas/:id/comprovantes/:compId', async (req, res) => {
 // IA analisa 1 comprovante (imagem): extrai valor/data/pagador/forma e confere com a venda
 r.post('/vendas/:id/comprovantes/:compId/analisar', async (req, res) => {
   try {
-    if (!process.env.OPENAI_API_KEY) return res.status(400).json({ error: 'IA não configurada (OPENAI_API_KEY ausente).' });
+    if (!temIA()) return res.status(400).json({ error: 'IA não configurada.' });
     const perm = await podeComprovante(req, req.params.id);
     if (perm.erro) return res.status(perm.erro).json({ error: perm.erro === 404 ? 'Venda não encontrada' : 'Sem permissão.' });
     const { rows: [c] } = await query(`SELECT data_url, tipo FROM venda_comprovantes WHERE id = $1 AND venda_id = $2`, [req.params.compId, req.params.id]);
@@ -1003,17 +995,35 @@ r.post('/vendas/:id/comprovantes/:compId/analisar', async (req, res) => {
     const prompt = `Extraia os dados deste comprovante de pagamento e devolva exatamente:
 {"parece_comprovante":true,"valor":0,"data":"YYYY-MM-DD ou null","pagador":"nome ou null","recebedor":"nome ou null","forma":"Pix|Cartão|Dinheiro|TED|Boleto|null","instituicao":"banco/instituição ou null","observacao":"1 frase"}
 O valor esperado desta venda é R$ ${valorVenda.toFixed(2)} — não force esse número; extraia o que estiver na imagem.`;
-    const body = {
-      model: 'gpt-4o-mini', max_tokens: 500, response_format: { type: 'json_object' },
-      messages: [{ role: 'system', content: sys }, { role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: c.data_url } }] }],
-    };
-    const r2 = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` }, body: JSON.stringify(body),
-    });
-    const d = await r2.json();
-    if (d.error) return res.status(400).json({ error: erroIA(d.error) });
     let p = null;
-    try { p = JSON.parse(d.choices?.[0]?.message?.content || '{}'); } catch {}
+    if (usaClaude()) {
+      // Claude com visão nativa: envia a imagem como bloco base64
+      const mImg = String(c.data_url || '').match(/^data:([^;]+);base64,(.+)$/s);
+      if (!mImg) return res.status(400).json({ error: 'Comprovante em formato inesperado.' });
+      const client = await anthropicClient();
+      const resp = await client.messages.create({
+        model: CLAUDE_MODEL_MINI(), max_tokens: 1024,
+        system: sys + ' Responda SOMENTE o JSON, sem markdown.',
+        messages: [{ role: 'user', content: [
+          { type: 'image', source: { type: 'base64', media_type: mImg[1], data: mImg[2].replace(/\s/g, '') } },
+          { type: 'text', text: prompt },
+        ] }],
+      });
+      const txt = (resp.content || []).filter(b => b.type === 'text').map(b => b.text).join('')
+        .replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+      try { p = JSON.parse(txt || '{}'); } catch {}
+    } else {
+      const body = {
+        model: 'gpt-4o-mini', max_tokens: 500, response_format: { type: 'json_object' },
+        messages: [{ role: 'system', content: sys }, { role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: c.data_url } }] }],
+      };
+      const r2 = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` }, body: JSON.stringify(body),
+      });
+      const d = await r2.json();
+      if (d.error) return res.status(400).json({ error: erroIA(d.error) });
+      try { p = JSON.parse(d.choices?.[0]?.message?.content || '{}'); } catch {}
+    }
     if (!p) return res.status(400).json({ error: 'A IA devolveu um formato inesperado.' });
     const valorExtraido = parseFloat(p.valor) || 0;
     const confere = valorExtraido > 0 && Math.abs(valorExtraido - valorVenda) <= Math.max(1, valorVenda * 0.02);

@@ -143,7 +143,15 @@ export default function Configuracoes() {
                 <input type="checkbox" checked={bot.consultaIA !== false} onChange={e=>setBot(p=>({...p,consultaIA:e.target.checked}))} style={{ width:16, height:16, accentColor:'var(--tq)', marginTop:1 }}/>
                 <span>
                   <span style={{ fontWeight:700, display:'block' }}>IA de Consultas (assume sozinha)</span>
-                  <span style={{ fontSize:11.5, color:'var(--muted)' }}>Quando ligada, a IA atende automaticamente tudo que NÃO é vacina (consultas e terapias) — mesmo com o bot geral desligado. Vacina fica com a equipe.</span>
+                  <span style={{ fontSize:11.5, color:'var(--muted)' }}>Quando ligada, a IA atende automaticamente tudo que NÃO é vacina (consultas e terapias) — mesmo com o bot geral desligado.</span>
+                </span>
+              </label>
+
+              <label style={{ display:'flex', alignItems:'flex-start', gap:10, cursor:'pointer', background:'var(--tq3)', padding:'10px 12px', borderRadius:10 }}>
+                <input type="checkbox" checked={bot.vacinasIA !== false} onChange={e=>setBot(p=>({...p,vacinasIA:e.target.checked}))} style={{ width:16, height:16, accentColor:'var(--tq)', marginTop:1 }}/>
+                <span>
+                  <span style={{ fontWeight:700, display:'block' }}>IA de Vacinas (Vitta vende vacinação)</span>
+                  <span style={{ fontSize:11.5, color:'var(--muted)' }}>Quando ligada, a Vitta responde quem escolhe Vacinação — com calendário, pacotes, preços e proposta em PDF. Desligada, vacinação vai direto pro atendimento humano (rodízio).</span>
                 </span>
               </label>
 
