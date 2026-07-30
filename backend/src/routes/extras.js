@@ -247,8 +247,12 @@ r.get('/meta-setor', async (req, res) => {
     const metaV = cfg[0]?.valor?.vendas || {};
     const mesCol = "to_char(data_venda,'YYYY-MM') = to_char(NOW(),'YYYY-MM')";
     const METfilter = "status_pagamento IN ('pago','cortesia')";
-    const META_GLOBAL = 500000; // meta global do setor (bônus) — mostrada no atendimento
-    const META_MINIMA = 100000; // meta MÍNIMA por setor (primeiro degrau)
+    // Metas POR SETOR (configuráveis em Configurações): mínima e global.
+    // Padrões: mínima R$ 100 mil, global R$ 500 mil.
+    const minimasCfg = cfg[0]?.valor?.minimas || {};
+    const globaisCfg = cfg[0]?.valor?.globais || {};
+    const metaMinimaDe = (s) => Math.max(0, parseFloat(minimasCfg[s]) || 100000);
+    const metaGlobalDe = (s) => Math.max(1, parseFloat(globaisCfg[s]) || 500000);
     // Setores do usuário (autoridade: banco — evita token velho). Multi-setor separa.
     const { rows: [u] } = await query('SELECT setor, setores FROM usuarios WHERE id = $1', [req.user.id]);
     let setores = [];
@@ -257,9 +261,10 @@ r.get('/meta-setor', async (req, res) => {
     const confDe = async (s) => {
       const { rows: [r2] } = await query(`SELECT COALESCE(SUM(valor) FILTER (WHERE ${METfilter}),0)::float conf FROM vendas WHERE COALESCE(setor,'vacinas') = $1 AND ${mesCol}`, [s]);
       const meta = parseFloat(metaV[s]) || 0, conf = r2?.conf || 0;
+      const MG = metaGlobalDe(s), MM = metaMinimaDe(s);
       return { setor: s, confirmado: conf, meta, pct: meta ? +((conf / meta) * 100).toFixed(1) : 0, falta: Math.max(meta - conf, 0),
-        metaGlobal: META_GLOBAL, pctGlobal: +((conf / META_GLOBAL) * 100).toFixed(1), faltaGlobal: Math.max(META_GLOBAL - conf, 0),
-        metaMinima: META_MINIMA, pctMinima: +((conf / META_MINIMA) * 100).toFixed(1), faltaMinima: Math.max(META_MINIMA - conf, 0) };
+        metaGlobal: MG, pctGlobal: +((conf / MG) * 100).toFixed(1), faltaGlobal: Math.max(MG - conf, 0),
+        metaMinima: MM, pctMinima: MM ? +((conf / MM) * 100).toFixed(1) : 100, faltaMinima: Math.max(MM - conf, 0) };
     };
     if (setores.length) {
       const porSetor = [];
@@ -1092,6 +1097,32 @@ r.put('/vendas/meta', async (req, res) => {
     await query(`INSERT INTO configuracoes (chave, valor) VALUES ('metas', jsonb_build_object('vendas', $1::jsonb))
                  ON CONFLICT (chave) DO UPDATE SET valor = jsonb_set(COALESCE(configuracoes.valor,'{}'::jsonb), '{vendas}', $1::jsonb), updated_at = NOW()`, [JSON.stringify(vendas)]);
     res.json({ ok: true, vendas });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── METAS DE FATURAMENTO POR SETOR (mínima e global, em R$) ─────────────────
+r.get('/vendas/metas-faturamento', async (req, res) => {
+  try {
+    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão.' });
+    const { rows: cfg } = await query("SELECT valor FROM configuracoes WHERE chave = 'metas'");
+    const minimas = cfg[0]?.valor?.minimas || {};
+    const globais = cfg[0]?.valor?.globais || {};
+    const preencher = (o, padrao) => ({ vacinas: parseFloat(o.vacinas) || padrao, consultas: parseFloat(o.consultas) || padrao, terapias: parseFloat(o.terapias) || padrao });
+    res.json({ minimas: preencher(minimas, 100000), globais: preencher(globais, 500000) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.put('/vendas/metas-faturamento', async (req, res) => {
+  try {
+    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão define metas.' });
+    const b = req.body || {};
+    const clamp = (v, padrao) => Math.max(0, Math.min(parseFloat(v) || padrao, 100000000));
+    const minimas = { vacinas: clamp(b.minimas?.vacinas, 100000), consultas: clamp(b.minimas?.consultas, 100000), terapias: clamp(b.minimas?.terapias, 100000) };
+    const globais = { vacinas: clamp(b.globais?.vacinas, 500000), consultas: clamp(b.globais?.consultas, 500000), terapias: clamp(b.globais?.terapias, 500000) };
+    await query(`INSERT INTO configuracoes (chave, valor) VALUES ('metas', jsonb_build_object('minimas', $1::jsonb, 'globais', $2::jsonb))
+                 ON CONFLICT (chave) DO UPDATE SET valor = jsonb_set(jsonb_set(COALESCE(configuracoes.valor,'{}'::jsonb), '{minimas}', $1::jsonb), '{globais}', $2::jsonb), updated_at = NOW()`,
+      [JSON.stringify(minimas), JSON.stringify(globais)]);
+    res.json({ ok: true, minimas, globais });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

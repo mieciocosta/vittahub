@@ -25,6 +25,16 @@ export default function Configuracoes() {
     setExemplos(p=>p.filter(e=>e.id!==id));
     try { await api.del(`/inbox/exemplos/${id}`); } catch {}
   };
+  const [metasFat, setMetasFat] = useState(null); // metas de faturamento por setor {minimas, globais}
+  const [fatSaving, setFatSaving] = useState(false);
+  const [fatSaved, setFatSaved] = useState(false);
+  const salvarMetasFat = async () => {
+    setFatSaving(true);
+    try { await api.put('/extras/vendas/metas-faturamento', metasFat); setFatSaved(true); setTimeout(()=>setFatSaved(false), 2000); }
+    catch (e) { window.alert('Erro: ' + e.message); }
+    setFatSaving(false);
+  };
+  const setFat = (grupo, setor, v) => setMetasFat(p => ({ ...p, [grupo]: { ...(p?.[grupo]||{}), [setor]: v } }));
   const [metaSaving, setMetaSaving] = useState(false);
   const [metaSaved, setMetaSaved] = useState(false);
   const [diag, setDiag] = useState(null);        // resultado do diagnóstico do bot
@@ -65,6 +75,7 @@ export default function Configuracoes() {
     api.get('/inbox/bot-config').then(setBot);
     api.get('/auth/usuarios').then(setUsers).catch(()=>{});
     api.get('/inbox/exemplos').then(d=>setExemplos(Array.isArray(d)?d:[])).catch(()=>{});
+    api.get('/extras/vendas/metas-faturamento').then(setMetasFat).catch(()=>{});
     api.get('/extras/agenda/meta').then(d=>{
       const s = d?.setores || {};
       setMetaAg({ vacinas: s.vacinas?.alvo || '', consultas: s.consultas?.alvo || '', terapias: s.terapias?.alvo || '' });
@@ -175,6 +186,27 @@ export default function Configuracoes() {
                 <button onClick={salvarMetaAg} disabled={metaSaving} className="btn btn-sm" style={{ fontWeight:700, marginTop:8, width:'100%' }}>{metaSaving?'…':metaSaved?'✅ Salvo!':'Salvar metas por setor'}</button>
                 <span style={{ fontSize:11, color:'var(--muted)', display:'block', marginTop:6 }}>Cada "Agendar" no chat abate da meta do setor. O Dashboard mostra feito/alvo e quanto falta.</span>
               </div>
+
+              {metasFat && (
+                <div className="field" style={{ background:'var(--bg2,#f8fafc)', padding:'10px 12px', borderRadius:10 }}>
+                  <label>💰 Metas de FATURAMENTO do mês — por setor (R$)</label>
+                  {[['minimas','Meta mínima'],['globais','Meta global']].map(([g, rotulo]) => (
+                    <div key={g} style={{ marginTop:6 }}>
+                      <span style={{ fontSize:11, fontWeight:700, color:'var(--muted)' }}>{rotulo}</span>
+                      <div style={{ display:'flex', gap:8, marginTop:3 }}>
+                        {[['vacinas','💉 Vacinas'],['consultas','🩺 Consultas'],['terapias','🧩 Terapias']].map(([st, lb]) => (
+                          <div key={st} style={{ flex:1 }}>
+                            <span style={{ fontSize:10.5, color:'var(--muted)' }}>{lb}</span>
+                            <input type="number" min={0} step={1000} value={metasFat[g]?.[st] ?? ''} onChange={e=>setFat(g, st, e.target.value)} />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  <button onClick={salvarMetasFat} disabled={fatSaving} className="btn btn-sm" style={{ fontWeight:700, marginTop:10, width:'100%' }}>{fatSaving?'…':fatSaved?'✅ Salvo!':'Salvar metas de faturamento'}</button>
+                  <span style={{ fontSize:11, color:'var(--muted)', display:'block', marginTop:6 }}>Aparecem no placar do topo e no Caixa: "falta R$X p/ mínima · R$Y p/ global", por setor.</span>
+                </div>
+              )}
 
               <button onClick={saveBot} disabled={saving} className="btn btn-p" style={{ width:'100%' }}>
                 {saving?<span className="spin" style={{width:14,height:14}}/>:saved?'✅ Salvo!':'💾 Salvar configurações'}
