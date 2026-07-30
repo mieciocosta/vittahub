@@ -877,9 +877,8 @@ async function triagemSetor(conv, texto, phoneNum) {
     .catch(() => ({ rows: [{ valor: { ativo: false, consultaIA: false } }] }));
   const consultaIAon = (cfgT?.valor?.consultaIA ?? true) !== false;
   const botGeralOn   = (cfgT?.valor?.ativo ?? true) !== false;
-  // DISJUNTOR GLOBAL: tudo desligado → consome a mensagem sem enviar nada
-  // (nem menu, nem confirmações, nem Vitta).
-  if (!botGeralOn && !consultaIAon) return true;
+  // Obs.: a triagem só roda com o bot DA CONVERSA ligado (checado acima).
+  // Conversa ligada na mão pelo master funciona mesmo com os globais desligados.
   // Modo DEDICADO à consulta: o bot geral (vacina) está desligado e só a IA de
   // Consultas está ligada → a IA assume TUDO direto, sem menu de triagem.
   const soConsultaIA = !botGeralOn && consultaIAon;
@@ -1060,14 +1059,12 @@ async function vittaResponder(convId) {
   const { rows: [cfgRow] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'")
     .catch(() => ({ rows: [{ valor: { ativo: false, consultaIA: false } }] }));
   const cfg = cfgRow?.valor || {};
-  // DISJUNTOR GLOBAL (regra do master): com os DOIS interruptores globais
-  // desligados, a IA NÃO responde NUNCA — nem em conversa ligada na mão, nem
-  // religada por reabertura. O global manda; o bot_ativo da conversa é o
-  // interruptor fino, válido só com o global ligado.
-  if (cfg.ativo === false && cfg.consultaIA === false) { console.log(`VITTA skip conv=${convId}: IA global DESLIGADA (ativo=false e consultaIA=false)`); return; }
+  // REGRA (pedido do master): o "Bot ON" DA CONVERSA é o chefe — se a conversa
+  // está ligada, a Vitta responde, mesmo com os interruptores globais desligados.
+  // Os globais controlam só o AUTOMÁTICO: conversa nova nasce ligada?, menu de
+  // triagem, religamento pós-24h e liga/desliga em massa. Nada se religa sozinho
+  // com os globais desligados — só o master, conversa a conversa.
   const ehConsulta = !!conv.setor && conv.setor !== 'vacinas';
-  if (ehConsulta && cfg.consultaIA === false) { console.log(`VITTA skip conv=${convId}: cfg.consultaIA=false (IA de consulta desligada)`); return; }
-  if (conv.setor === 'vacinas' && cfg.vacinasIA === false) { console.log(`VITTA skip conv=${convId}: cfg.vacinasIA=false (IA de vacinas desligada)`); return; }
 
   // Histórico em ordem cronológica: textos + documentos (a Vitta precisa saber
   // que JÁ enviou um PDF para não oferecer de novo)
@@ -1272,6 +1269,21 @@ O QUE VOCÊ JÁ SABE DESTE CLIENTE (use com naturalidade, NÃO pergunte de novo)
 ${memoriaTexto}` : ''}`;
 
   let sysPrompt = ehConsulta ? sysPromptConsultas : sysPromptVacinas;
+
+  // Regras de humanização + honestidade sobre limites (valem pras duas IAs).
+  sysPrompt += `
+
+ESTILO DE CONVERSA (obrigatório):
+- Mensagens CURTAS, de WhatsApp de verdade: 1 a 3 linhas na maioria das vezes. Nada de blocos longos.
+- UMA pergunta por mensagem, no máximo.
+- Use o nome do cliente com moderação: no máximo 1 vez a cada 3-4 mensagens. Repetir o nome toda hora soa robótico.
+- Nunca abra com bordões de robô: "desculpa a demora", "como posso ajudar?", "estou aqui para ajudar". Vá direto ao assunto, com calor humano.
+- Varie as aberturas e os emojis; não repita a mesma estrutura de frase duas vezes seguidas.
+
+O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
+- Você NÃO consegue "verificar e voltar depois": você só responde quando o cliente manda mensagem. NUNCA prometa "já te passo", "vou verificar e retorno", "em alguns minutinhos te falo".
+- Quando precisar de algo que você não sabe (disponibilidade de agenda, confirmação de horário, caso muito específico): diga que vai acionar a equipe AGORA e que ELES confirmam por aqui em seguida — e use a ferramenta passar_para_equipe na mesma resposta. Ex.: "Vou acionar nossa equipe agora pra confirmar sexta à tarde, tá? Já já te respondem por aqui 💙".`;
+
   // Exemplos de conversas que CONVERTERAM (marcadas pela gestão): a IA estuda o
   // jeito campeão — tom, ritmo, como acolhe e conduz pro agendamento.
   const { rows: exRows } = await query(
@@ -1937,12 +1949,12 @@ r.post('/webhook/zapi', async (req, res) => {
     const botGlobalAtivo = cfgBotRow?.valor?.ativo !== false;
     const iaConsultasOnD = cfgBotRow?.valor?.consultaIA !== false;
 
-    // ── DISJUNTOR GLOBAL ─────────────────────────────────────────────────────
-    // Com os DOIS interruptores desligados, NADA automático acontece a partir
-    // daqui: sem reabertura, sem captura, sem menu de triagem, sem Vitta.
-    // (Só o master liga/desliga esses interruptores, em Configurações.)
-    if (!botGlobalAtivo && !iaConsultasOnD) {
-      console.log(`TRIAGEM conv=${conv.id}: IA global DESLIGADA — nenhum envio automático`);
+    // ── DISJUNTOR DO AUTOMÁTICO ─────────────────────────────────────────────
+    // Com os DOIS interruptores globais desligados, nada acontece SOZINHO
+    // (sem reabertura, sem menu, sem Vitta) — EXCETO nas conversas que o
+    // master ligou na mão (Bot ON), que continuam respondendo normalmente.
+    if (!botGlobalAtivo && !iaConsultasOnD && !conv.bot_ativo) {
+      console.log(`TRIAGEM conv=${conv.id}: IA global DESLIGADA e bot da conversa OFF — nenhum envio automático`);
       return;
     }
 
@@ -1987,8 +1999,9 @@ r.post('/webhook/zapi', async (req, res) => {
       // multidisciplinar, com prompt acolhedor próprio). Vacinas seguem o fluxo
       // determinístico (menu/sorteio/captura) — a IA de vacina foi desligada pela
       // gestão por queimar leads. O liga-desliga de consultas é cfg.consultaIA.
-      const vacinasIAonD = cfgBotRow?.valor?.vacinasIA !== false;
-      const vaiResponder = !consumido && convAtual.setor && (convAtual.setor !== 'vacinas' || vacinasIAonD);
+      // Bot da conversa ligado = Vitta responde neste setor (o botão manda);
+      // os interruptores setoriais decidem só o que a IA ASSUME sozinha.
+      const vaiResponder = !consumido && convAtual.setor;
       console.log(`TRIAGEM conv=${conv.id} consumido=${consumido} setor=${convAtual.setor || '-'} → agendarVitta=${vaiResponder}`);
       if (vaiResponder) agendarVitta(conv.id);
     }
@@ -3509,10 +3522,9 @@ r.patch('/conversations/:id/bot', async (req, res) => {
         "SELECT from_type FROM mensagens WHERE conversa_id=$1 AND type IN ('text','document') AND from_type<>'system' ORDER BY created_at DESC LIMIT 1",
         [req.params.id]).catch(() => ({ rows: [] }));
       const { rows: [cv] } = await query('SELECT setor FROM conversas WHERE id=$1', [req.params.id]).catch(() => ({ rows: [] }));
-      // Vacinas também religa a Vitta quando a IA de Vacinas está ligada
-      const { rows: [cfgV] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'").catch(() => ({ rows: [{}] }));
-      const vacinasOk = cfgV?.valor?.vacinasIA !== false;
-      if (last?.from_type === 'contact' && cv?.setor && (cv.setor !== 'vacinas' || vacinasOk)) agendarVitta(req.params.id);
+      // Bot ON manual = a Vitta responde na hora a mensagem pendente, em
+      // QUALQUER setor — o botão da conversa é soberano.
+      if (last?.from_type === 'contact' && cv?.setor) agendarVitta(req.params.id);
     }
     res.json({ ok: true, botAtivo: c?.bot_ativo });
   } catch (err) { res.status(500).json({ error: err.message }); }

@@ -129,7 +129,7 @@ export default function Configuracoes() {
         <div className="card" style={{ padding:'22px' }}>
           <div style={{ display:'flex', alignItems:'center', gap:9, marginBottom:18 }}>
             <div style={{ width:36, height:36, borderRadius:10, background:'var(--ok2)', display:'flex', alignItems:'center', justifyContent:'center' }}><Bot size={18} color="var(--ok)"/></div>
-            <div><h2 style={{ fontSize:16, fontWeight:800 }}>Bot de Atendimento</h2><p style={{ fontSize:12, color:'var(--muted)', marginTop:1 }}>A Vitta responde sozinha enquanto a equipe não assume. Somente o master (Miécio) liga ou desliga — geral ou por conversa. Com os dois interruptores desligados, a IA não responde nenhum cliente.</p></div>
+            <div><h2 style={{ fontSize:16, fontWeight:800 }}>Bot de Atendimento</h2><p style={{ fontSize:12, color:'var(--muted)', marginTop:1 }}>A Vitta responde sozinha enquanto a equipe não assume. Somente o master (Miécio) liga ou desliga. O botão BOT de cada conversa é soberano: com os interruptores gerais desligados, só respondem as conversas que você ligar na mão.</p></div>
           </div>
 
           {bot && (

@@ -208,153 +208,148 @@ function gerarHtmlOrcamento({ vacinas, template = 'adulto', nomeCliente, nomeBeb
 
   let propostaPara = '';
   if (isInfantil) {
-    if (nomeBebe && nomeCliente) propostaPara = `${esc(nomeBebe)} <span style="font-size:.82em;font-weight:400;opacity:.8;">(resp.: ${esc(nomeCliente)})</span>`;
+    if (nomeBebe && nomeCliente) propostaPara = `${esc(nomeBebe)} <span style="font-weight:400;color:#8a97a6;">· responsável: ${esc(nomeCliente)}</span>`;
     else propostaPara = esc(nomeBebe || nomeCliente || '');
   } else { propostaPara = esc(nomeCliente || ''); }
 
   const tituloDoc = pacoteNome || (isInfantil ? 'Vacinas Infantis' : 'Vacinas');
 
+  // Paleta premium: navy profundo + um único acento (rosa p/ infantil, turquesa p/ adulto)
+  const NAVY = '#0E2A47';
+  const ACC  = isInfantil ? '#E91E8C' : '#00B8C0';
+  const ACC_SOFT = isInfantil ? '#FDF2F8' : '#F0FBFC';
+
   const benefInfantil = [
-    { icon:'bee',     t:'Buzzy', d:'Aparelho da Europa que ameniza até 90% da dor da picada' },
-    { icon:'doctor',  t:'Pós Vacinal', d:'Com Médica da Clínica' },
+    { icon:'bee',     t:'Buzzy', d:'Tecnologia europeia que ameniza até 90% da dor' },
+    { icon:'doctor',  t:'Pós-vacinal', d:'Acompanhamento com médica da clínica' },
+    { icon:'syringe', t:'Aplicação simultânea', d:'Até 2 vacinas na mesma visita' },
+    { icon:'flag',    t:'Vacinas dos EUA', d:'Maior eficácia e mais cepas' },
     { icon:'hand',    t:'Massagem', d:'Para as mamães durante a vacinação' },
-    { icon:'speaker', t:'Ruído Branco', d:'Acalma o bebê no procedimento' },
-    { icon:'music',   t:'Brinquedos', d:'Distração e conforto na consulta' },
-    { icon:'syringe', t:'2 Vacinas simultâneas', d:'Menos visitas, menos dor' },
-    { icon:'idcard',  t:'Carteira', d:'Personalizada no fechamento do plano' },
-    { icon:'flag',    t:'Vacinas EUA', d:'Maior eficácia e mais cepas' },
+    { icon:'speaker', t:'Ruído branco', d:'Acalma o bebê no procedimento' },
+    { icon:'music',   t:'Brinquedos', d:'Distração e conforto' },
+    { icon:'idcard',  t:'Carteira exclusiva', d:'Personalizada no plano' },
   ];
   const benefAdulto = [
-    { icon:'shield',  t:'Qualidade', d:'Vacinas importadas e de alta procedência' },
-    { icon:'doctor',  t:'Equipe', d:'Profissionais especializados em imunização' },
-    { icon:'zap',     t:'Agilidade', d:'Agendamento rápido e eficiente' },
-    { icon:'lock',    t:'Segurança', d:'Ambiente seguro, ético e humanizado' },
-    { icon:'syringe', t:'Simultânea', d:'Até 2 vacinas na mesma visita' },
-    { icon:'flag',    t:'Vacinas EUA', d:'Maior cobertura vacinal' },
+    { icon:'shield',  t:'Qualidade', d:'Vacinas importadas de alta procedência' },
+    { icon:'doctor',  t:'Equipe especializada', d:'Profissionais de imunização' },
+    { icon:'syringe', t:'Aplicação simultânea', d:'Até 2 vacinas na mesma visita' },
+    { icon:'flag',    t:'Vacinas dos EUA', d:'Maior cobertura vacinal' },
   ];
   const beneficios = isInfantil ? benefInfantil : benefAdulto;
 
   const linhasVacinas = vacinas.map((v, i) => {
-    const parcelaStr = v.parcelas > 1 ? `${v.parcelas}x de ${_brlOrc(Math.ceil(v.credito / v.parcelas))} s/j` : _brlOrc(v.credito);
-    const bg = i % 2 === 0 ? 'rgba(255,255,255,.92)' : 'rgba(236,246,252,.85)';
-    return `<tr style="background:${bg};">
-      <td style="padding:6px 7px;border-bottom:1px solid rgba(0,0,0,.05);text-align:center;font-size:.72rem;color:#aaa;font-weight:700;">${i + 1}</td>
-      <td style="padding:6px 10px;border-bottom:1px solid rgba(0,0,0,.05);">
-        <div style="font-size:.84rem;font-weight:700;color:#0d3b6e;">${esc(v.nome)}</div>
-        <div style="font-size:.65rem;color:#777;line-height:1.3;margin-top:1px;">${esc(v.desc || '')}</div>
+    const parcelaStr = v.parcelas > 1 ? `${v.parcelas}x de ${_brlOrc(Math.ceil(v.credito / v.parcelas))}` : _brlOrc(v.credito);
+    return `<tr>
+      <td class="td-nome">
+        <div class="v-nome">${esc(v.nome)}</div>
+        <div class="v-desc">${esc(v.desc || '')}</div>
       </td>
-      <td style="padding:6px 7px;border-bottom:1px solid rgba(0,0,0,.05);text-align:center;font-size:.84rem;color:#207898;font-weight:700;">${_brlOrc(v.avista)}</td>
-      <td style="padding:6px 7px;border-bottom:1px solid rgba(0,0,0,.05);text-align:center;font-size:.72rem;color:#666;">${parcelaStr}</td>
+      <td class="td-preco">${_brlOrc(v.avista)}</td>
+      <td class="td-parc">${parcelaStr}<span class="sj"> s/ juros</span></td>
     </tr>`;
   }).join('');
 
   const cardsHtml = beneficios.map(c => `
-    <div style="background:rgba(255,255,255,.88);border:1px solid rgba(0,184,192,.18);border-radius:8px;padding:9px 7px;text-align:center;">
-      <div style="margin-bottom:4px;">${svgIcon(c.icon, isInfantil ? '#e91e8c' : '#00B8C0', 22)}</div>
-      <div style="font-weight:700;color:#0d3b6e;font-size:.66rem;margin-bottom:2px;">${c.t}</div>
-      <div style="font-size:.6rem;color:#666;line-height:1.3;">${c.d}</div>
+    <div class="bcard">
+      <div class="bicon">${svgIcon(c.icon, ACC, 18)}</div>
+      <div><div class="bt">${c.t}</div><div class="bd">${c.d}</div></div>
     </div>`).join('');
 
-  const C = isInfantil ? {
-    bgPage:'linear-gradient(160deg,#fce4ec 0%,#f8f9ff 35%,#e3f2fd 65%,#e0f7fa 100%)',
-    bgHeader:'linear-gradient(135deg,#e91e8c 0%,#ad1457 40%,#1565c0 100%)',
-    bgPara:'linear-gradient(135deg,#1565c0,#0d47a1)', corPrim:'#1565c0', corAcento:'#e91e8c',
-    corTotal:'#e91e8c', bgTotal:'linear-gradient(135deg,#e91e8c,#ad1457)', bgCred:'linear-gradient(135deg,#1565c0,#1976d2)',
-    bgBenef:'linear-gradient(135deg,#fce4ec,#f8f9ff)', bgRodape:'linear-gradient(135deg,#1a237e,#1565c0)',
-    decoColor1:'rgba(233,30,140,.12)', decoColor2:'rgba(21,101,192,.10)', logoFilter:'', avatarIcon:'baby',
-  } : {
-    bgPage:'linear-gradient(160deg,#eceff1 0%,#f5f7fa 40%,#e8edf4 100%)',
-    bgHeader:'linear-gradient(135deg,#0d3b6e,#1565c0)', bgPara:'linear-gradient(135deg,#0d3b6e,#1a3a5c)',
-    corPrim:'#0d3b6e', corAcento:'#00B8C0', corTotal:'#00B8C0', bgTotal:'linear-gradient(135deg,#0d3b6e,#1565c0)',
-    bgCred:'linear-gradient(135deg,#00838f,#00B8C0)', bgBenef:'linear-gradient(135deg,#eceff1,#f5f7fa)',
-    bgRodape:'linear-gradient(135deg,#060f1a,#0d3b6e)', decoColor1:'rgba(0,184,192,.08)', decoColor2:'rgba(13,59,110,.06)',
-    logoFilter:'brightness(0) invert(1)', avatarIcon:'user',
-  };
+  const precoHero = temDesconto ? `
+      <div class="hero-de">de <s>${_brlOrc(brutoAvista)}</s> por</div>
+      <div class="hero-valor">${_brlOrc(totalAvista)}</div>
+      <div class="hero-tag">à vista · você economiza ${_brlOrc(desconto)} (${pct}%)</div>`
+    : `
+      <div class="hero-de">investimento</div>
+      <div class="hero-valor">${_brlOrc(totalAvista)}</div>
+      <div class="hero-tag">à vista</div>`;
 
-  const descontoBox = temDesconto ? `
-    <div style="background:${C.bgTotal};border-radius:10px;padding:10px 16px;text-align:center;color:#fff;margin-bottom:8px;">
-      <div style="font-size:.7rem;opacity:.85;text-decoration:line-through;">De ${_brlOrc(brutoAvista)}</div>
-      <div style="font-size:1.5rem;font-weight:800;">${_brlOrc(totalAvista)} <span style="font-size:.7rem;font-weight:600;">à vista</span></div>
-      <div style="font-size:.66rem;background:rgba(255,255,255,.2);display:inline-block;padding:2px 10px;border-radius:10px;margin-top:3px;">Economize ${_brlOrc(desconto)} (${pct}%)</div>
-    </div>` : `
-    <div style="background:${C.bgTotal};border-radius:10px;padding:10px 16px;text-align:center;color:#fff;margin-bottom:8px;">
-      <div style="font-size:1.5rem;font-weight:800;">${_brlOrc(totalAvista)} <span style="font-size:.7rem;font-weight:600;">à vista</span></div>
-    </div>`;
-
-  const parcLabel = parcelas > 1 ? `${parcelas}x de ${_brlOrc(Math.ceil(totalCredito / parcelas))} sem juros` : `${_brlOrc(totalCredito)} no crédito`;
+  const parcLabel = parcelas > 1 ? `${parcelas}x de ${_brlOrc(Math.ceil(totalCredito / parcelas))}` : _brlOrc(totalCredito);
 
   return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
 <title>${esc(tituloDoc)} — Vittalis Saúde</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:Arial,Helvetica,sans-serif;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 @page{size:A4;margin:0}
-.page{width:210mm;min-height:297mm;margin:0 auto;background:${C.bgPage};position:relative;overflow:hidden;padding-bottom:22mm;}
-.deco1{position:absolute;top:-25mm;right:-20mm;width:90mm;height:90mm;border-radius:50%;background:${C.decoColor1};}
-.deco2{position:absolute;bottom:30mm;left:-15mm;width:60mm;height:60mm;border-radius:50%;background:${C.decoColor2};}
-.pg-header{background:${C.bgHeader};padding:7mm 11mm;display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:center;position:relative;overflow:hidden;}
-.pg-header::before{content:'';position:absolute;top:-12mm;right:-12mm;width:55mm;height:55mm;border-radius:50%;background:rgba(255,255,255,.07);}
-.logo-img{height:14mm;object-fit:contain;display:block;filter:${C.logoFilter} drop-shadow(0 1px 3px rgba(0,0,0,.2));}
-.header-info{text-align:right;}
-.header-titulo{font-size:1.4rem;font-weight:900;color:#fff;letter-spacing:.3px;}
-.header-sub{font-size:.68rem;color:rgba(255,255,255,.72);margin-top:3px;}
-.header-data{font-size:.63rem;color:rgba(255,255,255,.55);margin-top:2px;}
-.para-box{margin:4mm 9mm 3mm;background:${C.bgPara};border-radius:10px;padding:9px 14px;display:flex;gap:12px;align-items:center;color:#fff;}
-.para-av{width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;font-size:1.1rem;flex-shrink:0;}
-.para-label{font-size:.6rem;text-transform:uppercase;letter-spacing:.5px;opacity:.8;}
-.para-nome{font-size:1rem;font-weight:700;}
-.tabela-wrap{margin:0 9mm;background:rgba(255,255,255,.5);border-radius:10px;overflow:hidden;}
+body{font-family:'Segoe UI',Arial,Helvetica,sans-serif;background:#fff;color:${NAVY};-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.page{width:210mm;min-height:297mm;margin:0 auto;background:#fff;position:relative;padding-bottom:24mm;}
+.accent-bar{height:2.5mm;background:linear-gradient(90deg,${NAVY} 0%,${NAVY} 55%,${ACC} 55%,${ACC} 100%);}
+.header{padding:9mm 14mm 7mm;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #E8EDF2;}
+.logo-img{height:17mm;object-fit:contain;display:block;}
+.h-right{text-align:right;}
+.h-kicker{font-size:.62rem;font-weight:700;letter-spacing:2.2px;color:${ACC};text-transform:uppercase;margin-bottom:1.5mm;}
+.h-titulo{font-size:1.55rem;font-weight:800;color:${NAVY};letter-spacing:-.3px;line-height:1.1;}
+.h-data{font-size:.66rem;color:#8a97a6;margin-top:1.6mm;}
+.para{margin:6mm 14mm 0;display:flex;align-items:baseline;gap:8px;padding-bottom:4mm;border-bottom:1px solid #E8EDF2;}
+.para-label{font-size:.64rem;font-weight:700;letter-spacing:1.6px;color:#8a97a6;text-transform:uppercase;}
+.para-nome{font-size:1.02rem;font-weight:700;color:${NAVY};}
+.tabela{margin:5mm 14mm 0;}
 table{width:100%;border-collapse:collapse;}
-thead th{background:${C.bgPara};color:#fff;padding:7px;font-size:.68rem;text-transform:uppercase;letter-spacing:.4px;}
-.valores-wrap{margin:4mm 9mm 0;display:grid;grid-template-columns:1fr 1fr;gap:10px;}
-.cred-box{background:${C.bgCred};border-radius:10px;padding:10px 16px;text-align:center;color:#fff;display:flex;flex-direction:column;justify-content:center;}
-.cred-box .v{font-size:1.05rem;font-weight:800;margin-top:2px;}
-.validade{margin:3mm 9mm 0;background:rgba(255,255,255,.6);border:1px dashed ${C.corAcento};border-radius:8px;padding:6px 12px;text-align:center;font-size:.7rem;color:#555;}
-.validade b{color:${C.corPrim};}
-.benef-titulo{margin:4mm 9mm 2mm;font-size:.8rem;font-weight:800;color:${C.corPrim};text-transform:uppercase;letter-spacing:.5px;}
-.benef-grid{margin:0 9mm;display:grid;grid-template-columns:repeat(4,1fr);gap:7px;}
-.selos{margin:4mm 9mm 0;display:flex;justify-content:space-around;padding:6px 0;border-top:1px solid rgba(0,0,0,.06);}
-.selo{text-align:center;}.selo .si{font-size:1.1rem;}.selo .st{font-size:.6rem;color:#666;font-weight:600;margin-top:2px;}
-.rodape{position:absolute;left:0;right:0;bottom:0;background:${C.bgRodape};color:#fff;padding:5mm 11mm;display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:.66rem;line-height:1.5;}
-.rodape .re strong{font-size:.8rem;}
+thead th{text-align:left;font-size:.6rem;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;color:#8a97a6;padding:0 3mm 2.2mm;border-bottom:2px solid ${NAVY};}
+thead th.cR{text-align:right;}
+tbody td{padding:3.2mm 3mm;border-bottom:1px solid #EEF2F6;vertical-align:top;}
+.v-nome{font-size:.9rem;font-weight:700;color:${NAVY};}
+.v-desc{font-size:.66rem;color:#8a97a6;line-height:1.45;margin-top:.8mm;max-width:105mm;}
+.td-preco{text-align:right;font-size:.9rem;font-weight:700;color:${NAVY};white-space:nowrap;width:26mm;}
+.td-parc{text-align:right;font-size:.72rem;color:#5c6b7a;white-space:nowrap;width:34mm;}
+.sj{color:#a5b1bd;font-size:.62rem;}
+.valores{margin:7mm 14mm 0;display:grid;grid-template-columns:1.35fr 1fr;gap:5mm;align-items:stretch;}
+.hero{background:${NAVY};border-radius:4mm;padding:6mm 8mm;color:#fff;position:relative;overflow:hidden;}
+.hero::after{content:'';position:absolute;right:-14mm;top:-14mm;width:38mm;height:38mm;border-radius:50%;background:rgba(255,255,255,.06);}
+.hero-de{font-size:.72rem;opacity:.75;}
+.hero-de s{opacity:.85;}
+.hero-valor{font-size:2.15rem;font-weight:800;letter-spacing:-.5px;line-height:1.15;margin:.6mm 0;}
+.hero-tag{display:inline-block;background:${ACC};color:#fff;font-size:.64rem;font-weight:700;border-radius:6mm;padding:1.1mm 3.6mm;}
+.cartao{background:${ACC_SOFT};border:1px solid ${ACC}33;border-radius:4mm;padding:6mm 7mm;display:flex;flex-direction:column;justify-content:center;}
+.cartao .c-label{font-size:.62rem;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;color:#8a97a6;}
+.cartao .c-valor{font-size:1.25rem;font-weight:800;color:${NAVY};margin-top:1.2mm;}
+.cartao .c-obs{font-size:.66rem;color:#8a97a6;margin-top:.8mm;}
+.validade{margin:4mm 14mm 0;font-size:.68rem;color:#8a97a6;}
+.validade b{color:${NAVY};}
+.benef-sec{margin:7mm 14mm 0;}
+.benef-titulo{font-size:.64rem;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:${ACC};padding-bottom:2.4mm;margin-bottom:3.6mm;border-bottom:1px solid #E8EDF2;}
+.benef-grid{display:grid;grid-template-columns:1fr 1fr;gap:3mm 6mm;}
+.bcard{display:flex;gap:3mm;align-items:flex-start;}
+.bicon{width:8.6mm;height:8.6mm;border-radius:2.6mm;background:${ACC_SOFT};display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.bt{font-size:.74rem;font-weight:700;color:${NAVY};}
+.bd{font-size:.64rem;color:#8a97a6;line-height:1.4;}
+.rodape{position:absolute;left:0;right:0;bottom:0;background:${NAVY};color:#fff;padding:5mm 14mm;display:flex;justify-content:space-between;align-items:center;font-size:.64rem;line-height:1.65;}
+.rodape .re strong{font-size:.76rem;letter-spacing:.4px;}
+.rodape .rd{text-align:right;opacity:.9;}
 </style></head><body>
 <div class="page">
-  <div class="deco1"></div><div class="deco2"></div>
-  <div class="pg-header">
-    ${logoUrl ? `<img src="${logoUrl}" class="logo-img" alt="Vittalis">` : `<div style="font-size:1.6rem;font-weight:900;color:#fff;">Vittalis Saúde</div>`}
-    <div class="header-info">
-      <div class="header-titulo">${esc(tituloDoc)}</div>
-      <div class="header-sub">Proposta de Investimento em Saúde — Vittalis Saúde</div>
-      <div class="header-data">Emitido em ${fmtData(dataHoje)}</div>
+  <div class="accent-bar"></div>
+  <div class="header">
+    ${logoUrl ? `<img src="${logoUrl}" class="logo-img" alt="Vittalis Saúde">` : `<div style="font-size:1.4rem;font-weight:800;color:${NAVY};">Vittalis Saúde</div>`}
+    <div class="h-right">
+      <div class="h-kicker">Proposta de investimento em saúde</div>
+      <div class="h-titulo">${esc(tituloDoc)}</div>
+      <div class="h-data">Emitida em ${fmtData(dataHoje)}</div>
     </div>
   </div>
-  <div class="para-box">
-    <div class="para-av">${svgIcon(C.avatarIcon, '#fff', 20)}</div>
-    <div class="para-info"><div class="para-label">Proposta para</div><div class="para-nome">${propostaPara || '—'}</div></div>
-  </div>
-  <div class="tabela-wrap">
+  <div class="para"><span class="para-label">Preparada para</span><span class="para-nome">${propostaPara || '—'}</span></div>
+  <div class="tabela">
     <table>
-      <thead><tr><th style="width:28px;">Nº</th><th style="text-align:left;">Vacina / Proteção</th><th>À vista</th><th>No crédito</th></tr></thead>
+      <thead><tr><th>Vacina / Proteção</th><th class="cR">À vista</th><th class="cR">No cartão</th></tr></thead>
       <tbody>${linhasVacinas}</tbody>
     </table>
   </div>
-  <div class="valores-wrap">
-    <div>${descontoBox}</div>
-    <div class="cred-box"><div style="font-size:.66rem;opacity:.85;">No cartão</div><div class="v">${parcLabel}</div></div>
+  <div class="valores">
+    <div class="hero">${precoHero}</div>
+    <div class="cartao">
+      <div class="c-label">No cartão</div>
+      <div class="c-valor">${parcLabel}</div>
+      <div class="c-obs">${parcelas > 1 ? `total de ${_brlOrc(totalCredito)} · sem juros` : 'em 1x no crédito'}</div>
+    </div>
   </div>
-  <div class="validade">Proposta válida por <b>2 dias</b> — até <b>${fmtData(dataValidade)}</b>. Garanta agora a saúde da sua família!</div>
-  <div class="benef-titulo">${svgIcon('sparkle', C.corAcento, 15, 'margin-right:4px;')}Benefícios Exclusivos da Nossa Clínica</div>
-  <div class="benef-grid">${cardsHtml}</div>
-  <div class="selos">
-    <div class="selo"><div class="si">${svgIcon('shield', C.corPrim, 19)}</div><div class="st">Qualidade</div></div>
-    <div class="selo"><div class="si">${svgIcon('users', C.corPrim, 19)}</div><div class="st">Confiança</div></div>
-    <div class="selo"><div class="si">${svgIcon('heart', C.corPrim, 19)}</div><div class="st">Cuidado</div></div>
-    <div class="selo"><div class="si">${svgIcon('zap', C.corPrim, 19)}</div><div class="st">Agilidade</div></div>
-    <div class="selo"><div class="si">${svgIcon('flag', C.corPrim, 19)}</div><div class="st">Vacinas EUA</div></div>
+  <div class="validade">Condições válidas por <b>2 dias</b> — até <b>${fmtData(dataValidade)}</b>.</div>
+  <div class="benef-sec">
+    <div class="benef-titulo">Por que vacinar na Vittalis</div>
+    <div class="benef-grid">${cardsHtml}</div>
   </div>
   <div class="rodape">
-    <div class="re"><strong>Vittalis Saúde</strong><br>Edifício Business Center — Renascença<br>Av. Cel. Colares Moreira, 3A, Térreo — São Luís, MA</div>
-    <div class="rd">${svgIcon('phone', '#fff', 11, 'margin-right:5px;')}(98) 98422-1002<br>${svgIcon('globe', '#fff', 11, 'margin-right:5px;')}www.vittalissaude.com.br<br>${svgIcon('camera', '#fff', 11, 'margin-right:5px;')}@vittalissaudeslz</div>
+    <div class="re"><strong>Vittalis Saúde</strong><br>Ed. Business Center — Renascença · Av. Cel. Colares Moreira, 3A, Térreo — São Luís/MA</div>
+    <div class="rd">(98) 98422-1002<br>www.vittalissaude.com.br · @vittalissaudeslz</div>
   </div>
 </div>
 </body></html>`;
