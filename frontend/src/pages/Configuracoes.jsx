@@ -166,6 +166,14 @@ export default function Configuracoes() {
                 </span>
               </label>
 
+              <label style={{ display:'flex', alignItems:'flex-start', gap:10, cursor:'pointer', background:'#fff7ed', border:'1px solid #fed7aa', padding:'10px 12px', borderRadius:10 }}>
+                <input type="checkbox" checked={bot.followup === true} onChange={e=>setBot(p=>({...p,followup:e.target.checked}))} style={{ width:16, height:16, accentColor:'#ea580c', marginTop:1 }}/>
+                <span>
+                  <span style={{ fontWeight:700, display:'block' }}>♻️ Follow-up automático (recupera quem sumiu)</span>
+                  <span style={{ fontSize:11.5, color:'var(--muted)' }}>A Vitta retoma sozinha conversas onde ELA falou por último e o cliente silenciou: lembretes em 2h → 1 dia → 3 dias (máx. 3), só em horário comercial (8h-20h), com mensagem personalizada pela IA. É a venda quase fechada voltando sozinha.</span>
+                </span>
+              </label>
+
               <div className="field">
                 <label>Mensagem de boas-vindas</label>
                 <textarea value={bot.mensagemBoasVindas} onChange={e=>setBot(p=>({...p,mensagemBoasVindas:e.target.value}))} rows={5} style={{ resize:'vertical' }} />
