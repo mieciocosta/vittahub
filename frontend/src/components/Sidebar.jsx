@@ -130,6 +130,38 @@ const initials = n => (n||'?').split(' ').slice(0,2).map(w=>w[0]).join('').toUpp
 
 export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, collapsed = false, onToggleCollapse, mobileOpen = false, onCloseMobile, corDia = 'auto', onSetCorDia, paletaCores = [] }) {
   const { user, setUser, logout, isMaster } = useAuth();
+  // 👥 TROCA-RÁPIDA DE USUÁRIO (master): de qualquer tela, vira outro usuário.
+  // Usa sempre o token do master (guardado ao impersonar) — dá pra pular direto
+  // de um usuário pro outro sem "voltar" antes.
+  const [trocaOpen, setTrocaOpen] = useState(false);
+  const [trocaUsers, setTrocaUsers] = useState([]);
+  const podeTrocar = isMaster || !!localStorage.getItem('vh_token_master');
+  const tokenMaster = () => localStorage.getItem('vh_token_master') || localStorage.getItem('vh_token') || '';
+  const abrirTroca = async () => {
+    if (trocaOpen) return setTrocaOpen(false);
+    setTrocaOpen(true);
+    try {
+      const BASE = import.meta.env.VITE_API_URL || '';
+      const resp = await fetch(`${BASE}/api/auth/usuarios`, { headers: { Authorization: `Bearer ${tokenMaster()}` } });
+      const d = await resp.json();
+      setTrocaUsers(Array.isArray(d) ? d.filter(u2 => u2.ativo !== false) : []);
+    } catch { setTrocaUsers([]); }
+  };
+  const trocarPara = async (u2) => {
+    try {
+      const BASE = import.meta.env.VITE_API_URL || '';
+      const resp = await fetch(`${BASE}/api/auth/impersonar/${u2.id}`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenMaster()}` } });
+      const r = await resp.json();
+      if (!resp.ok) throw new Error(r.error || 'erro');
+      if (!localStorage.getItem('vh_token_master')) localStorage.setItem('vh_token_master', localStorage.getItem('vh_token') || '');
+      localStorage.setItem('vh_token', r.token);
+      window.location.href = '/';
+    } catch (e) { window.alert('Erro ao trocar: ' + e.message); }
+  };
+  const voltarMaster = () => {
+    const mk = localStorage.getItem('vh_token_master');
+    if (mk) { localStorage.setItem('vh_token', mk); localStorage.removeItem('vh_token_master'); window.location.href = '/'; }
+  };
 
   const [showAvatarBuilder, setShowAvatarBuilder] = useState(false);
   const [paletaAberta, setPaletaAberta] = useState(false);
@@ -456,6 +488,34 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
               </button>
               <div style={{ color:'rgba(255,255,255,.85)', fontSize:10.5 }}>{user?.role === 'master' ? '◆ Master' : user?.role === 'supervisor' ? '◆ Supervisora' : 'Atendente'}<span style={{ marginLeft:6 }}><span style={{ display:'inline-block', width:6, height:6, borderRadius:'50%', background:'#3ef58f', marginRight:3, verticalAlign:'1px' }}/>Online</span></div>
             </div>
+            {podeTrocar && (
+              <button onClick={abrirTroca} title="Trocar de usuário (entrar como)" style={{ padding:6, background: trocaOpen ? 'rgba(255,255,255,.25)' : 'none', color:'#fff', borderRadius:6, cursor:'pointer', border:'none' }}>
+                <Users size={13} />
+              </button>
+            )}
+            {trocaOpen && (
+              <div style={{ position:'fixed', bottom:64, left:12, zIndex:9999, background:'var(--card, #fff)', border:'1px solid var(--border, #e5e7eb)', borderRadius:14, boxShadow:'0 12px 40px rgba(0,0,0,.35)', padding:10, width:230, maxHeight:340, overflowY:'auto' }}>
+                <div style={{ fontSize:10.5, fontWeight:800, textTransform:'uppercase', letterSpacing:.5, color:'var(--muted, #6b7280)', padding:'2px 6px 8px' }}>👥 Entrar como…</div>
+                {localStorage.getItem('vh_token_master') && (
+                  <button onClick={voltarMaster} style={{ display:'block', width:'100%', textAlign:'left', padding:'8px 10px', borderRadius:9, border:'none', cursor:'pointer', background:'#f5f3ff', color:'#7c3aed', fontWeight:800, fontSize:12.5, marginBottom:6 }}>
+                    ↩️ Voltar ao meu usuário (master)
+                  </button>
+                )}
+                {trocaUsers.filter(u2 => u2.id !== user?.id).map(u2 => (
+                  <button key={u2.id} onClick={()=>trocarPara(u2)}
+                    style={{ display:'flex', alignItems:'center', gap:8, width:'100%', textAlign:'left', padding:'7px 8px', borderRadius:9, border:'none', cursor:'pointer', background:'transparent', color:'var(--txt, #111)' }}
+                    onMouseEnter={e=>e.currentTarget.style.background='var(--tq3, #eef6f7)'}
+                    onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                    <span style={{ width:26, height:26, borderRadius:'50%', background:u2.cor||'var(--tq)', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:800, flexShrink:0 }}>{(u2.nome||'?').slice(0,1)}</span>
+                    <span style={{ minWidth:0 }}>
+                      <span style={{ display:'block', fontSize:12.5, fontWeight:700, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{u2.nome}</span>
+                      <span style={{ display:'block', fontSize:10, color:'var(--muted, #6b7280)' }}>{u2.role==='master'?'Master':u2.role==='supervisor'?'Supervisora':'Atendente'}{u2.setor?` · ${u2.setor}`:''}</span>
+                    </span>
+                  </button>
+                ))}
+                {!trocaUsers.length && <div style={{ fontSize:12, color:'var(--muted, #6b7280)', padding:8 }}>Carregando…</div>}
+              </div>
+            )}
             <button onClick={()=>setShowAvatarBuilder(true)} title="Criar meu avatar" style={{ padding:6, background:'none', color:'rgba(255,255,255,.62)', borderRadius:6, transition:'color .15s', cursor:'pointer', border:'none' }}
               onMouseEnter={e=>e.currentTarget.style.color='#ffffff'}
               onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,.62)'}>
