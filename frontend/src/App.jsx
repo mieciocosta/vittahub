@@ -193,20 +193,9 @@ function SecurityLock({ user }) {
     };
   }, []);
 
-  // Marca d'água diagonal repetida com a identidade de quem está logado.
-  const nome = String(user?.nome || user?.email || 'usuário').replace(/[<>&"']/g, '').slice(0, 40);
-  const marca = `${nome} · ${new Date().toLocaleDateString('pt-BR')}`;
-  const svg = encodeURIComponent(
-    `<svg xmlns='http://www.w3.org/2000/svg' width='360' height='200'>` +
-    `<text x='10' y='110' transform='rotate(-28 10 110)' fill='rgba(130,130,130,0.12)' ` +
-    `font-size='15' font-family='sans-serif' font-weight='600'>${marca}</text></svg>`
-  );
-  return (
-    <div aria-hidden style={{
-      position: 'fixed', inset: 0, zIndex: 2147483000, pointerEvents: 'none',
-      backgroundImage: `url("data:image/svg+xml,${svg}")`, backgroundRepeat: 'repeat',
-    }} />
-  );
+  // Marca d'água removida a pedido do master (atrapalhava a leitura).
+  // As demais proteções (bloqueio de copiar/imprimir/selecionar) continuam ativas.
+  return null;
 }
 
 export default function App() {
