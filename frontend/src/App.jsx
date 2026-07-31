@@ -159,35 +159,31 @@ function Heartbeat({ userId }) {
    ser bloqueados por um site — por isso a marca d'água é a proteção real contra isso. */
 function SecurityLock({ user }) {
   React.useEffect(() => {
-    const bloqueia = (e) => { e.preventDefault(); return false; };
+    // REGRA (pedido do master): a equipe pode selecionar e copiar TUDO
+    // normalmente (mensagens, textos) — EXCETO telefones. Se o trecho
+    // selecionado contiver um número com 8+ dígitos (telefone), a cópia é
+    // bloqueada. Impressão/salvar página seguem bloqueados (vazariam a lista).
+    const temTelefone = (txt) => /\d{8,}/.test(String(txt || '').replace(/[\s().+\-–—]/g, ''));
+    const filtraCopia = (e) => {
+      const sel = String(window.getSelection?.() || '');
+      if (temTelefone(sel)) { e.preventDefault(); return false; }
+    };
     const bloqueiaTeclas = (e) => {
       const k = (e.key || '').toLowerCase();
-      if ((e.ctrlKey || e.metaKey) && ['c', 'x', 'p', 's'].includes(k)) { e.preventDefault(); return false; }
-      if (k === 'printscreen') { try { navigator.clipboard?.writeText(''); } catch {} }
+      if ((e.ctrlKey || e.metaKey) && ['p', 's'].includes(k)) { e.preventDefault(); return false; }
     };
-    document.addEventListener('contextmenu', bloqueia);
-    document.addEventListener('copy', bloqueia);
-    document.addEventListener('cut', bloqueia);
-    document.addEventListener('dragstart', bloqueia);
+    document.addEventListener('copy', filtraCopia);
+    document.addEventListener('cut', filtraCopia);
     document.addEventListener('keydown', bloqueiaTeclas);
 
     const style = document.createElement('style');
     style.id = 'vh-seclock';
-    style.textContent = `
-      *:not(input):not(textarea):not([contenteditable="true"]) {
-        -webkit-user-select: none !important; -moz-user-select: none !important; user-select: none !important;
-        -webkit-touch-callout: none !important;
-      }
-      input, textarea, [contenteditable="true"] { -webkit-user-select: text !important; user-select: text !important; }
-      @media print { body { display: none !important; } }
-    `;
+    style.textContent = `@media print { body { display: none !important; } }`;
     document.head.appendChild(style);
 
     return () => {
-      document.removeEventListener('contextmenu', bloqueia);
-      document.removeEventListener('copy', bloqueia);
-      document.removeEventListener('cut', bloqueia);
-      document.removeEventListener('dragstart', bloqueia);
+      document.removeEventListener('copy', filtraCopia);
+      document.removeEventListener('cut', filtraCopia);
       document.removeEventListener('keydown', bloqueiaTeclas);
       document.getElementById('vh-seclock')?.remove();
     };
