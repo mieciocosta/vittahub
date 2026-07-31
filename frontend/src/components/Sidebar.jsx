@@ -187,17 +187,24 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
     };
     img.src = URL.createObjectURL(f);
   };
-  // Editar o próprio nome — instantâneo (novo token com o nome novo)
-  const editarNome = async () => {
-    const novo = window.prompt('Seu nome de exibição:', user?.nome || '');
-    if (novo == null) return;
-    const n = novo.trim();
-    if (n.length < 2) return;
+  // Editar o próprio nome — instantâneo (novo token com o nome novo).
+  // Popup próprio em vez de window.prompt: no celular/webview o prompt nativo
+  // muitas vezes nem abre, e aí parecia que o lápis "não fazia nada".
+  const [nomeOpen, setNomeOpen] = useState(false);
+  const [novoNome, setNovoNome] = useState('');
+  const [salvandoNome, setSalvandoNome] = useState(false);
+  const editarNome = () => { setNovoNome(user?.nome || ''); setNomeOpen(true); };
+  const salvarNome = async () => {
+    const n = String(novoNome || '').trim();
+    if (n.length < 2 || salvandoNome) return;
+    setSalvandoNome(true);
     try {
       const r = await api.patch('/auth/me/nome', { nome: n });
       if (r?.token) setToken(r.token);
       if (r?.user) setUser?.(r.user);
+      setNomeOpen(false);
     } catch (e) { window.alert(e.message || 'Não foi possível mudar o nome.'); }
+    setSalvandoNome(false);
   };
   const [metaMini, setMetaMini] = useState(null);
   useEffect(() => {
@@ -487,6 +494,23 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                 <span style={{ color:'#fff', fontSize:13, fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{user?.nome?.split(' ')[0]}</span>
                 <Pencil size={10} color="rgba(255,255,255,.55)" style={{ flexShrink:0 }} />
               </button>
+              {nomeOpen && (
+                <div style={{ position:'fixed', bottom:64, left:12, zIndex:9999, background:'var(--card, #fff)', border:'1px solid var(--border, #e5e7eb)', borderRadius:14, boxShadow:'0 12px 40px rgba(0,0,0,.35)', padding:12, width:240 }}>
+                  <div style={{ fontSize:10.5, fontWeight:800, textTransform:'uppercase', letterSpacing:.5, color:'var(--muted, #6b7280)', marginBottom:8 }}>✏️ Meu nome de exibição</div>
+                  <input autoFocus value={novoNome} onChange={e=>setNovoNome(e.target.value)}
+                    onKeyDown={e=>{ if (e.key==='Enter') salvarNome(); if (e.key==='Escape') setNomeOpen(false); }}
+                    placeholder="Seu nome"
+                    style={{ width:'100%', padding:'9px 10px', borderRadius:9, border:'1px solid var(--border, #d1d5db)', fontSize:13.5, fontWeight:600, background:'var(--bg, #fff)', color:'var(--txt, #111827)', outline:'none', boxSizing:'border-box' }} />
+                  <div style={{ display:'flex', gap:6, marginTop:8 }}>
+                    <button onClick={salvarNome} disabled={salvandoNome || String(novoNome||'').trim().length < 2}
+                      style={{ flex:1, padding:'8px 0', borderRadius:9, border:'none', cursor:'pointer', background:'#0E8C96', color:'#fff', fontWeight:800, fontSize:12.5, opacity: salvandoNome ? .6 : 1 }}>
+                      {salvandoNome ? 'Salvando…' : 'Salvar'}
+                    </button>
+                    <button onClick={()=>setNomeOpen(false)} style={{ padding:'8px 12px', borderRadius:9, border:'1px solid var(--border, #d1d5db)', cursor:'pointer', background:'none', color:'var(--muted, #6b7280)', fontWeight:700, fontSize:12.5 }}>Cancelar</button>
+                  </div>
+                  <div style={{ fontSize:10, color:'var(--muted, #9ca3af)', marginTop:7, lineHeight:1.4 }}>Muda na hora, em todo o sistema.</div>
+                </div>
+              )}
               <div style={{ color:'rgba(255,255,255,.85)', fontSize:10.5 }}>{user?.role === 'master' ? '◆ Master' : user?.role === 'supervisor' ? '◆ Supervisora' : 'Atendente'}<span style={{ marginLeft:6 }}><span style={{ display:'inline-block', width:6, height:6, borderRadius:'50%', background:'#3ef58f', marginRight:3, verticalAlign:'1px' }}/>Online</span></div>
             </div>
             {podeTrocar && (
