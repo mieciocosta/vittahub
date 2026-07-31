@@ -176,6 +176,33 @@ export default function Caixa() {
     } catch (e) { setErro(e.message); }
     setSalvandoDesp(false);
   };
+  // ➕ NOVA VENDA DE BALCÃO: cliente que chega direto na clínica (sem WhatsApp)
+  const [novaVenda, setNovaVenda] = useState(null);
+  const abrirNovaVenda = () => setNovaVenda({
+    cliente_nome: '', paciente_nome: '', categoria: 'Vacinação Geral', setor: 'vacinas',
+    servico: '', valor: '', desconto: '', forma_pagamento: 'Pix', status_pagamento: 'pago',
+    data_venda: new Date().toISOString().slice(0, 10), origem: 'Balcão', observacao: '',
+  });
+  const [novaVendaSaving, setNovaVendaSaving] = useState(false);
+  const salvarNovaVenda = async () => {
+    if (!novaVenda) return;
+    const numBR = (x) => Math.max(0, parseFloat(String(x).replace(/\./g, '').replace(',', '.')) || 0);
+    if (!String(novaVenda.cliente_nome).trim()) return window.alert('Informe o nome do cliente.');
+    if (numBR(novaVenda.valor) <= 0) return window.alert('Informe o valor da venda.');
+    setNovaVendaSaving(true);
+    try {
+      await api.post('/extras/vendas', {
+        cliente_nome: novaVenda.cliente_nome, paciente_nome: novaVenda.paciente_nome,
+        categoria: novaVenda.categoria, setor: novaVenda.setor, servico: novaVenda.servico,
+        valor: numBR(novaVenda.valor), desconto: numBR(novaVenda.desconto),
+        forma_pagamento: novaVenda.forma_pagamento, status_pagamento: novaVenda.status_pagamento,
+        data_venda: novaVenda.data_venda, origem: novaVenda.origem || 'Balcão', observacao: novaVenda.observacao,
+      });
+      setNovaVenda(null); load();
+    } catch (err) { window.alert('Erro ao registrar: ' + (err.message || 'falha')); }
+    setNovaVendaSaving(false);
+  };
+
   // ✏️ Edição COMPLETA da venda (gestão): modal com todos os campos salvos
   const [editVenda, setEditVenda] = useState(null);
   const abrirEditVenda = (v) => setEditVenda({
@@ -620,6 +647,9 @@ export default function Caixa() {
       )}
       {/* Filtros */}
       <div className="card" style={{ padding: '12px 14px', marginBottom: 16, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+        <button onClick={abrirNovaVenda} className="btn btn-p btn-sm" style={{ gap: 6, fontWeight: 800 }}>
+          <Plus size={14} /> Venda de balcão
+        </button>
         <input type="month" value={mes} onChange={e => setMes(e.target.value)} style={{ padding: '7px 10px', borderRadius: 9, border: '1.5px solid var(--border)', background: 'var(--card)', color: 'var(--txt)' }} />
         <select value={setor} onChange={e => setSetor(e.target.value)} style={{ padding: '7px 10px', borderRadius: 9, border: '1.5px solid var(--border)', background: 'var(--card)', color: 'var(--txt)' }}>
           <option value="">Todos os setores</option>
@@ -769,6 +799,58 @@ export default function Caixa() {
         </div>
       )}
       </>
+      )}
+
+      {/* ➕ Modal: venda de balcão (cliente sem WhatsApp) */}
+      {novaVenda && (
+        <div onClick={() => setNovaVenda(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
+          <div onClick={e => e.stopPropagation()} className="card" style={{ width: 480, maxWidth: '100%', padding: 22, maxHeight: '92vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+              <h3 style={{ fontSize: 16, fontWeight: 800 }}>➕ Venda de balcão</h3>
+              <button onClick={() => setNovaVenda(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={16} /></button>
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>Cliente que chegou direto na clínica, sem passar pelo WhatsApp. Entra no caixa, nas metas e no placar normalmente.</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div className="field" style={{ gridColumn: '1 / -1' }}><label>Cliente *</label>
+                <input autoFocus value={novaVenda.cliente_nome} onChange={e => setNovaVenda({ ...novaVenda, cliente_nome: e.target.value })} placeholder="Nome de quem pagou" /></div>
+              <div className="field"><label>Paciente</label>
+                <input value={novaVenda.paciente_nome} onChange={e => setNovaVenda({ ...novaVenda, paciente_nome: e.target.value })} placeholder="Quem recebeu o serviço" /></div>
+              <div className="field"><label>Categoria</label>
+                <select value={novaVenda.categoria} onChange={e => {
+                  const cat = e.target.value;
+                  const st = ['Vacinação Geral', 'Plano Vacinal', 'Fidelidade Mensal'].includes(cat) ? 'vacinas' : cat === 'Consulta' ? 'consultas' : 'terapias';
+                  setNovaVenda({ ...novaVenda, categoria: cat, setor: st });
+                }} style={{ width: '100%', padding: '8px 10px', borderRadius: 9, border: '1.5px solid var(--border)', background: 'var(--card)', color: 'var(--txt)' }}>
+                  {['Vacinação Geral', 'Plano Vacinal', 'Fidelidade Mensal', 'Consulta', 'Terapia'].map(c => <option key={c} value={c}>{c}</option>)}
+                </select></div>
+              <div className="field" style={{ gridColumn: '1 / -1' }}><label>Serviço</label>
+                <input value={novaVenda.servico} onChange={e => setNovaVenda({ ...novaVenda, servico: e.target.value })} placeholder="ex: Pneumocócica 20 + Rotavírus" /></div>
+              <div className="field"><label>Valor (R$) *</label>
+                <input value={novaVenda.valor} onChange={e => setNovaVenda({ ...novaVenda, valor: e.target.value })} placeholder="0,00" /></div>
+              <div className="field"><label>Desconto (R$)</label>
+                <input value={novaVenda.desconto} onChange={e => setNovaVenda({ ...novaVenda, desconto: e.target.value })} placeholder="0,00" /></div>
+              <div className="field"><label>Forma de pagamento</label>
+                <select value={novaVenda.forma_pagamento} onChange={e => setNovaVenda({ ...novaVenda, forma_pagamento: e.target.value })}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 9, border: '1.5px solid var(--border)', background: 'var(--card)', color: 'var(--txt)' }}>
+                  {['Pix', 'Cartão', 'Dinheiro', 'Link de pagamento', 'Parcelado', 'Cortesia'].map(f => <option key={f} value={f}>{f}</option>)}
+                </select></div>
+              <div className="field"><label>Status</label>
+                <select value={novaVenda.status_pagamento} onChange={e => setNovaVenda({ ...novaVenda, status_pagamento: e.target.value })}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 9, border: '1.5px solid var(--border)', background: 'var(--card)', color: 'var(--txt)' }}>
+                  {[['pago', 'Pago'], ['sinal', 'Sinal'], ['aguardando', 'Aguardando'], ['parcelado', 'Parcelado'], ['cortesia', 'Cortesia'], ['pendente', 'Pendente']].map(([v2, l]) => <option key={v2} value={v2}>{l}</option>)}
+                </select></div>
+              <div className="field"><label>Data</label>
+                <input type="date" value={novaVenda.data_venda} onChange={e => setNovaVenda({ ...novaVenda, data_venda: e.target.value })} /></div>
+              <div className="field"><label>Origem</label>
+                <input value={novaVenda.origem} onChange={e => setNovaVenda({ ...novaVenda, origem: e.target.value })} placeholder="Balcão" /></div>
+              <div className="field" style={{ gridColumn: '1 / -1' }}><label>Observação</label>
+                <textarea rows={2} value={novaVenda.observacao} onChange={e => setNovaVenda({ ...novaVenda, observacao: e.target.value })} style={{ resize: 'vertical' }} /></div>
+            </div>
+            <button onClick={salvarNovaVenda} disabled={novaVendaSaving} className="btn btn-p" style={{ width: '100%', marginTop: 12, fontWeight: 800 }}>
+              {novaVendaSaving ? '…' : '💾 Registrar venda'}
+            </button>
+          </div>
+        </div>
       )}
 
       {/* ✏️ Modal: editar venda completa */}
