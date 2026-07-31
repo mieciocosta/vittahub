@@ -61,7 +61,7 @@ r.post('/login', async (req, res) => {
     const ok = await bcrypt.compare(senha, u.senha);
     if (!ok) { registraFalhaLogin(ip); logAudit(req, null, id, 'login_falha', { motivo: 'Senha incorreta' }); return res.status(401).json({ error: 'Senha incorreta' }); }
     limpaFalhasLogin(ip);
-    const token = jwt.sign({ id: u.id, nome: u.nome, email: u.email, role: u.role, cor: u.cor, setor: u.setor || null, setores: u.setores || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo }, SECRET, { expiresIn: '30d' });
+    const token = jwt.sign({ id: u.id, nome: u.nome, email: u.email, role: u.role, cor: u.cor, setor: u.setor || null, setores: u.setores || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo }, SECRET, { expiresIn: u.role === 'master' ? '30d' : '16h' }); // equipe: sessão morre no mesmo dia; master mantém 30d
     logAudit(req, u.id, u.nome, 'login', { metodo: 'cpf' });
     res.json({ token, user: { id: u.id, nome: u.nome, email: u.email, cpf: u.cpf, role: u.role, cor: u.cor, avatar: u.avatar || null, setor: u.setor || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo } });
   } catch (err) {
@@ -102,7 +102,7 @@ r.patch('/me/nome', auth, async (req, res) => {
       'UPDATE usuarios SET nome = $1, updated_at = NOW() WHERE id = $2 RETURNING id, nome, email, cpf, role, cor, avatar, setor, setores, lider, ve_tudo',
       [nome, req.user.id]);
     if (!u) return res.status(404).json({ error: 'Usuário não encontrado.' });
-    const token = jwt.sign({ id: u.id, nome: u.nome, email: u.email, role: u.role, cor: u.cor, setor: u.setor || null, setores: u.setores || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo }, SECRET, { expiresIn: '30d' });
+    const token = jwt.sign({ id: u.id, nome: u.nome, email: u.email, role: u.role, cor: u.cor, setor: u.setor || null, setores: u.setores || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo }, SECRET, { expiresIn: u.role === 'master' ? '30d' : '16h' }); // equipe: sessão morre no mesmo dia; master mantém 30d
     res.json({ ok: true, token, user: { id: u.id, nome: u.nome, email: u.email, cpf: u.cpf, role: u.role, cor: u.cor, avatar: u.avatar || null, setor: u.setor || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo } });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

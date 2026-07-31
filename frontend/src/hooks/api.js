@@ -21,6 +21,14 @@ async function request(method, path, body, isFile = false) {
   if (!res.ok) {
     let msg = `HTTP ${res.status}`;
     try { const e = await res.json(); msg = e.error || msg; } catch {}
+    // Sessão expirada (equipe: 16h): sai de forma limpa em vez de travar a tela.
+    // Se estava "entrando como" outro usuário, volta pro token do master.
+    if (res.status === 401 && _token && !path.startsWith('/auth/login')) {
+      const master = localStorage.getItem('vh_token_master');
+      if (master) { setToken(master); localStorage.removeItem('vh_token_master'); }
+      else clearToken();
+      setTimeout(() => { window.location.href = '/'; }, 50);
+    }
     throw new Error(msg);
   }
   return res.json();

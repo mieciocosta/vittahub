@@ -4,6 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { query } from '../db/pool.js';
 import { auth, masterOnly, SECRET } from '../middleware/auth.js';
+import { ehGestao, mascararLista, registrarAberturaConversa } from '../middleware/privacidade.js';
 import jwt from 'jsonwebtoken';
 import { socketEmit, setConvGroupFn, setUserSetorFn, socketEmitToUsers } from '../socketServer.js';
 import * as propostaGen from '../services/proposta-gen.js';
@@ -2601,6 +2602,11 @@ r.post('/conversations/load-photos', async (req, res) => {
 
 r.get('/conversations', async (req, res) => {
   res.set('Cache-Control', 'no-store, no-cache');
+  // Anti-exportação: não-gestão não pode pedir páginas gigantes (limit=9999)
+  if (!ehGestao(req.user)) {
+    const lim = parseInt(req.query.limit) || 50;
+    req.query.limit = String(Math.min(Math.max(lim, 1), 100));
+  }
   // Busca estendida: com 3+ caracteres, procura também no CONTEÚDO das
   // mensagens e no NOME de documentos (índice trigram — não pesa o banco)
   let extraIds = null;
@@ -2649,10 +2655,12 @@ r.get('/conversations', async (req, res) => {
       const countRes = await query(`SELECT COUNT(*) FROM conversas c ${where}`, params);
       const total = parseInt(countRes.rows[0].count);
       const dataRes = await query(`SELECT c.* FROM conversas c ${where} ORDER BY c.last_message_at DESC LIMIT $${pi} OFFSET $${pi+1}`, [...params, parseInt(limit), offset]);
-      return res.json({ data: dataRes.rows, total, page: parseInt(page) });
+      return res.json({ data: mascararLista(dataRes.rows, req.user), total, page: parseInt(page) });
     } catch (err) { return res.status(500).json({ error: err.message }); }
   }
   const result = cacheGetList({ ...req.query, extraIds, viewer: req.user });
+  // Telefone mascarado nas LISTAS pra equipe (na conversa aberta segue completo)
+  if (result?.data) result.data = mascararLista(result.data, req.user);
   // Contadores dos chips (Todas/Minhas/Não lidas/Grupos) — direto do cache, custo zero.
   // Respeita o acesso por setor: cada um só conta o que pode ver. E não conta quem
   // foi movido pra uma pasta (Fidelidade/Banco), igual à lista.
@@ -2854,7 +2862,7 @@ r.get('/recuperacao', async (req, res) => {
     }))
       .sort((a, b) => (Number(b.esperando) - Number(a.esperando)) || (b.dias_silencio - a.dias_silencio))
       .slice(0, 120);
-    res.json(out);
+    res.json(mascararLista(out, req.user));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -2867,7 +2875,7 @@ r.get('/conversations/buscar', async (req, res) => {
       `SELECT id, contact_name, phone, categoria, classificacao FROM conversas
        WHERE unaccent(lower(COALESCE(contact_name,''))) ILIKE unaccent(lower($1)) OR phone ILIKE $1
        ORDER BY last_message_at DESC NULLS LAST LIMIT 20`, [like]);
-    res.json(rows);
+    res.json(mascararLista(rows, req.user));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -2970,6 +2978,10 @@ r.patch('/conversations/:id/funil-etapa', async (req, res) => {
 r.get('/conversations/:id', async (req, res) => {
   try {
     res.set('Cache-Control', 'no-store, no-cache');
+    // Detector de varredura: abrir conversas demais em 10 min = padrão de coleta
+    // de contatos, não de atendimento → alerta ao master; no limite duro, pausa.
+    const { bloqueado } = registrarAberturaConversa(req.user, req.params.id, req);
+    if (bloqueado) return res.status(429).json({ error: 'Muitas conversas abertas em pouco tempo. Aguarde alguns minutos e continue o atendimento normalmente.' });
     const { rows: [conv] } = await query(`
       SELECT c.*, u.nome AS responsavel_nome, u.cor AS responsavel_cor
       FROM conversas c LEFT JOIN usuarios u ON u.id = c.responsavel_id
@@ -5095,7 +5107,9 @@ r.post('/vittasys/proposta', (req, res) => {
 // ─── NOTIFICATIONS ────────────────────────────────────────────────────────────
 r.get('/notifications', async (req, res) => {
   try {
-    const { rows } = await query('SELECT * FROM notificacoes ORDER BY created_at DESC LIMIT 30');
+    // Alertas de segurança (apenas_master) ficam invisíveis para o resto da equipe
+    const soMaster = req.user?.role === 'master' ? '' : 'WHERE COALESCE(apenas_master, false) = false';
+    const { rows } = await query(`SELECT * FROM notificacoes ${soMaster} ORDER BY created_at DESC LIMIT 30`);
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

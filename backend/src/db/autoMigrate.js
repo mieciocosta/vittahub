@@ -157,6 +157,8 @@ export default async function runMigrate() {
     )`);
 
     await query(`CREATE INDEX IF NOT EXISTS idx_notif_lida ON notificacoes(lida) WHERE lida = false`);
+    // Alertas de segurança reservados ao master (ex.: varredura de contatos)
+    await query(`ALTER TABLE notificacoes ADD COLUMN IF NOT EXISTS apenas_master BOOLEAN DEFAULT false`).catch(() => {});
 
     await query(`CREATE TABLE IF NOT EXISTS configuracoes (
       chave TEXT PRIMARY KEY, valor JSONB NOT NULL, updated_at TIMESTAMPTZ DEFAULT NOW()
