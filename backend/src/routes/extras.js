@@ -879,6 +879,29 @@ r.patch('/vendas/:id/conferido', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// CAIXA — EDITAR valores/dados de uma venda (gestão). Atualiza caixa/metas ao vivo.
+r.patch('/vendas/:id', async (req, res) => {
+  try {
+    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão edita vendas.' });
+    const b = req.body || {};
+    const num = (v) => Math.max(0, Math.min(parseFloat(v) || 0, 100000000));
+    const sets = [], params = []; let i = 1;
+    if (b.valor !== undefined) { sets.push(`valor = $${i++}`); params.push(num(b.valor)); }
+    if (b.desconto !== undefined) { sets.push(`desconto = $${i++}`); params.push(num(b.desconto)); }
+    if (b.forma_pagamento !== undefined && FORMAS_PG.includes(b.forma_pagamento)) { sets.push(`forma_pagamento = $${i++}`); params.push(b.forma_pagamento); }
+    if (b.status_pagamento !== undefined && STATUS_PG.includes(b.status_pagamento)) { sets.push(`status_pagamento = $${i++}`); params.push(b.status_pagamento); }
+    if (b.data_venda !== undefined && /^\d{4}-\d{2}-\d{2}$/.test(b.data_venda)) { sets.push(`data_venda = $${i++}`); params.push(b.data_venda); }
+    if (b.servico !== undefined) { sets.push(`servico = $${i++}`); params.push(String(b.servico).slice(0, 120)); }
+    if (b.cliente_nome !== undefined) { sets.push(`cliente_nome = $${i++}`); params.push(String(b.cliente_nome).slice(0, 80)); }
+    if (!sets.length) return res.status(400).json({ error: 'Nada para atualizar.' });
+    params.push(req.params.id);
+    const { rows: [v] } = await query(`UPDATE vendas SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${i} RETURNING *`, params);
+    if (!v) return res.status(404).json({ error: 'Venda não encontrada' });
+    socketEmit('venda_registrada', { id: v.id, setor: v.setor, valor: v.valor, editada: true });
+    res.json(v);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // CAIXA — define o valor de repasse (ex.: pago à vacinadora/profissional). Só gestão.
 r.patch('/vendas/:id/repasse', async (req, res) => {
   try {

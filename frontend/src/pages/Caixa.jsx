@@ -176,6 +176,17 @@ export default function Caixa() {
     } catch (e) { setErro(e.message); }
     setSalvandoDesp(false);
   };
+  // Edição inline do VALOR da venda (gestão) — clica no valor, edita, Enter salva
+  const [editValor, setEditValor] = useState(null); // { id, valor }
+  const salvarValor = async () => {
+    if (!editValor) return;
+    const { id } = editValor;
+    const val = Math.max(0, parseFloat(String(editValor.valor).replace(/\./g, '').replace(',', '.')) || 0);
+    setEditValor(null);
+    setLista(p => p.map(x => x.id === id ? { ...x, valor: val } : x));
+    try { await api.patch(`/extras/vendas/${id}`, { valor: val }); load(); }
+    catch (err) { setErro(err.message || 'Falha ao salvar o valor.'); load(); }
+  };
   const excluirDespesa = async (d) => {
     if (!window.confirm(`Remover "${d.descricao}"?`)) return;
     setDespesas(p => p.filter(x => x.id !== d.id)); setDespTotal(t => t - (parseFloat(d.valor) || 0));
@@ -653,8 +664,22 @@ export default function Caixa() {
                       {v.servico || v.categoria}{v.forma_pagamento ? ` · ${v.forma_pagamento}` : ''} · {fmtData(v.data_venda)}{v.atendente_nome ? ` · ${v.atendente_nome.split(' ')[0]}` : ''}
                     </div>
                   </div>
-                  <div style={{ textAlign: 'right', minWidth: 96 }}>
-                    <div style={{ fontSize: 16.5, fontWeight: 900, color: '#16a34a' }}>{fmt.brl(v.valor)}</div>
+                  <div style={{ textAlign: 'right', minWidth: 110 }}>
+                    {gestao && editValor?.id === v.id ? (
+                      <div style={{ display: 'flex', gap: 4, alignItems: 'center', justifyContent: 'flex-end' }}>
+                        <input autoFocus value={editValor.valor}
+                          onChange={e => setEditValor({ id: v.id, valor: e.target.value })}
+                          onKeyDown={e => { if (e.key === 'Enter') salvarValor(); if (e.key === 'Escape') setEditValor(null); }}
+                          style={{ width: 92, padding: '4px 6px', borderRadius: 7, border: '1.5px solid var(--tq)', fontSize: 13.5, fontWeight: 700, textAlign: 'right' }} />
+                        <button onClick={salvarValor} style={{ background: 'var(--tq)', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', padding: '4px 6px', display: 'flex' }}><Check size={13} /></button>
+                      </div>
+                    ) : (
+                      <div onClick={gestao ? () => setEditValor({ id: v.id, valor: String(parseFloat(v.valor) || 0).replace('.', ',') }) : undefined}
+                        title={gestao ? 'Clique para editar o valor da venda' : undefined}
+                        style={{ fontSize: 16.5, fontWeight: 900, color: '#16a34a', cursor: gestao ? 'pointer' : 'default', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        {fmt.brl(v.valor)}{gestao && <Pencil size={11} style={{ opacity: .45 }} />}
+                      </div>
+                    )}
                     {parseFloat(v.desconto) > 0 && <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>desc. {fmt.brl(v.desconto)}</div>}
                   </div>
                   {ARECEBER_ST.includes(v.status_pagamento) && podeAnexar(v) && (
