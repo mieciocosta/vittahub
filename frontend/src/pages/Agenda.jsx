@@ -10,7 +10,9 @@ const ICONES = { vacinas: '💉', consultas: '🩺', terapias: '🧩' };
 const COR_BOLHA = ['#e0f4f5', '#ede4f7', '#fdeede', '#fde4ee', '#e4f0fd'];
 const ST_CLR = { Agendado: ['#e8f4fd', '#1d6fb8'], Confirmado: ['#e2f8ef', '#0a8f5b'], Realizado: ['#eef2f6', '#5a6b7b'], Cancelado: ['#fdecec', '#c0392b'], Reagendado: ['#fdf3e2', '#a07514'] };
 
-const hojeISO = () => new Date().toISOString().slice(0, 10);
+// "Hoje" no fuso LOCAL (São Luís) — toISOString() usa UTC e, a partir das 21h,
+// pulava pro dia seguinte, fazendo os agendamentos do dia "desaparecerem".
+const hojeISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
 export default function Agenda() {
   const navigate = useNavigate();

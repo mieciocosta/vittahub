@@ -21,7 +21,8 @@ const AG_STATUS = ['Agendado', 'Confirmado', 'Realizado', 'Cancelado', 'Reagenda
 
 r.get('/agenda', async (req, res) => {
   try {
-    const data = /^\d{4}-\d{2}-\d{2}$/.test(req.query.data || '') ? req.query.data : new Date().toISOString().slice(0, 10);
+    // Dia padrão no fuso de São Luís (UTC-3) — toISOString puro virava 'amanhã' após as 21h
+    const data = /^\d{4}-\d{2}-\d{2}$/.test(req.query.data || '') ? req.query.data : new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
     const { rows } = await query(`
       SELECT a.*, u.nome resp_nome, u.avatar resp_avatar, u.cor resp_cor
       FROM agenda_eventos a LEFT JOIN usuarios u ON u.id = a.responsavel_id
