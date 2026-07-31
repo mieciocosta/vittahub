@@ -135,7 +135,8 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
   // de um usuário pro outro sem "voltar" antes.
   const [trocaOpen, setTrocaOpen] = useState(false);
   const [trocaUsers, setTrocaUsers] = useState([]);
-  const podeTrocar = isMaster || !!localStorage.getItem('vh_token_master');
+  const ehDono = /mi[eé]cio/i.test(`${user?.nome || ''} ${user?.email || ''}`);
+  const podeTrocar = (isMaster && ehDono) || !!localStorage.getItem('vh_token_master');
   const tokenMaster = () => localStorage.getItem('vh_token_master') || localStorage.getItem('vh_token') || '';
   const abrirTroca = async () => {
     if (trocaOpen) return setTrocaOpen(false);

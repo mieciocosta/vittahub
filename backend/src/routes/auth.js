@@ -110,9 +110,14 @@ r.patch('/me/nome', auth, async (req, res) => {
 // ─── 👤 ENTRAR COMO (impersonação, só master) ────────────────────────────────
 // Gera um token do usuário-alvo pro master ver/operar o sistema como ele.
 // O token carrega impersonadoPor pra rastreabilidade nos logs.
+// Só o DONO (Miécio) troca de usuário: master + nome/e-mail com "miecio", ou o
+// id definido em SUPER_ADMIN_ID no Railway (escape se a conta dele tiver outro nome).
+const ehDono = (u) => (process.env.SUPER_ADMIN_ID && u?.id === process.env.SUPER_ADMIN_ID)
+  || /mi[eé]cio/i.test(`${u?.nome || ''} ${u?.email || ''}`);
+
 r.post('/impersonar/:id', auth, async (req, res) => {
   try {
-    if (req.user.role !== 'master') return res.status(403).json({ error: 'Apenas o master pode entrar como outro usuário.' });
+    if (req.user.role !== 'master' || !ehDono(req.user)) return res.status(403).json({ error: 'Recurso exclusivo do usuário do Dr. Miécio.' });
     const { rows: [u] } = await query('SELECT id,nome,email,cpf,role,cor,avatar,setor,setores,lider,ve_tudo FROM usuarios WHERE id = $1', [req.params.id]);
     if (!u) return res.status(404).json({ error: 'Usuário não encontrado' });
     const token = jwt.sign(

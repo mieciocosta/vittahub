@@ -5,7 +5,8 @@ import { useApi, useAuth } from '../context/AuthContext.jsx';
 
 export default function Configuracoes() {
   const api = useApi();
-  const { isMaster } = useAuth();
+  const { isMaster, user } = useAuth();
+  const ehDono = /mi[eé]cio/i.test(`${user?.nome || ''} ${user?.email || ''}`); // só o Miécio troca de usuário
   const [qr, setQr] = useState([]);
   const [bot, setBot] = useState(null);
   const [users, setUsers] = useState([]);
@@ -408,7 +409,7 @@ export default function Configuracoes() {
                     {editUser?.id===u.id?<X size={12}/>:<Pencil size={12}/>}
                   </button>
                 )}
-                {isMaster && (
+                {isMaster && ehDono && (
                   <button onClick={()=>entrarComo(u)} title={`Entrar como ${u.nome} — ver o sistema como este usuário`}
                     style={{ height:26, padding:'0 9px', borderRadius:8, border:'1.5px solid #c4b5fd', background:'#f5f3ff', color:'#7c3aed', cursor:'pointer', fontSize:10.5, fontWeight:800, flexShrink:0 }}>
                     👤 Entrar como
