@@ -176,6 +176,33 @@ export default function Caixa() {
     } catch (e) { setErro(e.message); }
     setSalvandoDesp(false);
   };
+  // ✏️ Edição COMPLETA da venda (gestão): modal com todos os campos salvos
+  const [editVenda, setEditVenda] = useState(null);
+  const abrirEditVenda = (v) => setEditVenda({
+    id: v.id, cliente_nome: v.cliente_nome || '', paciente_nome: v.paciente_nome || '',
+    servico: v.servico || '', setor: v.setor || 'vacinas',
+    valor: String(parseFloat(v.valor) || 0).replace('.', ','), desconto: String(parseFloat(v.desconto) || 0).replace('.', ','),
+    forma_pagamento: v.forma_pagamento || '', status_pagamento: v.status_pagamento || 'pago',
+    data_venda: v.data_venda ? String(v.data_venda).slice(0, 10) : '', observacao: v.observacao || '',
+  });
+  const [editVendaSaving, setEditVendaSaving] = useState(false);
+  const salvarEditVenda = async () => {
+    if (!editVenda) return;
+    setEditVendaSaving(true);
+    const numBR = (x) => Math.max(0, parseFloat(String(x).replace(/\./g, '').replace(',', '.')) || 0);
+    const body = {
+      cliente_nome: editVenda.cliente_nome, paciente_nome: editVenda.paciente_nome,
+      servico: editVenda.servico, setor: editVenda.setor,
+      valor: numBR(editVenda.valor), desconto: numBR(editVenda.desconto),
+      status_pagamento: editVenda.status_pagamento, observacao: editVenda.observacao,
+    };
+    if (editVenda.forma_pagamento) body.forma_pagamento = editVenda.forma_pagamento;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(editVenda.data_venda)) body.data_venda = editVenda.data_venda;
+    try { await api.patch(`/extras/vendas/${editVenda.id}`, body); setEditVenda(null); load(); }
+    catch (err) { window.alert('Erro ao salvar: ' + (err.message || 'falha')); }
+    setEditVendaSaving(false);
+  };
+
   // Edição inline do VALOR da venda (gestão) — clica no valor, edita, Enter salva
   const [editValor, setEditValor] = useState(null); // { id, valor }
   const salvarValor = async () => {
@@ -725,6 +752,12 @@ export default function Caixa() {
                       <span style={{ fontSize: 11.5, color: 'var(--light)', fontWeight: 600 }}>sem comprovante</span>
                     )}
                   </div>
+                  {gestao && (
+                    <button onClick={() => abrirEditVenda(v)} title="Editar todas as informações da venda"
+                      style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'var(--tq3)', color: 'var(--tq2, #0e7490)', border: 'none', borderRadius: 8, padding: '6px 10px', cursor: 'pointer', fontWeight: 700, fontSize: 11.5 }}>
+                      <Pencil size={13} /> Editar
+                    </button>
+                  )}
                   <button onClick={() => excluirVenda(v)} title="Excluir venda"
                     style={{ display: 'flex', alignItems: 'center', gap: 5, background: '#fdecec', color: '#dc2626', border: 'none', borderRadius: 8, padding: '6px 10px', cursor: 'pointer', fontWeight: 700, fontSize: 11.5 }}>
                     <Trash2 size={14} /> Excluir
@@ -736,6 +769,53 @@ export default function Caixa() {
         </div>
       )}
       </>
+      )}
+
+      {/* ✏️ Modal: editar venda completa */}
+      {editVenda && (
+        <div onClick={() => setEditVenda(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
+          <div onClick={e => e.stopPropagation()} className="card" style={{ width: 480, maxWidth: '100%', padding: 22, maxHeight: '92vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <h3 style={{ fontSize: 16, fontWeight: 800 }}>✏️ Editar venda</h3>
+              <button onClick={() => setEditVenda(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={16} /></button>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div className="field" style={{ gridColumn: '1 / -1' }}><label>Cliente</label>
+                <input value={editVenda.cliente_nome} onChange={e => setEditVenda({ ...editVenda, cliente_nome: e.target.value })} /></div>
+              <div className="field"><label>Paciente</label>
+                <input value={editVenda.paciente_nome} onChange={e => setEditVenda({ ...editVenda, paciente_nome: e.target.value })} /></div>
+              <div className="field"><label>Setor</label>
+                <select value={editVenda.setor} onChange={e => setEditVenda({ ...editVenda, setor: e.target.value })}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 9, border: '1.5px solid var(--border)', background: 'var(--card)', color: 'var(--txt)' }}>
+                  {[['vacinas', '💉 Vacinas'], ['consultas', '🩺 Consultas'], ['terapias', '🧩 Terapias']].map(([v2, l]) => <option key={v2} value={v2}>{l}</option>)}
+                </select></div>
+              <div className="field" style={{ gridColumn: '1 / -1' }}><label>Serviço</label>
+                <input value={editVenda.servico} onChange={e => setEditVenda({ ...editVenda, servico: e.target.value })} /></div>
+              <div className="field"><label>Valor (R$)</label>
+                <input value={editVenda.valor} onChange={e => setEditVenda({ ...editVenda, valor: e.target.value })} /></div>
+              <div className="field"><label>Desconto (R$)</label>
+                <input value={editVenda.desconto} onChange={e => setEditVenda({ ...editVenda, desconto: e.target.value })} /></div>
+              <div className="field"><label>Forma de pagamento</label>
+                <select value={editVenda.forma_pagamento} onChange={e => setEditVenda({ ...editVenda, forma_pagamento: e.target.value })}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 9, border: '1.5px solid var(--border)', background: 'var(--card)', color: 'var(--txt)' }}>
+                  <option value="">—</option>
+                  {['Pix', 'Cartão', 'Dinheiro', 'Link de pagamento', 'Parcelado', 'Cortesia'].map(f => <option key={f} value={f}>{f}</option>)}
+                </select></div>
+              <div className="field"><label>Status</label>
+                <select value={editVenda.status_pagamento} onChange={e => setEditVenda({ ...editVenda, status_pagamento: e.target.value })}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 9, border: '1.5px solid var(--border)', background: 'var(--card)', color: 'var(--txt)' }}>
+                  {[['pago', 'Pago'], ['sinal', 'Sinal'], ['aguardando', 'Aguardando'], ['parcelado', 'Parcelado'], ['cortesia', 'Cortesia'], ['pendente', 'Pendente']].map(([v2, l]) => <option key={v2} value={v2}>{l}</option>)}
+                </select></div>
+              <div className="field"><label>Data da venda</label>
+                <input type="date" value={editVenda.data_venda} onChange={e => setEditVenda({ ...editVenda, data_venda: e.target.value })} /></div>
+              <div className="field" style={{ gridColumn: '1 / -1' }}><label>Observação</label>
+                <textarea rows={2} value={editVenda.observacao} onChange={e => setEditVenda({ ...editVenda, observacao: e.target.value })} style={{ resize: 'vertical' }} /></div>
+            </div>
+            <button onClick={salvarEditVenda} disabled={editVendaSaving} className="btn btn-p" style={{ width: '100%', marginTop: 12, fontWeight: 800 }}>
+              {editVendaSaving ? '…' : '💾 Salvar alterações'}
+            </button>
+          </div>
+        </div>
       )}
 
       {/* Análise da IA */}

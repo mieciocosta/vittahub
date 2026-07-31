@@ -893,6 +893,10 @@ r.patch('/vendas/:id', async (req, res) => {
     if (b.data_venda !== undefined && /^\d{4}-\d{2}-\d{2}$/.test(b.data_venda)) { sets.push(`data_venda = $${i++}`); params.push(b.data_venda); }
     if (b.servico !== undefined) { sets.push(`servico = $${i++}`); params.push(String(b.servico).slice(0, 120)); }
     if (b.cliente_nome !== undefined) { sets.push(`cliente_nome = $${i++}`); params.push(String(b.cliente_nome).slice(0, 80)); }
+    if (b.paciente_nome !== undefined) { sets.push(`paciente_nome = $${i++}`); params.push(String(b.paciente_nome).slice(0, 80)); }
+    if (b.setor !== undefined && ['vacinas', 'consultas', 'terapias'].includes(b.setor)) { sets.push(`setor = $${i++}`); params.push(b.setor); }
+    if (b.categoria !== undefined) { sets.push(`categoria = $${i++}`); params.push(String(b.categoria).slice(0, 60)); }
+    if (b.observacao !== undefined) { sets.push(`observacao = $${i++}`); params.push(String(b.observacao).slice(0, 300)); }
     if (!sets.length) return res.status(400).json({ error: 'Nada para atualizar.' });
     params.push(req.params.id);
     const { rows: [v] } = await query(`UPDATE vendas SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${i} RETURNING *`, params);
