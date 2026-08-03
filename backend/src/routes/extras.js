@@ -17,7 +17,22 @@ const gestao = (req) => ['master', 'supervisor'].includes(req.user.role);
 const erroIA = () => 'IA inativa';
 
 /* ═══ AGENDA ═════════════════════════════════════════════════════════════════ */
-const AG_STATUS = ['Agendado', 'Confirmado', 'Realizado', 'Cancelado', 'Reagendado'];
+const AG_STATUS = ['Agendado', 'Confirmado', 'Realizado', 'Cancelado', 'Reagendado', 'Faltou'];
+
+// Acha a conversa do WhatsApp de um evento da agenda: pelo vínculo direto ou
+// pelos 8 últimos dígitos do telefone (como o cliente costuma estar salvo).
+async function convDoEvento(ev) {
+  if (ev?.conversa_id) {
+    const { rows: [c] } = await query('SELECT id FROM conversas WHERE id = $1', [ev.conversa_id]).catch(() => ({ rows: [] }));
+    if (c) return c.id;
+  }
+  const tel = String(ev?.telefone || '').replace(/\D/g, '');
+  if (tel.length < 8) return null;
+  const { rows: [c] } = await query(
+    `SELECT id FROM conversas WHERE RIGHT(regexp_replace(COALESCE(phone,''), '\\D', '', 'g'), 8) = $1
+     ORDER BY last_message_at DESC NULLS LAST LIMIT 1`, [tel.slice(-8)]).catch(() => ({ rows: [] }));
+  return c?.id || null;
+}
 
 r.get('/agenda', async (req, res) => {
   try {
@@ -157,10 +172,31 @@ r.put('/agenda/:id', async (req, res) => {
     if (b.forma_pagamento !== undefined) set('forma_pagamento', ['À vista', 'Pix', 'Débito', 'Crédito'].includes(b.forma_pagamento) ? b.forma_pagamento : null);
     if (b.parcelas !== undefined || b.forma_pagamento !== undefined) set('parcelas', b.forma_pagamento === 'Crédito' && b.parcelas ? Math.max(1, Math.min(parseInt(b.parcelas) || 1, 12)) : null);
     if (!sets.length) return res.status(400).json({ error: 'Nada para atualizar' });
+    // Pro resgate de faltosos: precisa saber o status ANTERIOR (só dispara na virada)
+    const { rows: [antes] } = b.status === 'Faltou'
+      ? await query('SELECT status FROM agenda_eventos WHERE id = $1', [req.params.id]).catch(() => ({ rows: [] }))
+      : { rows: [] };
     params.push(req.params.id);
     const { rows: [ev] } = await query(`UPDATE agenda_eventos SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${i} RETURNING *`, params);
     if (!ev) return res.status(404).json({ error: 'Evento não encontrado' });
     socketEmit('agenda_update', { id: ev.id });
+    // ── 🔄 RESGATE DE FALTOSO: marcou "Faltou" → 1h depois a Vitta chama pra
+    // remarcar (dentro do horário comercial). Só na transição, nunca repetido.
+    try {
+      if (b.status === 'Faltou' && antes && antes.status !== 'Faltou') {
+        const convId = await convDoEvento(ev);
+        if (convId) {
+          const quando = new Date(Date.now() + 60 * 60000);
+          const hSLZ = (quando.getUTCHours() - 3 + 24) % 24;
+          if (hSLZ < 9) quando.setUTCHours(12, 30, 0, 0);                                     // manhã seguinte 9h30 SLZ
+          else if (hSLZ >= 18) { quando.setUTCDate(quando.getUTCDate() + 1); quando.setUTCHours(12, 30, 0, 0); }
+          const nome = String(ev.paciente || '').split(' ')[0];
+          const txt = `Oi${nome ? `! Aqui é da Vittalis 💙 Sobre o horário de ${nome}` : '! Aqui é da Vittalis 💙 Sobre o seu horário'} de hoje: sentimos a falta de vocês! Sabemos que imprevistos acontecem 😊 Quer remarcar? Me diz o melhor dia e horário que eu já deixo reservado.`;
+          await query(`INSERT INTO mensagens_agendadas (conversa_id, texto, enviar_em, criado_por) VALUES ($1, $2, $3, 'Vitta · Resgate de faltoso')`,
+            [convId, txt, quando.toISOString()]);
+        }
+      }
+    } catch (e) { console.error('Resgate faltoso erro (status salvo normalmente):', e.message); }
     res.json(ev);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -255,6 +291,18 @@ r.post('/vendas', async (req, res) => {
         const txt = `Oi${nomeCli ? `, ${String(nomeCli).split(' ')[0]}` : ''}! 💙 Passando pra saber como foi a experiência de vocês com a gente — sua opinião vale ouro pra nossa equipe! E se você conhecer outra mamãe que cuida do calendário de proteção do bebê, indica a Vittalis 😊 Temos mimos especiais no nosso programa de indicações!`;
         await query(`INSERT INTO mensagens_agendadas (conversa_id, texto, enviar_em, criado_por) VALUES ($1, $2, $3, 'Vitta · Pós-venda')`,
           [v.conversa_id, txt, qd.toISOString()]);
+
+        // ── ⭐ AVALIAÇÃO NO GOOGLE: 4 dias depois da venda, pede a avaliação com
+        // o link direto. Só dispara se o link estiver configurado (Configurações).
+        const { rows: [gr] } = await query("SELECT valor FROM configuracoes WHERE chave = 'google_review'").catch(() => ({ rows: [] }));
+        const urlReview = gr?.valor?.url;
+        if (urlReview && /^https?:\/\//i.test(urlReview)) {
+          const qd2 = new Date(Date.now() + 4 * 86400000);
+          qd2.setUTCHours(17, 30, 0, 0); // 14h30 em São Luís
+          const txt2 = `Oi${nomeCli ? `, ${String(nomeCli).split(' ')[0]}` : ''}! 💙 Que alegria cuidar da proteção da sua família! Se a experiência com a Vittalis foi boa, você nos ajudaria MUITO deixando uma avaliação no Google — leva 1 minutinho: ${urlReview} ⭐ Obrigada!`;
+          await query(`INSERT INTO mensagens_agendadas (conversa_id, texto, enviar_em, criado_por) VALUES ($1, $2, $3, 'Vitta · Avaliação Google')`,
+            [v.conversa_id, txt2, qd2.toISOString()]);
+        }
       }
     } catch (e) { console.error('PÓS-VENDA erro (venda salva normalmente):', e.message); }
 
@@ -1613,6 +1661,24 @@ r.delete('/ligacoes/:id', async (req, res) => {
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* ═══ ⭐ LINK DE AVALIAÇÃO NO GOOGLE (pós-venda automático) ═══════════════════ */
+r.get('/config-review', async (req, res) => {
+  try {
+    const { rows: [gr] } = await query("SELECT valor FROM configuracoes WHERE chave = 'google_review'");
+    res.json({ url: gr?.valor?.url || '' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+r.put('/config-review', async (req, res) => {
+  try {
+    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão altera o link de avaliação.' });
+    const url = String(req.body?.url || '').trim().slice(0, 300);
+    if (url && !/^https?:\/\//i.test(url)) return res.status(400).json({ error: 'Informe um link válido (https://…) ou deixe vazio para desativar.' });
+    await query(`INSERT INTO configuracoes (chave, valor) VALUES ('google_review', $1::jsonb)
+                 ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`, [JSON.stringify({ url })]);
+    res.json({ ok: true, url });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 export default r;
 
 
@@ -1630,22 +1696,109 @@ async function relatorioSemanal() {
     await query(`INSERT INTO configuracoes (chave, valor) VALUES ('relatorio_semanal', $1::jsonb)
                  ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`, [JSON.stringify({ ultima: chave })]);
 
-    const [vendasQ, topQ, leadsQ, vittaQ] = await Promise.all([
+    const [vendasQ, topQ, leadsQ, vittaQ, perdasQ] = await Promise.all([
       query(`SELECT COALESCE(setor,'vacinas') s, COUNT(*)::int n, COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float v
              FROM vendas WHERE data_venda >= CURRENT_DATE - 7 GROUP BY 1`),
       query(`SELECT COALESCE(atendente_nome,'—') nome, COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float v
              FROM vendas WHERE data_venda >= CURRENT_DATE - 7 GROUP BY 1 ORDER BY v DESC LIMIT 1`),
       query(`SELECT COUNT(*)::int n FROM conversas WHERE created_at >= NOW() - interval '7 days'`),
       query(`SELECT COUNT(*)::int n FROM mensagens WHERE from_type = 'bot' AND created_at >= NOW() - interval '7 days'`),
+      query(`SELECT motivo, COUNT(*)::int n, COALESCE(SUM(valor_potencial),0)::float v FROM perdas
+             WHERE created_at >= NOW() - interval '7 days' GROUP BY 1 ORDER BY n DESC LIMIT 3`).catch(() => ({ rows: [] })),
     ]);
     const porSetor = vendasQ.rows.map(r2 => `${r2.s}: ${r2.n} venda(s) · R$ ${Number(r2.v).toLocaleString('pt-BR')}`).join(' | ') || 'nenhuma venda';
     const totalV = vendasQ.rows.reduce((sum, r2) => sum + Number(r2.v || 0), 0);
     const top = topQ.rows[0];
+
+    // 🧠 Raio-X das objeções: a IA transforma os motivos de perda da semana em
+    // UMA dica prática de treino. Se a IA falhar, sai só a contagem (nunca trava).
+    let objecoes = '';
+    if (perdasQ.rows.length) {
+      const resumoPerdas = perdasQ.rows.map(p => `"${p.motivo}" (${p.n}x${p.v > 0 ? `, R$ ${Number(p.v).toLocaleString('pt-BR')} perdidos` : ''})`).join('; ');
+      objecoes = ` ⚠️ Perdas da semana: ${resumoPerdas}.`;
+      if (temIA()) {
+        try {
+          const d = await openaiMessages({
+            model: 'gpt-4o-mini', max_tokens: 300,
+            system: 'Você é um treinador de vendas de uma clínica pediátrica/vacinação (Vittalis Saúde). Responda em português do Brasil, em NO MÁXIMO 2 frases curtas, práticas e acionáveis, sem enrolação.',
+            messages: [{ role: 'user', content: `Motivos das vendas perdidas nesta semana: ${resumoPerdas}. Dê UMA dica prática pra equipe reverter o motivo mais frequente na próxima semana.` }],
+          });
+          const dica = (d.content || []).filter(b => b.type === 'text').map(b => b.text).join(' ').trim();
+          if (dica && !d.error) objecoes += ` 🧠 Dica da semana: ${dica}`;
+        } catch { /* segue sem a dica */ }
+      }
+    }
+
     const texto = `Semana: R$ ${totalV.toLocaleString('pt-BR')} confirmados (${porSetor}). ` +
       `${top && top.v > 0 ? `🏅 Destaque: ${top.nome} (R$ ${Number(top.v).toLocaleString('pt-BR')}). ` : ''}` +
-      `Leads novos: ${leadsQ.rows[0]?.n ?? 0}. Mensagens da Vitta: ${vittaQ.rows[0]?.n ?? 0}.`;
-    await query(`INSERT INTO notificacoes (tipo, titulo, texto) VALUES ('novo_lead', '📊 Relatório semanal de vendas', $1)`, [texto.slice(0, 500)]);
+      `Leads novos: ${leadsQ.rows[0]?.n ?? 0}. Mensagens da Vitta: ${vittaQ.rows[0]?.n ?? 0}.${objecoes}`;
+    await query(`INSERT INTO notificacoes (tipo, titulo, texto) VALUES ('novo_lead', '📊 Relatório semanal de vendas', $1)`, [texto.slice(0, 900)]);
     console.log('📊 Relatório semanal publicado:', texto);
   } catch (e) { console.error('Relatório semanal erro:', e.message); }
 }
 setInterval(relatorioSemanal, 20 * 60 * 1000);
+
+// ─── 📅 CONFIRMAÇÃO DE AGENDAMENTO (véspera) ─────────────────────────────────
+// Todo dia às ~17h de São Luís (20h UTC), manda WhatsApp confirmando os horários
+// de AMANHÃ (status Agendado/Confirmado). Dedup por evento (confirmacao_enviada).
+async function confirmacaoVespera() {
+  try {
+    if (new Date().getUTCHours() !== 20) return;
+    const amanha = new Date(Date.now() - 3 * 3600 * 1000 + 86400000).toISOString().slice(0, 10); // amanhã no fuso SLZ
+    const { rows: eventos } = await query(`
+      SELECT * FROM agenda_eventos
+      WHERE data = $1 AND status IN ('Agendado','Confirmado')
+        AND COALESCE(confirmacao_enviada, false) = false
+      ORDER BY hora LIMIT 60`, [amanha]);
+    let n = 0;
+    for (const ev of eventos) {
+      // Marca ANTES de enviar: mesmo sem conversa, não fica re-tentando pra sempre
+      await query('UPDATE agenda_eventos SET confirmacao_enviada = true WHERE id = $1', [ev.id]).catch(() => {});
+      const convId = await convDoEvento(ev);
+      if (!convId) continue;
+      const nome = String(ev.paciente || '').split(' ')[0];
+      const serv = ev.servico ? ` (${ev.servico})` : '';
+      const prof = ev.profissional ? ` com ${ev.profissional}` : '';
+      const txt = `Oi! 💙 Aqui é da Vittalis Saúde. Passando pra confirmar o horário${nome ? ` de ${nome}` : ''} AMANHÃ às ${ev.hora}${serv}${prof}. Podemos confirmar presença? Se precisar remarcar, é só me avisar por aqui 😊`;
+      await query(`INSERT INTO mensagens_agendadas (conversa_id, texto, enviar_em, criado_por) VALUES ($1, $2, NOW(), 'Vitta · Confirmação de agenda')`,
+        [convId, txt]).catch(() => {});
+      n++;
+    }
+    if (n) console.log(`📅 Confirmação de véspera: ${n} mensagem(ns) para ${amanha}`);
+  } catch (e) { console.error('Confirmação véspera erro:', e.message); }
+}
+setInterval(confirmacaoVespera, 20 * 60 * 1000);
+
+// ─── 💰 RESGATE DE ORÇAMENTO SEM RESPOSTA ────────────────────────────────────
+// Proposta (PDF) enviada há 24-48h e o cliente não respondeu nada desde então →
+// a Vitta dá um toque gentil. Roda em horário comercial; nunca repete na semana.
+async function resgateProposta() {
+  try {
+    const hSLZ = (new Date().getUTCHours() - 3 + 24) % 24;
+    if (hSLZ < 9 || hSLZ >= 17) return;
+    const { rows: alvos } = await query(`
+      SELECT m.conversa_id, MAX(m.created_at) AS proposta_em, c.contact_name
+      FROM mensagens m
+      JOIN conversas c ON c.id = m.conversa_id
+      WHERE m.filename LIKE 'Proposta-%' AND m.from_type IN ('me', 'bot')
+        AND m.created_at BETWEEN NOW() - interval '48 hours' AND NOW() - interval '24 hours'
+        AND COALESCE(c.perdido, false) = false
+        AND NOT EXISTS (SELECT 1 FROM mensagens m2 WHERE m2.conversa_id = m.conversa_id
+                          AND m2.from_type = 'contact' AND m2.created_at > m.created_at)
+        AND NOT EXISTS (SELECT 1 FROM mensagens_agendadas ma WHERE ma.conversa_id = m.conversa_id
+                          AND ma.criado_por = 'Vitta · Resgate de orçamento'
+                          AND ma.created_at > NOW() - interval '7 days')
+      GROUP BY m.conversa_id, c.contact_name LIMIT 20`);
+    let n = 0;
+    for (const a of alvos) {
+      const nome = String(a.contact_name || '').split(' ')[0];
+      const txt = `Oi${nome && !/^\d+$/.test(nome) ? `, ${nome}` : ''}! 💙 Conseguiu dar uma olhadinha na proposta que te enviei? Qualquer dúvida sobre valores, parcelamento ou o calendário de proteção, é só me chamar — e se quiser, já deixo seu horário reservado 😊`;
+      await query(`INSERT INTO mensagens_agendadas (conversa_id, texto, enviar_em, criado_por)
+                   VALUES ($1, $2, NOW() + ($3 || ' minutes')::interval, 'Vitta · Resgate de orçamento')`,
+        [a.conversa_id, txt, String(n * 3)]).catch(() => {});
+      n++;
+    }
+    if (n) console.log(`💰 Resgate de orçamento: ${n} cliente(s) tocados`);
+  } catch (e) { console.error('Resgate de orçamento erro:', e.message); }
+}
+setInterval(resgateProposta, 30 * 60 * 1000);

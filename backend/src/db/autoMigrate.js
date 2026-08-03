@@ -514,6 +514,8 @@ export default async function runMigrate() {
     await query(`ALTER TABLE agenda_eventos ADD COLUMN IF NOT EXISTS forma_pagamento TEXT`).catch(() => {});
     await query(`ALTER TABLE agenda_eventos ADD COLUMN IF NOT EXISTS parcelas INT`).catch(() => {});
     await query(`ALTER TABLE agenda_eventos ADD COLUMN IF NOT EXISTS conversa_id TEXT`).catch(() => {});
+    // Confirmação automática de véspera (não reenviar pro mesmo evento)
+    await query(`ALTER TABLE agenda_eventos ADD COLUMN IF NOT EXISTS confirmacao_enviada BOOLEAN DEFAULT false`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS idx_agenda_conversa ON agenda_eventos (conversa_id)`).catch(() => {});
     // CURSOS / treinamento da equipe (links, vídeos, materiais).
     await query(`CREATE TABLE IF NOT EXISTS cursos (

@@ -8,7 +8,7 @@ import { fmt } from '../hooks/utils.js';
 
 const ICONES = { vacinas: '💉', consultas: '🩺', terapias: '🧩' };
 const COR_BOLHA = ['#e0f4f5', '#ede4f7', '#fdeede', '#fde4ee', '#e4f0fd'];
-const ST_CLR = { Agendado: ['#e8f4fd', '#1d6fb8'], Confirmado: ['#e2f8ef', '#0a8f5b'], Realizado: ['#eef2f6', '#5a6b7b'], Cancelado: ['#fdecec', '#c0392b'], Reagendado: ['#fdf3e2', '#a07514'] };
+const ST_CLR = { Agendado: ['#e8f4fd', '#1d6fb8'], Confirmado: ['#e2f8ef', '#0a8f5b'], Realizado: ['#eef2f6', '#5a6b7b'], Cancelado: ['#fdecec', '#c0392b'], Reagendado: ['#fdf3e2', '#a07514'], Faltou: ['#fdf0e8', '#c2410c'] };
 
 // "Hoje" no fuso LOCAL (São Luís) — toISOString() usa UTC e, a partir das 21h,
 // pulava pro dia seguinte, fazendo os agendamentos do dia "desaparecerem".
@@ -151,6 +151,9 @@ export default function Agenda() {
                   <button onClick={() => mudaStatus(ev, 'Realizado')} title="Marcar como realizado" style={{ ...btnAcao, color: 'var(--tq2)' }}><Check size={13} /></button>
                 )}
                 <button onClick={() => setModal({ ...ev, data: typeof ev.data === 'string' ? ev.data.slice(0, 10) : data })} title="Reagendar / editar" style={btnAcao}><CalendarClock size={13} /></button>
+                {ev.status !== 'Faltou' && ev.status !== 'Realizado' && ev.status !== 'Cancelado' && (
+                  <button onClick={() => mudaStatus(ev, 'Faltou')} title="Marcar falta (a Vitta chama pra remarcar em 1h)" style={{ ...btnAcao, color: '#c2410c', borderColor: '#f6d5c2', background: '#fdf0e8', fontSize: 11, fontWeight: 800 }}>👻</button>
+                )}
                 <button onClick={() => mudaStatus(ev, 'Cancelado')} title="Cancelar" style={{ ...btnAcao, color: 'var(--err)', borderColor: '#f3cccc', background: '#fdf0f0' }}><XIcon size={13} /></button>
                 <button onClick={() => excluir(ev)} title="Excluir" style={{ ...btnAcao, color: 'var(--light)' }}><Trash2 size={13} /></button>
               </div>
@@ -296,6 +299,7 @@ function baixarPDF(eventos, dataISO, rotuloDia) {
     .status.st-Confirmado { background: #e2f8ef; color: #0a8f5b; }
     .status.st-Realizado { background: #eef2f6; color: #5a6b7b; }
     .status.st-Cancelado { background: #fdecec; color: #c0392b; }
+    .status.st-Faltou { background: #fdf0e8; color: #c2410c; }
     .servico { font-size: 11.5px; color: #557; margin: 2px 0 7px; }
     .grade { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
     .bloco { background: #f7fbfc; border: 1px solid #eaf3f4; border-radius: 8px; padding: 6px 9px; min-width: 0; }

@@ -36,6 +36,13 @@ export default function Configuracoes() {
     setFatSaving(false);
   };
   const setFat = (grupo, setor, v) => setMetasFat(p => ({ ...p, [grupo]: { ...(p?.[grupo]||{}), [setor]: v } }));
+  // ⭐ Link de avaliação no Google (pós-venda automático pede a avaliação)
+  const [reviewUrl, setReviewUrl] = useState('');
+  const [reviewSaved, setReviewSaved] = useState(false);
+  const salvarReview = async () => {
+    try { await api.put('/extras/config-review', { url: reviewUrl.trim() }); setReviewSaved(true); setTimeout(()=>setReviewSaved(false), 2000); }
+    catch (e) { window.alert('Erro: ' + e.message); }
+  };
   const [metaSaving, setMetaSaving] = useState(false);
   const [metaSaved, setMetaSaved] = useState(false);
   const [diag, setDiag] = useState(null);        // resultado do diagnóstico do bot
@@ -87,6 +94,7 @@ export default function Configuracoes() {
     api.get('/auth/usuarios').then(setUsers).catch(()=>{});
     api.get('/inbox/exemplos').then(d=>setExemplos(Array.isArray(d)?d:[])).catch(()=>{});
     api.get('/extras/vendas/metas-faturamento').then(setMetasFat).catch(()=>{});
+    api.get('/extras/config-review').then(d=>setReviewUrl(d?.url||'')).catch(()=>{});
     api.get('/extras/agenda/meta').then(d=>{
       const s = d?.setores || {};
       setMetaAg({ vacinas: s.vacinas?.alvo || '', consultas: s.consultas?.alvo || '', terapias: s.terapias?.alvo || '' });
@@ -226,6 +234,13 @@ export default function Configuracoes() {
                   <span style={{ fontSize:11, color:'var(--muted)', display:'block', marginTop:6 }}>Aparecem no placar do topo e no Caixa: "falta R$X p/ mínima · R$Y p/ global", por setor.</span>
                 </div>
               )}
+
+              <div className="field" style={{ background:'var(--bg2,#f8fafc)', padding:'10px 12px', borderRadius:10 }}>
+                <label>⭐ Link de avaliação no Google</label>
+                <input value={reviewUrl} onChange={e=>setReviewUrl(e.target.value)} placeholder="https://g.page/r/… (link 'Avalie-nos' do Google Maps)" />
+                <button onClick={salvarReview} className="btn btn-sm" style={{ fontWeight:700, marginTop:8, width:'100%' }}>{reviewSaved?'✅ Salvo!':'Salvar link'}</button>
+                <span style={{ fontSize:11, color:'var(--muted)', display:'block', marginTop:6 }}>Com o link salvo, 4 dias após cada venda a Vitta pede a avaliação no Google automaticamente. Vazio = desativado.</span>
+              </div>
 
               <button onClick={saveBot} disabled={saving} className="btn btn-p" style={{ width:'100%' }}>
                 {saving?<span className="spin" style={{width:14,height:14}}/>:saved?'✅ Salvo!':'💾 Salvar configurações'}
