@@ -866,6 +866,70 @@ r.get('/amigo/conversa/:usuarioId', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* ═══ 📖 DEVOCIONAL DO DIA — tema curado (estilo devocional diário), um por dia,
+   IGUAL para toda a equipe. Gera uma vez, guarda em configuracoes e serve do
+   cache o dia inteiro. Os temas rodam pelo dia do ano. ═══════════════════════ */
+const TEMAS_DEVOCIONAIS = [
+  ['Deus cuida de você', '1 Pedro 5:7'], ['Confie no tempo de Deus', 'Eclesiastes 3:11'],
+  ['Um novo começo', 'Isaías 43:18-19'], ['Renovando as forças', 'Isaías 40:29-31'],
+  ['A paz que excede todo entendimento', 'Filipenses 4:6-7'], ['Gratidão em todo tempo', '1 Tessalonicenses 5:16-18'],
+  ['Deus no controle', 'Romanos 8:28'], ['Coragem para recomeçar', 'Josué 1:9'],
+  ['O poder da oração', 'Tiago 5:16'], ['Fé que move montanhas', 'Mateus 17:20'],
+  ['Descanse no Senhor', 'Mateus 11:28-30'], ['O amor que transforma', '1 Coríntios 13:4-7'],
+  ['Sabedoria para decidir', 'Tiago 1:5'], ['Vencendo a ansiedade', 'Filipenses 4:6'],
+  ['Deus é o teu refúgio', 'Salmos 46:1'], ['Perseverança na caminhada', 'Gálatas 6:9'],
+  ['A alegria do Senhor é a sua força', 'Neemias 8:10'], ['Palavras que edificam', 'Efésios 4:29'],
+  ['Perdão que liberta', 'Colossenses 3:13'], ['O valor da humildade', 'Provérbios 22:4'],
+  ['Deus vê o seu esforço', 'Hebreus 6:10'], ['Luz para o caminho', 'Salmos 119:105'],
+  ['Provisão no deserto', 'Filipenses 4:19'], ['O bom pastor', 'Salmos 23:1-3'],
+  ['Esperança que não falha', 'Romanos 15:13'], ['Sementes de bondade', 'Gálatas 6:7-8'],
+  ['Força na fraqueza', '2 Coríntios 12:9-10'], ['O propósito de Deus pra você', 'Jeremias 29:11'],
+  ['O poder das palavras', 'Provérbios 18:21'], ['Amizade verdadeira', 'Provérbios 17:17'],
+  ['Deus conhece o seu coração', 'Salmos 139:1-3'], ['Obediência que abençoa', 'Deuteronômio 28:1-2'],
+  ['Não tema o amanhã', 'Mateus 6:34'], ['O segredo do contentamento', 'Filipenses 4:11-13'],
+  ['Família abençoada', 'Josué 24:15'], ['Trabalho como adoração', 'Colossenses 3:23'],
+  ['Generosidade que transborda', '2 Coríntios 9:7'], ['A fidelidade de Deus', 'Lamentações 3:22-23'],
+  ['Vencendo o desânimo', 'Salmos 42:11'], ['O poder do louvor', 'Salmos 34:1'],
+  ['Santidade no dia a dia', '1 Pedro 1:15-16'], ['Deus abre caminhos', 'Isaías 43:16'],
+  ['A armadura de Deus', 'Efésios 6:10-11'], ['Filhos, herança do Senhor', 'Salmos 127:3'],
+  ['Ouvindo a voz de Deus', 'João 10:27'], ['Mais que vencedores', 'Romanos 8:37'],
+  ['O cuidado de Deus nos detalhes', 'Mateus 10:29-31'], ['Paciência que amadurece', 'Tiago 1:2-4'],
+  ['Unidade e comunhão', 'Salmos 133:1'], ['Deus honra os que o honram', '1 Samuel 2:30'],
+  ['Liberdade em Cristo', 'João 8:36'], ['Um coração grato', 'Salmos 103:1-2'],
+  ['Lança as redes: confie e obedeça', 'Lucas 5:4-6'], ['Nas águas profundas, Deus está contigo', 'Isaías 43:2'],
+  ['O amor de Pai', '1 João 3:1'], ['Correndo com propósito', 'Filipenses 3:13-14'],
+  ['Sal da terra, luz do mundo', 'Mateus 5:13-16'], ['A casa sobre a rocha', 'Mateus 7:24-25'],
+  ['Novo a cada manhã', 'Salmos 90:14'], ['O Senhor é a minha força', 'Habacuque 3:19'],
+];
+function temaDeHoje() {
+  const agoraSLZ = new Date(Date.now() - 3 * 3600 * 1000);
+  const dia = Math.floor((agoraSLZ - new Date(Date.UTC(agoraSLZ.getUTCFullYear(), 0, 0))) / 86400000);
+  const [tema, ref] = TEMAS_DEVOCIONAIS[dia % TEMAS_DEVOCIONAIS.length];
+  return { data: agoraSLZ.toISOString().slice(0, 10), tema, ref };
+}
+
+r.get('/amigo/devocional-hoje', async (req, res) => {
+  try {
+    const { data, tema, ref } = temaDeHoje();
+    const { rows: [c] } = await query("SELECT valor FROM configuracoes WHERE chave = 'devocional_dia'").catch(() => ({ rows: [] }));
+    if (c?.valor?.data === data && c.valor.texto) return res.json(c.valor);
+    if (!temIA()) return res.json({ data, tema, ref, texto: `📖 ${tema}\n\nLeia hoje: ${ref}. Medite nessa palavra e leve-a com você durante o dia. 🙏` });
+    const sys = `Você escreve o devocional diário da equipe da Vittalis Saúde (clínica cristã, São Luís-MA), no estilo dos devocionais do Bíblia On: tema bom, texto edificante, linguagem simples e calorosa, português do Brasil. Responda APENAS o devocional, sem preâmbulo.`;
+    const userMsg = `Escreva o devocional de hoje com o tema "${tema}", baseado em ${ref}. Estrutura EXATA:
+📖 *A Palavra* — cite fielmente a passagem ${ref} (texto + referência).
+💡 *Reflexão* — 3 a 5 frases ligando a passagem à vida real (trabalho, família, coração), profundas mas simples, sem clichê.
+✅ *Aplicações de hoje* — 3 atitudes práticas e bem concretas pra viver essa palavra hoje (numeradas).
+🙏 *Oração* — oração curta (2-3 frases) sobre o tema.`;
+    const d = await openaiMessages({ model: 'gpt-4o-mini', max_tokens: 700, system: sys, messages: [{ role: 'user', content: userMsg }] });
+    const texto = ((d.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n')).trim();
+    if (d.error || !texto) return res.json({ data, tema, ref, texto: `📖 ${tema}\n\nLeia hoje: ${ref}. Medite nessa palavra e leve-a com você durante o dia. 🙏` });
+    const valor = { data, tema, ref, texto };
+    await query(`INSERT INTO configuracoes (chave, valor) VALUES ('devocional_dia', $1::jsonb)
+                 ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`, [JSON.stringify(valor)]).catch(() => {});
+    res.json(valor);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.post('/amigo/mensagem', async (req, res) => {
   try {
     const texto = String((req.body || {}).texto || '').trim();
@@ -884,7 +948,7 @@ FORMATO da resposta (use exatamente estas seções, curtas):
 ✅ *Aplicações de hoje* — 2 ou 3 atitudes práticas e concretas pra viver essa palavra HOJE (numeradas). Bem específicas, ex.: "antes de responder aquela conversa difícil, respire e ore 10 segundos".
 🙏 *Oração* — uma oração curtinha (2-3 frases) sobre o tema.
 
-Se ${primeiro} pedir "palavra do dia" sem tema, escolha você um tema pertinente (fé, gratidão, perseverança, amor, descanso, propósito…), variando a cada dia. Se fizer uma pergunta bíblica, responda com fidelidade à Bíblia e simplicidade. Se demonstrar sofrimento intenso ou pensamentos de se machucar: acolha com muito carinho, dê uma palavra de esperança, incentive procurar alguém de confiança e um profissional, e informe o CVV (ligue 188, 24h, gratuito). Use o nome ${primeiro} com naturalidade.`;
+Se ${primeiro} pedir "palavra do dia" sem tema, use o TEMA DE HOJE do devocional da equipe: "${temaDeHoje().tema}" (${temaDeHoje().ref}). Se fizer uma pergunta bíblica, responda com fidelidade à Bíblia e simplicidade. Se demonstrar sofrimento intenso ou pensamentos de se machucar: acolha com muito carinho, dê uma palavra de esperança, incentive procurar alguém de confiança e um profissional, e informe o CVV (ligue 188, 24h, gratuito). Use o nome ${primeiro} com naturalidade.`;
     const d = await openaiMessages({ model: 'gpt-4o-mini', max_tokens: 700, system: sys, messages: mensagens });
     if (d.error) return res.status(400).json({ error: 'Não consegui buscar a palavra agora. Tenta de novo em instantes.' });
     const resposta = ((d.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n')).trim() || 'Estou aqui. Me diz que palavra você precisa hoje? 🙏';

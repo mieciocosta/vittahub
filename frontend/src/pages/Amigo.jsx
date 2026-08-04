@@ -22,8 +22,16 @@ export default function Amigo() {
   const fimRef = useRef(null);
   const inputRef = useRef(null);
 
+  // 🌅 Devocional do dia — tema curado, o MESMO pra toda a equipe
+  const [devocional, setDevocional] = useState(null);
+  const [devAberto, setDevAberto] = useState(false);
   useEffect(() => {
-    api.get('/extras/amigo/historico').then(d => setMsgs(Array.isArray(d) ? d : [])).catch(() => {}).finally(() => setCarregando(false));
+    api.get('/extras/amigo/historico').then(d => {
+      const lista = Array.isArray(d) ? d : [];
+      setMsgs(lista);
+      setDevAberto(lista.length === 0); // sem conversa → devocional já aberto
+    }).catch(() => {}).finally(() => setCarregando(false));
+    api.get('/extras/amigo/devocional-hoje').then(setDevocional).catch(() => {});
   }, []); // eslint-disable-line
 
   // Erros aqui eram engolidos — o clique parecia "não fazer nada". Agora a lista
@@ -145,6 +153,24 @@ export default function Amigo() {
       )}
 
       {modo === 'chat' && (<>
+
+      {/* 🌅 Devocional do dia (tema curado — igual pra toda a equipe) */}
+      {devocional && (
+        <div className="card" style={{ flexShrink: 0, marginBottom: 12, padding: 0, overflow: 'hidden', border: '1.5px solid #ddd6fe' }}>
+          <button onClick={() => setDevAberto(a => !a)}
+            style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 9, padding: '11px 15px', border: 'none', cursor: 'pointer', textAlign: 'left',
+              background: 'linear-gradient(90deg,#ede9fe,#f5f3ff)', color: '#4c1d95', fontWeight: 800, fontSize: 13.5 }}>
+            <span>🌅</span>
+            <span style={{ flex: 1 }}>Devocional de hoje: {devocional.tema}</span>
+            <span style={{ fontSize: 11, fontWeight: 700, opacity: .7 }}>{devocional.ref} {devAberto ? '▲' : '▼'}</span>
+          </button>
+          {devAberto && (
+            <div style={{ padding: '14px 17px', fontSize: 13.5, lineHeight: 1.65, whiteSpace: 'pre-wrap', color: 'var(--txt)' }}>
+              {devocional.texto}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Conversa */}
       <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12, padding: '4px 2px' }}>
