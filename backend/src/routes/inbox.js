@@ -171,6 +171,53 @@ async function transcreverAudio(base64, mime = 'audio/webm') {
   return (d.text || '').trim();
 }
 
+// ✅ CONFIRMAÇÃO INTERATIVA: o lembrete de véspera foi enviado e o cliente
+// respondeu. "Confirmo/estarei lá" → agenda vira Confirmado sozinha + aviso;
+// "não vou/remarcar" → alerta urgente pra equipe reagendar (humano assume).
+async function processarRespostaConfirmacao(conv, texto, phoneDigits) {
+  try {
+    const t = String(texto).toLowerCase();
+    const confirma = /\b(confirmo|confirmad[oa]|pode confirmar|estarei|estaremos|vamos sim|combinado|isso mesmo|perfeito|certo|👍)\b/.test(t) || /^(sim|ok|okay|blz|beleza)[.!\s]*$/.test(t.trim());
+    const remarca = /remarcar|desmarcar|cancelar|n[aã]o vou|n[aã]o poder|n[aã]o consigo|outro dia|imprevisto|adiar/.test(t);
+    if (!confirma && !remarca) return;
+    const tel8 = String(phoneDigits || '').slice(-8);
+    if (tel8.length < 8) return;
+    // Evento de hoje/amanhã desta família que RECEBEU o lembrete (sem lembrete, não mexe)
+    const { rows: [ev] } = await query(`
+      SELECT * FROM agenda_eventos
+      WHERE RIGHT(regexp_replace(COALESCE(telefone,''), '\\D', '', 'g'), 8) = $1
+        AND data BETWEEN (NOW() - interval '3 hours')::date AND ((NOW() - interval '3 hours')::date + 2)
+        AND status IN ('Agendado','Confirmado')
+        AND COALESCE(confirmacao_enviada, false) = true
+      ORDER BY data, hora LIMIT 1`, [tel8]);
+    if (!ev) return;
+    const dataFmt = new Date(ev.data).toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+    if (remarca) {
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, conv_id) VALUES ('novo_lead', $1, $2, $3)`,
+        [`🔁 ${ev.paciente || 'Cliente'} quer REMARCAR`,
+         `Respondeu ao lembrete do agendamento de ${dataFmt} às ${ev.hora} pedindo pra remarcar — falar com a família AGORA aumenta a chance de manter a venda.`, conv.id]).catch(() => {});
+      return;
+    }
+    if (ev.status !== 'Confirmado') {
+      await query(`UPDATE agenda_eventos SET status = 'Confirmado', updated_at = NOW() WHERE id = $1`, [ev.id]).catch(() => {});
+      socketEmit('agenda_update', { id: ev.id });
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, conv_id) VALUES ('novo_lead', $1, $2, $3)`,
+        [`✅ ${ev.paciente || 'Cliente'} confirmou presença`,
+         `Agendamento de ${dataFmt} às ${ev.hora} confirmado pelo próprio cliente no WhatsApp.`, conv.id]).catch(() => {});
+      // Agradecimento curtinho (contexto específico da resposta ao lembrete)
+      let ph = String(conv.phone || '').replace(/\D/g, '');
+      if (ph.startsWith('55') && ph.length >= 12) ph = ph.slice(2);
+      if (zapiOk() && ph) {
+        const ack = 'Prontinho, presença confirmada! 💙 Vamos estar esperando vocês com todo o carinho 😊';
+        await zapiCall('/send-text', 'POST', { phone: `55${ph}`, message: ack }).catch(() => {});
+        const { rows: [bm] } = await query(`INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome)
+          VALUES ($1,'bot','text',$2,'Vitta') RETURNING *`, [conv.id, ack]).catch(() => ({ rows: [null] }));
+        if (bm) socketEmit('new_message', { convId: conv.id, message: bm, conv });
+      }
+    }
+  } catch (e) { console.error('Confirmação interativa:', e.message); }
+}
+
 // 🔎 FOTO DO CLIENTE → análise INTERNA pra atendente (balão amarelo no CRM).
 // O cliente NÃO recebe nada; a nota não entra no histórico que a IA lê.
 async function analisarFotoParaEquipe(conv, mediaUrl) {
@@ -1600,7 +1647,7 @@ async function classificarLead(convId) {
     const hist = histRows.reverse();
     if (!hist.length) return;
 
-    let score = 'morno', motivo = '';
+    let score = 'morno', motivo = '', sentimento = 'ok';
     let memoria = memoriaAtual;
 
     if (temIA()) {
@@ -1611,7 +1658,7 @@ async function classificarLead(convId) {
       }).join('\n');
 
       const sys = `Você analisa uma conversa de WhatsApp de um lead da Vittalis Saúde (clínica de vacinas e consultas). Responda APENAS JSON:
-{"score":"quente|morno|frio","motivo":"até 8 palavras","memoria":{"paciente":null,"nascimento":null,"idade":null,"responsavel":null,"endereco":null,"email":null,"interesses":[],"proposta_enviada":null,"preferencias":null,"observacoes":null}}
+{"score":"quente|morno|frio","motivo":"até 8 palavras","sentimento":"ok|chateado","memoria":{"paciente":null,"nascimento":null,"idade":null,"responsavel":null,"endereco":null,"email":null,"interesses":[],"proposta_enviada":null,"preferencias":null,"observacoes":null}}
 
 TEMPERATURA (score):
 - quente: intenção de fechar/agendar AGORA — pede para agendar, confirma horário/pagamento, manda endereço/dados, diz "quero"/"pode marcar", ou engaja logo após a proposta.
@@ -1619,6 +1666,7 @@ TEMPERATURA (score):
 - frio: vago, "vou pensar", sumiu, ou só cumprimentou.
 O último movimento do cliente é o que mais pesa.
 
+"sentimento": use "chateado" APENAS se o cliente demonstrar irritação, reclamação (demora, atendimento, preço tratado com grosseria), frustração ou ameaça de procurar outra clínica — cliente apenas negociando ou perguntando é "ok".
 MEMÓRIA: preencha SÓ com fatos que o cliente informou ou que a Vitta confirmou na conversa. Use null quando não souber. NÃO invente. "interesses" = vacinas/consultas/planos citados. "proposta_enviada" = o que já foi cotado (ex: "Pacote 2 meses", "Plano completo 0-18m"). "nascimento" no formato YYYY-MM-DD se possível. Memória já conhecida (mantenha e complemente, não contradiga sem motivo): ${JSON.stringify(memoriaAtual)}`;
 
       const aiData = await openaiMessages({
@@ -1629,6 +1677,7 @@ MEMÓRIA: preencha SÓ com fatos que o cliente informou ou que a Vitta confirmou
       try {
         const j = JSON.parse(txt);
         if (['quente', 'morno', 'frio'].includes(j.score)) { score = j.score; motivo = String(j.motivo || '').slice(0, 60); }
+        if (j.sentimento === 'chateado') sentimento = 'chateado';
         if (j.memoria && typeof j.memoria === 'object') memoria = mergeMemoria(memoriaAtual, j.memoria);
       } catch {}
     } else {
@@ -1637,12 +1686,26 @@ MEMÓRIA: preencha SÓ com fatos que o cliente informou ou que a Vitta confirmou
       if (/\bagend|marcar|fechar|quero|confirm|endere[çc]|pix|cart[aã]o|pagar|hoje|amanh[aã]\b/.test(all)) { score = 'quente'; motivo = 'sinais de fechamento'; }
       else if (/\bpre[çc]o|valor|quanto|vacina|consulta|plano|hor[aá]rio\b/.test(all)) { score = 'morno'; motivo = 'tirando dúvidas'; }
       else { score = 'frio'; motivo = 'pouco engajamento'; }
+      if (/absurdo|p[eé]ssim|horr[ií]vel|reclama|esperando h[aá]|demora demais|procurar outra|desist/.test(all)) sentimento = 'chateado';
     }
 
     // Virou QUENTE agora? Notifica a equipe na hora — lead pronto é pra atacar já.
     const { rows: [antes] } = await query('SELECT lead_score, contact_name, phone FROM conversas WHERE id = $1', [convId]).catch(() => ({ rows: [{}] }));
     await query('UPDATE conversas SET lead_score = $1, lead_score_motivo = $2, lead_score_at = NOW(), memoria = $3 WHERE id = $4',
       [score, motivo, JSON.stringify(memoria || {}), convId]);
+
+    // 🚨 CLIENTE CHATEADO: reclamação respondida em minutos vira fidelidade;
+    // ignorada vira 1 estrela no Google. Alerta vermelho com dedup de 6h.
+    if (sentimento === 'chateado') {
+      const { rows: [ja] } = await query(
+        `SELECT 1 FROM notificacoes WHERE conv_id = $1 AND titulo LIKE '🚨%' AND created_at > NOW() - interval '6 hours' LIMIT 1`,
+        [convId]).catch(() => ({ rows: [] }));
+      if (!ja) {
+        await query(`INSERT INTO notificacoes (tipo, titulo, texto, conv_id) VALUES ('novo_lead', $1, $2, $3)`,
+          [`🚨 Cliente CHATEADO: ${antes?.contact_name || antes?.phone || 'cliente'}`,
+           `A IA detectou insatisfação na conversa (${motivo || 'reclamação'}). Responder JÁ, com carinho, pode salvar o cliente.`, convId]).catch(() => {});
+      }
+    }
     if (score === 'quente' && antes?.lead_score !== 'quente') {
       await query(`INSERT INTO notificacoes (tipo, titulo, texto, conv_id) VALUES ('novo_lead',$1,$2,$3)`,
         [`🔥 Lead QUENTE: ${antes?.contact_name || antes?.phone || 'cliente'}`, `${motivo}. Responder AGORA aumenta muito a chance de fechar!`, convId]).catch(() => {});
@@ -1992,6 +2055,11 @@ r.post('/webhook/zapi', async (req, res) => {
     // 🔎 Cliente mandou FOTO → análise interna pra equipe (não responde o cliente)
     if (type === 'image' && mediaData && !isGroupMsg && !isMe) {
       analisarFotoParaEquipe(conv, mediaData); // fire-and-forget (try/catch interno)
+    }
+
+    // ✅ Resposta ao lembrete de véspera: confirma a agenda sozinha / alerta remarcação
+    if (textoParaIA && !isGroupMsg && !isMe) {
+      processarRespostaConfirmacao(conv, textoParaIA, phoneDigits); // fire-and-forget
     }
 
     // ─── VITTA — IA CONVERSACIONAL COM CLAUDE ─────────────────────────────────

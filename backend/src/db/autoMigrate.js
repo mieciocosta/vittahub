@@ -754,6 +754,30 @@ export default async function runMigrate() {
       setor TEXT DEFAULT 'geral', categoria TEXT, mime TEXT, data TEXT NOT NULL,
       created_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
 
+    // 💟 FIGURINHAS OFICIAIS da Vittalis (logo + frases) — semeadas uma vez;
+    // os .webp vivem em backend/src/assets/figurinhas (gerados pelo Claude).
+    try {
+      const fs = await import('fs');
+      const path = await import('path');
+      const { fileURLToPath } = await import('url');
+      const aqui = path.dirname(fileURLToPath(import.meta.url));
+      const dirFig = path.join(aqui, '../assets/figurinhas');
+      if (fs.existsSync(dirFig)) {
+        const NOMES = { 'bom-dia': 'Vitta · Bom dia', 'boa-tarde': 'Vitta · Boa tarde', 'obrigada': 'Vitta · Obrigada pela confiança',
+          'confirmado': 'Vitta · Confirmadíssimo', 'esperando': 'Vitta · Estamos te esperando', 'protecao': 'Vitta · Proteção em dia',
+          'parabens': 'Vitta · Parabéns', 'conta-comigo': 'Vitta · Conta com a gente' };
+        for (const f of fs.readdirSync(dirFig).filter(x => x.endsWith('.webp'))) {
+          const titulo = NOMES[f.replace('.webp', '')] || `Vitta · ${f}`;
+          const { rows: [ja] } = await query(`SELECT 1 FROM biblioteca_midias WHERE titulo = $1 AND tipo = 'figurinha' LIMIT 1`, [titulo]);
+          if (ja) continue;
+          const b64 = fs.readFileSync(path.join(dirFig, f)).toString('base64');
+          await query(`INSERT INTO biblioteca_midias (titulo, tipo, setor, categoria, mime, data)
+                       VALUES ($1, 'figurinha', 'geral', 'Vittalis', 'image/webp', $2)`, [titulo, b64]);
+        }
+        console.log('💟 Figurinhas oficiais da Vittalis semeadas');
+      }
+    } catch (e) { console.error('Seed figurinhas:', e.message); }
+
     await query(`CREATE TABLE IF NOT EXISTS ligacoes (
       id SERIAL PRIMARY KEY, contato_nome TEXT NOT NULL, telefone TEXT NOT NULL,
       usuario_id TEXT, direcao TEXT DEFAULT 'realizada', status TEXT DEFAULT 'Atendida',
