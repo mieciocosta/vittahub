@@ -319,9 +319,10 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
               <UserAvatar size={34} />
             </button>
             <div style={{ flex:1, minWidth:0 }}>
-              <button onClick={editarNome} title="Editar meu nome" style={{ background:'none', border:'none', padding:0, cursor:'pointer', display:'flex', alignItems:'center', gap:4, maxWidth:'100%' }}>
-                <span style={{ color:'#fff', fontSize:13, fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{user?.nome?.split(' ')[0]}</span>
-                <Pencil size={10} color="rgba(255,255,255,.55)" style={{ flexShrink:0 }} />
+              {/* Nome COMPLETO, sem corte: quebra em até 2 linhas se precisar */}
+              <button onClick={editarNome} title="Editar meu nome" style={{ background:'none', border:'none', padding:0, cursor:'pointer', display:'flex', alignItems:'flex-start', gap:4, maxWidth:'100%', textAlign:'left' }}>
+                <span style={{ color:'#fff', fontSize:12.5, fontWeight:700, lineHeight:1.25, wordBreak:'break-word' }}>{user?.nome}</span>
+                <Pencil size={10} color="rgba(255,255,255,.55)" style={{ flexShrink:0, marginTop:3 }} />
               </button>
               {nomeOpen && (
                 <div style={{ position:'fixed', top:150, left:12, zIndex:9999, background:'var(--card, #fff)', border:'1px solid var(--border, #e5e7eb)', borderRadius:14, boxShadow:'0 12px 40px rgba(0,0,0,.35)', padding:12, width:240 }}>
