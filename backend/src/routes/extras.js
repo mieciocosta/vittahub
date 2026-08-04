@@ -1026,6 +1026,56 @@ r.get('/vendas', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// REPASSES DO MÊS — extrato por atendente (1% das vendas da função atendente,
+// respeitando ajuste manual por venda) + controle de pagamento (marcar pago).
+r.get('/repasses-mes', async (req, res) => {
+  try {
+    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão.' });
+    const mes = /^\d{4}-\d{2}$/.test(req.query.mes || '') ? req.query.mes : new Date().toISOString().slice(0, 7);
+    const { rows } = await query(
+      `SELECT v.atendente_id, COALESCE(NULLIF(v.atendente_nome,''), u.nome, '—') AS nome,
+              COUNT(*)::int AS vendas,
+              COALESCE(SUM(v.valor),0)::float AS vendido,
+              COALESCE(SUM(CASE WHEN COALESCE(v.repasse,0) > 0 THEN v.repasse
+                                WHEN u.role = 'atendente' THEN v.valor * 0.01
+                                ELSE 0 END),0)::float AS repasse
+         FROM vendas v LEFT JOIN usuarios u ON u.id = v.atendente_id
+        WHERE to_char(v.data_venda,'YYYY-MM') = $1
+        GROUP BY v.atendente_id, COALESCE(NULLIF(v.atendente_nome,''), u.nome, '—')
+        ORDER BY 5 DESC`, [mes]);
+    const { rows: pagos } = await query(`SELECT * FROM repasses_pagamentos WHERE mes = $1`, [mes]);
+    const pagoPor = Object.fromEntries(pagos.map(p2 => [String(p2.atendente_id), p2]));
+    const itens = rows.filter(x => (x.repasse || 0) > 0.004).map(x => ({
+      ...x, repasse: +(+x.repasse).toFixed(2),
+      pago: !!pagoPor[String(x.atendente_id)],
+      pago_em: pagoPor[String(x.atendente_id)]?.pago_em || null,
+      pago_por: pagoPor[String(x.atendente_id)]?.pago_por || null,
+      valor_pago: pagoPor[String(x.atendente_id)] ? +pagoPor[String(x.atendente_id)].valor : null,
+    }));
+    res.json({ mes, itens, total: +itens.reduce((s2, x) => s2 + x.repasse, 0).toFixed(2) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.post('/repasses-mes/pagar', async (req, res) => {
+  try {
+    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão.' });
+    const b = req.body || {};
+    const mes = /^\d{4}-\d{2}$/.test(b.mes || '') ? b.mes : null;
+    if (!mes || !b.atendente_id) return res.status(400).json({ error: 'Informe mes e atendente.' });
+    if (b.desfazer) {
+      await query(`DELETE FROM repasses_pagamentos WHERE mes = $1 AND atendente_id = $2`, [mes, String(b.atendente_id)]);
+      return res.json({ ok: true, desfeito: true });
+    }
+    const valor = Math.max(0, Math.min(parseFloat(b.valor) || 0, 1000000));
+    await query(
+      `INSERT INTO repasses_pagamentos (mes, atendente_id, atendente_nome, valor, pago_por)
+       VALUES ($1,$2,$3,$4,$5)
+       ON CONFLICT (mes, atendente_id) DO UPDATE SET valor = EXCLUDED.valor, pago_em = NOW(), pago_por = EXCLUDED.pago_por`,
+      [mes, String(b.atendente_id), cut(b.atendente_nome, 120), valor, req.user.nome]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // CAIXA — marca/desmarca a venda como conferida (conciliação financeira). Só gestão.
 r.patch('/vendas/:id/conferido', async (req, res) => {
   try {

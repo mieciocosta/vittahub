@@ -170,4 +170,80 @@ r.post('/livre', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ─── Envio automático diário (piloto automático) ─────────────────────────────
+// Config em configuracoes.chave='lembretes_auto'. Horários no fuso da clínica
+// (America/Fortaleza). O tick roda a cada minuto no index.js.
+const AUTO_DEFAULT = { ativo: false, horaLembrete: '18:00', horaNiver: '08:30' };
+
+async function lerAuto() {
+  const { rows: [c] } = await query("SELECT valor FROM configuracoes WHERE chave = 'lembretes_auto'").catch(() => ({ rows: [] }));
+  return { ...AUTO_DEFAULT, ...(c?.valor || {}) };
+}
+async function salvarAuto(v) {
+  await query(`INSERT INTO configuracoes (chave, valor) VALUES ('lembretes_auto', $1)
+               ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor`, [JSON.stringify(v)]);
+}
+function agoraLocal() {
+  const s = new Intl.DateTimeFormat('sv-SE', { timeZone: 'America/Fortaleza', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date());
+  return { data: s.slice(0, 10), hhmm: s.slice(11, 16) };
+}
+
+export async function rodarLembretesAutomaticos() {
+  if (!zapiOk()) return;
+  const cfg = await lerAuto();
+  if (!cfg.ativo) return;
+  const { data: hojeLocal, hhmm } = agoraLocal();
+
+  // 📅 Lembretes dos agendamentos de AMANHÃ
+  if (hhmm >= cfg.horaLembrete && cfg.ultimoLembreteDia !== hojeLocal) {
+    cfg.ultimoLembreteDia = hojeLocal; await salvarAuto(cfg); // trava antes (evita duplicar)
+    const d = new Date(hojeLocal + 'T12:00:00'); d.setDate(d.getDate() + 1);
+    const amanhaLocal = d.toISOString().slice(0, 10);
+    const { rows } = await query(
+      `SELECT id, paciente, servico, TO_CHAR(data,'YYYY-MM-DD') AS data, hora, profissional, telefone, setor
+         FROM agenda_eventos
+        WHERE data = $1 AND lembrete_enviado_em IS NULL AND LOWER(COALESCE(status,'')) NOT LIKE 'cancel%'`, [amanhaLocal]);
+    let n = 0;
+    for (const ev of rows) {
+      if (!ev.telefone || String(ev.telefone).replace(/\D/g, '').length < 10) continue;
+      const texto = msgAmanha(ev);
+      const zr = await zapiSendText(ev.telefone, texto).catch(() => null);
+      if (zr?.ok) { n++; await query(`UPDATE agenda_eventos SET lembrete_enviado_em = NOW() WHERE id = $1`, [ev.id]); await registraNaConversa(ev.telefone, texto, 'Envio automático 🤖'); }
+    }
+    if (rows.length) console.log(`🤖 Lembretes automáticos de amanhã: ${n}/${rows.length} enviado(s)`);
+  }
+
+  // 🎂 Parabéns dos aniversariantes de HOJE
+  if (hhmm >= cfg.horaNiver && cfg.ultimoNiverDia !== hojeLocal) {
+    cfg.ultimoNiverDia = hojeLocal; await salvarAuto(cfg);
+    const { rows } = await query(
+      `SELECT id, nome, telefone FROM leads WHERE nascimento IS NOT NULL AND TO_CHAR(nascimento,'MM-DD') = $1`, [hojeLocal.slice(5)]);
+    let n = 0;
+    for (const l of rows) {
+      if (!l.telefone || String(l.telefone).replace(/\D/g, '').length < 10) continue;
+      const texto = msgAniversario(l.nome);
+      const zr = await zapiSendText(l.telefone, texto).catch(() => null);
+      if (zr?.ok) { n++; await registraNaConversa(l.telefone, texto, 'Envio automático 🤖'); }
+    }
+    if (rows.length) console.log(`🤖 Parabéns automáticos: ${n}/${rows.length} enviado(s)`);
+  }
+}
+
+// GET/PUT /api/lembretes/auto — configuração do piloto automático
+r.get('/auto', async (req, res) => {
+  try { res.json(await lerAuto()); } catch (err) { res.status(500).json({ error: err.message }); }
+});
+r.put('/auto', async (req, res) => {
+  try {
+    if (!['master', 'supervisor'].includes(req.user.role)) return res.status(403).json({ error: 'Só a gestão altera o envio automático.' });
+    const b = req.body || {};
+    const cfg = await lerAuto();
+    if (typeof b.ativo === 'boolean') cfg.ativo = b.ativo;
+    if (/^\d{2}:\d{2}$/.test(b.horaLembrete || '')) cfg.horaLembrete = b.horaLembrete;
+    if (/^\d{2}:\d{2}$/.test(b.horaNiver || '')) cfg.horaNiver = b.horaNiver;
+    await salvarAuto(cfg);
+    res.json(cfg);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 export default r;

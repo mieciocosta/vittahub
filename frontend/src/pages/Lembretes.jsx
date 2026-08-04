@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { BellRing, Cake, CalendarClock, Gift, Send, MessageCircle, StickyNote, Trash2, X } from 'lucide-react';
-import { useApi } from '../context/AuthContext.jsx';
+import { useApi, useAuth } from '../context/AuthContext.jsx';
 
 /* Central de Lembretes — reforço pelo CRM: Aniversários (leads), Agendamentos
    de amanhã (agenda) e Indicações (vendas da semana). Envia pelo WhatsApp da
@@ -11,6 +11,7 @@ const wa = (tel, msg) => `https://wa.me/55${String(tel || '').replace(/\D/g, '')
 
 export default function Lembretes() {
   const api = useApi();
+  const { user } = useAuth();
   const [aba, setAba] = useState('aniversarios');
   const [dados, setDados] = useState({ amanha: [], aniversarios: [], indicacoes: [], whatsapp: false });
   const [carregando, setCarregando] = useState(true);
@@ -27,6 +28,10 @@ export default function Lembretes() {
   // Lembretes pessoais (dela)
   const [meus, setMeus] = useState([]);
   const [novoMeu, setNovoMeu] = useState('');
+  // Piloto automático (gestão)
+  const gestao = ['master', 'supervisor'].includes(user?.role);
+  const [autoCfg, setAutoCfg] = useState(null);
+  const [salvandoAuto, setSalvandoAuto] = useState(false);
 
   const amanhaStr = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
   const hojeStr = new Date().toISOString().slice(0, 10);
@@ -37,7 +42,13 @@ export default function Lembretes() {
       .then(d => { setDados(d || {}); setCarregando(false); })
       .catch(() => setCarregando(false));
   };
-  useEffect(() => { load(); loadMeus(); }, []); // eslint-disable-line
+  useEffect(() => { load(); loadMeus(); api.get('/lembretes/auto').then(setAutoCfg).catch(() => {}); }, []); // eslint-disable-line
+  async function salvarAuto(patch) {
+    setSalvandoAuto(true);
+    try { const novo = await api.put('/lembretes/auto', { ...autoCfg, ...patch }); setAutoCfg(novo); showToast(novo.ativo ? '🤖 Piloto automático LIGADO' : 'Piloto automático desligado'); }
+    catch (e) { showToast('⚠️ ' + (e.message || 'Erro')); }
+    setSalvandoAuto(false);
+  }
   useEffect(() => { setSel(new Set()); }, [aba]);
   const loadMeus = () => api.get('/extras/painel').then(d => setMeus((Array.isArray(d) ? d : []).filter(i => i.tipo === 'tarefa'))).catch(() => {});
   useEffect(() => {
@@ -115,6 +126,31 @@ export default function Lembretes() {
           </div>
         )}
       </div>
+
+      {/* Piloto automático (gestão) */}
+      {gestao && autoCfg && (
+        <div className="card" style={{ padding: '14px 18px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap',
+          border: autoCfg.ativo ? '1.5px solid var(--tq)' : '1.5px solid var(--border)', background: autoCfg.ativo ? 'var(--tq4)' : 'var(--card)' }}>
+          <button onClick={() => salvarAuto({ ativo: !autoCfg.ativo })} disabled={salvandoAuto || !dados.whatsapp}
+            title={dados.whatsapp ? '' : 'Conecte o WhatsApp (Z-API) para ligar'}
+            style={{ width: 52, height: 28, borderRadius: 20, border: 'none', cursor: 'pointer', position: 'relative', transition: 'all .2s',
+              background: autoCfg.ativo ? 'var(--tq)' : 'var(--bord2)', opacity: dados.whatsapp ? 1 : .5 }}>
+            <span style={{ position: 'absolute', top: 3, left: autoCfg.ativo ? 27 : 3, width: 22, height: 22, borderRadius: '50%', background: '#fff', transition: 'all .2s', boxShadow: '0 1px 4px rgba(0,0,0,.25)' }} />
+          </button>
+          <div style={{ flex: 1, minWidth: 220 }}>
+            <div style={{ fontWeight: 800, fontSize: 14 }}>🤖 Piloto automático {autoCfg.ativo ? <span style={{ color: 'var(--tq2)' }}>· LIGADO</span> : '· desligado'}</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>Todo dia, o sistema envia sozinho: lembretes de amanhã e parabéns de aniversário — pelo WhatsApp da clínica.</div>
+          </div>
+          <label style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>📅 Lembretes às
+            <input type="time" value={autoCfg.horaLembrete} onChange={e => salvarAuto({ horaLembrete: e.target.value })}
+              style={{ padding: '5px 8px', borderRadius: 9, border: '1.5px solid var(--border)', background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5 }} />
+          </label>
+          <label style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>🎂 Parabéns às
+            <input type="time" value={autoCfg.horaNiver} onChange={e => salvarAuto({ horaNiver: e.target.value })}
+              style={{ padding: '5px 8px', borderRadius: 9, border: '1.5px solid var(--border)', background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5 }} />
+          </label>
+        </div>
+      )}
 
       {/* Abas */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>

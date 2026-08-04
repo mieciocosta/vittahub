@@ -119,6 +119,15 @@ export default function Caixa() {
   };
 
   const [editRepasse, setEditRepasse] = useState(null); // { id, valor }
+  // Fechamento de repasses do mês (gestão)
+  const [showRep, setShowRep] = useState(false);
+  const [repDados, setRepDados] = useState(null);
+  const loadRep = () => api.get(`/extras/repasses-mes?mes=${mes}`).then(setRepDados).catch(() => setRepDados({ itens: [], total: 0 }));
+  const pagarRep = async (it, desfazer = false) => {
+    if (!desfazer && !window.confirm(`Marcar o repasse de ${it.nome} (${fmt.brl(it.repasse)}) como PAGO?`)) return;
+    try { await api.post('/extras/repasses-mes/pagar', { mes, atendente_id: it.atendente_id, atendente_nome: it.nome, valor: it.repasse, desfazer }); loadRep(); }
+    catch (e) { setErro(e.message || 'Erro ao salvar pagamento.'); }
+  };
   const salvarRepasse = async () => {
     if (!editRepasse) return;
     const val = parseFloat(String(editRepasse.valor).replace(',', '.')) || 0;
@@ -440,6 +449,9 @@ export default function Caixa() {
           {gestao && <div><div style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: .6, opacity: .8 }}>Conferidas</div><div style={{ fontSize: 20, fontWeight: 900, color: '#7ee7c7' }}>{conferidas}/{filtrada.length}</div></div>}
           <div style={{ flex: 1 }} />
           <div style={{ display: 'flex', gap: 8 }}>
+            {gestao && (
+              <button onClick={() => { setShowRep(true); loadRep(); }} className="btn btn-sm" style={{ gap: 6, background: '#fca5a5', color: '#7f1d1d', border: 'none', fontWeight: 800 }} title="Fechar os repasses do mês (marcar pagos)">💸 Repasses</button>
+            )}
             <button onClick={exportarCaixaDia} className="btn btn-sm" style={{ gap: 6, background: '#fde68a', color: '#7c2d12', border: 'none', fontWeight: 800 }} title="Fechamento do dia de hoje (PDF)"><CalendarCheck size={14} /> Caixa do dia{vendasHoje.length ? ` (${vendasHoje.length})` : ''}</button>
             <button onClick={exportarCSV} className="btn btn-sm" style={{ gap: 6, background: 'rgba(255,255,255,.92)', color: '#065f46', border: 'none', fontWeight: 800 }} title="Exportar planilha (CSV)"><FileSpreadsheet size={14} /> Planilha</button>
             <button onClick={exportarPDF} className="btn btn-sm" style={{ gap: 6, background: 'rgba(255,255,255,.2)', color: '#fff', border: '1px solid rgba(255,255,255,.4)', fontWeight: 800 }} title="Gerar PDF do mês / imprimir"><Printer size={14} /> PDF do mês</button>
@@ -896,6 +908,51 @@ export default function Caixa() {
             <button onClick={salvarEditVenda} disabled={editVendaSaving} className="btn btn-p" style={{ width: '100%', marginTop: 12, fontWeight: 800 }}>
               {editVendaSaving ? '…' : '💾 Salvar alterações'}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Fechamento de repasses do mês */}
+      {showRep && (
+        <div onClick={() => setShowRep(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
+          <div onClick={e => e.stopPropagation()} className="card" style={{ width: 560, maxWidth: '100%', maxHeight: '88vh', padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ padding: '16px 20px', color: '#fff', background: 'linear-gradient(135deg,#7f1d1d,#b91c1c)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 16 }}>💸 Repasses de {mes}</div>
+                <div style={{ fontSize: 12, opacity: .85, marginTop: 2 }}>1% por venda da função atendente (ajustes manuais respeitados). Marque como pago ao acertar.</div>
+              </div>
+              <button onClick={() => setShowRep(false)} style={{ background: 'rgba(255,255,255,.18)', border: 'none', borderRadius: 8, color: '#fff', cursor: 'pointer', padding: 6, display: 'flex' }}><X size={16} /></button>
+            </div>
+            <div style={{ padding: 18, overflowY: 'auto', flex: 1 }}>
+              {!repDados ? (
+                <div style={{ color: 'var(--muted)', padding: 20 }}>Carregando…</div>
+              ) : repDados.itens.length === 0 ? (
+                <div style={{ textAlign: 'center', color: 'var(--muted)', padding: 30 }}>Nenhum repasse a pagar neste mês.</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {repDados.itens.map(it => (
+                    <div key={String(it.atendente_id)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 14px', borderRadius: 12, background: it.pago ? '#e7f8ef' : 'var(--bg2)', border: `1.5px solid ${it.pago ? '#a7f3d0' : 'var(--border)'}`, flexWrap: 'wrap' }}>
+                      <div style={{ flex: 1, minWidth: 150 }}>
+                        <div style={{ fontWeight: 800, fontSize: 13.5 }}>{it.nome}</div>
+                        <div style={{ fontSize: 11, color: 'var(--muted)' }}>{it.vendas} venda(s) · vendeu {fmt.brl(it.vendido)}</div>
+                      </div>
+                      <div style={{ fontWeight: 900, fontSize: 15, color: it.pago ? '#16a34a' : '#b91c1c' }}>{fmt.brl(it.repasse)}</div>
+                      {it.pago ? (
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontSize: 11, fontWeight: 800, color: '#16a34a' }}>✓ PAGO {it.pago_em ? `em ${fmtData(it.pago_em)}` : ''}</div>
+                          <div style={{ fontSize: 10, color: 'var(--muted)' }}>{it.pago_por ? `por ${String(it.pago_por).split(' ')[0]}` : ''} · <button onClick={() => pagarRep(it, true)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 10, textDecoration: 'underline', padding: 0 }}>desfazer</button></div>
+                        </div>
+                      ) : (
+                        <button onClick={() => pagarRep(it)} className="btn btn-sm" style={{ gap: 5, background: '#16a34a', color: '#fff', border: 'none', fontWeight: 800 }}>Marcar pago</button>
+                      )}
+                    </div>
+                  ))}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 14px', borderTop: '2px solid var(--border)', fontWeight: 900, fontSize: 14 }}>
+                    <span>Total do mês</span><span style={{ color: '#b91c1c' }}>{fmt.brl(repDados.total)}</span>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
