@@ -12,6 +12,7 @@ import inboxRouter, { rodarFollowups, configurarWebhooksZapi, alertarLeadsSemRes
 import extrasRouter  from './routes/extras.js';
 import auditoriaRouter from './routes/auditoria.js';
 import integracaoRouter from './routes/integracao.js';
+import lembretesRouter from './routes/lembretes.js';
 
 import { createSocketServer, socketEmit } from './socketServer.js';
 import { startPgListener, onNotify }       from './db/pgListener.js';
@@ -53,6 +54,7 @@ app.use('/api/inbox',   inboxRouter);
 app.use('/api/extras',  extrasRouter);
 app.use('/api/auditoria', auditoriaRouter);
 app.use('/api/integracao', integracaoRouter);
+app.use('/api/lembretes', lembretesRouter);
 
 app.use((err, req, res, next) => {
   console.error('❌', err.message);

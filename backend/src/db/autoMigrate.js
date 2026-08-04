@@ -508,6 +508,7 @@ export default async function runMigrate() {
       created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS idx_agenda_data ON agenda_eventos (data)`).catch(() => {});
     await query(`ALTER TABLE agenda_eventos ADD COLUMN IF NOT EXISTS endereco TEXT`).catch(() => {});
+    await query(`ALTER TABLE agenda_eventos ADD COLUMN IF NOT EXISTS lembrete_enviado_em TIMESTAMPTZ`).catch(() => {});
     await query(`ALTER TABLE agenda_eventos ADD COLUMN IF NOT EXISTS local_link TEXT`).catch(() => {});
     await query(`ALTER TABLE agenda_eventos ADD COLUMN IF NOT EXISTS email TEXT`).catch(() => {});
     await query(`ALTER TABLE agenda_eventos ADD COLUMN IF NOT EXISTS valor NUMERIC(10,2)`).catch(() => {});
