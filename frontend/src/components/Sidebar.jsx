@@ -29,6 +29,7 @@ const SETORES_MENU = [
 // venda, depois gestão/organização, por fim equipe e motivação.
 const NAV = [
   { to:'/',           icon:LayoutDashboard, label:'Resumo' },
+  { to:'/metas',      icon:Target,          label:'Metas', gestao:true, destaque:true },
   { to:'/inbox',      icon:MessageSquare,   label:'Chat',     unread:true },
   { to:'/agenda',     icon:CalendarDays,    label:'Agenda' },
   { to:'/retornos',   icon:Bell,            label:'Follow-up',  retornos:true },
@@ -36,7 +37,6 @@ const NAV = [
   { to:'/leads',      icon:Users,           label:'Clientes' },
   { to:'/lembretes',  icon:BellRing,        label:'Lembretes' },
   { to:'/caixa',      icon:Wallet,          label:'Caixa' },
-  { to:'/metas',      icon:Target,          label:'Metas', masterOnly:true },
   { to:'/relatorios', icon:BarChart2,       label:'Relatórios' },
   { to:'/funil',      icon:Kanban,          label:'Organização' },
   { to:'/banco-dados',icon:Database,        label:'Banco de Dados' },
@@ -399,19 +399,20 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
       <nav onClick={() => onCloseMobile?.()} style={{ flex:1, padding: collapsed ? '14px 6px' : '14px 10px', display:'flex', flexDirection:'column', gap:3, overflowY:'auto', overflowX:'hidden' }}>
         {!collapsed && <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:1.6, color:'rgba(255,255,255,.62)', padding:'0 12px 6px', textTransform:'uppercase' }}>Menu</div>}
         {NAV.filter(n => (!n.masterOnly || user?.role === 'master')
+            && (!n.gestao || ['master','supervisor'].includes(user?.role))
             && (!n.consultas || ['master','supervisor'].includes(user?.role) || user?.setor === 'consultas')
             && (!n.lider || user?.lider || user?.role === 'master')
-          ).map(({ to, icon:Icon, label, unread:showU, retornos:retBadge, equipe:eqBadge, plan:planBadge }) => (
+          ).map(({ to, icon:Icon, label, unread:showU, retornos:retBadge, equipe:eqBadge, plan:planBadge, destaque }) => (
           <React.Fragment key={to}>
           <NavLink to={to} end={to==='/'} title={collapsed ? label : ''} style={({ isActive }) => ({
             display:'flex', alignItems:'center', gap: collapsed ? 0 : 10,
             padding: collapsed ? '10px 0' : '9px 12px',
             justifyContent: collapsed ? 'center' : 'flex-start',
             borderRadius:12, textDecoration:'none',
-            color: isActive ? 'var(--tq2)' : 'rgba(255,255,255,.85)',
+            color: isActive ? 'var(--tq2)' : (destaque ? '#ffd166' : 'rgba(255,255,255,.85)'),
             background: isActive ? '#ffffff' : 'transparent',
             boxShadow: isActive ? '0 4px 16px rgba(3,43,48,.22)' : 'none',
-            fontWeight: isActive ? 700 : 500, fontSize:13.5,
+            fontWeight: (isActive || destaque) ? 700 : 500, fontSize:13.5,
             transition: 'all .15s',
             position:'relative',
           })}>
