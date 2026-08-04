@@ -158,6 +158,21 @@ function Heartbeat({ userId }) {
      tela (nenhum site consegue), mas deixa qualquer vazamento RASTREÁVEL.
    Observação honesta: print de tela pelo SO ou foto com outro celular não têm como
    ser bloqueados por um site — por isso a marca d'água é a proteção real contra isso. */
+// 📱 PWA: registra o service worker (app instalável) e pede permissão de
+// notificação UMA vez após o login — aviso de cliente com a aba em 2º plano.
+function PwaSetup() {
+  React.useEffect(() => {
+    try { if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {}); } catch {}
+    try {
+      if (window.Notification && Notification.permission === 'default' && !localStorage.getItem('vh_notif_perguntado')) {
+        localStorage.setItem('vh_notif_perguntado', '1');
+        setTimeout(() => Notification.requestPermission().catch(() => {}), 4000);
+      }
+    } catch {}
+  }, []);
+  return null;
+}
+
 function SecurityLock({ user }) {
   React.useEffect(() => {
     // REGRA (pedido do master): a equipe pode selecionar e copiar TUDO
@@ -248,6 +263,7 @@ export default function App() {
 
   return (
     <div style={{ display:'flex', minHeight:'100vh' }}>
+      <PwaSetup />
       {user.role !== 'master' && <SecurityLock user={user} />}
       <CelebracaoGlobal />
       <button className="vh-hamburger" onClick={() => setMobileMenu(true)} aria-label="Menu">☰</button>

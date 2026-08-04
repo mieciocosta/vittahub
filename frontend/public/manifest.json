@@ -1,0 +1,16 @@
+{
+  "name": "VittaHub · CRM Vittalis Saúde",
+  "short_name": "VittaHub",
+  "description": "CRM da Vittalis Saúde — atendimento, agenda, vendas e metas.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0E8C96",
+  "theme_color": "#0E8C96",
+  "lang": "pt-BR",
+  "icons": [
+    { "src": "/logos/icone-color.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/logos/icone-color.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

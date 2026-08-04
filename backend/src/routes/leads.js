@@ -38,6 +38,7 @@ const normBody = (b = {}) => {
     endereco: cut(b.endereco, 160),
     bairro: cut(b.bairro, 60),
     responsavel_cliente: cut(b.responsavel_cliente ?? b.responsavelCliente, 80),
+    filhos: cut(b.filhos, 300), // 👶 outros filhos da família (pediatria: 2+ é comum)
     setor: ['vacinas','consultas','terapias'].includes(b.setor) ? b.setor : undefined,
     tags: Array.isArray(b.tags) ? b.tags.slice(0, 10).map(t => String(t).slice(0, 20)) : b.tags,
   };

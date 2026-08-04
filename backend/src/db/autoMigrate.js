@@ -161,6 +161,8 @@ export default async function runMigrate() {
     await query(`ALTER TABLE notificacoes ADD COLUMN IF NOT EXISTS apenas_master BOOLEAN DEFAULT false`).catch(() => {});
     // Transcrição de áudios (Whisper) — texto pesquisável embaixo do player
     await query(`ALTER TABLE mensagens ADD COLUMN IF NOT EXISTS transcricao TEXT`).catch(() => {});
+    // Famílias com vários filhos (texto livre: "João (03/2026), Ana (2023)")
+    await query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS filhos TEXT`).catch(() => {});
 
     await query(`CREATE TABLE IF NOT EXISTS configuracoes (
       chave TEXT PRIMARY KEY, valor JSONB NOT NULL, updated_at TIMESTAMPTZ DEFAULT NOW()

@@ -624,6 +624,15 @@ export default function Inbox({ onUnreadChange }) {
       });
 
       socket.on('new_message', ({ convId, message, conv: updConv }) => {
+        // 📱 Notificação do sistema quando a aba está em 2º plano (app instalado
+        // ou navegador minimizado): mostra quem falou e um pedaço da mensagem
+        try {
+          if (document.hidden && message?.from_type === 'contact' && window.Notification?.permission === 'granted') {
+            const corpo = String(message.content || '').startsWith('data:') ? '📎 Mídia' : String(message.content || '').slice(0, 90);
+            new Notification(updConv?.contact_name || 'Novo cliente', { body: corpo, icon: '/logos/icone-color.png', tag: `vh-${convId}` });
+          }
+        } catch {}
+
         // Som de notificação: só para mensagem de cliente, e só se a conversa
         // não estiver aberta na tela (ou a aba estiver em segundo plano)
         if (somRef.current && message?.from_type === 'contact' &&
@@ -2328,6 +2337,7 @@ function FaixaContexto({ sel, leadInfo, setLeadInfo, api, scoreChip, setScoreChi
       <Item ic="💉" label="Interesse" valor={leadInfo?.interesse || sel?.setor} />
       <Item ic="👤" label="Responsável" valor={resp || 'Sem responsável'} />
       <Item ic="👶" label="Paciente" valor={leadInfo?.nome || sel?.contact_name} />
+      {leadInfo?.filhos && <Item ic="👧" label="Outros filhos" valor={leadInfo.filhos} />}
       <Item ic="📋" label="Etapa" valor={leadInfo?.status || (sel?.lead_id ? '' : 'Sem lead')} />
       {SCORE_CFG[sel?.lead_score] && (
         <Item ic={SCORE_CFG[sel.lead_score].emoji} label="Temperatura" valor={SCORE_CFG[sel.lead_score].label} />
@@ -2754,6 +2764,7 @@ function FichaPaciente({ leadId, api, setor }) {
         <Linha label="Responsável" campo="responsavel_cliente" placeholder="Quem responde pela família" />
         <Linha label="Paciente" campo="nome" />
         <Linha label="Nascimento" campo="nascimento" tipo="date" />
+        <Linha label="👶 Outros filhos" campo="filhos" placeholder="Ex.: João (03/2026), Ana (2023)" />
         <Linha label="Endereço" campo="endereco" />
         <Linha label="Bairro" campo="bairro" />
         <Linha label="Observações" campo="observacoes" />
