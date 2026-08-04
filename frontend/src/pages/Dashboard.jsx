@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { MessageSquare, HeartPulse, CalendarCheck, CircleDollarSign, Bell, ChevronRight, Plus, Syringe, UserPlus, ClipboardList, Send, Phone } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt } from '../hooks/utils.js';
+import { versiculoDoDia } from '../hooks/versiculos.js';
 import { useNavigate } from 'react-router-dom';
 
 /* ─── Dashboard Vittalis — layout aprovado pela gestão ────────────────────────
@@ -9,28 +10,9 @@ import { useNavigate } from 'react-router-dom';
    com data de hoje (o módulo de Agenda dedicado entra na próxima fase e este
    card já está pronto pra recebê-lo).                                        */
 
-const VERSICULOS = [
-  ['Entrega o teu caminho ao Senhor; confia nele, e ele o fará.', 'Salmos 37:5'],
-  ['Tudo posso naquele que me fortalece.', 'Filipenses 4:13'],
-  ['O Senhor é o meu pastor; nada me faltará.', 'Salmos 23:1'],
-  ['Não temas, porque eu sou contigo.', 'Isaías 41:10'],
-  ['Em tudo dai graças, porque esta é a vontade de Deus.', '1 Tessalonicenses 5:18'],
-  ['O coração alegre é como o bom remédio.', 'Provérbios 17:22'],
-  ['Confia no Senhor de todo o teu coração.', 'Provérbios 3:5'],
-  ['O choro pode durar uma noite, mas a alegria vem pela manhã.', 'Salmos 30:5'],
-  ['Sede fortes e corajosos; não temais.', 'Deuteronômio 31:6'],
-  ['As misericórdias do Senhor se renovam a cada manhã.', 'Lamentações 3:22-23'],
-  ['Buscai primeiro o Reino de Deus.', 'Mateus 6:33'],
-  ['Aquietai-vos e sabei que eu sou Deus.', 'Salmos 46:10'],
-  ['Tudo o que fizerem, façam de todo o coração, como para o Senhor.', 'Colossenses 3:23'],
-  ['A tua palavra é lâmpada para os meus pés.', 'Salmos 119:105'],
-  ['Porque para Deus nada é impossível.', 'Lucas 1:37'],
-  ['Este é o dia que o Senhor fez; regozijemo-nos nele.', 'Salmos 118:24'],
-  ['Deleita-te também no Senhor.', 'Salmos 37:4'],
-  ['Sê forte e corajoso; o Senhor teu Deus é contigo.', 'Josué 1:9'],
-  ['Grandes coisas fez o Senhor por nós.', 'Salmos 126:3'],
-  ['O amor é paciente, o amor é bondoso.', '1 Coríntios 13:4'],
-];
+// "Hoje" no fuso LOCAL (São Luís): toISOString() é UTC e, depois das 21h,
+// pulava pro dia seguinte — a "Agenda — Hoje" mostrava a agenda de amanhã.
+const hojeLocalISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const MOTIVACIONAIS = [
   'Você está indo muito bem hoje! Cada atendimento representa uma família confiando na Vittalis. Continue assim, você faz a diferença! 💙',
   'Cada mensagem respondida com carinho hoje é uma família mais protegida amanhã. 💙',
@@ -58,11 +40,13 @@ export default function Dashboard() {
   const [vendasResumo, setVendasResumo] = useState(null);
   const [atencao, setAtencao] = useState(null);
   const [metaSetor, setMetaSetor] = useState(null);
+  const [vittaHoje, setVittaHoje] = useState(null);
   useEffect(() => {
     api.get('/reports/dashboard').then(setData).catch(() => {});
-    api.get(`/extras/agenda?data=${new Date().toISOString().slice(0, 10)}`).then(d => setAgendaHoje(Array.isArray(d) ? d : [])).catch(() => {});
+    api.get(`/extras/agenda?data=${hojeLocalISO()}`).then(d => setAgendaHoje(Array.isArray(d) ? d : [])).catch(() => {});
     api.get('/extras/agenda/meta').then(setAgMeta).catch(() => {});
     api.get('/extras/meta-setor').then(setMetaSetor).catch(() => {});
+    api.get('/extras/vitta-hoje').then(setVittaHoje).catch(() => {});
     if (isMaster) api.get('/extras/vendas/resumo').then(setVendasResumo).catch(() => {}); // painel comercial é só do master
     const loadAt = () => api.get('/inbox/atencao-agora').then(setAtencao).catch(() => {});
     loadAt(); const t = setInterval(loadAt, 20000); return () => clearInterval(t);
@@ -72,7 +56,7 @@ export default function Dashboard() {
   const hora = hoje.getHours();
   const saud = hora < 12 ? 'Bom dia' : hora < 18 ? 'Boa tarde' : 'Boa noite';
   const diaAno = Math.floor((hoje - new Date(hoje.getFullYear(), 0, 0)) / 86400000);
-  const [verso, ref] = VERSICULOS[diaAno % VERSICULOS.length];
+  const [verso, ref] = versiculoDoDia();
   const motivacional = MOTIVACIONAIS[diaAno % MOTIVACIONAIS.length];
   const nome = (user?.nome || '').split(' ')[0];
   const papel = user?.role === 'master' ? 'Master' : user?.role === 'supervisor' ? 'Supervisora' : 'Atendente';
@@ -80,8 +64,8 @@ export default function Dashboard() {
   if (!data) return <div style={{ padding: 40, color: 'var(--muted)' }}>Carregando seu dia…</div>;
 
   const { resumo = {}, porStatus = [], followups = [], porResponsavel = [], metas, impacto, funil = [], porSetorConv = [] } = data;
-  const fupsHoje = followups.filter(f => f.data_retorno === hoje.toISOString().slice(0, 10));
-  const fupsVencidos = followups.filter(f => f.data_retorno < hoje.toISOString().slice(0, 10));
+  const fupsHoje = followups.filter(f => f.data_retorno === hojeLocalISO());
+  const fupsVencidos = followups.filter(f => f.data_retorno < hojeLocalISO());
   const proxMarco = metas ? [25, 50, 75, 100].find(m => m > metas.vacinas.pct) : null;
   const maxFunil = Math.max(...funil.map(f => f.n), 1);
   const setorEmoji = { vacinas: '💉', consultas: '🩺', terapias: '🧩', 'sem setor': '📥' };
@@ -231,6 +215,39 @@ export default function Dashboard() {
             </div>
           )}
         </div>
+
+        {/* ── 🤖 Vitta trabalhando por você — automações de hoje ── */}
+        {vittaHoje && (vittaHoje.enviadas + vittaHoje.pendentes) > 0 && (
+          <div className="card" style={{ padding: '14px 18px', marginBottom: 16, borderLeft: '4px solid var(--tq)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+              <span style={{ fontWeight: 800, fontSize: 14 }}>🤖 Vitta trabalhando por você — hoje</span>
+              <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--muted)' }}>
+                {vittaHoje.enviadas} enviada{vittaHoje.enviadas === 1 ? '' : 's'} · {vittaHoje.pendentes} na fila
+              </span>
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {vittaHoje.lista.map((o) => {
+                const rot = String(o.origem).replace(/^Vitta · /, '').replace(/^Campanha · /, 'Campanha ');
+                const emoji = /confirma/i.test(o.origem) ? '📅' : /orçament|orcament/i.test(o.origem) ? '💰'
+                  : /faltoso/i.test(o.origem) ? '🔄' : /pós-venda|pos-venda/i.test(o.origem) ? '💙'
+                  : /avalia/i.test(o.origem) ? '⭐' : /campanha|reativa/i.test(o.origem) ? '📣'
+                  : /dose/i.test(o.origem) ? '💉' : /follow/i.test(o.origem) ? '♻️' : '🤖';
+                return (
+                  <div key={o.origem} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--bg2)', borderRadius: 9, padding: '6px 11px', fontSize: 12 }}>
+                    <span>{emoji}</span>
+                    <span style={{ fontWeight: 700 }}>{rot}</span>
+                    <span style={{ fontWeight: 800, color: 'var(--tq2)' }}>
+                      {o.enviadas > 0 && `${o.enviadas} ✓`}{o.enviadas > 0 && o.pendentes > 0 && ' · '}{o.pendentes > 0 && `${o.pendentes} ⏳`}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 8 }}>
+              Confirmações de agenda, resgates de orçamento e faltosos, pós-venda e follow-ups — tudo automático. ✓ enviada · ⏳ programada pra hoje
+            </div>
+          </div>
+        )}
 
         {/* ── Linha principal: Meta grande · Funil · Agenda-Hoje ── */}
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px,1.1fr) minmax(260px,1fr) minmax(300px,1.3fr)', gap: 16, marginBottom: 16 }}>
@@ -486,7 +503,7 @@ export default function Dashboard() {
             <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 13, display: 'flex', alignItems: 'center', gap: 8 }}>🔔 Atividades de Follow-up</div>
             <div style={{ flex: 1 }}>
               {followups.slice(0, 4).map((f, i) => {
-                const vencido = f.data_retorno < hoje.toISOString().slice(0, 10);
+                const vencido = f.data_retorno < hojeLocalISO();
                 return (
                   <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: i < Math.min(followups.length, 4) - 1 ? '1px solid var(--border)' : 'none' }}>
                     <div style={{ flex: 1, minWidth: 0 }}>

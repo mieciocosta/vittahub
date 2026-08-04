@@ -378,16 +378,12 @@ r.get('/meta-setor', async (req, res) => {
       individual = { meta: metaInd, confirmado: confI, falta: Math.max(metaInd - confI, 0), pct: +((confI / metaInd) * 100).toFixed(1) };
     }
 
-    if (setores.length) {
-      const porSetor = [];
-      for (const s of setores) porSetor.push(await confDe(s));
-      // Topo = primeiro setor (compat com quem lê os campos direto); porSetor separa cada um.
-      return res.json({ ...porSetor[0], porSetor, multi: porSetor.length > 1, individual });
-    }
-    // Master / sem setor → mostra CADA setor separado (cada um tem sua meta e produção);
-    // nada de "Geral" que mistura vacinas com consultas/terapias.
+    // Pedido do master: TODO MUNDO vê as metas dos 3 setores (transparência e
+    // espírito de time). O setor da própria usuária vem primeiro na fila.
+    const ordem = [...setores, ...['vacinas', 'consultas', 'terapias'].filter(s => !setores.includes(s))];
     const porSetor = [];
-    for (const s of ['vacinas', 'consultas', 'terapias']) porSetor.push(await confDe(s));
+    for (const s of ordem) porSetor.push(await confDe(s));
+    // Topo = primeiro setor (compat com quem lê os campos direto); porSetor separa cada um.
     res.json({ ...porSetor[0], porSetor, multi: true, individual });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1659,6 +1655,30 @@ r.post('/ligacoes', async (req, res) => {
 r.delete('/ligacoes/:id', async (req, res) => {
   try { await query('DELETE FROM ligacoes WHERE id = $1', [req.params.id]); res.json({ ok: true }); }
   catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* ═══ 🤖 VITTA HOJE — o que a automação fez/fará hoje (card da página inicial) ═ */
+r.get('/vitta-hoje', async (req, res) => {
+  try {
+    // "Hoje" no fuso de São Luís (UTC-3): 03:00Z de hoje até 03:00Z de amanhã
+    const hojeSLZ = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+    const ini = `${hojeSLZ}T03:00:00.000Z`;
+    const fim = new Date(new Date(ini).getTime() + 86400000).toISOString();
+    const { rows } = await query(`
+      SELECT COALESCE(criado_por, 'Mensagem programada') origem, status, COUNT(*)::int n
+      FROM mensagens_agendadas
+      WHERE enviar_em >= $1 AND enviar_em < $2 AND status IN ('pendente', 'enviada')
+      GROUP BY 1, 2`, [ini, fim]);
+    const porOrigem = {};
+    for (const r2 of rows) {
+      const o = porOrigem[r2.origem] || (porOrigem[r2.origem] = { origem: r2.origem, enviadas: 0, pendentes: 0 });
+      if (r2.status === 'enviada') o.enviadas += r2.n; else o.pendentes += r2.n;
+    }
+    const lista = Object.values(porOrigem).sort((a, b) => (b.enviadas + b.pendentes) - (a.enviadas + a.pendentes));
+    res.json({ lista,
+      enviadas: lista.reduce((s, x) => s + x.enviadas, 0),
+      pendentes: lista.reduce((s, x) => s + x.pendentes, 0) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 /* ═══ ⭐ LINK DE AVALIAÇÃO NO GOOGLE (pós-venda automático) ═══════════════════ */
