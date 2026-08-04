@@ -743,10 +743,10 @@ export default function Caixa() {
                         <button onClick={salvarValor} style={{ background: 'var(--tq)', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', padding: '4px 6px', display: 'flex' }}><Check size={13} /></button>
                       </div>
                     ) : (
-                      <div onClick={gestao ? () => setEditValor({ id: v.id, valor: String(parseFloat(v.valor) || 0).replace('.', ',') }) : undefined}
-                        title={gestao ? 'Clique para editar o valor da venda' : undefined}
-                        style={{ fontSize: 16.5, fontWeight: 900, color: '#16a34a', cursor: gestao ? 'pointer' : 'default', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                        {fmt.brl(v.valor)}{gestao && <Pencil size={11} style={{ opacity: .45 }} />}
+                      <div onClick={(podeAnexar(v) && !(v.conferido && !gestao)) ? () => setEditValor({ id: v.id, valor: String(parseFloat(v.valor) || 0).replace('.', ',') }) : undefined}
+                        title={(podeAnexar(v) && !(v.conferido && !gestao)) ? 'Clique para editar o valor da venda' : undefined}
+                        style={{ fontSize: 16.5, fontWeight: 900, color: '#16a34a', cursor: (podeAnexar(v) && !(v.conferido && !gestao)) ? 'pointer' : 'default', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        {fmt.brl(v.valor)}{(podeAnexar(v) && !(v.conferido && !gestao)) && <Pencil size={11} style={{ opacity: .45 }} />}
                       </div>
                     )}
                     {parseFloat(v.desconto) > 0 && <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>desc. {fmt.brl(v.desconto)}</div>}
@@ -794,7 +794,7 @@ export default function Caixa() {
                       <span style={{ fontSize: 11.5, color: 'var(--light)', fontWeight: 600 }}>sem comprovante</span>
                     )}
                   </div>
-                  {gestao && (
+                  {podeAnexar(v) && !(v.conferido && !gestao) && (
                     <button onClick={() => abrirEditVenda(v)} title="Editar todas as informações da venda"
                       style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'var(--tq3)', color: 'var(--tq2, #0e7490)', border: 'none', borderRadius: 8, padding: '6px 10px', cursor: 'pointer', fontWeight: 700, fontSize: 11.5 }}>
                       <Pencil size={13} /> Editar
