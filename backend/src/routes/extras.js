@@ -1924,9 +1924,17 @@ async function confirmacaoVespera() {
       const convId = await convDoEvento(ev);
       if (!convId) continue;
       const nome = String(ev.paciente || '').split(' ')[0];
-      const serv = ev.servico ? ` (${ev.servico})` : '';
-      const prof = ev.profissional ? ` com ${ev.profissional}` : '';
-      const txt = `Oi! 💙 Aqui é da Vittalis Saúde. Passando pra confirmar o horário${nome ? ` de ${nome}` : ''} AMANHÃ às ${ev.hora}${serv}${prof}. Podemos confirmar presença? Se precisar remarcar, é só me avisar por aqui 😊`;
+      // Data por extenso ("quinta-feira, 07/08") — mensagem com cara de gente
+      const dt = new Date(`${amanha}T12:00:00Z`);
+      const dataExtenso = dt.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit', timeZone: 'UTC' });
+      const emojiSetor = { vacinas: '💉', consultas: '🩺', terapias: '🧩' }[ev.setor] || '💙';
+      const txt = `Oi! 💙 Aqui é da Vittalis Saúde 😊\n\n` +
+        `Passando com carinho pra lembrar do compromisso${nome ? ` do(a) ${nome}` : ''} amanhã:\n\n` +
+        `🗓️ ${dataExtenso}\n⏰ ${ev.hora}` +
+        `${ev.servico ? `\n${emojiSetor} ${ev.servico}` : ''}` +
+        `${ev.profissional ? `\n👩‍⚕️ Com ${ev.profissional}` : ''}\n\n` +
+        `Podemos confirmar a presença de vocês? Vamos preparar tudo com muito cuidado pra receber a família! 🥰\n\n` +
+        `Se precisar remarcar, sem problema nenhum — é só me avisar por aqui. 💙`;
       await query(`INSERT INTO mensagens_agendadas (conversa_id, texto, enviar_em, criado_por) VALUES ($1, $2, NOW(), 'Vitta · Confirmação de agenda')`,
         [convId, txt]).catch(() => {});
       n++;
