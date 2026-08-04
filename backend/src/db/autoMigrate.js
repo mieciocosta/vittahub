@@ -511,6 +511,17 @@ export default async function runMigrate() {
     await query(`CREATE INDEX IF NOT EXISTS idx_agenda_data ON agenda_eventos (data)`).catch(() => {});
     await query(`ALTER TABLE agenda_eventos ADD COLUMN IF NOT EXISTS endereco TEXT`).catch(() => {});
     await query(`ALTER TABLE agenda_eventos ADD COLUMN IF NOT EXISTS lembrete_enviado_em TIMESTAMPTZ`).catch(() => {});
+    // Fechamento de repasses: registro de pagamento do repasse mensal por atendente.
+    await query(`CREATE TABLE IF NOT EXISTS repasses_pagamentos (
+      id SERIAL PRIMARY KEY,
+      mes TEXT NOT NULL,
+      atendente_id TEXT,
+      atendente_nome TEXT,
+      valor NUMERIC(10,2) DEFAULT 0,
+      pago_em TIMESTAMPTZ DEFAULT NOW(),
+      pago_por TEXT,
+      UNIQUE (mes, atendente_id)
+    )`).catch(() => {});
     await query(`ALTER TABLE agenda_eventos ADD COLUMN IF NOT EXISTS local_link TEXT`).catch(() => {});
     await query(`ALTER TABLE agenda_eventos ADD COLUMN IF NOT EXISTS email TEXT`).catch(() => {});
     await query(`ALTER TABLE agenda_eventos ADD COLUMN IF NOT EXISTS valor NUMERIC(10,2)`).catch(() => {});

@@ -12,7 +12,7 @@ import inboxRouter, { rodarFollowups, configurarWebhooksZapi, alertarLeadsSemRes
 import extrasRouter  from './routes/extras.js';
 import auditoriaRouter from './routes/auditoria.js';
 import integracaoRouter from './routes/integracao.js';
-import lembretesRouter from './routes/lembretes.js';
+import lembretesRouter, { rodarLembretesAutomaticos } from './routes/lembretes.js';
 
 import { createSocketServer, socketEmit } from './socketServer.js';
 import { startPgListener, onNotify }       from './db/pgListener.js';
@@ -102,6 +102,11 @@ async function start() {
       // clientes esperando resposta humana há tempo demais — pra ninguém esquecer.
       setInterval(() => { alertarLeadsSemResposta().catch(e => console.error('Alerta sem-resposta tick:', e.message)); }, 5 * 60 * 1000);
       console.log('✅ Alerta de leads sem resposta agendado (5 min)');
+
+      // Piloto automático dos lembretes: checa a cada minuto se chegou a hora
+      // configurada (fuso da clínica) e dispara amanhã/aniversários sozinho.
+      setInterval(() => { rodarLembretesAutomaticos().catch(e => console.error('Lembretes auto tick:', e.message)); }, 60 * 1000);
+      console.log('✅ Envio automático de lembretes agendado (checagem por minuto)');
 
       // Auto-cura dos webhooks da Z-API: reaponta TODOS (inclusive o "enviadas
       // por mim", que faz mensagens do CELULAR subirem pro CRM) para este backend.
