@@ -171,6 +171,42 @@ async function transcreverAudio(base64, mime = 'audio/webm') {
   return (d.text || '').trim();
 }
 
+// 🔎 FOTO DO CLIENTE → análise INTERNA pra atendente (balão amarelo no CRM).
+// O cliente NÃO recebe nada; a nota não entra no histórico que a IA lê.
+async function analisarFotoParaEquipe(conv, mediaUrl) {
+  try {
+    if (!temIA() || !usaClaude() || !mediaUrl) return;
+    const { default: fetch } = await import('node-fetch');
+    const r = await fetch(mediaUrl, { signal: AbortSignal.timeout(20000) });
+    if (!r.ok) return;
+    const ct = String(r.headers.get('content-type') || 'image/jpeg').split(';')[0];
+    if (!ct.startsWith('image/')) return;
+    const buf = Buffer.from(await r.arrayBuffer());
+    if (buf.length < 2000 || buf.length > 6 * 1024 * 1024) return; // ícone ou grande demais
+    const sys = `Você é o assistente INTERNO das atendentes de uma clínica de pediatria e vacinação (Vittalis Saúde). O cliente enviou uma imagem no WhatsApp. Analise-a e escreva um resumo CURTO (máx. 6 linhas), DIRETO PRA ATENDENTE, em português do Brasil, útil pra venda/atendimento:
+- Caderneta de vacinação: diga as vacinas em dia visíveis e PRINCIPALMENTE o que falta ou está próximo pela idade — e sugira a oferta (plano/dose).
+- Receita ou pedido médico: resuma o que foi pedido.
+- Comprovante de pagamento: valor, data e forma.
+- Foto do bebê/família: 1 frase gentil que a atendente possa usar.
+Não invente o que não estiver legível — diga "não deu pra ler X". Sem markdown.`;
+    const resp = await claudeMessages({
+      model: CLAUDE_MODEL_MINI(), max_tokens: 500, system: sys,
+      messages: [{ role: 'user', content: [
+        { type: 'image', source: { type: 'base64', media_type: ct, data: buf.toString('base64') } },
+        { type: 'text', text: 'Analise a imagem enviada pelo cliente e escreva o resumo pra atendente.' },
+      ] }],
+    });
+    if (resp.error) return;
+    const texto = (resp.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
+    if (!texto) return;
+    const { rows: [nota] } = await query(
+      `INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome, status)
+       VALUES ($1, 'interno', 'text', $2, 'Vitta · Análise da foto', 'sent') RETURNING *`,
+      [conv.id, texto]);
+    if (nota) socketEmit('new_message', { convId: conv.id, message: nota });
+  } catch (e) { console.error('Análise de foto:', e.message); }
+}
+
 const ehGrupo = (c) => String(c.contact_id || '').includes('g.us') || String(c.phone || '').replace(/\D/g, '').length > 13;
 
 // Setor de cada usuário (id → setor), pra classificar a conversa pelo RESPONSÁVEL.
@@ -1071,7 +1107,7 @@ async function vittaResponder(convId) {
   // que JÁ enviou um PDF para não oferecer de novo)
   const { rows: histRows } = await query(
     `SELECT from_type, type, content, filename FROM mensagens
-     WHERE conversa_id = $1 AND type IN ('text','document') AND from_type <> 'system'
+     WHERE conversa_id = $1 AND type IN ('text','document') AND from_type NOT IN ('system','interno')
      ORDER BY created_at DESC LIMIT 30`,
     [convId]
   );
@@ -1553,7 +1589,7 @@ async function classificarLead(convId) {
 
     const { rows: histRows } = await query(
       `SELECT from_type, type, content, filename FROM mensagens
-       WHERE conversa_id = $1 AND type IN ('text','document') AND from_type <> 'system'
+       WHERE conversa_id = $1 AND type IN ('text','document') AND from_type NOT IN ('system','interno')
        ORDER BY created_at DESC LIMIT 20`, [convId]
     );
     const hist = histRows.reverse();
@@ -1948,6 +1984,11 @@ r.post('/webhook/zapi', async (req, res) => {
       console.log('ÁUDIO recebido mas OPENAI_API_KEY não configurada — transcrição desativada');
     }
 
+    // 🔎 Cliente mandou FOTO → análise interna pra equipe (não responde o cliente)
+    if (type === 'image' && mediaData && !isGroupMsg && !isMe) {
+      analisarFotoParaEquipe(conv, mediaData); // fire-and-forget (try/catch interno)
+    }
+
     // ─── VITTA — IA CONVERSACIONAL COM CLAUDE ─────────────────────────────────
     // Responde a texto real OU áudio transcrito.
     // DEBOUNCE: mensagens em sequência são agregadas e a Vitta responde UMA
@@ -2304,7 +2345,7 @@ r.get('/whatsapp/diag-bot', masterOnly, async (req, res) => {
       const vacIAd = cfg.vacinasIA !== false;
       add(true, `Conversa analisada: "${c.contact_name || c.phone}" · setor=${c.setor || '(sem setor)'} · ${ehConsulta ? 'IA de consulta' : c.setor === 'vacinas' ? (vacIAd ? 'IA de Vacinas LIGADA (Vitta responde)' : 'IA de Vacinas DESLIGADA — vacinação vai pro humano') : 'aguardando triagem'}.`);
       add(!!c.bot_ativo, c.bot_ativo ? 'Está com "Bot ON".' : 'Está com "Bot OFF" — ligue o botão BOT na conversa.');
-      const { rows: [last] } = await query("SELECT from_type FROM mensagens WHERE conversa_id=$1 AND type IN ('text','document') AND from_type<>'system' ORDER BY created_at DESC LIMIT 1", [c.id]).catch(() => ({ rows: [{}] }));
+      const { rows: [last] } = await query("SELECT from_type FROM mensagens WHERE conversa_id=$1 AND type IN ('text','document') AND from_type NOT IN ('system','interno') ORDER BY created_at DESC LIMIT 1", [c.id]).catch(() => ({ rows: [{}] }));
       add(last?.from_type === 'contact', last?.from_type === 'contact'
         ? 'A última mensagem é do cliente (o bot responderia).'
         : `A última mensagem é '${last?.from_type || 'nenhuma'}' — o bot só responde quando a última é do cliente (humano assumiu?).`);
@@ -3346,7 +3387,7 @@ r.post('/conversations/:id/exemplo', masterOnly, async (req, res) => {
     if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
     const { rows: msgs } = await query(
       `SELECT from_type, type, content, filename FROM mensagens
-       WHERE conversa_id = $1 AND type IN ('text','document') AND from_type <> 'system'
+       WHERE conversa_id = $1 AND type IN ('text','document') AND from_type NOT IN ('system','interno')
        ORDER BY created_at ASC LIMIT 60`, [req.params.id]);
     if (!msgs.length) return res.status(400).json({ error: 'Conversa sem mensagens pra usar de exemplo.' });
     const conteudo = msgs.map(m => {
@@ -3586,7 +3627,7 @@ r.patch('/conversations/:id/bot', async (req, res) => {
     // que esperar o cliente mandar outra mensagem. (Só pra setor de IA, não vacina.)
     if (c?.bot_ativo) {
       const { rows: [last] } = await query(
-        "SELECT from_type FROM mensagens WHERE conversa_id=$1 AND type IN ('text','document') AND from_type<>'system' ORDER BY created_at DESC LIMIT 1",
+        "SELECT from_type FROM mensagens WHERE conversa_id=$1 AND type IN ('text','document') AND from_type NOT IN ('system','interno') ORDER BY created_at DESC LIMIT 1",
         [req.params.id]).catch(() => ({ rows: [] }));
       const { rows: [cv] } = await query('SELECT setor FROM conversas WHERE id=$1', [req.params.id]).catch(() => ({ rows: [] }));
       // Bot ON manual = a Vitta responde na hora a mensagem pendente, em
@@ -4450,7 +4491,7 @@ r.post('/ai-chat', async (req, res) => {
       if (conv) {
         const { rows: histRows } = await query(
           `SELECT from_type, type, content, filename FROM mensagens
-           WHERE conversa_id = $1 AND type IN ('text','document') AND from_type <> 'system'
+           WHERE conversa_id = $1 AND type IN ('text','document') AND from_type NOT IN ('system','interno')
            ORDER BY created_at DESC LIMIT 20`, [convId]);
         const transcript = histRows.reverse().map(m => {
           const quem = m.from_type === 'contact' ? (conv.contact_name || 'Cliente') : m.from_type === 'bot' ? 'Vitta' : 'Atendente';
@@ -4591,7 +4632,7 @@ r.post('/ai-assist', async (req, res) => {
     // Conversa em ordem cronológica (texto + documentos enviados)
     const { rows: histRows } = await query(
       `SELECT from_type, type, content, filename, sender_nome, created_at FROM mensagens
-       WHERE conversa_id = $1 AND type IN ('text','document') AND from_type <> 'system'
+       WHERE conversa_id = $1 AND type IN ('text','document') AND from_type NOT IN ('system','interno')
        ORDER BY created_at DESC LIMIT 40`, [convId]);
     const hist = histRows.reverse();
     if (!hist.length) return res.status(400).json({ error: 'Conversa sem mensagens para analisar' });
@@ -4688,7 +4729,7 @@ async function montarTranscriptConversa(convId, limite = 40) {
   if (!conv) return null;
   const { rows: histRows } = await query(
     `SELECT from_type, type, content, filename, sender_nome, created_at FROM mensagens
-     WHERE conversa_id = $1 AND type IN ('text','document') AND from_type <> 'system'
+     WHERE conversa_id = $1 AND type IN ('text','document') AND from_type NOT IN ('system','interno')
      ORDER BY created_at DESC LIMIT $2`, [convId, limite]);
   const hist = histRows.reverse();
   const transcript = hist.map(m => {
@@ -5851,7 +5892,7 @@ function dentroDoHorarioComercial() {
 async function gerarMensagemFollowup(conv, count) {
   const { rows: histRows } = await query(
     `SELECT from_type, type, content, filename FROM mensagens
-     WHERE conversa_id = $1 AND type IN ('text','document') AND from_type <> 'system'
+     WHERE conversa_id = $1 AND type IN ('text','document') AND from_type NOT IN ('system','interno')
      ORDER BY created_at DESC LIMIT 12`, [conv.id]
   );
   const hist = histRows.reverse();

@@ -355,7 +355,18 @@ const MsgItem = React.memo(function MsgItem({ m, prevMsg, contactName, channel, 
           </span>
         </div>
       )}
-      {isSys ? (
+      {m.from_type === 'interno' ? (
+        /* 🔎 Nota INTERNA da Vitta (análise de foto etc.) — só a equipe vê */
+        <div style={{ display:'flex', justifyContent:'center', margin:'6px 0' }}>
+          <div style={{ maxWidth:'86%', background:'linear-gradient(135deg,#fffbeb,#fef3c7)', border:'1px solid #fcd34d', borderRadius:14, padding:'10px 14px', boxShadow:'0 2px 10px rgba(217,119,6,.12)' }}>
+            <div style={{ fontSize:10, fontWeight:800, letterSpacing:.6, textTransform:'uppercase', color:'#b45309', marginBottom:4, display:'flex', alignItems:'center', gap:5 }}>
+              🔎 {m.sender_nome || 'Vitta · Análise'} <span style={{ fontWeight:600, textTransform:'none', letterSpacing:0, color:'#d97706' }}>· só a equipe vê</span>
+            </div>
+            <div style={{ fontSize:12.5, lineHeight:1.6, color:'#78350f', whiteSpace:'pre-wrap' }}>{m.content}</div>
+            <div style={{ fontSize:9.5, color:'#b45309', opacity:.7, marginTop:4, textAlign:'right' }}>{fmt.msgTime(m.created_at)}</div>
+          </div>
+        </div>
+      ) : isSys ? (
         <div style={{ textAlign:'center', margin:'3px 0' }}>
           <span style={{ background:'var(--ok2)', color:'var(--ok)', borderRadius:8, padding:'3px 14px', fontSize:10.5, fontWeight:600 }}>✓ {m.content}</span>
         </div>
