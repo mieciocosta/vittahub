@@ -912,8 +912,10 @@ r.get('/amigo/devocional-hoje', async (req, res) => {
   try {
     const { data, tema, ref } = temaDeHoje();
     const { rows: [c] } = await query("SELECT valor FROM configuracoes WHERE chave = 'devocional_dia'").catch(() => ({ rows: [] }));
-    // Só serve do cache se for de hoje E no formato novo (estruturado, sem asteriscos)
-    if (c?.valor?.data === data && c.valor.versiculo) return res.json(c.valor);
+    // Só serve do cache se for de hoje E no formato novo (estruturado, sem asteriscos).
+    // Master pode forçar um novo com ?regerar=1 (descarta o de hoje na hora).
+    const forcar = req.query.regerar === '1' && req.user.role === 'master';
+    if (!forcar && c?.valor?.data === data && c.valor.versiculo) return res.json(c.valor);
     const fallback = { data, tema, ref, versiculo: null, texto: `Leia hoje: ${ref}. Medite nessa palavra e leve-a com você durante o dia. 🙏` };
     if (!temIA()) return res.json(fallback);
     const sys = `Você escreve o devocional diário da equipe da Vittalis Saúde (clínica cristã, São Luís-MA): tema bom, texto edificante, linguagem simples e calorosa, português do Brasil. Responda APENAS um JSON válido, sem markdown e sem asteriscos.`;

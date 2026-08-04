@@ -159,7 +159,7 @@ export default function Amigo() {
 
       {/* 🌅 Devocional do dia — cartão caprichado, estilo imagem de devocional */}
       {devocional && (
-        <div style={{ flexShrink: 0, marginBottom: 12, borderRadius: 18, overflow: 'hidden', boxShadow: '0 8px 26px rgba(76,29,149,.22)' }}>
+        <div style={{ position: 'relative', flexShrink: 0, marginBottom: 12, borderRadius: 18, overflow: 'hidden', boxShadow: '0 8px 26px rgba(76,29,149,.22)' }}>
           <button onClick={() => setDevAberto(a => !a)}
             style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 9, padding: '12px 16px', border: 'none', cursor: 'pointer', textAlign: 'left',
               background: 'linear-gradient(120deg,#312e81,#4c1d95 55%,#6d28d9)', color: '#fff' }}>
@@ -170,6 +170,13 @@ export default function Amigo() {
             </span>
             <span style={{ fontSize: 11, fontWeight: 700, opacity: .8, flexShrink: 0 }}>{devAberto ? '▲ recolher' : '▼ ler'}</span>
           </button>
+          {ehMaster && devAberto && (
+            <button title="Gerar um devocional novo pra hoje (só o master vê este botão)"
+              onClick={(e) => { e.stopPropagation(); setDevocional(null); api.get('/extras/amigo/devocional-hoje?regerar=1').then(d => { setDevocional(d); setDevAberto(true); }).catch(() => {}); }}
+              style={{ position: 'absolute', right: 12, top: 58, zIndex: 2, background: 'rgba(255,255,255,.18)', border: 'none', color: '#fff', borderRadius: 8, padding: '4px 8px', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
+              🔄
+            </button>
+          )}
 
           {devAberto && (
             devocional.versiculo ? (
