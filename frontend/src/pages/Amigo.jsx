@@ -216,6 +216,15 @@ export default function Amigo() {
                     {String(devocional.reflexao || '').slice(1)}
                   </div>
 
+                  {/* Frase de ouro — a sentença pra guardar no coração */}
+                  {devocional.frase && (
+                    <div style={{ textAlign: 'center', margin: '0 auto 18px', maxWidth: 480, padding: '14px 18px', borderTop: '1px solid rgba(212,175,55,.4)', borderBottom: '1px solid rgba(212,175,55,.4)' }}>
+                      <div style={{ fontFamily: 'Georgia, "Times New Roman", serif', fontSize: 15.5, lineHeight: 1.6, fontWeight: 700, color: '#e9c46a', letterSpacing: .3, textShadow: '0 1px 10px rgba(212,175,55,.25)' }}>
+                        {devocional.frase}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Aplicações */}
                   {(devocional.aplicacoes || []).length > 0 && (
                     <div style={{ background: 'rgba(255,255,255,.06)', border: '1px solid rgba(212,175,55,.28)', borderRadius: 14, padding: '14px 16px', marginBottom: 16 }}>

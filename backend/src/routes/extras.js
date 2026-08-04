@@ -915,19 +915,33 @@ r.get('/amigo/devocional-hoje', async (req, res) => {
     // Só serve do cache se for de hoje E no formato novo (estruturado, sem asteriscos).
     // Master pode forçar um novo com ?regerar=1 (descarta o de hoje na hora).
     const forcar = req.query.regerar === '1' && req.user.role === 'master';
-    if (!forcar && c?.valor?.data === data && c.valor.versiculo) return res.json(c.valor);
+    // exige também a "frase de ouro" — cache sem ela é da geração antiga, descarta
+    if (!forcar && c?.valor?.data === data && c.valor.versiculo && c.valor.frase) return res.json(c.valor);
     const fallback = { data, tema, ref, versiculo: null, texto: `Leia hoje: ${ref}. Medite nessa palavra e leve-a com você durante o dia. 🙏` };
     if (!temIA()) return res.json(fallback);
-    const sys = `Você escreve o devocional diário da equipe da Vittalis Saúde (clínica cristã, São Luís-MA): tema bom, texto edificante, linguagem simples e calorosa, português do Brasil. Responda APENAS um JSON válido, sem markdown e sem asteriscos.`;
+    // Texto PREMIUM: gerado 1x/dia, então usa o modelo PRINCIPAL (mais capaz),
+    // com instruções de escritor devocional — profundidade sem clichê.
+    const sys = `Você é um escritor devocional experiente e refinado (na linha de Max Lucado), escrevendo o devocional diário da equipe da Vittalis Saúde, uma clínica cristã de pediatria e vacinação em São Luís-MA. Português do Brasil impecável, tom caloroso e pastoral.
+
+REGRAS DE ESCRITA (obrigatórias):
+- Cite o versículo FIELMENTE (Almeida Revista e Atualizada ou NVI).
+- Reflexão com IMAGENS CONCRETAS do cotidiano (uma mãe na sala de espera, o telefone que não para, o cansaço do fim do dia) — nunca abstrações vazias.
+- PROIBIDO clichê: nada de "Deus tem um propósito pra você", "basta ter fé", "tudo vai dar certo". Surpreenda com um ângulo novo do texto bíblico.
+- Frases com ritmo: alterne curtas e longas. Uma ideia por frase.
+- A "frase de ouro" deve ser memorável e citável — algo que a pessoa quer anotar.
+- Aplicações REALIZÁVEIS no mesmo dia, específicas, com verbo de ação.
+- Oração em primeira pessoa, íntima e concreta — não genérica.
+Responda APENAS um JSON válido, sem markdown e sem asteriscos.`;
     const userMsg = `Escreva o devocional de hoje com o tema "${tema}", baseado em ${ref}. Formato EXATO (texto puro em cada campo, sem formatação):
-{"versiculo":"texto fiel da passagem ${ref}","referencia":"${ref}","reflexao":"3 a 5 frases ligando a passagem à vida real (trabalho, família, coração), profundas mas simples, sem clichê","aplicacoes":["atitude prática e concreta pra hoje","outra atitude concreta","terceira atitude concreta"],"oracao":"oração curta de 2-3 frases sobre o tema"}`;
-    const d = await openaiMessages({ model: 'gpt-4o-mini', max_tokens: 700, json: true, system: sys, messages: [{ role: 'user', content: userMsg }] });
+{"versiculo":"texto fiel da passagem ${ref}","referencia":"${ref}","reflexao":"4 a 6 frases ligando a passagem à vida real, profundas e concretas","frase":"a frase de ouro: uma sentença curta e memorável que resume a mensagem","aplicacoes":["atitude prática e concreta pra hoje","outra atitude concreta","terceira atitude concreta"],"oracao":"oração íntima de 2-3 frases, em primeira pessoa"}`;
+    const d = await openaiMessages({ model: 'gpt-4o', max_tokens: 4096, json: true, system: sys, messages: [{ role: 'user', content: userMsg }] });
     let j = null;
     try { j = JSON.parse(((d.content || []).filter(b => b.type === 'text').map(b => b.text).join('')).trim()); } catch {}
     const limpa = (t) => String(t || '').replace(/\*+/g, '').trim();
     if (d.error || !j?.versiculo || !j?.reflexao) return res.json(fallback);
     const valor = { data, tema, ref, versiculo: limpa(j.versiculo), referencia: limpa(j.referencia) || ref,
-      reflexao: limpa(j.reflexao), aplicacoes: (Array.isArray(j.aplicacoes) ? j.aplicacoes : []).slice(0, 3).map(limpa).filter(Boolean),
+      reflexao: limpa(j.reflexao), frase: limpa(j.frase),
+      aplicacoes: (Array.isArray(j.aplicacoes) ? j.aplicacoes : []).slice(0, 3).map(limpa).filter(Boolean),
       oracao: limpa(j.oracao) };
     await query(`INSERT INTO configuracoes (chave, valor) VALUES ('devocional_dia', $1::jsonb)
                  ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`, [JSON.stringify(valor)]).catch(() => {});
@@ -953,7 +967,7 @@ FORMATO da resposta (use exatamente estas seções, curtas — SEM asteriscos ne
 ✅ APLICAÇÕES DE HOJE — 2 ou 3 atitudes práticas e concretas pra viver essa palavra HOJE (numeradas). Bem específicas, ex.: "antes de responder aquela conversa difícil, respire e ore 10 segundos".
 🙏 ORAÇÃO — uma oração curtinha (2-3 frases) sobre o tema.
 
-Se ${primeiro} pedir "palavra do dia" sem tema, use o TEMA DE HOJE do devocional da equipe: "${temaDeHoje().tema}" (${temaDeHoje().ref}). Se fizer uma pergunta bíblica, responda com fidelidade à Bíblia e simplicidade. Se demonstrar sofrimento intenso ou pensamentos de se machucar: acolha com muito carinho, dê uma palavra de esperança, incentive procurar alguém de confiança e um profissional, e informe o CVV (ligue 188, 24h, gratuito). Use o nome ${primeiro} com naturalidade.`;
+Se ${primeiro} pedir "palavra do dia" sem tema, use o TEMA DE HOJE do devocional da equipe: "${temaDeHoje().tema}" (${temaDeHoje().ref}). Se fizer uma pergunta bíblica, responda com fidelidade à Bíblia e simplicidade. Se demonstrar sofrimento intenso ou pensamentos de se machucar: acolha com muito carinho, dê uma palavra de esperança, incentive procurar alguém de confiança e um profissional, e informe o CVV (ligue 188, 24h, gratuito). Use o nome ${primeiro} com naturalidade. Escreva com beleza e profundidade: imagens concretas do cotidiano, zero clichê ("basta ter fé", "tudo vai dar certo"), frases com ritmo.`;
     const d = await openaiMessages({ model: 'gpt-4o-mini', max_tokens: 700, system: sys, messages: mensagens });
     if (d.error) return res.status(400).json({ error: 'Não consegui buscar a palavra agora. Tenta de novo em instantes.' });
     const resposta = ((d.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n')).trim() || 'Estou aqui. Me diz que palavra você precisa hoje? 🙏';
