@@ -765,7 +765,10 @@ export default async function runMigrate() {
       if (fs.existsSync(dirFig)) {
         const NOMES = { 'bom-dia': 'Vitta · Bom dia', 'boa-tarde': 'Vitta · Boa tarde', 'obrigada': 'Vitta · Obrigada pela confiança',
           'confirmado': 'Vitta · Confirmadíssimo', 'esperando': 'Vitta · Estamos te esperando', 'protecao': 'Vitta · Proteção em dia',
-          'parabens': 'Vitta · Parabéns', 'conta-comigo': 'Vitta · Conta com a gente' };
+          'parabens': 'Vitta · Parabéns', 'conta-comigo': 'Vitta · Conta com a gente',
+          'excelente-semana': 'Vitta · Excelente semana', 'abencoado-mes': 'Vitta · Abençoado mês',
+          'agendamento-confirmado': 'Vitta · Agendamento confirmado', 'princesa': 'Vitta · Princesa linda e protegida',
+          'principe': 'Vitta · Príncipe lindo e protegido', 'consulta-confirmada': 'Vitta · Consulta confirmada' };
         for (const f of fs.readdirSync(dirFig).filter(x => x.endsWith('.webp'))) {
           const titulo = NOMES[f.replace('.webp', '')] || `Vitta · ${f}`;
           const { rows: [ja] } = await query(`SELECT 1 FROM biblioteca_midias WHERE titulo = $1 AND tipo = 'figurinha' LIMIT 1`, [titulo]);
