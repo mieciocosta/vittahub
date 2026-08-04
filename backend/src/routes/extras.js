@@ -1061,7 +1061,13 @@ r.patch('/vendas/:id/conferido', async (req, res) => {
 // CAIXA — EDITAR valores/dados de uma venda (gestão). Atualiza caixa/metas ao vivo.
 r.patch('/vendas/:id', async (req, res) => {
   try {
-    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão edita vendas.' });
+    // Pedido do master: TODAS editam as vendas — cada atendente edita as suas;
+    // gestão edita qualquer uma. Venda já conferida só a gestão mexe.
+    const { rows: [vAtual] } = await query('SELECT atendente_id, conferido FROM vendas WHERE id = $1', [req.params.id]);
+    if (!vAtual) return res.status(404).json({ error: 'Venda não encontrada' });
+    const dona = String(vAtual.atendente_id) === String(req.user.id);
+    if (!gestao(req) && !dona) return res.status(403).json({ error: 'Você só pode editar as suas vendas.' });
+    if (!gestao(req) && vAtual.conferido) return res.status(403).json({ error: 'Venda já conferida pelo financeiro — peça à gestão.' });
     const b = req.body || {};
     const num = (v) => Math.max(0, Math.min(parseFloat(v) || 0, 100000000));
     const sets = [], params = []; let i = 1;
@@ -1446,7 +1452,13 @@ r.get('/agendamentos/resumo', async (req, res) => {
 // Editar/excluir venda (gestão)
 r.put('/vendas/:id', async (req, res) => {
   try {
-    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão edita vendas.' });
+    // Pedido do master: TODAS editam as vendas — cada atendente edita as suas;
+    // gestão edita qualquer uma. Venda já conferida só a gestão mexe.
+    const { rows: [vAtual] } = await query('SELECT atendente_id, conferido FROM vendas WHERE id = $1', [req.params.id]);
+    if (!vAtual) return res.status(404).json({ error: 'Venda não encontrada' });
+    const dona = String(vAtual.atendente_id) === String(req.user.id);
+    if (!gestao(req) && !dona) return res.status(403).json({ error: 'Você só pode editar as suas vendas.' });
+    if (!gestao(req) && vAtual.conferido) return res.status(403).json({ error: 'Venda já conferida pelo financeiro — peça à gestão.' });
     const b = req.body || {};
     const sets = [], params = []; let i = 1;
     const set = (c, v) => { sets.push(`${c} = $${i++}`); params.push(v); };
