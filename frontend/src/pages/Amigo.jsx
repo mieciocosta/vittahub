@@ -25,9 +25,16 @@ export default function Amigo() {
     api.get('/extras/amigo/historico').then(d => setMsgs(Array.isArray(d) ? d : [])).catch(() => {}).finally(() => setCarregando(false));
   }, []); // eslint-disable-line
 
+  // Erros aqui eram engolidos — o clique parecia "não fazer nada". Agora a lista
+  // sempre abre e mostra: carregando → conteúdo OU o motivo do erro.
+  const [equipeLoad, setEquipeLoad] = useState(false);
+  const [equipeErro, setEquipeErro] = useState('');
   const abrirEquipe = () => {
-    setModo('lista');
-    api.get('/extras/amigo/usuarios').then(d => setEquipe(Array.isArray(d) ? d : [])).catch(() => setEquipe([]));
+    setModo('lista'); setEquipeErro(''); setEquipeLoad(true);
+    api.get('/extras/amigo/usuarios')
+      .then(d => setEquipe(Array.isArray(d) ? d : []))
+      .catch(e => { setEquipe([]); setEquipeErro(e.message || 'Não consegui carregar a lista.'); })
+      .finally(() => setEquipeLoad(false));
   };
   const verConversa = (u) => {
     api.get(`/extras/amigo/conversa/${u.usuario_id}`).then(d => { setVendo(d); setModo('ver'); }).catch(() => {});
@@ -92,7 +99,14 @@ export default function Amigo() {
       {modo === 'lista' && (
         <div style={{ flex: 1, overflowY: 'auto' }}>
           <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12 }}>Acompanhe com carinho quem desabafou. As conversas são sensíveis — use pra cuidar da equipe.</div>
-          {equipe.length === 0 ? (
+          {equipeLoad ? (
+            <div className="card" style={{ padding: 34, textAlign: 'center', color: 'var(--muted)' }}>Carregando a lista…</div>
+          ) : equipeErro ? (
+            <div className="card" style={{ padding: 24, textAlign: 'center', color: 'var(--err,#dc2626)', fontWeight: 600 }}>
+              ⚠️ {equipeErro}
+              <div style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 500, marginTop: 8 }}>Se estiver "entrando como" outra pessoa, volte ao seu usuário master e tente de novo.</div>
+            </div>
+          ) : equipe.length === 0 ? (
             <div className="card" style={{ padding: 34, textAlign: 'center', color: 'var(--muted)' }}>Ninguém usou o Meu Amigo ainda.</div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
