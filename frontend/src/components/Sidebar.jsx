@@ -5,7 +5,7 @@ import {
   LogOut, Settings, Smartphone, Sun, Moon, ChevronLeft, ChevronRight,
   CalendarClock, CalendarDays, Bell, CheckCheck, UserPlus, Shield,
   Gift, Bot, Image, FileText, Smile, Phone, Star, Database, Stethoscope, Target,
-  Trophy, GraduationCap, Rocket, Wallet, Palette, Gamepad2, Heart, LayoutGrid, Pencil, Flame,
+  Trophy, GraduationCap, Rocket, Wallet, Palette, Gamepad2, BookOpen, LayoutGrid, Pencil, Flame,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useApi } from '../context/AuthContext.jsx';
@@ -31,7 +31,7 @@ const NAV = [
   { to:'/planejamento', icon:Rocket,        label:'Planejamento', lider:true, plan:true },
   { to:'/quiz',       icon:Gamepad2,        label:'Quiz de Vendas' },
   { to:'/inbox',      icon:MessageSquare,   label:'Chat',     unread:true },
-  { to:'/amigo',      icon:Heart,           label:'Meu Amigo' },
+  { to:'/amigo',      icon:BookOpen,        label:'Meu Devocional' },
   { to:'/equipe',     icon:Users,           label:'Chat da Equipe', equipe:true },
   { to:'/leads',      icon:Users,           label:'Clientes' },
   { to:'/banco-dados',icon:Database,        label:'Banco de Dados' },

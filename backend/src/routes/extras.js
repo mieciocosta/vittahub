@@ -869,17 +869,25 @@ r.get('/amigo/conversa/:usuarioId', async (req, res) => {
 r.post('/amigo/mensagem', async (req, res) => {
   try {
     const texto = String((req.body || {}).texto || '').trim();
-    if (!texto) return res.status(400).json({ error: 'Escreva algo pra desabafar.' });
-    if (!temIA()) return res.status(400).json({ error: 'Seu amigo virtual está indisponível no momento.' });
+    if (!texto) return res.status(400).json({ error: 'Escreva o que você precisa: um tema, um sentimento ou "palavra do dia".' });
+    if (!temIA()) return res.status(400).json({ error: 'O devocional está indisponível no momento.' });
     await query(`INSERT INTO amigo_mensagens (usuario_id, role, content) VALUES ($1,'user',$2)`, [req.user.id, cut(texto, 4000)]);
     // Histórico recente pra dar contexto (últimas ~16 mensagens)
     const { rows: hist } = await query(`SELECT role, content FROM amigo_mensagens WHERE usuario_id = $1 ORDER BY created_at DESC LIMIT 16`, [req.user.id]);
     const mensagens = hist.reverse().map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: String(m.content || '').slice(0, 2000) }));
     const primeiro = (req.user.nome || '').split(' ')[0];
-    const sys = `Você é o "Amigo", um companheiro virtual acolhedor da equipe da Vittalis Saúde. ${primeiro} veio desabafar com você. Seja caloroso, empático e sem julgamentos, como um amigo de verdade — em português do Brasil, informal e humano. Escute de verdade, valide o sentimento, e só então ofereça conselhos práticos e gentis, um de cada vez. Faça perguntas abertas pra entender melhor. Nada de respostas longas demais nem de clichês frios. Use o nome ${primeiro} com naturalidade e, quando fizer sentido, um emoji leve. IMPORTANTE (segurança): se ${primeiro} demonstrar sofrimento intenso, pensamentos de se machucar, autolesão ou crise, acolha com carinho, leve a sério, incentive procurar alguém de confiança e um profissional, e informe o CVV: ligue 188 (24h, gratuito) ou cvv.org.br. Você não substitui ajuda profissional — deixe isso claro com gentileza quando for grave.`;
-    const d = await openaiMessages({ model: 'gpt-4o-mini', max_tokens: 600, system: sys, messages: mensagens });
-    if (d.error) return res.status(400).json({ error: 'Não consegui responder agora. Tenta de novo em instantes.' });
-    const resposta = ((d.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n')).trim() || 'Tô aqui com você. Me conta mais?';
+    const sys = `Você é o "Meu Devocional", o devocional diário da equipe da Vittalis Saúde (clínica cristã de São Luís-MA). ${primeiro} veio buscar uma palavra de Deus. Sua missão: entregar UMA PALAVRA bíblica + APLICAÇÕES PRÁTICAS pra vida real, em português do Brasil, tom caloroso de devocional evangélico.
+
+FORMATO da resposta (use exatamente estas seções, curtas):
+📖 *A Palavra* — um versículo ou passagem (texto + referência certa, ex.: Filipenses 4:6-7). Escolha algo que fale DIRETO ao tema/sentimento que ${primeiro} trouxe. Não repita versículos já usados na conversa.
+💡 *Reflexão* — 2 a 4 frases ligando a passagem à vida de ${primeiro} (trabalho, família, coração). Profundo mas simples, sem clichê.
+✅ *Aplicações de hoje* — 2 ou 3 atitudes práticas e concretas pra viver essa palavra HOJE (numeradas). Bem específicas, ex.: "antes de responder aquela conversa difícil, respire e ore 10 segundos".
+🙏 *Oração* — uma oração curtinha (2-3 frases) sobre o tema.
+
+Se ${primeiro} pedir "palavra do dia" sem tema, escolha você um tema pertinente (fé, gratidão, perseverança, amor, descanso, propósito…), variando a cada dia. Se fizer uma pergunta bíblica, responda com fidelidade à Bíblia e simplicidade. Se demonstrar sofrimento intenso ou pensamentos de se machucar: acolha com muito carinho, dê uma palavra de esperança, incentive procurar alguém de confiança e um profissional, e informe o CVV (ligue 188, 24h, gratuito). Use o nome ${primeiro} com naturalidade.`;
+    const d = await openaiMessages({ model: 'gpt-4o-mini', max_tokens: 700, system: sys, messages: mensagens });
+    if (d.error) return res.status(400).json({ error: 'Não consegui buscar a palavra agora. Tenta de novo em instantes.' });
+    const resposta = ((d.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n')).trim() || 'Estou aqui. Me diz que palavra você precisa hoje? 🙏';
     await query(`INSERT INTO amigo_mensagens (usuario_id, role, content) VALUES ($1,'assistant',$2)`, [req.user.id, cut(resposta, 4000)]);
     res.json({ resposta });
   } catch (err) { res.status(500).json({ error: err.message }); }
