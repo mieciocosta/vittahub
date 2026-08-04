@@ -392,7 +392,10 @@ const MsgItem = React.memo(function MsgItem({ m, prevMsg, contactName, channel, 
             {!isLazy && m.type==='image'    && <img onClick={()=>onLightbox(m.content)} src={m.content} alt="img" loading="lazy" style={{ maxWidth:220, maxHeight:220, borderRadius:8, display:'block', objectFit:'cover', cursor:'pointer' }} onError={e=>e.target.style.display='none'}/>}
             {!isLazy && m.type==='sticker'  && <img onClick={()=>onLightbox(m.content)} src={m.content} alt="figurinha" loading="lazy" className="msg-sticker" onError={e=>e.target.style.display='none'}/>}
             {!isLazy && m.type==='gif'      && <video autoPlay loop muted playsInline src={m.content} style={{ maxWidth:220, borderRadius:10, display:'block' }} onError={e=>e.target.style.display='none'}/>}
-            {!isLazy && m.type==='audio'    && <div style={{ display:'flex', alignItems:'center', gap:8, minWidth:200 }}><Volume2 size={14} color="var(--tq)"/><audio controls src={m.content} style={{ flex:1, height:28, minWidth:150 }}/></div>}
+            {!isLazy && m.type==='audio'    && <div style={{ minWidth:200 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:8 }}><Volume2 size={14} color="var(--tq)"/><audio controls src={m.content} style={{ flex:1, height:28, minWidth:150 }}/></div>
+              {m.transcricao && <div style={{ fontSize:11, color:'var(--muted)', marginTop:4, fontStyle:'italic', maxWidth:320, lineHeight:1.45 }}>📝 {m.transcricao}</div>}
+            </div>}
             {!isLazy && m.type==='video'    && <video controls src={m.content} style={{ maxWidth:260, borderRadius:8, display:'block' }}/>}
             {!isLazy && m.type==='document' && (
               <a href={m.content} download target="_blank" rel="noreferrer"
@@ -518,6 +521,9 @@ export default function Inbox({ onUnreadChange }) {
   const [showBib, setShowBib] = useState(false);
   const [bibAba, setBibAba] = useState('foto');
   const [showAgendar, setShowAgendar] = useState(false);
+  const [, setTick] = useState(0); // re-render a cada 30s: relógio de espera do cliente
+  useEffect(() => { const t = setInterval(() => setTick(x => x + 1), 30000); return () => clearInterval(t); }, []);
+  const [intentOff, setIntentOff] = useState(null); // id da msg cujo radar foi dispensado
   const [showAgendarMsg, setShowAgendarMsg] = useState(false);
   const [showIndicar, setShowIndicar] = useState(false);
   const [scoreChip, setScoreChip] = useState(null); // null | 'calc' | número
@@ -599,10 +605,10 @@ export default function Inbox({ onUnreadChange }) {
         console.warn('Socket.io erro:', err.message);
       });
 
-      socket.on('message_updated', ({ convId, messageId, content, editada, status }) => {
+      socket.on('message_updated', ({ convId, messageId, content, editada, status, transcricao }) => {
         if (selRef.current?.id !== convId) return;
         setMsgs(prev => prev.map(x => x.id === messageId
-          ? { ...x, ...(content !== undefined ? { content } : {}), ...(editada !== undefined ? { editada } : {}), ...(status !== undefined ? { status } : {}) }
+          ? { ...x, ...(content !== undefined ? { content } : {}), ...(editada !== undefined ? { editada } : {}), ...(status !== undefined ? { status } : {}), ...(transcricao !== undefined ? { transcricao } : {}) }
           : x));
       });
 
@@ -1498,6 +1504,15 @@ export default function Inbox({ onUnreadChange }) {
                 <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{sel.contact_name}</span>
                 {sel.bot_ativo && <span style={{ display:'inline-flex', alignItems:'center', gap:2, background:'var(--ok2)', color:'var(--ok)', borderRadius:6, padding:'1px 6px', fontSize:9.5, fontWeight:700, flexShrink:0 }}><Bot size={7}/>Bot</span>}
                 {leadData && <span style={{ display:'inline-flex', alignItems:'center', gap:2, background:'var(--tq3)', color:'var(--tq2)', borderRadius:6, padding:'1px 6px', fontSize:9.5, fontWeight:700, flexShrink:0 }}>◆ Lead</span>}
+                {sel.last_from === 'contact' && !String(sel.contact_id || '').endsWith('@g.us') && sel.last_message_at && (() => {
+                  const min = Math.floor((Date.now() - new Date(sel.last_message_at)) / 60000);
+                  if (min < 1) return null;
+                  const urgente = min >= 10;
+                  const txt = min >= 60 ? `${Math.floor(min / 60)}h${String(min % 60).padStart(2, '0')}` : `${min} min`;
+                  return <span title="Há quanto tempo o cliente espera resposta" style={{ display:'inline-flex', alignItems:'center', gap:3, borderRadius:6, padding:'1px 7px', fontSize:9.5, fontWeight:800, flexShrink:0,
+                    background: urgente ? 'var(--err2,#fde8e8)' : '#fff7e0', color: urgente ? 'var(--err,#dc2626)' : '#a07514',
+                    animation: urgente ? 'pulse 1.6s infinite' : 'none' }}>⏱️ esperando {txt}</span>;
+                })()}
               </div>
               {sel.phone && <div style={{ fontSize:10.5, color:'var(--muted)' }}>{fmt.phone(sel.phone)}</div>}
             </div>
@@ -1841,6 +1856,33 @@ export default function Inbox({ onUnreadChange }) {
               </div>
             </div>
           )}
+
+          {/* 💡 Radar de intenção: lê a última mensagem do cliente e sugere a ação */}
+          {sel && (() => {
+            const ult = [...msgs].reverse().find(m => m.from_type === 'contact' && m.type === 'text' && m.content && !String(m.content).startsWith('['));
+            if (!ult || intentOff === ult.id) return null;
+            const t = String(ult.content).toLowerCase();
+            let intent = null;
+            if (/agend|marcar|remarc|hor[aá]rio|que dia|qual dia|disponib/.test(t)) intent = { rot: 'quer AGENDAR', emo: '📅', acao: 'Agendar agora', fn: () => setShowAgendar(true) };
+            else if (/pre[cç]o|valor|quanto (custa|fica|é|sai)|or[cç]amento|promo[cç]/.test(t)) intent = { rot: 'pergunta PREÇO', emo: '💰', acao: 'IA responde com valores', fn: sugerirResposta };
+            else if (/endere[cç]o|localiza|onde fica|como chego|\bmapa\b/.test(t)) intent = { rot: 'pede o ENDEREÇO', emo: '📍', acao: 'Respostas prontas', fn: () => setShowQR(true) };
+            else if (/\bpix\b|cart[aã]o|parcel|pagamento|boleto/.test(t)) intent = { rot: 'fala de PAGAMENTO', emo: '💳', acao: 'IA responde', fn: sugerirResposta };
+            if (!intent) return null;
+            return (
+              <div style={{ display:'flex', alignItems:'center', gap:9, padding:'7px 12px', background:'linear-gradient(90deg,#fffbeb,#fef3c7)', borderTop:'1px solid #fde68a', fontSize:12, flexShrink:0 }}>
+                <span style={{ fontSize:14 }}>💡</span>
+                <span style={{ flex:1, minWidth:0, fontWeight:700, color:'#92400e', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                  O cliente {intent.rot}: “{String(ult.content).slice(0, 64)}{String(ult.content).length > 64 ? '…' : ''}”
+                </span>
+                <button onClick={intent.fn}
+                  style={{ flexShrink:0, display:'flex', alignItems:'center', gap:5, padding:'6px 13px', borderRadius:9, border:'none', cursor:'pointer', background:'#d97706', color:'#fff', fontWeight:800, fontSize:11.5, boxShadow:'0 2px 8px rgba(217,119,6,.35)' }}>
+                  {intent.emo} {intent.acao}
+                </button>
+                <button onClick={() => setIntentOff(ult.id)} title="Dispensar sugestão"
+                  style={{ flexShrink:0, background:'none', border:'none', cursor:'pointer', color:'#b45309', fontSize:15, fontWeight:800, padding:'0 3px' }}>×</button>
+              </div>
+            );
+          })()}
 
           {/* Input bar */}
           <div className="chat-input-bar" style={{ background:'var(--card,#fff)', padding:'9px 12px', borderTop:'1px solid var(--border)', flexShrink:0 }}>

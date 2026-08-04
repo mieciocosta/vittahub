@@ -1903,7 +1903,7 @@ r.post('/webhook/zapi', async (req, res) => {
     // Transcrição via Whisper (aceita ogg/opus direto).
     const isTextoReal = type === 'text' && content && content !== '[mensagem]' && !content.startsWith('[') && content.trim().length > 0;
     let textoParaIA = isTextoReal ? content : null;
-    if (conv.bot_ativo && type === 'audio' && mediaData && process.env.OPENAI_API_KEY) {
+    if (type === 'audio' && mediaData && process.env.OPENAI_API_KEY) {
       try {
         const { default: fetch } = await import('node-fetch');
         // Baixa o áudio (URLs Z-API são públicas)
@@ -1935,15 +1935,16 @@ r.post('/webhook/zapi', async (req, res) => {
         };
         if (transData.text && transData.text.trim().length > 1) {
           textoParaIA = transData.text.trim();
-          await query('UPDATE mensagens SET content = $1 WHERE id = $2',
-            [`🎵 "${textoParaIA}"`, newMsg?.id]).catch(() => {});
-          if (newMsg) socketEmit('message_updated', { convId: conv.id, messageId: newMsg.id, content: `🎵 "${textoParaIA}"` });
+          // Coluna própria: o player continua funcionando e o texto aparece embaixo
+          await query('UPDATE mensagens SET transcricao = $1 WHERE id = $2',
+            [textoParaIA, newMsg?.id]).catch(() => {});
+          if (newMsg) socketEmit('message_updated', { convId: conv.id, messageId: newMsg.id, transcricao: textoParaIA });
           console.log('ÁUDIO transcrito (Whisper):', textoParaIA.slice(0, 80));
         } else if (transData.error) {
           console.error('WHISPER ERRO:', JSON.stringify(transData.error));
         }
       } catch (e) { console.error('Erro Whisper:', e.message); ultimoAudioDebug = { erro: e.message }; }
-    } else if (conv.bot_ativo && type === 'audio' && mediaData && !process.env.OPENAI_API_KEY) {
+    } else if (type === 'audio' && mediaData && !process.env.OPENAI_API_KEY) {
       console.log('ÁUDIO recebido mas OPENAI_API_KEY não configurada — transcrição desativada');
     }
 
