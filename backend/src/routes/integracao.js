@@ -1,9 +1,10 @@
 import express from 'express';
+import { query } from '../db/pool.js';
 
-// ─── Integração servidor-a-servidor (ex.: VittaMed → VittaHub) ────────────────
+// ─── Integração servidor-a-servidor (ex.: VittaMed/VittaSys → VittaHub) ───────
 // Permite que outro sistema da clínica envie mensagens pelo WhatsApp conectado
-// aqui (Z-API), autenticando por token secreto compartilhado (INTEGRACAO_TOKEN).
-// Sem o env configurado, o endpoint responde 503 e nada é enviado.
+// aqui (Z-API) e leia a agenda do dia, autenticando por token secreto
+// compartilhado (INTEGRACAO_TOKEN). Sem o env configurado, nada é exposto.
 
 const r = express.Router();
 
@@ -52,6 +53,24 @@ r.post('/send-text', async (req, res) => {
 r.get('/status', (req, res) => {
   if (!autenticado(req)) return res.status(403).json({ error: 'Token de integração ausente ou inválido.' });
   res.json({ ok: true, whatsapp: !!zapiOk() });
+});
+
+// GET /api/integracao/agenda?data=YYYY-MM-DD — pedido do master: a agenda do
+// VittaHub aparecer dentro do VittaSys. Somente LEITURA, mesmo token da ponte.
+r.get('/agenda', async (req, res) => {
+  if (!autenticado(req)) return res.status(403).json({ error: 'Token de integração ausente ou inválido.' });
+  try {
+    const data = /^\d{4}-\d{2}-\d{2}$/.test(req.query.data || '')
+      ? req.query.data
+      : new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10); // "hoje" no fuso de São Luís
+    const { rows } = await query(`
+      SELECT id, paciente, responsavel_nome, servico, data, hora, profissional,
+             telefone, observacoes, status, setor, endereco, valor
+      FROM agenda_eventos
+      WHERE data = $1
+      ORDER BY hora, created_at`, [data]);
+    res.json({ ok: true, data, total: rows.length, itens: rows });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 export default r;
