@@ -1850,7 +1850,7 @@ async function relatorioSemanal() {
     await query(`INSERT INTO configuracoes (chave, valor) VALUES ('relatorio_semanal', $1::jsonb)
                  ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`, [JSON.stringify({ ultima: chave })]);
 
-    const [vendasQ, topQ, leadsQ, vittaQ, perdasQ] = await Promise.all([
+    const [vendasQ, topQ, leadsQ, vittaQ, perdasQ, respQ] = await Promise.all([
       query(`SELECT COALESCE(setor,'vacinas') s, COUNT(*)::int n, COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float v
              FROM vendas WHERE data_venda >= CURRENT_DATE - 7 GROUP BY 1`),
       query(`SELECT COALESCE(atendente_nome,'—') nome, COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float v
@@ -1859,6 +1859,18 @@ async function relatorioSemanal() {
       query(`SELECT COUNT(*)::int n FROM mensagens WHERE from_type = 'bot' AND created_at >= NOW() - interval '7 days'`),
       query(`SELECT motivo, COUNT(*)::int n, COALESCE(SUM(valor_potencial),0)::float v FROM perdas
              WHERE created_at >= NOW() - interval '7 days' GROUP BY 1 ORDER BY n DESC LIMIT 3`).catch(() => ({ rows: [] })),
+      // ⏱️ Tempo médio de resposta por atendente: resposta 'me' logo após msg de
+      // cliente na mesma conversa (gaps > 8h fora — atravessou a noite)
+      query(`WITH seq AS (
+               SELECT sender_nome, from_type,
+                      LAG(from_type) OVER (PARTITION BY conversa_id ORDER BY created_at) prev_from,
+                      created_at - LAG(created_at) OVER (PARTITION BY conversa_id ORDER BY created_at) gap
+               FROM mensagens
+               WHERE created_at >= NOW() - interval '7 days' AND from_type IN ('contact','me'))
+             SELECT COALESCE(sender_nome,'—') nome, COUNT(*)::int n,
+                    ROUND(AVG(EXTRACT(EPOCH FROM gap)) / 60)::int media_min
+             FROM seq WHERE from_type = 'me' AND prev_from = 'contact' AND gap < interval '8 hours'
+             GROUP BY 1 HAVING COUNT(*) >= 5 ORDER BY media_min ASC LIMIT 5`).catch(() => ({ rows: [] })),
     ]);
     const porSetor = vendasQ.rows.map(r2 => `${r2.s}: ${r2.n} venda(s) · R$ ${Number(r2.v).toLocaleString('pt-BR')}`).join(' | ') || 'nenhuma venda';
     const totalV = vendasQ.rows.reduce((sum, r2) => sum + Number(r2.v || 0), 0);
@@ -1885,7 +1897,8 @@ async function relatorioSemanal() {
 
     const texto = `Semana: R$ ${totalV.toLocaleString('pt-BR')} confirmados (${porSetor}). ` +
       `${top && top.v > 0 ? `🏅 Destaque: ${top.nome} (R$ ${Number(top.v).toLocaleString('pt-BR')}). ` : ''}` +
-      `Leads novos: ${leadsQ.rows[0]?.n ?? 0}. Mensagens da Vitta: ${vittaQ.rows[0]?.n ?? 0}.${objecoes}`;
+      `Leads novos: ${leadsQ.rows[0]?.n ?? 0}. Mensagens da Vitta: ${vittaQ.rows[0]?.n ?? 0}.` +
+      `${respQ.rows.length ? ` ⏱️ Tempo médio de resposta: ${respQ.rows.map(r2 => `${String(r2.nome).split(' ')[0]} ${r2.media_min}min`).join(' · ')}.` : ''}${objecoes}`;
     await query(`INSERT INTO notificacoes (tipo, titulo, texto) VALUES ('novo_lead', '📊 Relatório semanal de vendas', $1)`, [texto.slice(0, 900)]);
     console.log('📊 Relatório semanal publicado:', texto);
   } catch (e) { console.error('Relatório semanal erro:', e.message); }

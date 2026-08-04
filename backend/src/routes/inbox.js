@@ -1523,6 +1523,11 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
 
   if (botReply && zapiOk()) {
     console.log(`VITTA conv=${convId} → resposta ENVIADA: "${botReply.slice(0, 60)}"`);
+    // ⌨️ Ritmo humano: tenta mostrar "digitando…" (best-effort — se a Z-API não
+    // tiver o endpoint, só ignora) e espera proporcional ao tamanho da resposta.
+    // Resposta instantânea de 3 parágrafos entrega que é robô.
+    try { await zapiCall('/send-chat-state', 'POST', { phone: `55${phoneNum}`, chatState: 'composing' }); } catch {}
+    await new Promise(r => setTimeout(r, Math.min(1200 + String(botReply).length * 30, 6000)));
     await zapiCall('/send-text', 'POST', { phone: `55${phoneNum}`, message: botReply });
     const { rows: [botMsg] } = await query(
       `INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome)
@@ -2033,10 +2038,14 @@ r.post('/webhook/zapi', async (req, res) => {
          AND created_at > NOW() - interval '24 hours' LIMIT 1`, [conv.id]).catch(() => ({ rows: [] }));
       console.log(`TRIAGEM conv=${conv.id} atendimentoAtivo24h=${!!ativo}`);
       if (!ativo) {
+        // 💙 Cliente CONHECIDO (já tem setor definido ou memória do bebê) não
+        // recebe o menu de números de novo — a Vitta reassume direto, usando a
+        // memória da família ("como está o Théo?"). Menu só pra desconhecido.
+        const conhecido = !!conv.setor || !!(conv.memoria && (conv.memoria.paciente || conv.memoria.responsavel));
         await query(
-          `UPDATE conversas SET bot_ativo = true, menu_enviado = false, triagem_ts = NOW(), captura_etapa = NULL WHERE id = $1`,
-          [conv.id]).catch(() => {});
-        conv.bot_ativo = true; conv.menu_enviado = false; conv.captura_etapa = null;
+          `UPDATE conversas SET bot_ativo = true, menu_enviado = $2, triagem_ts = NOW(), captura_etapa = NULL WHERE id = $1`,
+          [conv.id, conhecido]).catch(() => {});
+        conv.bot_ativo = true; conv.menu_enviado = conhecido; conv.captura_etapa = null;
         const cachedT = convoCache.get(conv.id);
         if (cachedT) cacheUpdate({ ...cachedT, bot_ativo: true });
         socketEmit('bot_status', { convId: conv.id, bot_ativo: true });
