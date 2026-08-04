@@ -88,7 +88,7 @@ export function GridMidias({ tipoFixo = null, titulo, subtitulo, categorias = nu
           <h1 style={{ fontSize: 27, fontWeight: 800 }}>{titulo}</h1>
           <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 2 }}>{subtitulo}</p>
         </div>
-        {gestao && tipoFixo === 'figurinha' && (
+        {tipoFixo === 'figurinha' && (
           <button onClick={async () => {
             try {
               const r = await api.post('/extras/figurinhas/seed', {});
