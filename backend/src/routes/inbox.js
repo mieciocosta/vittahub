@@ -3617,6 +3617,23 @@ r.post('/conversations/:id/send', async (req, res) => {
       [req.params.id, type, content, req.user.id, nomeGravar]
     );
 
+    // 📝 Transcreve o áudio da ATENDENTE em segundo plano (aparece embaixo do
+    // player, igual aos áudios do cliente) — nunca atrasa nem trava o envio.
+    if (type === 'audio' && process.env.OPENAI_API_KEY && typeof content === 'string' && content.startsWith('data:')) {
+      (async () => {
+        try {
+          const mime = (content.match(/^data:([^;]+);/) || [])[1] || 'audio/webm';
+          const b64 = content.split(',')[1] || '';
+          if (!b64) return;
+          const texto = await transcreverAudio(b64, mime);
+          if (texto && String(texto).trim().length > 1) {
+            await query('UPDATE mensagens SET transcricao = $1 WHERE id = $2', [String(texto).trim(), msg.id]).catch(() => {});
+            socketEmit('message_updated', { convId: req.params.id, messageId: msg.id, transcricao: String(texto).trim() });
+          }
+        } catch (e) { console.error('Transcrição áudio enviado:', e.message); }
+      })();
+    }
+
     const preview = type === 'text' ? content : type === 'audio' ? '🎵 Áudio' : type === 'image' ? '📷 Imagem' : type === 'sticker' ? '🎭 Figurinha' : `📎 Arquivo`;
     // Atendente respondeu pelo painel = humano assumiu → desliga o bot nesta
     // conversa (mesma regra de quando responde pelo celular), pra a IA não falar

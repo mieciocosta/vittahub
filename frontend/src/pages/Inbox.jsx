@@ -1086,13 +1086,44 @@ export default function Inbox({ onUnreadChange }) {
     finally { setSugerindo(false); }
   };
 
+  // Texto colado de PDF/Word chega com quebras no MEIO das frases e espaços
+  // duplicados — a mensagem ia "quebrada" pro cliente. Aqui a colagem é limpa:
+  // junta quebras soltas no meio de frase, preserva parágrafos e listas.
+  const limparColado = (t) => {
+    const linhas = String(t).replace(/\r\n?/g, '\n').split('\n').map(l => l.replace(/[ \t]+/g, ' ').trim());
+    const inicioDeBloco = (l) => /^([-•*✅✔▪◦›>]|\d+[.)]|[a-z][)])\s/i.test(l) || /^\p{Extended_Pictographic}/u.test(l);
+    let out = '';
+    for (let i = 0; i < linhas.length; i++) {
+      const l = linhas[i];
+      if (!out) { out = l; continue; }
+      if (l === '') { out += '\n\n'; continue; }             // parágrafo intencional
+      if (out.endsWith('\n\n') || out.endsWith('\n')) { out += l; continue; }
+      const antes = out.split('\n').pop();
+      // Mantém a quebra se a linha anterior fechou frase, ou se a nova é item de lista
+      if (/[.!?:;…]$/.test(antes) || inicioDeBloco(l) || inicioDeBloco(antes)) out += '\n' + l;
+      else out += ' ' + l;                                   // quebra no meio da frase → vira espaço
+    }
+    return out.replace(/\n{3,}/g, '\n\n').trim();
+  };
   const handlePaste = (e) => {
     const item = Array.from(e.clipboardData?.items || []).find(i => i.type.startsWith('image/'));
-    if (!item) return; // texto cola normal
-    const f = item.getAsFile();
-    if (!f || !sel) return;
+    if (item) {
+      const f = item.getAsFile();
+      if (!f || !sel) return;
+      e.preventDefault();
+      handleFile({ target: { files: [f] } });
+      return;
+    }
+    // Texto: cola já organizado (sem quebras estranhas)
+    const bruto = e.clipboardData?.getData('text/plain');
+    if (!bruto || !/\n/.test(bruto)) return; // sem quebras = cola normal
     e.preventDefault();
-    handleFile({ target: { files: [f] } });
+    const limpo = limparColado(bruto);
+    const el = textRef.current;
+    const ini = el?.selectionStart ?? input.length, fim = el?.selectionEnd ?? input.length;
+    const novo = input.slice(0, ini) + limpo + input.slice(fim);
+    setInput(novo);
+    setTimeout(() => { if (el) { el.selectionStart = el.selectionEnd = ini + limpo.length; el.focus(); } }, 0);
   };
 
   const handleFile = async (e) => {

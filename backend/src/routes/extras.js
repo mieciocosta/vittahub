@@ -870,38 +870,6 @@ r.get('/amigo/conversa/:usuarioId', async (req, res) => {
 /* ═══ 📖 DEVOCIONAL DO DIA — tema curado (estilo devocional diário), um por dia,
    IGUAL para toda a equipe. Gera uma vez, guarda em configuracoes e serve do
    cache o dia inteiro. Os temas rodam pelo dia do ano. ═══════════════════════ */
-const TEMAS_DEVOCIONAIS = [
-  ['Deus cuida de você', '1 Pedro 5:7'], ['Confie no tempo de Deus', 'Eclesiastes 3:11'],
-  ['Um novo começo', 'Isaías 43:18-19'], ['Renovando as forças', 'Isaías 40:29-31'],
-  ['A paz que excede todo entendimento', 'Filipenses 4:6-7'], ['Gratidão em todo tempo', '1 Tessalonicenses 5:16-18'],
-  ['Deus no controle', 'Romanos 8:28'], ['Coragem para recomeçar', 'Josué 1:9'],
-  ['O poder da oração', 'Tiago 5:16'], ['Fé que move montanhas', 'Mateus 17:20'],
-  ['Descanse no Senhor', 'Mateus 11:28-30'], ['O amor que transforma', '1 Coríntios 13:4-7'],
-  ['Sabedoria para decidir', 'Tiago 1:5'], ['Vencendo a ansiedade', 'Filipenses 4:6'],
-  ['Deus é o teu refúgio', 'Salmos 46:1'], ['Perseverança na caminhada', 'Gálatas 6:9'],
-  ['A alegria do Senhor é a sua força', 'Neemias 8:10'], ['Palavras que edificam', 'Efésios 4:29'],
-  ['Perdão que liberta', 'Colossenses 3:13'], ['O valor da humildade', 'Provérbios 22:4'],
-  ['Deus vê o seu esforço', 'Hebreus 6:10'], ['Luz para o caminho', 'Salmos 119:105'],
-  ['Provisão no deserto', 'Filipenses 4:19'], ['O bom pastor', 'Salmos 23:1-3'],
-  ['Esperança que não falha', 'Romanos 15:13'], ['Sementes de bondade', 'Gálatas 6:7-8'],
-  ['Força na fraqueza', '2 Coríntios 12:9-10'], ['O propósito de Deus pra você', 'Jeremias 29:11'],
-  ['O poder das palavras', 'Provérbios 18:21'], ['Amizade verdadeira', 'Provérbios 17:17'],
-  ['Deus conhece o seu coração', 'Salmos 139:1-3'], ['Obediência que abençoa', 'Deuteronômio 28:1-2'],
-  ['Não tema o amanhã', 'Mateus 6:34'], ['O segredo do contentamento', 'Filipenses 4:11-13'],
-  ['Família abençoada', 'Josué 24:15'], ['Trabalho como adoração', 'Colossenses 3:23'],
-  ['Generosidade que transborda', '2 Coríntios 9:7'], ['A fidelidade de Deus', 'Lamentações 3:22-23'],
-  ['Vencendo o desânimo', 'Salmos 42:11'], ['O poder do louvor', 'Salmos 34:1'],
-  ['Santidade no dia a dia', '1 Pedro 1:15-16'], ['Deus abre caminhos', 'Isaías 43:16'],
-  ['A armadura de Deus', 'Efésios 6:10-11'], ['Filhos, herança do Senhor', 'Salmos 127:3'],
-  ['Ouvindo a voz de Deus', 'João 10:27'], ['Mais que vencedores', 'Romanos 8:37'],
-  ['O cuidado de Deus nos detalhes', 'Mateus 10:29-31'], ['Paciência que amadurece', 'Tiago 1:2-4'],
-  ['Unidade e comunhão', 'Salmos 133:1'], ['Deus honra os que o honram', '1 Samuel 2:30'],
-  ['Liberdade em Cristo', 'João 8:36'], ['Um coração grato', 'Salmos 103:1-2'],
-  ['Lança as redes: confie e obedeça', 'Lucas 5:4-6'], ['Nas águas profundas, Deus está contigo', 'Isaías 43:2'],
-  ['O amor de Pai', '1 João 3:1'], ['Correndo com propósito', 'Filipenses 3:13-14'],
-  ['Sal da terra, luz do mundo', 'Mateus 5:13-16'], ['A casa sobre a rocha', 'Mateus 7:24-25'],
-  ['Novo a cada manhã', 'Salmos 90:14'], ['O Senhor é a minha força', 'Habacuque 3:19'],
-];
 // 🎵 Louvores consagrados — um por dia, com link de BUSCA no YouTube (nunca quebra)
 const LOUVORES = [
   ['Oceanos (Onde Meus Pés Podem Falhar)', 'Hillsong em Português'], ['Bondade de Deus', 'Isaias Saad'],

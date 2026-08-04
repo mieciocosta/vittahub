@@ -24,8 +24,11 @@ export function openWA(phone, name) {
   window.open(`https://wa.me/${full}?text=${encodeURIComponent(`Olá ${name}! Aqui é a equipe da *Vittalis Saúde* 💎`)}`, '_blank');
 }
 
-export function isToday(dateStr) { return dateStr === new Date().toISOString().split('T')[0]; }
-export function isPast(dateStr) { return dateStr && dateStr < new Date().toISOString().split('T')[0]; }
+// Data LOCAL (São Luís) — toISOString() é UTC e virava "amanhã" depois das 21h,
+// marcando retorno de "Hoje" no dia errado à noite.
+const hojeLocalISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+export function isToday(dateStr) { return dateStr === hojeLocalISO(); }
+export function isPast(dateStr) { return dateStr && dateStr < hojeLocalISO(); }
 
 /* ─── Máscaras de formulário (anti-bug: limitam e formatam na digitação) ───── */
 export const mask = {
