@@ -1726,7 +1726,7 @@ const MIDIA_TIPOS = ['foto', 'video', 'depoimento', 'apresentacao', 'figurinha']
 // biblioteca — botão da gestão na página Figurinhas. Idempotente (não duplica).
 r.post('/figurinhas/seed', async (req, res) => {
   try {
-    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão.' });
+    // Pedido do master: TODA a equipe pode carregar (idempotente, não duplica)
     const fs = await import('fs');
     const path = await import('path');
     const { fileURLToPath } = await import('url');
