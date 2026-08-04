@@ -80,11 +80,11 @@ export default function Amigo() {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', maxWidth: 780, margin: '0 auto', padding: '18px 16px' }}>
       {/* Header */}
       <div style={{ borderRadius: 18, padding: '18px 22px', marginBottom: 14, color: '#fff', position: 'relative', overflow: 'hidden', flexShrink: 0,
-        background: 'linear-gradient(135deg,#4c1d95 0%,#6d28d9 55%,#7c3aed 130%)', boxShadow: '0 10px 30px rgba(109,40,217,.3)' }}>
+        background: 'linear-gradient(120deg,#1e1b4b 0%,#312e81 55%,#4c1d95 130%)', boxShadow: '0 10px 30px rgba(30,27,75,.35)', borderBottom: '2px solid rgba(212,175,55,.5)' }}>
         <div style={{ position: 'absolute', right: -20, top: -20, width: 120, height: 120, borderRadius: '50%', background: 'rgba(255,255,255,.1)' }} />
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 20, fontWeight: 800 }}><BookOpen size={22} /> Meu Devocional</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 20, fontWeight: 700, fontFamily: 'Georgia, "Times New Roman", serif' }}><span style={{ width: 34, height: 34, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(212,175,55,.18)', border: '1px solid rgba(212,175,55,.55)' }}><BookOpen size={17} color="#e9c46a" /></span> Meu Devocional</div>
             <div style={{ fontSize: 12.5, opacity: .95, marginTop: 4 }}>Uma palavra de Deus pra hoje — e como aplicá-la na sua vida. 📖</div>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
@@ -181,7 +181,7 @@ export default function Amigo() {
 
           {devAberto && (
             devocional.versiculo ? (
-              <div style={{ position: 'relative', color: '#fff', padding: 10,
+              <div style={{ position: 'relative', color: '#fff', padding: 10, animation: 'vh-dev-in .5s ease both',
                 background: 'radial-gradient(120% 90% at 85% -10%, rgba(124,58,237,.55) 0%, transparent 55%), radial-gradient(120% 100% at 0% 110%, rgba(30,64,175,.5) 0%, transparent 55%), linear-gradient(160deg,#151238 0%,#2a1a5e 55%,#1e1b4b 100%)' }}>
                 {/* brilhos suaves */}
                 <div style={{ position: 'absolute', right: -50, top: -50, width: 200, height: 200, borderRadius: '50%', background: 'radial-gradient(circle, rgba(212,175,55,.14) 0%, transparent 65%)' }} />
@@ -195,6 +195,16 @@ export default function Amigo() {
                     <span style={{ flex: 1, maxWidth: 90, height: 1, background: 'linear-gradient(90deg,transparent,rgba(212,175,55,.7))' }} />
                     <span style={{ color: '#d4af37', fontSize: 13 }}>✦</span>
                     <span style={{ flex: 1, maxWidth: 90, height: 1, background: 'linear-gradient(90deg,rgba(212,175,55,.7),transparent)' }} />
+                  </div>
+
+                  {/* data + tema, como capa de devocional impresso */}
+                  <div style={{ textAlign: 'center', marginBottom: 16 }}>
+                    <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: 2.6, textTransform: 'uppercase', color: 'rgba(212,175,55,.85)', marginBottom: 6 }}>
+                      {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}
+                    </div>
+                    <div style={{ fontFamily: 'Georgia, "Times New Roman", serif', fontSize: 23, fontWeight: 700, color: '#fdfcf7', lineHeight: 1.3, textShadow: '0 2px 16px rgba(0,0,0,.4)' }}>
+                      {devocional.tema}
+                    </div>
                   </div>
 
                   {/* Versículo */}
@@ -251,14 +261,14 @@ export default function Amigo() {
                   {/* 🎵 Louvor do dia */}
                   {devocional.louvor && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12, justifyContent: 'center', marginTop: 16, padding: '11px 16px', borderRadius: 12, background: 'rgba(255,255,255,.06)', border: '1px solid rgba(212,175,55,.28)' }}>
-                      <span style={{ fontSize: 18 }}>🎵</span>
+                      <span style={{ width: 36, height: 36, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#ff0033', color: '#fff', fontSize: 13, boxShadow: '0 3px 12px rgba(255,0,51,.45)', paddingLeft: 2 }}>▶</span>
                       <span style={{ minWidth: 0, textAlign: 'left' }}>
                         <span style={{ display: 'block', fontSize: 9, fontWeight: 800, letterSpacing: 2, textTransform: 'uppercase', color: '#d4af37' }}>Louvor pra hoje</span>
                         <span style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'rgba(255,255,255,.94)' }}>{devocional.louvor.titulo} <span style={{ fontWeight: 500, color: 'rgba(255,255,255,.65)' }}>· {devocional.louvor.artista}</span></span>
                       </span>
                       <a href={devocional.louvor.url} target="_blank" rel="noreferrer"
                         style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6, padding: '7px 13px', borderRadius: 20, background: 'linear-gradient(135deg,#e9c46a,#b8860b)', color: '#1e1b4b', fontSize: 11.5, fontWeight: 900, textDecoration: 'none', boxShadow: '0 2px 10px rgba(212,175,55,.4)' }}>
-                        ▶ Ouvir
+                        Ouvir no YouTube
                       </a>
                     </div>
                   )}
@@ -296,7 +306,7 @@ export default function Amigo() {
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center', marginTop: 18, maxWidth: 480, marginInline: 'auto' }}>
               {[['🌅','Palavra do dia'],['😰','Ansiedade'],['🙏','Gratidão'],['💪','Perseverança'],['❤️','Amor'],['🧠','Sabedoria'],['😔','Desânimo'],['👨‍👩‍👧','Família']].map(([em, tema]) => (
                 <button key={tema} onClick={() => enviar(tema === 'Palavra do dia' ? 'Quero a palavra do dia' : `Quero uma palavra sobre ${tema.toLowerCase()}`)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 20, border: '1.5px solid #ddd6fe', background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 15px', borderRadius: 20, border: '1px solid rgba(180,150,50,.5)', background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', boxShadow: '0 2px 8px rgba(30,27,75,.08)' }}>
                   {em} {tema}
                 </button>
               ))}
@@ -339,6 +349,7 @@ export default function Amigo() {
           <Send size={17} />
         </button>
       </div>
+      <style>{`@keyframes vh-dev-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }`}</style>
       <div style={{ fontSize: 10.5, color: 'var(--light)', textAlign: 'center', marginTop: 7 }}>
         <Sparkles size={10} style={{ verticalAlign: -1 }} /> Palavra e aplicações baseadas na Bíblia. Em crise, procure alguém de confiança — CVV: <b>188</b>.
       </div>
