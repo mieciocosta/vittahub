@@ -2,6 +2,7 @@ import express from 'express';
 import { query } from '../db/pool.js';
 import { auth, masterOnly } from '../middleware/auth.js';
 import { socketEmit } from '../socketServer.js';
+import { versoDoDia } from '../versiculos.js';
 import { temIA, usaClaude, openaiMessages, anthropicClient, CLAUDE_MODEL_MINI } from './inbox.js';
 
 /* ─── FERRAMENTAS VITTAHUB ────────────────────────────────────────────────────
@@ -925,30 +926,30 @@ function louvorDeHoje() {
   return { titulo, artista, url: `https://www.youtube.com/results?search_query=${encodeURIComponent(`${titulo} ${artista}`)}` };
 }
 
+// Pedido do master: o devocional nasce do VERSÍCULO DO DIA (o mesmo da barra
+// lateral e da página inicial) — a IA cria o título/palavra a partir dele.
 function temaDeHoje() {
-  const agoraSLZ = new Date(Date.now() - 3 * 3600 * 1000);
-  const dia = Math.floor((agoraSLZ - new Date(Date.UTC(agoraSLZ.getUTCFullYear(), 0, 0))) / 86400000);
-  const [tema, ref] = TEMAS_DEVOCIONAIS[dia % TEMAS_DEVOCIONAIS.length];
-  return { data: agoraSLZ.toISOString().slice(0, 10), tema, ref };
+  const { data, verso, ref } = versoDoDia();
+  return { data, tema: ref, verso, ref };
 }
 
 r.get('/amigo/devocional-hoje', async (req, res) => {
   try {
-    const { data, tema, ref } = temaDeHoje();
+    const { data, verso, ref } = temaDeHoje();
     const { rows: [c] } = await query("SELECT valor FROM configuracoes WHERE chave = 'devocional_dia'").catch(() => ({ rows: [] }));
-    // Só serve do cache se for de hoje E no formato novo (estruturado, sem asteriscos).
+    // Só serve do cache se for de hoje E no formato novo (nascido do verso do dia).
     // Master pode forçar um novo com ?regerar=1 (descarta o de hoje na hora).
     const forcar = req.query.regerar === '1' && req.user.role === 'master';
-    // exige também a "frase de ouro" — cache sem ela é da geração antiga, descarta
-    if (!forcar && c?.valor?.data === data && c.valor.versiculo && c.valor.frase) return res.json({ ...c.valor, louvor: louvorDeHoje() });
-    const fallback = { data, tema, ref, versiculo: null, louvor: louvorDeHoje(), texto: `Leia hoje: ${ref}. Medite nessa palavra e leve-a com você durante o dia. 🙏` };
+    if (!forcar && c?.valor?.data === data && c.valor.versiculo && c.valor.frase && c.valor.base === 'verso-dia') return res.json({ ...c.valor, louvor: louvorDeHoje() });
+    const fallback = { data, tema: ref, ref, versiculo: verso, referencia: ref, louvor: louvorDeHoje(), texto: `${verso} (${ref}). Medite nessa palavra e leve-a com você durante o dia. 🙏` };
     if (!temIA()) return res.json(fallback);
     // Texto PREMIUM: gerado 1x/dia, então usa o modelo PRINCIPAL (mais capaz),
-    // com instruções de escritor devocional — profundidade sem clichê.
-    const sys = `Você é um escritor devocional experiente e refinado (na linha de Max Lucado), escrevendo o devocional diário da equipe da Vittalis Saúde, uma clínica cristã de pediatria e vacinação em São Luís-MA. Português do Brasil impecável, tom caloroso e pastoral.
+    // com instruções de escritor devocional — motivacional, sem clichê.
+    const sys = `Você é um escritor devocional experiente e refinado (na linha de Max Lucado), escrevendo o devocional diário da equipe da Vittalis Saúde, uma clínica cristã de pediatria e vacinação em São Luís-MA. Português do Brasil impecável, tom caloroso, pastoral e MOTIVACIONAL — a equipe lê de manhã antes de atender famílias o dia inteiro; o devocional deve dar ânimo, foco e propósito pro dia de trabalho.
 
 REGRAS DE ESCRITA (obrigatórias):
-- Cite o versículo FIELMENTE (Almeida Revista e Atualizada ou NVI).
+- O devocional NASCE do versículo do dia (fornecido). Cite-o fielmente.
+- Crie um TÍTULO motivador curto (3 a 6 palavras) a partir do versículo — estilo "Renove suas forças hoje", "Deus no controle do seu dia".
 - Reflexão com IMAGENS CONCRETAS do cotidiano (uma mãe na sala de espera, o telefone que não para, o cansaço do fim do dia) — nunca abstrações vazias.
 - PROIBIDO clichê: nada de "Deus tem um propósito pra você", "basta ter fé", "tudo vai dar certo". Surpreenda com um ângulo novo do texto bíblico.
 - Frases com ritmo: alterne curtas e longas. Uma ideia por frase.
@@ -956,14 +957,14 @@ REGRAS DE ESCRITA (obrigatórias):
 - Aplicações REALIZÁVEIS no mesmo dia, específicas, com verbo de ação.
 - Oração em primeira pessoa, íntima e concreta — não genérica.
 Responda APENAS um JSON válido, sem markdown e sem asteriscos.`;
-    const userMsg = `Escreva o devocional de hoje com o tema "${tema}", baseado em ${ref}. Formato EXATO (texto puro em cada campo, sem formatação):
-{"versiculo":"texto fiel da passagem ${ref}","referencia":"${ref}","reflexao":"4 a 6 frases ligando a passagem à vida real, profundas e concretas","frase":"a frase de ouro: uma sentença curta e memorável que resume a mensagem","aplicacoes":["atitude prática e concreta pra hoje","outra atitude concreta","terceira atitude concreta"],"oracao":"oração íntima de 2-3 frases, em primeira pessoa"}`;
+    const userMsg = `O versículo de hoje é: "${verso}" (${ref}). Crie o devocional de hoje A PARTIR desse versículo. Formato EXATO (texto puro em cada campo, sem formatação):
+{"tema":"título motivador curto criado do versículo","versiculo":"texto fiel da passagem ${ref} (pode completar o trecho se o verso acima estiver resumido)","referencia":"${ref}","reflexao":"4 a 6 frases ligando a passagem à vida real, profundas, concretas e motivadoras","frase":"a frase de ouro: uma sentença curta e memorável que resume a mensagem","aplicacoes":["atitude prática e concreta pra hoje","outra atitude concreta","terceira atitude concreta"],"oracao":"oração íntima de 2-3 frases, em primeira pessoa"}`;
     const d = await openaiMessages({ model: 'gpt-4o', max_tokens: 4096, json: true, system: sys, messages: [{ role: 'user', content: userMsg }] });
     let j = null;
     try { j = JSON.parse(((d.content || []).filter(b => b.type === 'text').map(b => b.text).join('')).trim()); } catch {}
     const limpa = (t) => String(t || '').replace(/\*+/g, '').trim();
     if (d.error || !j?.versiculo || !j?.reflexao) return res.json(fallback);
-    const valor = { data, tema, ref, versiculo: limpa(j.versiculo), referencia: limpa(j.referencia) || ref,
+    const valor = { data, base: 'verso-dia', tema: limpa(j.tema) || ref, ref, versiculo: limpa(j.versiculo), referencia: limpa(j.referencia) || ref,
       reflexao: limpa(j.reflexao), frase: limpa(j.frase),
       aplicacoes: (Array.isArray(j.aplicacoes) ? j.aplicacoes : []).slice(0, 3).map(limpa).filter(Boolean),
       oracao: limpa(j.oracao) };
@@ -991,7 +992,7 @@ FORMATO da resposta (use exatamente estas seções, curtas — SEM asteriscos ne
 ✅ APLICAÇÕES DE HOJE — 2 ou 3 atitudes práticas e concretas pra viver essa palavra HOJE (numeradas). Bem específicas, ex.: "antes de responder aquela conversa difícil, respire e ore 10 segundos".
 🙏 ORAÇÃO — uma oração curtinha (2-3 frases) sobre o tema.
 
-Se ${primeiro} pedir "palavra do dia" sem tema, use o TEMA DE HOJE do devocional da equipe: "${temaDeHoje().tema}" (${temaDeHoje().ref}). Se fizer uma pergunta bíblica, responda com fidelidade à Bíblia e simplicidade. Se demonstrar sofrimento intenso ou pensamentos de se machucar: acolha com muito carinho, dê uma palavra de esperança, incentive procurar alguém de confiança e um profissional, e informe o CVV (ligue 188, 24h, gratuito). Use o nome ${primeiro} com naturalidade. Escreva com beleza e profundidade: imagens concretas do cotidiano, zero clichê ("basta ter fé", "tudo vai dar certo"), frases com ritmo.`;
+Se ${primeiro} pedir "palavra do dia" sem tema, use o VERSÍCULO DE HOJE do devocional da equipe: "${temaDeHoje().verso}" (${temaDeHoje().ref}). Se fizer uma pergunta bíblica, responda com fidelidade à Bíblia e simplicidade. Se demonstrar sofrimento intenso ou pensamentos de se machucar: acolha com muito carinho, dê uma palavra de esperança, incentive procurar alguém de confiança e um profissional, e informe o CVV (ligue 188, 24h, gratuito). Use o nome ${primeiro} com naturalidade. Escreva com beleza e profundidade: imagens concretas do cotidiano, zero clichê ("basta ter fé", "tudo vai dar certo"), frases com ritmo.`;
     const d = await openaiMessages({ model: 'gpt-4o-mini', max_tokens: 700, system: sys, messages: mensagens });
     if (d.error) return res.status(400).json({ error: 'Não consegui buscar a palavra agora. Tenta de novo em instantes.' });
     const resposta = ((d.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n')).trim() || 'Estou aqui. Me diz que palavra você precisa hoje? 🙏';

@@ -301,15 +301,11 @@ export default function Amigo() {
             </div>
             <div style={{ fontWeight: 800, fontSize: 17, color: 'var(--txt)' }}>A paz, {primeiro}! 🙏</div>
             <div style={{ fontSize: 15, marginTop: 8, maxWidth: 420, marginInline: 'auto', lineHeight: 1.5, fontWeight: 700, color: 'var(--txt2)' }}>
-              Que palavra você precisa hoje?
+              A palavra de hoje já te espera. 📖
             </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center', marginTop: 18, maxWidth: 480, marginInline: 'auto' }}>
-              {[['🌅','Palavra do dia'],['😰','Ansiedade'],['🙏','Gratidão'],['💪','Perseverança'],['❤️','Amor'],['🧠','Sabedoria'],['😔','Desânimo'],['👨‍👩‍👧','Família']].map(([em, tema]) => (
-                <button key={tema} onClick={() => enviar(tema === 'Palavra do dia' ? 'Quero a palavra do dia' : `Quero uma palavra sobre ${tema.toLowerCase()}`)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 15px', borderRadius: 20, border: '1px solid rgba(180,150,50,.5)', background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', boxShadow: '0 2px 8px rgba(30,27,75,.08)' }}>
-                  {em} {tema}
-                </button>
-              ))}
+            <div style={{ fontSize: 12.5, marginTop: 14, maxWidth: 420, marginInline: 'auto', lineHeight: 1.6, color: 'var(--muted)' }}>
+              O devocional de hoje já está aí em cima, com a palavra e o louvor do dia. 👆<br/>
+              Se quiser uma palavra só sua, me conta o que você está vivendo.
             </div>
           </div>
         ) : (
