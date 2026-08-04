@@ -314,14 +314,14 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
             </button>
           </div>
         ) : (
-          <div style={{ display:'flex', alignItems:'center', gap:9, padding:'10px 10px', borderRadius:12, background:'rgba(255,255,255,.14)', border:'1px solid rgba(255,255,255,.2)' }}>
+          <div style={{ display:'flex', flexWrap:'wrap', alignItems:'center', gap:9, padding:'10px 10px', borderRadius:12, background:'rgba(255,255,255,.14)', border:'1px solid rgba(255,255,255,.2)' }}>
             <button onClick={()=>setShowAvatarBuilder(true)} title="Foto de perfil (foto própria ou avatar)" style={{ background:'none', border:'none', cursor:'pointer', padding:0 }}>
               <UserAvatar size={34} />
             </button>
             <div style={{ flex:1, minWidth:0 }}>
               {/* Nome COMPLETO, sem corte: quebra em até 2 linhas se precisar */}
               <button onClick={editarNome} title="Editar meu nome" style={{ background:'none', border:'none', padding:0, cursor:'pointer', display:'flex', alignItems:'flex-start', gap:4, maxWidth:'100%', textAlign:'left' }}>
-                <span style={{ color:'#fff', fontSize:12.5, fontWeight:700, lineHeight:1.25, wordBreak:'break-word' }}>{user?.nome}</span>
+                <span style={{ color:'#fff', fontSize:13, fontWeight:700, lineHeight:1.3 }}>{user?.nome}</span>
                 <Pencil size={10} color="rgba(255,255,255,.55)" style={{ flexShrink:0, marginTop:3 }} />
               </button>
               {nomeOpen && (
@@ -343,6 +343,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
               )}
               <div style={{ color:'rgba(255,255,255,.85)', fontSize:10.5 }}>{user?.role === 'master' ? '◆ Master' : user?.role === 'supervisor' ? '◆ Supervisora' : 'Atendente'}<span style={{ marginLeft:6 }}><span style={{ display:'inline-block', width:6, height:6, borderRadius:'50%', background:'#3ef58f', marginRight:3, verticalAlign:'1px' }}/>Online</span></div>
             </div>
+            <div style={{ width:'100%', display:'flex', alignItems:'center', gap:3, justifyContent:'flex-end', marginTop:-2 }}>
             {podeTrocar && (
               <button onClick={abrirTroca} title="Trocar de usuário (entrar como)" style={{ padding:6, background: trocaOpen ? 'rgba(255,255,255,.25)' : 'none', color:'#fff', borderRadius:6, cursor:'pointer', border:'none' }}>
                 <Users size={13} />
@@ -386,6 +387,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
               onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,.62)'}>
               <LogOut size={13} />
             </button>
+            </div>
           </div>
         )}
 
