@@ -6,6 +6,7 @@ import {
   CalendarClock, CalendarDays, Bell, CheckCheck, UserPlus, Shield,
   Gift, Bot, Image, FileText, Smile, Phone, Star, Database, Stethoscope, Target,
   Trophy, GraduationCap, Rocket, Wallet, Palette, Gamepad2, BookOpen, LayoutGrid, Pencil, Flame,
+  BellRing,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useApi } from '../context/AuthContext.jsx';
@@ -39,6 +40,7 @@ const NAV = [
   { to:'/recuperacao',icon:Flame,           label:'Recuperação' },
   { to:'/retornos',   icon:Bell,            label:'Follow-up',  retornos:true },
   { to:'/agenda',     icon:CalendarDays,    label:'Agenda' },
+  { to:'/lembretes',  icon:BellRing,        label:'Lembretes' },
   { to:'/metas',      icon:Target,          label:'Metas', masterOnly:true },
   { to:'/caixa',      icon:Wallet,          label:'Caixa' },
   { to:'/profissionais', icon:Stethoscope,  label:'Profissionais', consultas:true },

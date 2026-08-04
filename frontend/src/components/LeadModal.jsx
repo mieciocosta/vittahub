@@ -23,10 +23,11 @@ export default function LeadModal({ lead, onClose, onSave, prefill = {} }) {
     responsavelId: l.responsavelId ?? l.responsavel_id ?? '',
     valorProposta: (l.valorProposta ?? l.valor_proposta) ? mask.moneyBR(String(Math.round(parseFloat(l.valorProposta ?? l.valor_proposta) * 100))) : '',
     dataRetorno:   (l.dataRetorno ?? l.data_retorno ?? '') ? String(l.dataRetorno ?? l.data_retorno).slice(0,10) : '',
+    nascimento:    l.nascimento ? String(l.nascimento).slice(0,10) : '',
     motivoPerda:   l.motivoPerda ?? l.motivo_perda ?? '',
     tags: l.tags || [],
   };
-  const [f, setF] = useState({ nome:'', telefone:'', email:'', origem:'Instagram', interesse:'Vacina', status:'Novo lead', responsavelId:'', valorProposta:'', servico:'', dataRetorno:'', observacoes:'', motivoPerda:'', tags:[], ...hidratar(lead), ...prefill });
+  const [f, setF] = useState({ nome:'', telefone:'', email:'', origem:'Instagram', interesse:'Vacina', status:'Novo lead', responsavelId:'', valorProposta:'', servico:'', dataRetorno:'', nascimento:'', observacoes:'', motivoPerda:'', tags:[], ...hidratar(lead), ...prefill });
 
   useEffect(() => { api.get('/leads/meta').then(m => { setUsers(m.users); if (m.statusList?.length) setStatusList(m.statusList); }); }, []);
   const set = (k,v) => setF(p=>({...p,[k]:v}));
@@ -89,6 +90,10 @@ export default function LeadModal({ lead, onClose, onSave, prefill = {} }) {
             <div className="field">
               <label>E-mail</label>
               <input type="email" value={f.email||''} maxLength={120} onChange={e=>set('email',e.target.value)} placeholder="email@exemplo.com" />
+            </div>
+            <div className="field" style={{ gridColumn:'1/-1' }}>
+              <label>Nascimento (p/ lembrete de aniversário 🎂)</label>
+              <input type="date" max={new Date().toISOString().slice(0,10)} value={f.nascimento||''} onChange={e=>set('nascimento',e.target.value)} />
             </div>
           </div>
 
