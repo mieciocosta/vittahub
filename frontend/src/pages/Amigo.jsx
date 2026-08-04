@@ -48,6 +48,9 @@ export default function Amigo() {
   const verConversa = (u) => {
     api.get(`/extras/amigo/conversa/${u.usuario_id}`).then(d => { setVendo(d); setModo('ver'); }).catch(() => {});
   };
+  // A IA escreve *destaques* estilo WhatsApp — aqui viram negrito de verdade
+  const rico = (t) => String(t || '').split(/(\*[^*\n]+\*)/g).map((p, i) =>
+    p.startsWith('*') && p.endsWith('*') && p.length > 2 ? <b key={i}>{p.slice(1, -1)}</b> : p);
   const inic = (nome) => (nome || '?').split(' ').slice(0, 2).map(s => s[0]).join('').toUpperCase();
   useEffect(() => { fimRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [msgs, enviando]);
 
@@ -144,7 +147,7 @@ export default function Amigo() {
             <div key={i} style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
               <div style={{ maxWidth: '78%', padding: '10px 14px', borderRadius: 16, fontSize: 13.5, lineHeight: 1.5, whiteSpace: 'pre-wrap',
                 background: m.role === 'user' ? 'var(--tq)' : 'var(--card)', color: m.role === 'user' ? '#fff' : 'var(--txt)', border: m.role === 'user' ? 'none' : '1px solid var(--border)' }}>
-                {m.content}
+                {rico(m.content)}
               </div>
             </div>
           ))}
@@ -154,20 +157,72 @@ export default function Amigo() {
 
       {modo === 'chat' && (<>
 
-      {/* 🌅 Devocional do dia (tema curado — igual pra toda a equipe) */}
+      {/* 🌅 Devocional do dia — cartão caprichado, estilo imagem de devocional */}
       {devocional && (
-        <div className="card" style={{ flexShrink: 0, marginBottom: 12, padding: 0, overflow: 'hidden', border: '1.5px solid #ddd6fe' }}>
+        <div style={{ flexShrink: 0, marginBottom: 12, borderRadius: 18, overflow: 'hidden', boxShadow: '0 8px 26px rgba(76,29,149,.22)' }}>
           <button onClick={() => setDevAberto(a => !a)}
-            style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 9, padding: '11px 15px', border: 'none', cursor: 'pointer', textAlign: 'left',
-              background: 'linear-gradient(90deg,#ede9fe,#f5f3ff)', color: '#4c1d95', fontWeight: 800, fontSize: 13.5 }}>
-            <span>🌅</span>
-            <span style={{ flex: 1 }}>Devocional de hoje: {devocional.tema}</span>
-            <span style={{ fontSize: 11, fontWeight: 700, opacity: .7 }}>{devocional.ref} {devAberto ? '▲' : '▼'}</span>
+            style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 9, padding: '12px 16px', border: 'none', cursor: 'pointer', textAlign: 'left',
+              background: 'linear-gradient(120deg,#312e81,#4c1d95 55%,#6d28d9)', color: '#fff' }}>
+            <span style={{ fontSize: 16 }}>🌅</span>
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ display: 'block', fontSize: 9.5, fontWeight: 800, letterSpacing: 1.4, textTransform: 'uppercase', opacity: .75 }}>Devocional do dia</span>
+              <span style={{ display: 'block', fontWeight: 800, fontSize: 15.5, lineHeight: 1.2 }}>{devocional.tema}</span>
+            </span>
+            <span style={{ fontSize: 11, fontWeight: 700, opacity: .8, flexShrink: 0 }}>{devAberto ? '▲ recolher' : '▼ ler'}</span>
           </button>
+
           {devAberto && (
-            <div style={{ padding: '14px 17px', fontSize: 13.5, lineHeight: 1.65, whiteSpace: 'pre-wrap', color: 'var(--txt)' }}>
-              {devocional.texto}
-            </div>
+            devocional.versiculo ? (
+              <div style={{ background: 'linear-gradient(165deg,#3b0764 0%,#4c1d95 45%,#312e81 100%)', color: '#fff', padding: '22px 22px 18px', position: 'relative' }}>
+                <div style={{ position: 'absolute', right: -34, top: -34, width: 150, height: 150, borderRadius: '50%', background: 'rgba(255,255,255,.06)' }} />
+                <div style={{ position: 'absolute', left: -40, bottom: -50, width: 170, height: 170, borderRadius: '50%', background: 'rgba(255,255,255,.05)' }} />
+
+                {/* Versículo — destaque de "imagem de devocional" */}
+                <div style={{ position: 'relative', textAlign: 'center', padding: '4px 6px 14px' }}>
+                  <div style={{ fontSize: 40, lineHeight: .6, color: '#fbbf24', fontFamily: 'Georgia, serif', height: 18 }}>“</div>
+                  <div style={{ fontFamily: 'Georgia, "Times New Roman", serif', fontStyle: 'italic', fontSize: 17.5, lineHeight: 1.6, letterSpacing: .2 }}>
+                    {devocional.versiculo}
+                  </div>
+                  <div style={{ marginTop: 10 }}>
+                    <span style={{ display: 'inline-block', padding: '4px 14px', borderRadius: 20, background: 'rgba(251,191,36,.16)', border: '1px solid rgba(251,191,36,.45)', color: '#fcd34d', fontSize: 11.5, fontWeight: 800, letterSpacing: .6 }}>
+                      {devocional.referencia || devocional.ref}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Reflexão */}
+                <div style={{ position: 'relative', fontSize: 13.5, lineHeight: 1.7, color: 'rgba(255,255,255,.94)', margin: '6px 0 14px', textAlign: 'center' }}>
+                  {devocional.reflexao}
+                </div>
+
+                {/* Aplicações */}
+                {(devocional.aplicacoes || []).length > 0 && (
+                  <div style={{ position: 'relative', background: 'rgba(255,255,255,.10)', border: '1px solid rgba(255,255,255,.16)', borderRadius: 14, padding: '12px 15px', marginBottom: 12 }}>
+                    <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 1.2, textTransform: 'uppercase', color: '#c4b5fd', marginBottom: 8 }}>✅ Pra viver essa palavra hoje</div>
+                    {devocional.aplicacoes.map((a, i) => (
+                      <div key={i} style={{ display: 'flex', gap: 9, fontSize: 13, lineHeight: 1.55, marginBottom: i < devocional.aplicacoes.length - 1 ? 7 : 0 }}>
+                        <span style={{ flexShrink: 0, width: 19, height: 19, borderRadius: '50%', background: '#fbbf24', color: '#3b0764', fontWeight: 900, fontSize: 11, display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 1 }}>{i + 1}</span>
+                        <span>{a}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Oração */}
+                {devocional.oracao && (
+                  <div style={{ position: 'relative', textAlign: 'center', fontSize: 13, lineHeight: 1.65, fontStyle: 'italic', color: 'rgba(255,255,255,.9)', padding: '2px 10px 2px' }}>
+                    🙏 {devocional.oracao}
+                  </div>
+                )}
+                <div style={{ position: 'relative', textAlign: 'center', marginTop: 12, fontSize: 9.5, letterSpacing: 1.6, textTransform: 'uppercase', color: 'rgba(255,255,255,.45)', fontWeight: 700 }}>
+                  Vittalis Saúde · Meu Devocional
+                </div>
+              </div>
+            ) : (
+              <div style={{ padding: '14px 17px', fontSize: 13.5, lineHeight: 1.65, whiteSpace: 'pre-wrap', color: 'var(--txt)', background: 'var(--card)' }}>
+                {devocional.texto}
+              </div>
+            )
           )}
         </div>
       )}
@@ -207,7 +262,7 @@ export default function Amigo() {
                 border: m.role === 'user' ? 'none' : '1px solid var(--border)',
                 borderBottomRightRadius: m.role === 'user' ? 4 : 16, borderBottomLeftRadius: m.role === 'user' ? 16 : 4,
                 boxShadow: '0 2px 8px rgba(0,0,0,.05)' }}>
-                {m.content}
+                {rico(m.content)}
               </div>
             </div>
           ))

@@ -912,18 +912,21 @@ r.get('/amigo/devocional-hoje', async (req, res) => {
   try {
     const { data, tema, ref } = temaDeHoje();
     const { rows: [c] } = await query("SELECT valor FROM configuracoes WHERE chave = 'devocional_dia'").catch(() => ({ rows: [] }));
-    if (c?.valor?.data === data && c.valor.texto) return res.json(c.valor);
-    if (!temIA()) return res.json({ data, tema, ref, texto: `📖 ${tema}\n\nLeia hoje: ${ref}. Medite nessa palavra e leve-a com você durante o dia. 🙏` });
-    const sys = `Você escreve o devocional diário da equipe da Vittalis Saúde (clínica cristã, São Luís-MA), no estilo dos devocionais do Bíblia On: tema bom, texto edificante, linguagem simples e calorosa, português do Brasil. Responda APENAS o devocional, sem preâmbulo.`;
-    const userMsg = `Escreva o devocional de hoje com o tema "${tema}", baseado em ${ref}. Estrutura EXATA:
-📖 *A Palavra* — cite fielmente a passagem ${ref} (texto + referência).
-💡 *Reflexão* — 3 a 5 frases ligando a passagem à vida real (trabalho, família, coração), profundas mas simples, sem clichê.
-✅ *Aplicações de hoje* — 3 atitudes práticas e bem concretas pra viver essa palavra hoje (numeradas).
-🙏 *Oração* — oração curta (2-3 frases) sobre o tema.`;
-    const d = await openaiMessages({ model: 'gpt-4o-mini', max_tokens: 700, system: sys, messages: [{ role: 'user', content: userMsg }] });
-    const texto = ((d.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n')).trim();
-    if (d.error || !texto) return res.json({ data, tema, ref, texto: `📖 ${tema}\n\nLeia hoje: ${ref}. Medite nessa palavra e leve-a com você durante o dia. 🙏` });
-    const valor = { data, tema, ref, texto };
+    // Só serve do cache se for de hoje E no formato novo (estruturado, sem asteriscos)
+    if (c?.valor?.data === data && c.valor.versiculo) return res.json(c.valor);
+    const fallback = { data, tema, ref, versiculo: null, texto: `Leia hoje: ${ref}. Medite nessa palavra e leve-a com você durante o dia. 🙏` };
+    if (!temIA()) return res.json(fallback);
+    const sys = `Você escreve o devocional diário da equipe da Vittalis Saúde (clínica cristã, São Luís-MA): tema bom, texto edificante, linguagem simples e calorosa, português do Brasil. Responda APENAS um JSON válido, sem markdown e sem asteriscos.`;
+    const userMsg = `Escreva o devocional de hoje com o tema "${tema}", baseado em ${ref}. Formato EXATO (texto puro em cada campo, sem formatação):
+{"versiculo":"texto fiel da passagem ${ref}","referencia":"${ref}","reflexao":"3 a 5 frases ligando a passagem à vida real (trabalho, família, coração), profundas mas simples, sem clichê","aplicacoes":["atitude prática e concreta pra hoje","outra atitude concreta","terceira atitude concreta"],"oracao":"oração curta de 2-3 frases sobre o tema"}`;
+    const d = await openaiMessages({ model: 'gpt-4o-mini', max_tokens: 700, json: true, system: sys, messages: [{ role: 'user', content: userMsg }] });
+    let j = null;
+    try { j = JSON.parse(((d.content || []).filter(b => b.type === 'text').map(b => b.text).join('')).trim()); } catch {}
+    const limpa = (t) => String(t || '').replace(/\*+/g, '').trim();
+    if (d.error || !j?.versiculo || !j?.reflexao) return res.json(fallback);
+    const valor = { data, tema, ref, versiculo: limpa(j.versiculo), referencia: limpa(j.referencia) || ref,
+      reflexao: limpa(j.reflexao), aplicacoes: (Array.isArray(j.aplicacoes) ? j.aplicacoes : []).slice(0, 3).map(limpa).filter(Boolean),
+      oracao: limpa(j.oracao) };
     await query(`INSERT INTO configuracoes (chave, valor) VALUES ('devocional_dia', $1::jsonb)
                  ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`, [JSON.stringify(valor)]).catch(() => {});
     res.json(valor);
@@ -942,11 +945,11 @@ r.post('/amigo/mensagem', async (req, res) => {
     const primeiro = (req.user.nome || '').split(' ')[0];
     const sys = `Você é o "Meu Devocional", o devocional diário da equipe da Vittalis Saúde (clínica cristã de São Luís-MA). ${primeiro} veio buscar uma palavra de Deus. Sua missão: entregar UMA PALAVRA bíblica + APLICAÇÕES PRÁTICAS pra vida real, em português do Brasil, tom caloroso de devocional evangélico.
 
-FORMATO da resposta (use exatamente estas seções, curtas):
-📖 *A Palavra* — um versículo ou passagem (texto + referência certa, ex.: Filipenses 4:6-7). Escolha algo que fale DIRETO ao tema/sentimento que ${primeiro} trouxe. Não repita versículos já usados na conversa.
-💡 *Reflexão* — 2 a 4 frases ligando a passagem à vida de ${primeiro} (trabalho, família, coração). Profundo mas simples, sem clichê.
-✅ *Aplicações de hoje* — 2 ou 3 atitudes práticas e concretas pra viver essa palavra HOJE (numeradas). Bem específicas, ex.: "antes de responder aquela conversa difícil, respire e ore 10 segundos".
-🙏 *Oração* — uma oração curtinha (2-3 frases) sobre o tema.
+FORMATO da resposta (use exatamente estas seções, curtas — SEM asteriscos nem markdown, só o emoji e o título):
+📖 A PALAVRA — um versículo ou passagem (texto + referência certa, ex.: Filipenses 4:6-7). Escolha algo que fale DIRETO ao tema/sentimento que ${primeiro} trouxe. Não repita versículos já usados na conversa.
+💡 REFLEXÃO — 2 a 4 frases ligando a passagem à vida de ${primeiro} (trabalho, família, coração). Profundo mas simples, sem clichê.
+✅ APLICAÇÕES DE HOJE — 2 ou 3 atitudes práticas e concretas pra viver essa palavra HOJE (numeradas). Bem específicas, ex.: "antes de responder aquela conversa difícil, respire e ore 10 segundos".
+🙏 ORAÇÃO — uma oração curtinha (2-3 frases) sobre o tema.
 
 Se ${primeiro} pedir "palavra do dia" sem tema, use o TEMA DE HOJE do devocional da equipe: "${temaDeHoje().tema}" (${temaDeHoje().ref}). Se fizer uma pergunta bíblica, responda com fidelidade à Bíblia e simplicidade. Se demonstrar sofrimento intenso ou pensamentos de se machucar: acolha com muito carinho, dê uma palavra de esperança, incentive procurar alguém de confiança e um profissional, e informe o CVV (ligue 188, 24h, gratuito). Use o nome ${primeiro} com naturalidade.`;
     const d = await openaiMessages({ model: 'gpt-4o-mini', max_tokens: 700, system: sys, messages: mensagens });
