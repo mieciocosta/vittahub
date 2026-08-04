@@ -901,6 +901,30 @@ const TEMAS_DEVOCIONAIS = [
   ['Sal da terra, luz do mundo', 'Mateus 5:13-16'], ['A casa sobre a rocha', 'Mateus 7:24-25'],
   ['Novo a cada manhã', 'Salmos 90:14'], ['O Senhor é a minha força', 'Habacuque 3:19'],
 ];
+// 🎵 Louvores consagrados — um por dia, com link de BUSCA no YouTube (nunca quebra)
+const LOUVORES = [
+  ['Oceanos (Onde Meus Pés Podem Falhar)', 'Hillsong em Português'], ['Bondade de Deus', 'Isaias Saad'],
+  ['Ousado Amor', 'Isaias Saad'], ['Lugar Secreto', 'Gabriela Rocha'], ['Teu Santo Nome', 'Gabriela Rocha'],
+  ['Me Atraiu', 'Gabriela Rocha'], ['Raridade', 'Anderson Freire'], ['Deus é Deus', 'Delino Marçal'],
+  ['A Casa É Sua', 'Casa Worship'], ['Céu na Terra', 'Casa Worship'], ['Aquieta Minh\'alma', 'Ministério Zoe'],
+  ['Nada Além do Sangue', 'Fernandinho'], ['Faz Chover', 'Fernandinho'], ['Grandes Coisas', 'Fernandinho'],
+  ['Uma Nova História', 'Fernandinho'], ['Sonda-me, Usa-me', 'Aline Barros'], ['Ressuscita-me', 'Aline Barros'],
+  ['Casa do Pai', 'Aline Barros'], ['Advogado Fiel', 'Bruna Karla'], ['Espírito Santo', 'Fernanda Brum'],
+  ['Tua Graça Me Basta', 'Davi Sacer'], ['No Caminho do Milagre', 'Davi Sacer'], ['Confio em Ti', 'Ludmila Ferber'],
+  ['Nunca Pare de Lutar', 'Ludmila Ferber'], ['Os Sonhos de Deus', 'Ludmila Ferber'], ['Lindo És', 'Juliano Son'],
+  ['Santo Espírito', 'Laura Souguellis'], ['Em Teus Braços', 'Laura Souguellis'], ['Quão Grande É o Meu Deus', 'Soraya Moraes'],
+  ['Perto Quero Estar', 'Nívea Soares'], ['Rei do Meu Coração', 'Nívea Soares'], ['Aclame ao Senhor', 'Diante do Trono'],
+  ['Águas Purificadoras', 'Diante do Trono'], ['Preciso de Ti', 'Diante do Trono'], ['Deus Proverá', 'Gabriela Gomes'],
+  ['Deserto', 'Maria Marçal'], ['Ninguém Explica Deus', 'Preto no Branco'], ['Abraça-me', 'David Quinlan'],
+  ['Atos 2', 'Gabriel Guedes'], ['Eu Navegarei', 'Harpa Cristã'],
+];
+function louvorDeHoje() {
+  const agoraSLZ = new Date(Date.now() - 3 * 3600 * 1000);
+  const dia = Math.floor((agoraSLZ - new Date(Date.UTC(agoraSLZ.getUTCFullYear(), 0, 0))) / 86400000);
+  const [titulo, artista] = LOUVORES[dia % LOUVORES.length];
+  return { titulo, artista, url: `https://www.youtube.com/results?search_query=${encodeURIComponent(`${titulo} ${artista}`)}` };
+}
+
 function temaDeHoje() {
   const agoraSLZ = new Date(Date.now() - 3 * 3600 * 1000);
   const dia = Math.floor((agoraSLZ - new Date(Date.UTC(agoraSLZ.getUTCFullYear(), 0, 0))) / 86400000);
@@ -916,8 +940,8 @@ r.get('/amigo/devocional-hoje', async (req, res) => {
     // Master pode forçar um novo com ?regerar=1 (descarta o de hoje na hora).
     const forcar = req.query.regerar === '1' && req.user.role === 'master';
     // exige também a "frase de ouro" — cache sem ela é da geração antiga, descarta
-    if (!forcar && c?.valor?.data === data && c.valor.versiculo && c.valor.frase) return res.json(c.valor);
-    const fallback = { data, tema, ref, versiculo: null, texto: `Leia hoje: ${ref}. Medite nessa palavra e leve-a com você durante o dia. 🙏` };
+    if (!forcar && c?.valor?.data === data && c.valor.versiculo && c.valor.frase) return res.json({ ...c.valor, louvor: louvorDeHoje() });
+    const fallback = { data, tema, ref, versiculo: null, louvor: louvorDeHoje(), texto: `Leia hoje: ${ref}. Medite nessa palavra e leve-a com você durante o dia. 🙏` };
     if (!temIA()) return res.json(fallback);
     // Texto PREMIUM: gerado 1x/dia, então usa o modelo PRINCIPAL (mais capaz),
     // com instruções de escritor devocional — profundidade sem clichê.
@@ -945,7 +969,7 @@ Responda APENAS um JSON válido, sem markdown e sem asteriscos.`;
       oracao: limpa(j.oracao) };
     await query(`INSERT INTO configuracoes (chave, valor) VALUES ('devocional_dia', $1::jsonb)
                  ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`, [JSON.stringify(valor)]).catch(() => {});
-    res.json(valor);
+    res.json({ ...valor, louvor: louvorDeHoje() });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

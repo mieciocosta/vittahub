@@ -248,6 +248,21 @@ export default function Amigo() {
                     </div>
                   )}
 
+                  {/* 🎵 Louvor do dia */}
+                  {devocional.louvor && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, justifyContent: 'center', marginTop: 16, padding: '11px 16px', borderRadius: 12, background: 'rgba(255,255,255,.06)', border: '1px solid rgba(212,175,55,.28)' }}>
+                      <span style={{ fontSize: 18 }}>🎵</span>
+                      <span style={{ minWidth: 0, textAlign: 'left' }}>
+                        <span style={{ display: 'block', fontSize: 9, fontWeight: 800, letterSpacing: 2, textTransform: 'uppercase', color: '#d4af37' }}>Louvor pra hoje</span>
+                        <span style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'rgba(255,255,255,.94)' }}>{devocional.louvor.titulo} <span style={{ fontWeight: 500, color: 'rgba(255,255,255,.65)' }}>· {devocional.louvor.artista}</span></span>
+                      </span>
+                      <a href={devocional.louvor.url} target="_blank" rel="noreferrer"
+                        style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6, padding: '7px 13px', borderRadius: 20, background: 'linear-gradient(135deg,#e9c46a,#b8860b)', color: '#1e1b4b', fontSize: 11.5, fontWeight: 900, textDecoration: 'none', boxShadow: '0 2px 10px rgba(212,175,55,.4)' }}>
+                        ▶ Ouvir
+                      </a>
+                    </div>
+                  )}
+
                   {/* rodapé */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'center', marginTop: 18 }}>
                     <span style={{ flex: 1, maxWidth: 70, height: 1, background: 'linear-gradient(90deg,transparent,rgba(212,175,55,.5))' }} />
