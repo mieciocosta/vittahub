@@ -292,6 +292,102 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
         </NavLink>
       </div>
 
+      {/* Perfil — no TOPO (pedido do master): foto, nome, papel e atalhos */}
+      <div style={{ padding: collapsed ? '10px 6px 2px' : '12px 10px 4px', flexShrink:0 }}>
+        {/* User card */}
+        {collapsed ? (
+          <div style={{ display:'flex', flexDirection:'column', gap:6, alignItems:'center' }}>
+            <button onClick={()=>setShowAvatarBuilder(true)} title="Foto de perfil (foto própria ou avatar)" style={{ background:'none', border:'none', cursor:'pointer', padding:0 }}>
+              <UserAvatar size={32} />
+            </button>
+            <button onClick={onToggleTheme} title={theme === 'dark' ? 'Modo claro' : 'Modo escuro'} style={{ padding:5, background:'none', color:'rgba(255,255,255,.62)', borderRadius:6, cursor:'pointer', border:'none' }}
+              onMouseEnter={e=>e.currentTarget.style.color='#ffffff'}
+              onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,.62)'}>
+              {theme === 'dark' ? <Sun size={13} /> : <Moon size={13} />}
+            </button>
+            <button onClick={logout} title="Sair" style={{ padding:5, background:'none', color:'rgba(255,255,255,.62)', borderRadius:6, cursor:'pointer', border:'none' }}
+              onMouseEnter={e=>e.currentTarget.style.color='#ffffff'}
+              onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,.62)'}>
+              <LogOut size={13} />
+            </button>
+          </div>
+        ) : (
+          <div style={{ display:'flex', alignItems:'center', gap:9, padding:'10px 10px', borderRadius:12, background:'rgba(255,255,255,.14)', border:'1px solid rgba(255,255,255,.2)' }}>
+            <button onClick={()=>setShowAvatarBuilder(true)} title="Foto de perfil (foto própria ou avatar)" style={{ background:'none', border:'none', cursor:'pointer', padding:0 }}>
+              <UserAvatar size={34} />
+            </button>
+            <div style={{ flex:1, minWidth:0 }}>
+              <button onClick={editarNome} title="Editar meu nome" style={{ background:'none', border:'none', padding:0, cursor:'pointer', display:'flex', alignItems:'center', gap:4, maxWidth:'100%' }}>
+                <span style={{ color:'#fff', fontSize:13, fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{user?.nome?.split(' ')[0]}</span>
+                <Pencil size={10} color="rgba(255,255,255,.55)" style={{ flexShrink:0 }} />
+              </button>
+              {nomeOpen && (
+                <div style={{ position:'fixed', top:150, left:12, zIndex:9999, background:'var(--card, #fff)', border:'1px solid var(--border, #e5e7eb)', borderRadius:14, boxShadow:'0 12px 40px rgba(0,0,0,.35)', padding:12, width:240 }}>
+                  <div style={{ fontSize:10.5, fontWeight:800, textTransform:'uppercase', letterSpacing:.5, color:'var(--muted, #6b7280)', marginBottom:8 }}>✏️ Meu nome de exibição</div>
+                  <input autoFocus value={novoNome} onChange={e=>setNovoNome(e.target.value)}
+                    onKeyDown={e=>{ if (e.key==='Enter') salvarNome(); if (e.key==='Escape') setNomeOpen(false); }}
+                    placeholder="Seu nome"
+                    style={{ width:'100%', padding:'9px 10px', borderRadius:9, border:'1px solid var(--border, #d1d5db)', fontSize:13.5, fontWeight:600, background:'var(--bg, #fff)', color:'var(--txt, #111827)', outline:'none', boxSizing:'border-box' }} />
+                  <div style={{ display:'flex', gap:6, marginTop:8 }}>
+                    <button onClick={salvarNome} disabled={salvandoNome || String(novoNome||'').trim().length < 2}
+                      style={{ flex:1, padding:'8px 0', borderRadius:9, border:'none', cursor:'pointer', background:'#0E8C96', color:'#fff', fontWeight:800, fontSize:12.5, opacity: salvandoNome ? .6 : 1 }}>
+                      {salvandoNome ? 'Salvando…' : 'Salvar'}
+                    </button>
+                    <button onClick={()=>setNomeOpen(false)} style={{ padding:'8px 12px', borderRadius:9, border:'1px solid var(--border, #d1d5db)', cursor:'pointer', background:'none', color:'var(--muted, #6b7280)', fontWeight:700, fontSize:12.5 }}>Cancelar</button>
+                  </div>
+                  <div style={{ fontSize:10, color:'var(--muted, #9ca3af)', marginTop:7, lineHeight:1.4 }}>Muda na hora, em todo o sistema.</div>
+                </div>
+              )}
+              <div style={{ color:'rgba(255,255,255,.85)', fontSize:10.5 }}>{user?.role === 'master' ? '◆ Master' : user?.role === 'supervisor' ? '◆ Supervisora' : 'Atendente'}<span style={{ marginLeft:6 }}><span style={{ display:'inline-block', width:6, height:6, borderRadius:'50%', background:'#3ef58f', marginRight:3, verticalAlign:'1px' }}/>Online</span></div>
+            </div>
+            {podeTrocar && (
+              <button onClick={abrirTroca} title="Trocar de usuário (entrar como)" style={{ padding:6, background: trocaOpen ? 'rgba(255,255,255,.25)' : 'none', color:'#fff', borderRadius:6, cursor:'pointer', border:'none' }}>
+                <Users size={13} />
+              </button>
+            )}
+            {trocaOpen && (
+              <div style={{ position:'fixed', top:150, left:12, zIndex:9999, background:'var(--card, #fff)', border:'1px solid var(--border, #e5e7eb)', borderRadius:14, boxShadow:'0 12px 40px rgba(0,0,0,.35)', padding:10, width:230, maxHeight:340, overflowY:'auto' }}>
+                <div style={{ fontSize:10.5, fontWeight:800, textTransform:'uppercase', letterSpacing:.5, color:'var(--muted, #6b7280)', padding:'2px 6px 8px' }}>👥 Entrar como…</div>
+                {localStorage.getItem('vh_token_master') && (
+                  <button onClick={voltarMaster} style={{ display:'block', width:'100%', textAlign:'left', padding:'8px 10px', borderRadius:9, border:'none', cursor:'pointer', background:'#f5f3ff', color:'#7c3aed', fontWeight:800, fontSize:12.5, marginBottom:6 }}>
+                    ↩️ Voltar ao meu usuário (master)
+                  </button>
+                )}
+                {trocaUsers.filter(u2 => u2.id !== user?.id).map(u2 => (
+                  <button key={u2.id} onClick={()=>trocarPara(u2)}
+                    style={{ display:'flex', alignItems:'center', gap:8, width:'100%', textAlign:'left', padding:'7px 8px', borderRadius:9, border:'none', cursor:'pointer', background:'transparent', color:'var(--txt, #111)' }}
+                    onMouseEnter={e=>e.currentTarget.style.background='var(--tq3, #eef6f7)'}
+                    onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                    <span style={{ width:26, height:26, borderRadius:'50%', background:u2.cor||'var(--tq)', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:800, flexShrink:0 }}>{(u2.nome||'?').slice(0,1)}</span>
+                    <span style={{ minWidth:0 }}>
+                      <span style={{ display:'block', fontSize:12.5, fontWeight:700, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{u2.nome}</span>
+                      <span style={{ display:'block', fontSize:10, color:'var(--muted, #6b7280)' }}>{u2.role==='master'?'Master':u2.role==='supervisor'?'Supervisora':'Atendente'}{u2.setor?` · ${u2.setor}`:''}</span>
+                    </span>
+                  </button>
+                ))}
+                {!trocaUsers.length && <div style={{ fontSize:12, color:'var(--muted, #6b7280)', padding:8 }}>Carregando…</div>}
+              </div>
+            )}
+            <button onClick={()=>setShowAvatarBuilder(true)} title="Criar meu avatar" style={{ padding:6, background:'none', color:'rgba(255,255,255,.62)', borderRadius:6, transition:'color .15s', cursor:'pointer', border:'none' }}
+              onMouseEnter={e=>e.currentTarget.style.color='#ffffff'}
+              onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,.62)'}>
+              <Palette size={13} />
+            </button>
+            <button onClick={onToggleTheme} title={theme === 'dark' ? 'Modo claro' : 'Modo escuro'} style={{ padding:6, background:'none', color:'rgba(255,255,255,.62)', borderRadius:6, transition:'color .15s', cursor:'pointer', border:'none' }}
+              onMouseEnter={e=>e.currentTarget.style.color='#ffffff'}
+              onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,.62)'}>
+              {theme === 'dark' ? <Sun size={13} /> : <Moon size={13} />}
+            </button>
+            <button onClick={logout} title="Sair" style={{ padding:6, background:'none', color:'rgba(255,255,255,.62)', borderRadius:6, transition:'color .15s', cursor:'pointer', border:'none' }}
+              onMouseEnter={e=>e.currentTarget.style.color='#ffffff'}
+              onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,.62)'}>
+              <LogOut size={13} />
+            </button>
+          </div>
+        )}
+
+      </div>
+
       {/* Nav */}
       <nav onClick={() => onCloseMobile?.()} style={{ flex:1, padding: collapsed ? '14px 6px' : '14px 10px', display:'flex', flexDirection:'column', gap:3, overflowY:'auto', overflowX:'hidden' }}>
         {!collapsed && <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:1.6, color:'rgba(255,255,255,.62)', padding:'0 12px 6px', textTransform:'uppercase' }}>Menu</div>}
@@ -444,98 +540,6 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
         >
           {collapsed ? <ChevronRight size={14}/> : <><ChevronLeft size={14}/><span>Recolher</span></>}
         </button>
-
-        {/* User card */}
-        {collapsed ? (
-          <div style={{ display:'flex', flexDirection:'column', gap:6, alignItems:'center' }}>
-            <button onClick={()=>setShowAvatarBuilder(true)} title="Foto de perfil (foto própria ou avatar)" style={{ background:'none', border:'none', cursor:'pointer', padding:0 }}>
-              <UserAvatar size={32} />
-            </button>
-            <button onClick={onToggleTheme} title={theme === 'dark' ? 'Modo claro' : 'Modo escuro'} style={{ padding:5, background:'none', color:'rgba(255,255,255,.62)', borderRadius:6, cursor:'pointer', border:'none' }}
-              onMouseEnter={e=>e.currentTarget.style.color='#ffffff'}
-              onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,.62)'}>
-              {theme === 'dark' ? <Sun size={13} /> : <Moon size={13} />}
-            </button>
-            <button onClick={logout} title="Sair" style={{ padding:5, background:'none', color:'rgba(255,255,255,.62)', borderRadius:6, cursor:'pointer', border:'none' }}
-              onMouseEnter={e=>e.currentTarget.style.color='#ffffff'}
-              onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,.62)'}>
-              <LogOut size={13} />
-            </button>
-          </div>
-        ) : (
-          <div style={{ display:'flex', alignItems:'center', gap:9, padding:'10px 10px', borderRadius:12, background:'rgba(255,255,255,.14)', border:'1px solid rgba(255,255,255,.2)' }}>
-            <button onClick={()=>setShowAvatarBuilder(true)} title="Foto de perfil (foto própria ou avatar)" style={{ background:'none', border:'none', cursor:'pointer', padding:0 }}>
-              <UserAvatar size={34} />
-            </button>
-            <div style={{ flex:1, minWidth:0 }}>
-              <button onClick={editarNome} title="Editar meu nome" style={{ background:'none', border:'none', padding:0, cursor:'pointer', display:'flex', alignItems:'center', gap:4, maxWidth:'100%' }}>
-                <span style={{ color:'#fff', fontSize:13, fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{user?.nome?.split(' ')[0]}</span>
-                <Pencil size={10} color="rgba(255,255,255,.55)" style={{ flexShrink:0 }} />
-              </button>
-              {nomeOpen && (
-                <div style={{ position:'fixed', bottom:64, left:12, zIndex:9999, background:'var(--card, #fff)', border:'1px solid var(--border, #e5e7eb)', borderRadius:14, boxShadow:'0 12px 40px rgba(0,0,0,.35)', padding:12, width:240 }}>
-                  <div style={{ fontSize:10.5, fontWeight:800, textTransform:'uppercase', letterSpacing:.5, color:'var(--muted, #6b7280)', marginBottom:8 }}>✏️ Meu nome de exibição</div>
-                  <input autoFocus value={novoNome} onChange={e=>setNovoNome(e.target.value)}
-                    onKeyDown={e=>{ if (e.key==='Enter') salvarNome(); if (e.key==='Escape') setNomeOpen(false); }}
-                    placeholder="Seu nome"
-                    style={{ width:'100%', padding:'9px 10px', borderRadius:9, border:'1px solid var(--border, #d1d5db)', fontSize:13.5, fontWeight:600, background:'var(--bg, #fff)', color:'var(--txt, #111827)', outline:'none', boxSizing:'border-box' }} />
-                  <div style={{ display:'flex', gap:6, marginTop:8 }}>
-                    <button onClick={salvarNome} disabled={salvandoNome || String(novoNome||'').trim().length < 2}
-                      style={{ flex:1, padding:'8px 0', borderRadius:9, border:'none', cursor:'pointer', background:'#0E8C96', color:'#fff', fontWeight:800, fontSize:12.5, opacity: salvandoNome ? .6 : 1 }}>
-                      {salvandoNome ? 'Salvando…' : 'Salvar'}
-                    </button>
-                    <button onClick={()=>setNomeOpen(false)} style={{ padding:'8px 12px', borderRadius:9, border:'1px solid var(--border, #d1d5db)', cursor:'pointer', background:'none', color:'var(--muted, #6b7280)', fontWeight:700, fontSize:12.5 }}>Cancelar</button>
-                  </div>
-                  <div style={{ fontSize:10, color:'var(--muted, #9ca3af)', marginTop:7, lineHeight:1.4 }}>Muda na hora, em todo o sistema.</div>
-                </div>
-              )}
-              <div style={{ color:'rgba(255,255,255,.85)', fontSize:10.5 }}>{user?.role === 'master' ? '◆ Master' : user?.role === 'supervisor' ? '◆ Supervisora' : 'Atendente'}<span style={{ marginLeft:6 }}><span style={{ display:'inline-block', width:6, height:6, borderRadius:'50%', background:'#3ef58f', marginRight:3, verticalAlign:'1px' }}/>Online</span></div>
-            </div>
-            {podeTrocar && (
-              <button onClick={abrirTroca} title="Trocar de usuário (entrar como)" style={{ padding:6, background: trocaOpen ? 'rgba(255,255,255,.25)' : 'none', color:'#fff', borderRadius:6, cursor:'pointer', border:'none' }}>
-                <Users size={13} />
-              </button>
-            )}
-            {trocaOpen && (
-              <div style={{ position:'fixed', bottom:64, left:12, zIndex:9999, background:'var(--card, #fff)', border:'1px solid var(--border, #e5e7eb)', borderRadius:14, boxShadow:'0 12px 40px rgba(0,0,0,.35)', padding:10, width:230, maxHeight:340, overflowY:'auto' }}>
-                <div style={{ fontSize:10.5, fontWeight:800, textTransform:'uppercase', letterSpacing:.5, color:'var(--muted, #6b7280)', padding:'2px 6px 8px' }}>👥 Entrar como…</div>
-                {localStorage.getItem('vh_token_master') && (
-                  <button onClick={voltarMaster} style={{ display:'block', width:'100%', textAlign:'left', padding:'8px 10px', borderRadius:9, border:'none', cursor:'pointer', background:'#f5f3ff', color:'#7c3aed', fontWeight:800, fontSize:12.5, marginBottom:6 }}>
-                    ↩️ Voltar ao meu usuário (master)
-                  </button>
-                )}
-                {trocaUsers.filter(u2 => u2.id !== user?.id).map(u2 => (
-                  <button key={u2.id} onClick={()=>trocarPara(u2)}
-                    style={{ display:'flex', alignItems:'center', gap:8, width:'100%', textAlign:'left', padding:'7px 8px', borderRadius:9, border:'none', cursor:'pointer', background:'transparent', color:'var(--txt, #111)' }}
-                    onMouseEnter={e=>e.currentTarget.style.background='var(--tq3, #eef6f7)'}
-                    onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-                    <span style={{ width:26, height:26, borderRadius:'50%', background:u2.cor||'var(--tq)', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:800, flexShrink:0 }}>{(u2.nome||'?').slice(0,1)}</span>
-                    <span style={{ minWidth:0 }}>
-                      <span style={{ display:'block', fontSize:12.5, fontWeight:700, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{u2.nome}</span>
-                      <span style={{ display:'block', fontSize:10, color:'var(--muted, #6b7280)' }}>{u2.role==='master'?'Master':u2.role==='supervisor'?'Supervisora':'Atendente'}{u2.setor?` · ${u2.setor}`:''}</span>
-                    </span>
-                  </button>
-                ))}
-                {!trocaUsers.length && <div style={{ fontSize:12, color:'var(--muted, #6b7280)', padding:8 }}>Carregando…</div>}
-              </div>
-            )}
-            <button onClick={()=>setShowAvatarBuilder(true)} title="Criar meu avatar" style={{ padding:6, background:'none', color:'rgba(255,255,255,.62)', borderRadius:6, transition:'color .15s', cursor:'pointer', border:'none' }}
-              onMouseEnter={e=>e.currentTarget.style.color='#ffffff'}
-              onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,.62)'}>
-              <Palette size={13} />
-            </button>
-            <button onClick={onToggleTheme} title={theme === 'dark' ? 'Modo claro' : 'Modo escuro'} style={{ padding:6, background:'none', color:'rgba(255,255,255,.62)', borderRadius:6, transition:'color .15s', cursor:'pointer', border:'none' }}
-              onMouseEnter={e=>e.currentTarget.style.color='#ffffff'}
-              onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,.62)'}>
-              {theme === 'dark' ? <Sun size={13} /> : <Moon size={13} />}
-            </button>
-            <button onClick={logout} title="Sair" style={{ padding:6, background:'none', color:'rgba(255,255,255,.62)', borderRadius:6, transition:'color .15s', cursor:'pointer', border:'none' }}
-              onMouseEnter={e=>e.currentTarget.style.color='#ffffff'}
-              onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,.62)'}>
-              <LogOut size={13} />
-            </button>
-          </div>
-        )}
 
         {/* Paleta de cores — compacta: 1 linha, abre só ao clicar (não rouba espaço do menu) */}
         {!collapsed && paletaCores.length > 0 && (() => {

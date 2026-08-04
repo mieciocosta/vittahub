@@ -5,8 +5,10 @@ import { useApi, useAuth } from '../context/AuthContext.jsx';
 /* FOTO & AVATAR DE PERFIL — um modal só, com duas abas:
    📷 Minha foto  → a pessoa envia a foto que preferir (recorte quadrado
                     automático no centro, preview antes de salvar)
-   🎨 Ilustrado   → monta um avatar parecido com ela (pele, cabelo, olhos,
-                    boca, barba, óculos, brincos, bochechas)
+   🎨 Ilustrado   → avatar de CORPO INTEIRO parecido com ela: pele, cabelo,
+                    olhos, boca, barba, óculos, brincos, bochechas, ROUPA
+                    (jaleco/scrub/camiseta com cor) e OBJETO na mão
+                    (estetoscópio, seringa, café, celular, livro, coração).
    Os dois salvam em /auth/me/avatar e aparecem em todo o sistema. */
 
 const PELE = ['#ffe0bd', '#f1c27d', '#e0ac69', '#c68642', '#8d5524', '#5c3620'];
@@ -18,6 +20,9 @@ const BOCAS = ['sorriso', 'serio', 'sorrisao'];
 const BARBAS = ['nenhuma', 'cavanhaque', 'cheia'];
 const OCULOS = ['nenhum', 'redondo', 'retangular'];
 const BRINCOS = ['nenhum', 'ponto', 'argola'];
+const ROUPAS = ['jaleco', 'scrub', 'camiseta'];
+const COR_ROUPA = ['#0E8C96', '#7c5cbf', '#2563eb', '#16a34a', '#db2777', '#ea580c', '#0f172a', '#dc2626'];
+const OBJETOS = ['nenhum', 'estetoscopio', 'seringa', 'cafe', 'celular', 'livro', 'coracao'];
 
 const LABEL = {
   careca: 'Careca', curto: 'Curto', franja: 'Franja', coque: 'Coque', longo: 'Longo', ondulado: 'Ondulado', cacheado: 'Cacheado', moicano: 'Moicano',
@@ -26,6 +31,8 @@ const LABEL = {
   nenhuma: 'Sem barba', cavanhaque: 'Cavanhaque', cheia: 'Barba cheia',
   nenhum: 'Nenhum', redondo: 'Redondos', retangular: 'Retangulares',
   ponto: 'Pontinho', argola: 'Argola',
+  jaleco: '🥼 Jaleco', scrub: '👕 Scrub', camiseta: '👚 Camiseta',
+  estetoscopio: '🩺 Estetoscópio', seringa: '💉 Seringa', cafe: '☕ Café', celular: '📱 Celular', livro: '📖 Livrinho', coracao: '❤️ Coração',
 };
 
 function escurece(hex, f = 0.75) {
@@ -37,6 +44,8 @@ function escurece(hex, f = 0.75) {
 export function gerarAvatarSVG(c) {
   const peleEsc = escurece(c.pele, 0.86);
   const cab = c.corCabelo;
+  const roupaCor = c.corRoupa || '#0E8C96';
+  const roupaEsc = escurece(roupaCor, 0.72);
   // Cabelos
   const hair = {
     careca: '',
@@ -54,40 +63,34 @@ export function gerarAvatarSVG(c) {
     feliz: `<path d="M72 110 Q80 102 88 110" stroke="#2a2320" stroke-width="3.5" fill="none" stroke-linecap="round"/><path d="M112 110 Q120 102 128 110" stroke="#2a2320" stroke-width="3.5" fill="none" stroke-linecap="round"/>`,
     grande: `<g><circle cx="80" cy="108" r="8" fill="#fff" stroke="#2a2320" stroke-width="1.5"/><circle cx="81" cy="109" r="4" fill="#2a2320"/><circle cx="120" cy="108" r="8" fill="#fff" stroke="#2a2320" stroke-width="1.5"/><circle cx="121" cy="109" r="4" fill="#2a2320"/></g>`,
   }[c.olhos];
-  // Sobrancelhas
   const sobr = `<path d="M71 96 Q80 92 89 96" stroke="${escurece(cab || '#3b2417', .8)}" stroke-width="3" fill="none" stroke-linecap="round"/><path d="M111 96 Q120 92 129 96" stroke="${escurece(cab || '#3b2417', .8)}" stroke-width="3" fill="none" stroke-linecap="round"/>`;
-  // Boca
   const boca = {
     sorriso: `<path d="M84 134 Q100 148 116 134" stroke="#9c4a3a" stroke-width="3.5" fill="none" stroke-linecap="round"/>`,
     serio: `<path d="M86 138 L114 138" stroke="#9c4a3a" stroke-width="3.5" fill="none" stroke-linecap="round"/>`,
     sorrisao: `<path d="M82 132 Q100 152 118 132 Z" fill="#9c4a3a"/><path d="M85 134 Q100 140 115 134 Z" fill="#fff"/>`,
   }[c.boca];
-  // Bochechas (blush) — opcional
   const bochechas = c.bochechas
     ? `<ellipse cx="70" cy="126" rx="9" ry="5.5" fill="#f87171" opacity="0.32"/><ellipse cx="130" cy="126" rx="9" ry="5.5" fill="#f87171" opacity="0.32"/>`
     : '';
-  // Barba
   const barba = {
     nenhuma: '',
     cavanhaque: `<path d="M92 146 Q100 158 108 146 Q106 152 100 152 Q94 152 92 146Z" fill="${cab}"/>`,
     cheia: `<path d="M58 118 Q60 165 100 168 Q140 165 142 118 Q140 150 100 152 Q60 150 58 118 Z" fill="${cab}" opacity="0.95"/>`,
   }[c.barba];
-  // Óculos
   const oculos = {
     nenhum: '',
     redondo: `<g fill="none" stroke="#333" stroke-width="3"><circle cx="80" cy="108" r="13"/><circle cx="120" cy="108" r="13"/><path d="M93 108 L107 108"/></g>`,
     retangular: `<g fill="none" stroke="#333" stroke-width="3"><rect x="67" y="99" width="26" height="18" rx="4"/><rect x="107" y="99" width="26" height="18" rx="4"/><path d="M93 108 L107 108"/></g>`,
   }[c.oculos];
-  // Brincos (nas orelhas: cx 47 e 153, cy ~120)
   const brincos = {
     nenhum: '',
     ponto: `<circle cx="47" cy="121" r="3" fill="#D4AF37"/><circle cx="153" cy="121" r="3" fill="#D4AF37"/>`,
     argola: `<circle cx="47" cy="126" r="5" fill="none" stroke="#D4AF37" stroke-width="2.5"/><circle cx="153" cy="126" r="5" fill="none" stroke="#D4AF37" stroke-width="2.5"/>`,
   }[c.brincos || 'nenhum'];
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
-    <rect width="200" height="200" rx="28" fill="${c.fundo}"/>
-    <rect x="86" y="150" width="28" height="26" rx="10" fill="${peleEsc}"/>
+  // A CABEÇA sobe e encolhe um pouco pra dar lugar ao corpo (translate+scale)
+  const cabeca = `<g transform="translate(18 2) scale(0.82)">
+    <rect x="86" y="150" width="28" height="30" rx="10" fill="${peleEsc}"/>
     <ellipse cx="47" cy="112" rx="9" ry="12" fill="${c.pele}"/><ellipse cx="153" cy="112" rx="9" ry="12" fill="${c.pele}"/>
     ${brincos}
     <ellipse cx="100" cy="108" rx="52" ry="58" fill="${c.pele}"/>
@@ -100,6 +103,57 @@ export function gerarAvatarSVG(c) {
     ${boca}
     ${oculos}
     ${c.cabelo !== 'longo' && c.cabelo !== 'ondulado' ? hair : ''}
+  </g>`;
+
+  // CORPO — ombros/tronco de y≈138 até a base
+  const tronco = `M50 200 L53 165 Q55 145 79 138 L100 145 L121 138 Q145 145 147 165 L150 200 Z`;
+  const corpo = {
+    // camisa colorida + jaleco branco aberto por cima
+    jaleco: `<path d="${tronco}" fill="${roupaCor}"/>
+      <path d="M100 145 L92 200 L50 200 L53 165 Q55 145 79 138 Z" fill="#f8fafc"/>
+      <path d="M100 145 L108 200 L150 200 L147 165 Q145 145 121 138 Z" fill="#f8fafc"/>
+      <path d="M79 138 L93 152 L88 160 L79 145 Z" fill="#e2e8f0"/>
+      <path d="M121 138 L107 152 L112 160 L121 145 Z" fill="#e2e8f0"/>
+      <circle cx="97" cy="188" r="1.8" fill="#94a3b8"/><circle cx="103" cy="188" r="1.8" fill="#94a3b8"/>`,
+    // scrub com decote em V
+    scrub: `<path d="${tronco}" fill="${roupaCor}"/>
+      <path d="M86 140 L100 156 L114 140" stroke="${roupaEsc}" stroke-width="4" fill="none" stroke-linecap="round"/>
+      <path d="M60 196 L74 196" stroke="${roupaEsc}" stroke-width="2.5" stroke-linecap="round"/>`,
+    // camiseta gola redonda
+    camiseta: `<path d="${tronco}" fill="${roupaCor}"/>
+      <path d="M88 140 Q100 150 112 140" stroke="${roupaEsc}" stroke-width="4" fill="none" stroke-linecap="round"/>`,
+  }[c.roupa || 'jaleco'];
+
+  // OBJETO — vestido (estetoscópio) ou segurado pela mãozinha
+  const obj = c.objeto || 'nenhum';
+  const mao = `<circle cx="143" cy="176" r="8.5" fill="${c.pele}"/>`;
+  const objetos = {
+    nenhum: '',
+    estetoscopio: `<path d="M88 142 Q100 174 112 142" stroke="#374151" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+      <circle cx="100" cy="176" r="7" fill="#374151"/><circle cx="100" cy="176" r="3.5" fill="#9ca3af"/>`,
+    seringa: `${mao}<g transform="rotate(-20 143 165)">
+      <rect x="138.5" y="146" width="9" height="24" rx="2" fill="#eef2f7" stroke="#64748b" stroke-width="1.5"/>
+      <rect x="135.5" y="141" width="15" height="5" rx="2" fill="#94a3b8"/>
+      <line x1="143" y1="170" x2="143" y2="181" stroke="#94a3b8" stroke-width="2"/>
+      <rect x="139.5" y="150" width="7" height="5" fill="#7dd3fc"/></g>`,
+    cafe: `${mao}<rect x="132" y="150" width="21" height="19" rx="3.5" fill="#fff" stroke="#a16207" stroke-width="1.8"/>
+      <path d="M153 154 Q160 156 156 163 Q154 166 153 164" fill="none" stroke="#a16207" stroke-width="1.8"/>
+      <rect x="132" y="150" width="21" height="6" rx="3" fill="#7c2d12"/>
+      <path d="M138 145 Q140 141 138 137 M145 145 Q147 141 145 137" stroke="#cbd5e1" stroke-width="1.8" fill="none" stroke-linecap="round"/>`,
+    celular: `${mao}<rect x="135" y="145" width="17" height="29" rx="4" fill="#111827"/>
+      <rect x="137" y="149" width="13" height="19" rx="1.5" fill="#38bdf8"/>
+      <circle cx="143.5" cy="171" r="1.4" fill="#6b7280"/>`,
+    livro: `${mao}<rect x="129" y="149" width="27" height="20" rx="2.5" fill="#4b2e17"/>
+      <rect x="131" y="151" width="23" height="16" rx="1.5" fill="#6d4423"/>
+      <path d="M142.5 154 L142.5 164 M138 158 L147 158" stroke="#D4AF37" stroke-width="2" stroke-linecap="round"/>`,
+    coracao: `${mao}<path d="M143 172 C 136 163, 128 158, 133 150 C 137 144, 143 148, 143 153 C 143 148, 149 144, 153 150 C 158 158, 150 163, 143 172 Z" fill="#ef4444"/>`,
+  }[obj];
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+    <rect width="200" height="200" rx="28" fill="${c.fundo}"/>
+    ${corpo}
+    ${cabeca}
+    ${objetos}
   </svg>`;
 }
 
@@ -122,13 +176,13 @@ export default function AvatarBuilder({ onClose }) {
   const api = useApi();
   const { user, setUser } = useAuth();
   const [aba, setAba] = useState('foto'); // 'foto' | 'ilustrado'
-  const [cfg, setCfg] = useState({ pele: PELE[1], corCabelo: COR_CABELO[1], fundo: FUNDO[0], cabelo: 'curto', olhos: 'normal', boca: 'sorriso', barba: 'nenhuma', oculos: 'nenhum', brincos: 'nenhum', bochechas: false });
+  const [cfg, setCfg] = useState({ pele: PELE[1], corCabelo: COR_CABELO[1], fundo: FUNDO[0], cabelo: 'curto', olhos: 'normal', boca: 'sorriso', barba: 'nenhuma', oculos: 'nenhum', brincos: 'nenhum', bochechas: false, roupa: 'jaleco', corRoupa: COR_ROUPA[0], objeto: 'nenhum' });
   const [foto, setFoto] = useState(null); // dataURL já recortada, pronta pra salvar
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState('');
   const fileRef = useRef(null);
   const set = (k, v) => setCfg(p => ({ ...p, [k]: v }));
-  const sortear = () => setCfg({ pele: rnd(PELE), corCabelo: rnd(COR_CABELO), fundo: rnd(FUNDO), cabelo: rnd(CABELOS), olhos: rnd(OLHOS), boca: rnd(BOCAS), barba: rnd(BARBAS), oculos: rnd(OCULOS), brincos: rnd(BRINCOS), bochechas: Math.random() < 0.35 });
+  const sortear = () => setCfg({ pele: rnd(PELE), corCabelo: rnd(COR_CABELO), fundo: rnd(FUNDO), cabelo: rnd(CABELOS), olhos: rnd(OLHOS), boca: rnd(BOCAS), barba: rnd(BARBAS), oculos: rnd(OCULOS), brincos: rnd(BRINCOS), bochechas: Math.random() < 0.35, roupa: rnd(ROUPAS), corRoupa: rnd(COR_ROUPA), objeto: rnd(OBJETOS) });
 
   // Foto da galeria/câmera: recorte QUADRADO no centro + 384px (nítida e leve)
   const escolherFoto = (e) => {
@@ -200,7 +254,7 @@ export default function AvatarBuilder({ onClose }) {
 
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200, padding: 16 }}>
-      <div onClick={e => e.stopPropagation()} className="card" style={{ width: 640, maxWidth: '100%', maxHeight: '92vh', padding: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div onClick={e => e.stopPropagation()} className="card" style={{ width: 680, maxWidth: '100%', maxHeight: '92vh', padding: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div style={{ padding: '16px 20px', color: '#fff', background: 'linear-gradient(135deg,#0E8C96,#00B8C0)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 9, fontWeight: 800, fontSize: 16 }}><Camera size={18} /> Foto de perfil</div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fff' }}><X size={18} /></button>
@@ -233,9 +287,9 @@ export default function AvatarBuilder({ onClose }) {
         ) : (
           <div style={{ display: 'flex', gap: 18, padding: 20, overflow: 'auto', flexWrap: 'wrap' }}>
             {/* Preview */}
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, minWidth: 180, flex: '0 0 auto', margin: '0 auto' }}>
-              <div style={{ width: 180, height: 180, borderRadius: 24, overflow: 'hidden', boxShadow: '0 8px 24px rgba(0,0,0,.15)' }}
-                dangerouslySetInnerHTML={{ __html: gerarAvatarSVG(cfg).replace('width="200" height="200"', 'width="180" height="180"') }} />
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, minWidth: 190, flex: '0 0 auto', margin: '0 auto' }}>
+              <div style={{ width: 190, height: 190, borderRadius: 24, overflow: 'hidden', boxShadow: '0 8px 24px rgba(0,0,0,.15)' }}
+                dangerouslySetInnerHTML={{ __html: gerarAvatarSVG(cfg).replace('width="200" height="200"', 'width="190" height="190"') }} />
               <button onClick={sortear} className="btn btn-s btn-sm" style={{ gap: 6 }}><Shuffle size={14} /> Surpreenda-me</button>
             </div>
             {/* Controles */}
@@ -254,6 +308,9 @@ export default function AvatarBuilder({ onClose }) {
                   {cfg.bochechas ? 'Com blush 😊' : 'Sem blush'}
                 </button>
               </Linha>
+              <Linha titulo="Roupa"><Opcoes campo="roupa" valores={ROUPAS} /></Linha>
+              <Linha titulo="Cor da roupa"><Swatches campo="corRoupa" cores={COR_ROUPA} /></Linha>
+              <Linha titulo="Na mão / acessório"><Opcoes campo="objeto" valores={OBJETOS} /></Linha>
               <Linha titulo="Fundo"><Swatches campo="fundo" cores={FUNDO} /></Linha>
             </div>
           </div>
