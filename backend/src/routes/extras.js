@@ -1722,6 +1722,38 @@ r.put('/indicacoes-config', async (req, res) => {
 /* ═══ BIBLIOTECA DE EXPERIÊNCIAS + FIGURINHAS ═══════════════════════════════ */
 const MIDIA_TIPOS = ['foto', 'video', 'depoimento', 'apresentacao', 'figurinha'];
 
+// 💟 Carrega as figurinhas OFICIAIS da Vittalis (arquivos do repositório) na
+// biblioteca — botão da gestão na página Figurinhas. Idempotente (não duplica).
+r.post('/figurinhas/seed', async (req, res) => {
+  try {
+    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão.' });
+    const fs = await import('fs');
+    const path = await import('path');
+    const { fileURLToPath } = await import('url');
+    const aqui = path.dirname(fileURLToPath(import.meta.url));
+    const dirFig = path.join(aqui, '../assets/figurinhas');
+    if (!fs.existsSync(dirFig)) return res.status(500).json({ error: `Pasta não encontrada no servidor: ${dirFig}` });
+    const NOMES = { 'bom-dia': 'Vitta · Bom dia', 'boa-tarde': 'Vitta · Boa tarde', 'obrigada': 'Vitta · Obrigada pela confiança',
+      'confirmado': 'Vitta · Confirmadíssimo', 'esperando': 'Vitta · Estamos te esperando', 'protecao': 'Vitta · Proteção em dia',
+      'parabens': 'Vitta · Parabéns', 'conta-comigo': 'Vitta · Conta com a gente',
+      'excelente-semana': 'Vitta · Excelente semana', 'abencoado-mes': 'Vitta · Abençoado mês',
+      'agendamento-confirmado': 'Vitta · Agendamento confirmado', 'princesa': 'Vitta · Princesa linda e protegida',
+      'principe': 'Vitta · Príncipe lindo e protegido', 'consulta-confirmada': 'Vitta · Consulta confirmada' };
+    const arquivos = fs.readdirSync(dirFig).filter(x => x.endsWith('.webp'));
+    let inseridas = 0, existiam = 0;
+    for (const f of arquivos) {
+      const titulo = NOMES[f.replace('.webp', '')] || `Vitta · ${f}`;
+      const { rows: [ja] } = await query(`SELECT 1 FROM biblioteca_midias WHERE titulo = $1 AND tipo = 'figurinha' LIMIT 1`, [titulo]);
+      if (ja) { existiam++; continue; }
+      const b64 = fs.readFileSync(path.join(dirFig, f)).toString('base64');
+      await query(`INSERT INTO biblioteca_midias (titulo, tipo, setor, categoria, mime, data)
+                   VALUES ($1, 'figurinha', 'geral', 'Vittalis', 'image/webp', $2)`, [titulo, b64]);
+      inseridas++;
+    }
+    res.json({ ok: true, arquivos: arquivos.length, inseridas, existiam });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.get('/biblioteca', async (req, res) => {
   try {
     const conds = [], params = []; let i = 1;

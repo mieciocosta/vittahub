@@ -88,6 +88,15 @@ export function GridMidias({ tipoFixo = null, titulo, subtitulo, categorias = nu
           <h1 style={{ fontSize: 27, fontWeight: 800 }}>{titulo}</h1>
           <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 2 }}>{subtitulo}</p>
         </div>
+        {gestao && tipoFixo === 'figurinha' && (
+          <button onClick={async () => {
+            try {
+              const r = await api.post('/extras/figurinhas/seed', {});
+              window.alert(`💟 Figurinhas oficiais: ${r.inseridas} carregada(s) agora, ${r.existiam} já estavam na biblioteca.`);
+              load();
+            } catch (e) { window.alert('Erro ao carregar: ' + e.message); }
+          }} className="btn btn-s" style={{ gap: 6, fontWeight: 700 }}>💟 Carregar figurinhas oficiais</button>
+        )}
         {gestao && <button onClick={() => setUp({ setor: setor || 'geral' })} className="btn btn-p" style={{ gap: 6 }}><Plus size={14} /> Adicionar</button>}
       </div>
 
