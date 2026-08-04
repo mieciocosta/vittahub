@@ -157,72 +157,94 @@ export default function Amigo() {
 
       {modo === 'chat' && (<>
 
-      {/* 🌅 Devocional do dia — cartão caprichado, estilo imagem de devocional */}
+      {/* 🌅 Devocional do dia — cartão premium, estilo arte de devocional */}
       {devocional && (
-        <div style={{ position: 'relative', flexShrink: 0, marginBottom: 12, borderRadius: 18, overflow: 'hidden', boxShadow: '0 8px 26px rgba(76,29,149,.22)' }}>
+        <div style={{ position: 'relative', flexShrink: 0, marginBottom: 12, borderRadius: 20, overflow: 'hidden', boxShadow: '0 14px 40px rgba(30,27,75,.35)' }}>
           <button onClick={() => setDevAberto(a => !a)}
-            style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 9, padding: '12px 16px', border: 'none', cursor: 'pointer', textAlign: 'left',
-              background: 'linear-gradient(120deg,#312e81,#4c1d95 55%,#6d28d9)', color: '#fff' }}>
-            <span style={{ fontSize: 16 }}>🌅</span>
+            style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '13px 18px', border: 'none', cursor: 'pointer', textAlign: 'left',
+              background: 'linear-gradient(120deg,#1e1b4b,#312e81 45%,#4c1d95)', color: '#fff', borderBottom: devAberto ? '1px solid rgba(212,175,55,.35)' : 'none' }}>
+            <span style={{ width: 34, height: 34, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15,
+              background: 'linear-gradient(135deg,rgba(212,175,55,.28),rgba(212,175,55,.10))', border: '1px solid rgba(212,175,55,.5)' }}>🌅</span>
             <span style={{ flex: 1, minWidth: 0 }}>
-              <span style={{ display: 'block', fontSize: 9.5, fontWeight: 800, letterSpacing: 1.4, textTransform: 'uppercase', opacity: .75 }}>Devocional do dia</span>
-              <span style={{ display: 'block', fontWeight: 800, fontSize: 15.5, lineHeight: 1.2 }}>{devocional.tema}</span>
+              <span style={{ display: 'block', fontSize: 9, fontWeight: 800, letterSpacing: 2.2, textTransform: 'uppercase', color: '#d4af37' }}>Devocional do dia</span>
+              <span style={{ display: 'block', fontWeight: 700, fontSize: 16.5, lineHeight: 1.25, fontFamily: 'Georgia, "Times New Roman", serif' }}>{devocional.tema}</span>
             </span>
-            <span style={{ fontSize: 11, fontWeight: 700, opacity: .8, flexShrink: 0 }}>{devAberto ? '▲ recolher' : '▼ ler'}</span>
+            <span style={{ fontSize: 10.5, fontWeight: 700, color: 'rgba(255,255,255,.75)', flexShrink: 0 }}>{devAberto ? '▲ recolher' : '▼ ler'}</span>
           </button>
           {ehMaster && devAberto && (
             <button title="Gerar um devocional novo pra hoje (só o master vê este botão)"
               onClick={(e) => { e.stopPropagation(); setDevocional(null); api.get('/extras/amigo/devocional-hoje?regerar=1').then(d => { setDevocional(d); setDevAberto(true); }).catch(() => {}); }}
-              style={{ position: 'absolute', right: 12, top: 58, zIndex: 2, background: 'rgba(255,255,255,.18)', border: 'none', color: '#fff', borderRadius: 8, padding: '4px 8px', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
+              style={{ position: 'absolute', right: 12, top: 66, zIndex: 3, background: 'rgba(255,255,255,.14)', border: '1px solid rgba(255,255,255,.25)', color: '#fff', borderRadius: 8, padding: '4px 9px', cursor: 'pointer', fontSize: 12 }}>
               🔄
             </button>
           )}
 
           {devAberto && (
             devocional.versiculo ? (
-              <div style={{ background: 'linear-gradient(165deg,#3b0764 0%,#4c1d95 45%,#312e81 100%)', color: '#fff', padding: '22px 22px 18px', position: 'relative' }}>
-                <div style={{ position: 'absolute', right: -34, top: -34, width: 150, height: 150, borderRadius: '50%', background: 'rgba(255,255,255,.06)' }} />
-                <div style={{ position: 'absolute', left: -40, bottom: -50, width: 170, height: 170, borderRadius: '50%', background: 'rgba(255,255,255,.05)' }} />
+              <div style={{ position: 'relative', color: '#fff', padding: 10,
+                background: 'radial-gradient(120% 90% at 85% -10%, rgba(124,58,237,.55) 0%, transparent 55%), radial-gradient(120% 100% at 0% 110%, rgba(30,64,175,.5) 0%, transparent 55%), linear-gradient(160deg,#151238 0%,#2a1a5e 55%,#1e1b4b 100%)' }}>
+                {/* brilhos suaves */}
+                <div style={{ position: 'absolute', right: -50, top: -50, width: 200, height: 200, borderRadius: '50%', background: 'radial-gradient(circle, rgba(212,175,55,.14) 0%, transparent 65%)' }} />
+                <div style={{ position: 'absolute', left: -60, bottom: -70, width: 230, height: 230, borderRadius: '50%', background: 'radial-gradient(circle, rgba(255,255,255,.07) 0%, transparent 65%)' }} />
 
-                {/* Versículo — destaque de "imagem de devocional" */}
-                <div style={{ position: 'relative', textAlign: 'center', padding: '4px 6px 14px' }}>
-                  <div style={{ fontSize: 40, lineHeight: .6, color: '#fbbf24', fontFamily: 'Georgia, serif', height: 18 }}>“</div>
-                  <div style={{ fontFamily: 'Georgia, "Times New Roman", serif', fontStyle: 'italic', fontSize: 17.5, lineHeight: 1.6, letterSpacing: .2 }}>
-                    {devocional.versiculo}
+                {/* moldura dourada fina (como um convite) */}
+                <div style={{ position: 'relative', border: '1px solid rgba(212,175,55,.45)', borderRadius: 14, padding: '24px 22px 18px' }}>
+
+                  {/* ornamento superior */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'center', marginBottom: 14 }}>
+                    <span style={{ flex: 1, maxWidth: 90, height: 1, background: 'linear-gradient(90deg,transparent,rgba(212,175,55,.7))' }} />
+                    <span style={{ color: '#d4af37', fontSize: 13 }}>✦</span>
+                    <span style={{ flex: 1, maxWidth: 90, height: 1, background: 'linear-gradient(90deg,rgba(212,175,55,.7),transparent)' }} />
                   </div>
-                  <div style={{ marginTop: 10 }}>
-                    <span style={{ display: 'inline-block', padding: '4px 14px', borderRadius: 20, background: 'rgba(251,191,36,.16)', border: '1px solid rgba(251,191,36,.45)', color: '#fcd34d', fontSize: 11.5, fontWeight: 800, letterSpacing: .6 }}>
-                      {devocional.referencia || devocional.ref}
-                    </span>
+
+                  {/* Versículo */}
+                  <div style={{ textAlign: 'center', padding: '0 4px' }}>
+                    <div style={{ fontSize: 48, lineHeight: .5, color: '#d4af37', fontFamily: 'Georgia, serif', height: 22, textShadow: '0 2px 14px rgba(212,175,55,.35)' }}>“</div>
+                    <div style={{ fontFamily: 'Georgia, "Times New Roman", serif', fontStyle: 'italic', fontSize: 19, lineHeight: 1.65, letterSpacing: .3, color: '#fdfcf7', textShadow: '0 1px 12px rgba(0,0,0,.35)' }}>
+                      {devocional.versiculo}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'center', marginTop: 14 }}>
+                      <span style={{ width: 26, height: 1, background: 'rgba(212,175,55,.6)' }} />
+                      <span style={{ color: '#d4af37', fontSize: 11.5, fontWeight: 800, letterSpacing: 2.4, textTransform: 'uppercase' }}>{devocional.referencia || devocional.ref}</span>
+                      <span style={{ width: 26, height: 1, background: 'rgba(212,175,55,.6)' }} />
+                    </div>
                   </div>
-                </div>
 
-                {/* Reflexão */}
-                <div style={{ position: 'relative', fontSize: 13.5, lineHeight: 1.7, color: 'rgba(255,255,255,.94)', margin: '6px 0 14px', textAlign: 'center' }}>
-                  {devocional.reflexao}
-                </div>
+                  {/* Reflexão — com capitular dourada */}
+                  <div style={{ fontSize: 13.5, lineHeight: 1.85, color: 'rgba(255,255,255,.9)', margin: '18px auto 18px', maxWidth: 560, textAlign: 'center' }}>
+                    <span style={{ fontFamily: 'Georgia, serif', fontSize: 26, fontWeight: 700, color: '#d4af37', lineHeight: 1 }}>{String(devocional.reflexao || '').charAt(0)}</span>
+                    {String(devocional.reflexao || '').slice(1)}
+                  </div>
 
-                {/* Aplicações */}
-                {(devocional.aplicacoes || []).length > 0 && (
-                  <div style={{ position: 'relative', background: 'rgba(255,255,255,.10)', border: '1px solid rgba(255,255,255,.16)', borderRadius: 14, padding: '12px 15px', marginBottom: 12 }}>
-                    <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 1.2, textTransform: 'uppercase', color: '#c4b5fd', marginBottom: 8 }}>✅ Pra viver essa palavra hoje</div>
-                    {devocional.aplicacoes.map((a, i) => (
-                      <div key={i} style={{ display: 'flex', gap: 9, fontSize: 13, lineHeight: 1.55, marginBottom: i < devocional.aplicacoes.length - 1 ? 7 : 0 }}>
-                        <span style={{ flexShrink: 0, width: 19, height: 19, borderRadius: '50%', background: '#fbbf24', color: '#3b0764', fontWeight: 900, fontSize: 11, display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 1 }}>{i + 1}</span>
-                        <span>{a}</span>
+                  {/* Aplicações */}
+                  {(devocional.aplicacoes || []).length > 0 && (
+                    <div style={{ background: 'rgba(255,255,255,.06)', border: '1px solid rgba(212,175,55,.28)', borderRadius: 14, padding: '14px 16px', marginBottom: 16 }}>
+                      <div style={{ textAlign: 'center', fontSize: 9.5, fontWeight: 800, letterSpacing: 2.4, textTransform: 'uppercase', color: '#d4af37', marginBottom: 11 }}>— Pra viver essa palavra hoje —</div>
+                      {devocional.aplicacoes.map((a, i) => (
+                        <div key={i} style={{ display: 'flex', gap: 11, fontSize: 13, lineHeight: 1.6, marginBottom: i < devocional.aplicacoes.length - 1 ? 10 : 0 }}>
+                          <span style={{ flexShrink: 0, width: 22, height: 22, borderRadius: '50%', background: 'linear-gradient(135deg,#e9c46a,#b8860b)', color: '#1e1b4b', fontWeight: 900, fontSize: 11.5, display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 1, boxShadow: '0 2px 8px rgba(212,175,55,.4)', fontFamily: 'Georgia, serif' }}>{i + 1}</span>
+                          <span style={{ color: 'rgba(255,255,255,.92)' }}>{a}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Oração */}
+                  {devocional.oracao && (
+                    <div style={{ textAlign: 'center', padding: '0 12px' }}>
+                      <div style={{ color: '#d4af37', fontSize: 12, marginBottom: 6 }}>✦ &nbsp;Oração&nbsp; ✦</div>
+                      <div style={{ fontFamily: 'Georgia, "Times New Roman", serif', fontStyle: 'italic', fontSize: 13.5, lineHeight: 1.75, color: 'rgba(255,255,255,.88)' }}>
+                        {devocional.oracao}
                       </div>
-                    ))}
-                  </div>
-                )}
+                    </div>
+                  )}
 
-                {/* Oração */}
-                {devocional.oracao && (
-                  <div style={{ position: 'relative', textAlign: 'center', fontSize: 13, lineHeight: 1.65, fontStyle: 'italic', color: 'rgba(255,255,255,.9)', padding: '2px 10px 2px' }}>
-                    🙏 {devocional.oracao}
+                  {/* rodapé */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'center', marginTop: 18 }}>
+                    <span style={{ flex: 1, maxWidth: 70, height: 1, background: 'linear-gradient(90deg,transparent,rgba(212,175,55,.5))' }} />
+                    <span style={{ fontSize: 9, letterSpacing: 2.6, textTransform: 'uppercase', color: 'rgba(212,175,55,.85)', fontWeight: 700 }}>Vittalis Saúde · Meu Devocional</span>
+                    <span style={{ flex: 1, maxWidth: 70, height: 1, background: 'linear-gradient(90deg,rgba(212,175,55,.5),transparent)' }} />
                   </div>
-                )}
-                <div style={{ position: 'relative', textAlign: 'center', marginTop: 12, fontSize: 9.5, letterSpacing: 1.6, textTransform: 'uppercase', color: 'rgba(255,255,255,.45)', fontWeight: 700 }}>
-                  Vittalis Saúde · Meu Devocional
                 </div>
               </div>
             ) : (
