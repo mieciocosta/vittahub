@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Plus, Phone, MessageSquare, Check, X as XIcon, CalendarClock, Trash2, ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { Plus, Phone, MessageSquare, Check, X as XIcon, Pencil, Trash2, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt } from '../hooks/utils.js';
@@ -150,7 +150,7 @@ export default function Agenda() {
                 {ev.status === 'Confirmado' && (
                   <button onClick={() => mudaStatus(ev, 'Realizado')} title="Marcar como realizado" style={{ ...btnAcao, color: 'var(--tq2)' }}><Check size={13} /></button>
                 )}
-                <button onClick={() => setModal({ ...ev, data: typeof ev.data === 'string' ? ev.data.slice(0, 10) : data })} title="Reagendar / editar" style={btnAcao}><CalendarClock size={13} /></button>
+                <button onClick={() => setModal({ ...ev, data: typeof ev.data === 'string' ? ev.data.slice(0, 10) : data })} title="✏️ Editar agendamento (dados, data, hora, valor…)" style={{ ...btnAcao, color: '#2563eb', borderColor: '#bfd7fe', background: '#eaf1fe' }}><Pencil size={13} /></button>
                 {ev.status !== 'Faltou' && ev.status !== 'Realizado' && ev.status !== 'Cancelado' && (
                   <button onClick={() => mudaStatus(ev, 'Faltou')} title="Marcar falta (a Vitta chama pra remarcar em 1h)" style={{ ...btnAcao, color: '#c2410c', borderColor: '#f6d5c2', background: '#fdf0e8', fontSize: 11, fontWeight: 800 }}>👻</button>
                 )}
