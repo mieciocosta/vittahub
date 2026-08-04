@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { BellRing, Cake, CalendarClock, Gift, Send, MessageCircle } from 'lucide-react';
+import { BellRing, Cake, CalendarClock, Gift, Send, MessageCircle, StickyNote, Trash2, X } from 'lucide-react';
 import { useApi } from '../context/AuthContext.jsx';
 
 /* Central de Lembretes — reforço pelo CRM: Aniversários (leads), Agendamentos
@@ -18,6 +18,15 @@ export default function Lembretes() {
   const [sel, setSel] = useState(new Set());
   const [toast, setToast] = useState(null);
   const showToast = (m) => { setToast(m); setTimeout(() => setToast(null), 3500); };
+  // Envio livre (pra quem ela quiser)
+  const [dest, setDest] = useState(null);
+  const [buscaQ, setBuscaQ] = useState('');
+  const [buscaRes, setBuscaRes] = useState([]);
+  const [telLivre, setTelLivre] = useState('');
+  const [msgLivre, setMsgLivre] = useState('');
+  // Lembretes pessoais (dela)
+  const [meus, setMeus] = useState([]);
+  const [novoMeu, setNovoMeu] = useState('');
 
   const amanhaStr = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
   const hojeStr = new Date().toISOString().slice(0, 10);
@@ -28,8 +37,14 @@ export default function Lembretes() {
       .then(d => { setDados(d || {}); setCarregando(false); })
       .catch(() => setCarregando(false));
   };
-  useEffect(() => { load(); }, []); // eslint-disable-line
+  useEffect(() => { load(); loadMeus(); }, []); // eslint-disable-line
   useEffect(() => { setSel(new Set()); }, [aba]);
+  const loadMeus = () => api.get('/extras/painel').then(d => setMeus((Array.isArray(d) ? d : []).filter(i => i.tipo === 'tarefa'))).catch(() => {});
+  useEffect(() => {
+    if (buscaQ.trim().length < 2) { setBuscaRes([]); return; }
+    const t = setTimeout(() => api.get(`/lembretes/busca?q=${encodeURIComponent(buscaQ)}`).then(d => setBuscaRes(d.itens || [])).catch(() => {}), 300);
+    return () => clearTimeout(t);
+  }, [buscaQ]); // eslint-disable-line
 
   const msgAmanha = (ev) => {
     const serv = ev.servico || (ev.setor === 'terapias' ? 'sessão de terapia' : ev.setor === 'consultas' ? 'consulta' : 'atendimento');
@@ -58,7 +73,29 @@ export default function Lembretes() {
     { k: 'aniversarios', label: 'Aniversários', Icon: Cake, n: (dados.aniversarios || []).length },
     { k: 'amanha', label: 'Amanhã', Icon: CalendarClock, n: (dados.amanha || []).length },
     { k: 'indicacoes', label: 'Indicações', Icon: Gift, n: (dados.indicacoes || []).length },
+    { k: 'enviar', label: 'Mensagem', Icon: Send, n: 0 },
+    { k: 'meus', label: 'Meus lembretes', Icon: StickyNote, n: meus.filter(m => !m.concluido).length },
   ];
+
+  const telFinal = String(dest?.telefone || telLivre || '').replace(/\D/g, '');
+  async function enviarLivre() {
+    if (telFinal.length < 10 || !msgLivre.trim()) return;
+    const quem = dest?.nome || `+55 ${telFinal}`;
+    if (!window.confirm(`Enviar agora para ${quem} pelo WhatsApp da clínica?`)) return;
+    setEnviando(true);
+    try {
+      await api.post('/lembretes/livre', { telefone: telFinal, mensagem: msgLivre.trim() });
+      showToast(`✓ Mensagem enviada pra ${quem} 💙`);
+      setMsgLivre(''); setDest(null); setBuscaQ(''); setTelLivre('');
+    } catch (e) { showToast('⚠️ ' + (e.message || 'Falha no envio')); }
+    setEnviando(false);
+  }
+  async function addMeu() {
+    const t = novoMeu.trim();
+    if (!t) return;
+    try { await api.post('/extras/painel', { tipo: 'tarefa', titulo: t }); setNovoMeu(''); loadMeus(); }
+    catch (e) { showToast('⚠️ ' + (e.message || 'Erro')); }
+  }
 
   const SETOR_COR = { vacinas: '#7c3aed', consultas: '#0891b2', terapias: '#C4973B' };
 
@@ -96,6 +133,8 @@ export default function Lembretes() {
           {aba === 'aniversarios' && <>🎂 Hoje e próximos 7 dias</>}
           {aba === 'amanha' && <>📅 Agendamentos de <b>amanhã ({fmtBR(amanhaStr)})</b> · prontos p/ lembrar: <b>{amanhaPend.length}</b></>}
           {aba === 'indicacoes' && <>🎁 Vendas dos últimos 7 dias — selecione a quem pedir indicação ({sel.size} selecionado{sel.size === 1 ? '' : 's'})</>}
+          {aba === 'enviar' && <>✉️ Escreva sua mensagem e envie <b>pra quem você quiser</b> — sai pelo WhatsApp da clínica</>}
+          {aba === 'meus' && <>📝 Seus lembretes pessoais — só você vê (meta, tarefas, o que for importante)</>}
         </div>
         {dados.whatsapp && aba === 'amanha' && (
           <button onClick={() => enviar('amanha', amanhaPend.map(e => e.id))} disabled={enviando || !amanhaPend.length} className="btn btn-p btn-sm" style={{ gap: 6 }}>
@@ -182,6 +221,97 @@ export default function Lembretes() {
                 : <span style={{ fontSize: 11, color: 'var(--light)', fontWeight: 600 }}>sem telefone</span>}
             </div>
           )))}
+
+          {/* ✉️ Mensagem livre — pra quem ela quiser */}
+          {aba === 'enviar' && (
+            <div className="card" style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 6 }}>Pra quem?</div>
+                {dest ? (
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: 'var(--tq3)', border: '1.5px solid var(--tq)', borderRadius: 12, padding: '8px 12px' }}>
+                    <span style={{ fontWeight: 800, fontSize: 13.5, color: 'var(--tq2)' }}>{dest.nome}</span>
+                    <span style={{ fontSize: 12, color: 'var(--muted)' }}>{dest.telefone}</span>
+                    <button onClick={() => setDest(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={14} /></button>
+                  </div>
+                ) : (
+                  <div style={{ position: 'relative' }}>
+                    <input value={buscaQ} onChange={e => setBuscaQ(e.target.value)} placeholder="Busque por nome ou telefone (clientes e conversas)…"
+                      style={{ width: '100%', padding: '10px 12px', borderRadius: 11, border: '1.5px solid var(--border)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13.5, outline: 'none' }} />
+                    {buscaRes.length > 0 && (
+                      <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, background: 'var(--card)', border: '1.5px solid var(--border)', borderRadius: 12, boxShadow: '0 12px 30px rgba(0,0,0,.12)', zIndex: 20, maxHeight: 240, overflowY: 'auto' }}>
+                        {buscaRes.map((it, i) => (
+                          <button key={i} onClick={() => { setDest(it); setBuscaQ(''); setBuscaRes([]); }}
+                            style={{ display: 'flex', justifyContent: 'space-between', gap: 10, width: '100%', textAlign: 'left', padding: '10px 12px', background: 'none', border: 'none', borderBottom: '1px solid var(--border)', cursor: 'pointer', color: 'var(--txt)' }}>
+                            <span style={{ fontWeight: 700, fontSize: 13 }}>{it.nome}</span>
+                            <span style={{ fontSize: 12, color: 'var(--muted)' }}>{it.telefone || 'sem telefone'}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>…ou digite o número direto:
+                      <input value={telLivre} onChange={e => setTelLivre(e.target.value)} placeholder="(98) 99999-9999" inputMode="numeric"
+                        style={{ marginLeft: 8, padding: '5px 10px', borderRadius: 9, border: '1.5px solid var(--border)', background: 'var(--card)', color: 'var(--txt)', fontSize: 12.5, outline: 'none', width: 160 }} />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 6 }}>Mensagem</div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+                  {[['🎂 Aniversário', () => msgNiver(dest?.nome || '')], ['🎁 Indicação', () => msgInd(dest?.nome || '')], ['💙 Bom dia', () => `Bom dia${dest?.nome ? ', ' + String(dest.nome).split(' ')[0] : ''}! 💙 Aqui é da Vittalis Saúde. Passando pra lembrar que estamos à disposição pra cuidar de quem você ama. 😊`]].map(([rot, fn]) => (
+                    <button key={rot} onClick={() => setMsgLivre(fn())} className="btn btn-sm" style={{ fontSize: 11, background: 'var(--bg2)', color: 'var(--txt2)', border: '1px solid var(--border)' }}>{rot}</button>
+                  ))}
+                </div>
+                <textarea value={msgLivre} onChange={e => setMsgLivre(e.target.value)} rows={4} maxLength={3000} placeholder="Escreva aqui a mensagem do seu jeito…"
+                  style={{ width: '100%', padding: '12px 14px', borderRadius: 12, border: '1.5px solid var(--border)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13.5, outline: 'none', resize: 'vertical', lineHeight: 1.5 }} />
+              </div>
+
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                {telFinal.length >= 10 && msgLivre.trim() && (
+                  <a href={wa(telFinal, msgLivre)} target="_blank" rel="noreferrer" className="btn btn-sm" style={{ gap: 5, background: '#25D366', color: '#fff', border: 'none', fontWeight: 800 }}>
+                    <MessageCircle size={13} /> Enviar pelo meu WhatsApp
+                  </a>
+                )}
+                {dados.whatsapp && (
+                  <button onClick={enviarLivre} disabled={enviando || telFinal.length < 10 || !msgLivre.trim()} className="btn btn-p btn-sm" style={{ gap: 6 }}>
+                    <Send size={13} /> {enviando ? 'Enviando…' : 'Enviar pelo WhatsApp da clínica'}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* 📝 Meus lembretes — pessoais */}
+          {aba === 'meus' && (
+            <div className="card" style={{ padding: 20 }}>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+                <input value={novoMeu} onChange={e => setNovoMeu(e.target.value)} onKeyDown={e => e.key === 'Enter' && addMeu()} maxLength={200}
+                  placeholder="Ex.: 🎯 Bater a meta de hoje · retornar pra Dona Ana · cobrar comprovante…"
+                  style={{ flex: 1, padding: '11px 14px', borderRadius: 12, border: '1.5px solid var(--border)', background: 'var(--card)', color: 'var(--txt)', fontSize: 13.5, outline: 'none' }} />
+                <button onClick={addMeu} disabled={!novoMeu.trim()} className="btn btn-p btn-sm" style={{ gap: 5 }}>+ Anotar</button>
+              </div>
+              {meus.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '26px 10px', color: 'var(--muted)', fontSize: 13 }}>
+                  <StickyNote size={26} color="var(--border)" style={{ marginBottom: 6 }} />
+                  <div style={{ fontWeight: 700 }}>Nada anotado ainda.</div>
+                  <div style={{ fontSize: 12, marginTop: 3 }}>Anote qualquer coisa importante: meta do dia, retornos, recados… Só você vê (aparece também no seu Meu Painel).</div>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {meus.map(m => (
+                    <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 11, background: 'var(--bg2)', opacity: m.concluido ? .55 : 1 }}>
+                      <input type="checkbox" checked={!!m.concluido} onChange={async () => { try { await api.put(`/extras/painel/${m.id}`, { concluido: !m.concluido }); loadMeus(); } catch {} }}
+                        style={{ width: 16, height: 16, accentColor: 'var(--tq)' }} />
+                      <span style={{ flex: 1, fontSize: 13.5, fontWeight: 600, textDecoration: m.concluido ? 'line-through' : 'none' }}>{m.titulo || m.conteudo}</span>
+                      <button onClick={async () => { try { await api.del(`/extras/painel/${m.id}`); loadMeus(); } catch {} }}
+                        title="Remover" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><Trash2 size={14} /></button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 

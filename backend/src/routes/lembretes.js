@@ -2,6 +2,27 @@ import express from 'express';
 import { query } from '../db/pool.js';
 import { auth } from '../middleware/auth.js';
 import { zapiOk, zapiSendText } from '../services/zapi.js';
+import { socketEmit } from '../socketServer.js';
+
+// Registra a mensagem enviada dentro da conversa do CRM (se existir), pra
+// equipe ver no chat o que foi mandado. Melhor esforço — nunca quebra o envio.
+async function registraNaConversa(telefone, texto, senderNome) {
+  try {
+    const dig = String(telefone || '').replace(/\D/g, '');
+    const ult11 = dig.slice(-11);
+    if (ult11.length < 10) return;
+    const { rows: [conv] } = await query(
+      `SELECT id, contact_name, phone FROM conversas
+        WHERE RIGHT(regexp_replace(COALESCE(phone,''),'\\D','','g'), 11) = $1
+        ORDER BY last_message_at DESC NULLS LAST LIMIT 1`, [ult11]);
+    if (!conv) return;
+    const { rows: [m] } = await query(
+      `INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content) VALUES ($1,'me',$2,'text',$3) RETURNING *`,
+      [conv.id, senderNome || 'Lembretes', texto]);
+    await query(`UPDATE conversas SET last_message = $1, last_message_at = NOW() WHERE id = $2`, [String(texto).slice(0, 160), conv.id]).catch(() => {});
+    if (m) socketEmit('new_message', { convId: conv.id, message: m, conv });
+  } catch { /* silencioso */ }
+}
 
 // ─── Central de Lembretes (reforço pelo CRM) ─────────────────────────────────
 // 🎂 Aniversários (leads.nascimento) · 📅 Agendamentos de amanhã (agenda_eventos)
@@ -72,16 +93,18 @@ r.post('/enviar', async (req, res) => {
            FROM agenda_eventos WHERE id = ANY($1::int[]) AND lembrete_enviado_em IS NULL`, [ids.map(Number)]);
       for (const ev of rows) {
         if (!ev.telefone || String(ev.telefone).replace(/\D/g, '').length < 10) { pulados++; continue; }
-        const zr = await zapiSendText(ev.telefone, msgAmanha(ev)).catch(() => null);
-        if (zr?.ok) { enviados++; await query(`UPDATE agenda_eventos SET lembrete_enviado_em = NOW() WHERE id = $1`, [ev.id]); }
+        const texto = msgAmanha(ev);
+        const zr = await zapiSendText(ev.telefone, texto).catch(() => null);
+        if (zr?.ok) { enviados++; await query(`UPDATE agenda_eventos SET lembrete_enviado_em = NOW() WHERE id = $1`, [ev.id]); await registraNaConversa(ev.telefone, texto, req.user?.nome); }
         else falhas++;
       }
     } else if (tipo === 'aniversarios') {
       const { rows } = await query(`SELECT id, nome, telefone FROM leads WHERE id = ANY($1::text[])`, [ids.map(String)]);
       for (const l of rows) {
         if (!l.telefone || String(l.telefone).replace(/\D/g, '').length < 10) { pulados++; continue; }
-        const zr = await zapiSendText(l.telefone, msgAniversario(l.nome)).catch(() => null);
-        if (zr?.ok) enviados++; else falhas++;
+        const texto = msgAniversario(l.nome);
+        const zr = await zapiSendText(l.telefone, texto).catch(() => null);
+        if (zr?.ok) { enviados++; await registraNaConversa(l.telefone, texto, req.user?.nome); } else falhas++;
       }
     } else if (tipo === 'indicacoes') {
       const { rows } = await query(
@@ -89,14 +112,61 @@ r.post('/enviar', async (req, res) => {
            FROM vendas v LEFT JOIN conversas c ON c.id = v.conversa_id WHERE v.id = ANY($1::int[])`, [ids.map(Number)]);
       for (const v of rows) {
         if (!v.telefone || String(v.telefone).replace(/\D/g, '').length < 10) { pulados++; continue; }
-        const zr = await zapiSendText(v.telefone, msgIndicacao(v.nome)).catch(() => null);
-        if (zr?.ok) enviados++; else falhas++;
+        const texto = msgIndicacao(v.nome);
+        const zr = await zapiSendText(v.telefone, texto).catch(() => null);
+        if (zr?.ok) { enviados++; await registraNaConversa(v.telefone, texto, req.user?.nome); } else falhas++;
       }
     } else {
       return res.status(400).json({ error: 'Tipo inválido.' });
     }
 
     res.json({ enviados, falhas, pulados });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/lembretes/busca?q= — acha destinatário em conversas e clientes (leads)
+r.get('/busca', async (req, res) => {
+  try {
+    const q = String(req.query.q || '').trim();
+    if (q.length < 2) return res.json({ itens: [] });
+    const like = `%${q}%`;
+    const dig = q.replace(/\D/g, '');
+    const { rows: convs } = await query(
+      `SELECT contact_name AS nome, phone AS telefone FROM conversas
+        WHERE contact_name ILIKE $1 ${dig.length >= 4 ? "OR regexp_replace(COALESCE(phone,''),'\\D','','g') LIKE $2" : ''}
+        ORDER BY last_message_at DESC NULLS LAST LIMIT 8`,
+      dig.length >= 4 ? [like, `%${dig}%`] : [like]);
+    const { rows: lds } = await query(
+      `SELECT nome, telefone FROM leads
+        WHERE nome ILIKE $1 ${dig.length >= 4 ? "OR regexp_replace(COALESCE(telefone,''),'\\D','','g') LIKE $2" : ''}
+        ORDER BY updated_at DESC LIMIT 8`,
+      dig.length >= 4 ? [like, `%${dig}%`] : [like]);
+    const vistos = new Set(); const itens = [];
+    for (const it of [...convs, ...lds]) {
+      const d = String(it.telefone || '').replace(/\D/g, '').slice(-11);
+      const chave = d || it.nome;
+      if (vistos.has(chave)) continue;
+      vistos.add(chave);
+      itens.push({ nome: it.nome, telefone: it.telefone });
+      if (itens.length >= 10) break;
+    }
+    res.json({ itens });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/lembretes/livre { telefone, mensagem } — a atendente escreve e envia
+// pra QUEM ela quiser, direto pelo WhatsApp da clinica.
+r.post('/livre', async (req, res) => {
+  try {
+    if (!zapiOk()) return res.status(503).json({ error: 'WhatsApp (Z-API) não configurado.' });
+    const tel = String(req.body?.telefone || '').replace(/\D/g, '');
+    const msg = String(req.body?.mensagem || '').trim().slice(0, 3000);
+    if (tel.length < 10) return res.status(400).json({ error: 'Telefone inválido (DDD + número).' });
+    if (!msg) return res.status(400).json({ error: 'Escreva a mensagem.' });
+    const zr = await zapiSendText(tel, msg).catch(() => null);
+    if (!zr?.ok) return res.status(502).json({ error: 'Falha no envio pelo WhatsApp.' });
+    await registraNaConversa(tel, msg, req.user?.nome);
+    res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
