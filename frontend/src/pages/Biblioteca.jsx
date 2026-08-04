@@ -26,6 +26,7 @@ export function GridMidias({ tipoFixo = null, titulo, subtitulo, categorias = nu
   const [up, setUp] = useState(null);
   const [erro, setErro] = useState('');
   const [subindo, setSubindo] = useState(false);
+  const [zoom, setZoom] = useState(null); // { titulo, src } — visualização em tela cheia
   const fileRef = useRef(null);
 
   const load = useCallback(() => {
@@ -107,7 +108,9 @@ export function GridMidias({ tipoFixo = null, titulo, subtitulo, categorias = nu
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(170px,1fr))', gap: 13 }}>
         {itens.map(it => (
-          <div key={it.id} className="card" style={{ padding: 0, overflow: 'hidden', background: 'var(--card)' }}>
+          <div key={it.id} className="card" onClick={() => it.tipo !== 'video' && previews[it.id] && setZoom({ titulo: it.titulo, src: previews[it.id] })}
+            style={{ padding: 0, overflow: 'hidden', background: 'var(--card)', cursor: it.tipo !== 'video' ? 'zoom-in' : 'default' }}
+            title={it.tipo !== 'video' ? 'Clique pra ver em tamanho grande' : ''}>
             <div style={{ height: 120, background: 'var(--bg2)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
               {it.tipo === 'video'
                 ? <Video size={30} color="var(--light)" />
@@ -119,12 +122,21 @@ export function GridMidias({ tipoFixo = null, titulo, subtitulo, categorias = nu
               <div style={{ fontWeight: 700, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.titulo}</div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 3 }}>
                 <span style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 700, textTransform: 'capitalize' }}>{it.setor}{it.categoria ? ` · ${it.categoria}` : ''}</span>
-                {gestao && <button onClick={() => excluir(it)} style={{ border: 'none', background: 'none', color: 'var(--light)', cursor: 'pointer', padding: 2 }}><Trash2 size={12} /></button>}
+                {gestao && <button onClick={(e) => { e.stopPropagation(); excluir(it); }} style={{ border: 'none', background: 'none', color: 'var(--light)', cursor: 'pointer', padding: 2 }}><Trash2 size={12} /></button>}
               </div>
             </div>
           </div>
         ))}
       </div>
+
+      {/* 🔍 Visualização em tela cheia (clicou na figurinha/foto → abre grande) */}
+      {zoom && (
+        <div onClick={() => setZoom(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(3,43,48,.82)', zIndex: 700, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 20, cursor: 'zoom-out' }}>
+          <img src={zoom.src} alt={zoom.titulo} style={{ maxWidth: 'min(88vw, 520px)', maxHeight: '72vh', borderRadius: 18, boxShadow: '0 20px 60px rgba(0,0,0,.45)', background: '#fff' }} />
+          <div style={{ marginTop: 14, color: '#fff', fontWeight: 800, fontSize: 14 }}>{zoom.titulo}</div>
+          <div style={{ marginTop: 4, color: 'rgba(255,255,255,.7)', fontSize: 11.5 }}>Toque em qualquer lugar pra fechar</div>
+        </div>
+      )}
 
       {up && (
         <div onClick={e => e.target === e.currentTarget && setUp(null)}
