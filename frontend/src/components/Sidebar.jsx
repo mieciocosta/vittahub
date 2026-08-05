@@ -28,39 +28,39 @@ const SETORES_MENU = [
 // Ordem = PRIORIDADE do dia a dia (pedido do master): 1º o atendimento que gera
 // venda, depois gestão/organização, por fim equipe e motivação.
 const NAV = [
-  { to:'/',           icon:LayoutDashboard, label:'Resumo' },
-  { to:'/metas',      icon:Target,          label:'Metas', gestao:true, destaque:true },
-  { to:'/inbox',      icon:MessageSquare,   label:'Chat',     unread:true },
-  { to:'/agenda',     icon:CalendarDays,    label:'Agenda' },
-  { to:'/retornos',   icon:Bell,            label:'Follow-up',  retornos:true },
-  { to:'/recuperacao',icon:Flame,           label:'Recuperação' },
-  { to:'/leads',      icon:Users,           label:'Clientes' },
-  { to:'/lembretes',  icon:BellRing,        label:'Lembretes' },
-  { to:'/caixa',      icon:Wallet,          label:'Caixa' },
-  { to:'/relatorios', icon:BarChart2,       label:'Relatórios' },
-  { to:'/funil',      icon:Kanban,          label:'Organização' },
-  { to:'/banco-dados',icon:Database,        label:'Banco de Dados' },
-  { to:'/profissionais', icon:Stethoscope,  label:'Profissionais', consultas:true },
-  { to:'/equipe',     icon:Users,           label:'Chat da Equipe', equipe:true },
-  { to:'/meu-painel', icon:LayoutGrid,      label:'Meu Painel' },
-  { to:'/amigo',      icon:BookOpen,        label:'Meu Devocional' },
-  { to:'/quiz',       icon:Gamepad2,        label:'Quiz de Vendas' },
-  { to:'/cases-sucesso', icon:Trophy,       label:'Cases de Sucesso' },
-  { to:'/planejamento', icon:Rocket,        label:'Planejamento', lider:true, plan:true },
-  { to:'/cursos',     icon:GraduationCap,   label:'Cursos' },
-  { to:'/indicacoes', icon:Gift,            label:'Indicações' },
-  { to:'/ia',         icon:Bot,             label:'IA Assistente' },
+  { to:'/',           icon:LayoutDashboard, label:'Resumo', cor:'#38bdf8' },
+  { to:'/metas',      icon:Target,          label:'Metas', gestao:true, destaque:true, cor:'#e879f9' },
+  { to:'/inbox',      icon:MessageSquare,   label:'Chat',     unread:true, cor:'#25D366' },
+  { to:'/agenda',     icon:CalendarDays,    label:'Agenda', cor:'#f59e0b' },
+  { to:'/retornos',   icon:Bell,            label:'Follow-up',  retornos:true, cor:'#fb7185' },
+  { to:'/recuperacao',icon:Flame,           label:'Recuperação', cor:'#f97316' },
+  { to:'/leads',      icon:Users,           label:'Clientes', cor:'#a78bfa' },
+  { to:'/lembretes',  icon:BellRing,        label:'Lembretes', cor:'#facc15' },
+  { to:'/caixa',      icon:Wallet,          label:'Caixa', cor:'#34d399' },
+  { to:'/relatorios', icon:BarChart2,       label:'Relatórios', cor:'#60a5fa' },
+  { to:'/funil',      icon:Kanban,          label:'Organização', cor:'#2dd4bf' },
+  { to:'/banco-dados',icon:Database,        label:'Banco de Dados', cor:'#94a3b8' },
+  { to:'/profissionais', icon:Stethoscope,  label:'Profissionais', consultas:true, cor:'#22d3ee' },
+  { to:'/equipe',     icon:Users,           label:'Chat da Equipe', equipe:true, cor:'#4ade80' },
+  { to:'/meu-painel', icon:LayoutGrid,      label:'Meu Painel', cor:'#c084fc' },
+  { to:'/amigo',      icon:BookOpen,        label:'Meu Devocional', cor:'#fbbf24' },
+  { to:'/quiz',       icon:Gamepad2,        label:'Quiz de Vendas', cor:'#f472b6' },
+  { to:'/cases-sucesso', icon:Trophy,       label:'Cases de Sucesso', cor:'#eab308' },
+  { to:'/planejamento', icon:Rocket,        label:'Planejamento', lider:true, plan:true, cor:'#fb923c' },
+  { to:'/cursos',     icon:GraduationCap,   label:'Cursos', cor:'#818cf8' },
+  { to:'/indicacoes', icon:Gift,            label:'Indicações', cor:'#f43f5e' },
+  { to:'/ia',         icon:Bot,             label:'IA Assistente', cor:'#10b981' },
 ];
 
 const NAV_FERRAMENTAS = [
-  { to:'/biblioteca', icon:Image,           label:'Biblioteca' },
-  { to:'/modelos',    icon:FileText,        label:'Modelos de Mensagens' },
-  { to:'/figurinhas', icon:Smile,           label:'Figurinhas' },
-  { to:'/ligacoes',   icon:Phone,           label:'Ligações' },
+  { to:'/biblioteca', icon:Image,           label:'Biblioteca', cor:'#ec4899' },
+  { to:'/modelos',    icon:FileText,        label:'Modelos de Mensagens', cor:'#38bdf8' },
+  { to:'/figurinhas', icon:Smile,           label:'Figurinhas', cor:'#f472b6' },
+  { to:'/ligacoes',   icon:Phone,           label:'Ligações', cor:'#34d399' },
 ];
 
 const NAV_ADMIN = [
-  { to:'/auditoria', icon:Shield, label:'Auditoria', masterOnly:true },
+  { to:'/auditoria', icon:Shield, label:'Auditoria', masterOnly:true, cor:'#ef4444' },
 ];
 
 /* ── Sino de notificações (novo lead, lead qualificado pela Vitta etc.) ────── */
@@ -402,21 +402,29 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
             && (!n.gestao || ['master','supervisor'].includes(user?.role))
             && (!n.consultas || ['master','supervisor'].includes(user?.role) || user?.setor === 'consultas')
             && (!n.lider || user?.lider || user?.role === 'master')
-          ).map(({ to, icon:Icon, label, unread:showU, retornos:retBadge, equipe:eqBadge, plan:planBadge, destaque }) => (
+          ).map(({ to, icon:Icon, label, unread:showU, retornos:retBadge, equipe:eqBadge, plan:planBadge, destaque, cor }) => (
           <React.Fragment key={to}>
-          <NavLink to={to} end={to==='/'} title={collapsed ? label : ''} style={({ isActive }) => ({
+          <NavLink to={to} end={to==='/'} title={collapsed ? label : ''}
+            className={({ isActive }) => `vh-nav${isActive ? ' ativo' : ''}`}
+            style={({ isActive }) => ({
             display:'flex', alignItems:'center', gap: collapsed ? 0 : 10,
-            padding: collapsed ? '10px 0' : '9px 12px',
+            padding: collapsed ? '8px 0' : '6px 10px',
             justifyContent: collapsed ? 'center' : 'flex-start',
             borderRadius:12, textDecoration:'none',
-            color: isActive ? 'var(--tq2)' : (destaque ? '#ffd166' : 'rgba(255,255,255,.85)'),
+            color: isActive ? 'var(--tq2)' : (destaque ? '#ffd166' : 'rgba(255,255,255,.88)'),
             background: isActive ? '#ffffff' : 'transparent',
-            boxShadow: isActive ? '0 4px 16px rgba(3,43,48,.22)' : 'none',
+            boxShadow: isActive ? `0 6px 18px rgba(3,43,48,.28), inset 3px 0 0 ${cor || 'var(--tq)'}` : 'none',
             fontWeight: (isActive || destaque) ? 700 : 500, fontSize:13.5,
             transition: 'all .15s',
             position:'relative',
           })}>
-            <Icon size={16} strokeWidth={1.8} />
+            {/* Chip colorido — cada botão com a sua cor (menu vivo e moderno) */}
+            <span className="vh-chip" style={{ width:27, height:27, borderRadius:9, flexShrink:0,
+              display:'flex', alignItems:'center', justifyContent:'center',
+              background: `linear-gradient(135deg, ${cor || '#64748b'}, ${cor || '#64748b'}cc)`,
+              boxShadow: `0 2px 8px ${cor || '#64748b'}55` }}>
+              <Icon size={15} strokeWidth={2} color="#fff" />
+            </span>
             {!collapsed && <span style={{ flex:1 }}>{label}</span>}
             {!collapsed && showU && unread > 0 && (
               <span style={{ background:'#fff', color:'var(--tq2)', borderRadius:10, padding:'1px 7px', fontSize:10.5, fontWeight:800, minWidth:20, textAlign:'center', boxShadow:'0 2px 6px rgba(3,43,48,.18)' }}>
@@ -455,8 +463,8 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
           <>
             {!collapsed && <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:1.6, color:'rgba(255,255,255,.62)', padding:'12px 12px 6px', textTransform:'uppercase', borderTop:'1px solid rgba(255,255,255,.16)', marginTop:10 }}>Administração</div>}
             {collapsed && <div style={{ borderTop:'1px solid rgba(255,255,255,.16)', margin:'10px 8px' }} />}
-            {NAV_ADMIN.map(({ to, icon:Icon, label }) => (
-              <NavLink key={to} to={to} title={collapsed ? label : ''} style={({ isActive }) => ({
+            {NAV_ADMIN.map(({ to, icon:Icon, label, cor }) => (
+              <NavLink key={to} to={to} title={collapsed ? label : ''} className={({ isActive }) => `vh-nav${isActive ? ' ativo' : ''}`} style={({ isActive }) => ({
                 display:'flex', alignItems:'center', gap: collapsed ? 0 : 10,
                 padding: collapsed ? '10px 0' : '8px 12px',
                 justifyContent: collapsed ? 'center' : 'flex-start',
@@ -467,7 +475,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                 fontWeight: isActive ? 700 : 500, fontSize:13,
                 transition:'all .15s',
               })}>
-                <Icon size={15} strokeWidth={1.8} />
+                <span className="vh-chip" style={{ width:25, height:25, borderRadius:8, flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', background: `linear-gradient(135deg, ${cor || '#64748b'}, ${cor || '#64748b'}cc)`, boxShadow: `0 2px 8px ${cor || '#64748b'}55` }}><Icon size={14} strokeWidth={2} color="#fff" /></span>
                 {!collapsed && <span style={{ flex:1 }}>{label}</span>}
               </NavLink>
             ))}
@@ -477,8 +485,8 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
         {/* ── Ferramentas ── */}
         {!collapsed && <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:1.6, color:'rgba(255,255,255,.62)', padding:'12px 12px 6px', textTransform:'uppercase', borderTop:'1px solid rgba(255,255,255,.16)', marginTop:10 }}>Ferramentas</div>}
         {collapsed && <div style={{ borderTop:'1px solid rgba(255,255,255,.16)', margin:'10px 8px' }} />}
-        {NAV_FERRAMENTAS.map(({ to, icon:Icon, label }) => (
-          <NavLink key={to} to={to} title={collapsed ? label : ''} style={({ isActive }) => ({
+        {NAV_FERRAMENTAS.map(({ to, icon:Icon, label, cor }) => (
+          <NavLink key={to} to={to} title={collapsed ? label : ''} className={({ isActive }) => `vh-nav${isActive ? ' ativo' : ''}`} style={({ isActive }) => ({
             display:'flex', alignItems:'center', gap: collapsed ? 0 : 10,
             padding: collapsed ? '10px 0' : '8px 12px',
             justifyContent: collapsed ? 'center' : 'flex-start',
@@ -489,7 +497,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
             fontWeight: isActive ? 700 : 500, fontSize:13,
             transition:'all .15s',
           })}>
-            <Icon size={15} strokeWidth={1.8} />
+            <span className="vh-chip" style={{ width:25, height:25, borderRadius:8, flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', background: `linear-gradient(135deg, ${cor || '#64748b'}, ${cor || '#64748b'}cc)`, boxShadow: `0 2px 8px ${cor || '#64748b'}55` }}><Icon size={14} strokeWidth={2} color="#fff" /></span>
             {!collapsed && <span style={{ flex:1 }}>{label}</span>}
           </NavLink>
         ))}
@@ -510,7 +518,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
           borderLeft: 'none',
           transition: 'all .13s',
         })}>
-          <Smartphone size={16} strokeWidth={1.8} />
+          <span className="vh-chip" style={{ width:27, height:27, borderRadius:9, flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', background:'linear-gradient(135deg,#25D366,#128C7E)', boxShadow:'0 2px 8px rgba(37,211,102,.4)' }}><Smartphone size={15} strokeWidth={2} color="#fff" /></span>
           {!collapsed && <span>WhatsApp</span>}
         </NavLink>
         )}
@@ -526,7 +534,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
             boxShadow: isActive ? '0 4px 16px rgba(3,43,48,.22)' : 'none',
             fontWeight: isActive ? 700 : 500, fontSize:13.5,
           })}>
-            <Settings size={15} strokeWidth={1.6} />
+            <span className="vh-chip" style={{ width:27, height:27, borderRadius:9, flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', background:'linear-gradient(135deg,#64748b,#475569)', boxShadow:'0 2px 8px rgba(100,116,139,.4)' }}><Settings size={15} strokeWidth={2} color="#fff" /></span>
             {!collapsed && <span>Configurações</span>}
           </NavLink>
         )}
@@ -598,6 +606,13 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
           <div style={{ fontSize:9, color:'rgba(255,255,255,.6)', marginTop:2, fontWeight:700 }}>{VERS_DIA[1]}</div>
         </div>
       )}
+      <style>{`
+        .vh-nav { will-change: transform; }
+        .vh-nav:not(.ativo):hover { background: rgba(255,255,255,.13) !important; transform: translateX(4px); }
+        .vh-nav:hover .vh-chip { transform: scale(1.12) rotate(-4deg); }
+        .vh-chip { transition: transform .18s ease; }
+        .vh-nav.ativo .vh-chip { transform: scale(1.05); }
+      `}</style>
       {showAvatarBuilder && <AvatarBuilder onClose={() => setShowAvatarBuilder(false)} />}
     </aside>
   );
