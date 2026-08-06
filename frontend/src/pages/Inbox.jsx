@@ -940,13 +940,10 @@ export default function Inbox({ onUnreadChange }) {
     const u = usersById[respId] || null;
     setSel(prev => ({ ...prev, responsavel_id: respId || null, responsavel_nome: u?.nome || null, responsavel_cor: u?.cor || null }));
     setConvos(prev => prev.map(x => x.id === sel.id ? { ...x, responsavel_id: respId || null } : x));
-    // Se a conversa muda de dono, a nova atendente se apresenta pro cliente
-    // (a triagem já tinha apresentado outro nome). Pergunta antes de mandar.
-    let avisar = false;
-    if (respId && sel.responsavel_id && String(sel.responsavel_id) !== String(respId)) {
-      avisar = window.confirm(`Avisar o cliente que ${(u?.nome || '').split(' ')[0]} assume o atendimento agora?\n\nO cliente foi apresentado a outra atendente no começo — essa mensagem evita a confusão de nomes.`);
-    }
-    try { await api.patch(`/inbox/conversations/${sel.id}/assign`, { responsavel_id: respId || null, avisar_cliente: avisar }); } catch {}
+    // Troca SILENCIOSA (pedido do master): só muda o dono da conversa, sem
+    // mandar nada pro cliente. A assinatura das mensagens já passa a sair com
+    // o nome de quem responde.
+    try { await api.patch(`/inbox/conversations/${sel.id}/assign`, { responsavel_id: respId || null, avisar_cliente: false }); } catch {}
   };
 
   // Vindo de outra tela com ?phone= (ex.: botão Conversa da Agenda): acha a
