@@ -8,6 +8,7 @@ import { ehGestao, mascararLista, registrarAberturaConversa } from '../middlewar
 import jwt from 'jsonwebtoken';
 import { socketEmit, setConvGroupFn, setUserSetorFn, socketEmitToUsers } from '../socketServer.js';
 import * as propostaGen from '../services/proposta-gen.js';
+import { enviarPush, enviarPushEquipe } from '../services/push.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const r = express.Router();
@@ -1704,11 +1705,16 @@ MEMÓRIA: preencha SÓ com fatos que o cliente informou ou que a Vitta confirmou
         await query(`INSERT INTO notificacoes (tipo, titulo, texto, conv_id) VALUES ('novo_lead', $1, $2, $3)`,
           [`🚨 Cliente CHATEADO: ${antes?.contact_name || antes?.phone || 'cliente'}`,
            `A IA detectou insatisfação na conversa (${motivo || 'reclamação'}). Responder JÁ, com carinho, pode salvar o cliente.`, convId]).catch(() => {});
+        enviarPushEquipe({ titulo: `🚨 Cliente chateado: ${antes?.contact_name || 'cliente'}`, texto: 'Responder já, com carinho, pode salvar o cliente.', url: `/inbox?conv=${convId}` });
       }
     }
     if (score === 'quente' && antes?.lead_score !== 'quente') {
       await query(`INSERT INTO notificacoes (tipo, titulo, texto, conv_id) VALUES ('novo_lead',$1,$2,$3)`,
         [`🔥 Lead QUENTE: ${antes?.contact_name || antes?.phone || 'cliente'}`, `${motivo}. Responder AGORA aumenta muito a chance de fechar!`, convId]).catch(() => {});
+      // 🔔 Push no celular (mesmo com o app fechado) — vale interromper
+      const alvoPush = antes?.responsavel_id || null;
+      const dadosPush = { titulo: `🔥 Lead quente: ${antes?.contact_name || 'cliente'}`, texto: `${motivo}. Responder agora aumenta muito a chance de fechar!`, url: `/inbox?conv=${convId}` };
+      if (alvoPush) enviarPush(alvoPush, dadosPush); else enviarPushEquipe(dadosPush);
     }
     const { rows: [c] } = await query('SELECT * FROM conversas WHERE id = $1', [convId]);
     if (c) { cacheUpdate(c); socketEmit('lead_score', { convId, lead_score: score, lead_score_motivo: motivo, memoria: c.memoria }); }

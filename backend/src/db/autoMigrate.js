@@ -163,6 +163,11 @@ export default async function runMigrate() {
     await query(`ALTER TABLE mensagens ADD COLUMN IF NOT EXISTS transcricao TEXT`).catch(() => {});
     // Famílias com vários filhos (texto livre: "João (03/2026), Ana (2023)")
     await query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS filhos TEXT`).catch(() => {});
+    // 🔔 Push real (app fechado): inscrições dos aparelhos da equipe
+    await query(`CREATE TABLE IF NOT EXISTS push_subscriptions (
+      endpoint TEXT PRIMARY KEY, usuario_id TEXT NOT NULL, p256dh TEXT NOT NULL,
+      auth TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions (usuario_id)`).catch(() => {});
 
     await query(`CREATE TABLE IF NOT EXISTS configuracoes (
       chave TEXT PRIMARY KEY, valor JSONB NOT NULL, updated_at TIMESTAMPTZ DEFAULT NOW()

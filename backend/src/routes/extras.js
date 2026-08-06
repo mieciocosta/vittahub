@@ -3,6 +3,7 @@ import { query } from '../db/pool.js';
 import { auth, masterOnly } from '../middleware/auth.js';
 import { socketEmit } from '../socketServer.js';
 import { versoDoDia } from '../versiculos.js';
+import { getVapid, enviarPush } from '../services/push.js';
 import { temIA, usaClaude, openaiMessages, anthropicClient, CLAUDE_MODEL_MINI } from './inbox.js';
 
 /* ─── FERRAMENTAS VITTAHUB ────────────────────────────────────────────────────
@@ -1853,6 +1854,31 @@ r.post('/ligacoes', async (req, res) => {
 r.delete('/ligacoes/:id', async (req, res) => {
   try { await query('DELETE FROM ligacoes WHERE id = $1', [req.params.id]); res.json({ ok: true }); }
   catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* ═══ 🔔 PUSH (notificação com o app fechado) ═══════════════════════════════ */
+r.get('/push/chave', async (req, res) => {
+  try { const v = await getVapid(); res.json({ publicKey: v?.publicKey || null }); }
+  catch { res.json({ publicKey: null }); }
+});
+r.post('/push/inscrever', async (req, res) => {
+  try {
+    const b = req.body || {};
+    const endpoint = String(b.endpoint || '').slice(0, 500);
+    const p256dh = String(b.keys?.p256dh || '').slice(0, 200);
+    const auth = String(b.keys?.auth || '').slice(0, 200);
+    if (!endpoint || !p256dh || !auth) return res.status(400).json({ error: 'Inscrição inválida.' });
+    await query(`INSERT INTO push_subscriptions (endpoint, usuario_id, p256dh, auth)
+                 VALUES ($1,$2,$3,$4) ON CONFLICT (endpoint) DO UPDATE SET usuario_id = $2, p256dh = $3, auth = $4`,
+      [endpoint, req.user.id, p256dh, auth]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+r.post('/push/testar', async (req, res) => {
+  try {
+    await enviarPush(req.user.id, { titulo: '🔔 VittaHub', texto: 'Funcionou! As notificações estão ativas neste aparelho. 💙', url: '/' });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 /* ═══ 📈 COMPARATIVO MÊS A MÊS (gestão) ════════════════════════════════════

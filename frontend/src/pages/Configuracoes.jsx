@@ -236,6 +236,24 @@ export default function Configuracoes() {
               )}
 
               <div className="field" style={{ background:'var(--bg2,#f8fafc)', padding:'10px 12px', borderRadius:10 }}>
+                <label>🔔 Notificações no celular (app fechado)</label>
+                <span style={{ fontSize:11.5, color:'var(--muted)', display:'block', marginBottom:8, lineHeight:1.5 }}>
+                  Instale o VittaHub na tela inicial do celular, permita as notificações e clique abaixo pra testar.
+                </span>
+                <button onClick={async () => {
+                  try {
+                    if (window.Notification && Notification.permission !== 'granted') {
+                      const p2 = await Notification.requestPermission();
+                      if (p2 !== 'granted') return window.alert('Permissão negada. Libere as notificações do navegador e tente de novo.');
+                      window.location.reload(); return;
+                    }
+                    await api.post('/extras/push/testar', {});
+                    window.alert('✅ Enviei uma notificação de teste! Se não aparecer em alguns segundos, confira as permissões do navegador.');
+                  } catch (e) { window.alert('Erro: ' + e.message); }
+                }} className="btn btn-sm" style={{ fontWeight:700, width:'100%' }}>🔔 Testar notificação neste aparelho</button>
+              </div>
+
+              <div className="field" style={{ background:'var(--bg2,#f8fafc)', padding:'10px 12px', borderRadius:10 }}>
                 <label>⭐ Link de avaliação no Google</label>
                 <input value={reviewUrl} onChange={e=>setReviewUrl(e.target.value)} placeholder="https://g.page/r/… (link 'Avalie-nos' do Google Maps)" />
                 <button onClick={salvarReview} className="btn btn-sm" style={{ fontWeight:700, marginTop:8, width:'100%' }}>{reviewSaved?'✅ Salvo!':'Salvar link'}</button>
