@@ -55,6 +55,27 @@ r.get('/status', (req, res) => {
   res.json({ ok: true, whatsapp: !!zapiOk() });
 });
 
+// POST /api/integracao/aviso — o VittaSys manda um aviso para o sino do VittaHub.
+// Pedido do master: os dois sistemas conversam; o que o VittaSys detecta
+// (cliente fidelidade sumido, oportunidade de plano) chega para quem atende aqui.
+r.post('/aviso', async (req, res) => {
+  if (!autenticado(req)) return res.status(403).json({ error: 'Token de integração ausente ou inválido.' });
+  const b = req.body || {};
+  const titulo = String(b.titulo || '').slice(0, 160).trim();
+  const texto = String(b.texto || '').slice(0, 1200).trim();
+  if (!titulo) return res.status(400).json({ error: 'Informe o titulo do aviso.' });
+  const apenasMaster = b.apenas_master === true || b.apenas_master === 'true';
+  try {
+    const { rows: [n] } = await query(
+      `INSERT INTO notificacoes (tipo, titulo, texto, apenas_master)
+       VALUES ('vittasys', $1, $2, $3) RETURNING id, created_at`,
+      [`💉 ${titulo}`, texto || null, apenasMaster]);
+    return res.json({ ok: true, id: n.id, criado_em: n.created_at });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/integracao/agenda?data=YYYY-MM-DD — pedido do master: a agenda do
 // VittaHub aparecer dentro do VittaSys. Somente LEITURA, mesmo token da ponte.
 r.get('/agenda', async (req, res) => {
