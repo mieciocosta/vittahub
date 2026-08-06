@@ -6,7 +6,7 @@ import {
   CalendarClock, CalendarDays, Bell, CheckCheck, UserPlus, Shield,
   Gift, Bot, Image, FileText, Smile, Phone, Star, Database, Stethoscope, Target,
   Trophy, GraduationCap, Rocket, Wallet, Palette, Gamepad2, BookOpen, LayoutGrid, Pencil, Flame,
-  BellRing, Syringe,
+  BellRing, Syringe, ExternalLink,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useApi } from '../context/AuthContext.jsx';
@@ -33,7 +33,6 @@ const NAV = [
   { to:'/inbox',      icon:MessageSquare,   label:'Chat',     unread:true, cor:'#25D366' },
   { to:'/agenda',     icon:CalendarDays,    label:'Agenda', cor:'#f59e0b' },
   { to:'/vacinas-solicitacao', icon:Syringe, label:'Solicitar Vacinas', cor:'#8b5cf6' },
-  { to:'/vittasys',   icon:Stethoscope,     label:'Vittasys', cor:'#0ea5e9' },
   { to:'/retornos',   icon:Bell,            label:'Follow-up',  retornos:true, cor:'#fb7185' },
   { to:'/recuperacao',icon:Flame,           label:'Recuperação', cor:'#f97316' },
   { to:'/leads',      icon:Users,           label:'Clientes', cor:'#a78bfa' },
@@ -173,6 +172,8 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
 
   // Foto/avatar: o clique na foto abre o modal com as DUAS opções (foto própria
   // do aparelho ou avatar ilustrado) — antes o clique abria um seletor escondido.
+  const [vittasysUrl, setVittasysUrl] = useState('https://vittasys.vittalissaude.com.br');
+  useEffect(() => { api.get('/extras/vittasys/config').then(d => d?.url && setVittasysUrl(d.url)).catch(() => {}); }, []); // eslint-disable-line
   const [showAvatarBuilder, setShowAvatarBuilder] = useState(false);
   const [paletaAberta, setPaletaAberta] = useState(false);
   // Editar o próprio nome — instantâneo (novo token com o nome novo).
@@ -503,6 +504,19 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
             {!collapsed && <span style={{ flex:1 }}>{label}</span>}
           </NavLink>
         ))}
+
+        {/* 🏥 Ponte pro Vittasys: encaminha direto (abre em nova aba) */}
+        <a href={vittasysUrl} target="_blank" rel="noreferrer" title="Abrir o Vittasys"
+          className="vh-nav"
+          style={{ display:'flex', alignItems:'center', gap: collapsed ? 0 : 10,
+            padding: collapsed ? '8px 0' : '6px 10px', justifyContent: collapsed ? 'center' : 'flex-start',
+            borderRadius:12, textDecoration:'none', color:'rgba(255,255,255,.88)', fontSize:13, fontWeight:500 }}>
+          <span className="vh-chip" style={{ width:25, height:25, borderRadius:8, flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center',
+            background:'linear-gradient(135deg,#0ea5e9,#0284c7)', boxShadow:'0 2px 8px rgba(14,165,233,.4)' }}>
+            <Stethoscope size={14} strokeWidth={2} color="#fff" />
+          </span>
+          {!collapsed && <><span style={{ flex:1 }}>Vittasys</span><ExternalLink size={11} color="rgba(255,255,255,.5)" /></>}
+        </a>
 
         <div style={{ height:1, background:'rgba(255,255,255,.14)', margin:'8px 12px' }}/>
 
