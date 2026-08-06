@@ -1856,6 +1856,27 @@ r.delete('/ligacoes/:id', async (req, res) => {
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* ═══ 🏥 VITTASYS — endereço da aba embutida ═══════════════════════════════ */
+r.get('/vittasys/config', async (req, res) => {
+  try {
+    const { rows: [c] } = await query("SELECT valor FROM configuracoes WHERE chave = 'vittasys'");
+    res.json({ url: c?.valor?.url || process.env.VITTASYS_API_URL || 'https://vittasys.vittalissaude.com.br',
+      busca_url: c?.valor?.busca_url || '' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+r.put('/vittasys/config', async (req, res) => {
+  try {
+    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão altera o endereço.' });
+    const url = String(req.body?.url || '').trim().slice(0, 300);
+    const busca_url = String(req.body?.busca_url || '').trim().slice(0, 400);
+    if (!/^https?:\/\//i.test(url)) return res.status(400).json({ error: 'Informe um endereço válido (https://…).' });
+    if (busca_url && !/^https?:\/\//i.test(busca_url)) return res.status(400).json({ error: 'O modelo de busca também precisa começar com https://' });
+    await query(`INSERT INTO configuracoes (chave, valor) VALUES ('vittasys', $1::jsonb)
+                 ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`, [JSON.stringify({ url, busca_url })]);
+    res.json({ ok: true, url, busca_url });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 /* ═══ 💉 SOLICITAÇÃO DE VACINAS — CONFORME A AGENDA ════════════════════════
    A equipe olha a agenda dos próximos dias e pede/separa as vacinas que serão
    aplicadas. Cada pedido nasce de um agendamento real, então nada é aplicado

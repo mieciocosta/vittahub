@@ -2095,6 +2095,11 @@ export default function Inbox({ onUnreadChange }) {
                 </div>
               </div>
               {ficha.cliente && !fichaEdit && (
+                <button onClick={() => window.open(`/vittasys?cliente=${encodeURIComponent(ficha.cliente.paciente || sel?.contact_name || '')}`, '_blank')}
+                  title="Abrir este cliente no Vittasys"
+                  style={{ background:'rgba(255,255,255,.2)', border:'none', color:'#fff', borderRadius:8, padding:'5px 10px', cursor:'pointer', fontSize:11.5, fontWeight:800 }}>🏥 Vittasys</button>
+              )}
+              {ficha.cliente && !fichaEdit && (
                 <button onClick={() => setFichaEdit({ ...ficha.cliente })} title="Corrigir dados"
                   style={{ background:'rgba(255,255,255,.2)', border:'none', color:'#fff', borderRadius:8, padding:'5px 10px', cursor:'pointer', fontSize:11.5, fontWeight:800 }}>✏️ Editar</button>
               )}
