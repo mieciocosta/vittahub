@@ -532,6 +532,8 @@ export default function Inbox({ onUnreadChange }) {
   const [showBib, setShowBib] = useState(false);
   const [bibAba, setBibAba] = useState('foto');
   const [showAgendar, setShowAgendar] = useState(false);
+  const [resumo, setResumo] = useState(null);        // 📋 raio-X da conversa
+  const [resumoLoad, setResumoLoad] = useState(false);
   const [, setTick] = useState(0); // re-render a cada 30s: relógio de espera do cliente
   useEffect(() => { const t = setInterval(() => setTick(x => x + 1), 30000); return () => clearInterval(t); }, []);
   const [intentOff, setIntentOff] = useState(null); // id da msg cujo radar foi dispensado
@@ -1647,6 +1649,15 @@ export default function Inbox({ onUnreadChange }) {
                 className="btn btn-sm" style={{ background:'#3b0764', color:'#e9d5ff', border:'1.5px solid #7c3aed', fontSize:11, padding:'4px 9px', fontWeight:700 }}>
                 {iaAgendaBusy ? <span className="spin" style={{width:10,height:10}}/> : '🤖'} Agendar IA
               </button>
+              <button onClick={async () => {
+                  setResumoLoad(true); setResumo(null);
+                  try { setResumo(await api.get(`/inbox/conversations/${sel.id}/resumo`)); }
+                  catch (e) { setResumo({ erro: e.message }); }
+                  setResumoLoad(false);
+                }} disabled={resumoLoad} title="Raio-X: resumo da conversa + avaliação do atendimento"
+                className="btn btn-sm" style={{ background:'#0f766e', color:'#ccfbf1', border:'1.5px solid #14b8a6', fontSize:11, padding:'4px 9px', fontWeight:700 }}>
+                {resumoLoad ? <span className="spin" style={{width:10,height:10}}/> : '📋'} Resumo
+              </button>
               {['master','supervisor'].includes(user?.role) && (
                 <button onClick={excluirConversa} title="Excluir esta conversa do CRM (apaga tudo, não pode desfazer)"
                   className="btn btn-sm" style={{ background:'var(--err2,#fdecec)', color:'var(--err,#dc2626)', border:'1.5px solid var(--err,#dc2626)', fontSize:11, padding:'4px 9px', fontWeight:700 }}>
@@ -1986,6 +1997,91 @@ export default function Inbox({ onUnreadChange }) {
               </button>
             </div>
             {recording&&<div style={{ textAlign:'center', marginTop:5, fontSize:11, color:'var(--err)', fontWeight:600 }}>🔴 Gravando… clique para parar</div>}
+          </div>
+        </div>
+      )}
+
+      {/* 📋 RAIO-X DA CONVERSA */}
+      {resumo && (
+        <div onClick={e => e.target === e.currentTarget && setResumo(null)}
+          style={{ position:'fixed', inset:0, background:'rgba(3,43,48,.6)', zIndex:600, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+          <div className="card" style={{ width:'100%', maxWidth:600, maxHeight:'88vh', padding:0, display:'flex', flexDirection:'column', overflow:'hidden' }}>
+            <div style={{ padding:'14px 20px', background:'linear-gradient(120deg,#0f766e,#14b8a6)', color:'#fff', display:'flex', alignItems:'center', gap:10 }}>
+              <span style={{ fontSize:17 }}>📋</span>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontWeight:800, fontSize:14.5 }}>Raio-X da conversa</div>
+                <div style={{ fontSize:11, opacity:.9, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{sel?.contact_name || ''}{resumo.mensagens ? ` · ${resumo.mensagens} mensagens analisadas` : ''}</div>
+              </div>
+              {!resumo.erro && (
+                <button onClick={async () => { setResumoLoad(true); try { setResumo(await api.get(`/inbox/conversations/${sel.id}/resumo?forcar=1`)); } catch (e) { setResumo({ erro: e.message }); } setResumoLoad(false); }}
+                  title="Analisar de novo" style={{ background:'rgba(255,255,255,.2)', border:'none', color:'#fff', borderRadius:8, padding:'5px 9px', cursor:'pointer', fontSize:12 }}>🔄</button>
+              )}
+              <button onClick={() => setResumo(null)} style={{ background:'rgba(255,255,255,.2)', border:'none', color:'#fff', borderRadius:8, padding:'5px 8px', cursor:'pointer' }}><X size={14}/></button>
+            </div>
+
+            <div style={{ flex:1, overflowY:'auto', padding:'16px 20px' }}>
+              {resumo.erro ? (
+                <div style={{ color:'var(--err)', fontSize:13, fontWeight:600 }}>⚠️ {resumo.erro}</div>
+              ) : (<>
+                <div style={{ fontSize:13.5, lineHeight:1.7, color:'var(--txt)', marginBottom:14 }}>{resumo.resumo}</div>
+
+                {[['👶','Cliente', resumo.cliente], ['🎯','Interesse', resumo.interesse], ['💬','Já oferecido', resumo.ja_oferecido],
+                  ['🤝','Combinado', resumo.combinado], ['⏳','Pendente agora', resumo.pendente]].filter(x => x[2]).map(([ic, rot, val]) => (
+                  <div key={rot} style={{ display:'flex', gap:9, padding:'7px 0', borderTop:'1px solid var(--border)' }}>
+                    <span style={{ fontSize:14, width:20, flexShrink:0 }}>{ic}</span>
+                    <div style={{ minWidth:0 }}>
+                      <div style={{ fontSize:10, fontWeight:800, letterSpacing:.5, textTransform:'uppercase', color:'var(--muted)' }}>{rot}</div>
+                      <div style={{ fontSize:13, lineHeight:1.55 }}>{val}</div>
+                    </div>
+                  </div>
+                ))}
+
+                {resumo.objecoes?.length > 0 && (
+                  <div style={{ display:'flex', gap:9, padding:'7px 0', borderTop:'1px solid var(--border)' }}>
+                    <span style={{ fontSize:14, width:20, flexShrink:0 }}>🛑</span>
+                    <div>
+                      <div style={{ fontSize:10, fontWeight:800, letterSpacing:.5, textTransform:'uppercase', color:'var(--muted)' }}>Objeções do cliente</div>
+                      {resumo.objecoes.map((o, i) => <div key={i} style={{ fontSize:13, lineHeight:1.55 }}>• {o}</div>)}
+                    </div>
+                  </div>
+                )}
+
+                {resumo.proximo_passo && (
+                  <div style={{ marginTop:14, padding:'12px 14px', borderRadius:12, background:'#ecfdf5', border:'1px solid #6ee7b7' }}>
+                    <div style={{ fontSize:10, fontWeight:800, letterSpacing:.5, textTransform:'uppercase', color:'#047857', marginBottom:3 }}>🚀 Próximo passo pra fechar</div>
+                    <div style={{ fontSize:13.5, lineHeight:1.6, color:'#065f46', fontWeight:600 }}>{resumo.proximo_passo}</div>
+                  </div>
+                )}
+
+                {resumo.avaliacao && (
+                  <div style={{ marginTop:14, padding:'13px 15px', borderRadius:12, background:'var(--bg2)', border:'1px solid var(--border)' }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:9, marginBottom:9 }}>
+                      <span style={{ fontSize:10, fontWeight:800, letterSpacing:.5, textTransform:'uppercase', color:'var(--muted)', flex:1 }}>⭐ Avaliação do atendimento</span>
+                      <span style={{ fontSize:17, fontWeight:900, color: resumo.avaliacao.nota >= 8 ? 'var(--ok,#16a34a)' : resumo.avaliacao.nota >= 6 ? '#d97706' : 'var(--err,#dc2626)' }}>
+                        {resumo.avaliacao.nota}/10
+                      </span>
+                    </div>
+                    {resumo.avaliacao.pontos_fortes?.length > 0 && (
+                      <div style={{ marginBottom:8 }}>
+                        <div style={{ fontSize:11, fontWeight:800, color:'var(--ok,#16a34a)', marginBottom:2 }}>✅ Fez bem</div>
+                        {resumo.avaliacao.pontos_fortes.map((x, i) => <div key={i} style={{ fontSize:12.5, lineHeight:1.55 }}>• {x}</div>)}
+                      </div>
+                    )}
+                    {resumo.avaliacao.deixou_a_desejar?.length > 0 && (
+                      <div style={{ marginBottom:8 }}>
+                        <div style={{ fontSize:11, fontWeight:800, color:'var(--err,#dc2626)', marginBottom:2 }}>⚠️ Deixou a desejar</div>
+                        {resumo.avaliacao.deixou_a_desejar.map((x, i) => <div key={i} style={{ fontSize:12.5, lineHeight:1.55 }}>• {x}</div>)}
+                      </div>
+                    )}
+                    {resumo.avaliacao.dica && (
+                      <div style={{ fontSize:12.5, lineHeight:1.6, fontStyle:'italic', color:'var(--txt2)', paddingTop:7, borderTop:'1px solid var(--border)' }}>
+                        💡 {resumo.avaliacao.dica}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>)}
+            </div>
           </div>
         </div>
       )}
