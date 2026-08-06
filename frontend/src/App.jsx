@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from './context/AuthContext.jsx';
 import Sidebar from './components/Sidebar.jsx';
 import PlacarVendas from './components/PlacarVendas.jsx';
+import BuscaRapida from './components/BuscaRapida.jsx';
 import CelebracaoGlobal from './components/CelebracaoGlobal.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 import Login from './pages/Login.jsx';
@@ -270,6 +271,7 @@ export default function App() {
   return (
     <div style={{ display:'flex', minHeight:'100vh' }}>
       <PwaSetup />
+      <BuscaRapida />
       {user.role !== 'master' && <SecurityLock user={user} />}
       <CelebracaoGlobal />
       <button className="vh-hamburger" onClick={() => setMobileMenu(true)} aria-label="Menu">☰</button>
