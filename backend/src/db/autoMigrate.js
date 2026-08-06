@@ -171,6 +171,11 @@ export default async function runMigrate() {
     // 📋 Raio-X da conversa (resumo + avaliação da IA), com cache por conversa
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS resumo_ia JSONB`).catch(() => {});
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS resumo_ia_at TIMESTAMPTZ`).catch(() => {});
+    // 📇 Ficha do cliente preenchida automaticamente pela conversa
+    await query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS cpf TEXT`).catch(() => {});
+    await query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS responsavel_cpf TEXT`).catch(() => {});
+    await query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS cep TEXT`).catch(() => {});
+    await query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS ficha_em TIMESTAMPTZ`).catch(() => {});
 
     await query(`CREATE TABLE IF NOT EXISTS configuracoes (
       chave TEXT PRIMARY KEY, valor JSONB NOT NULL, updated_at TIMESTAMPTZ DEFAULT NOW()
