@@ -307,7 +307,27 @@ r.post('/vendas', async (req, res) => {
       }
     } catch (e) { console.error('PÓS-VENDA erro (venda salva normalmente):', e.message); }
 
-    res.status(201).json(v);
+    // 🧩 COMBO INTELIGENTE: o que famílias que levaram este mesmo serviço
+    // costumam levar junto (histórico REAL da clínica). Nunca trava a venda.
+    let sugestao = null;
+    try {
+      if (v.servico) {
+        const { rows: [combo] } = await query(`
+          SELECT v2.servico, COUNT(*)::int n
+            FROM vendas v1
+            JOIN vendas v2 ON v2.cliente_nome = v1.cliente_nome
+                          AND v2.servico IS DISTINCT FROM v1.servico
+                          AND v2.data_venda BETWEEN v1.data_venda AND v1.data_venda + 90
+           WHERE v1.servico = $1 AND v2.servico IS NOT NULL AND v2.id <> $2
+           GROUP BY v2.servico ORDER BY n DESC LIMIT 1`, [v.servico, v.id]);
+        if (combo && combo.n >= 2) {
+          sugestao = { servico: combo.servico, vezes: combo.n,
+            texto: `Quem levou "${v.servico}" costuma levar também "${combo.servico}" (${combo.n} famílias). Vale oferecer! 💡` };
+        }
+      }
+    } catch (e) { console.error('Combo inteligente:', e.message); }
+
+    res.status(201).json({ ...v, sugestao });
   } catch (err) { console.error('VENDA ERRO:', err.message); res.status(500).json({ error: err.message }); }
 });
 

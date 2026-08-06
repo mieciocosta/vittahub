@@ -1380,13 +1380,15 @@ export default function Inbox({ onUnreadChange }) {
     const valFinal = Math.max(0, bruto - desc);
     setVendaSaving(true);
     try {
-      await Promise.race([
+      const vendaSalva = await Promise.race([
         api.post('/extras/vendas', {
           ...vendaForm, valor: valFinal, desconto: desc, conversa_id: sel.id, lead_id: sel.lead_id || null,
           cliente_nome: sel.contact_name || fmt.phone(sel.phone), setor: sel.setor,
         }),
         new Promise((_, rej) => setTimeout(() => rej(new Error('Servidor demorou a responder (timeout 20s).')), 20000)),
       ]);
+      // 🧩 Combo inteligente: sugere o que costuma sair junto (histórico real)
+      if (vendaSalva?.sugestao?.texto) setTimeout(() => Toast.show('💡 ' + vendaSalva.sugestao.texto, 'info'), 1200);
       window.__auditLog?.('registrar_venda', 'venda', sel.id, { categoria: vendaForm.categoria, valor: valFinal, desconto: desc, status: vendaForm.status_pagamento, cliente: sel.contact_name });
       Toast.show('Venda registrada! 💰 Entrou na meta do mês 🎯', 'success');
       api.get('/extras/meta-setor').then(setMetaSetor).catch(() => {});
