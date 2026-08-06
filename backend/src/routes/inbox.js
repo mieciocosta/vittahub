@@ -208,7 +208,7 @@ async function processarRespostaConfirmacao(conv, texto, phoneDigits) {
       let ph = String(conv.phone || '').replace(/\D/g, '');
       if (ph.startsWith('55') && ph.length >= 12) ph = ph.slice(2);
       if (zapiOk() && ph) {
-        const ack = 'Prontinho, presença confirmada! 💙 Vamos estar esperando vocês com todo o carinho 😊';
+        const ack = 'Perfeito! 💙 Está tudo organizado com muito amor e carinho pra receber vocês. Estamos te esperando! 🥰';
         await zapiCall('/send-text', 'POST', { phone: `55${ph}`, message: ack }).catch(() => {});
         const { rows: [bm] } = await query(`INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome)
           VALUES ($1,'bot','text',$2,'Vitta') RETURNING *`, [conv.id, ack]).catch(() => ({ rows: [null] }));

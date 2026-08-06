@@ -1972,13 +1972,18 @@ async function confirmacaoVespera() {
       const dt = new Date(`${amanha}T12:00:00Z`);
       const dataExtenso = dt.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit', timeZone: 'UTC' });
       const emojiSetor = { vacinas: '💉', consultas: '🩺', terapias: '🧩' }[ev.setor] || '💙';
+      // Tom AFIRMATIVO (pedido do master): a mensagem AVISA que está tudo pronto,
+      // em vez de "pedir confirmação" — dá segurança e reduz desistência.
+      const oQue = ev.setor === 'consultas' ? 'a consulta'
+        : ev.setor === 'terapias' ? 'a sessão de terapia'
+        : 'a vacinação';
       const txt = `Oi! 💙 Aqui é da Vittalis Saúde 😊\n\n` +
-        `Passando com carinho pra lembrar do compromisso${nome ? ` do(a) ${nome}` : ''} amanhã:\n\n` +
+        `Passando para avisar que está tudo organizado, com muito amor e carinho, para ${oQue}${nome ? ` do(a) ${nome}` : ''} amanhã:\n\n` +
         `🗓️ ${dataExtenso}\n⏰ ${ev.hora}` +
         `${ev.servico ? `\n${emojiSetor} ${ev.servico}` : ''}` +
         `${ev.profissional ? `\n👩‍⚕️ Com ${ev.profissional}` : ''}\n\n` +
-        `Podemos confirmar a presença de vocês? Vamos preparar tudo com muito cuidado pra receber a família! 🥰\n\n` +
-        `Se precisar remarcar, sem problema nenhum — é só me avisar por aqui. 💙`;
+        `Já preparamos tudo para receber vocês com todo o cuidado que a sua família merece! 🥰\n\n` +
+        `Estamos te esperando 💙 Se precisar ajustar alguma coisa, é só me avisar por aqui.`;
       await query(`INSERT INTO mensagens_agendadas (conversa_id, texto, enviar_em, criado_por) VALUES ($1, $2, NOW(), 'Vitta · Confirmação de agenda')`,
         [convId, txt]).catch(() => {});
       n++;
