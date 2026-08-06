@@ -10,6 +10,7 @@ import { useSearchParams } from 'react-router-dom';
 import { fmt, openWA, avatarGrad } from '../hooks/utils.js';
 import { Toast } from '../hooks/toast.js';
 import PropostaModal from '../components/PropostaModal.jsx';
+import CarteiraVacinal from '../components/CarteiraVacinal.jsx';
 import TerapiaOrcamentoModal from '../components/TerapiaOrcamentoModal.jsx';
 import Calculadora from '../components/Calculadora.jsx';
 import Copiloto from '../components/Copiloto.jsx';
@@ -2154,6 +2155,12 @@ export default function Inbox({ onUnreadChange }) {
                     <span style={{ fontSize:12.5, flex:1, minWidth:0, wordBreak:'break-word' }}>{v}</span>
                   </div>
                 ))}
+
+                {/* 💉 Carteira vacinal (esquema 0-18 meses, imprimível) */}
+                <div style={{ margin:'16px 0 6px', padding:'12px 14px', borderRadius:12, background:'var(--bg2)', border:'1px solid var(--border)' }}>
+                  <CarteiraVacinal convId={sel.id} compacto
+                    onAgendar={(m) => { setFicha(null); setShowAgendar(true); setInput(prev => prev); Toast.show(`Agende a etapa de ${m.nome} 💉`, 'info'); }} />
+                </div>
 
                 {/* Histórico de serviços */}
                 <div style={{ fontSize:10.5, fontWeight:800, color:'var(--muted)', textTransform:'uppercase', letterSpacing:.6, margin:'16px 0 6px' }}>
