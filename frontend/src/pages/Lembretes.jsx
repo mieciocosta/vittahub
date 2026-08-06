@@ -16,6 +16,8 @@ export default function Lembretes() {
   const [dados, setDados] = useState({ amanha: [], aniversarios: [], indicacoes: [], whatsapp: false });
   const [cal, setCal] = useState(null);        // 💉 calendário vacinal da base
   const [selCal, setSelCal] = useState(new Set());
+  const [editCal, setEditCal] = useState(null);   // ✏️ ajuste do calendário (gestão)
+  const gestaoU = ['master', 'supervisor'].includes(user?.role);
   const [carregando, setCarregando] = useState(true);
   const [enviando, setEnviando] = useState(false);
   const [sel, setSel] = useState(new Set());
@@ -212,6 +214,12 @@ export default function Lembretes() {
                 {[['🔴 Atrasadas', cal.atrasadas, '#dc2626'], ['🟢 No ponto', cal.no_ponto, '#16a34a'], ['🔵 Chegando', cal.chegando, '#2563eb']].map(([l, n, c]) => (
                   <div key={l} className="card" style={{ padding: '8px 14px', fontSize: 12.5, fontWeight: 800, color: c }}>{l}: {n}</div>
                 ))}
+                {gestaoU && (
+                  <button onClick={() => api.get('/lembretes/calendario-config').then(d => setEditCal((d.marcos || []).map(m => `${m.mes} | ${m.nome} | ${m.vacinas}`).join('\n'))).catch(() => {})}
+                    className="btn btn-s btn-sm" style={{ gap: 5, fontWeight: 700 }} title="Deixar igual ao esquema cadastrado no Vittasys">
+                    ✏️ Ajustar calendário
+                  </button>
+                )}
                 {dados.whatsapp && (
                   <button onClick={() => { if (!selCal.size) return; if (!window.confirm(`Enviar o convite de vacinação para ${selCal.size} família(s)? As mensagens saem espaçadas (4s) pra proteger o número.`)) return; enviar('calendario', [...selCal]); setSelCal(new Set()); setTimeout(loadCal, 1500); }}
                     disabled={enviando || !selCal.size} className="btn btn-p btn-sm" style={{ gap: 6, marginLeft: 'auto' }}>
@@ -400,6 +408,33 @@ export default function Lembretes() {
       )}
 
       {toast && <div style={{ position: 'fixed', bottom: 24, right: 24, background: '#111827', color: '#fff', padding: '12px 20px', borderRadius: 14, boxShadow: '0 10px 30px rgba(0,0,0,.35)', fontSize: 13.5, fontWeight: 600, zIndex: 1000 }}>{toast}</div>}
+      {/* ✏️ Editor do calendário vacinal — espelho do esquema do Vittasys */}
+      {editCal !== null && (
+        <div onClick={e => e.target === e.currentTarget && setEditCal(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(3,43,48,.55)', zIndex: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div className="card" style={{ width: '100%', maxWidth: 620, padding: '20px 22px' }}>
+            <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 6 }}>💉 Calendário vacinal (rede privada)</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6, marginBottom: 12 }}>
+              Uma linha por marco, no formato <b>meses | nome | vacinas</b>. Deixe igual ao esquema cadastrado no Vittasys.<br />
+              Exemplo: <code>2 | 2 meses | Hexavalente, Rotavírus, Pneumo 15</code>
+            </div>
+            <textarea value={editCal} onChange={e => setEditCal(e.target.value)} rows={14}
+              style={{ width: '100%', padding: 12, borderRadius: 12, border: '1.5px solid var(--border)', fontSize: 12.5, fontFamily: 'monospace', lineHeight: 1.7, background: 'var(--card)', color: 'var(--txt)', boxSizing: 'border-box', resize: 'vertical' }} />
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
+              <button onClick={() => setEditCal(null)} className="btn btn-s">Cancelar</button>
+              <button onClick={async () => {
+                const marcos = editCal.split('\n').map(l => l.split('|').map(x => x.trim()))
+                  .filter(p2 => p2.length >= 3 && p2[1] && p2[2])
+                  .map(p2 => ({ mes: parseInt(p2[0]) || 0, nome: p2[1], vacinas: p2[2] }));
+                if (!marcos.length) return showToast('⚠️ Nenhuma linha válida (use: meses | nome | vacinas)');
+                try { await api.put('/lembretes/calendario-config', { marcos }); setEditCal(null); showToast('✓ Calendário salvo 💙'); loadCal(); }
+                catch (e) { showToast('⚠️ ' + (e.message || 'Erro ao salvar')); }
+              }} className="btn btn-p">Salvar calendário</button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
