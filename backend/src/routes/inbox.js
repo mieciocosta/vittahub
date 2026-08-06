@@ -3410,7 +3410,7 @@ r.patch('/conversations/:id/assign', async (req, res) => {
        Só dispara quando REALMENTE trocou de pessoa e a conversa já foi iniciada. */
     try {
       const trocouDePessoa = respId && antesConv?.responsavel_id && String(antesConv.responsavel_id) !== String(respId);
-      if (trocouDePessoa && req.body.avisar_cliente !== false && zapiOk() && antesConv.phone) {
+      if (trocouDePessoa && req.body.avisar_cliente === true && zapiOk() && antesConv.phone) {
         const { rows: [jaFalou] } = await query(
           `SELECT 1 FROM mensagens WHERE conversa_id = $1 AND from_type IN ('me','bot') LIMIT 1`, [req.params.id]);
         if (jaFalou) {
