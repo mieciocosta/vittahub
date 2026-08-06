@@ -104,6 +104,50 @@ export default function PastaClientes({ categoria, classificacao }) {
   const [carteira, setCarteira] = useState(gestao ? 'todos' : 'minhas');
   const [equipe, setEquipe] = useState([]);          // atendentes (seletor + transferência)
   const ehFidelidade = valor === 'fidelidade';
+  // ⭐ Controle MENSAL (só Fidelidade): mês escolhido, quem já foi atendido e
+  // o painel que abre com os dados do bebê.
+  const mesAtualISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
+  const [mesCtrl, setMesCtrl] = useState(mesAtualISO());
+  const [checks, setChecks] = useState({});          // conversa_id → { feito_por_nome, feito_em }
+  const [aberto, setAberto] = useState(null);        // conversa_id do painel aberto
+  const [fichas, setFichas] = useState({});          // conversa_id → ficha (carregada 1x)
+  const carregarChecks = useCallback(() => {
+    if (!ehFidelidade) return;
+    api.get(`/inbox/fidelidade/checks?mes=${mesCtrl}`)
+      .then(d => setChecks(Object.fromEntries((d.checks || []).map(c => [c.conversa_id, c]))))
+      .catch(() => setChecks({}));
+  }, [mesCtrl, ehFidelidade]); // eslint-disable-line
+  useEffect(carregarChecks, [carregarChecks]);
+
+  const marcar = async (c) => {
+    const jaTem = !!checks[c.id];
+    setChecks(p => { const n = { ...p }; if (jaTem) delete n[c.id]; else n[c.id] = { feito_por_nome: user?.nome, feito_em: new Date().toISOString() }; return n; });
+    try { await api.post('/inbox/fidelidade/check', { conversa_id: c.id, mes: mesCtrl, feito: !jaTem }); }
+    catch { carregarChecks(); }
+  };
+
+  const abrirPainel = async (c) => {
+    const novo = aberto === c.id ? null : c.id;
+    setAberto(novo);
+    if (novo && !fichas[c.id]) {
+      try { const f = await api.get(`/inbox/conversations/${c.id}/ficha`); setFichas(p => ({ ...p, [c.id]: f })); }
+      catch { setFichas(p => ({ ...p, [c.id]: { erro: true } })); }
+    }
+  };
+
+  // Idade a partir do nascimento (meses até 2 anos, depois anos)
+  const idadeDe = (nasc) => {
+    if (!nasc) return null;
+    const n = new Date(String(nasc).slice(0, 10) + 'T12:00:00');
+    if (isNaN(n)) return null;
+    const hoje = new Date();
+    let m = (hoje.getFullYear() - n.getFullYear()) * 12 + (hoje.getMonth() - n.getMonth());
+    if (hoje.getDate() < n.getDate()) m--;
+    if (m < 0) return null;
+    if (m < 24) return `${m} ${m === 1 ? 'mês' : 'meses'}`;
+    const anos = Math.floor(m / 12), resto = m % 12;
+    return `${anos} ano${anos > 1 ? 's' : ''}${resto ? ` e ${resto} ${resto === 1 ? 'mês' : 'meses'}` : ''}`;
+  };
 
   // Dono ao adicionar: atendente vira dono; gestão atribui ao atendente escolhido.
   const donoId = !gestao ? user?.id : (carteira !== 'todos' && carteira !== 'minhas' ? carteira : (carteira === 'minhas' ? user?.id : null));
@@ -199,6 +243,37 @@ export default function PastaClientes({ categoria, classificacao }) {
             {equipe.map(u => <option key={u.id} value={u.id}>👤 {(u.nome || '').split(' ')[0]}</option>)}
           </select>
         )}
+        {ehFidelidade && (() => {
+          const total = filtrada.length;
+          const feitos = filtrada.filter(c => checks[c.id]).length;
+          const pct = total ? Math.round((feitos / total) * 100) : 0;
+          const andar = (n) => { const [a, m] = mesCtrl.split('-').map(Number); const d = new Date(a, m - 1 + n, 1); setMesCtrl(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`); };
+          const nomeM = new Date(mesCtrl + '-02T12:00:00').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+          return (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', width: '100%', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 14, padding: '10px 14px', marginBottom: 10 }}>
+              <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5 }}>Controle do mês</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <button onClick={() => andar(-1)} className="btn btn-sm" style={{ padding: '4px 8px' }}>◀</button>
+                <span style={{ fontWeight: 800, fontSize: 13.5, minWidth: 130, textAlign: 'center', textTransform: 'capitalize' }}>{nomeM}</span>
+                <button onClick={() => andar(1)} className="btn btn-sm" style={{ padding: '4px 8px' }}>▶</button>
+              </div>
+              <div style={{ flex: 1, minWidth: 150, display: 'flex', alignItems: 'center', gap: 9 }}>
+                <div style={{ flex: 1, height: 9, borderRadius: 6, background: 'var(--bg2)', overflow: 'hidden', minWidth: 90 }}>
+                  <div style={{ width: `${pct}%`, height: '100%', borderRadius: 6, background: pct === 100 ? 'var(--ok,#16a34a)' : cfg.cor, transition: 'width .4s' }} />
+                </div>
+                <span style={{ fontSize: 12.5, fontWeight: 800, color: pct === 100 ? 'var(--ok,#16a34a)' : cfg.cor, whiteSpace: 'nowrap' }}>
+                  {feitos}/{total} atendidos{pct === 100 && total ? ' 🏆' : ''}
+                </span>
+              </div>
+              {feitos < total && (
+                <span style={{ fontSize: 11.5, color: '#b45309', fontWeight: 700, background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 20, padding: '3px 11px' }}>
+                  faltam {total - feitos}
+                </span>
+              )}
+            </div>
+          );
+        })()}
+
         {/* Alternância Lista (por mês) / Funil (Kanban) */}
         <div style={{ display: 'flex', background: 'var(--card)', borderRadius: 10, border: '1px solid var(--border)', overflow: 'hidden', marginLeft: 'auto' }}>
           {[['lista', 'Lista', List], ['funil', 'Funil', Kanban]].map(([k, l, Ico]) => (
@@ -234,12 +309,24 @@ export default function PastaClientes({ categoria, classificacao }) {
             </div>
             <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
               {grupos[mes].map((c, i) => (
-                <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderBottom: i < grupos[mes].length - 1 ? '1px solid var(--border)' : 'none' }}>
+                <React.Fragment key={c.id}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderBottom: i < grupos[mes].length - 1 || aberto === c.id ? '1px solid var(--border)' : 'none', background: ehFidelidade && checks[c.id] ? 'rgba(22,163,74,.06)' : 'transparent' }}>
+                  {ehFidelidade && (
+                    <button onClick={() => marcar(c)} title={checks[c.id] ? `Atendido${checks[c.id].feito_por_nome ? ` por ${String(checks[c.id].feito_por_nome).split(' ')[0]}` : ''} — clique pra desmarcar` : 'Marcar como atendido neste mês'}
+                      style={{ width: 26, height: 26, borderRadius: 8, flexShrink: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        border: `2px solid ${checks[c.id] ? 'var(--ok,#16a34a)' : 'var(--border)'}`,
+                        background: checks[c.id] ? 'var(--ok,#16a34a)' : 'var(--card)', color: '#fff', padding: 0 }}>
+                      {checks[c.id] && <Check size={15} strokeWidth={3} />}
+                    </button>
+                  )}
                   <div style={{ width: 38, height: 38, borderRadius: '50%', background: cfg.cor, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 800, flexShrink: 0 }}>
                     {fmt.initials(c.contact_name || c.phone || '?')}
                   </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: 14 }}>{c.contact_name || fmt.phone(c.phone)}</div>
+                  <div onClick={() => abrirPainel(c)} style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} title="Ver dados do bebê">
+                    <div style={{ fontWeight: 700, fontSize: 14, display: 'flex', alignItems: 'center', gap: 5 }}>
+                      {aberto === c.id ? <ChevronDown size={13} color="var(--muted)" /> : <ChevronRight size={13} color="var(--muted)" />}
+                      {c.contact_name || fmt.phone(c.phone)}
+                    </div>
                     <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {c.phone ? fmt.phone(c.phone) : ''}{c.last_message ? ` · ${c.last_message}` : ''}
                     </div>
@@ -256,6 +343,56 @@ export default function PastaClientes({ categoria, classificacao }) {
                   <button onClick={() => openWA(c.phone)} title="Abrir no WhatsApp" className="btn btn-sm" style={{ padding: '6px 9px' }}><Phone size={13} /></button>
                   <button onClick={() => tirar(c)} title="Tirar da pasta" className="btn btn-sm" style={{ padding: '6px 9px', color: 'var(--err)' }}><Trash2 size={13} /></button>
                 </div>
+
+                {/* 👶 Painel que abre: nome e idade do bebê + dados essenciais */}
+                {aberto === c.id && (
+                  <div style={{ padding: '12px 16px 14px 62px', background: 'var(--bg2)', borderBottom: i < grupos[mes].length - 1 ? '1px solid var(--border)' : 'none' }}>
+                    {!fichas[c.id] ? (
+                      <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Carregando dados…</div>
+                    ) : fichas[c.id].erro ? (
+                      <div style={{ fontSize: 12.5, color: 'var(--err)' }}>Não consegui carregar a ficha.</div>
+                    ) : (() => {
+                      const f = fichas[c.id].cliente || {};
+                      const idade = idadeDe(f.nascimento);
+                      return (
+                        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                          <div style={{ minWidth: 190 }}>
+                            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: .6, textTransform: 'uppercase', color: 'var(--muted)' }}>👶 Bebê</div>
+                            <div style={{ fontSize: 15, fontWeight: 800, lineHeight: 1.3 }}>{f.paciente || '— sem nome cadastrado —'}</div>
+                            <div style={{ fontSize: 12.5, color: idade ? cfg.cor : 'var(--muted)', fontWeight: 700 }}>
+                              {idade ? `${idade}` : 'nascimento não cadastrado'}{f.nascimento ? ` · nasceu ${fmt.date(f.nascimento)}` : ''}
+                            </div>
+                          </div>
+                          {f.responsavel && (
+                            <div style={{ minWidth: 150 }}>
+                              <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: .6, textTransform: 'uppercase', color: 'var(--muted)' }}>👤 Responsável</div>
+                              <div style={{ fontSize: 13, fontWeight: 700 }}>{f.responsavel}</div>
+                            </div>
+                          )}
+                          <div style={{ minWidth: 140 }}>
+                            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: .6, textTransform: 'uppercase', color: 'var(--muted)' }}>💉 Histórico</div>
+                            <div style={{ fontSize: 13, fontWeight: 700 }}>
+                              {fichas[c.id].resumo?.atendimentos ?? 0} atendimento(s)
+                              {fichas[c.id].resumo?.ultima_compra ? ` · último em ${fmt.date(fichas[c.id].resumo.ultima_compra)}` : ''}
+                            </div>
+                          </div>
+                          {f.endereco && (
+                            <div style={{ minWidth: 190, flex: 1 }}>
+                              <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: .6, textTransform: 'uppercase', color: 'var(--muted)' }}>🏠 Endereço</div>
+                              <div style={{ fontSize: 12.5 }}>{f.endereco}</div>
+                            </div>
+                          )}
+                          {ehFidelidade && checks[c.id] && (
+                            <div style={{ alignSelf: 'center', fontSize: 11.5, fontWeight: 800, color: 'var(--ok,#16a34a)' }}>
+                              ✅ Atendido neste mês{checks[c.id].feito_por_nome ? ` por ${String(checks[c.id].feito_por_nome).split(' ')[0]}` : ''}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+                </React.Fragment>
               ))}
             </div>
           </div>
