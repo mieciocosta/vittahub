@@ -4894,6 +4894,240 @@ r.post('/qualidade/analisar', masterOnly, async (req, res) => {
 });
 
 // On-demand: avalia UMA conversa específica
+/* ═══ ✨ SIGNIFICADO DO NOME — cartão com a marca, em 1 clique ══════════════
+   A IA escreve origem + significado + uma bênção curta; o servidor desenha um
+   cartão bonito (mesmo motor do PDF) e manda como imagem pro cliente. É o
+   toque de encantamento do protocolo, sem trabalho manual pra atendente.  */
+function htmlCartaoNome(nome, origem, significado, bencao, logoB64) {
+  const esc = (t) => String(t || '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  return `<!doctype html><html><head><meta charset="utf-8"><style>
+    @page { size: 1080px 1080px; margin: 0 }
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{width:1080px;height:1080px;display:flex;align-items:center;justify-content:center;
+      font-family:Georgia,'Times New Roman',serif;
+      background:radial-gradient(120% 90% at 82% -8%, #14b8a6 0%, transparent 55%),
+                 radial-gradient(120% 100% at 0% 108%, #0e7490 0%, transparent 55%),
+                 linear-gradient(160deg,#0b3b45 0%,#0E8C96 55%,#083039 100%);}
+    .card{width:940px;height:940px;border:2px solid rgba(212,175,55,.55);border-radius:60px;
+      display:flex;flex-direction:column;align-items:center;justify-content:center;
+      padding:70px 64px;text-align:center;background:rgba(255,255,255,.05)}
+    .logo{height:110px;object-fit:contain;margin-bottom:14px}
+    .orn{display:flex;align-items:center;gap:16px;margin:16px 0 26px}
+    .orn i{display:block;width:90px;height:1px;background:rgba(212,175,55,.75)}
+    .orn b{color:#d4af37;font-size:26px}
+    .nome{font-size:96px;font-weight:700;color:#fff;letter-spacing:-1px;line-height:1.05;
+      text-shadow:0 6px 26px rgba(0,0,0,.35)}
+    .origem{margin-top:12px;color:#d4af37;font-size:24px;letter-spacing:5px;text-transform:uppercase;font-family:Arial,sans-serif;font-weight:700}
+    .sig{margin-top:34px;color:#fdfcf7;font-size:40px;line-height:1.5;font-style:italic;max-width:760px}
+    .bencao{margin-top:34px;color:rgba(255,255,255,.92);font-size:27px;line-height:1.55;max-width:720px;
+      padding-top:26px;border-top:1px solid rgba(212,175,55,.4);font-family:Arial,sans-serif}
+    .marca{margin-top:auto;color:rgba(212,175,55,.9);font-size:19px;letter-spacing:6px;
+      text-transform:uppercase;font-family:Arial,sans-serif;font-weight:700}
+  </style></head><body><div class="card">
+    ${logoB64 ? `<img class="logo" src="data:image/png;base64,${logoB64}"/>` : ''}
+    <div class="orn"><i></i><b>&#10022;</b><i></i></div>
+    <div class="nome">${esc(nome)}</div>
+    <div class="origem">${esc(origem || 'Significado do nome')}</div>
+    <div class="sig">&ldquo;${esc(significado)}&rdquo;</div>
+    <div class="bencao">${esc(bencao)}</div>
+    <div class="marca">Vittalis Sa&uacute;de</div>
+  </div></body></html>`;
+}
+
+// POST /conversations/:id/significado-nome { nome, enviar }
+r.post('/conversations/:id/significado-nome', async (req, res) => {
+  try {
+    const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso.' });
+    if (!temIA()) return res.status(400).json({ error: 'IA não configurada.' });
+
+    const nome = String(req.body?.nome || conv.memoria?.paciente || '').trim().split(/\s+/)[0].slice(0, 30);
+    if (nome.length < 2) return res.status(400).json({ error: 'Informe o nome da criança.' });
+
+    const d = await openaiMessages({
+      model: 'gpt-4o-mini', max_tokens: 500, json: true,
+      system: 'Você é especialista em onomástica (significado de nomes) e escreve para uma clínica pediátrica cristã. Português do Brasil, carinhoso e curto. Responda APENAS um JSON válido, sem markdown.',
+      messages: [{ role: 'user', content: `Nome: "${nome}". Devolva EXATAMENTE:\n{"origem":"origem do nome em 1 a 3 palavras (ex.: Origem hebraica)","significado":"o significado em no máximo 8 palavras","bencao":"uma frase curta e carinhosa (máx. 20 palavras) desejando proteção e saúde para a criança, ligando ao significado"}\nSe o nome não tiver significado conhecido, use uma leitura carinhosa e honesta ("nome de sonoridade doce...").` }],
+    });
+    let j = null;
+    try { j = JSON.parse(((d.content || []).filter(b => b.type === 'text').map(b => b.text).join('')).trim()); } catch {}
+    if (d.error || !j?.significado) return res.status(400).json({ error: 'Não consegui buscar o significado agora.' });
+    const limpa = (t, n) => String(t || '').replace(/\*+/g, '').trim().slice(0, n);
+    const dados = { nome, origem: limpa(j.origem, 40), significado: limpa(j.significado, 90), bencao: limpa(j.bencao, 180) };
+
+    // Logo da clínica (mesma usada no PDF) — melhor esforço
+    let logoB64 = null;
+    try {
+      const fsMod = await import('fs');
+      const pathMod = await import('path');
+      const cand = [pathMod.join(__dirname, '../../../frontend/public/logos/logo-icon-white.png'),
+                    pathMod.join(__dirname, '../../public/logos/logo-icon-white.png')];
+      const achou = cand.find(p2 => { try { return fsMod.existsSync(p2); } catch { return false; } });
+      if (achou) logoB64 = fsMod.readFileSync(achou).toString('base64');
+    } catch { /* segue sem logo */ }
+
+    const puppeteer = (await import('puppeteer-core')).default;
+    let browser, base64;
+    try {
+      const fsMod = await import('fs');
+      const sysChromePaths = ['/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome'];
+      let execPath = sysChromePaths.find(p2 => { try { return fsMod.existsSync(p2); } catch { return false; } });
+      let launchArgs = ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--single-process'];
+      if (!execPath) {
+        const chromium = (await import('@sparticuz/chromium')).default;
+        execPath = await chromium.executablePath();
+        launchArgs = chromium.args;
+      }
+      browser = await puppeteer.launch({ args: launchArgs, executablePath: execPath, headless: true });
+      const page = await browser.newPage();
+      await page.setViewport({ width: 1080, height: 1080 });
+      await page.setContent(htmlCartaoNome(dados.nome, dados.origem, dados.significado, dados.bencao, logoB64), { waitUntil: 'load', timeout: 20000 });
+      const img = await page.screenshot({ type: 'jpeg', quality: 92 });
+      base64 = Buffer.from(img).toString('base64');
+    } finally { if (browser) await browser.close().catch(() => {}); }
+    if (!base64) return res.status(500).json({ error: 'Não consegui gerar a imagem.' });
+
+    const dataUrl = `data:image/jpeg;base64,${base64}`;
+    if (req.body?.enviar === false) return res.json({ ...dados, imagem: dataUrl, enviado: false });
+
+    // Envia pro cliente com legenda carinhosa
+    let phoneNum = String(conv.phone || '').replace(/\D/g, '');
+    if (phoneNum.startsWith('55') && phoneNum.length >= 12) phoneNum = phoneNum.slice(2);
+    const legenda = `Olha que lindo o significado do nome ${dados.nome} 🥰💙`;
+    if (!zapiOk()) return res.status(503).json({ error: 'WhatsApp não configurado.' });
+    const zr = await zapiCall('/send-image', 'POST', { phone: `55${phoneNum}`, image: dataUrl, caption: legenda });
+    if (!zr?.ok) return res.status(502).json({ error: 'O WhatsApp recusou o envio. Tente de novo.' });
+
+    const { rows: [msg] } = await query(
+      `INSERT INTO mensagens (conversa_id, from_type, sender_id, sender_nome, type, content, status)
+       VALUES ($1,'me',$2,$3,'image',$4,'delivered') RETURNING *`,
+      [conv.id, req.user?.id || null, req.user?.nome || 'Atendente', dataUrl]).catch(() => ({ rows: [null] }));
+    await query("UPDATE conversas SET last_message = $1, last_from = 'me', last_message_at = NOW() WHERE id = $2",
+      [`✨ Significado do nome ${dados.nome}`, conv.id]).catch(() => {});
+    const cached = convoCache.get(conv.id);
+    if (cached) cacheUpdate({ ...cached, last_message: `✨ Significado do nome ${dados.nome}`, last_from: 'me', last_message_at: new Date().toISOString() });
+    if (msg) socketEmit('new_message', { convId: conv.id, message: msg, conv });
+    res.json({ ...dados, enviado: true });
+  } catch (err) { console.error('Significado do nome:', err.message); res.status(500).json({ error: err.message }); }
+});
+
+/* ═══ ✅ PROTOCOLO DE ATENDIMENTO VITTALIS ══════════════════════════════════
+   O padrão que TODA conversa deve seguir (vacinas, consultas ou terapias),
+   definido pelo Dr. Miécio. O sistema detecta sozinho o que já foi feito na
+   conversa e mostra pra atendente o que FALTOU — com o texto pronto pra
+   enviar em 1 clique. A gestão ajusta os textos em Configurações.        */
+const PROTOCOLO_PADRAO = [
+  { k: 'boas_vindas', emoji: '👋', nome: 'Boas-vindas calorosas',
+    dica: 'Receber com carinho e se apresentar pelo nome.',
+    modelo: 'Oi! 💙 Seja muito bem-vinda à Vittalis Saúde! Meu nome é {ATENDENTE} e vou cuidar do seu atendimento com todo o carinho hoje 😊' },
+  { k: 'nome_paciente', emoji: '👶', nome: 'Perguntar o nome do paciente',
+    dica: 'Saber o nome da criança personaliza TODO o resto do atendimento.',
+    modelo: 'Pra eu te atender do jeitinho certo: qual é o nome do seu pequeno ou da sua pequena? 🥰' },
+  { k: 'significado_nome', emoji: '✨', nome: 'Enviar o significado do nome (com imagem)',
+    dica: 'Encanta a família logo no começo — é o toque que ninguém mais faz.',
+    modelo: '' },
+  { k: 'material', emoji: '📖', nome: 'Enviar a revista/material do serviço',
+    dica: 'Apresentar o serviço ANTES do preço — valor percebido primeiro.',
+    modelo: 'Vou te enviar nosso material com tudo o que preparamos para essa fase 💙 Dá uma olhadinha com calma!' },
+  { k: 'preco', emoji: '💰', nome: 'Apresentar o valor',
+    dica: 'Só depois de apresentar o serviço. Sempre com as formas de pagamento.',
+    modelo: '' },
+  { k: 'ligacao', emoji: '📞', nome: 'Avisar que vai ligar (afirmativo)',
+    dica: 'Afirmar, não perguntar: "estarei ligando", nunca "posso ligar?".',
+    modelo: 'Vou te ligar daqui a pouquinho pra complementar nosso atendimento e tirar todas as suas dúvidas com mais carinho, tudo bem? 💙' },
+  { k: 'prova_social', emoji: '📸', nome: 'Enviar provas sociais (fotos/vídeos + Instagram)',
+    dica: 'Mostrar outras crianças sendo atendidas gera confiança imediata.',
+    modelo: 'Olha como é o cuidado da nossa equipe com as crianças 🥰 No nosso Instagram tem muitos momentos lindos: instagram.com/vittalissaude' },
+  { k: 'agendamento', emoji: '📅', nome: 'Convite de agendamento com a localização',
+    dica: 'Fechar com convite claro, endereço e link do mapa.',
+    modelo: 'Vamos deixar o horário de vocês reservado? 💙 Você pode escolher o melhor dia e horário por aqui: {LINK_AGENDAR}\n\n📍 Nossa clínica: {ENDERECO}\n🗺️ Como chegar: {MAPA}' },
+];
+
+async function getProtocolo() {
+  try {
+    const { rows: [c] } = await query("SELECT valor FROM configuracoes WHERE chave = 'protocolo'");
+    const salvo = c?.valor?.passos;
+    if (Array.isArray(salvo) && salvo.length) {
+      // Mescla: mantém a ordem/campos do padrão e sobrescreve o que a gestão editou
+      return PROTOCOLO_PADRAO.map(p => ({ ...p, ...(salvo.find(x => x.k === p.k) || {}) }));
+    }
+  } catch { /* usa o padrão */ }
+  return PROTOCOLO_PADRAO;
+}
+
+r.get('/protocolo/config', async (req, res) => {
+  try {
+    const { rows: [c] } = await query("SELECT valor FROM configuracoes WHERE chave = 'protocolo'").catch(() => ({ rows: [] }));
+    res.json({ passos: await getProtocolo(), clinica: c?.valor?.clinica || {} });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+r.put('/protocolo/config', async (req, res) => {
+  try {
+    if (!['master', 'supervisor'].includes(req.user.role)) return res.status(403).json({ error: 'Apenas a gestão altera o protocolo.' });
+    const passos = (Array.isArray(req.body?.passos) ? req.body.passos : [])
+      .map(p => ({ k: String(p.k || '').slice(0, 30), nome: String(p.nome || '').slice(0, 80), dica: String(p.dica || '').slice(0, 200), modelo: String(p.modelo || '').slice(0, 900) }))
+      .filter(p => p.k && p.nome);
+    const cl = req.body?.clinica || {};
+    const clinica = { endereco: String(cl.endereco || '').slice(0, 160), mapa: String(cl.mapa || '').slice(0, 300),
+      instagram: String(cl.instagram || '').slice(0, 120), link_agendar: String(cl.link_agendar || '').slice(0, 200) };
+    await query(`INSERT INTO configuracoes (chave, valor) VALUES ('protocolo', $1::jsonb)
+                 ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`, [JSON.stringify({ passos, clinica })]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Detecta o que JÁ foi feito na conversa (sem IA: instantâneo e sem custo)
+r.get('/conversations/:id/protocolo', async (req, res) => {
+  try {
+    const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso.' });
+
+    const [passos, { rows: msgs }, { rows: [cfgRow] }] = await Promise.all([
+      getProtocolo(),
+      query(`SELECT from_type, type, content, filename, transcricao FROM mensagens
+              WHERE conversa_id = $1 AND from_type NOT IN ('system','interno')
+              ORDER BY created_at ASC LIMIT 200`, [req.params.id]),
+      query("SELECT valor FROM configuracoes WHERE chave = 'protocolo'").catch(() => ({ rows: [] })),
+    ]);
+    const clinica = cfgRow?.valor?.clinica || {};
+
+    const nossas = msgs.filter(m => m.from_type === 'me' || m.from_type === 'bot');
+    const txtNossas = nossas.map(m => `${m.transcricao || m.content || ''} ${m.filename || ''}`).join(' \n ').toLowerCase();
+    const temMidiaNossa = nossas.some(m => ['image', 'video'].includes(m.type));
+    const temDocNossa = nossas.some(m => m.type === 'document');
+    const nomePaciente = conv.memoria?.paciente || null;
+
+    const feitoDe = {
+      boas_vindas: /bem-?vind|seja muito bem|prazer em (te )?atender|meu nome é|aqui é a |aqui é o /.test(txtNossas),
+      nome_paciente: !!nomePaciente || /nome (do|da) (seu|sua|pequen|beb|crian|filh)|qual é o nome|como (se )?chama/.test(txtNossas),
+      significado_nome: /significa|significado do nome/.test(txtNossas),
+      material: temDocNossa || /revista|material|cat[aá]logo|folder|apresenta[cç][aã]o/.test(txtNossas),
+      preco: /r\$\s?\d|valor (é|fica|do)|investimento (é|de)|\bpre[cç]o\b/.test(txtNossas),
+      ligacao: /vou (te )?ligar|estarei ligando|vou fazer uma liga|te ligo|ligarei/.test(txtNossas),
+      prova_social: temMidiaNossa || /instagram|@vittalis|nosso perfil|olha como (é|foi)/.test(txtNossas),
+      agendamento: /agendar|agendamento|reservar (o )?hor[aá]rio|maps\.|goo\.gl|localiza[cç][aã]o|endere[cç]o/.test(txtNossas),
+    };
+
+    const preencher = (t) => String(t || '')
+      .replace(/\{ATENDENTE\}/g, String(req.user?.nome || '').split(' ')[0])
+      .replace(/\{PACIENTE\}/g, nomePaciente || 'seu pequeno')
+      .replace(/\{LINK_AGENDAR\}/g, clinica.link_agendar || `${process.env.FRONTEND_URL || 'https://vittahub-frontend.up.railway.app'}/agendar`)
+      .replace(/\{ENDERECO\}/g, clinica.endereco || '(cadastre o endereço em Configurações)')
+      .replace(/\{MAPA\}/g, clinica.mapa || '(cadastre o link do mapa em Configurações)')
+      .replace(/\{INSTAGRAM\}/g, clinica.instagram || 'instagram.com/vittalissaude');
+
+    const lista = passos.map(p => ({ ...p, modelo: preencher(p.modelo), feito: !!feitoDe[p.k] }));
+    const faltando = lista.filter(p => !p.feito);
+    res.json({
+      passos: lista, total: lista.length, feitos: lista.length - faltando.length,
+      faltando: faltando.map(p => p.k), paciente: nomePaciente,
+      pct: Math.round(((lista.length - faltando.length) / Math.max(lista.length, 1)) * 100),
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 /* ═══ 📋 RAIO-X DA CONVERSA — resumo + avaliação do atendimento ═════════════
    A atendente (ou a gestão) abre e entende em segundos: quem é o cliente, o
    que já foi oferecido, o que ficou combinado, o que está pendente — e o que
@@ -4947,7 +5181,7 @@ r.get('/conversations/:id/resumo', async (req, res) => {
  "temperatura":"quente|morno|frio",
  "avaliacao":{"nota":0,"pontos_fortes":["o que a atendente fez bem"],"deixou_a_desejar":["o que faltou, de forma concreta e sem grosseria"],"dica":"uma orientação prática pra próxima conversa"}}
 
-Na avaliação, nota de 0 a 10 sobre COMO a atendente conduziu (rapidez, acolhimento, clareza, se ofereceu o próximo passo, se tentou fechar). Se quem respondeu foi só a IA (VITTA), avalie a condução do atendimento mesmo assim e diga isso em "deixou_a_desejar". Seja justo e específico: nada de "poderia melhorar" genérico.`;
+Na avaliação, nota de 0 a 10 sobre COMO a atendente conduziu, cobrando o PROTOCOLO da clínica: (1) boas-vindas calorosas, (2) perguntar o nome do paciente, (3) enviar o significado do nome com imagem, (4) enviar a revista/material do serviço, (5) só então apresentar o valor, (6) avisar de forma AFIRMATIVA que vai ligar ("estarei ligando"), (7) enviar provas sociais (fotos/vídeos de outras crianças e o Instagram), (8) convite de agendamento com endereço e mapa. Em "deixou_a_desejar", cite exatamente quais desses passos faltaram. Se quem respondeu foi só a IA (VITTA), avalie a condução do atendimento mesmo assim e diga isso em "deixou_a_desejar". Seja justo e específico: nada de "poderia melhorar" genérico.`;
 
     const d = await openaiMessages({ model: 'gpt-4o', max_tokens: 4096, json: true, system: sys,
       messages: [{ role: 'user', content: prompt }] });

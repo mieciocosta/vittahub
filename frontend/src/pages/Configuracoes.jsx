@@ -38,6 +38,8 @@ export default function Configuracoes() {
   const setFat = (grupo, setor, v) => setMetasFat(p => ({ ...p, [grupo]: { ...(p?.[grupo]||{}), [setor]: v } }));
   // ⭐ Link de avaliação no Google (pós-venda automático pede a avaliação)
   const [reviewUrl, setReviewUrl] = useState('');
+  const [clin, setClin] = useState({});          // 📍 dados da clínica (protocolo)
+  const [protoPassos, setProtoPassos] = useState([]);
   const [reviewSaved, setReviewSaved] = useState(false);
   const salvarReview = async () => {
     try { await api.put('/extras/config-review', { url: reviewUrl.trim() }); setReviewSaved(true); setTimeout(()=>setReviewSaved(false), 2000); }
@@ -95,6 +97,7 @@ export default function Configuracoes() {
     api.get('/inbox/exemplos').then(d=>setExemplos(Array.isArray(d)?d:[])).catch(()=>{});
     api.get('/extras/vendas/metas-faturamento').then(setMetasFat).catch(()=>{});
     api.get('/extras/config-review').then(d=>setReviewUrl(d?.url||'')).catch(()=>{});
+    api.get('/inbox/protocolo/config').then(d=>{ setClin(d?.clinica||{}); setProtoPassos(d?.passos||[]); }).catch(()=>{});
     api.get('/extras/agenda/meta').then(d=>{
       const s = d?.setores || {};
       setMetaAg({ vacinas: s.vacinas?.alvo || '', consultas: s.consultas?.alvo || '', terapias: s.terapias?.alvo || '' });
@@ -234,6 +237,19 @@ export default function Configuracoes() {
                   <span style={{ fontSize:11, color:'var(--muted)', display:'block', marginTop:6 }}>Aparecem no placar do topo e no Caixa: "falta R$X p/ mínima · R$Y p/ global", por setor.</span>
                 </div>
               )}
+
+              <div className="field" style={{ background:'var(--bg2,#f8fafc)', padding:'10px 12px', borderRadius:10 }}>
+                <label>📍 Dados da clínica (usados no protocolo de atendimento)</label>
+                <span style={{ fontSize:11, color:'var(--muted)', display:'block', marginBottom:6 }}>Entram automaticamente na mensagem de agendamento que a equipe envia.</span>
+                <input value={clin.endereco||''} onChange={e=>setClin(p2=>({...p2, endereco:e.target.value}))} placeholder="Endereço completo da clínica" style={{ marginBottom:6 }} />
+                <input value={clin.mapa||''} onChange={e=>setClin(p2=>({...p2, mapa:e.target.value}))} placeholder="Link do Google Maps (como chegar)" style={{ marginBottom:6 }} />
+                <input value={clin.instagram||''} onChange={e=>setClin(p2=>({...p2, instagram:e.target.value}))} placeholder="instagram.com/vittalissaude" style={{ marginBottom:6 }} />
+                <input value={clin.link_agendar||''} onChange={e=>setClin(p2=>({...p2, link_agendar:e.target.value}))} placeholder="Link público de agendamento (…/agendar)" />
+                <button onClick={async () => {
+                  try { await api.put('/inbox/protocolo/config', { passos: protoPassos, clinica: clin }); window.alert('✅ Dados salvos! Já valem nas próximas mensagens.'); }
+                  catch (e) { window.alert('Erro: ' + e.message); }
+                }} className="btn btn-sm" style={{ fontWeight:700, marginTop:8, width:'100%' }}>Salvar dados da clínica</button>
+              </div>
 
               <div className="field" style={{ background:'var(--bg2,#f8fafc)', padding:'10px 12px', borderRadius:10 }}>
                 <label>🔔 Notificações no celular (app fechado)</label>
