@@ -42,6 +42,7 @@ export default function Dashboard() {
   const [metaSetor, setMetaSetor] = useState(null);
   const [vittaHoje, setVittaHoje] = useState(null);
   const [foco, setFoco] = useState(null);   // 🎯 fila de prioridade do dia
+  const [comp, setComp] = useState(null);   // 📈 este mês x mês passado
   useEffect(() => {
     api.get('/reports/dashboard').then(setData).catch(() => {});
     api.get(`/extras/agenda?data=${hojeLocalISO()}`).then(d => setAgendaHoje(Array.isArray(d) ? d : [])).catch(() => {});
@@ -49,6 +50,7 @@ export default function Dashboard() {
     api.get('/extras/meta-setor').then(setMetaSetor).catch(() => {});
     api.get('/extras/vitta-hoje').then(setVittaHoje).catch(() => {});
     api.get('/extras/foco-hoje').then(setFoco).catch(() => {});
+    if (['master', 'supervisor'].includes(user?.role)) api.get('/extras/comparativo-mes').then(setComp).catch(() => {});
     if (isMaster) api.get('/extras/vendas/resumo').then(setVendasResumo).catch(() => {}); // painel comercial é só do master
     const loadAt = () => api.get('/inbox/atencao-agora').then(setAtencao).catch(() => {});
     loadAt(); const t = setInterval(loadAt, 20000); return () => clearInterval(t);
@@ -165,6 +167,33 @@ export default function Dashboard() {
                   <span style={{ flexShrink: 0, fontSize: 10.5, fontWeight: 800, color: it.cor, background: `${it.cor}14`, borderRadius: 8, padding: '4px 10px' }}>{it.acao} →</span>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── 📈 ESTE MÊS x MÊS PASSADO (gestão) — comparação até o mesmo dia ── */}
+        {comp && (
+          <div className="card" style={{ padding: '15px 18px', marginBottom: 20 }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+              <span style={{ fontWeight: 800, fontSize: 14 }}>📈 Este mês x mês passado</span>
+              <span style={{ fontSize: 11, color: 'var(--muted)' }}>comparação justa: até o dia {comp.dia} dos dois meses</span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 12 }}>
+              {comp.itens.map(it => {
+                const sobe = it.variacao > 0, igual = it.variacao === 0;
+                const cor = igual ? 'var(--muted)' : sobe ? 'var(--ok,#16a34a)' : 'var(--err,#dc2626)';
+                const val = (v) => it.formato === 'brl' ? fmt.brl(v) : it.formato === 'pct' ? `${v}%` : v;
+                return (
+                  <div key={it.rotulo} style={{ background: 'var(--bg2)', borderRadius: 12, padding: '11px 13px' }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>{it.rotulo}</div>
+                    <div style={{ fontSize: 19, fontWeight: 900, lineHeight: 1.2, margin: '2px 0' }}>{val(it.atual)}</div>
+                    <div style={{ fontSize: 11, color: cor, fontWeight: 800 }}>
+                      {igual ? '—' : `${sobe ? '▲' : '▼'} ${Math.abs(it.variacao)}%`}
+                      <span style={{ color: 'var(--muted)', fontWeight: 600 }}> · antes {val(it.anterior)}</span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
