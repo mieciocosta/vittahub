@@ -17,6 +17,7 @@ const Retornos = lazy(() => import('./pages/Retornos.jsx'));
 const Relatorios = lazy(() => import('./pages/Relatorios.jsx'));
 const Configuracoes = lazy(() => import('./pages/Configuracoes.jsx'));
 const Agenda = lazy(() => import('./pages/Agenda.jsx'));
+const AgendarPublico = React.lazy(() => import('./pages/AgendarPublico.jsx'));
 const Indicacoes = lazy(() => import('./pages/Indicacoes.jsx'));
 const PastaClientes = lazy(() => import('./pages/PastaClientes.jsx'));
 const Classificar = lazy(() => import('./pages/Classificar.jsx'));
@@ -256,6 +257,11 @@ export default function App() {
         <div><span className="spin" style={{ width:26, height:26, borderColor:'rgba(0,184,192,0.2)', borderTopColor:'var(--tq)' }} /></div>
       </div>
     </div>
+  );
+
+  // 🔗 Agendamento público: única tela que NÃO exige login (link do Instagram)
+  if (window.location.pathname === '/agendar') return (
+    <React.Suspense fallback={null}><AgendarPublico /></React.Suspense>
   );
 
   if (!user) return <Login />;
