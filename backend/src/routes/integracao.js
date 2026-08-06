@@ -1,4 +1,5 @@
 import express from 'express';
+import { socketEmit } from '../socketServer.js';
 import { query } from '../db/pool.js';
 
 // ─── Integração servidor-a-servidor (ex.: VittaMed/VittaSys → VittaHub) ───────
@@ -71,6 +72,39 @@ r.post('/aviso', async (req, res) => {
        VALUES ('vittasys', $1, $2, $3) RETURNING id, created_at`,
       [`💉 ${titulo}`, texto || null, apenasMaster]);
     return res.json({ ok: true, id: n.id, criado_em: n.created_at });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/integracao/agenda — o VittaSys agenda e o evento cai DIRETO na
+// agenda daqui. Pedido do master: um botão só, e o cliente já aparece nos dois
+// sistemas. Idempotente por (paciente, data, hora): não duplica se repetir.
+r.post('/agenda', async (req, res) => {
+  if (!autenticado(req)) return res.status(403).json({ error: 'Token de integração ausente ou inválido.' });
+  const b = req.body || {};
+  const cut = (v, n) => (v == null ? null : String(v).slice(0, n));
+  const paciente = cut((b.paciente || '').trim(), 80);
+  if (!paciente) return res.status(400).json({ error: 'Nome do paciente é obrigatório' });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(b.data || '')) return res.status(400).json({ error: 'Data inválida (YYYY-MM-DD)' });
+  const hora = /^\d{2}:\d{2}$/.test(b.hora || '') ? b.hora : '09:00';
+  const setor = ['vacinas', 'consultas', 'terapias'].includes(b.setor) ? b.setor : 'vacinas';
+  try {
+    // Não duplicar: mesmo paciente, mesmo dia e hora já agendados
+    const { rows: dup } = await query(
+      `SELECT id FROM agenda_eventos WHERE lower(paciente)=lower($1) AND data=$2 AND hora=$3
+         AND status NOT IN ('Cancelado') LIMIT 1`, [paciente, b.data, hora]);
+    if (dup.length) return res.json({ ok: true, id: dup[0].id, duplicado: true });
+
+    const { rows: [ev] } = await query(`
+      INSERT INTO agenda_eventos (paciente, responsavel_nome, servico, data, hora, profissional,
+        telefone, observacoes, status, setor, endereco)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'Agendado',$9,$10) RETURNING id`,
+      [paciente, cut(b.responsavel_nome, 80), cut(b.servico || 'Retorno vacinal', 80), b.data, hora,
+       cut(b.profissional, 80), cut((b.telefone || '').replace(/\D/g, ''), 13),
+       cut(b.observacoes || 'Agendado pelo VittaSys', 300), setor, cut(b.endereco, 160)]);
+    try { socketEmit('agenda_update', { id: ev.id }); } catch (_) {}
+    return res.json({ ok: true, id: ev.id });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
