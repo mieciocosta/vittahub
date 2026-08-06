@@ -2120,7 +2120,16 @@ async function resgateProposta() {
     let n = 0;
     for (const a of alvos) {
       const nome = String(a.contact_name || '').split(' ')[0];
-      const txt = `Oi${nome && !/^\d+$/.test(nome) ? `, ${nome}` : ''}! 💙 Conseguiu dar uma olhadinha na proposta que te enviei? Qualquer dúvida sobre valores, parcelamento ou o calendário de proteção, é só me chamar — e se quiser, já deixo seu horário reservado 😊`;
+      // ⏳ Urgência saudável: a proposta tem validade de 2 dias — lembrar disso
+      // é o que transforma "depois eu vejo" em decisão hoje.
+      const venceEm = new Date(new Date(a.proposta_em).getTime() + 2 * 86400000);
+      const venceTxt = venceEm.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'America/Fortaleza' });
+      const expirou = venceEm.getTime() < Date.now();
+      const txt = `Oi${nome && !/^\d+$/.test(nome) ? `, ${nome}` : ''}! 💙 Conseguiu dar uma olhadinha na proposta que te enviei?\n\n` +
+        (expirou
+          ? `As condições eram válidas até ${venceTxt}, mas se você ainda tiver interesse eu falo com a coordenação pra manter o valor pra vocês 😊`
+          : `⏳ As condições ficam garantidas até ${venceTxt} — se quiser, já deixo o horário reservado no nome de vocês.`) +
+        `\n\nQualquer dúvida sobre valores, parcelamento ou o calendário de proteção, é só me chamar! 🥰`;
       await query(`INSERT INTO mensagens_agendadas (conversa_id, texto, enviar_em, criado_por)
                    VALUES ($1, $2, NOW() + ($3 || ' minutes')::interval, 'Vitta · Resgate de orçamento')`,
         [a.conversa_id, txt, String(n * 3)]).catch(() => {});
