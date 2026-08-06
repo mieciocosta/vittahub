@@ -45,20 +45,58 @@ const msgIndicacao = (nome) => `Olá! 💙 Aqui é da Vittalis Saúde. Foi um pr
    O maior ativo da clínica é a base de crianças já cadastradas. Aqui o sistema
    calcula, pela data de nascimento, qual marco vacinal cada criança está
    atingindo — e mostra quem abordar hoje. Vira receita recorrente da base. */
-const CALENDARIO_VACINAL = [
-  { mes: 2,  nome: '2 meses',   vacinas: 'Hexavalente, Rotavírus, Pneumo 15' },
-  { mes: 3,  nome: '3 meses',   vacinas: 'Meningo B, Meningo ACWY' },
-  { mes: 4,  nome: '4 meses',   vacinas: 'Hexavalente (2ª), Rotavírus (2ª), Pneumo 15 (2ª)' },
-  { mes: 5,  nome: '5 meses',   vacinas: 'Meningo B (2ª), Meningo ACWY (2ª)' },
-  { mes: 6,  nome: '6 meses',   vacinas: 'Hexavalente (3ª), Gripe' },
-  { mes: 7,  nome: '7 meses',   vacinas: 'Meningo B (3ª)' },
+// Calendário da REDE PRIVADA (padrão SBIm) — é só o PADRÃO inicial: a gestão
+// ajusta em Lembretes → Calendário vacinal → "Ajustar calendário", pra ficar
+// idêntico ao esquema cadastrado no Vittasys.
+const CALENDARIO_PADRAO = [
+  { mes: 0,  nome: 'Nascimento', vacinas: 'BCG, Hepatite B' },
+  { mes: 2,  nome: '2 meses',   vacinas: 'Hexavalente, Rotavírus, Pneumo 15, Meningo B' },
+  { mes: 3,  nome: '3 meses',   vacinas: 'Meningo ACWY' },
+  { mes: 4,  nome: '4 meses',   vacinas: 'Hexavalente (2ª), Rotavírus (2ª), Pneumo 15 (2ª), Meningo B (2ª)' },
+  { mes: 5,  nome: '5 meses',   vacinas: 'Meningo ACWY (2ª)' },
+  { mes: 6,  nome: '6 meses',   vacinas: 'Hexavalente (3ª), Rotavírus (3ª), Gripe' },
+  { mes: 7,  nome: '7 meses',   vacinas: 'Meningo ACWY (3ª), Gripe (2ª dose)' },
   { mes: 9,  nome: '9 meses',   vacinas: 'Febre Amarela' },
-  { mes: 12, nome: '12 meses',  vacinas: 'Tríplice Viral, Pneumo (reforço), Meningo ACWY (reforço), Hepatite A' },
-  { mes: 15, nome: '15 meses',  vacinas: 'DTPa (reforço), Varicela, Tetra Viral, Hepatite A (2ª)' },
-  { mes: 18, nome: '18 meses',  vacinas: 'Meningo B (reforço), Poliomielite (reforço)' },
-  { mes: 48, nome: '4 anos',    vacinas: 'DTPa (2º reforço), Varicela (2ª), Poliomielite' },
-  { mes: 60, nome: '5 anos',    vacinas: 'Reforços e atualização da caderneta' },
+  { mes: 12, nome: '12 meses',  vacinas: 'Tríplice Viral, Pneumo 15 (reforço), Meningo ACWY (reforço), Meningo B (reforço), Hepatite A' },
+  { mes: 15, nome: '15 meses',  vacinas: 'DTPa (reforço), Varicela, Hepatite A (2ª), Poliomielite (reforço)' },
+  { mes: 18, nome: '18 meses',  vacinas: 'Tríplice Viral (2ª) / Varicela (2ª)' },
+  { mes: 48, nome: '4 anos',    vacinas: 'DTPa (2º reforço), Poliomielite (2º reforço), Meningo ACWY (reforço)' },
+  { mes: 60, nome: '5 anos',    vacinas: 'Atualização da caderneta e reforços' },
 ];
+
+// Cache curto do calendário configurado (evita ir ao banco a cada criança)
+let calCache = { valor: null, em: 0 };
+async function getCalendario() {
+  if (calCache.valor && Date.now() - calCache.em < 60000) return calCache.valor;
+  let lista = CALENDARIO_PADRAO;
+  try {
+    const { rows: [c] } = await query("SELECT valor FROM configuracoes WHERE chave = 'calendario_vacinal'");
+    const salvo = c?.valor?.marcos;
+    if (Array.isArray(salvo) && salvo.length) lista = salvo;
+  } catch { /* mantém o padrão */ }
+  calCache = { valor: lista, em: Date.now() };
+  return lista;
+}
+
+// GET/PUT do calendário — a gestão espelha aqui o esquema do Vittasys
+r.get('/calendario-config', async (req, res) => {
+  try { res.json({ marcos: await getCalendario(), padrao: CALENDARIO_PADRAO }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+r.put('/calendario-config', async (req, res) => {
+  try {
+    if (!['master', 'supervisor'].includes(req.user.role)) return res.status(403).json({ error: 'Apenas a gestão altera o calendário.' });
+    const marcos = (Array.isArray(req.body?.marcos) ? req.body.marcos : [])
+      .map(m => ({ mes: Math.max(0, Math.min(parseInt(m.mes) || 0, 216)), nome: String(m.nome || '').slice(0, 40), vacinas: String(m.vacinas || '').slice(0, 300) }))
+      .filter(m => m.nome && m.vacinas)
+      .sort((a, b) => a.mes - b.mes);
+    if (!marcos.length) return res.status(400).json({ error: 'Informe ao menos um marco (idade + vacinas).' });
+    await query(`INSERT INTO configuracoes (chave, valor) VALUES ('calendario_vacinal', $1::jsonb)
+                 ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`, [JSON.stringify({ marcos })]);
+    calCache = { valor: marcos, em: Date.now() };
+    res.json({ ok: true, marcos });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
 const mesesEntre = (nasc, hoje) => {
   const n = new Date(String(nasc).slice(0, 10) + 'T12:00:00');
@@ -87,6 +125,7 @@ r.get('/calendario-vacinal', async (req, res) => {
           AND LOWER(COALESCE(status,'')) NOT LIKE 'cancel%'`).catch(() => ({ rows: [] }));
     const comAgenda = new Set(agFut.map(a => a.tel8).filter(t => t && t.length === 8));
 
+    const CALENDARIO_VACINAL = await getCalendario();
     const lista = [];
     for (const l of leads) {
       const idade = mesesEntre(l.nascimento, hoje);
@@ -235,6 +274,7 @@ r.post('/enviar', async (req, res) => {
       for (const l of rows) {
         if (!l.telefone || String(l.telefone).replace(/\D/g, '').length < 10) { pulados++; continue; }
         const idade = mesesEntre(l.nascimento, hoje);
+        const CALENDARIO_VACINAL = await getCalendario();
         const atingidos = CALENDARIO_VACINAL.filter(c => c.mes <= idade);
         const proximo = CALENDARIO_VACINAL.find(c => c.mes > idade);
         const marco = atingidos.length ? atingidos[atingidos.length - 1] : proximo;

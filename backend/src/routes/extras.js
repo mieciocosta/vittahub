@@ -1855,6 +1855,61 @@ r.delete('/ligacoes/:id', async (req, res) => {
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* ═══ 📈 COMPARATIVO MÊS A MÊS (gestão) ════════════════════════════════════
+   Gestão é comparação: mostra este mês contra o mês passado no MESMO dia do
+   mês (comparar 5 dias contra 30 mentiria), com variação em %. */
+r.get('/comparativo-mes', async (req, res) => {
+  try {
+    if (!gestao(req)) return res.status(403).json({ error: 'Acesso restrito à gestão.' });
+    const agora = new Date(Date.now() - 3 * 3600 * 1000); // São Luís
+    const diaAtual = agora.getUTCDate();
+    const mesAtual = agora.toISOString().slice(0, 7);
+    const antMes = new Date(Date.UTC(agora.getUTCFullYear(), agora.getUTCMonth() - 1, 1));
+    const mesAnterior = antMes.toISOString().slice(0, 7);
+    const PAGO = "status_pagamento IN ('pago','cortesia')";
+
+    const [vend, leadsQ, vendasN, agend] = await Promise.all([
+      // Faturamento confirmado até o mesmo dia do mês
+      query(`SELECT to_char(data_venda,'YYYY-MM') m, COALESCE(SUM(valor) FILTER (WHERE ${PAGO}),0)::float v
+               FROM vendas WHERE to_char(data_venda,'YYYY-MM') = ANY($1) AND EXTRACT(DAY FROM data_venda) <= $2
+              GROUP BY 1`, [[mesAtual, mesAnterior], diaAtual]),
+      // Leads novos (conversas criadas)
+      query(`SELECT to_char(created_at - interval '3 hours','YYYY-MM') m, COUNT(*)::int n
+               FROM conversas WHERE to_char(created_at - interval '3 hours','YYYY-MM') = ANY($1)
+                 AND EXTRACT(DAY FROM (created_at - interval '3 hours')) <= $2
+              GROUP BY 1`, [[mesAtual, mesAnterior], diaAtual]),
+      // Nº de vendas fechadas
+      query(`SELECT to_char(data_venda,'YYYY-MM') m, COUNT(*)::int n
+               FROM vendas WHERE to_char(data_venda,'YYYY-MM') = ANY($1) AND EXTRACT(DAY FROM data_venda) <= $2
+              GROUP BY 1`, [[mesAtual, mesAnterior], diaAtual]),
+      // Agendamentos criados
+      query(`SELECT to_char(data,'YYYY-MM') m, COUNT(*)::int n
+               FROM agenda_eventos WHERE to_char(data,'YYYY-MM') = ANY($1) AND EXTRACT(DAY FROM data) <= $2
+                 AND LOWER(COALESCE(status,'')) NOT LIKE 'cancel%'
+              GROUP BY 1`, [[mesAtual, mesAnterior], diaAtual]).catch(() => ({ rows: [] })),
+    ]);
+
+    const pega = (rows, mes, campo) => Number(rows.find(r2 => r2.m === mes)?.[campo] || 0);
+    const monta = (rows, campo, rotulo, formato) => {
+      const atual = pega(rows, mesAtual, campo), anterior = pega(rows, mesAnterior, campo);
+      const variacao = anterior > 0 ? +(((atual - anterior) / anterior) * 100).toFixed(1) : (atual > 0 ? 100 : 0);
+      return { rotulo, atual, anterior, variacao, formato };
+    };
+
+    const fat = monta(vend.rows, 'v', 'Faturamento', 'brl');
+    const nv = monta(vendasN.rows, 'n', 'Vendas fechadas', 'num');
+    const lds = monta(leadsQ.rows, 'n', 'Leads novos', 'num');
+    const ags = monta(agend.rows, 'n', 'Agendamentos', 'num');
+    // Conversão = vendas / leads novos do período
+    const convA = lds.atual > 0 ? +((nv.atual / lds.atual) * 100).toFixed(1) : 0;
+    const convP = lds.anterior > 0 ? +((nv.anterior / lds.anterior) * 100).toFixed(1) : 0;
+    const conversao = { rotulo: 'Conversão', atual: convA, anterior: convP,
+      variacao: convP > 0 ? +(((convA - convP) / convP) * 100).toFixed(1) : (convA > 0 ? 100 : 0), formato: 'pct' };
+
+    res.json({ mes_atual: mesAtual, mes_anterior: mesAnterior, dia: diaAtual, itens: [fat, nv, lds, ags, conversao] });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 /* ═══ 🎯 MEU FOCO DE HOJE — fila de prioridade por atendente ═══════════════
    Junta tudo que pede ação (cliente esperando, lead quente parado, orçamento
    sem resposta, faltoso, silêncio) e entrega os contatos JÁ ordenados por
