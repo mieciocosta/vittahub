@@ -200,7 +200,7 @@ export default function Caixa() {
     if (numBR(novaVenda.valor) <= 0) return window.alert('Informe o valor da venda.');
     setNovaVendaSaving(true);
     try {
-      await api.post('/extras/vendas', {
+      const salva = await api.post('/extras/vendas', {
         cliente_nome: novaVenda.cliente_nome, paciente_nome: novaVenda.paciente_nome,
         categoria: novaVenda.categoria, setor: novaVenda.setor, servico: novaVenda.servico,
         valor: numBR(novaVenda.valor), desconto: numBR(novaVenda.desconto),
@@ -208,6 +208,7 @@ export default function Caixa() {
         data_venda: novaVenda.data_venda, origem: novaVenda.origem || 'Balcão', observacao: novaVenda.observacao,
       });
       setNovaVenda(null); load();
+      if (salva?.sugestao?.texto) setTimeout(() => window.alert('💡 ' + salva.sugestao.texto), 400);
     } catch (err) { window.alert('Erro ao registrar: ' + (err.message || 'falha')); }
     setNovaVendaSaving(false);
   };
