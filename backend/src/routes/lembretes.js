@@ -3,6 +3,7 @@ import { query } from '../db/pool.js';
 import { auth } from '../middleware/auth.js';
 import { zapiOk, zapiSendText } from '../services/zapi.js';
 import { socketEmit } from '../socketServer.js';
+import { CALENDARIO_PADRAO, getCalendario, invalidarCacheCalendario } from '../services/calendario.js';
 
 // Registra a mensagem enviada dentro da conversa do CRM (se existir), pra
 // equipe ver no chat o que foi mandado. Melhor esforço — nunca quebra o envio.
@@ -48,35 +49,7 @@ const msgIndicacao = (nome) => `Olá! 💙 Aqui é da Vittalis Saúde. Foi um pr
 // Calendário da REDE PRIVADA (padrão SBIm) — é só o PADRÃO inicial: a gestão
 // ajusta em Lembretes → Calendário vacinal → "Ajustar calendário", pra ficar
 // idêntico ao esquema cadastrado no Vittasys.
-const CALENDARIO_PADRAO = [
-  { mes: 0,  nome: 'Nascimento', vacinas: 'BCG, Hepatite B' },
-  { mes: 2,  nome: '2 meses',   vacinas: 'Hexavalente, Rotavírus, Pneumo 15, Meningo B' },
-  { mes: 3,  nome: '3 meses',   vacinas: 'Meningo ACWY' },
-  { mes: 4,  nome: '4 meses',   vacinas: 'Hexavalente (2ª), Rotavírus (2ª), Pneumo 15 (2ª), Meningo B (2ª)' },
-  { mes: 5,  nome: '5 meses',   vacinas: 'Meningo ACWY (2ª)' },
-  { mes: 6,  nome: '6 meses',   vacinas: 'Hexavalente (3ª), Rotavírus (3ª), Gripe' },
-  { mes: 7,  nome: '7 meses',   vacinas: 'Meningo ACWY (3ª), Gripe (2ª dose)' },
-  { mes: 9,  nome: '9 meses',   vacinas: 'Febre Amarela' },
-  { mes: 12, nome: '12 meses',  vacinas: 'Tríplice Viral, Pneumo 15 (reforço), Meningo ACWY (reforço), Meningo B (reforço), Hepatite A' },
-  { mes: 15, nome: '15 meses',  vacinas: 'DTPa (reforço), Varicela, Hepatite A (2ª), Poliomielite (reforço)' },
-  { mes: 18, nome: '18 meses',  vacinas: 'Tríplice Viral (2ª) / Varicela (2ª)' },
-  { mes: 48, nome: '4 anos',    vacinas: 'DTPa (2º reforço), Poliomielite (2º reforço), Meningo ACWY (reforço)' },
-  { mes: 60, nome: '5 anos',    vacinas: 'Atualização da caderneta e reforços' },
-];
 
-// Cache curto do calendário configurado (evita ir ao banco a cada criança)
-let calCache = { valor: null, em: 0 };
-async function getCalendario() {
-  if (calCache.valor && Date.now() - calCache.em < 60000) return calCache.valor;
-  let lista = CALENDARIO_PADRAO;
-  try {
-    const { rows: [c] } = await query("SELECT valor FROM configuracoes WHERE chave = 'calendario_vacinal'");
-    const salvo = c?.valor?.marcos;
-    if (Array.isArray(salvo) && salvo.length) lista = salvo;
-  } catch { /* mantém o padrão */ }
-  calCache = { valor: lista, em: Date.now() };
-  return lista;
-}
 
 // GET/PUT do calendário — a gestão espelha aqui o esquema do Vittasys
 r.get('/calendario-config', async (req, res) => {
@@ -93,7 +66,7 @@ r.put('/calendario-config', async (req, res) => {
     if (!marcos.length) return res.status(400).json({ error: 'Informe ao menos um marco (idade + vacinas).' });
     await query(`INSERT INTO configuracoes (chave, valor) VALUES ('calendario_vacinal', $1::jsonb)
                  ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`, [JSON.stringify({ marcos })]);
-    calCache = { valor: marcos, em: Date.now() };
+    invalidarCacheCalendario(marcos);
     res.json({ ok: true, marcos });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

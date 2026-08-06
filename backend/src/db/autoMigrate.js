@@ -192,6 +192,12 @@ export default async function runMigrate() {
       observacao TEXT, feito_por_id TEXT, feito_por_nome TEXT,
       feito_em TIMESTAMPTZ DEFAULT NOW(), PRIMARY KEY (conversa_id, mes))`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS idx_fidcheck_mes ON fidelidade_checks (mes)`).catch(() => {});
+    // 💉 Carteira vacinal do paciente: dose de cada marco (0-18m) aplicada
+    await query(`CREATE TABLE IF NOT EXISTS carteira_doses (
+      id SERIAL PRIMARY KEY, conversa_id TEXT, lead_id TEXT, marco_mes INT NOT NULL,
+      vacina TEXT, aplicada BOOLEAN DEFAULT true, data_aplicacao DATE,
+      observacao TEXT, registrado_por TEXT, created_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
+    await query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_carteira_unico ON carteira_doses (COALESCE(conversa_id,''), COALESCE(lead_id,''), marco_mes)`).catch(() => {});
 
     await query(`CREATE TABLE IF NOT EXISTS configuracoes (
       chave TEXT PRIMARY KEY, valor JSONB NOT NULL, updated_at TIMESTAMPTZ DEFAULT NOW()

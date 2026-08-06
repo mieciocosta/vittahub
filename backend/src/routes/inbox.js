@@ -9,6 +9,7 @@ import jwt from 'jsonwebtoken';
 import { socketEmit, setConvGroupFn, setUserSetorFn, socketEmitToUsers } from '../socketServer.js';
 import * as propostaGen from '../services/proposta-gen.js';
 import { enviarPush, enviarPushEquipe } from '../services/push.js';
+import { getCalendario as getCalendarioVacinal } from '../services/calendario.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const r = express.Router();
@@ -5157,6 +5158,101 @@ r.post('/conversations/:id/significado-nome', async (req, res) => {
     if (msg) socketEmit('new_message', { convId: conv.id, message: msg, conv });
     res.json({ ...dados, enviado: true });
   } catch (err) { console.error('Significado do nome:', err.message); res.status(500).json({ error: err.message }); }
+});
+
+/* ═══ 💉 CARTEIRA VACINAL DO PACIENTE (0-18 meses e além) ═══════════════════
+   Monta o esquema do bebê a partir da data de nascimento e do calendário
+   cadastrado (espelho do Vittasys): o que já foi aplicado, o que está no
+   ponto, o que atrasou e o que vem pela frente. Serve o chat e a Fidelidade. */
+r.get('/conversations/:id/carteira', async (req, res) => {
+  try {
+    const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso.' });
+
+    const tel8 = String(conv.phone || '').replace(/\\D/g, '').slice(-8);
+    const [{ rows: [lead] }, { rows: doses }, { rows: vendas }, { rows: agenda }] = await Promise.all([
+      conv.lead_id ? query('SELECT * FROM leads WHERE id = $1', [conv.lead_id])
+        : query(`SELECT * FROM leads WHERE RIGHT(regexp_replace(COALESCE(telefone,''),'\\D','','g'), 8) = $1 ORDER BY created_at DESC LIMIT 1`, [tel8]).catch(() => ({ rows: [] })),
+      query('SELECT * FROM carteira_doses WHERE conversa_id = $1 ORDER BY marco_mes', [req.params.id]).catch(() => ({ rows: [] })),
+      query(`SELECT servico, TO_CHAR(data_venda,'YYYY-MM-DD') data_venda FROM vendas
+              WHERE conversa_id = $1 AND status_pagamento IN ('pago','cortesia') ORDER BY data_venda`, [req.params.id]).catch(() => ({ rows: [] })),
+      query(`SELECT TO_CHAR(data,'YYYY-MM-DD') data, hora, servico, status FROM agenda_eventos
+              WHERE conversa_id = $1 OR RIGHT(regexp_replace(COALESCE(telefone,''),'\\D','','g'), 8) = $2
+              ORDER BY data DESC LIMIT 20`, [req.params.id, tel8]).catch(() => ({ rows: [] })),
+    ]);
+
+    const nascimento = lead?.nascimento ? String(lead.nascimento).slice(0, 10) : (conv.memoria?.nascimento || null);
+    const calendario = await getCalendarioVacinal();
+    const feitas = new Map(doses.map(d => [d.marco_mes, d]));
+
+    const hoje = new Date(Date.now() - 3 * 3600 * 1000);
+    let idadeMeses = null;
+    if (nascimento) {
+      const n = new Date(nascimento + 'T12:00:00');
+      idadeMeses = (hoje.getFullYear() - n.getFullYear()) * 12 + (hoje.getMonth() - n.getMonth());
+      if (hoje.getDate() < n.getDate()) idadeMeses--;
+    }
+
+    const marcos = calendario.map(c => {
+      const dose = feitas.get(c.mes) || null;
+      let previsao = null;
+      if (nascimento) {
+        const d = new Date(nascimento + 'T12:00:00');
+        d.setMonth(d.getMonth() + c.mes);
+        previsao = d.toISOString().slice(0, 10);
+      }
+      let status = 'futura';
+      if (dose?.aplicada) status = 'aplicada';
+      else if (idadeMeses != null) {
+        if (idadeMeses >= c.mes + 2) status = 'atrasada';
+        else if (idadeMeses >= c.mes) status = 'no_ponto';
+        else if (c.mes - idadeMeses <= 1) status = 'chegando';
+      }
+      return { ...c, previsao, status,
+        aplicada_em: dose?.data_aplicacao ? String(dose.data_aplicacao).slice(0, 10) : null,
+        observacao: dose?.observacao || null, registrado_por: dose?.registrado_por || null };
+    });
+
+    res.json({
+      paciente: lead?.nome || conv.memoria?.paciente || conv.contact_name || null,
+      responsavel: lead?.responsavel_cliente || conv.memoria?.responsavel || null,
+      telefone: conv.phone, nascimento, idade_meses: idadeMeses,
+      lead_id: lead?.id || null, marcos,
+      resumo: {
+        aplicadas: marcos.filter(m => m.status === 'aplicada').length,
+        atrasadas: marcos.filter(m => m.status === 'atrasada').length,
+        no_ponto: marcos.filter(m => ['no_ponto', 'chegando'].includes(m.status)).length,
+        total: marcos.length,
+      },
+      compras: vendas, agenda,
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Marcar/desmarcar uma dose como aplicada
+r.post('/conversations/:id/carteira', async (req, res) => {
+  try {
+    const marco = parseInt(req.body?.marco_mes);
+    if (isNaN(marco)) return res.status(400).json({ error: 'Informe o marco.' });
+    const { rows: [conv] } = await query('SELECT id, lead_id FROM conversas WHERE id = $1', [req.params.id]);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (req.body?.aplicada === false) {
+      await query('DELETE FROM carteira_doses WHERE conversa_id = $1 AND marco_mes = $2', [req.params.id, marco]);
+      return res.json({ ok: true, aplicada: false });
+    }
+    const data = /^\d{4}-\d{2}-\d{2}$/.test(req.body?.data_aplicacao || '') ? req.body.data_aplicacao
+      : new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+    const { rows: [d] } = await query(`
+      INSERT INTO carteira_doses (conversa_id, lead_id, marco_mes, vacina, aplicada, data_aplicacao, observacao, registrado_por)
+      VALUES ($1,$2,$3,$4,true,$5,$6,$7)
+      ON CONFLICT (COALESCE(conversa_id,''), COALESCE(lead_id,''), marco_mes)
+      DO UPDATE SET aplicada = true, data_aplicacao = $5, observacao = COALESCE($6, carteira_doses.observacao), registrado_por = $7
+      RETURNING *`,
+      [req.params.id, conv.lead_id || null, marco, String(req.body?.vacina || '').slice(0, 200) || null,
+       data, String(req.body?.observacao || '').slice(0, 200) || null, req.user.nome]);
+    res.json({ ok: true, aplicada: true, dose: d });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 /* ═══ ⭐ FIDELIDADE — CONTROLE MENSAL (check por cliente) ═══════════════════
