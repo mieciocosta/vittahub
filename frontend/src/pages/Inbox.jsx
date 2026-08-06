@@ -534,6 +534,13 @@ export default function Inbox({ onUnreadChange }) {
   const [showAgendar, setShowAgendar] = useState(false);
   const [resumo, setResumo] = useState(null);        // 📋 raio-X da conversa
   const [proto, setProto] = useState(null);          // ✅ protocolo de atendimento
+  const [ficha, setFicha] = useState(null);          // 📇 ficha completa do cliente
+  const [fichaEdit, setFichaEdit] = useState(null);
+  const abrirFicha = async () => {
+    setFicha({ carregando: true });
+    try { setFicha(await api.get(`/inbox/conversations/${sel.id}/ficha`)); }
+    catch (e) { setFicha({ erro: e.message }); }
+  };
   const [protoAberto, setProtoAberto] = useState(true);
   const [protoBusy, setProtoBusy] = useState('');
   const [resumoLoad, setResumoLoad] = useState(false);
@@ -933,7 +940,13 @@ export default function Inbox({ onUnreadChange }) {
     const u = usersById[respId] || null;
     setSel(prev => ({ ...prev, responsavel_id: respId || null, responsavel_nome: u?.nome || null, responsavel_cor: u?.cor || null }));
     setConvos(prev => prev.map(x => x.id === sel.id ? { ...x, responsavel_id: respId || null } : x));
-    try { await api.patch(`/inbox/conversations/${sel.id}/assign`, { responsavel_id: respId || null }); } catch {}
+    // Se a conversa muda de dono, a nova atendente se apresenta pro cliente
+    // (a triagem já tinha apresentado outro nome). Pergunta antes de mandar.
+    let avisar = false;
+    if (respId && sel.responsavel_id && String(sel.responsavel_id) !== String(respId)) {
+      avisar = window.confirm(`Avisar o cliente que ${(u?.nome || '').split(' ')[0]} assume o atendimento agora?\n\nO cliente foi apresentado a outra atendente no começo — essa mensagem evita a confusão de nomes.`);
+    }
+    try { await api.patch(`/inbox/conversations/${sel.id}/assign`, { responsavel_id: respId || null, avisar_cliente: avisar }); } catch {}
   };
 
   // Vindo de outra tela com ?phone= (ex.: botão Conversa da Agenda): acha a
@@ -1567,12 +1580,15 @@ export default function Inbox({ onUnreadChange }) {
                 <PanelLeftOpen size={13}/>
               </button>
             )}
-            <div className={sel.profile_pic ? 'avatar-clickable' : ''} onClick={()=>sel.profile_pic && setLightbox(sel.profile_pic)} title={sel.profile_pic ? 'Ver foto de perfil' : ''}>
+            <div className="avatar-clickable" onClick={abrirFicha} title="Ver ficha completa do cliente" style={{ cursor:'pointer' }}>
               <Avatar conv={sel} size={34} fontSize={11}/>
             </div>
             <div style={{ flex:'1 1 160px', minWidth:0 }}>
               <div style={{ fontWeight:600, fontSize:13.5, display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
-                <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{sel.contact_name}</span>
+                <span onClick={abrirFicha} title="Ver ficha completa do cliente (dados + histórico)"
+                  style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', cursor:'pointer', textDecoration:'underline', textDecorationStyle:'dotted', textUnderlineOffset:3 }}>
+                  {sel.contact_name}
+                </span>
                 {sel.bot_ativo && <span style={{ display:'inline-flex', alignItems:'center', gap:2, background:'var(--ok2)', color:'var(--ok)', borderRadius:6, padding:'1px 6px', fontSize:9.5, fontWeight:700, flexShrink:0 }}><Bot size={7}/>Bot</span>}
                 {leadData && <span style={{ display:'inline-flex', alignItems:'center', gap:2, background:'var(--tq3)', color:'var(--tq2)', borderRadius:6, padding:'1px 6px', fontSize:9.5, fontWeight:700, flexShrink:0 }}>◆ Lead</span>}
                 {sel.last_from === 'contact' && !String(sel.contact_id || '').endsWith('@g.us') && sel.last_message_at && (() => {
@@ -2064,6 +2080,112 @@ export default function Inbox({ onUnreadChange }) {
               </button>
             </div>
             {recording&&<div style={{ textAlign:'center', marginTop:5, fontSize:11, color:'var(--err)', fontWeight:600 }}>🔴 Gravando… clique para parar</div>}
+          </div>
+        </div>
+      )}
+
+      {/* 📇 FICHA COMPLETA DO CLIENTE — dados pessoais + histórico de serviços */}
+      {ficha && (
+        <div onClick={e => e.target === e.currentTarget && (setFicha(null), setFichaEdit(null))}
+          style={{ position:'fixed', inset:0, background:'rgba(3,43,48,.6)', zIndex:600, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+          <div className="card" style={{ width:'100%', maxWidth:640, maxHeight:'90vh', padding:0, display:'flex', flexDirection:'column', overflow:'hidden' }}>
+            <div style={{ padding:'14px 20px', background:'linear-gradient(120deg,#0E8C96,#00B8C0)', color:'#fff', display:'flex', alignItems:'center', gap:10 }}>
+              <span style={{ fontSize:17 }}>📇</span>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontWeight:800, fontSize:14.5 }}>Ficha do cliente</div>
+                <div style={{ fontSize:11, opacity:.9, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                  {ficha.cliente?.paciente || ficha.cliente?.nome_conversa || sel?.contact_name || ''}
+                </div>
+              </div>
+              {ficha.cliente && !fichaEdit && (
+                <button onClick={() => setFichaEdit({ ...ficha.cliente })} title="Corrigir dados"
+                  style={{ background:'rgba(255,255,255,.2)', border:'none', color:'#fff', borderRadius:8, padding:'5px 10px', cursor:'pointer', fontSize:11.5, fontWeight:800 }}>✏️ Editar</button>
+              )}
+              <button onClick={() => { setFicha(null); setFichaEdit(null); }} style={{ background:'rgba(255,255,255,.2)', border:'none', color:'#fff', borderRadius:8, padding:'5px 8px', cursor:'pointer' }}><X size={14}/></button>
+            </div>
+
+            <div style={{ flex:1, overflowY:'auto', padding:'16px 20px' }}>
+              {ficha.carregando ? <div style={{ color:'var(--muted)', fontSize:13 }}>Carregando ficha…</div>
+              : ficha.erro ? <div style={{ color:'var(--err)', fontSize:13, fontWeight:600 }}>⚠️ {ficha.erro}</div>
+              : fichaEdit ? (<>
+                {[['Nome do paciente','paciente'],['Nascimento (AAAA-MM-DD)','nascimento'],['CPF do paciente','cpf'],
+                  ['Responsável','responsavel'],['CPF do responsável','responsavel_cpf'],['E-mail','email'],
+                  ['Endereço','endereco'],['Bairro','bairro'],['CEP','cep'],['Outros filhos','filhos']].map(([lb, k]) => (
+                  <div key={k} style={{ marginBottom:9 }}>
+                    <label style={{ fontSize:10.5, fontWeight:800, color:'var(--muted)', textTransform:'uppercase', letterSpacing:.4 }}>{lb}</label>
+                    <input value={fichaEdit[k] || ''} onChange={e => setFichaEdit(p2 => ({ ...p2, [k]: e.target.value }))}
+                      style={{ width:'100%', padding:'8px 11px', borderRadius:10, border:'1.5px solid var(--border)', fontSize:13, background:'var(--card)', color:'var(--txt)', boxSizing:'border-box', marginTop:3 }} />
+                  </div>
+                ))}
+                <div style={{ display:'flex', gap:8, justifyContent:'flex-end', marginTop:12 }}>
+                  <button onClick={() => setFichaEdit(null)} className="btn btn-s">Cancelar</button>
+                  <button onClick={async () => {
+                    try { await api.put(`/inbox/conversations/${sel.id}/ficha`, fichaEdit); setFichaEdit(null); Toast.show('Ficha salva! 📇', 'success'); abrirFicha(); }
+                    catch (e) { Toast.show(e.message, 'error'); }
+                  }} className="btn btn-p">Salvar ficha</button>
+                </div>
+              </>) : (<>
+                {/* Resumo do relacionamento */}
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(110px,1fr))', gap:9, marginBottom:14 }}>
+                  {[['🤝','Atendimentos', ficha.resumo?.atendimentos ?? 0],
+                    ...(ficha.resumo?.total_gasto != null ? [['💰','Total investido', fmt.brl(ficha.resumo.total_gasto)]] : []),
+                    ['📅','Agendamentos', ficha.resumo?.agendamentos ?? 0],
+                    ['🗓️','Cliente desde', ficha.cliente?.cliente_desde ? new Date(ficha.cliente.cliente_desde).toLocaleDateString('pt-BR') : '—']].map(([ic, lb, v]) => (
+                    <div key={lb} style={{ background:'var(--bg2)', borderRadius:11, padding:'9px 11px' }}>
+                      <div style={{ fontSize:10.5, color:'var(--muted)', fontWeight:700 }}>{ic} {lb}</div>
+                      <div style={{ fontSize:15, fontWeight:900, lineHeight:1.3 }}>{v}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Dados pessoais */}
+                <div style={{ fontSize:10.5, fontWeight:800, color:'var(--muted)', textTransform:'uppercase', letterSpacing:.6, marginBottom:6 }}>Dados pessoais</div>
+                {[['👶','Paciente', ficha.cliente?.paciente], ['🎂','Nascimento', ficha.cliente?.nascimento ? fmt.date(ficha.cliente.nascimento) : null],
+                  ['🆔','CPF do paciente', ficha.cliente?.cpf], ['👤','Responsável', ficha.cliente?.responsavel],
+                  ['🆔','CPF do responsável', ficha.cliente?.responsavel_cpf], ['📱','Telefone', fmt.phone(ficha.cliente?.telefone)],
+                  ['✉️','E-mail', ficha.cliente?.email], ['🏠','Endereço', ficha.cliente?.endereco],
+                  ['📍','CEP', ficha.cliente?.cep], ['👧','Outros filhos', ficha.cliente?.filhos],
+                  ['📋','Etapa no funil', ficha.cliente?.status_funil]].filter(x => x[2]).map(([ic, lb, v]) => (
+                  <div key={lb} style={{ display:'flex', gap:9, padding:'6px 0', borderBottom:'1px solid var(--border)' }}>
+                    <span style={{ fontSize:13, width:18, flexShrink:0 }}>{ic}</span>
+                    <span style={{ fontSize:11.5, color:'var(--muted)', minWidth:120, fontWeight:700 }}>{lb}</span>
+                    <span style={{ fontSize:12.5, flex:1, minWidth:0, wordBreak:'break-word' }}>{v}</span>
+                  </div>
+                ))}
+
+                {/* Histórico de serviços */}
+                <div style={{ fontSize:10.5, fontWeight:800, color:'var(--muted)', textTransform:'uppercase', letterSpacing:.6, margin:'16px 0 6px' }}>
+                  Serviços realizados {ficha.vendas?.length ? `(${ficha.vendas.length})` : ''}
+                </div>
+                {!ficha.vendas?.length ? (
+                  <div style={{ fontSize:12.5, color:'var(--muted)', padding:'6px 0' }}>Nenhum serviço registrado ainda.</div>
+                ) : ficha.vendas.map(v => (
+                  <div key={v.id} style={{ display:'flex', alignItems:'center', gap:9, padding:'8px 0', borderBottom:'1px solid var(--border)' }}>
+                    <span style={{ fontSize:13, width:18, flexShrink:0 }}>{v.setor === 'consultas' ? '🩺' : v.setor === 'terapias' ? '🧩' : '💉'}</span>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontSize:12.5, fontWeight:700, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{v.servico || v.categoria || 'Serviço'}</div>
+                      <div style={{ fontSize:10.5, color:'var(--muted)' }}>
+                        {fmt.date(v.data_venda)}{v.paciente_nome ? ` · ${v.paciente_nome}` : ''}{v.atendente_nome ? ` · ${String(v.atendente_nome).split(' ')[0]}` : ''}
+                      </div>
+                    </div>
+                    {v.valor != null && <span style={{ fontSize:12.5, fontWeight:800, color:'var(--ok,#16a34a)' }}>{fmt.brl(v.valor)}</span>}
+                  </div>
+                ))}
+
+                {/* Agendamentos */}
+                {ficha.agenda?.length > 0 && (<>
+                  <div style={{ fontSize:10.5, fontWeight:800, color:'var(--muted)', textTransform:'uppercase', letterSpacing:.6, margin:'16px 0 6px' }}>Agendamentos ({ficha.agenda.length})</div>
+                  {ficha.agenda.map(a => (
+                    <div key={a.id} style={{ display:'flex', alignItems:'center', gap:9, padding:'7px 0', borderBottom:'1px solid var(--border)' }}>
+                      <span style={{ fontSize:12.5, fontWeight:800, color:'var(--tq2)', minWidth:74 }}>{fmt.date(a.data)}</span>
+                      <span style={{ fontSize:12, minWidth:40 }}>{a.hora}</span>
+                      <span style={{ flex:1, minWidth:0, fontSize:12, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{a.servico || a.paciente}</span>
+                      <span style={{ fontSize:10, fontWeight:800, color: a.status === 'Realizado' ? 'var(--ok)' : a.status === 'Faltou' ? '#c2410c' : a.status === 'Cancelado' ? 'var(--err)' : 'var(--muted)' }}>{a.status}</span>
+                    </div>
+                  ))}
+                </>)}
+              </>)}
+            </div>
           </div>
         </div>
       )}

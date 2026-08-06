@@ -810,6 +810,108 @@ async function distribuirSetor(convId, setor) {
 }
 
 // Garante que a conversa tem um lead no funil (pra captura salvar a ficha)
+/* ═══ 📇 CAPTURA AUTOMÁTICA DE DADOS DA CONVERSA ═══════════════════════════
+   Muitas famílias preenchem a ficha direto no WhatsApp. Este leitor entende o
+   formato (DADOS DO BEBÊ / DADOS DO RESPONSÁVEL) e salva tudo no cadastro do
+   cliente sozinho — ninguém precisa redigitar. Só PREENCHE o que está vazio:
+   nunca apaga um dado bom que já estava lá. */
+const soDig = (t) => String(t || '').replace(/\D/g, '');
+function extrairFicha(texto) {
+  const bruto = String(texto || '');
+  if (bruto.length < 20) return null;
+  // Precisa parecer uma ficha (2+ rótulos), senão ignora conversa comum
+  const rotulos = (bruto.match(/(nome completo|data de nascimento|cpf|telefone|e-?mail|endere[çc]o|\bcep\b)\s*:/gi) || []).length;
+  if (rotulos < 2) return null;
+
+  const semAcento = (t) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const linhas = bruto.split(/\n/);
+  // Divide em blocos: o que vem depois de "DADOS DO RESPONSÁVEL" é do responsável
+  let corte = linhas.findIndex(l => /dados do respons/i.test(semAcento(l)));
+  if (corte < 0) corte = linhas.length;
+  const blocoPac = linhas.slice(0, corte).join('\n');
+  const blocoResp = linhas.slice(corte).join('\n');
+
+  const pega = (bloco, re) => { const m = bloco.match(re); return m ? String(m[1]).trim().replace(/[\s.·•]+$/, '') : null; };
+  const nomeRe = /nome\s*(?:completo)?\s*:\s*(.+)/i;
+  const dataRe = /(?:data de )?nascimento\s*:\s*(\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})/i;
+  const cpfRe = /cpf[^:]*:\s*([\d.\-\s]{11,18})/i;
+  const telRe = /(?:telefone|celular|whats\w*)\s*:\s*([\d()\-\s.]{10,20})/i;
+  const mailRe = /e-?mail\s*:\s*([^\s,;]+@[^\s,;]+\.[a-z]{2,})/i;
+  const endRe = /endere[çc]o\s*:\s*(.+)/i;
+  const cepRe = /cep\s*:\s*([\d.\-\s]{8,12})/i;
+
+  const dataBR = (d) => {
+    if (!d) return null;
+    const [a, b, c] = d.split(/[\/-]/).map(x => x.trim());
+    if (!a || !b || !c) return null;
+    const ano = c.length === 2 ? `20${c}` : c;
+    const iso = `${ano}-${String(b).padStart(2, '0')}-${String(a).padStart(2, '0')}`;
+    return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : null;
+  };
+  const cpfOk = (c) => { const d = soDig(c); return d.length === 11 ? d : null; };
+
+  const f = {
+    paciente_nome: pega(blocoPac, nomeRe),
+    nascimento: dataBR(pega(blocoPac, dataRe) || pega(bruto, dataRe)),
+    paciente_cpf: cpfOk(pega(blocoPac, cpfRe)),
+    responsavel_nome: pega(blocoResp, nomeRe),
+    responsavel_cpf: cpfOk(pega(blocoResp, cpfRe)),
+    telefone: soDig(pega(bruto, telRe) || '').slice(0, 13) || null,
+    email: pega(bruto, mailRe),
+    endereco: pega(bruto, endRe),
+    cep: (() => { const d = soDig(pega(bruto, cepRe)); return d.length === 8 ? d : null; })(),
+  };
+  // Limpezas: nome não pode ser rótulo vazio nem número
+  for (const k of ['paciente_nome', 'responsavel_nome']) {
+    if (f[k] && (f[k].length < 3 || /^\d+$/.test(f[k]))) f[k] = null;
+    if (f[k]) f[k] = f[k].slice(0, 80);
+  }
+  if (f.endereco) f.endereco = f.endereco.slice(0, 160);
+  return Object.values(f).some(Boolean) ? f : null;
+}
+
+/** Salva a ficha no cadastro do cliente. Só preenche campo VAZIO (COALESCE). */
+async function salvarFichaNoLead(conv, ficha, quem) {
+  try {
+    if (!ficha) return false;
+    const leadId = await garanteLead(conv);
+    if (!leadId) return false;
+    await query(`
+      UPDATE leads SET
+        nome = COALESCE(NULLIF(nome,''), $2, nome),
+        nascimento = COALESCE(nascimento, $3::date),
+        cpf = COALESCE(NULLIF(cpf,''), $4),
+        responsavel_cliente = COALESCE(NULLIF(responsavel_cliente,''), $5),
+        responsavel_cpf = COALESCE(NULLIF(responsavel_cpf,''), $6),
+        email = COALESCE(NULLIF(email,''), $7),
+        endereco = COALESCE(NULLIF(endereco,''), $8),
+        cep = COALESCE(NULLIF(cep,''), $9),
+        ficha_em = NOW(), updated_at = NOW()
+      WHERE id = $1`,
+      [leadId, ficha.paciente_nome, ficha.nascimento, ficha.paciente_cpf,
+       ficha.responsavel_nome, ficha.responsavel_cpf, ficha.email, ficha.endereco, ficha.cep]);
+    // Nome do paciente também vai pra memória (a Vitta usa no atendimento)
+    if (ficha.paciente_nome) {
+      const mem = { ...(conv.memoria || {}), paciente: (conv.memoria?.paciente || ficha.paciente_nome) };
+      if (ficha.nascimento && !mem.nascimento) mem.nascimento = ficha.nascimento;
+      if (ficha.responsavel_nome && !mem.responsavel) mem.responsavel = ficha.responsavel_nome;
+      await query('UPDATE conversas SET memoria = $1 WHERE id = $2', [JSON.stringify(mem), conv.id]).catch(() => {});
+    }
+    // Nota interna: a equipe vê que o cadastro foi preenchido sozinho
+    const campos = [ficha.paciente_nome && 'nome do paciente', ficha.nascimento && 'nascimento',
+      ficha.paciente_cpf && 'CPF', ficha.responsavel_nome && 'responsável', ficha.email && 'e-mail',
+      ficha.endereco && 'endereço', ficha.cep && 'CEP'].filter(Boolean);
+    if (campos.length) {
+      const { rows: [nota] } = await query(
+        `INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome, status)
+         VALUES ($1,'interno','text',$2,'Vitta · Cadastro automático','sent') RETURNING *`,
+        [conv.id, `📇 Salvei no cadastro do cliente: ${campos.join(', ')}. Confira na ficha (clique no nome do cliente).`]).catch(() => ({ rows: [null] }));
+      if (nota) socketEmit('new_message', { convId: conv.id, message: nota });
+    }
+    return true;
+  } catch (e) { console.error('Captura de ficha:', e.message); return false; }
+}
+
 async function garanteLead(conv) {
   if (conv.lead_id) return conv.lead_id;
   // Primeira etapa real do funil do setor (ex: "Boas Vindas"), com fallback
@@ -2068,6 +2170,12 @@ r.post('/webhook/zapi', async (req, res) => {
       processarRespostaConfirmacao(conv, textoParaIA, phoneDigits); // fire-and-forget
     }
 
+    // 📇 Cliente mandou a ficha preenchida → salva no cadastro sozinho
+    if (!isGroupMsg && type === 'text' && content) {
+      const ficha = extrairFicha(content);
+      if (ficha) salvarFichaNoLead(conv, ficha, isMe ? 'equipe' : 'cliente');
+    }
+
     // ─── VITTA — IA CONVERSACIONAL COM CLAUDE ─────────────────────────────────
     // Responde a texto real OU áudio transcrito.
     // DEBOUNCE: mensagens em sequência são agregadas e a Vitta responde UMA
@@ -3284,6 +3392,8 @@ r.patch('/conversations/:id/read', async (req, res) => {
 r.patch('/conversations/:id/assign', async (req, res) => {
   try {
     const respId = req.body.responsavel_id || null;
+    // Quem era o dono ANTES (pra saber se o cliente já conhece outro nome)
+    const { rows: [antesConv] } = await query('SELECT responsavel_id, phone FROM conversas WHERE id = $1', [req.params.id]).catch(() => ({ rows: [] }));
     await query('UPDATE conversas SET responsavel_id = $1 WHERE id = $2', [respId, req.params.id]);
     // O lead vinculado herda a carteira (responsável) — pra bater com a pasta/lista
     await query('UPDATE leads SET responsavel_id = $1 WHERE id = (SELECT lead_id FROM conversas WHERE id = $2 AND lead_id IS NOT NULL)', [respId, req.params.id]).catch(() => {});
@@ -3292,6 +3402,37 @@ r.patch('/conversations/:id/assign', async (req, res) => {
     const { rows: [conv] } = await query(`
       SELECT c.id, c.responsavel_id, u.nome AS responsavel_nome, u.cor AS responsavel_cor
       FROM conversas c LEFT JOIN usuarios u ON u.id = c.responsavel_id WHERE c.id = $1`, [req.params.id]);
+
+    /* 👋 PASSAGEM DE BASTÃO (pedido do master): a triagem apresenta a atendente
+       sorteada ("eu me chamo Maria"). Se a conversa depois muda de dono, o
+       cliente fica falando com outro nome sem entender. Aqui a nova atendente
+       se apresenta — e a assinatura das mensagens passa a bater com quem atende.
+       Só dispara quando REALMENTE trocou de pessoa e a conversa já foi iniciada. */
+    try {
+      const trocouDePessoa = respId && antesConv?.responsavel_id && String(antesConv.responsavel_id) !== String(respId);
+      if (trocouDePessoa && req.body.avisar_cliente !== false && zapiOk() && antesConv.phone) {
+        const { rows: [jaFalou] } = await query(
+          `SELECT 1 FROM mensagens WHERE conversa_id = $1 AND from_type IN ('me','bot') LIMIT 1`, [req.params.id]);
+        if (jaFalou) {
+          const nomeNovo = String(conv?.responsavel_nome || '').split(' ')[0];
+          if (nomeNovo) {
+            let ph = String(antesConv.phone).replace(/\D/g, '');
+            if (ph.startsWith('55') && ph.length >= 12) ph = ph.slice(2);
+            const texto = `Oi! 💙 Aqui é a *${nomeNovo}*, da Vittalis Saúde 😊\n\nVou continuar o seu atendimento a partir de agora, já com tudo o que conversamos até aqui. Qualquer coisa, é só me chamar — estou à disposição! 🥰`;
+            const zr = await zapiCall('/send-text', 'POST', { phone: `55${ph}`, message: texto }).catch(() => null);
+            if (zr?.ok) {
+              const { rows: [m2] } = await query(
+                `INSERT INTO mensagens (conversa_id, from_type, sender_id, sender_nome, type, content, status)
+                 VALUES ($1,'me',$2,$3,'text',$4,'delivered') RETURNING *`,
+                [req.params.id, respId, conv.responsavel_nome, texto]).catch(() => ({ rows: [null] }));
+              await query("UPDATE conversas SET last_message = $1, last_from = 'me', last_message_at = NOW() WHERE id = $2",
+                [texto.slice(0, 100), req.params.id]).catch(() => {});
+              if (m2) socketEmit('new_message', { convId: req.params.id, message: m2, conv });
+            }
+          }
+        }
+      }
+    } catch (e) { console.error('Passagem de bastão:', e.message); }
     res.json({ ok: true, ...conv });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -3740,6 +3881,12 @@ r.post('/conversations/:id/send', async (req, res) => {
       RETURNING *`,
       [req.params.id, type, content, req.user.id, nomeGravar]
     );
+
+    // 📇 A equipe também cola a ficha na conversa — captura igual
+    if (type === 'text' && typeof content === 'string') {
+      const fichaEq = extrairFicha(content);
+      if (fichaEq) salvarFichaNoLead(conv, fichaEq, 'equipe');
+    }
 
     // 📝 Transcreve o áudio da ATENDENTE em segundo plano (aparece embaixo do
     // player, igual aos áudios do cliente) — nunca atrasa nem trava o envio.
@@ -5010,6 +5157,79 @@ r.post('/conversations/:id/significado-nome', async (req, res) => {
     if (msg) socketEmit('new_message', { convId: conv.id, message: msg, conv });
     res.json({ ...dados, enviado: true });
   } catch (err) { console.error('Significado do nome:', err.message); res.status(500).json({ error: err.message }); }
+});
+
+/* ═══ 📇 FICHA COMPLETA DO CLIENTE (perfil + histórico de serviços) ═════════ */
+r.get('/conversations/:id/ficha', async (req, res) => {
+  try {
+    const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso.' });
+    const ehGestaoF = ['master', 'supervisor'].includes(req.user.role);
+
+    const tel8 = String(conv.phone || '').replace(/\D/g, '').slice(-8);
+    const [leadQ, vendasQ, agendaQ] = await Promise.all([
+      conv.lead_id
+        ? query('SELECT * FROM leads WHERE id = $1', [conv.lead_id])
+        : query(`SELECT * FROM leads WHERE RIGHT(regexp_replace(COALESCE(telefone,''),'\\D','','g'), 8) = $1 ORDER BY created_at DESC LIMIT 1`, [tel8]).catch(() => ({ rows: [] })),
+      query(`SELECT id, servico, categoria, setor, valor, desconto, forma_pagamento, status_pagamento,
+                    TO_CHAR(data_venda,'YYYY-MM-DD') data_venda, atendente_nome, paciente_nome
+               FROM vendas
+              WHERE conversa_id = $1 OR ($2 <> '' AND lead_id IN (SELECT id FROM leads WHERE RIGHT(regexp_replace(COALESCE(telefone,''),'\\D','','g'), 8) = $2))
+              ORDER BY data_venda DESC LIMIT 60`, [req.params.id, tel8]).catch(() => ({ rows: [] })),
+      query(`SELECT id, paciente, servico, TO_CHAR(data,'YYYY-MM-DD') data, hora, status, setor, profissional
+               FROM agenda_eventos
+              WHERE conversa_id = $1 OR RIGHT(regexp_replace(COALESCE(telefone,''),'\\D','','g'), 8) = $2
+              ORDER BY data DESC LIMIT 40`, [req.params.id, tel8]).catch(() => ({ rows: [] })),
+    ]);
+    const lead = leadQ.rows[0] || null;
+    const vendas = vendasQ.rows;
+    const pagas = vendas.filter(v => ['pago', 'cortesia'].includes(v.status_pagamento));
+    const totalGasto = pagas.reduce((sm, v) => sm + (parseFloat(v.valor) || 0), 0);
+
+    res.json({
+      cliente: {
+        nome_conversa: conv.contact_name, telefone: conv.phone,
+        paciente: lead?.nome || conv.memoria?.paciente || null,
+        nascimento: lead?.nascimento ? String(lead.nascimento).slice(0, 10) : (conv.memoria?.nascimento || null),
+        cpf: lead?.cpf || null,
+        responsavel: lead?.responsavel_cliente || conv.memoria?.responsavel || null,
+        responsavel_cpf: lead?.responsavel_cpf || null,
+        email: lead?.email || conv.memoria?.email || null,
+        endereco: lead?.endereco || conv.memoria?.endereco || null,
+        bairro: lead?.bairro || null, cep: lead?.cep || null,
+        filhos: lead?.filhos || null, setor: conv.setor, status_funil: lead?.status || null,
+        interesses: conv.memoria?.interesses || null, observacoes: lead?.observacoes || null,
+        cliente_desde: lead?.created_at || conv.created_at || null,
+        lead_id: lead?.id || null,
+      },
+      // Valores em R$ são da gestão (mesma regra do painel comercial)
+      resumo: { atendimentos: pagas.length, total_gasto: ehGestaoF ? totalGasto : null,
+        agendamentos: agendaQ.rows.length, ultima_compra: pagas[0]?.data_venda || null },
+      vendas: vendas.map(v => ehGestaoF ? v : { ...v, valor: null, desconto: null }),
+      agenda: agendaQ.rows,
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Salvar/corrigir a ficha na mão (a equipe ajusta o que a captura não pegou)
+r.put('/conversations/:id/ficha', async (req, res) => {
+  try {
+    const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso.' });
+    const leadId = await garanteLead(conv);
+    if (!leadId) return res.status(500).json({ error: 'Não consegui abrir o cadastro.' });
+    const b = req.body || {};
+    const cut2 = (v, n) => (v === undefined || v === null ? null : String(v).trim().slice(0, n) || null);
+    const nasc = /^\d{4}-\d{2}-\d{2}$/.test(b.nascimento || '') ? b.nascimento : null;
+    await query(`UPDATE leads SET nome = COALESCE($2, nome), nascimento = COALESCE($3::date, nascimento),
+        cpf = $4, responsavel_cliente = $5, responsavel_cpf = $6, email = $7, endereco = $8,
+        bairro = $9, cep = $10, filhos = $11, updated_at = NOW() WHERE id = $1`,
+      [leadId, cut2(b.paciente, 80), nasc, cut2(b.cpf, 14), cut2(b.responsavel, 80), cut2(b.responsavel_cpf, 14),
+       cut2(b.email, 120), cut2(b.endereco, 160), cut2(b.bairro, 60), cut2(b.cep, 9), cut2(b.filhos, 300)]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 /* ═══ ✅ PROTOCOLO DE ATENDIMENTO VITTALIS ══════════════════════════════════
