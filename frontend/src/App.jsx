@@ -7,6 +7,7 @@ import BuscaRapida from './components/BuscaRapida.jsx';
 import CelebracaoGlobal from './components/CelebracaoGlobal.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 import Login from './pages/Login.jsx';
+import { api } from './hooks/api.js';
 
 // Páginas carregadas sob demanda (code-splitting) — cada tela vira um pedaço
 // separado, baixado só quando abre. Deixa o carregamento inicial bem mais leve.
@@ -164,13 +165,34 @@ function Heartbeat({ userId }) {
 // notificação UMA vez após o login — aviso de cliente com a aba em 2º plano.
 function PwaSetup() {
   React.useEffect(() => {
-    try { if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {}); } catch {}
-    try {
-      if (window.Notification && Notification.permission === 'default' && !localStorage.getItem('vh_notif_perguntado')) {
-        localStorage.setItem('vh_notif_perguntado', '1');
-        setTimeout(() => Notification.requestPermission().catch(() => {}), 4000);
-      }
-    } catch {}
+    // Base64url (VAPID) → Uint8Array, formato exigido pelo navegador
+    const paraBytes = (b64) => {
+      const pad = '='.repeat((4 - (b64.length % 4)) % 4);
+      const cru = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+      return Uint8Array.from([...cru].map(c => c.charCodeAt(0)));
+    };
+    // Inscreve o aparelho pra receber aviso mesmo com o CRM fechado
+    const inscrever = async (reg) => {
+      try {
+        if (!('PushManager' in window) || Notification.permission !== 'granted') return;
+        const { publicKey } = await api.get('/extras/push/chave');
+        if (!publicKey) return;
+        let sub = await reg.pushManager.getSubscription();
+        if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: paraBytes(publicKey) });
+        const j = sub.toJSON();
+        await api.post('/extras/push/inscrever', { endpoint: j.endpoint, keys: j.keys });
+      } catch { /* silencioso: o sino do CRM continua funcionando */ }
+    };
+    (async () => {
+      try {
+        if (!('serviceWorker' in navigator)) return;
+        const reg = await navigator.serviceWorker.register('/sw.js');
+        if (window.Notification && Notification.permission === 'default' && !localStorage.getItem('vh_notif_perguntado')) {
+          localStorage.setItem('vh_notif_perguntado', '1');
+          setTimeout(async () => { try { await Notification.requestPermission(); inscrever(reg); } catch {} }, 4000);
+        } else inscrever(reg);
+      } catch {}
+    })();
   }, []);
   return null;
 }
