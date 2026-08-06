@@ -1856,6 +1856,102 @@ r.delete('/ligacoes/:id', async (req, res) => {
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* ═══ 🏁 FECHAMENTO DO RELATÓRIO DE METAS ══════════════════════════════════
+   No fim do mês a equipe fecha o relatório: por setor (mínima, global, quanto
+   faltou, prêmio) e por atendente. Ao FECHAR, os números viram uma foto do
+   mês — não mudam mais, mesmo que uma venda antiga seja editada depois. */
+r.get('/metas/fechamento', async (req, res) => {
+  try {
+    const mes = /^\d{4}-\d{2}$/.test(req.query.mes || '') ? req.query.mes
+      : new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 7);
+
+    // Já fechado? Devolve a foto guardada (números congelados)
+    const { rows: [fech] } = await query("SELECT valor FROM configuracoes WHERE chave = $1", [`metas_fechamento_${mes}`]).catch(() => ({ rows: [] }));
+    if (fech?.valor && req.query.recalcular !== '1') return res.json({ ...fech.valor, fechado: true });
+
+    const { rows: cfg } = await query("SELECT valor FROM configuracoes WHERE chave = 'metas'");
+    const v = cfg[0]?.valor || {};
+    const minDe = (s2) => Math.max(0, parseFloat(v.minimas?.[s2]) || 100000);
+    const gloDe = (s2) => Math.max(1, parseFloat(v.globais?.[s2]) || 500000);
+    const preDe = (s2) => Math.max(0, parseFloat(v.premios?.[s2]) || 10000);
+    const preMinDe = (s2) => Math.max(0, parseFloat(v.premiosMin?.[s2]) || 1500);
+    const PAGO = "status_pagamento IN ('pago','cortesia')";
+
+    const [porSetorQ, porAtendQ, totQ] = await Promise.all([
+      query(`SELECT COALESCE(setor,'vacinas') setor, COUNT(*)::int n,
+                    COALESCE(SUM(valor) FILTER (WHERE ${PAGO}),0)::float confirmado
+               FROM vendas WHERE to_char(data_venda,'YYYY-MM') = $1 GROUP BY 1`, [mes]),
+      query(`SELECT COALESCE(atendente_nome,'—') nome, atendente_id, COUNT(*)::int n,
+                    COALESCE(SUM(valor) FILTER (WHERE ${PAGO}),0)::float confirmado
+               FROM vendas WHERE to_char(data_venda,'YYYY-MM') = $1
+              GROUP BY 1,2 ORDER BY confirmado DESC`, [mes]),
+      query(`SELECT COUNT(*)::int n, COALESCE(SUM(valor) FILTER (WHERE ${PAGO}),0)::float confirmado,
+                    COALESCE(SUM(valor) FILTER (WHERE status_pagamento NOT IN ('pago','cortesia')),0)::float pendente
+               FROM vendas WHERE to_char(data_venda,'YYYY-MM') = $1`, [mes]),
+    ]);
+
+    const mapa = Object.fromEntries(porSetorQ.rows.map(r2 => [r2.setor, r2]));
+    const setores = ['vacinas', 'consultas', 'terapias'].map(s2 => {
+      const d = mapa[s2] || { n: 0, confirmado: 0 };
+      const MM = minDe(s2), MG = gloDe(s2);
+      return { setor: s2, vendas: d.n, confirmado: d.confirmado,
+        meta_minima: MM, falta_minima: Math.max(MM - d.confirmado, 0), bateu_minima: d.confirmado >= MM,
+        meta_global: MG, falta_global: Math.max(MG - d.confirmado, 0), bateu_global: d.confirmado >= MG,
+        pct_minima: MM ? +((d.confirmado / MM) * 100).toFixed(1) : 0,
+        pct_global: +((d.confirmado / MG) * 100).toFixed(1),
+        premio_minima: preMinDe(s2), premio_global: preDe(s2),
+        premio_conquistado: (d.confirmado >= MG ? preDe(s2) : d.confirmado >= MM ? preMinDe(s2) : 0) };
+    });
+
+    // Meta individual de cada atendente (quando cadastrada)
+    const { rows: usuarios } = await query('SELECT id, nome, meta_individual FROM usuarios').catch(() => ({ rows: [] }));
+    const metaInd = Object.fromEntries(usuarios.map(u => [u.id, parseFloat(u.meta_individual) || 0]));
+    const atendentes = porAtendQ.rows.map(a => {
+      const meta = metaInd[a.atendente_id] || 0;
+      return { nome: a.nome, vendas: a.n, confirmado: a.confirmado, meta,
+        falta: meta ? Math.max(meta - a.confirmado, 0) : null,
+        pct: meta ? +((a.confirmado / meta) * 100).toFixed(1) : null, bateu: meta ? a.confirmado >= meta : null };
+    });
+
+    const t = totQ.rows[0] || { n: 0, confirmado: 0, pendente: 0 };
+    res.json({
+      mes, fechado: false,
+      total: { vendas: t.n, confirmado: t.confirmado, pendente: t.pendente,
+        premios: setores.reduce((sm, s2) => sm + s2.premio_conquistado, 0) },
+      setores, atendentes,
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Fecha o mês: guarda a foto dos números (quem fechou e quando)
+r.post('/metas/fechamento', async (req, res) => {
+  try {
+    const mes = /^\d{4}-\d{2}$/.test(req.body?.mes || '') ? req.body.mes
+      : new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 7);
+    const dados = req.body?.dados;
+    if (!dados || !dados.setores) return res.status(400).json({ error: 'Dados do fechamento ausentes.' });
+    const foto = { ...dados, mes, fechado: true, fechado_por: req.user.nome, fechado_em: new Date().toISOString(),
+      observacao: String(req.body?.observacao || '').slice(0, 500) || null };
+    await query(`INSERT INTO configuracoes (chave, valor) VALUES ($1, $2::jsonb)
+                 ON CONFLICT (chave) DO UPDATE SET valor = $2::jsonb, updated_at = NOW()`,
+      [`metas_fechamento_${mes}`, JSON.stringify(foto)]);
+    await query(`INSERT INTO notificacoes (tipo, titulo, texto) VALUES ('novo_lead', $1, $2)`,
+      [`🏁 Metas de ${mes.split('-').reverse().join('/')} fechadas`,
+       `${req.user.nome} fechou o relatório do mês. Prêmios conquistados: R$ ${Number(foto.total?.premios || 0).toLocaleString('pt-BR')}.`]).catch(() => {});
+    res.json({ ok: true, ...foto });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Reabrir (gestão) — pra corrigir algo depois de fechado
+r.delete('/metas/fechamento/:mes', async (req, res) => {
+  try {
+    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão reabre um mês fechado.' });
+    if (!/^\d{4}-\d{2}$/.test(req.params.mes)) return res.status(400).json({ error: 'Mês inválido.' });
+    await query('DELETE FROM configuracoes WHERE chave = $1', [`metas_fechamento_${req.params.mes}`]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 /* ═══ 🏥 VITTASYS — endereço da aba embutida ═══════════════════════════════ */
 r.get('/vittasys/config', async (req, res) => {
   try {

@@ -27,6 +27,67 @@ export default function Caixa() {
   const api = useApi();
   const { user } = useAuth();
   const gestao = user?.role === 'master' || user?.role === 'supervisor';
+  // 🏁 Fechamento do relatório de metas (a equipe fecha o mês)
+  const [relMetas, setRelMetas] = useState(null);
+  const [relBusy, setRelBusy] = useState(false);
+  const mesFechISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
+  const [mesFech, setMesFech] = useState(mesFechISO());
+  const abrirFechamento = async (mesAlvo) => {
+    const alvo = mesAlvo || mesFech;
+    setMesFech(alvo); setRelMetas({ carregando: true });
+    try { setRelMetas(await api.get(`/extras/metas/fechamento?mes=${alvo}`)); }
+    catch (e) { setRelMetas({ erro: e.message }); }
+  };
+  const confirmarFechamento = async () => {
+    if (!window.confirm(`Fechar o relatório de metas de ${mesFech}?\n\nOs números ficam congelados como a foto oficial do mês.`)) return;
+    setRelBusy(true);
+    try { const r = await api.post('/extras/metas/fechamento', { mes: mesFech, dados: relMetas }); setRelMetas({ ...r }); }
+    catch (e) { window.alert('Erro: ' + e.message); }
+    setRelBusy(false);
+  };
+  const imprimirMetas = () => {
+    if (!relMetas || relMetas.carregando || relMetas.erro) return;
+    const w = window.open('', '_blank'); if (!w) return;
+    const NOMES = { vacinas: '💉 Vacinas', consultas: '🩺 Consultas', terapias: '🧩 Terapias' };
+    const linhasSetor = (relMetas.setores || []).map(s2 => `<tr>
+      <td><b>${NOMES[s2.setor] || s2.setor}</b></td>
+      <td class="c">${s2.vendas}</td>
+      <td class="r">${fmt.brl(s2.confirmado)}</td>
+      <td class="r">${fmt.brl(s2.meta_minima)}</td>
+      <td class="r ${s2.bateu_minima ? 'ok' : 'no'}">${s2.bateu_minima ? '✔ batida' : fmt.brl(s2.falta_minima)}</td>
+      <td class="r">${fmt.brl(s2.meta_global)}</td>
+      <td class="r ${s2.bateu_global ? 'ok' : 'no'}">${s2.bateu_global ? '✔ batida' : fmt.brl(s2.falta_global)}</td>
+      <td class="r"><b>${fmt.brl(s2.premio_conquistado)}</b></td></tr>`).join('');
+    const linhasAtend = (relMetas.atendentes || []).map(a => `<tr>
+      <td>${a.nome}</td><td class="c">${a.vendas}</td><td class="r">${fmt.brl(a.confirmado)}</td>
+      <td class="r">${a.meta ? fmt.brl(a.meta) : '—'}</td>
+      <td class="r ${a.bateu ? 'ok' : ''}">${a.meta ? (a.bateu ? '✔ batida' : fmt.brl(a.falta)) : '—'}</td></tr>`).join('');
+    w.document.write(`<html><head><title>Relatório de metas ${relMetas.mes}</title><meta charset="utf-8">
+      <style>@page{size:A4;margin:12mm}body{font-family:Arial,Helvetica,sans-serif;color:#14202b;margin:0}
+      h1{color:#0E8C96;margin:0 0 2px;font-size:20px}h2{font-size:13px;margin:18px 0 7px;color:#0f172a}
+      .sub{color:#64748b;font-size:12px;margin-bottom:14px}
+      table{width:100%;border-collapse:collapse;font-size:11.5px}
+      th{background:#0E8C96;color:#fff;padding:6px 8px;text-align:left;font-size:10px}
+      td{border:1px solid #dbe3ea;padding:6px 8px}
+      td.c{text-align:center}td.r{text-align:right}
+      td.ok{color:#15803d;font-weight:bold}td.no{color:#b45309}
+      .tot{margin-top:14px;font-size:13px}.tot b{color:#0E8C96}
+      .ass{margin-top:34px;display:flex;gap:40px}.ass div{flex:1;border-top:1px solid #94a3b8;padding-top:5px;font-size:10.5px;color:#64748b;text-align:center}
+      .rod{margin-top:18px;border-top:1px solid #dbe3ea;padding-top:8px;font-size:9.5px;color:#94a3b8}</style></head><body>
+      <h1>Relatório de Metas — Vittalis Saúde</h1>
+      <div class="sub">Mês de referência: <b>${relMetas.mes}</b>${relMetas.fechado ? ` &middot; FECHADO por ${relMetas.fechado_por} em ${new Date(relMetas.fechado_em).toLocaleString('pt-BR')}` : ' &middot; prévia (ainda não fechado)'}</div>
+      <h2>Por setor</h2>
+      <table><thead><tr><th>Setor</th><th class="c">Vendas</th><th class="r">Confirmado</th><th class="r">Meta mínima</th><th class="r">Falta mínima</th><th class="r">Meta global</th><th class="r">Falta global</th><th class="r">Prêmio</th></tr></thead>
+      <tbody>${linhasSetor}</tbody></table>
+      <h2>Por atendente</h2>
+      <table><thead><tr><th>Atendente</th><th class="c">Vendas</th><th class="r">Confirmado</th><th class="r">Meta individual</th><th class="r">Falta</th></tr></thead>
+      <tbody>${linhasAtend || '<tr><td colspan="5">Nenhuma venda no período.</td></tr>'}</tbody></table>
+      <div class="tot">Total confirmado no mês: <b>${fmt.brl(relMetas.total?.confirmado)}</b> &middot; A receber: ${fmt.brl(relMetas.total?.pendente)} &middot; Prêmios conquistados: <b>${fmt.brl(relMetas.total?.premios)}</b></div>
+      <div class="ass"><div>Responsável pelo fechamento</div><div>Gestão / Diretoria</div></div>
+      <div class="rod">Emitido em ${new Date().toLocaleString('pt-BR')} &middot; VittaHub CRM</div>
+      <script>window.onload=()=>window.print()</script></body></html>`);
+    w.document.close();
+  };
   const veRepasse = gestao || user?.role === 'atendente'; // atendente enxerga o próprio repasse (1%)
   const [lista, setLista] = useState([]);
   const [carregando, setCarregando] = useState(true);
@@ -607,7 +668,12 @@ export default function Caixa() {
       {/* 🎯 Metas do mês — cada usuário vê o(s) setor(es) dele; master vê todos */}
       {metasSetor.length > 0 && (
         <div className="card" style={{ padding: '14px 16px', marginBottom: 16 }}>
-          <div style={{ fontSize: 12, fontWeight: 800, textTransform: 'uppercase', letterSpacing: .5, color: 'var(--muted)', marginBottom: 10 }}>🎯 Metas do mês por setor <span style={{ fontWeight: 600, textTransform: 'none' }}>(mínima e global configuráveis em Configurações)</span></div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+            <div style={{ flex: 1, minWidth: 200, fontSize: 12, fontWeight: 800, textTransform: 'uppercase', letterSpacing: .5, color: 'var(--muted)' }}>
+              🎯 Metas do mês por setor <span style={{ fontWeight: 600, textTransform: 'none' }}>(mínima e global configuráveis em Configurações)</span>
+            </div>
+            <button onClick={abrirFechamento} className="btn btn-sm" style={{ gap: 6, fontWeight: 800 }}>🏁 Fechar relatório de metas</button>
+          </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 14 }}>
             {metasSetor.map(ms => {
               const EMOJI = { vacinas: '💉', consultas: '🩺', terapias: '🧩' };
@@ -1093,6 +1159,110 @@ export default function Caixa() {
           </div>
         </div>
       )}
+      {/* 🏁 RELATÓRIO DE METAS DO MÊS — prévia, impressão e fechamento */}
+      {relMetas && (
+        <div onClick={e => e.target === e.currentTarget && setRelMetas(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(3,43,48,.55)', zIndex: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div className="card" style={{ width: '100%', maxWidth: 720, maxHeight: '90vh', padding: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{ padding: '14px 20px', background: 'linear-gradient(120deg,#0E8C96,#00B8C0)', color: '#fff', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 17 }}>🏁</span>
+              <div style={{ flex: 1, minWidth: 150 }}>
+                <div style={{ fontWeight: 800, fontSize: 14.5 }}>Relatório de metas</div>
+                <div style={{ fontSize: 11, opacity: .9 }}>
+                  {relMetas.fechado ? `Fechado por ${relMetas.fechado_por} em ${new Date(relMetas.fechado_em).toLocaleDateString('pt-BR')}` : 'Prévia — ainda não fechado'}
+                </div>
+              </div>
+              <input type="month" value={mesFech} onChange={e => abrirFechamento(e.target.value)}
+                style={{ padding: '5px 9px', borderRadius: 8, border: 'none', fontSize: 12, fontWeight: 700 }} />
+              <button onClick={() => setRelMetas(null)} style={{ background: 'rgba(255,255,255,.2)', border: 'none', color: '#fff', borderRadius: 8, padding: '5px 9px', cursor: 'pointer' }}>✕</button>
+            </div>
+
+            <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
+              {relMetas.carregando ? <div style={{ color: 'var(--muted)', fontSize: 13 }}>Calculando o mês…</div>
+              : relMetas.erro ? <div style={{ color: 'var(--err)', fontSize: 13, fontWeight: 600 }}>⚠️ {relMetas.erro}</div>
+              : (<>
+                {relMetas.fechado && (
+                  <div style={{ marginBottom: 12, padding: '9px 13px', borderRadius: 10, background: '#f0fdf4', border: '1px solid #86efac', fontSize: 12.5, fontWeight: 700, color: '#15803d' }}>
+                    ✅ Mês fechado — os números abaixo são a foto oficial e não mudam mais.
+                  </div>
+                )}
+                {/* Por setor */}
+                <div style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: .6, color: 'var(--muted)', marginBottom: 7 }}>Por setor</div>
+                {(relMetas.setores || []).map(s2 => {
+                  const N = { vacinas: '💉 Vacinas', consultas: '🩺 Consultas', terapias: '🧩 Terapias' }[s2.setor] || s2.setor;
+                  return (
+                    <div key={s2.setor} style={{ padding: '9px 0', borderBottom: '1px solid var(--border)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 800, marginBottom: 3 }}>
+                        <span>{N} <span style={{ fontWeight: 600, color: 'var(--muted)', fontSize: 11.5 }}>· {s2.vendas} venda(s)</span></span>
+                        <span style={{ color: 'var(--ok,#16a34a)' }}>{fmt.brl(s2.confirmado)}</span>
+                      </div>
+                      <div style={{ fontSize: 11.5, lineHeight: 1.6 }}>
+                        <span style={{ color: s2.bateu_minima ? '#16a34a' : '#b45309', fontWeight: 700 }}>
+                          {s2.bateu_minima ? '✅ Mínima batida' : `Faltou ${fmt.brl(s2.falta_minima)} p/ a mínima`}
+                        </span>
+                        <span style={{ color: 'var(--muted)' }}> · </span>
+                        <span style={{ color: s2.bateu_global ? '#16a34a' : '#0891b2', fontWeight: 700 }}>
+                          {s2.bateu_global ? '🏆 Global batida' : `Faltou ${fmt.brl(s2.falta_global)} p/ a global`}
+                        </span>
+                        {s2.premio_conquistado > 0 && (
+                          <span style={{ color: '#16a34a', fontWeight: 800 }}> · 🎁 Prêmio {fmt.brl(s2.premio_conquistado)}</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* Por atendente */}
+                <div style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: .6, color: 'var(--muted)', margin: '16px 0 7px' }}>Por atendente</div>
+                {(relMetas.atendentes || []).length === 0 ? (
+                  <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Nenhuma venda registrada no mês.</div>
+                ) : relMetas.atendentes.map((a, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--border)' }}>
+                    <span style={{ fontSize: 12.5, fontWeight: 800, color: i === 0 ? 'var(--gold,#C4973B)' : 'var(--muted)', minWidth: 20 }}>{i + 1}º</span>
+                    <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 700 }}>{String(a.nome).split(' ')[0]}
+                      <span style={{ fontWeight: 500, fontSize: 11, color: 'var(--muted)' }}> · {a.vendas} venda(s)</span></span>
+                    {a.meta > 0 && (
+                      <span style={{ fontSize: 11, fontWeight: 700, color: a.bateu ? '#16a34a' : '#b45309' }}>
+                        {a.bateu ? '✅ meta' : `faltou ${fmt.brl(a.falta)}`}
+                      </span>
+                    )}
+                    <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--ok,#16a34a)', minWidth: 90, textAlign: 'right' }}>{fmt.brl(a.confirmado)}</span>
+                  </div>
+                ))}
+
+                {/* Totais */}
+                <div style={{ marginTop: 14, padding: '11px 14px', borderRadius: 12, background: 'var(--bg2)', display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                  <div><div style={{ fontSize: 10.5, color: 'var(--muted)', fontWeight: 700 }}>Confirmado</div>
+                    <div style={{ fontSize: 16, fontWeight: 900, color: 'var(--ok,#16a34a)' }}>{fmt.brl(relMetas.total?.confirmado)}</div></div>
+                  <div><div style={{ fontSize: 10.5, color: 'var(--muted)', fontWeight: 700 }}>A receber</div>
+                    <div style={{ fontSize: 16, fontWeight: 900, color: '#d97706' }}>{fmt.brl(relMetas.total?.pendente)}</div></div>
+                  <div><div style={{ fontSize: 10.5, color: 'var(--muted)', fontWeight: 700 }}>🎁 Prêmios</div>
+                    <div style={{ fontSize: 16, fontWeight: 900, color: 'var(--tq2)' }}>{fmt.brl(relMetas.total?.premios)}</div></div>
+                </div>
+              </>)}
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, padding: '13px 20px', borderTop: '1px solid var(--border)', flexWrap: 'wrap' }}>
+              <button onClick={imprimirMetas} className="btn btn-s" style={{ gap: 6, fontWeight: 700 }}>🖨️ Imprimir</button>
+              <div style={{ flex: 1 }} />
+              {relMetas.fechado ? (
+                gestao && (
+                  <button onClick={async () => {
+                    if (!window.confirm('Reabrir este mês? Os números voltam a ser recalculados.')) return;
+                    try { await api.del(`/extras/metas/fechamento/${mesFech}`); abrirFechamento(mesFech); }
+                    catch (e) { window.alert('Erro: ' + e.message); }
+                  }} className="btn btn-s" style={{ color: 'var(--err)' }}>Reabrir mês</button>
+                )
+              ) : (
+                <button onClick={confirmarFechamento} disabled={relBusy || relMetas.carregando || relMetas.erro} className="btn btn-p" style={{ fontWeight: 800 }}>
+                  {relBusy ? 'Fechando…' : '🏁 Fechar o mês'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
