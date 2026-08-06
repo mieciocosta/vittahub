@@ -5201,7 +5201,8 @@ r.get('/conversations/:id/carteira', async (req, res) => {
 
     const nascimento = lead?.nascimento ? String(lead.nascimento).slice(0, 10) : (conv.memoria?.nascimento || null);
     const calendario = await getCalendarioVacinal();
-    const feitas = new Map(doses.map(d => [d.marco_mes, d]));
+    const feitas = new Map();
+    for (const d of doses) { const l = feitas.get(d.marco_mes) || []; l.push(d); feitas.set(d.marco_mes, l); }
 
     const hoje = new Date(Date.now() - 3 * 3600 * 1000);
     let idadeMeses = null;
@@ -5212,23 +5213,34 @@ r.get('/conversations/:id/carteira', async (req, res) => {
     }
 
     const marcos = calendario.map(c => {
-      const dose = feitas.get(c.mes) || null;
       let previsao = null;
       if (nascimento) {
         const d = new Date(nascimento + 'T12:00:00');
         d.setMonth(d.getMonth() + c.mes);
         previsao = d.toISOString().slice(0, 10);
       }
-      let status = 'futura';
-      if (dose?.aplicada) status = 'aplicada';
-      else if (idadeMeses != null) {
-        if (idadeMeses >= c.mes + 2) status = 'atrasada';
-        else if (idadeMeses >= c.mes) status = 'no_ponto';
-        else if (c.mes - idadeMeses <= 1) status = 'chegando';
+      // Situação do MARCO pela idade (cada dose herda e pode ser marcada sozinha)
+      let statusIdade = 'futura';
+      if (idadeMeses != null) {
+        if (idadeMeses >= c.mes + 2) statusIdade = 'atrasada';
+        else if (idadeMeses >= c.mes) statusIdade = 'no_ponto';
+        else if (c.mes - idadeMeses <= 1) statusIdade = 'chegando';
       }
-      return { ...c, previsao, status,
-        aplicada_em: dose?.data_aplicacao ? String(dose.data_aplicacao).slice(0, 10) : null,
-        observacao: dose?.observacao || null, registrado_por: dose?.registrado_por || null };
+      // Uma linha por VACINA (dose a dose)
+      const doMarco = feitas.get(c.mes) || [];
+      const legado = doMarco.find(d => (d.vacina || '') === (c.vacinas || ''));  // registro antigo = marco inteiro
+      const doses = String(c.vacinas || '').split(',').map(v => v.trim()).filter(Boolean).map(v => {
+        const reg = doMarco.find(d => (d.vacina || '').trim().toLowerCase() === v.toLowerCase()) || legado || null;
+        return { vacina: v, aplicada: !!reg,
+          aplicada_em: reg?.data_aplicacao ? String(reg.data_aplicacao).slice(0, 10) : null,
+          registrado_por: reg?.registrado_por || null };
+      });
+      const nAplic = doses.filter(d => d.aplicada).length;
+      const status = doses.length && nAplic === doses.length ? 'aplicada'
+        : nAplic > 0 ? 'parcial' : statusIdade;
+      return { ...c, previsao, status, doses,
+        aplicadas: nAplic, total_doses: doses.length,
+        aplicada_em: doses.find(d => d.aplicada_em)?.aplicada_em || null };
     });
 
     res.json({
@@ -5237,10 +5249,12 @@ r.get('/conversations/:id/carteira', async (req, res) => {
       telefone: conv.phone, nascimento, idade_meses: idadeMeses,
       lead_id: lead?.id || null, marcos,
       resumo: {
-        aplicadas: marcos.filter(m => m.status === 'aplicada').length,
+        aplicadas: marcos.reduce((n, m) => n + m.aplicadas, 0),
+        total: marcos.reduce((n, m) => n + m.total_doses, 0),
+        etapas_aplicadas: marcos.filter(m => m.status === 'aplicada').length,
+        etapas_total: marcos.length,
         atrasadas: marcos.filter(m => m.status === 'atrasada').length,
-        no_ponto: marcos.filter(m => ['no_ponto', 'chegando'].includes(m.status)).length,
-        total: marcos.length,
+        no_ponto: marcos.filter(m => ['no_ponto', 'chegando', 'parcial'].includes(m.status)).length,
       },
       compras: vendas, agenda,
     });
@@ -5254,8 +5268,11 @@ r.post('/conversations/:id/carteira', async (req, res) => {
     if (isNaN(marco)) return res.status(400).json({ error: 'Informe o marco.' });
     const { rows: [conv] } = await query('SELECT id, lead_id FROM conversas WHERE id = $1', [req.params.id]);
     if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    const vac = String(req.body?.vacina || '').trim().slice(0, 200);
     if (req.body?.aplicada === false) {
-      await query('DELETE FROM carteira_doses WHERE conversa_id = $1 AND marco_mes = $2', [req.params.id, marco]);
+      // Sem vacina = limpa o marco inteiro; com vacina = tira só aquela dose
+      if (vac) await query('DELETE FROM carteira_doses WHERE conversa_id = $1 AND marco_mes = $2 AND LOWER(TRIM(COALESCE(vacina,\'\'))) = LOWER($3)', [req.params.id, marco, vac]);
+      else await query('DELETE FROM carteira_doses WHERE conversa_id = $1 AND marco_mes = $2', [req.params.id, marco]);
       return res.json({ ok: true, aplicada: false });
     }
     const data = /^\d{4}-\d{2}-\d{2}$/.test(req.body?.data_aplicacao || '') ? req.body.data_aplicacao
@@ -5263,10 +5280,10 @@ r.post('/conversations/:id/carteira', async (req, res) => {
     const { rows: [d] } = await query(`
       INSERT INTO carteira_doses (conversa_id, lead_id, marco_mes, vacina, aplicada, data_aplicacao, observacao, registrado_por)
       VALUES ($1,$2,$3,$4,true,$5,$6,$7)
-      ON CONFLICT (COALESCE(conversa_id,''), COALESCE(lead_id,''), marco_mes)
+      ON CONFLICT (COALESCE(conversa_id,''), marco_mes, COALESCE(vacina,''))
       DO UPDATE SET aplicada = true, data_aplicacao = $5, observacao = COALESCE($6, carteira_doses.observacao), registrado_por = $7
       RETURNING *`,
-      [req.params.id, conv.lead_id || null, marco, String(req.body?.vacina || '').slice(0, 200) || null,
+      [req.params.id, conv.lead_id || null, marco, vac || null,
        data, String(req.body?.observacao || '').slice(0, 200) || null, req.user.nome]);
     res.json({ ok: true, aplicada: true, dose: d });
   } catch (err) { res.status(500).json({ error: err.message }); }

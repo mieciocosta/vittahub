@@ -24,11 +24,25 @@ export default function CarteiraVacinal({ convId, onAgendar, compacto = false })
   const carregar = () => api.get(`/inbox/conversations/${convId}/carteira`).then(setDados).catch(() => setDados({ erro: true }));
   useEffect(() => { setDados(null); carregar(); }, [convId]); // eslint-disable-line
 
-  const marcar = async (m) => {
-    const aplicando = m.status !== 'aplicada';
-    setSalvando(m.mes);
+  // Marca UMA dose específica (dose a dose)
+  const marcarDose = async (m, d) => {
+    setSalvando(`${m.mes}|${d.vacina}`);
     try {
-      await api.post(`/inbox/conversations/${convId}/carteira`, { marco_mes: m.mes, vacina: m.vacinas, aplicada: aplicando });
+      await api.post(`/inbox/conversations/${convId}/carteira`, { marco_mes: m.mes, vacina: d.vacina, aplicada: !d.aplicada });
+      await carregar();
+    } catch (e) { window.alert('Erro: ' + e.message); }
+    setSalvando(null);
+  };
+  // Marca/desmarca TODAS as doses do marco de uma vez
+  const marcarMarco = async (m) => {
+    const aplicando = m.aplicadas < m.total_doses;
+    setSalvando(`todas-${m.mes}`);
+    try {
+      if (aplicando) {
+        for (const d of m.doses) if (!d.aplicada) await api.post(`/inbox/conversations/${convId}/carteira`, { marco_mes: m.mes, vacina: d.vacina, aplicada: true });
+      } else {
+        await api.post(`/inbox/conversations/${convId}/carteira`, { marco_mes: m.mes, aplicada: false });
+      }
       await carregar();
     } catch (e) { window.alert('Erro: ' + e.message); }
     setSalvando(null);
@@ -37,20 +51,24 @@ export default function CarteiraVacinal({ convId, onAgendar, compacto = false })
   const imprimir = () => {
     if (!dados) return;
     const w = window.open('', '_blank'); if (!w) return;
+    // Uma linha por DOSE (igual à tela), agrupada pela idade
     const linhas = dados.marcos.map(m => {
-      const cls = m.status === 'aplicada' ? 'ok' : m.status === 'atrasada' ? 'atr' : m.status === 'no_ponto' ? 'pto' : '';
+      const cls = m.status === 'aplicada' ? 'ok' : m.status === 'atrasada' ? 'atr' : m.status === 'parcial' ? 'par' : m.status === 'no_ponto' ? 'pto' : '';
       const situacao = m.status === 'aplicada' ? 'Aplicada'
+        : m.status === 'parcial' ? `Parcial ${m.aplicadas}/${m.total_doses}`
         : m.status === 'atrasada' ? 'EM ATRASO'
         : m.status === 'no_ponto' ? 'Fazer agora'
         : m.status === 'chegando' ? 'Proxima' : 'Futura';
-      return `<tr class="${cls}">
-        <td class="idade"><b>${m.nome}</b></td>
-        <td>${m.vacinas}</td>
-        <td class="c">${m.previsao ? fmtBR(m.previsao) : '-'}</td>
-        <td class="c">${m.status === 'aplicada' ? (m.aplicada_em ? fmtBR(m.aplicada_em) : 'OK') : ''}</td>
+      const n = m.doses.length || 1;
+      return m.doses.map((d, i) => `<tr class="${cls}">
+        ${i === 0 ? `<td class="idade" rowspan="${n}"><b>${m.nome}</b></td>` : ''}
+        <td>${d.aplicada ? '&#10003; ' : '&#9744; '}${d.vacina}</td>
+        ${i === 0 ? `<td class="c" rowspan="${n}">${m.previsao ? fmtBR(m.previsao) : '-'}</td>` : ''}
+        <td class="c">${d.aplicada ? (d.aplicada_em ? fmtBR(d.aplicada_em) : 'OK') : ''}</td>
         <td class="c lote"></td>
-        <td class="c sit">${situacao}</td></tr>`;
+        ${i === 0 ? `<td class="c sit" rowspan="${n}">${situacao}</td>` : ''}</tr>`).join('');
     }).join('');
+
     const r = dados.resumo || {};
     w.document.write(`<html><head><title>Carteira vacinal - ${dados.paciente || ''}</title><meta charset="utf-8">
       <style>
@@ -79,6 +97,7 @@ export default function CarteiraVacinal({ convId, onAgendar, compacto = false })
         tr.ok td{color:#64748b} tr.ok td.sit{color:#15803d}
         tr.atr td{background:#fff5f5} tr.atr td.sit{color:#b91c1c}
         tr.pto td.sit{color:#0E8C96}
+        tr.par td{background:#fffbeb} tr.par td.sit{color:#b45309}
         .legenda{margin-top:12px;font-size:10px;color:#64748b}
         .rod{margin-top:16px;border-top:1px solid #dbe3ea;padding-top:9px;font-size:9.5px;color:#94a3b8;display:flex;justify-content:space-between}
       </style></head><body>
@@ -95,11 +114,11 @@ export default function CarteiraVacinal({ convId, onAgendar, compacto = false })
         <div><span>Contato</span><b>${dados.telefone || '-'}</b></div>
       </div>
       <div class="resumo">
-        <i class="a">${r.aplicadas || 0} de ${r.total || 0} etapas aplicadas</i>
+        <i class="a">${r.aplicadas || 0} de ${r.total || 0} doses aplicadas</i><i>${r.etapas_aplicadas || 0}/${r.etapas_total || 0} etapas completas</i>
         ${r.atrasadas ? `<i class="b">${r.atrasadas} em atraso</i>` : ''}
       </div>
       <table><thead><tr>
-        <th style="width:78px">IDADE</th><th>VACINAS</th>
+        <th style="width:78px">IDADE</th><th>DOSE / VACINA</th>
         <th style="width:78px" class="c">PREVISTO</th><th style="width:82px" class="c">APLICADA</th>
         <th style="width:78px" class="c">LOTE</th><th style="width:82px" class="c">SITUACAO</th>
       </tr></thead><tbody>${linhas}</tbody></table>
@@ -131,7 +150,7 @@ export default function CarteiraVacinal({ convId, onAgendar, compacto = false })
             </span>
           )}
           <span style={{ background: 'var(--bg2)', borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 800, color: 'var(--txt2)' }}>
-            {dados.resumo.aplicadas}/{dados.resumo.total} aplicadas
+            {dados.resumo.aplicadas}/{dados.resumo.total} doses aplicadas
           </span>
           <button onClick={imprimir} title="Imprimir a carteira" className="btn btn-sm" style={{ gap: 5, fontWeight: 700, padding: '5px 10px' }}>
             <Printer size={12} /> Imprimir
@@ -143,31 +162,54 @@ export default function CarteiraVacinal({ convId, onAgendar, compacto = false })
       <div style={{ display: 'flex', flexDirection: 'column', gap: 5, maxHeight: compacto ? 260 : 'none', overflowY: compacto ? 'auto' : 'visible' }}>
         {dados.marcos.map(m => {
           const st = ST[m.status] || ST.futura;
+          const parcial = m.status === 'parcial';
           return (
-            <div key={m.mes} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '7px 10px', borderRadius: 10, background: st[2], border: `1px solid ${m.status === 'futura' ? 'var(--border)' : st[1] + '44'}` }}>
-              <button onClick={() => marcar(m)} disabled={salvando === m.mes} title={m.status === 'aplicada' ? 'Desmarcar' : 'Marcar como aplicada'}
-                style={{ width: 22, height: 22, borderRadius: 7, flexShrink: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0,
-                  border: `2px solid ${m.status === 'aplicada' ? '#16a34a' : 'var(--border)'}`,
-                  background: m.status === 'aplicada' ? '#16a34a' : 'var(--card)', color: '#fff' }}>
-                {m.status === 'aplicada' && <Check size={13} strokeWidth={3} />}
-              </button>
-              <div style={{ minWidth: 74 }}>
-                <div style={{ fontSize: 12.5, fontWeight: 800, color: st[1] }}>{m.nome}</div>
-                {m.previsao && <div style={{ fontSize: 10, color: 'var(--muted)' }}>{fmtBR(m.previsao)}</div>}
-              </div>
-              <div style={{ flex: 1, minWidth: 0, fontSize: 11.5, lineHeight: 1.45, color: m.status === 'aplicada' ? 'var(--muted)' : 'var(--txt)', textDecoration: m.status === 'aplicada' ? 'line-through' : 'none' }}>
-                {m.vacinas}
-              </div>
-              {m.status === 'aplicada' ? (
-                <span style={{ fontSize: 10.5, color: '#16a34a', fontWeight: 700, whiteSpace: 'nowrap' }}>{m.aplicada_em ? fmtBR(m.aplicada_em) : 'ok'}</span>
-              ) : ['atrasada', 'no_ponto', 'chegando'].includes(m.status) && onAgendar ? (
-                <button onClick={() => onAgendar(m)} title="Agendar esta etapa" className="btn btn-sm"
-                  style={{ gap: 4, padding: '4px 9px', fontSize: 10.5, fontWeight: 800, background: st[1], color: '#fff', border: 'none', whiteSpace: 'nowrap' }}>
-                  <CalendarPlus size={11} /> Agendar
+            <div key={m.mes} style={{ borderRadius: 11, background: parcial ? '#fffbeb' : st[2], border: `1px solid ${m.status === 'futura' ? 'var(--border)' : (parcial ? '#fcd34d' : st[1] + '44')}`, overflow: 'hidden' }}>
+              {/* Cabeçalho do marco: idade, previsão e marcar tudo */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '7px 10px' }}>
+                <button onClick={() => marcarMarco(m)} disabled={!!salvando} title={m.aplicadas === m.total_doses ? 'Desmarcar todas' : 'Marcar todas as doses desta etapa'}
+                  style={{ width: 22, height: 22, borderRadius: 7, flexShrink: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, fontSize: 11, fontWeight: 900,
+                    border: `2px solid ${m.aplicadas === m.total_doses && m.total_doses ? '#16a34a' : parcial ? '#d97706' : 'var(--border)'}`,
+                    background: m.aplicadas === m.total_doses && m.total_doses ? '#16a34a' : parcial ? '#fde68a' : 'var(--card)',
+                    color: parcial ? '#92400e' : '#fff' }}>
+                  {m.aplicadas === m.total_doses && m.total_doses ? <Check size={13} strokeWidth={3} /> : parcial ? '–' : ''}
                 </button>
-              ) : (
-                <span style={{ fontSize: 10, fontWeight: 800, color: st[1], whiteSpace: 'nowrap' }}>{st[0]}</span>
-              )}
+                <div style={{ minWidth: 74 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 800, color: parcial ? '#b45309' : st[1] }}>{m.nome}</div>
+                  {m.previsao && <div style={{ fontSize: 10, color: 'var(--muted)' }}>{fmtBR(m.previsao)}</div>}
+                </div>
+                <span style={{ flex: 1, fontSize: 10.5, fontWeight: 800, color: parcial ? '#b45309' : st[1] }}>
+                  {parcial ? `🟡 Parcial · ${m.aplicadas}/${m.total_doses}` : st[0]}
+                  {m.total_doses > 1 && !parcial ? ` · ${m.aplicadas}/${m.total_doses}` : ''}
+                </span>
+                {['atrasada', 'no_ponto', 'chegando', 'parcial'].includes(m.status) && onAgendar && (
+                  <button onClick={() => onAgendar(m)} title="Agendar esta etapa" className="btn btn-sm"
+                    style={{ gap: 4, padding: '3px 9px', fontSize: 10.5, fontWeight: 800, background: parcial ? '#d97706' : st[1], color: '#fff', border: 'none', whiteSpace: 'nowrap' }}>
+                    <CalendarPlus size={11} /> Agendar
+                  </button>
+                )}
+              </div>
+
+              {/* DOSE A DOSE: cada vacina com o seu próprio check */}
+              <div style={{ background: 'var(--card)', borderTop: '1px solid var(--border)' }}>
+                {m.doses.map(d => (
+                  <div key={d.vacina} onClick={() => marcarDose(m, d)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px 5px 14px', cursor: 'pointer', borderBottom: '1px solid var(--border)', opacity: salvando === `${m.mes}|${d.vacina}` ? .5 : 1 }}>
+                    <span style={{ width: 17, height: 17, borderRadius: 5, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      border: `2px solid ${d.aplicada ? '#16a34a' : 'var(--border)'}`, background: d.aplicada ? '#16a34a' : 'transparent', color: '#fff' }}>
+                      {d.aplicada && <Check size={11} strokeWidth={3} />}
+                    </span>
+                    <span style={{ flex: 1, minWidth: 0, fontSize: 11.5, color: d.aplicada ? 'var(--muted)' : 'var(--txt)', textDecoration: d.aplicada ? 'line-through' : 'none' }}>
+                      {d.vacina}
+                    </span>
+                    {d.aplicada && (
+                      <span style={{ fontSize: 9.5, color: '#16a34a', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                        {d.aplicada_em ? fmtBR(d.aplicada_em) : 'aplicada'}{d.registrado_por ? ` · ${String(d.registrado_por).split(' ')[0]}` : ''}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           );
         })}
