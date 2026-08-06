@@ -168,6 +168,9 @@ export default async function runMigrate() {
       endpoint TEXT PRIMARY KEY, usuario_id TEXT NOT NULL, p256dh TEXT NOT NULL,
       auth TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions (usuario_id)`).catch(() => {});
+    // 📋 Raio-X da conversa (resumo + avaliação da IA), com cache por conversa
+    await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS resumo_ia JSONB`).catch(() => {});
+    await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS resumo_ia_at TIMESTAMPTZ`).catch(() => {});
 
     await query(`CREATE TABLE IF NOT EXISTS configuracoes (
       chave TEXT PRIMARY KEY, valor JSONB NOT NULL, updated_at TIMESTAMPTZ DEFAULT NOW()

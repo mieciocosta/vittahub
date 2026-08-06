@@ -4894,6 +4894,89 @@ r.post('/qualidade/analisar', masterOnly, async (req, res) => {
 });
 
 // On-demand: avalia UMA conversa específica
+/* ═══ 📋 RAIO-X DA CONVERSA — resumo + avaliação do atendimento ═════════════
+   A atendente (ou a gestão) abre e entende em segundos: quem é o cliente, o
+   que já foi oferecido, o que ficou combinado, o que está pendente — e o que
+   o atendimento deixou a desejar, com uma dica prática. Fica guardado até
+   chegar mensagem nova (não gasta IA à toa). */
+r.get('/conversations/:id/resumo', async (req, res) => {
+  try {
+    const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso: esta conversa é de outro setor.' });
+
+    // Avaliação do atendimento: gestão vê sempre; a atendente vê a DELA (auto-coaching)
+    const ehGestaoU = ['master', 'supervisor'].includes(req.user.role);
+    const podeAvaliacao = ehGestaoU || conv.responsavel_id === req.user.id;
+
+    // Cache: só recalcula se chegou mensagem depois do último resumo (ou ?forcar=1)
+    const forcar = req.query.forcar === '1';
+    if (!forcar && conv.resumo_ia && conv.resumo_ia_at && conv.last_message_at
+        && new Date(conv.resumo_ia_at) >= new Date(conv.last_message_at)) {
+      const cache = conv.resumo_ia;
+      return res.json({ ...cache, avaliacao: podeAvaliacao ? cache.avaliacao : null, cacheado: true });
+    }
+    if (!temIA()) return res.status(400).json({ error: 'IA não configurada.' });
+
+    const { rows: histRows } = await query(
+      `SELECT from_type, sender_nome, type, content, filename, transcricao, created_at
+         FROM mensagens
+        WHERE conversa_id = $1 AND from_type NOT IN ('system','interno')
+        ORDER BY created_at DESC LIMIT 80`, [req.params.id]);
+    const hist = histRows.reverse();
+    if (hist.length < 2) return res.status(400).json({ error: 'Conversa curta demais pra resumir.' });
+
+    const linhas = hist.map(m => {
+      const quem = m.from_type === 'contact' ? 'CLIENTE' : m.from_type === 'bot' ? 'VITTA (IA)' : (m.sender_nome || 'ATENDENTE');
+      let txt = m.transcricao ? `(áudio) ${m.transcricao}` : String(m.content || '');
+      if (txt.startsWith('data:')) txt = m.filename ? `[enviou ${m.filename}]` : '[mídia]';
+      const quando = new Date(m.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+      return `[${quando}] ${quem}: ${txt.slice(0, 400)}`;
+    }).join('\n');
+
+    const sys = `Você é supervisor de atendimento de uma clínica de pediatria e vacinação (Vittalis Saúde, São Luís-MA). Leia a conversa de WhatsApp e produza um RAIO-X objetivo para a equipe comercial. Português do Brasil, direto, sem enrolação e sem inventar nada que não esteja na conversa. Responda APENAS um JSON válido, sem markdown e sem asteriscos.`;
+    const prompt = `Conversa completa (mais antiga primeiro):\n\n${linhas}\n\nDevolva EXATAMENTE:
+{"resumo":"3 a 5 frases contando a história do atendimento do começo ao fim",
+ "cliente":"quem é a família / paciente e o que se sabe (idade, bebê, endereço) ou null",
+ "interesse":"o que o cliente quer, em poucas palavras",
+ "ja_oferecido":"o que já foi cotado/enviado (valores, planos, PDF) ou null",
+ "objecoes":["objeção ou receio demonstrado pelo cliente"],
+ "combinado":"o que ficou acertado ou null",
+ "pendente":"o que está travado agora, esperando alguém ou null",
+ "proximo_passo":"a ÚNICA próxima ação mais eficaz pra fechar a venda",
+ "temperatura":"quente|morno|frio",
+ "avaliacao":{"nota":0,"pontos_fortes":["o que a atendente fez bem"],"deixou_a_desejar":["o que faltou, de forma concreta e sem grosseria"],"dica":"uma orientação prática pra próxima conversa"}}
+
+Na avaliação, nota de 0 a 10 sobre COMO a atendente conduziu (rapidez, acolhimento, clareza, se ofereceu o próximo passo, se tentou fechar). Se quem respondeu foi só a IA (VITTA), avalie a condução do atendimento mesmo assim e diga isso em "deixou_a_desejar". Seja justo e específico: nada de "poderia melhorar" genérico.`;
+
+    const d = await openaiMessages({ model: 'gpt-4o', max_tokens: 4096, json: true, system: sys,
+      messages: [{ role: 'user', content: prompt }] });
+    if (d.error) return res.status(400).json({ error: 'Não consegui analisar agora. Tente de novo em instantes.' });
+    let j = null;
+    try { j = JSON.parse(((d.content || []).filter(b => b.type === 'text').map(b => b.text).join('')).trim()); } catch {}
+    if (!j?.resumo) return res.status(400).json({ error: 'Não consegui montar o resumo agora.' });
+
+    const limpa = (t) => String(t || '').replace(/\*+/g, '').trim() || null;
+    const lista = (a) => (Array.isArray(a) ? a : []).slice(0, 5).map(limpa).filter(Boolean);
+    const out = {
+      resumo: limpa(j.resumo), cliente: limpa(j.cliente), interesse: limpa(j.interesse),
+      ja_oferecido: limpa(j.ja_oferecido), objecoes: lista(j.objecoes), combinado: limpa(j.combinado),
+      pendente: limpa(j.pendente), proximo_passo: limpa(j.proximo_passo),
+      temperatura: ['quente', 'morno', 'frio'].includes(j.temperatura) ? j.temperatura : null,
+      avaliacao: j.avaliacao ? {
+        nota: Math.max(0, Math.min(parseFloat(j.avaliacao.nota) || 0, 10)),
+        pontos_fortes: lista(j.avaliacao.pontos_fortes),
+        deixou_a_desejar: lista(j.avaliacao.deixou_a_desejar),
+        dica: limpa(j.avaliacao.dica),
+      } : null,
+      mensagens: hist.length, gerado_em: new Date().toISOString(),
+    };
+    await query('UPDATE conversas SET resumo_ia = $1::jsonb, resumo_ia_at = NOW() WHERE id = $2',
+      [JSON.stringify(out), req.params.id]).catch(() => {});
+    res.json({ ...out, avaliacao: podeAvaliacao ? out.avaliacao : null });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.post('/conversations/:id/qualidade', masterOnly, async (req, res) => {
   try {
     const r2 = await analisarQualidade(req.params.id);
