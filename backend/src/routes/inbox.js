@@ -4220,6 +4220,8 @@ r.post('/conversations/:id/upload', upload.single('file'), async (req, res) => {
           : `55${conv.phone}`;
         const phone55 = waNumber.startsWith('55') ? waNumber : `55${waNumber}`;
         let sent = false;
+        // O motivo da recusa volta pra tela — vídeo grande falhava calado
+        let motivoFalha = null;
 
         // ── Z-API (caminho principal em produção) ──────────────────────────────
         if (zapiOk()) {
@@ -4239,7 +4241,11 @@ r.post('/conversations/:id/upload', upload.single('file'), async (req, res) => {
               sent = true;
             }
           } else if (zr) {
-            console.error('Z-API media send falhou:', zr.status, (await zr.text().catch(() => '')).slice(0, 200));
+            const corpo = (await zr.text().catch(() => '')).slice(0, 300);
+            console.error('Z-API media send falhou:', zr.status, corpo);
+            motivoFalha = `O WhatsApp recusou o arquivo (erro ${zr.status}).`;
+          } else {
+            motivoFalha = 'Não consegui falar com o WhatsApp agora.';
           }
         }
 
@@ -4264,7 +4270,18 @@ r.post('/conversations/:id/upload', upload.single('file'), async (req, res) => {
           }
           await query("UPDATE mensagens SET status = 'delivered' WHERE id = $1", [msg.id]);
         }
-      } catch (e) { console.error('Media send error:', e.message); }
+        if (!sent) {
+          await query("UPDATE mensagens SET status = 'erro' WHERE id = $1", [msg.id]).catch(() => {});
+          msg.status = 'erro';
+          msg.aviso = (type === 'video' && f.size > 15 * 1024 * 1024)
+            ? `O WhatsApp aceita vídeo de até ~16 MB e este tem ${(f.size / 1048576).toFixed(1)} MB. Comprima o vídeo (ou envie o link) e tente de novo.`
+            : (motivoFalha || 'O arquivo não chegou ao cliente.');
+        }
+      } catch (e) {
+        console.error('Media send error:', e.message);
+        await query("UPDATE mensagens SET status = 'erro' WHERE id = $1", [msg.id]).catch(() => {});
+        msg.status = 'erro'; msg.aviso = e.message;
+      }
     }
 
     res.json(msg);

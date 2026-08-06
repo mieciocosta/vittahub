@@ -1185,6 +1185,16 @@ export default function Inbox({ onUnreadChange }) {
                : f.type.startsWith('audio/')   ? 'audio'
                : 'document';
     if (type==='image'||type==='video') {
+      // O WhatsApp recusa vídeo acima de ~16 MB — avisamos ANTES de perder tempo
+      const mb = f.size / 1048576;
+      if (type==='video' && mb > 15) {
+        Toast.show(`Vídeo de ${mb.toFixed(1)} MB — o WhatsApp aceita até ~16 MB. Comprima o vídeo ou envie o link. 🎥`, 'error');
+        e.target.value=''; return;
+      }
+      if (mb > 40) {
+        Toast.show(`Arquivo de ${mb.toFixed(1)} MB é grande demais (máx. 40 MB).`, 'error');
+        e.target.value=''; return;
+      }
       const url = URL.createObjectURL(f);
       setFilePreview({ url, type, name:f.name, file:f, mime:f.type });
       e.target.value=''; return;
@@ -1195,21 +1205,31 @@ export default function Inbox({ onUnreadChange }) {
       e.target.value=''; return;
     }
     // Audio: upload direto
-    const fd = new FormData(); fd.append('file', f);
-    const m = await api.upload(`/inbox/conversations/${sel.id}/upload`, fd);
-    setMsgs(p => [...p, m]); e.target.value='';
+    try {
+      const fd = new FormData(); fd.append('file', f);
+      const m = await api.upload(`/inbox/conversations/${sel.id}/upload`, fd);
+      setMsgs(p => [...p, m]);
+      if (m?.aviso) Toast.show(`⚠️ ${m.aviso}`, 'error');
+    } catch (err) { Toast.show(`Não consegui enviar: ${err.message}`, 'error'); }
+    e.target.value='';
   };
 
   const sendFilePreview = async () => {
     if (!filePreview || !sel || sending) return; // guard: evita múltiplos cliques
     setSending(true);
     try {
+      const mb = (filePreview.file?.size || 0) / 1048576;
+      if (mb > 8) Toast.show(`Enviando ${mb.toFixed(1)} MB… pode levar alguns segundos ⏳`, 'info');
       const fd = new FormData(); fd.append('file', filePreview.file);
       const m = await api.upload(`/inbox/conversations/${sel.id}/upload`, fd);
       setMsgs(p => [...p, m]);
+      if (m?.aviso) Toast.show(`⚠️ ${m.aviso}`, 'error');   // chegou no CRM mas não no cliente
       if (filePreview.url) URL.revokeObjectURL(filePreview.url);
       setFilePreview(null);
-    } catch(e) { console.error('upload error:', e.message); }
+    } catch(e) {
+      console.error('upload error:', e.message);
+      Toast.show(`Não consegui enviar: ${e.message || 'falha no envio'}`, 'error');
+    }
     finally { setSending(false); }
   };
 
