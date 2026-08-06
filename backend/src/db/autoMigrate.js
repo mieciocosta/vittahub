@@ -197,7 +197,9 @@ export default async function runMigrate() {
       id SERIAL PRIMARY KEY, conversa_id TEXT, lead_id TEXT, marco_mes INT NOT NULL,
       vacina TEXT, aplicada BOOLEAN DEFAULT true, data_aplicacao DATE,
       observacao TEXT, registrado_por TEXT, created_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
-    await query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_carteira_unico ON carteira_doses (COALESCE(conversa_id,''), COALESCE(lead_id,''), marco_mes)`).catch(() => {});
+    // Controle DOSE A DOSE: uma linha por vacina dentro do marco
+    await query(`DROP INDEX IF EXISTS idx_carteira_unico`).catch(() => {});
+    await query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_carteira_dose ON carteira_doses (COALESCE(conversa_id,''), marco_mes, COALESCE(vacina,''))`).catch(() => {});
 
     await query(`CREATE TABLE IF NOT EXISTS configuracoes (
       chave TEXT PRIMARY KEY, valor JSONB NOT NULL, updated_at TIMESTAMPTZ DEFAULT NOW()
