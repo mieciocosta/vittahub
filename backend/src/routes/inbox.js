@@ -5159,6 +5159,41 @@ r.post('/conversations/:id/significado-nome', async (req, res) => {
   } catch (err) { console.error('Significado do nome:', err.message); res.status(500).json({ error: err.message }); }
 });
 
+/* ═══ ⭐ FIDELIDADE — CONTROLE MENSAL (check por cliente) ═══════════════════
+   Mensalista tem que ser atendido TODO mês. Aqui a equipe marca quem já foi
+   atendido no mês, e o que sobra sem check é exatamente quem falta buscar. */
+r.get('/fidelidade/checks', async (req, res) => {
+  try {
+    const mes = /^\d{4}-\d{2}$/.test(req.query.mes || '') ? req.query.mes
+      : new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 7);
+    const { rows } = await query(
+      `SELECT conversa_id, feito, observacao, feito_por_nome, feito_em
+         FROM fidelidade_checks WHERE mes = $1 AND feito = true`, [mes]);
+    res.json({ mes, checks: rows });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.post('/fidelidade/check', async (req, res) => {
+  try {
+    const convId = String(req.body?.conversa_id || '');
+    const mes = /^\d{4}-\d{2}$/.test(req.body?.mes || '') ? req.body.mes
+      : new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 7);
+    if (!convId) return res.status(400).json({ error: 'Informe a conversa.' });
+    const feito = req.body?.feito !== false;
+    if (!feito) {
+      await query('DELETE FROM fidelidade_checks WHERE conversa_id = $1 AND mes = $2', [convId, mes]);
+      return res.json({ ok: true, feito: false, mes });
+    }
+    const { rows: [c] } = await query(`
+      INSERT INTO fidelidade_checks (conversa_id, mes, feito, observacao, feito_por_id, feito_por_nome)
+      VALUES ($1,$2,true,$3,$4,$5)
+      ON CONFLICT (conversa_id, mes) DO UPDATE SET feito = true, observacao = COALESCE($3, fidelidade_checks.observacao),
+        feito_por_id = $4, feito_por_nome = $5, feito_em = NOW()
+      RETURNING *`, [convId, mes, String(req.body?.observacao || '').slice(0, 200) || null, req.user.id, req.user.nome]);
+    res.json({ ok: true, feito: true, mes, check: c });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 /* ═══ 📇 FICHA COMPLETA DO CLIENTE (perfil + histórico de serviços) ═════════ */
 r.get('/conversations/:id/ficha', async (req, res) => {
   try {

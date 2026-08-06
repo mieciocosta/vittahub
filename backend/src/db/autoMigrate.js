@@ -186,6 +186,12 @@ export default async function runMigrate() {
       created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS idx_solvac_data ON solicitacoes_vacinas (data_prevista, status)`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS idx_solvac_agenda ON solicitacoes_vacinas (agenda_id)`).catch(() => {});
+    // ⭐ Controle MENSAL da pasta Fidelidade (check por cliente/mês)
+    await query(`CREATE TABLE IF NOT EXISTS fidelidade_checks (
+      conversa_id TEXT NOT NULL, mes TEXT NOT NULL, feito BOOLEAN DEFAULT true,
+      observacao TEXT, feito_por_id TEXT, feito_por_nome TEXT,
+      feito_em TIMESTAMPTZ DEFAULT NOW(), PRIMARY KEY (conversa_id, mes))`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS idx_fidcheck_mes ON fidelidade_checks (mes)`).catch(() => {});
 
     await query(`CREATE TABLE IF NOT EXISTS configuracoes (
       chave TEXT PRIMARY KEY, valor JSONB NOT NULL, updated_at TIMESTAMPTZ DEFAULT NOW()
