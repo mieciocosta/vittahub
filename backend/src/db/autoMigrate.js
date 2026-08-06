@@ -201,6 +201,11 @@ export default async function runMigrate() {
     await query(`DROP INDEX IF EXISTS idx_carteira_unico`).catch(() => {});
     await query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_carteira_dose ON carteira_doses (COALESCE(conversa_id,''), marco_mes, COALESCE(vacina,''))`).catch(() => {});
 
+    // 🔒 Fechamento DIÁRIO de caixa e estoque (foto do dia, não muda depois)
+    await query(`CREATE TABLE IF NOT EXISTS fechamentos_diarios (
+      data DATE PRIMARY KEY, dados JSONB NOT NULL, observacao TEXT,
+      fechado_por_id TEXT, fechado_por_nome TEXT, fechado_em TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
+
     await query(`CREATE TABLE IF NOT EXISTS configuracoes (
       chave TEXT PRIMARY KEY, valor JSONB NOT NULL, updated_at TIMESTAMPTZ DEFAULT NOW()
     )`);

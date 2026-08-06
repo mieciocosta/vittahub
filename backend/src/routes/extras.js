@@ -1856,6 +1856,126 @@ r.delete('/ligacoes/:id', async (req, res) => {
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* ═══ 🔒 FECHAMENTO DIÁRIO — CAIXA E ESTOQUE ═══════════════════════════════
+   Rotina de fim de dia: confere o que entrou (por forma de pagamento) e as
+   doses que saíram do estoque. Ao fechar, vira a foto do dia — não muda mais,
+   e fica registrado quem fechou. Divergências ficam visíveis pra gestão. */
+r.get('/fechamento-diario', async (req, res) => {
+  try {
+    const dia = /^\d{4}-\d{2}-\d{2}$/.test(req.query.data || '') ? req.query.data
+      : new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+
+    // Já fechado? Devolve a foto guardada
+    const { rows: [f] } = await query('SELECT * FROM fechamentos_diarios WHERE data = $1', [dia]).catch(() => ({ rows: [] }));
+    if (f && req.query.recalcular !== '1') {
+      return res.json({ ...f.dados, data: dia, fechado: true, fechado_por: f.fechado_por_nome,
+        fechado_em: f.fechado_em, observacao: f.observacao });
+    }
+
+    const PAGO = "status_pagamento IN ('pago','cortesia')";
+    const [vendasQ, formasQ, dosesQ, agendaQ] = await Promise.all([
+      // Vendas do dia (lista curta pra conferência)
+      query(`SELECT id, cliente_nome, paciente_nome, servico, categoria, setor, valor, forma_pagamento,
+                    status_pagamento, atendente_nome,
+                    (SELECT COUNT(*) FROM venda_comprovantes c WHERE c.venda_id = v.id)::int comprovantes
+               FROM vendas v WHERE data_venda = $1 ORDER BY created_at`, [dia]),
+      // Total por forma de pagamento (o que precisa bater no fim do dia)
+      query(`SELECT COALESCE(forma_pagamento,'Outros') forma, COUNT(*)::int n,
+                    COALESCE(SUM(valor) FILTER (WHERE ${PAGO}),0)::float recebido,
+                    COALESCE(SUM(valor) FILTER (WHERE NOT (${PAGO})),0)::float a_receber
+               FROM vendas WHERE data_venda = $1 GROUP BY 1 ORDER BY recebido DESC`, [dia]),
+      // 💉 Doses aplicadas no dia (saída de estoque pela carteira vacinal)
+      query(`SELECT COALESCE(vacina,'(sem nome)') vacina, COUNT(*)::int qtd
+               FROM carteira_doses WHERE data_aplicacao = $1 AND aplicada = true
+              GROUP BY 1 ORDER BY qtd DESC`, [dia]).catch(() => ({ rows: [] })),
+      // Atendimentos do dia (contexto: quantos realizados x faltas)
+      query(`SELECT status, COUNT(*)::int n FROM agenda_eventos WHERE data = $1 GROUP BY 1`, [dia]).catch(() => ({ rows: [] })),
+    ]);
+
+    // Doses que estavam solicitadas pra hoje (o que era esperado sair)
+    const { rows: solQ } = await query(
+      `SELECT vacina, COALESCE(SUM(quantidade),0)::int qtd FROM solicitacoes_vacinas
+        WHERE data_prevista = $1 AND status <> 'cancelada' GROUP BY 1`, [dia]).catch(() => ({ rows: [] }));
+
+    const aplicadas = Object.fromEntries(dosesQ.rows.map(d => [d.vacina, d.qtd]));
+    const vacinas = new Set([...dosesQ.rows.map(d => d.vacina), ...solQ.map(s2 => s2.vacina)]);
+    const estoque = [...vacinas].map(v => ({
+      vacina: v,
+      previstas: solQ.find(s2 => s2.vacina === v)?.qtd || 0,
+      aplicadas: aplicadas[v] || 0,
+      contado: null,   // a equipe preenche o saldo contado no fechamento
+    })).sort((a, b) => b.aplicadas - a.aplicadas);
+
+    const vendas = vendasQ.rows;
+    const recebido = formasQ.rows.reduce((sm, x) => sm + Number(x.recebido || 0), 0);
+    const aReceber = formasQ.rows.reduce((sm, x) => sm + Number(x.a_receber || 0), 0);
+
+    res.json({
+      data: dia, fechado: false,
+      caixa: {
+        vendas: vendas.length, recebido, a_receber: aReceber,
+        formas: formasQ.rows,
+        sem_comprovante: vendas.filter(v => !v.comprovantes).length,
+        lista: vendas.map(v => ({ ...v, valor: Number(v.valor) || 0 })),
+        dinheiro_esperado: Number(formasQ.rows.find(x => x.forma === 'Dinheiro')?.recebido || 0),
+      },
+      estoque, atendimentos: Object.fromEntries(agendaQ.rows.map(a => [a.status, a.n])),
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Fecha o dia (caixa + estoque). Guarda a contagem e as divergências.
+r.post('/fechamento-diario', async (req, res) => {
+  try {
+    const dia = /^\d{4}-\d{2}-\d{2}$/.test(req.body?.data || '') ? req.body.data
+      : new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+    const dados = req.body?.dados;
+    if (!dados?.caixa) return res.status(400).json({ error: 'Dados do fechamento ausentes.' });
+
+    // Divergência do dinheiro em espécie (contado x esperado)
+    const contado = parseFloat(req.body?.dinheiro_contado);
+    if (!isNaN(contado)) {
+      dados.caixa.dinheiro_contado = contado;
+      dados.caixa.diferenca = +(contado - Number(dados.caixa.dinheiro_esperado || 0)).toFixed(2);
+    }
+    if (Array.isArray(req.body?.estoque)) dados.estoque = req.body.estoque;
+
+    const { rows: [f] } = await query(`
+      INSERT INTO fechamentos_diarios (data, dados, observacao, fechado_por_id, fechado_por_nome)
+      VALUES ($1, $2::jsonb, $3, $4, $5)
+      ON CONFLICT (data) DO UPDATE SET dados = $2::jsonb, observacao = $3,
+        fechado_por_id = $4, fechado_por_nome = $5, fechado_em = NOW()
+      RETURNING *`,
+      [dia, JSON.stringify(dados), String(req.body?.observacao || '').slice(0, 600) || null, req.user.id, req.user.nome]);
+
+    const dif = dados.caixa.diferenca;
+    await query(`INSERT INTO notificacoes (tipo, titulo, texto) VALUES ('novo_lead', $1, $2)`,
+      [`🔒 Caixa e estoque de ${dia.split('-').reverse().join('/')} fechados`,
+       `${req.user.nome} fechou o dia: ${dados.caixa.vendas} venda(s), R$ ${Number(dados.caixa.recebido || 0).toLocaleString('pt-BR')} recebidos` +
+       `${dif ? ` · ⚠️ diferença de R$ ${Number(dif).toLocaleString('pt-BR')} no dinheiro` : ''}.`]).catch(() => {});
+    res.json({ ok: true, ...f.dados, data: dia, fechado: true, fechado_por: f.fechado_por_nome, fechado_em: f.fechado_em, observacao: f.observacao });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.delete('/fechamento-diario/:data', async (req, res) => {
+  try {
+    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão reabre um dia fechado.' });
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(req.params.data)) return res.status(400).json({ error: 'Data inválida.' });
+    await query('DELETE FROM fechamentos_diarios WHERE data = $1', [req.params.data]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Histórico dos últimos fechamentos (pra gestão acompanhar a rotina)
+r.get('/fechamento-diario/historico', async (req, res) => {
+  try {
+    const { rows } = await query(`SELECT TO_CHAR(data,'YYYY-MM-DD') data, fechado_por_nome, fechado_em,
+             (dados->'caixa'->>'recebido')::float recebido, (dados->'caixa'->>'diferenca')::float diferenca
+        FROM fechamentos_diarios ORDER BY data DESC LIMIT 30`);
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 /* ═══ 🏁 FECHAMENTO DO RELATÓRIO DE METAS ══════════════════════════════════
    No fim do mês a equipe fecha o relatório: por setor (mínima, global, quanto
    faltou, prêmio) e por atendente. Ao FECHAR, os números viram uma foto do

@@ -27,6 +27,89 @@ export default function Caixa() {
   const api = useApi();
   const { user } = useAuth();
   const gestao = user?.role === 'master' || user?.role === 'supervisor';
+  // 🔒 Fechamento DIÁRIO (caixa + estoque) — rotina de fim de dia
+  const hojeDiaISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+  const [diaSel, setDiaSel] = useState(hojeDiaISO());
+  const [fd, setFd] = useState(null);            // dados do fechamento do dia
+  const [fdBusy, setFdBusy] = useState(false);
+  const [dinContado, setDinContado] = useState('');
+  const [fdObs, setFdObs] = useState('');
+  const [estContado, setEstContado] = useState({});   // vacina → saldo contado
+  const abrirDia = async (d) => {
+    const alvo = d || diaSel;
+    setDiaSel(alvo); setFd({ carregando: true }); setDinContado(''); setFdObs(''); setEstContado({});
+    try {
+      const r = await api.get(`/extras/fechamento-diario?data=${alvo}`);
+      setFd(r);
+      if (r.fechado) {
+        setDinContado(r.caixa?.dinheiro_contado ?? '');
+        setFdObs(r.observacao || '');
+        setEstContado(Object.fromEntries((r.estoque || []).map(e => [e.vacina, e.contado ?? ''])));
+      }
+    } catch (e) { setFd({ erro: e.message }); }
+  };
+  const fecharDia = async () => {
+    if (!window.confirm(`Fechar o caixa e o estoque de ${diaSel.split('-').reverse().join('/')}?\n\nOs números ficam congelados como a conferência oficial do dia.`)) return;
+    setFdBusy(true);
+    try {
+      const estoque = (fd.estoque || []).map(e => ({ ...e, contado: estContado[e.vacina] === '' || estContado[e.vacina] == null ? null : parseInt(estContado[e.vacina]) }));
+      const r = await api.post('/extras/fechamento-diario', { data: diaSel, dados: fd, estoque, dinheiro_contado: dinContado === '' ? null : parseFloat(String(dinContado).replace(',', '.')), observacao: fdObs });
+      setFd(r);
+    } catch (e) { window.alert('Erro: ' + e.message); }
+    setFdBusy(false);
+  };
+  const imprimirDia = () => {
+    if (!fd || fd.carregando || fd.erro) return;
+    const w = window.open('', '_blank'); if (!w) return;
+    const c = fd.caixa || {};
+    const formas = (c.formas || []).map(f2 => `<tr><td>${f2.forma}</td><td class="c">${f2.n}</td>
+      <td class="r">${fmt.brl(f2.recebido)}</td><td class="r">${fmt.brl(f2.a_receber)}</td></tr>`).join('');
+    const est = (fd.estoque || []).map(e => {
+      const cont = estContado[e.vacina] ?? e.contado;
+      return `<tr><td>${e.vacina}</td><td class="c">${e.previstas}</td><td class="c"><b>${e.aplicadas}</b></td>
+        <td class="c">${cont ?? ''}</td></tr>`;
+    }).join('');
+    const dif = c.diferenca ?? (dinContado !== '' ? (parseFloat(String(dinContado).replace(',', '.')) - Number(c.dinheiro_esperado || 0)) : null);
+    w.document.write(`<html><head><title>Fechamento do dia ${fd.data}</title><meta charset="utf-8">
+      <style>@page{size:A4;margin:12mm}body{font-family:Arial,Helvetica,sans-serif;color:#14202b;margin:0}
+      h1{color:#0E8C96;margin:0 0 2px;font-size:20px}h2{font-size:13px;margin:16px 0 6px}
+      .sub{color:#64748b;font-size:12px;margin-bottom:12px}
+      table{width:100%;border-collapse:collapse;font-size:11.5px}
+      th{background:#0E8C96;color:#fff;padding:6px 8px;text-align:left;font-size:10px}
+      td{border:1px solid #dbe3ea;padding:6px 8px}td.c{text-align:center}td.r{text-align:right}
+      .box{display:flex;gap:10px;margin:12px 0;flex-wrap:wrap}
+      .box div{border:1px solid #cbd5e1;border-radius:8px;padding:8px 14px;font-size:12px}
+      .box b{display:block;font-size:15px;color:#0E8C96}
+      .dif{color:${dif ? '#b91c1c' : '#15803d'};font-weight:bold}
+      .obs{margin-top:12px;font-size:11.5px;border:1px solid #dbe3ea;border-radius:8px;padding:9px 12px;min-height:38px}
+      .ass{margin-top:30px;display:flex;gap:40px}.ass div{flex:1;border-top:1px solid #94a3b8;padding-top:5px;font-size:10.5px;color:#64748b;text-align:center}
+      .rod{margin-top:16px;border-top:1px solid #dbe3ea;padding-top:8px;font-size:9.5px;color:#94a3b8}</style></head><body>
+      <h1>Fechamento do Dia — Vittalis Saúde</h1>
+      <div class="sub">${fd.data.split('-').reverse().join('/')}${fd.fechado ? ` &middot; fechado por ${fd.fechado_por} em ${new Date(fd.fechado_em).toLocaleString('pt-BR')}` : ' &middot; conferência (ainda não fechado)'}</div>
+
+      <h2>💰 Caixa</h2>
+      <table><thead><tr><th>Forma de pagamento</th><th class="c">Qtd</th><th class="r">Recebido</th><th class="r">A receber</th></tr></thead>
+      <tbody>${formas || '<tr><td colspan="4">Nenhuma venda no dia.</td></tr>'}</tbody></table>
+      <div class="box">
+        <div>Vendas<b>${c.vendas || 0}</b></div>
+        <div>Recebido<b>${fmt.brl(c.recebido)}</b></div>
+        <div>A receber<b>${fmt.brl(c.a_receber)}</b></div>
+        <div>Dinheiro esperado<b>${fmt.brl(c.dinheiro_esperado)}</b></div>
+        <div>Dinheiro contado<b>${dinContado !== '' ? fmt.brl(parseFloat(String(dinContado).replace(',', '.'))) : '________'}</b></div>
+        ${dif != null ? `<div>Diferença<b class="dif">${fmt.brl(dif)}</b></div>` : ''}
+      </div>
+      ${c.sem_comprovante ? `<div style="font-size:11.5px;color:#92400e">⚠ ${c.sem_comprovante} venda(s) sem comprovante anexado.</div>` : ''}
+
+      <h2>💉 Estoque — doses do dia</h2>
+      <table><thead><tr><th>Vacina</th><th class="c">Previstas</th><th class="c">Aplicadas</th><th class="c">Saldo contado</th></tr></thead>
+      <tbody>${est || '<tr><td colspan="4">Nenhuma dose registrada no dia.</td></tr>'}</tbody></table>
+
+      <h2>Observações</h2><div class="obs">${(fdObs || fd.observacao || '').replace(/</g, '&lt;')}</div>
+      <div class="ass"><div>Responsável pelo fechamento</div><div>Conferido pela gestão</div></div>
+      <div class="rod">Emitido em ${new Date().toLocaleString('pt-BR')} &middot; VittaHub CRM</div>
+      <script>window.onload=()=>window.print()</script></body></html>`);
+    w.document.close();
+  };
   // 🏁 Fechamento do relatório de metas (a equipe fecha o mês)
   const [relMetas, setRelMetas] = useState(null);
   const [relBusy, setRelBusy] = useState(false);
@@ -515,6 +598,7 @@ export default function Caixa() {
               <button onClick={() => { setShowRep(true); loadRep(); }} className="btn btn-sm" style={{ gap: 6, background: '#fca5a5', color: '#7f1d1d', border: 'none', fontWeight: 800 }} title="Fechar os repasses do mês (marcar pagos)">💸 Repasses</button>
             )}
             <button onClick={exportarCaixaDia} className="btn btn-sm" style={{ gap: 6, background: '#fde68a', color: '#7c2d12', border: 'none', fontWeight: 800 }} title="Fechamento do dia de hoje (PDF)"><CalendarCheck size={14} /> Caixa do dia{vendasHoje.length ? ` (${vendasHoje.length})` : ''}</button>
+            <button onClick={() => abrirDia()} className="btn btn-sm" style={{ gap: 6, background: '#0E8C96', color: '#fff', border: 'none', fontWeight: 800 }} title="Conferir e fechar caixa e estoque do dia">🔒 Fechar o dia</button>
             <button onClick={exportarCSV} className="btn btn-sm" style={{ gap: 6, background: 'rgba(255,255,255,.92)', color: '#065f46', border: 'none', fontWeight: 800 }} title="Exportar planilha (CSV)"><FileSpreadsheet size={14} /> Planilha</button>
             <button onClick={exportarPDF} className="btn btn-sm" style={{ gap: 6, background: 'rgba(255,255,255,.2)', color: '#fff', border: '1px solid rgba(255,255,255,.4)', fontWeight: 800 }} title="Gerar PDF do mês / imprimir"><Printer size={14} /> PDF do mês</button>
           </div>
@@ -1256,6 +1340,139 @@ export default function Caixa() {
               ) : (
                 <button onClick={confirmarFechamento} disabled={relBusy || relMetas.carregando || relMetas.erro} className="btn btn-p" style={{ fontWeight: 800 }}>
                   {relBusy ? 'Fechando…' : '🏁 Fechar o mês'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 🔒 FECHAMENTO DO DIA — caixa e estoque conferidos e congelados */}
+      {fd && (
+        <div onClick={e => e.target === e.currentTarget && setFd(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(3,43,48,.55)', zIndex: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div className="card" style={{ width: '100%', maxWidth: 720, maxHeight: '92vh', padding: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{ padding: '13px 20px', background: 'linear-gradient(120deg,#0E8C96,#00B8C0)', color: '#fff', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 17 }}>🔒</span>
+              <div style={{ flex: 1, minWidth: 140 }}>
+                <div style={{ fontWeight: 800, fontSize: 14.5 }}>Fechamento do dia</div>
+                <div style={{ fontSize: 11, opacity: .9 }}>
+                  {fd.fechado ? `Fechado por ${fd.fechado_por} em ${new Date(fd.fechado_em).toLocaleString('pt-BR')}` : 'Confira e feche caixa e estoque'}
+                </div>
+              </div>
+              <input type="date" value={diaSel} onChange={e => abrirDia(e.target.value)}
+                style={{ padding: '5px 9px', borderRadius: 8, border: 'none', fontSize: 12, fontWeight: 700 }} />
+              <button onClick={() => setFd(null)} style={{ background: 'rgba(255,255,255,.2)', border: 'none', color: '#fff', borderRadius: 8, padding: '5px 9px', cursor: 'pointer' }}>✕</button>
+            </div>
+
+            <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
+              {fd.carregando ? <div style={{ color: 'var(--muted)', fontSize: 13 }}>Conferindo o dia…</div>
+              : fd.erro ? <div style={{ color: 'var(--err)', fontSize: 13, fontWeight: 600 }}>⚠️ {fd.erro}</div>
+              : (<>
+                {fd.fechado && (
+                  <div style={{ marginBottom: 12, padding: '9px 13px', borderRadius: 10, background: '#f0fdf4', border: '1px solid #86efac', fontSize: 12.5, fontWeight: 700, color: '#15803d' }}>
+                    ✅ Dia fechado — esta é a conferência oficial.
+                  </div>
+                )}
+
+                {/* 💰 CAIXA */}
+                <div style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: .6, color: 'var(--muted)', marginBottom: 7 }}>💰 Caixa do dia</div>
+                {(fd.caixa?.formas || []).length === 0 ? (
+                  <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 8 }}>Nenhuma venda registrada neste dia.</div>
+                ) : (fd.caixa.formas.map(f2 => (
+                  <div key={f2.forma} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
+                    <span style={{ flex: 1, fontSize: 13, fontWeight: 700 }}>{f2.forma} <span style={{ fontWeight: 500, fontSize: 11, color: 'var(--muted)' }}>· {f2.n}x</span></span>
+                    {Number(f2.a_receber) > 0 && <span style={{ fontSize: 11.5, color: '#d97706', fontWeight: 700 }}>a receber {fmt.brl(f2.a_receber)}</span>}
+                    <span style={{ fontSize: 13.5, fontWeight: 800, color: 'var(--ok,#16a34a)', minWidth: 92, textAlign: 'right' }}>{fmt.brl(f2.recebido)}</span>
+                  </div>
+                )))}
+
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', margin: '12px 0' }}>
+                  {[['Vendas', fd.caixa?.vendas ?? 0], ['Recebido', fmt.brl(fd.caixa?.recebido)], ['A receber', fmt.brl(fd.caixa?.a_receber)]].map(([l, v]) => (
+                    <div key={l} style={{ background: 'var(--bg2)', borderRadius: 11, padding: '8px 13px' }}>
+                      <div style={{ fontSize: 10.5, color: 'var(--muted)', fontWeight: 700 }}>{l}</div>
+                      <div style={{ fontSize: 15, fontWeight: 900 }}>{v}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Conferência do dinheiro em espécie */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '10px 13px', borderRadius: 11, background: 'var(--bg2)', marginBottom: 6 }}>
+                  <div style={{ minWidth: 140 }}>
+                    <div style={{ fontSize: 10.5, color: 'var(--muted)', fontWeight: 700 }}>💵 Dinheiro esperado</div>
+                    <div style={{ fontSize: 15, fontWeight: 900 }}>{fmt.brl(fd.caixa?.dinheiro_esperado)}</div>
+                  </div>
+                  <div style={{ minWidth: 130 }}>
+                    <div style={{ fontSize: 10.5, color: 'var(--muted)', fontWeight: 700 }}>Contado na gaveta</div>
+                    <input value={dinContado} onChange={e => setDinContado(e.target.value)} disabled={fd.fechado} placeholder="0,00"
+                      style={{ width: 120, padding: '6px 10px', borderRadius: 9, border: '1.5px solid var(--border)', fontSize: 14, fontWeight: 800, background: 'var(--card)', color: 'var(--txt)', marginTop: 2 }} />
+                  </div>
+                  {(() => {
+                    const cont = dinContado === '' ? null : parseFloat(String(dinContado).replace(',', '.'));
+                    if (cont == null || isNaN(cont)) return null;
+                    const dif = +(cont - Number(fd.caixa?.dinheiro_esperado || 0)).toFixed(2);
+                    return (
+                      <div style={{ minWidth: 110 }}>
+                        <div style={{ fontSize: 10.5, color: 'var(--muted)', fontWeight: 700 }}>Diferença</div>
+                        <div style={{ fontSize: 15, fontWeight: 900, color: dif === 0 ? 'var(--ok,#16a34a)' : 'var(--err,#dc2626)' }}>
+                          {dif === 0 ? '✅ bateu' : fmt.brl(dif)}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+                {fd.caixa?.sem_comprovante > 0 && (
+                  <div style={{ fontSize: 11.5, color: '#92400e', background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 9, padding: '7px 11px', marginBottom: 8 }}>
+                    ⚠ {fd.caixa.sem_comprovante} venda(s) sem comprovante anexado — confira antes de fechar.
+                  </div>
+                )}
+
+                {/* 💉 ESTOQUE */}
+                <div style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: .6, color: 'var(--muted)', margin: '16px 0 7px' }}>💉 Estoque — doses do dia</div>
+                {(fd.estoque || []).length === 0 ? (
+                  <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Nenhuma dose aplicada ou prevista neste dia.</div>
+                ) : (<>
+                  <div style={{ display: 'flex', gap: 8, fontSize: 10, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', padding: '0 0 4px' }}>
+                    <span style={{ flex: 1 }}>Vacina</span><span style={{ width: 62, textAlign: 'center' }}>Previstas</span>
+                    <span style={{ width: 62, textAlign: 'center' }}>Aplicadas</span><span style={{ width: 74, textAlign: 'center' }}>Saldo</span>
+                  </div>
+                  {fd.estoque.map(e => (
+                    <div key={e.vacina} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderBottom: '1px solid var(--border)' }}>
+                      <span style={{ flex: 1, fontSize: 12.5, fontWeight: 600 }}>{e.vacina}</span>
+                      <span style={{ width: 62, textAlign: 'center', fontSize: 12.5, color: 'var(--muted)' }}>{e.previstas}</span>
+                      <span style={{ width: 62, textAlign: 'center', fontSize: 13, fontWeight: 800, color: 'var(--tq2)' }}>{e.aplicadas}</span>
+                      <input value={estContado[e.vacina] ?? ''} onChange={ev => setEstContado(p2 => ({ ...p2, [e.vacina]: ev.target.value }))}
+                        disabled={fd.fechado} type="number" min={0} placeholder="—"
+                        style={{ width: 74, padding: '4px 7px', borderRadius: 8, border: '1.5px solid var(--border)', fontSize: 12.5, textAlign: 'center', background: 'var(--card)', color: 'var(--txt)' }} />
+                    </div>
+                  ))}
+                  <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 6 }}>No campo <b>Saldo</b>, anote quantas doses sobraram na geladeira ao fim do dia.</div>
+                </>)}
+
+                {/* Observações */}
+                <div style={{ marginTop: 14 }}>
+                  <div style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: .6, color: 'var(--muted)', marginBottom: 5 }}>Observações do dia</div>
+                  <textarea value={fdObs} onChange={e => setFdObs(e.target.value)} disabled={fd.fechado} rows={2}
+                    placeholder="Ex.: sangria de R$ 200 para o banco, cliente pagou metade em dinheiro…"
+                    style={{ width: '100%', padding: '9px 11px', borderRadius: 10, border: '1.5px solid var(--border)', fontSize: 12.5, background: 'var(--card)', color: 'var(--txt)', boxSizing: 'border-box', resize: 'vertical', fontFamily: 'inherit' }} />
+                </div>
+              </>)}
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, padding: '13px 20px', borderTop: '1px solid var(--border)', flexWrap: 'wrap' }}>
+              <button onClick={imprimirDia} className="btn btn-s" style={{ gap: 6, fontWeight: 700 }}>🖨️ Imprimir</button>
+              <div style={{ flex: 1 }} />
+              {fd.fechado ? (
+                gestao && (
+                  <button onClick={async () => {
+                    if (!window.confirm('Reabrir este dia? A conferência volta a ser recalculada.')) return;
+                    try { await api.del(`/extras/fechamento-diario/${diaSel}`); abrirDia(diaSel); }
+                    catch (e) { window.alert('Erro: ' + e.message); }
+                  }} className="btn btn-s" style={{ color: 'var(--err)' }}>Reabrir dia</button>
+                )
+              ) : (
+                <button onClick={fecharDia} disabled={fdBusy || fd.carregando || fd.erro} className="btn btn-p" style={{ fontWeight: 800 }}>
+                  {fdBusy ? 'Fechando…' : '🔒 Fechar caixa e estoque'}
                 </button>
               )}
             </div>
