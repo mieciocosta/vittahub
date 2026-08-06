@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { BellRing, Cake, CalendarClock, Gift, Send, MessageCircle, StickyNote, Trash2, X } from 'lucide-react';
+import { BellRing, Cake, CalendarClock, Gift, Send, MessageCircle, StickyNote, Trash2, X, Syringe } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 
 /* Central de Lembretes — reforço pelo CRM: Aniversários (leads), Agendamentos
@@ -14,6 +14,8 @@ export default function Lembretes() {
   const { user } = useAuth();
   const [aba, setAba] = useState('aniversarios');
   const [dados, setDados] = useState({ amanha: [], aniversarios: [], indicacoes: [], whatsapp: false });
+  const [cal, setCal] = useState(null);        // 💉 calendário vacinal da base
+  const [selCal, setSelCal] = useState(new Set());
   const [carregando, setCarregando] = useState(true);
   const [enviando, setEnviando] = useState(false);
   const [sel, setSel] = useState(new Set());
@@ -42,14 +44,15 @@ export default function Lembretes() {
       .then(d => { setDados(d || {}); setCarregando(false); })
       .catch(() => setCarregando(false));
   };
-  useEffect(() => { load(); loadMeus(); api.get('/lembretes/auto').then(setAutoCfg).catch(() => {}); }, []); // eslint-disable-line
+  const loadCal = () => api.get('/lembretes/calendario-vacinal').then(setCal).catch(() => setCal({ total: 0, lista: [] }));
+  useEffect(() => { load(); loadMeus(); loadCal(); api.get('/lembretes/auto').then(setAutoCfg).catch(() => {}); }, []); // eslint-disable-line
   async function salvarAuto(patch) {
     setSalvandoAuto(true);
     try { const novo = await api.put('/lembretes/auto', { ...autoCfg, ...patch }); setAutoCfg(novo); showToast(novo.ativo ? '🤖 Piloto automático LIGADO' : 'Piloto automático desligado'); }
     catch (e) { showToast('⚠️ ' + (e.message || 'Erro')); }
     setSalvandoAuto(false);
   }
-  useEffect(() => { setSel(new Set()); }, [aba]);
+  useEffect(() => { setSel(new Set()); setSelCal(new Set()); }, [aba]);
   const loadMeus = () => api.get('/extras/painel').then(d => setMeus((Array.isArray(d) ? d : []).filter(i => i.tipo === 'tarefa'))).catch(() => {});
   useEffect(() => {
     if (buscaQ.trim().length < 2) { setBuscaRes([]); return; }
@@ -81,6 +84,7 @@ export default function Lembretes() {
   const toggleSel = (id) => setSel(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
   const ABAS = [
+    { k: 'calendario', label: 'Calendário vacinal', Icon: Syringe, n: cal?.total || 0 },
     { k: 'aniversarios', label: 'Aniversários', Icon: Cake, n: (dados.aniversarios || []).length },
     { k: 'amanha', label: 'Amanhã', Icon: CalendarClock, n: (dados.amanha || []).length },
     { k: 'indicacoes', label: 'Indicações', Icon: Gift, n: (dados.indicacoes || []).length },
@@ -194,6 +198,50 @@ export default function Lembretes() {
         <div className="card" style={{ padding: 30, color: 'var(--muted)' }}>Carregando…</div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {aba === 'calendario' && (!cal ? (
+            <div className="card" style={{ padding: 30, color: 'var(--muted)' }}>Calculando o calendário da base…</div>
+          ) : cal.total === 0 ? (
+            <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}>
+              <Syringe size={30} color="var(--border)" style={{ marginBottom: 8 }} />
+              <div style={{ fontWeight: 700 }}>Nenhuma criança no ponto agora.</div>
+              <div style={{ fontSize: 12.5, marginTop: 4 }}>A lista nasce da data de nascimento no cadastro — quanto mais fichas preenchidas, mais oportunidades aparecem aqui.</div>
+            </div>
+          ) : (
+            <>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
+                {[['🔴 Atrasadas', cal.atrasadas, '#dc2626'], ['🟢 No ponto', cal.no_ponto, '#16a34a'], ['🔵 Chegando', cal.chegando, '#2563eb']].map(([l, n, c]) => (
+                  <div key={l} className="card" style={{ padding: '8px 14px', fontSize: 12.5, fontWeight: 800, color: c }}>{l}: {n}</div>
+                ))}
+                {dados.whatsapp && (
+                  <button onClick={() => { if (!selCal.size) return; if (!window.confirm(`Enviar o convite de vacinação para ${selCal.size} família(s)? As mensagens saem espaçadas (4s) pra proteger o número.`)) return; enviar('calendario', [...selCal]); setSelCal(new Set()); setTimeout(loadCal, 1500); }}
+                    disabled={enviando || !selCal.size} className="btn btn-p btn-sm" style={{ gap: 6, marginLeft: 'auto' }}>
+                    <Send size={13} /> {enviando ? 'Enviando…' : `Convidar selecionadas (${selCal.size})`}
+                  </button>
+                )}
+              </div>
+              {(cal.lista || []).map(c => {
+                const CS = { atrasada: ['#fdecec', '#dc2626', '🔴'], no_ponto: ['#e9f9ef', '#16a34a', '🟢'], chegando: ['#eaf1fe', '#2563eb', '🔵'] }[c.status];
+                const marcado = selCal.has(c.lead_id);
+                return (
+                  <div key={c.lead_id} className="card" style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', borderLeft: `4px solid ${CS[1]}` }}>
+                    <input type="checkbox" checked={marcado} onChange={() => setSelCal(p => { const n = new Set(p); n.has(c.lead_id) ? n.delete(c.lead_id) : n.add(c.lead_id); return n; })}
+                      style={{ width: 17, height: 17, cursor: 'pointer', accentColor: CS[1] }} />
+                    <div style={{ flex: 1, minWidth: 190 }}>
+                      <div style={{ fontWeight: 800, fontSize: 14 }}>{c.nome} <span style={{ fontWeight: 600, fontSize: 11.5, color: 'var(--muted)' }}>· {c.idade_txt}</span></div>
+                      <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                        <b style={{ color: CS[1] }}>{CS[2]} {c.marco}</b> ({c.quando}) · 💉 {c.vacinas}
+                      </div>
+                    </div>
+                    {temTel(c.telefone)
+                      ? <a href={wa(c.telefone, `Oi! 💙 Aqui é da Vittalis Saúde 😊 ${String(c.nome).split(' ')[0]} já está na idade das vacinas de ${c.marco} (${c.vacinas}). Quer que eu reserve um horário pra vocês?`)} target="_blank" rel="noreferrer"
+                          className="btn btn-sm" style={{ gap: 5, background: '#25D366', color: '#fff', border: 'none', fontWeight: 800 }}><MessageCircle size={13} /> WhatsApp</a>
+                      : <span style={{ fontSize: 11, color: 'var(--light)', fontWeight: 600 }}>sem telefone</span>}
+                  </div>
+                );
+              })}
+            </>
+          ))}
+
           {aba === 'aniversarios' && ((dados.aniversarios || []).length === 0 ? (
             <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}>
               <Cake size={30} color="var(--border)" style={{ marginBottom: 8 }} />

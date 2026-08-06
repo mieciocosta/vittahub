@@ -41,6 +41,115 @@ function msgAmanha(ev) {
 const msgAniversario = (nome) => `🎂🎉 Parabéns, ${String(nome || '').split(' ')[0]}! A equipe da Vittalis Saúde deseja um aniversário cheio de saúde e alegria! 💙 Conte sempre com a gente. "Sua vida é preciosa!"`;
 const msgIndicacao = (nome) => `Olá! 💙 Aqui é da Vittalis Saúde. Foi um prazer atender ${String(nome || '').split(' ')[0]}! Se você conhece alguém que também precisa de vacinas, consultas ou terapias, adoraríamos receber sua indicação. 😊 É só encaminhar nosso contato: (98) 98422-1002. Obrigado pela confiança!`;
 
+/* ═══ 💉 CALENDÁRIO VACINAL — quem está no ponto HOJE ═══════════════════════
+   O maior ativo da clínica é a base de crianças já cadastradas. Aqui o sistema
+   calcula, pela data de nascimento, qual marco vacinal cada criança está
+   atingindo — e mostra quem abordar hoje. Vira receita recorrente da base. */
+const CALENDARIO_VACINAL = [
+  { mes: 2,  nome: '2 meses',   vacinas: 'Hexavalente, Rotavírus, Pneumo 15' },
+  { mes: 3,  nome: '3 meses',   vacinas: 'Meningo B, Meningo ACWY' },
+  { mes: 4,  nome: '4 meses',   vacinas: 'Hexavalente (2ª), Rotavírus (2ª), Pneumo 15 (2ª)' },
+  { mes: 5,  nome: '5 meses',   vacinas: 'Meningo B (2ª), Meningo ACWY (2ª)' },
+  { mes: 6,  nome: '6 meses',   vacinas: 'Hexavalente (3ª), Gripe' },
+  { mes: 7,  nome: '7 meses',   vacinas: 'Meningo B (3ª)' },
+  { mes: 9,  nome: '9 meses',   vacinas: 'Febre Amarela' },
+  { mes: 12, nome: '12 meses',  vacinas: 'Tríplice Viral, Pneumo (reforço), Meningo ACWY (reforço), Hepatite A' },
+  { mes: 15, nome: '15 meses',  vacinas: 'DTPa (reforço), Varicela, Tetra Viral, Hepatite A (2ª)' },
+  { mes: 18, nome: '18 meses',  vacinas: 'Meningo B (reforço), Poliomielite (reforço)' },
+  { mes: 48, nome: '4 anos',    vacinas: 'DTPa (2º reforço), Varicela (2ª), Poliomielite' },
+  { mes: 60, nome: '5 anos',    vacinas: 'Reforços e atualização da caderneta' },
+];
+
+const mesesEntre = (nasc, hoje) => {
+  const n = new Date(String(nasc).slice(0, 10) + 'T12:00:00');
+  let m = (hoje.getFullYear() - n.getFullYear()) * 12 + (hoje.getMonth() - n.getMonth());
+  if (hoje.getDate() < n.getDate()) m--;
+  return m;
+};
+
+// GET /api/lembretes/calendario-vacinal — crianças no ponto / atrasadas / chegando
+r.get('/calendario-vacinal', async (req, res) => {
+  try {
+    const hoje = new Date(Date.now() - 3 * 3600 * 1000); // fuso de São Luís
+    const { rows: leads } = await query(
+      `SELECT l.id, l.nome, l.telefone, l.responsavel_cliente, l.setor,
+              TO_CHAR(l.nascimento,'YYYY-MM-DD') AS nascimento,
+              (SELECT MAX(v.data_venda) FROM vendas v WHERE v.lead_id = l.id) AS ultima_venda
+         FROM leads l
+        WHERE l.nascimento IS NOT NULL
+          AND COALESCE(l.status,'') NOT ILIKE '%perdido%'`);
+
+    // Quem já TEM agendamento futuro não entra na lista (já está resolvido)
+    const { rows: agFut } = await query(
+      `SELECT DISTINCT RIGHT(regexp_replace(COALESCE(telefone,''),'\\D','','g'), 8) AS tel8
+         FROM agenda_eventos
+        WHERE data >= (NOW() - interval '3 hours')::date
+          AND LOWER(COALESCE(status,'')) NOT LIKE 'cancel%'`).catch(() => ({ rows: [] }));
+    const comAgenda = new Set(agFut.map(a => a.tel8).filter(t => t && t.length === 8));
+
+    const lista = [];
+    for (const l of leads) {
+      const idade = mesesEntre(l.nascimento, hoje);
+      if (idade < 0 || idade > 72) continue;                     // fora da janela pediátrica
+      const tel8 = String(l.telefone || '').replace(/\D/g, '').slice(-8);
+      if (tel8.length === 8 && comAgenda.has(tel8)) continue;    // já tem horário marcado
+
+      // Marco atual: o mais recente que a criança já atingiu (ou o próximo que chega em ≤30 dias)
+      const atingidos = CALENDARIO_VACINAL.filter(c => c.mes <= idade);
+      const proximo = CALENDARIO_VACINAL.find(c => c.mes > idade);
+      const marco = atingidos.length ? atingidos[atingidos.length - 1] : null;
+      const mesesDesde = marco ? idade - marco.mes : null;
+      const mesesFalta = proximo ? proximo.mes - idade : null;
+
+      // Já comprou depois de atingir o marco? Então esse marco está resolvido.
+      let cobertoAtual = false;
+      if (marco && l.ultima_venda) {
+        const dataMarco = new Date(String(l.nascimento).slice(0, 10) + 'T12:00:00');
+        dataMarco.setMonth(dataMarco.getMonth() + marco.mes);
+        cobertoAtual = new Date(l.ultima_venda) >= dataMarco;
+      }
+
+      let item = null;
+      if (marco && !cobertoAtual && mesesDesde <= 6) {
+        item = { ...marco, status: mesesDesde >= 2 ? 'atrasada' : 'no_ponto', quando: mesesDesde === 0 ? 'este mês' : `há ${mesesDesde} ${mesesDesde === 1 ? 'mês' : 'meses'}` };
+      } else if (proximo && mesesFalta === 0) {
+        item = { ...proximo, status: 'no_ponto', quando: 'agora' };
+      } else if (proximo && mesesFalta === 1) {
+        item = { ...proximo, status: 'chegando', quando: 'no próximo mês' };
+      }
+      if (!item) continue;
+
+      lista.push({
+        lead_id: l.id, nome: l.nome, telefone: l.telefone,
+        responsavel: l.responsavel_cliente, nascimento: l.nascimento,
+        idade_meses: idade,
+        idade_txt: idade < 24 ? `${idade} ${idade === 1 ? 'mês' : 'meses'}` : `${Math.floor(idade / 12)} ano${idade >= 24 ? 's' : ''}`,
+        marco: item.nome, vacinas: item.vacinas, status: item.status, quando: item.quando,
+      });
+    }
+    const ordem = { atrasada: 0, no_ponto: 1, chegando: 2 };
+    lista.sort((a, b) => (ordem[a.status] - ordem[b.status]) || (b.idade_meses - a.idade_meses));
+    res.json({
+      total: lista.length,
+      atrasadas: lista.filter(x => x.status === 'atrasada').length,
+      no_ponto: lista.filter(x => x.status === 'no_ponto').length,
+      chegando: lista.filter(x => x.status === 'chegando').length,
+      lista: lista.slice(0, 200),
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Mensagem carinhosa de convite pela idade da criança (usada no envio em lote)
+const msgCalendario = (c) => {
+  const primeiro = String(c.nome || '').split(' ')[0];
+  const abre = c.status === 'atrasada'
+    ? `Passando com carinho pra lembrar que ${primeiro} já está na idade das vacinas de ${c.marco}`
+    : c.status === 'no_ponto'
+      ? `Que alegria! ${primeiro} chegou nos ${c.marco} 🎉 É a idade das vacinas`
+      : `${primeiro} está chegando nos ${c.marco}! Já podemos deixar tudo organizado`;
+  return `Oi! 💙 Aqui é da Vittalis Saúde 😊\n\n${abre}:\n\n💉 ${c.vacinas}\n\nManter o calendário em dia é o maior presente de proteção pra ${primeiro}. Quer que eu já reserve um horário pra vocês? Atendemos na clínica e também em domicílio. 🥰`;
+};
+
 // GET /api/lembretes/resumo?amanha=YYYY-MM-DD&hoje=YYYY-MM-DD — as 3 listas de uma vez
 r.get('/resumo', async (req, res) => {
   try {
@@ -115,6 +224,26 @@ r.post('/enviar', async (req, res) => {
         const texto = msgIndicacao(v.nome);
         const zr = await zapiSendText(v.telefone, texto).catch(() => null);
         if (zr?.ok) { enviados++; await registraNaConversa(v.telefone, texto, req.user?.nome); } else falhas++;
+      }
+    } else if (tipo === 'calendario') {
+      // 💉 Convite pela idade da criança (calendário vacinal) — espaçado 4s
+      // entre envios pra não parecer disparo em massa (anti-bloqueio do WhatsApp)
+      const { rows } = await query(
+        `SELECT id, nome, telefone, TO_CHAR(nascimento,'YYYY-MM-DD') AS nascimento
+           FROM leads WHERE id = ANY($1::text[]) AND nascimento IS NOT NULL`, [ids.map(String)]);
+      const hoje = new Date(Date.now() - 3 * 3600 * 1000);
+      for (const l of rows) {
+        if (!l.telefone || String(l.telefone).replace(/\D/g, '').length < 10) { pulados++; continue; }
+        const idade = mesesEntre(l.nascimento, hoje);
+        const atingidos = CALENDARIO_VACINAL.filter(c => c.mes <= idade);
+        const proximo = CALENDARIO_VACINAL.find(c => c.mes > idade);
+        const marco = atingidos.length ? atingidos[atingidos.length - 1] : proximo;
+        if (!marco) { pulados++; continue; }
+        const status = atingidos.length && (idade - marco.mes) >= 2 ? 'atrasada' : (proximo && proximo.mes - idade === 1 ? 'chegando' : 'no_ponto');
+        const texto = msgCalendario({ nome: l.nome, marco: marco.nome, vacinas: marco.vacinas, status });
+        const zr = await zapiSendText(l.telefone, texto).catch(() => null);
+        if (zr?.ok) { enviados++; await registraNaConversa(l.telefone, texto, req.user?.nome); } else falhas++;
+        await new Promise(r2 => setTimeout(r2, 4000));
       }
     } else {
       return res.status(400).json({ error: 'Tipo inválido.' });
