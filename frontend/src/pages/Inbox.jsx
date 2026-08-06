@@ -533,6 +533,9 @@ export default function Inbox({ onUnreadChange }) {
   const [bibAba, setBibAba] = useState('foto');
   const [showAgendar, setShowAgendar] = useState(false);
   const [resumo, setResumo] = useState(null);        // 📋 raio-X da conversa
+  const [proto, setProto] = useState(null);          // ✅ protocolo de atendimento
+  const [protoAberto, setProtoAberto] = useState(true);
+  const [protoBusy, setProtoBusy] = useState('');
   const [resumoLoad, setResumoLoad] = useState(false);
   const [, setTick] = useState(0); // re-render a cada 30s: relógio de espera do cliente
   useEffect(() => { const t = setInterval(() => setTick(x => x + 1), 30000); return () => clearInterval(t); }, []);
@@ -965,6 +968,9 @@ export default function Inbox({ onUnreadChange }) {
   const openConvo = async (c) => {
     window.__auditLog?.('abrir_conversa', 'conversa', c.id, { nome: c.contact_name, telefone: c.phone });
     setSel(c); setMsgs([]); setMsgsHasMore(false); setMsgsTotal(0);
+    // ✅ Protocolo: carrega sozinho ao abrir a conversa e já destaca o que faltou
+    setProto(null); setProtoAberto(true);
+    api.get(`/inbox/conversations/${c.id}/protocolo`).then(setProto).catch(() => {});
     // IA fica aberta do lado por padrão (lembrando a preferência do usuário).
     setShowProposta(false); setLeadData(null);
     lastMsgTs.current = null;
@@ -1928,6 +1934,67 @@ export default function Inbox({ onUnreadChange }) {
                   >{e}</button>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* ✅ PROTOCOLO DE ATENDIMENTO — abre sozinho e destaca o que faltou */}
+          {proto && proto.passos && (
+            <div style={{ flexShrink:0, borderTop:'1px solid var(--border)', background: proto.faltando.length ? '#fff8ed' : '#f0fdf4' }}>
+              <button onClick={() => setProtoAberto(a => !a)}
+                style={{ width:'100%', display:'flex', alignItems:'center', gap:9, padding:'7px 14px', border:'none', cursor:'pointer', background:'transparent', textAlign:'left' }}>
+                <span style={{ fontSize:14 }}>{proto.faltando.length ? '📋' : '🏆'}</span>
+                <span style={{ flex:1, minWidth:0, fontSize:12, fontWeight:800, color: proto.faltando.length ? '#b45309' : '#15803d' }}>
+                  {proto.faltando.length
+                    ? `Protocolo Vittalis: faltam ${proto.faltando.length} passo${proto.faltando.length > 1 ? 's' : ''}`
+                    : 'Protocolo Vittalis completo! Atendimento nota 10 💙'}
+                </span>
+                <span style={{ display:'flex', gap:2, alignItems:'center' }}>
+                  {proto.passos.map(p2 => (
+                    <span key={p2.k} title={`${p2.feito ? '✅' : '⚠️ falta'} ${p2.nome}`}
+                      style={{ width:7, height:7, borderRadius:'50%', background: p2.feito ? '#16a34a' : '#f59e0b', opacity: p2.feito ? 1 : .85 }} />
+                  ))}
+                </span>
+                <span style={{ fontSize:10.5, fontWeight:800, color:'var(--muted)' }}>{proto.pct}% · {protoAberto ? '▲' : '▼'}</span>
+              </button>
+
+              {protoAberto && (
+                <div style={{ padding:'2px 12px 10px', maxHeight:190, overflowY:'auto' }}>
+                  {proto.passos.map(p2 => (
+                    <div key={p2.k} style={{ display:'flex', alignItems:'center', gap:8, padding:'5px 6px', borderRadius:8, background: p2.feito ? 'transparent' : 'rgba(245,158,11,.10)', marginBottom:3 }}>
+                      <span style={{ fontSize:12, width:16, textAlign:'center', flexShrink:0 }}>{p2.feito ? '✅' : p2.emoji}</span>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontSize:11.5, fontWeight: p2.feito ? 500 : 800, color: p2.feito ? 'var(--muted)' : '#92400e', textDecoration: p2.feito ? 'line-through' : 'none', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                          {p2.nome}
+                        </div>
+                        {!p2.feito && p2.dica && <div style={{ fontSize:10, color:'#b45309', opacity:.85, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{p2.dica}</div>}
+                      </div>
+                      {!p2.feito && p2.k === 'significado_nome' && (
+                        <button onClick={async () => {
+                          const nome = proto.paciente || window.prompt('Nome da criança:');
+                          if (!nome) return;
+                          setProtoBusy(p2.k);
+                          try {
+                            const r = await api.post(`/inbox/conversations/${sel.id}/significado-nome`, { nome });
+                            Toast.show(`✨ Cartão do nome ${r.nome} enviado!`, 'success');
+                            api.get(`/inbox/conversations/${sel.id}/protocolo`).then(setProto).catch(() => {});
+                          } catch (e) { Toast.show(e.message, 'error'); }
+                          setProtoBusy('');
+                        }} disabled={!!protoBusy}
+                          style={{ flexShrink:0, border:'none', borderRadius:8, padding:'4px 10px', cursor:'pointer', background:'#7c3aed', color:'#fff', fontSize:10.5, fontWeight:800 }}>
+                          {protoBusy === p2.k ? '…' : '✨ Gerar e enviar'}
+                        </button>
+                      )}
+                      {!p2.feito && p2.modelo && p2.k !== 'significado_nome' && (
+                        <button onClick={() => { setInput(p2.modelo); textRef.current?.focus(); }}
+                          title="Coloca a mensagem pronta no campo de digitação"
+                          style={{ flexShrink:0, border:'1px solid #fcd34d', borderRadius:8, padding:'4px 10px', cursor:'pointer', background:'#fff', color:'#b45309', fontSize:10.5, fontWeight:800 }}>
+                          ✍️ Usar texto
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
