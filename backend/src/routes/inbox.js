@@ -5156,7 +5156,7 @@ r.get('/conversations/:id/resumo', async (req, res) => {
       `SELECT from_type, sender_nome, type, content, filename, transcricao, created_at
          FROM mensagens
         WHERE conversa_id = $1 AND from_type NOT IN ('system','interno')
-        ORDER BY created_at DESC LIMIT 80`, [req.params.id]);
+        ORDER BY created_at DESC LIMIT 60`, [req.params.id]);
     const hist = histRows.reverse();
     if (hist.length < 2) return res.status(400).json({ error: 'Conversa curta demais pra resumir.' });
 
@@ -5165,7 +5165,7 @@ r.get('/conversations/:id/resumo', async (req, res) => {
       let txt = m.transcricao ? `(áudio) ${m.transcricao}` : String(m.content || '');
       if (txt.startsWith('data:')) txt = m.filename ? `[enviou ${m.filename}]` : '[mídia]';
       const quando = new Date(m.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-      return `[${quando}] ${quem}: ${txt.slice(0, 400)}`;
+      return `[${quando}] ${quem}: ${txt.slice(0, 300)}`;
     }).join('\n');
 
     const sys = `Você é supervisor de atendimento de uma clínica de pediatria e vacinação (Vittalis Saúde, São Luís-MA). Leia a conversa de WhatsApp e produza um RAIO-X objetivo para a equipe comercial. Português do Brasil, direto, sem enrolação e sem inventar nada que não esteja na conversa. Responda APENAS um JSON válido, sem markdown e sem asteriscos.`;
@@ -5183,12 +5183,25 @@ r.get('/conversations/:id/resumo', async (req, res) => {
 
 Na avaliação, nota de 0 a 10 sobre COMO a atendente conduziu, cobrando o PROTOCOLO da clínica: (1) boas-vindas calorosas, (2) perguntar o nome do paciente, (3) enviar o significado do nome com imagem, (4) enviar a revista/material do serviço, (5) só então apresentar o valor, (6) avisar de forma AFIRMATIVA que vai ligar ("estarei ligando"), (7) enviar provas sociais (fotos/vídeos de outras crianças e o Instagram), (8) convite de agendamento com endereço e mapa. Em "deixou_a_desejar", cite exatamente quais desses passos faltaram. Se quem respondeu foi só a IA (VITTA), avalie a condução do atendimento mesmo assim e diga isso em "deixou_a_desejar". Seja justo e específico: nada de "poderia melhorar" genérico.`;
 
-    const d = await openaiMessages({ model: 'gpt-4o', max_tokens: 4096, json: true, system: sys,
+    let d = await openaiMessages({ model: 'gpt-4o', max_tokens: 4096, json: true, system: sys,
       messages: [{ role: 'user', content: prompt }] });
-    if (d.error) return res.status(400).json({ error: 'Não consegui analisar agora. Tente de novo em instantes.' });
+    if (d.error) {
+      console.error('RESUMO erro (modelo principal):', d.error.message);
+      // Fallback automático no modelo rápido — melhor um resumo bom que nenhum
+      d = await openaiMessages({ model: 'gpt-4o-mini', max_tokens: 1500, json: true, system: sys,
+        messages: [{ role: 'user', content: prompt }] });
+      if (d.error) {
+        console.error('RESUMO erro (fallback):', d.error.message);
+        return res.status(400).json({ error: `Não consegui analisar agora: ${String(d.error.message).slice(0, 120)}` });
+      }
+    }
     let j = null;
     try { j = JSON.parse(((d.content || []).filter(b => b.type === 'text').map(b => b.text).join('')).trim()); } catch {}
-    if (!j?.resumo) return res.status(400).json({ error: 'Não consegui montar o resumo agora.' });
+    if (!j?.resumo) {
+      const bruto = ((d.content || []).filter(b => b.type === 'text').map(b => b.text).join('')).slice(0, 200);
+      console.error('RESUMO: resposta não-JSON:', bruto);
+      return res.status(400).json({ error: 'A IA respondeu num formato inesperado. Clique em 🔄 pra tentar de novo.' });
+    }
 
     const limpa = (t) => String(t || '').replace(/\*+/g, '').trim() || null;
     const lista = (a) => (Array.isArray(a) ? a : []).slice(0, 5).map(limpa).filter(Boolean);
