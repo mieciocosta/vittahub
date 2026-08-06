@@ -1835,6 +1835,90 @@ r.delete('/ligacoes/:id', async (req, res) => {
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* ═══ 🎯 MEU FOCO DE HOJE — fila de prioridade por atendente ═══════════════
+   Junta tudo que pede ação (cliente esperando, lead quente parado, orçamento
+   sem resposta, faltoso, silêncio) e entrega os contatos JÁ ordenados por
+   chance de fechar. A atendente abre o CRM e sabe por onde começar. */
+r.get('/foco-hoje', async (req, res) => {
+  try {
+    const ehGestao = ['master', 'supervisor'].includes(req.user.role) || req.user.ve_tudo;
+    // Atendente vê a carteira dela (ou conversas sem dono); gestão vê tudo
+    const filtroDono = ehGestao ? '' : ` AND (c.responsavel_id = '${String(req.user.id).replace(/[^a-zA-Z0-9-]/g, '')}' OR c.responsavel_id IS NULL)`;
+    const grupo = `COALESCE(c.contact_id,'') NOT LIKE '%g.us%'`;
+
+    const [esperando, quentes, orcamentos, faltosos, silencio] = await Promise.all([
+      // 1) Cliente falou por último e está esperando há mais de 10 min
+      query(`SELECT c.id, c.contact_name, c.phone, c.last_message, c.last_message_at,
+                    EXTRACT(EPOCH FROM (NOW() - c.last_message_at))/60 AS min
+               FROM conversas c
+              WHERE c.last_from = 'contact' AND ${grupo} AND c.categoria IS NULL
+                AND COALESCE(c.perdido,false) = false
+                AND c.last_message_at < NOW() - interval '10 minutes'
+                AND c.last_message_at > NOW() - interval '3 days' ${filtroDono}
+              ORDER BY c.last_message_at LIMIT 15`),
+      // 2) Lead marcado como QUENTE que parou
+      query(`SELECT c.id, c.contact_name, c.phone, c.lead_score_motivo, c.last_message_at
+               FROM conversas c
+              WHERE c.lead_score = 'quente' AND ${grupo} AND COALESCE(c.perdido,false) = false
+                AND c.last_message_at > NOW() - interval '10 days' ${filtroDono}
+              ORDER BY c.last_message_at DESC LIMIT 15`),
+      // 3) Proposta enviada há 1-5 dias e o cliente não respondeu depois
+      query(`SELECT DISTINCT c.id, c.contact_name, c.phone, MAX(m.created_at) AS enviada
+               FROM mensagens m JOIN conversas c ON c.id = m.conversa_id
+              WHERE m.filename LIKE 'Proposta-%' AND m.from_type IN ('me','bot')
+                AND m.created_at BETWEEN NOW() - interval '5 days' AND NOW() - interval '20 hours'
+                AND COALESCE(c.perdido,false) = false
+                AND NOT EXISTS (SELECT 1 FROM mensagens m2 WHERE m2.conversa_id = m.conversa_id
+                                  AND m2.from_type = 'contact' AND m2.created_at > m.created_at) ${filtroDono}
+              GROUP BY c.id, c.contact_name, c.phone LIMIT 15`),
+      // 4) Faltou nos últimos 3 dias e ainda não remarcou
+      query(`SELECT a.id, a.paciente, a.telefone, TO_CHAR(a.data,'DD/MM') AS dia, a.hora
+               FROM agenda_eventos a
+              WHERE a.status = 'Faltou' AND a.data >= (NOW() - interval '3 days')::date
+              ORDER BY a.data DESC LIMIT 10`).catch(() => ({ rows: [] })),
+      // 5) Silêncio de 3 a 20 dias em quem demonstrou interesse
+      query(`SELECT c.id, c.contact_name, c.phone, c.last_message_at
+               FROM conversas c
+              WHERE ${grupo} AND c.categoria IS NULL AND COALESCE(c.perdido,false) = false
+                AND c.lead_score IN ('quente','morno')
+                AND c.last_message_at BETWEEN NOW() - interval '20 days' AND NOW() - interval '3 days' ${filtroDono}
+              ORDER BY c.last_message_at DESC LIMIT 15`),
+    ]);
+
+    const itens = [];
+    const visto = new Set();
+    const add = (o) => { const k = `${o.tipo}:${o.conv_id || o.ref}`; if (visto.has(k)) return; visto.add(k); itens.push(o); };
+
+    for (const c of esperando.rows) {
+      const min = Math.round(c.min);
+      add({ peso: 100 + Math.min(min, 200), tipo: 'esperando', emoji: '⏱️', cor: '#dc2626',
+        titulo: c.contact_name || c.phone, conv_id: c.id,
+        motivo: `Esperando resposta há ${min >= 60 ? `${Math.floor(min / 60)}h${String(min % 60).padStart(2, '0')}` : `${min} min`}`,
+        acao: 'Responder agora', detalhe: String(c.last_message || '').slice(0, 70) });
+    }
+    for (const c of quentes.rows) {
+      add({ peso: 90, tipo: 'quente', emoji: '🔥', cor: '#ea580c', titulo: c.contact_name || c.phone, conv_id: c.id,
+        motivo: `Lead QUENTE — ${c.lead_score_motivo || 'pronto pra fechar'}`, acao: 'Fechar a venda' });
+    }
+    for (const c of orcamentos.rows) {
+      add({ peso: 80, tipo: 'orcamento', emoji: '💰', cor: '#d97706', titulo: c.contact_name || c.phone, conv_id: c.id,
+        motivo: 'Recebeu proposta e não respondeu', acao: 'Dar um toque' });
+    }
+    for (const a of faltosos.rows) {
+      add({ peso: 70, tipo: 'faltou', emoji: '🔄', cor: '#c2410c', titulo: a.paciente || 'Cliente', ref: a.id,
+        telefone: a.telefone, motivo: `Faltou dia ${a.dia} às ${a.hora}`, acao: 'Remarcar' });
+    }
+    for (const c of silencio.rows) {
+      const dias = Math.floor((Date.now() - new Date(c.last_message_at)) / 86400000);
+      add({ peso: 50 - Math.min(dias, 20), tipo: 'silencio', emoji: '💤', cor: '#6366f1',
+        titulo: c.contact_name || c.phone, conv_id: c.id, motivo: `Sem falar há ${dias} dias`, acao: 'Reativar' });
+    }
+
+    itens.sort((a, b) => b.peso - a.peso);
+    res.json({ total: itens.length, itens: itens.slice(0, 12) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 /* ═══ 🤖 VITTA HOJE — o que a automação fez/fará hoje (card da página inicial) ═ */
 r.get('/vitta-hoje', async (req, res) => {
   try {

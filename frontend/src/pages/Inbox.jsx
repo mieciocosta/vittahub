@@ -934,6 +934,16 @@ export default function Inbox({ onUnreadChange }) {
   // Vindo de outra tela com ?phone= (ex.: botão Conversa da Agenda): acha a
   // conversa desse telefone e abre AQUI no CRM, sem sair pro WhatsApp.
   useEffect(() => {
+    // ?conv=<id> (vindo do "Meu foco de hoje"): abre a conversa direto
+    const cid = searchParams.get('conv');
+    if (cid) {
+      (async () => {
+        try { const c = await api.get(`/inbox/conversations/${cid}`); if (c?.id) openConvo(c); } catch {}
+        searchParams.delete('conv');
+        setSearchParams(searchParams, { replace: true });
+      })();
+      return;
+    }
     const ph = (searchParams.get('phone') || '').replace(/\D/g, '');
     if (!ph) return;
     (async () => {

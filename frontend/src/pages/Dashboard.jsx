@@ -41,12 +41,14 @@ export default function Dashboard() {
   const [atencao, setAtencao] = useState(null);
   const [metaSetor, setMetaSetor] = useState(null);
   const [vittaHoje, setVittaHoje] = useState(null);
+  const [foco, setFoco] = useState(null);   // 🎯 fila de prioridade do dia
   useEffect(() => {
     api.get('/reports/dashboard').then(setData).catch(() => {});
     api.get(`/extras/agenda?data=${hojeLocalISO()}`).then(d => setAgendaHoje(Array.isArray(d) ? d : [])).catch(() => {});
     api.get('/extras/agenda/meta').then(setAgMeta).catch(() => {});
     api.get('/extras/meta-setor').then(setMetaSetor).catch(() => {});
     api.get('/extras/vitta-hoje').then(setVittaHoje).catch(() => {});
+    api.get('/extras/foco-hoje').then(setFoco).catch(() => {});
     if (isMaster) api.get('/extras/vendas/resumo').then(setVendasResumo).catch(() => {}); // painel comercial é só do master
     const loadAt = () => api.get('/inbox/atencao-agora').then(setAtencao).catch(() => {});
     loadAt(); const t = setInterval(loadAt, 20000); return () => clearInterval(t);
@@ -135,6 +137,37 @@ export default function Dashboard() {
       </div>
 
       <div style={{ padding: '0 28px' }}>
+
+        {/* ── 🎯 MEU FOCO DE HOJE — o que fazer AGORA, em ordem de chance de vender ── */}
+        {foco && foco.itens?.length > 0 && (
+          <div className="card" style={{ padding: 0, marginBottom: 20, overflow: 'hidden', border: '1.5px solid var(--tq3)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 18px', background: 'linear-gradient(90deg,#0E8C96,#00B8C0)', color: '#fff' }}>
+              <span style={{ fontSize: 17 }}>🎯</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 800, fontSize: 14.5 }}>Meu foco de hoje</div>
+                <div style={{ fontSize: 11, opacity: .9 }}>Na ordem certa: quem tem mais chance de fechar aparece primeiro</div>
+              </div>
+              <span style={{ background: 'rgba(255,255,255,.22)', borderRadius: 20, padding: '3px 11px', fontSize: 11.5, fontWeight: 800 }}>{foco.total} pra hoje</span>
+            </div>
+            <div style={{ maxHeight: 330, overflowY: 'auto' }}>
+              {foco.itens.map((it, i) => (
+                <div key={i} onClick={() => it.conv_id ? nav(`/inbox?conv=${it.conv_id}`) : it.telefone ? nav(`/inbox?phone=${String(it.telefone).replace(/\D/g, '')}`) : nav('/agenda')}
+                  style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '10px 18px', borderBottom: i < foco.itens.length - 1 ? '1px solid var(--border)' : 'none', cursor: 'pointer' }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'var(--bg2)'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                  <span style={{ width: 26, height: 26, borderRadius: 9, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, background: `${it.cor}1f` }}>{it.emoji}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.titulo}</div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <b style={{ color: it.cor }}>{it.motivo}</b>{it.detalhe ? ` · "${it.detalhe}"` : ''}
+                    </div>
+                  </div>
+                  <span style={{ flexShrink: 0, fontSize: 10.5, fontWeight: 800, color: it.cor, background: `${it.cor}14`, borderRadius: 8, padding: '4px 10px' }}>{it.acao} →</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* ── KPIs ── */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(190px,1fr))', gap: 13, marginBottom: 20 }}>
