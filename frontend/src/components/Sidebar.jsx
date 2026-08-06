@@ -173,6 +173,20 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
   // Foto/avatar: o clique na foto abre o modal com as DUAS opções (foto própria
   // do aparelho ou avatar ilustrado) — antes o clique abria um seletor escondido.
   const [vittasysUrl, setVittasysUrl] = useState('https://vittasys.vittalissaude.com.br');
+  // 🏥 Ponte pro Vittasys: encaminha direto (abre em nova aba)
+  const vittasysLink = (
+        <a href={vittasysUrl} target="_blank" rel="noreferrer" title="Abrir o Vittasys"
+          className="vh-nav"
+          style={{ display:'flex', alignItems:'center', gap: collapsed ? 0 : 10,
+            padding: collapsed ? '8px 0' : '6px 10px', justifyContent: collapsed ? 'center' : 'flex-start',
+            borderRadius:12, textDecoration:'none', color:'rgba(255,255,255,.88)', fontSize:13, fontWeight:500 }}>
+          <span className="vh-chip" style={{ width:25, height:25, borderRadius:8, flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center',
+            background:'linear-gradient(135deg,#0ea5e9,#0284c7)', boxShadow:'0 2px 8px rgba(14,165,233,.4)' }}>
+            <Stethoscope size={14} strokeWidth={2} color="#fff" />
+          </span>
+          {!collapsed && <><span style={{ flex:1 }}>Vittasys</span><ExternalLink size={11} color="rgba(255,255,255,.5)" /></>}
+        </a>
+  );
   useEffect(() => { api.get('/extras/vittasys/config').then(d => d?.url && setVittasysUrl(d.url)).catch(() => {}); }, []); // eslint-disable-line
   const [showAvatarBuilder, setShowAvatarBuilder] = useState(false);
   const [paletaAberta, setPaletaAberta] = useState(false);
@@ -398,6 +412,8 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
 
       </div>
 
+      {/* 🏥 Ponte pro Vittasys — fica logo abaixo do Chat, no topo do menu */}
+      {(() => null)()}
       {/* Nav */}
       <nav onClick={() => onCloseMobile?.()} style={{ flex:1, padding: collapsed ? '14px 6px' : '14px 10px', display:'flex', flexDirection:'column', gap:3, overflowY:'auto', overflowX:'hidden' }}>
         {!collapsed && <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:1.6, color:'rgba(255,255,255,.62)', padding:'0 12px 6px', textTransform:'uppercase' }}>Menu</div>}
@@ -457,6 +473,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
               <span style={{ position:'absolute', top:4, right:4, width:8, height:8, borderRadius:'50%', background:'var(--tq)', border:'2px solid #fff' }} />
             )}
           </NavLink>
+          {to === '/inbox' && vittasysLink}
           {to === '/leads' && setoresBlock}
           </React.Fragment>
         ))}
@@ -504,19 +521,6 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
             {!collapsed && <span style={{ flex:1 }}>{label}</span>}
           </NavLink>
         ))}
-
-        {/* 🏥 Ponte pro Vittasys: encaminha direto (abre em nova aba) */}
-        <a href={vittasysUrl} target="_blank" rel="noreferrer" title="Abrir o Vittasys"
-          className="vh-nav"
-          style={{ display:'flex', alignItems:'center', gap: collapsed ? 0 : 10,
-            padding: collapsed ? '8px 0' : '6px 10px', justifyContent: collapsed ? 'center' : 'flex-start',
-            borderRadius:12, textDecoration:'none', color:'rgba(255,255,255,.88)', fontSize:13, fontWeight:500 }}>
-          <span className="vh-chip" style={{ width:25, height:25, borderRadius:8, flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center',
-            background:'linear-gradient(135deg,#0ea5e9,#0284c7)', boxShadow:'0 2px 8px rgba(14,165,233,.4)' }}>
-            <Stethoscope size={14} strokeWidth={2} color="#fff" />
-          </span>
-          {!collapsed && <><span style={{ flex:1 }}>Vittasys</span><ExternalLink size={11} color="rgba(255,255,255,.5)" /></>}
-        </a>
 
         <div style={{ height:1, background:'rgba(255,255,255,.14)', margin:'8px 12px' }}/>
 
