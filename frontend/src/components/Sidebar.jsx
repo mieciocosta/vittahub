@@ -33,6 +33,7 @@ const NAV = [
   { to:'/inbox',      icon:MessageSquare,   label:'Chat',     unread:true, cor:'#25D366' },
   { to:'/agenda',     icon:CalendarDays,    label:'Agenda', cor:'#f59e0b' },
   { to:'/vacinas-solicitacao', icon:Syringe, label:'Solicitar Vacinas', cor:'#8b5cf6' },
+  { to:'/vittasys',   icon:Stethoscope,     label:'Vittasys', cor:'#0ea5e9' },
   { to:'/retornos',   icon:Bell,            label:'Follow-up',  retornos:true, cor:'#fb7185' },
   { to:'/recuperacao',icon:Flame,           label:'Recuperação', cor:'#f97316' },
   { to:'/leads',      icon:Users,           label:'Clientes', cor:'#a78bfa' },
