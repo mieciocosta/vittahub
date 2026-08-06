@@ -37,31 +37,78 @@ export default function CarteiraVacinal({ convId, onAgendar, compacto = false })
   const imprimir = () => {
     if (!dados) return;
     const w = window.open('', '_blank'); if (!w) return;
-    const linhas = dados.marcos.map(m => `<tr${m.status === 'atrasada' ? ' class="atr"' : ''}>
-      <td><b>${m.nome}</b></td><td>${m.vacinas}</td>
-      <td style="text-align:center">${m.previsao ? fmtBR(m.previsao) : '—'}</td>
-      <td style="text-align:center">${m.status === 'aplicada' ? '✔ ' + (m.aplicada_em ? fmtBR(m.aplicada_em) : 'aplicada') : ''}</td>
-      <td style="text-align:center">${m.status === 'aplicada' ? '' : ST[m.status][0].replace(/^\S+\s/, '')}</td></tr>`).join('');
-    w.document.write(`<html><head><title>Carteira vacinal — ${dados.paciente || ''}</title><meta charset="utf-8">
-      <style>body{font-family:Arial,Helvetica,sans-serif;color:#111;padding:26px}
-      h1{color:#0E8C96;margin:0 0 2px;font-size:21px}
-      .sub{color:#555;font-size:13px;margin-bottom:16px}
-      table{width:100%;border-collapse:collapse;font-size:12.5px}
-      th,td{border:1px solid #ddd;padding:7px 9px;text-align:left;vertical-align:top}
-      th{background:#f0fdf9;color:#0E8C96}
-      tr.atr td{background:#fff5f5}
-      .rod{margin-top:22px;font-size:11px;color:#777;border-top:1px solid #ddd;padding-top:10px}</style></head><body>
-      <h1>Carteira Vacinal — Vittalis Saúde</h1>
-      <div class="sub">
-        <b>${dados.paciente || 'Paciente'}</b>${dados.nascimento ? ` · nascimento ${fmtBR(dados.nascimento)}` : ''}${dados.idade_meses != null ? ` · ${dados.idade_meses} meses` : ''}<br/>
-        ${dados.responsavel ? `Responsável: ${dados.responsavel} · ` : ''}${dados.telefone ? `Contato: ${dados.telefone}` : ''}
+    const linhas = dados.marcos.map(m => {
+      const cls = m.status === 'aplicada' ? 'ok' : m.status === 'atrasada' ? 'atr' : m.status === 'no_ponto' ? 'pto' : '';
+      const situacao = m.status === 'aplicada' ? 'Aplicada'
+        : m.status === 'atrasada' ? 'EM ATRASO'
+        : m.status === 'no_ponto' ? 'Fazer agora'
+        : m.status === 'chegando' ? 'Proxima' : 'Futura';
+      return `<tr class="${cls}">
+        <td class="idade"><b>${m.nome}</b></td>
+        <td>${m.vacinas}</td>
+        <td class="c">${m.previsao ? fmtBR(m.previsao) : '-'}</td>
+        <td class="c">${m.status === 'aplicada' ? (m.aplicada_em ? fmtBR(m.aplicada_em) : 'OK') : ''}</td>
+        <td class="c lote"></td>
+        <td class="c sit">${situacao}</td></tr>`;
+    }).join('');
+    const r = dados.resumo || {};
+    w.document.write(`<html><head><title>Carteira vacinal - ${dados.paciente || ''}</title><meta charset="utf-8">
+      <style>
+        @page { size: A4; margin: 12mm }
+        *{box-sizing:border-box}
+        body{font-family:Arial,Helvetica,sans-serif;color:#14202b;margin:0}
+        .topo{display:flex;align-items:center;gap:14px;border-bottom:3px solid #0E8C96;padding-bottom:10px;margin-bottom:14px}
+        .topo img{height:52px}
+        .topo h1{margin:0;font-size:19px;color:#0E8C96}
+        .topo .t2{font-size:11.5px;color:#64748b;margin-top:2px}
+        .ficha{display:flex;flex-wrap:wrap;border:1px solid #cbd5e1;border-radius:8px;overflow:hidden;margin-bottom:14px}
+        .ficha div{flex:1;min-width:150px;padding:8px 12px;border-right:1px solid #e2e8f0}
+        .ficha div:last-child{border-right:none}
+        .ficha span{display:block;font-size:9px;letter-spacing:1px;text-transform:uppercase;color:#64748b;font-weight:bold}
+        .ficha b{font-size:13px}
+        .resumo{display:flex;gap:8px;margin-bottom:12px;font-size:11px}
+        .resumo i{font-style:normal;padding:4px 11px;border-radius:20px;border:1px solid #cbd5e1;font-weight:bold}
+        .resumo .a{background:#f0fdf4;border-color:#86efac;color:#15803d}
+        .resumo .b{background:#fef2f2;border-color:#fca5a5;color:#b91c1c}
+        table{width:100%;border-collapse:collapse;font-size:11.5px}
+        th{background:#0E8C96;color:#fff;padding:7px 8px;text-align:left;font-size:10.5px}
+        td{border:1px solid #dbe3ea;padding:7px 8px}
+        td.c{text-align:center}
+        td.idade{white-space:nowrap;background:#f8fafc}
+        td.sit{font-weight:bold;font-size:10.5px}
+        tr.ok td{color:#64748b} tr.ok td.sit{color:#15803d}
+        tr.atr td{background:#fff5f5} tr.atr td.sit{color:#b91c1c}
+        tr.pto td.sit{color:#0E8C96}
+        .legenda{margin-top:12px;font-size:10px;color:#64748b}
+        .rod{margin-top:16px;border-top:1px solid #dbe3ea;padding-top:9px;font-size:9.5px;color:#94a3b8;display:flex;justify-content:space-between}
+      </style></head><body>
+      <div class="topo">
+        <img src="/logos/logo-h-color.png" onerror="this.style.display='none'"/>
+        <div><h1>Carteira de Vacinacao</h1>
+        <div class="t2">Vittalis Saude &middot; Pediatria e Vacinacao &middot; Sao Luis/MA</div></div>
       </div>
-      <table><thead><tr><th>Idade</th><th>Vacinas</th><th style="width:92px">Previsto</th><th style="width:110px">Aplicada em</th><th style="width:90px">Situação</th></tr></thead>
-      <tbody>${linhas}</tbody></table>
-      <div class="rod">Esquema conforme o calendário da rede privada cadastrado no sistema · impresso em ${new Date().toLocaleString('pt-BR')}</div>
+      <div class="ficha">
+        <div><span>Paciente</span><b>${dados.paciente || '-'}</b></div>
+        <div><span>Nascimento</span><b>${dados.nascimento ? fmtBR(dados.nascimento) : '-'}</b></div>
+        <div><span>Idade atual</span><b>${dados.idade_meses != null ? `${dados.idade_meses} meses` : '-'}</b></div>
+        <div><span>Responsavel</span><b>${dados.responsavel || '-'}</b></div>
+        <div><span>Contato</span><b>${dados.telefone || '-'}</b></div>
+      </div>
+      <div class="resumo">
+        <i class="a">${r.aplicadas || 0} de ${r.total || 0} etapas aplicadas</i>
+        ${r.atrasadas ? `<i class="b">${r.atrasadas} em atraso</i>` : ''}
+      </div>
+      <table><thead><tr>
+        <th style="width:78px">IDADE</th><th>VACINAS</th>
+        <th style="width:78px" class="c">PREVISTO</th><th style="width:82px" class="c">APLICADA</th>
+        <th style="width:78px" class="c">LOTE</th><th style="width:82px" class="c">SITUACAO</th>
+      </tr></thead><tbody>${linhas}</tbody></table>
+      <div class="legenda">Preencha o campo LOTE no ato da aplicacao. Esquema conforme o calendario da rede privada cadastrado no sistema.</div>
+      <div class="rod"><span>Vittalis Saude - cuidando de quem voce mais ama</span><span>Emitida em ${new Date().toLocaleString('pt-BR')}</span></div>
       <script>window.onload=()=>window.print()</script></body></html>`);
     w.document.close();
   };
+
 
   if (!dados) return <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '8px 0' }}>Carregando carteira vacinal…</div>;
   if (dados.erro) return <div style={{ fontSize: 12.5, color: 'var(--err)' }}>Não consegui carregar a carteira.</div>;
