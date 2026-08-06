@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Printer, CalendarPlus, Check } from 'lucide-react';
+import { Printer, CalendarPlus, Check, X } from 'lucide-react';
 import { useApi } from '../context/AuthContext.jsx';
 
 /* 💉 CARTEIRA VACINAL DO PACIENTE (0-18 meses e além)
@@ -20,6 +20,34 @@ export default function CarteiraVacinal({ convId, onAgendar, compacto = false })
   const api = useApi();
   const [dados, setDados] = useState(null);
   const [salvando, setSalvando] = useState(null);
+  const [agenda, setAgenda] = useState(null);   // 📅 agendamento da etapa
+
+  // Sugere a data: a prevista, se ainda vier; senão, daqui a 3 dias úteis
+  const sugerirData = (m) => {
+    const hoje = new Date();
+    const prev = m.previsao ? new Date(m.previsao + 'T12:00:00') : null;
+    const base = prev && prev > hoje ? prev : new Date(hoje.getTime() + 3 * 86400000);
+    if (base.getDay() === 0) base.setDate(base.getDate() + 1);   // domingo não
+    return `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}-${String(base.getDate()).padStart(2, '0')}`;
+  };
+  const abrirAgenda = (m) => setAgenda({
+    etapa: m.nome, marco_mes: m.mes, data: sugerirData(m), hora: '09:00',
+    vacinas: m.doses.filter(d => !d.aplicada).map(d => d.vacina),
+    todas: m.doses.map(d => d.vacina),
+  });
+  const confirmarAgenda = async () => {
+    if (!agenda.vacinas.length) return window.alert('Selecione ao menos uma vacina.');
+    setSalvando('agenda');
+    try {
+      const r = await api.post(`/inbox/conversations/${convId}/carteira/agendar`, {
+        etapa: agenda.etapa, data: agenda.data, hora: agenda.hora, vacinas: agenda.vacinas, paciente: dados?.paciente,
+      });
+      setAgenda(null);
+      window.alert(`✅ Agendado para ${agenda.data.split('-').reverse().join('/')} às ${agenda.hora}!\n\n${r.doses} dose(s) já solicitadas ao estoque.`);
+      await carregar();
+    } catch (e) { window.alert('Erro: ' + e.message); }
+    setSalvando(null);
+  };
 
   const carregar = () => api.get(`/inbox/conversations/${convId}/carteira`).then(setDados).catch(() => setDados({ erro: true }));
   useEffect(() => { setDados(null); carregar(); }, [convId]); // eslint-disable-line
@@ -158,6 +186,34 @@ export default function CarteiraVacinal({ convId, onAgendar, compacto = false })
         </div>
       </div>
 
+      {/* 📅 PRÓXIMA ETAPA — o que agendar agora (foco do controle mensal) */}
+      {(() => {
+        const prox = dados.marcos.find(m => ['atrasada', 'parcial', 'no_ponto'].includes(m.status))
+          || dados.marcos.find(m => m.status === 'chegando');
+        if (!prox) return (
+          <div style={{ padding: '9px 12px', borderRadius: 11, background: '#f0fdf4', border: '1px solid #86efac', fontSize: 12.5, fontWeight: 700, color: '#15803d', marginBottom: 10 }}>
+            🏆 Esquema em dia! Nenhuma dose pendente no momento.
+          </div>
+        );
+        const atras = prox.status === 'atrasada';
+        return (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '10px 13px', borderRadius: 12, marginBottom: 10,
+            background: atras ? '#fef2f2' : '#ecfeff', border: `1.5px solid ${atras ? '#fca5a5' : '#67e8f9'}` }}>
+            <span style={{ fontSize: 17 }}>{atras ? '🔴' : '📅'}</span>
+            <div style={{ flex: 1, minWidth: 160 }}>
+              <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: .5, textTransform: 'uppercase', color: atras ? '#b91c1c' : '#0E8C96' }}>
+                {atras ? 'Dose em atraso — agendar já' : 'Próxima etapa a agendar'}
+              </div>
+              <div style={{ fontSize: 13.5, fontWeight: 800 }}>{prox.nome}{prox.previsao ? ` · previsto ${fmtBR(prox.previsao)}` : ''}</div>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{prox.doses.filter(d => !d.aplicada).map(d => d.vacina).join(', ')}</div>
+            </div>
+            <button onClick={() => abrirAgenda(prox)} className="btn btn-p btn-sm" style={{ gap: 5, fontWeight: 800, background: atras ? '#dc2626' : undefined, border: 'none' }}>
+              <CalendarPlus size={13} /> Agendar
+            </button>
+          </div>
+        );
+      })()}
+
       {/* Linha do tempo do esquema */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 5, maxHeight: compacto ? 260 : 'none', overflowY: compacto ? 'auto' : 'visible' }}>
         {dados.marcos.map(m => {
@@ -182,8 +238,8 @@ export default function CarteiraVacinal({ convId, onAgendar, compacto = false })
                   {parcial ? `🟡 Parcial · ${m.aplicadas}/${m.total_doses}` : st[0]}
                   {m.total_doses > 1 && !parcial ? ` · ${m.aplicadas}/${m.total_doses}` : ''}
                 </span>
-                {['atrasada', 'no_ponto', 'chegando', 'parcial'].includes(m.status) && onAgendar && (
-                  <button onClick={() => onAgendar(m)} title="Agendar esta etapa" className="btn btn-sm"
+                {['atrasada', 'no_ponto', 'chegando', 'parcial', 'futura'].includes(m.status) && (
+                  <button onClick={() => abrirAgenda(m)} title="Agendar esta etapa" className="btn btn-sm"
                     style={{ gap: 4, padding: '3px 9px', fontSize: 10.5, fontWeight: 800, background: parcial ? '#d97706' : st[1], color: '#fff', border: 'none', whiteSpace: 'nowrap' }}>
                     <CalendarPlus size={11} /> Agendar
                   </button>
@@ -214,6 +270,59 @@ export default function CarteiraVacinal({ convId, onAgendar, compacto = false })
           );
         })}
       </div>
+
+      {/* 📅 Modal: agendar a etapa (cria o horário E solicita as doses) */}
+      {agenda && (
+        <div onClick={e => e.target === e.currentTarget && setAgenda(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(3,43,48,.55)', zIndex: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div className="card" style={{ width: '100%', maxWidth: 420, padding: '18px 20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <span style={{ fontWeight: 800, fontSize: 15, flex: 1 }}>📅 Agendar {agenda.etapa}</span>
+              <button onClick={() => setAgenda(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={16} /></button>
+            </div>
+            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 12 }}>
+              {dados.paciente || 'Paciente'} · o horário entra na Agenda e as doses são solicitadas ao estoque.
+            </div>
+
+            <div style={{ display: 'flex', gap: 9, marginBottom: 12 }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>Data</label>
+                <input type="date" value={agenda.data} onChange={e => setAgenda({ ...agenda, data: e.target.value })}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 10, border: '1.5px solid var(--border)', fontSize: 13, background: 'var(--card)', color: 'var(--txt)', boxSizing: 'border-box', marginTop: 3 }} />
+              </div>
+              <div style={{ width: 108 }}>
+                <label style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>Hora</label>
+                <input type="time" value={agenda.hora} onChange={e => setAgenda({ ...agenda, hora: e.target.value })}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 10, border: '1.5px solid var(--border)', fontSize: 13, background: 'var(--card)', color: 'var(--txt)', boxSizing: 'border-box', marginTop: 3 }} />
+              </div>
+            </div>
+
+            <label style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>Doses deste atendimento</label>
+            <div style={{ marginTop: 5, marginBottom: 14 }}>
+              {agenda.todas.map(v => {
+                const on = agenda.vacinas.includes(v);
+                return (
+                  <div key={v} onClick={() => setAgenda(a => ({ ...a, vacinas: on ? a.vacinas.filter(x => x !== v) : [...a.vacinas, v] }))}
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 9, cursor: 'pointer', background: on ? 'var(--tq4,#e8f7f8)' : 'transparent' }}>
+                    <span style={{ width: 17, height: 17, borderRadius: 5, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      border: `2px solid ${on ? 'var(--tq,#00B8C0)' : 'var(--border)'}`, background: on ? 'var(--tq,#00B8C0)' : 'transparent', color: '#fff' }}>
+                      {on && <Check size={11} strokeWidth={3} />}
+                    </span>
+                    <span style={{ fontSize: 12.5 }}>{v}</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button onClick={() => setAgenda(null)} className="btn btn-s">Cancelar</button>
+              <button onClick={confirmarAgenda} disabled={salvando === 'agenda'} className="btn btn-p" style={{ fontWeight: 800 }}>
+                {salvando === 'agenda' ? 'Agendando…' : `Agendar ${agenda.vacinas.length} dose(s)`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

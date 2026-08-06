@@ -5289,6 +5289,52 @@ r.post('/conversations/:id/carteira', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// 📅 Agenda a etapa direto da carteira: cria o agendamento E já solicita as
+// doses (mensalista precisa sair da conversa com o próximo mês marcado).
+r.post('/conversations/:id/carteira/agendar', async (req, res) => {
+  try {
+    const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso.' });
+
+    const b = req.body || {};
+    const data = /^\d{4}-\d{2}-\d{2}$/.test(b.data || '') ? b.data : null;
+    const hora = /^\d{2}:\d{2}$/.test(b.hora || '') ? b.hora : null;
+    if (!data || !hora) return res.status(400).json({ error: 'Informe data e hora.' });
+    const vacinas = (Array.isArray(b.vacinas) ? b.vacinas : []).map(v => String(v).trim()).filter(Boolean).slice(0, 12);
+    if (!vacinas.length) return res.status(400).json({ error: 'Selecione ao menos uma vacina.' });
+
+    const { rows: [lead] } = conv.lead_id
+      ? await query('SELECT nome, endereco FROM leads WHERE id = $1', [conv.lead_id])
+      : { rows: [] };
+    const paciente = String(b.paciente || lead?.nome || conv.memoria?.paciente || conv.contact_name || 'Paciente').slice(0, 80);
+    const etapa = String(b.etapa || '').slice(0, 40);
+    const servico = `${etapa ? `${etapa} · ` : ''}${vacinas.join(', ')}`.slice(0, 80);
+    let tel = String(conv.phone || '').replace(/\D/g, '');
+
+    const { rows: [ev] } = await query(`
+      INSERT INTO agenda_eventos (paciente, responsavel_nome, telefone, data, hora, servico, setor, status, conversa_id, endereco, observacoes)
+      VALUES ($1,$2,$3,$4,$5,$6,'vacinas','Agendado',$7,$8,$9) RETURNING *`,
+      [paciente, conv.memoria?.responsavel || lead?.nome || null, tel.slice(0, 13), data, hora, servico,
+       conv.id, String(b.endereco || lead?.endereco || '').slice(0, 160) || null,
+       `💉 Agendado pela carteira vacinal${etapa ? ` (${etapa})` : ''}`]);
+
+    // Já pede as doses pro estoque/fornecedor (não aplica sem dose reservada)
+    for (const v of vacinas) {
+      await query(`INSERT INTO solicitacoes_vacinas (agenda_id, conversa_id, lead_id, paciente, vacina, quantidade,
+        data_prevista, hora, setor, solicitante_id, solicitante_nome)
+        VALUES ($1,$2,$3,$4,$5,1,$6,$7,'vacinas',$8,$9)`,
+        [ev.id, conv.id, conv.lead_id || null, paciente, v, data, hora, req.user.id, req.user.nome]).catch(() => {});
+    }
+
+    socketEmit('agenda_update', { id: ev.id });
+    await query(`INSERT INTO notificacoes (tipo, titulo, texto, conv_id) VALUES ('novo_lead',$1,$2,$3)`,
+      [`💉 Agendado: ${paciente}`,
+       `${etapa || 'Vacinas'} em ${data.split('-').reverse().join('/')} às ${hora} — ${vacinas.join(', ')}. Doses já solicitadas.`, conv.id]).catch(() => {});
+    res.status(201).json({ ok: true, evento: ev, doses: vacinas.length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 /* ═══ ⭐ FIDELIDADE — CONTROLE MENSAL (check por cliente) ═══════════════════
    Mensalista tem que ser atendido TODO mês. Aqui a equipe marca quem já foi
    atendido no mês, e o que sobra sem check é exatamente quem falta buscar. */
