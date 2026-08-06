@@ -1856,6 +1856,133 @@ r.delete('/ligacoes/:id', async (req, res) => {
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* ═══ 💉 SOLICITAÇÃO DE VACINAS — CONFORME A AGENDA ════════════════════════
+   A equipe olha a agenda dos próximos dias e pede/separa as vacinas que serão
+   aplicadas. Cada pedido nasce de um agendamento real, então nada é aplicado
+   sem dose reservada — e ninguém pede a mais. */
+const SOLVAC_STATUS = ['solicitada', 'pedida', 'disponivel', 'aplicada', 'cancelada'];
+
+// Agenda dos próximos dias com o que JÁ foi solicitado em cada atendimento
+r.get('/vacinas/agenda', async (req, res) => {
+  try {
+    const dias = Math.max(1, Math.min(parseInt(req.query.dias) || 15, 60));
+    const hoje = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+    const { rows: eventos } = await query(`
+      SELECT a.id, a.paciente, a.servico, TO_CHAR(a.data,'YYYY-MM-DD') data, a.hora, a.setor,
+             a.status, a.telefone, a.conversa_id, a.observacoes
+        FROM agenda_eventos a
+       WHERE a.data BETWEEN $1::date AND ($1::date + $2)
+         AND LOWER(COALESCE(a.status,'')) NOT LIKE 'cancel%'
+       ORDER BY a.data, a.hora`, [hoje, dias]);
+    const { rows: sols } = await query(`
+      SELECT * FROM solicitacoes_vacinas
+       WHERE data_prevista BETWEEN $1::date AND ($1::date + $2) AND status <> 'cancelada'
+       ORDER BY created_at`, [hoje, dias]);
+
+    const porAgenda = {};
+    for (const so of sols) {
+      const k = so.agenda_id || `avulso-${so.id}`;
+      (porAgenda[k] = porAgenda[k] || []).push(so);
+    }
+    res.json({
+      eventos: eventos.map(e => ({ ...e, solicitacoes: porAgenda[e.id] || [] })),
+      avulsas: sols.filter(x => !x.agenda_id),
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Lista de pedidos + CONSOLIDADO por data (o que comprar/separar em cada dia)
+r.get('/vacinas/solicitacoes', async (req, res) => {
+  try {
+    const cond = [], params = []; let i = 1;
+    if (SOLVAC_STATUS.includes(req.query.status)) { cond.push(`status = $${i++}`); params.push(req.query.status); }
+    else cond.push(`status <> 'cancelada'`);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(req.query.de || '')) { cond.push(`data_prevista >= $${i++}`); params.push(req.query.de); }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(req.query.ate || '')) { cond.push(`data_prevista <= $${i++}`); params.push(req.query.ate); }
+    const where = cond.length ? 'WHERE ' + cond.join(' AND ') : '';
+    const { rows } = await query(`SELECT * FROM solicitacoes_vacinas ${where} ORDER BY data_prevista, hora, paciente LIMIT 400`, params);
+
+    // Consolidado: quantas doses de cada vacina por dia (é o que se pede ao fornecedor)
+    const mapa = {};
+    for (const s2 of rows) {
+      if (s2.status === 'cancelada') continue;
+      const d = s2.data_prevista ? String(s2.data_prevista).slice(0, 10) : 'sem-data';
+      mapa[d] = mapa[d] || {};
+      mapa[d][s2.vacina] = (mapa[d][s2.vacina] || 0) + (s2.quantidade || 1);
+    }
+    const consolidado = Object.entries(mapa).sort(([a], [b]) => a.localeCompare(b))
+      .map(([data, vacs]) => ({ data, itens: Object.entries(vacs).map(([vacina, qtd]) => ({ vacina, qtd })).sort((a, b) => b.qtd - a.qtd) }));
+    res.json({ solicitacoes: rows, consolidado });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Cria pedido(s) — normalmente a partir de um agendamento
+r.post('/vacinas/solicitacoes', async (req, res) => {
+  try {
+    const b = req.body || {};
+    const itens = Array.isArray(b.itens) && b.itens.length ? b.itens : [{ vacina: b.vacina, quantidade: b.quantidade }];
+    let ev = null;
+    if (b.agenda_id) {
+      const { rows: [e] } = await query(`SELECT id, paciente, TO_CHAR(data,'YYYY-MM-DD') data, hora, setor, conversa_id FROM agenda_eventos WHERE id = $1`, [parseInt(b.agenda_id)]);
+      ev = e || null;
+    }
+    const paciente = cut((b.paciente || ev?.paciente || '').trim(), 80);
+    if (!paciente) return res.status(400).json({ error: 'Informe o paciente.' });
+    const dataPrev = /^\d{4}-\d{2}-\d{2}$/.test(b.data_prevista || '') ? b.data_prevista : (ev?.data || null);
+    if (!dataPrev) return res.status(400).json({ error: 'Informe a data prevista (ou vincule a um agendamento).' });
+
+    const criadas = [];
+    for (const it of itens) {
+      const vacina = cut(String(it?.vacina || '').trim(), 120);
+      if (!vacina) continue;
+      const qtd = Math.max(1, Math.min(parseInt(it?.quantidade) || 1, 50));
+      const { rows: [nova] } = await query(`
+        INSERT INTO solicitacoes_vacinas (agenda_id, conversa_id, lead_id, paciente, vacina, quantidade,
+          data_prevista, hora, setor, urgente, observacao, solicitante_id, solicitante_nome)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
+        [ev?.id || (b.agenda_id ? parseInt(b.agenda_id) : null), b.conversa_id || ev?.conversa_id || null,
+         b.lead_id || null, paciente, vacina, qtd, dataPrev, cut(b.hora || ev?.hora, 5),
+         ['vacinas', 'consultas', 'terapias'].includes(b.setor || ev?.setor) ? (b.setor || ev.setor) : 'vacinas',
+         !!b.urgente, cut(b.observacao, 300), req.user.id, req.user.nome]);
+      if (nova) criadas.push(nova);
+    }
+    if (!criadas.length) return res.status(400).json({ error: 'Informe ao menos uma vacina.' });
+
+    await query(`INSERT INTO notificacoes (tipo, titulo, texto) VALUES ('novo_lead', $1, $2)`,
+      [`💉 Vacinas solicitadas: ${paciente}`,
+       `${criadas.map(c => `${c.quantidade}x ${c.vacina}`).join(', ')} para ${dataPrev.split('-').reverse().join('/')}${b.urgente ? ' · URGENTE' : ''} — pedido de ${String(req.user.nome || '').split(' ')[0]}.`]).catch(() => {});
+    socketEmit('vacinas_solicitacao', { n: criadas.length });
+    res.status(201).json({ ok: true, criadas });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Andar o status (solicitada → pedida → disponível → aplicada) ou ajustar
+r.patch('/vacinas/solicitacoes/:id', async (req, res) => {
+  try {
+    const b = req.body || {};
+    const sets = [], params = []; let i = 1;
+    if (SOLVAC_STATUS.includes(b.status)) { sets.push(`status = $${i++}`); params.push(b.status); }
+    if (b.quantidade !== undefined) { sets.push(`quantidade = $${i++}`); params.push(Math.max(1, Math.min(parseInt(b.quantidade) || 1, 50))); }
+    if (b.vacina !== undefined) { sets.push(`vacina = $${i++}`); params.push(cut(b.vacina, 120)); }
+    if (b.urgente !== undefined) { sets.push(`urgente = $${i++}`); params.push(!!b.urgente); }
+    if (b.observacao !== undefined) { sets.push(`observacao = $${i++}`); params.push(cut(b.observacao, 300)); }
+    if (!sets.length) return res.status(400).json({ error: 'Nada para atualizar.' });
+    params.push(parseInt(req.params.id));
+    const { rows: [so] } = await query(`UPDATE solicitacoes_vacinas SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${i} RETURNING *`, params);
+    if (!so) return res.status(404).json({ error: 'Solicitação não encontrada.' });
+    socketEmit('vacinas_solicitacao', { id: so.id });
+    res.json(so);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.delete('/vacinas/solicitacoes/:id', async (req, res) => {
+  try {
+    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão exclui. Use "cancelar" para desfazer um pedido.' });
+    await query('DELETE FROM solicitacoes_vacinas WHERE id = $1', [parseInt(req.params.id)]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 /* ═══ 🔔 PUSH (notificação com o app fechado) ═══════════════════════════════ */
 r.get('/push/chave', async (req, res) => {
   try { const v = await getVapid(); res.json({ publicKey: v?.publicKey || null }); }

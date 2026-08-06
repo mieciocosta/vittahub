@@ -176,6 +176,16 @@ export default async function runMigrate() {
     await query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS responsavel_cpf TEXT`).catch(() => {});
     await query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS cep TEXT`).catch(() => {});
     await query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS ficha_em TIMESTAMPTZ`).catch(() => {});
+    // 💉 Solicitação de vacinas CONFORME A AGENDA (separar/pedir o que será aplicado)
+    await query(`CREATE TABLE IF NOT EXISTS solicitacoes_vacinas (
+      id SERIAL PRIMARY KEY, agenda_id INT, conversa_id TEXT, lead_id TEXT,
+      paciente TEXT NOT NULL, vacina TEXT NOT NULL, quantidade INT DEFAULT 1,
+      data_prevista DATE, hora TEXT, setor TEXT DEFAULT 'vacinas',
+      status TEXT DEFAULT 'solicitada', urgente BOOLEAN DEFAULT false, observacao TEXT,
+      solicitante_id TEXT, solicitante_nome TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS idx_solvac_data ON solicitacoes_vacinas (data_prevista, status)`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS idx_solvac_agenda ON solicitacoes_vacinas (agenda_id)`).catch(() => {});
 
     await query(`CREATE TABLE IF NOT EXISTS configuracoes (
       chave TEXT PRIMARY KEY, valor JSONB NOT NULL, updated_at TIMESTAMPTZ DEFAULT NOW()

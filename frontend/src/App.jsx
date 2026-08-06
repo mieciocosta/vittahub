@@ -20,6 +20,7 @@ const Relatorios = lazy(() => import('./pages/Relatorios.jsx'));
 const Configuracoes = lazy(() => import('./pages/Configuracoes.jsx'));
 const Agenda = lazy(() => import('./pages/Agenda.jsx'));
 const AgendarPublico = React.lazy(() => import('./pages/AgendarPublico.jsx'));
+const SolicitacaoVacinas = React.lazy(() => import('./pages/SolicitacaoVacinas.jsx'));
 const Indicacoes = lazy(() => import('./pages/Indicacoes.jsx'));
 const PastaClientes = lazy(() => import('./pages/PastaClientes.jsx'));
 const Classificar = lazy(() => import('./pages/Classificar.jsx'));
@@ -338,6 +339,7 @@ export default function App() {
           <Route path="/relatorios"   element={<Relatorios />} />
           <Route path="/agenda" element={<Agenda />} />
           <Route path="/lembretes" element={<Lembretes />} />
+          <Route path="/vacinas-solicitacao" element={<SolicitacaoVacinas />} />
           <Route path="/profissionais" element={(['master','supervisor'].includes(user.role) || user.setor === 'consultas') ? <Profissionais /> : <Navigate to="/" />} />
           <Route path="/metas" element={<Metas />} />
           <Route path="/caixa" element={<Caixa />} />
