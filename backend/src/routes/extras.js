@@ -1856,6 +1856,89 @@ r.delete('/ligacoes/:id', async (req, res) => {
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* ═══ 📋 RELATÓRIO DE AGENDAMENTOS DO DIA + PRODUTIVIDADE ══════════════════
+   O raio-X do dia: quem veio, quem faltou, quanto entrou — e a produtividade
+   de cada atendente (agendou x compareceu x faturou). Serve pra reunião de
+   equipe e pra saber quem está puxando o resultado. */
+r.get('/agenda/relatorio-dia', async (req, res) => {
+  try {
+    const dia = /^\d{4}-\d{2}-\d{2}$/.test(req.query.data || '') ? req.query.data
+      : new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+
+    const [evQ, vendasQ, dosesQ, criadosQ] = await Promise.all([
+      query(`SELECT a.id, a.paciente, a.servico, a.hora, a.status, a.setor, a.profissional,
+                    a.telefone, a.valor, a.forma_pagamento, a.conversa_id, a.responsavel_id,
+                    u.nome resp_nome
+               FROM agenda_eventos a LEFT JOIN usuarios u ON u.id = a.responsavel_id
+              WHERE a.data = $1 ORDER BY a.hora, a.paciente`, [dia]),
+      query(`SELECT COALESCE(atendente_nome,'—') nome, COUNT(*)::int n,
+                    COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float confirmado
+               FROM vendas WHERE data_venda = $1 GROUP BY 1`, [dia]),
+      query(`SELECT COUNT(*)::int n FROM carteira_doses WHERE data_aplicacao = $1 AND aplicada = true`, [dia]).catch(() => ({ rows: [{ n: 0 }] })),
+      // Agendamentos CRIADOS hoje (produtividade de quem agenda, não só de quem atende)
+      query(`SELECT COALESCE(u.nome,'—') nome, COUNT(*)::int n
+               FROM agenda_eventos a LEFT JOIN usuarios u ON u.id = a.responsavel_id
+              WHERE a.created_at::date = $1 GROUP BY 1`, [dia]).catch(() => ({ rows: [] })),
+    ]);
+
+    const eventos = evQ.rows.map(e => ({ ...e, valor: e.valor == null ? null : Number(e.valor) }));
+    const st = (x) => eventos.filter(e => e.status === x).length;
+    const ativos = eventos.filter(e => e.status !== 'Cancelado');
+    const compareceu = eventos.filter(e => e.status === 'Realizado').length;
+    const faltou = st('Faltou');
+    const base = compareceu + faltou;   // só quem já tem desfecho entra na taxa
+
+    // Produtividade por atendente responsável pelos atendimentos do dia
+    const porAtend = {};
+    for (const e of eventos) {
+      const nome = e.resp_nome || '— sem responsável —';
+      const p = porAtend[nome] || (porAtend[nome] = { nome, agendados: 0, realizados: 0, faltas: 0, cancelados: 0, previsto: 0 });
+      p.agendados++;
+      if (e.status === 'Realizado') p.realizados++;
+      else if (e.status === 'Faltou') p.faltas++;
+      else if (e.status === 'Cancelado') p.cancelados++;
+      if (e.status !== 'Cancelado') p.previsto += Number(e.valor || 0);
+    }
+    const vendasPorNome = Object.fromEntries(vendasQ.rows.map(v => [v.nome, v]));
+    const criadosPorNome = Object.fromEntries(criadosQ.rows.map(c => [c.nome, c.n]));
+    const produtividade = Object.values(porAtend).map(p => {
+      const v = vendasPorNome[p.nome] || { n: 0, confirmado: 0 };
+      const desfecho = p.realizados + p.faltas;
+      return { ...p, vendas: v.n, faturado: v.confirmado, novos_agendamentos: criadosPorNome[p.nome] || 0,
+        taxa_comparecimento: desfecho ? +((p.realizados / desfecho) * 100).toFixed(0) : null };
+    }).sort((a, b) => b.faturado - a.faturado || b.realizados - a.realizados);
+
+    // Quebra por setor e por profissional (quem executou)
+    const agrupa = (campo) => {
+      const m = {};
+      for (const e of ativos) {
+        const k = e[campo] || '—';
+        const g = m[k] || (m[k] = { nome: k, total: 0, realizados: 0, faltas: 0 });
+        g.total++;
+        if (e.status === 'Realizado') g.realizados++;
+        if (e.status === 'Faltou') g.faltas++;
+      }
+      return Object.values(m).sort((a, b) => b.total - a.total);
+    };
+
+    const faturado = vendasQ.rows.reduce((sm, v) => sm + Number(v.confirmado || 0), 0);
+    res.json({
+      data: dia, eventos,
+      resumo: {
+        total: eventos.length, ativos: ativos.length,
+        agendados: st('Agendado'), confirmados: st('Confirmado'), realizados: compareceu,
+        faltas: faltou, cancelados: st('Cancelado'), reagendados: st('Reagendado'),
+        taxa_comparecimento: base ? +((compareceu / base) * 100).toFixed(0) : null,
+        taxa_falta: base ? +((faltou / base) * 100).toFixed(0) : null,
+        previsto: ativos.reduce((sm, e) => sm + Number(e.valor || 0), 0),
+        faturado, doses_aplicadas: dosesQ.rows[0]?.n || 0,
+        ticket_medio: compareceu ? +(faturado / compareceu).toFixed(2) : 0,
+      },
+      produtividade, por_setor: agrupa('setor'), por_profissional: agrupa('profissional'),
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 /* ═══ 🔒 FECHAMENTO DIÁRIO — CAIXA E ESTOQUE ═══════════════════════════════
    Rotina de fim de dia: confere o que entrou (por forma de pagamento) e as
    doses que saíram do estoque. Ao fechar, vira a foto do dia — não muda mais,

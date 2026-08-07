@@ -20,6 +20,9 @@ export default function Agenda() {
   const { user } = useAuth();
   const [data, setData] = useState(hojeISO());
   const [eventos, setEventos] = useState([]);
+  // 📋 Relatório do dia + produtividade da equipe
+  const [aba, setAba] = useState('lista');
+  const [rel, setRel] = useState(null);
   const [modal, setModal] = useState(null); // {} novo · {id...} edição
   const [erro, setErro] = useState('');
   const [salvando, setSalvando] = useState(false);
@@ -98,6 +101,16 @@ export default function Agenda() {
         </div>
       </div>
 
+      <div style={{ display: 'flex', gap: 7, marginBottom: 12, flexWrap: 'wrap' }}>
+        {[['lista', '📅 Agenda do dia'], ['relatorio', '📋 Relatório e produtividade']].map(([k, l]) => (
+          <button key={k} onClick={() => { setAba(k); if (k === 'relatorio') { setRel({ carregando: true }); api.get(`/extras/agenda/relatorio-dia?data=${data}`).then(setRel).catch(e => setRel({ erro: e.message })); } }}
+            style={{ padding: '7px 15px', borderRadius: 10, fontSize: 12.5, fontWeight: 800, cursor: 'pointer',
+              border: `1.5px solid ${aba === k ? 'var(--tq)' : 'var(--border)'}`,
+              background: aba === k ? 'var(--tq)' : 'var(--card)', color: aba === k ? '#fff' : 'var(--muted)' }}>{l}</button>
+        ))}
+      </div>
+
+      {aba === 'relatorio' ? <RelatorioDia rel={rel} data={data} rotuloDia={rotuloDia} /> : (
       <div className="card" style={{ padding: 0, overflow: 'hidden', background: 'var(--card)' }}>
         <div style={{ padding: '13px 20px', background: 'linear-gradient(90deg,var(--tq),#0aa6ae)', color: '#fff', fontWeight: 800, fontSize: 14, textTransform: 'capitalize' }}>
           {ehHoje ? `Hoje · ${rotuloDia}` : rotuloDia}
@@ -161,6 +174,7 @@ export default function Agenda() {
           );
         })}
       </div>
+      )}
 
       {/* Modal novo/editar */}
       {modal && (
@@ -333,4 +347,150 @@ function baixarPDF(eventos, dataISO, rotuloDia) {
   if (!w) { window.alert('O navegador bloqueou a janela do PDF — libere pop-ups pro VittaHub.'); return; }
   w.document.write(html);
   w.document.close();
+}
+
+
+/* 📋 RELATÓRIO DO DIA — desfecho dos atendimentos e produtividade da equipe.
+   Serve pra reunião: quem veio, quem faltou, quanto entrou e quem puxou o
+   resultado. Imprimível pra deixar registrado. */
+function RelatorioDia({ rel, data, rotuloDia }) {
+  if (!rel) return null;
+  if (rel.carregando) return <div className="card" style={{ padding: 30, color: 'var(--muted)' }}>Montando o relatório do dia…</div>;
+  if (rel.erro) return <div className="card" style={{ padding: 24, color: 'var(--err)', fontWeight: 600 }}>⚠️ {rel.erro}</div>;
+
+  const r = rel.resumo || {};
+  const brl = (v) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+  const imprimir = () => {
+    const w = window.open('', '_blank'); if (!w) return;
+    const esc = (t) => String(t ?? '').replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+    const linhasProd = (rel.produtividade || []).map(p => `<tr>
+      <td>${esc(p.nome)}</td><td class="c">${p.agendados}</td><td class="c">${p.realizados}</td>
+      <td class="c ${p.faltas ? 'no' : ''}">${p.faltas}</td>
+      <td class="c">${p.taxa_comparecimento != null ? p.taxa_comparecimento + '%' : '—'}</td>
+      <td class="c">${p.novos_agendamentos}</td><td class="c">${p.vendas}</td>
+      <td class="r"><b>${brl(p.faturado)}</b></td></tr>`).join('');
+    const linhasEv = (rel.eventos || []).map(e => `<tr class="${e.status === 'Faltou' ? 'no' : e.status === 'Realizado' ? 'ok' : ''}">
+      <td class="c">${esc(e.hora)}</td><td>${esc(e.paciente)}</td><td>${esc(e.servico || '')}</td>
+      <td>${esc(e.resp_nome || '')}</td><td>${esc(e.profissional || '')}</td>
+      <td class="c">${esc(e.status)}</td><td class="r">${e.valor ? brl(e.valor) : ''}</td></tr>`).join('');
+    w.document.write(`<html><head><title>Relatório do dia ${rel.data}</title><meta charset="utf-8">
+      <style>@page{size:A4 landscape;margin:11mm}body{font-family:Arial,Helvetica,sans-serif;color:#14202b;margin:0}
+      h1{color:#0E8C96;margin:0 0 2px;font-size:19px}h2{font-size:13px;margin:15px 0 6px}
+      .sub{color:#64748b;font-size:12px;margin-bottom:12px;text-transform:capitalize}
+      .box{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+      .box div{border:1px solid #cbd5e1;border-radius:8px;padding:7px 13px;font-size:11px;color:#64748b}
+      .box b{display:block;font-size:16px;color:#0E8C96}
+      table{width:100%;border-collapse:collapse;font-size:11px}
+      th{background:#0E8C96;color:#fff;padding:6px 8px;text-align:left;font-size:9.5px}
+      td{border:1px solid #dbe3ea;padding:5px 8px}td.c{text-align:center}td.r{text-align:right}
+      tr.ok td{background:#f6fefa}tr.no td{background:#fff5f5}td.no{color:#b91c1c;font-weight:bold}
+      .rod{margin-top:14px;border-top:1px solid #dbe3ea;padding-top:7px;font-size:9.5px;color:#94a3b8}</style></head><body>
+      <h1>Relatório de Agendamentos — Vittalis Saúde</h1>
+      <div class="sub">${esc(rotuloDia)} (${rel.data.split('-').reverse().join('/')})</div>
+      <div class="box">
+        <div>Agendamentos<b>${r.ativos}</b></div>
+        <div>Realizados<b>${r.realizados}</b></div>
+        <div>Faltas<b>${r.faltas}</b></div>
+        <div>Comparecimento<b>${r.taxa_comparecimento != null ? r.taxa_comparecimento + '%' : '—'}</b></div>
+        <div>Previsto<b>${brl(r.previsto)}</b></div>
+        <div>Faturado<b>${brl(r.faturado)}</b></div>
+        <div>Ticket médio<b>${brl(r.ticket_medio)}</b></div>
+        <div>Doses aplicadas<b>${r.doses_aplicadas}</b></div>
+      </div>
+      <h2>Produtividade da equipe</h2>
+      <table><thead><tr><th>Atendente</th><th class="c">Agendados</th><th class="c">Realizados</th><th class="c">Faltas</th><th class="c">Compar.</th><th class="c">Novos agend.</th><th class="c">Vendas</th><th class="r">Faturado</th></tr></thead>
+      <tbody>${linhasProd || '<tr><td colspan="8">Sem dados no dia.</td></tr>'}</tbody></table>
+      <h2>Atendimentos do dia</h2>
+      <table><thead><tr><th class="c">Hora</th><th>Paciente</th><th>Serviço</th><th>Responsável</th><th>Profissional</th><th class="c">Status</th><th class="r">Valor</th></tr></thead>
+      <tbody>${linhasEv || '<tr><td colspan="7">Nenhum agendamento.</td></tr>'}</tbody></table>
+      <div class="rod">Emitido em ${new Date().toLocaleString('pt-BR')} · VittaHub CRM</div>
+      <script>window.onload=()=>window.print()</script></body></html>`);
+    w.document.close();
+  };
+
+  const KPIS = [
+    ['📅', 'Agendamentos', r.ativos, 'var(--tq2)'],
+    ['✅', 'Realizados', r.realizados, 'var(--ok,#16a34a)'],
+    ['👻', 'Faltas', r.faltas, r.faltas ? 'var(--err,#dc2626)' : 'var(--muted)'],
+    ['📊', 'Comparecimento', r.taxa_comparecimento != null ? `${r.taxa_comparecimento}%` : '—', r.taxa_comparecimento >= 80 ? 'var(--ok,#16a34a)' : '#d97706'],
+    ['💰', 'Faturado', brl(r.faturado), 'var(--ok,#16a34a)'],
+    ['🎯', 'Ticket médio', brl(r.ticket_medio), 'var(--tq2)'],
+    ['💉', 'Doses aplicadas', r.doses_aplicadas, '#8b5cf6'],
+  ];
+
+  return (
+    <>
+      {/* Números do dia */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: 10, marginBottom: 14 }}>
+        {KPIS.map(([ic, l, v, cor]) => (
+          <div key={l} className="card" style={{ padding: '11px 14px' }}>
+            <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700 }}>{ic} {l}</div>
+            <div style={{ fontSize: 20, fontWeight: 900, color: cor, lineHeight: 1.25 }}>{v}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Produtividade da equipe */}
+      <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 18px', background: 'linear-gradient(90deg,#0E8C96,#00B8C0)', color: '#fff' }}>
+          <span style={{ fontWeight: 800, fontSize: 14, flex: 1 }}>🏆 Produtividade da equipe</span>
+          <button onClick={imprimir} style={{ background: 'rgba(255,255,255,.2)', border: 'none', color: '#fff', borderRadius: 8, padding: '5px 12px', cursor: 'pointer', fontSize: 11.5, fontWeight: 800 }}>🖨️ Imprimir</button>
+        </div>
+        {(rel.produtividade || []).length === 0 ? (
+          <div style={{ padding: 26, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>Nenhum atendimento neste dia.</div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, minWidth: 620 }}>
+              <thead>
+                <tr style={{ background: 'var(--bg2)' }}>
+                  {['Atendente', 'Agendados', 'Realizados', 'Faltas', 'Comparec.', 'Novos', 'Vendas', 'Faturado'].map((h, i) => (
+                    <th key={h} style={{ padding: '8px 12px', textAlign: i === 0 ? 'left' : i === 7 ? 'right' : 'center', fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .4 }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rel.produtividade.map((p, i) => (
+                  <tr key={p.nome} style={{ borderTop: '1px solid var(--border)' }}>
+                    <td style={{ padding: '9px 12px', fontWeight: 700 }}>
+                      {i === 0 && p.faturado > 0 && <span title="Destaque do dia">🏅 </span>}
+                      {String(p.nome).split(' ')[0]}
+                    </td>
+                    <td style={{ padding: '9px 12px', textAlign: 'center' }}>{p.agendados}</td>
+                    <td style={{ padding: '9px 12px', textAlign: 'center', fontWeight: 800, color: 'var(--ok,#16a34a)' }}>{p.realizados}</td>
+                    <td style={{ padding: '9px 12px', textAlign: 'center', fontWeight: p.faltas ? 800 : 400, color: p.faltas ? 'var(--err,#dc2626)' : 'var(--muted)' }}>{p.faltas}</td>
+                    <td style={{ padding: '9px 12px', textAlign: 'center', fontWeight: 800, color: p.taxa_comparecimento == null ? 'var(--muted)' : p.taxa_comparecimento >= 80 ? 'var(--ok,#16a34a)' : '#d97706' }}>
+                      {p.taxa_comparecimento != null ? `${p.taxa_comparecimento}%` : '—'}
+                    </td>
+                    <td style={{ padding: '9px 12px', textAlign: 'center', color: 'var(--muted)' }}>{p.novos_agendamentos}</td>
+                    <td style={{ padding: '9px 12px', textAlign: 'center' }}>{p.vendas}</td>
+                    <td style={{ padding: '9px 12px', textAlign: 'right', fontWeight: 800, color: 'var(--ok,#16a34a)' }}>{brl(p.faturado)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Por setor e por profissional */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(250px,1fr))', gap: 12 }}>
+        {[['💉 Por setor', rel.por_setor], ['👩‍⚕️ Por profissional', rel.por_profissional]].map(([tit, lista]) => (
+          (lista || []).length > 0 && (
+            <div key={tit} className="card" style={{ padding: '13px 16px' }}>
+              <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 8 }}>{tit}</div>
+              {lista.map(g => (
+                <div key={g.nome} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
+                  <span style={{ flex: 1, fontSize: 12.5, textTransform: 'capitalize' }}>{g.nome}</span>
+                  <span style={{ fontSize: 11.5, color: 'var(--ok,#16a34a)', fontWeight: 700 }}>{g.realizados} feitos</span>
+                  {g.faltas > 0 && <span style={{ fontSize: 11.5, color: 'var(--err,#dc2626)', fontWeight: 700 }}>{g.faltas} faltas</span>}
+                  <span style={{ fontSize: 13, fontWeight: 800, minWidth: 26, textAlign: 'right' }}>{g.total}</span>
+                </div>
+              ))}
+            </div>
+          )
+        ))}
+      </div>
+    </>
+  );
 }
