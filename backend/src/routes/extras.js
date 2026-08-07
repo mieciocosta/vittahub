@@ -1856,6 +1856,119 @@ r.delete('/ligacoes/:id', async (req, res) => {
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* ═══ 📄 RELATÓRIO INDIVIDUAL DA LÍDER (modelo do Dr. Miécio) ══════════════
+   Acompanhamento DIÁRIO de desempenho e conversão, por pessoa: metas do dia
+   por categoria e financeiras, com "Realizado" e "Faltam" já preenchidos pelo
+   sistema. Os alvos do dia ficam configuráveis por setor. */
+const CATS_RELATORIO = [
+  { rotulo: 'Planos Vacinais Infantis', categorias: ['Plano Vacinal'], setor: 'vacinas', meta: 2 },
+  { rotulo: 'Clientes Fidelidade', categorias: ['Fidelidade Mensal'], setor: 'vacinas', meta: 5 },
+  { rotulo: 'Planos Vacinais Adultos', categorias: ['Plano Vacinal'], setor: 'vacinas', meta: 5, adulto: true },
+  { rotulo: 'Vacinas Avulsas', categorias: ['Vacinação Geral'], setor: 'vacinas', meta: 5 },
+];
+
+async function cfgRelatorioLider() {
+  try {
+    const { rows: [c] } = await query("SELECT valor FROM configuracoes WHERE chave = 'relatorio_lider'");
+    if (c?.valor) return c.valor;
+  } catch { /* usa o padrão */ }
+  return {};
+}
+
+r.get('/relatorio-lider/config', async (req, res) => {
+  try { res.json({ padrao_categorias: CATS_RELATORIO, ...(await cfgRelatorioLider()) }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+r.put('/relatorio-lider/config', async (req, res) => {
+  try {
+    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão altera as metas do relatório.' });
+    const b = req.body || {};
+    const cfg = {
+      meta_diaria_setor: Math.max(0, parseFloat(b.meta_diaria_setor) || 0),
+      meta_individual: Math.max(0, parseFloat(b.meta_individual) || 0),
+      categorias: (Array.isArray(b.categorias) ? b.categorias : []).slice(0, 12)
+        .map(c => ({ rotulo: String(c.rotulo || '').slice(0, 60), meta: Math.max(0, parseInt(c.meta) || 0),
+          categorias: Array.isArray(c.categorias) ? c.categorias.slice(0, 6).map(x => String(x).slice(0, 40)) : [],
+          adulto: !!c.adulto })).filter(c => c.rotulo),
+    };
+    await query(`INSERT INTO configuracoes (chave, valor) VALUES ('relatorio_lider', $1::jsonb)
+                 ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`, [JSON.stringify(cfg)]);
+    res.json({ ok: true, ...cfg });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.get('/relatorio-lider', async (req, res) => {
+  try {
+    const dia = /^\d{4}-\d{2}-\d{2}$/.test(req.query.data || '') ? req.query.data
+      : new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+    const mes = dia.slice(0, 7);
+    // Atendente do relatório: a pedida (gestão) ou a própria pessoa logada
+    const alvoId = (gestao(req) && req.query.usuario_id) ? req.query.usuario_id : req.user.id;
+    const { rows: [u] } = await query('SELECT id, nome, setor, meta_individual, lider FROM usuarios WHERE id = $1', [alvoId]);
+    if (!u) return res.status(404).json({ error: 'Usuário não encontrado.' });
+    const setor = u.setor || 'vacinas';
+
+    const [{ rows: cfgMetas }, cfg] = await Promise.all([
+      query("SELECT valor FROM configuracoes WHERE chave = 'metas'"),
+      cfgRelatorioLider(),
+    ]);
+    const v = cfgMetas[0]?.valor || {};
+    const metaGlobalMes = Math.max(1, parseFloat(v.globais?.[setor]) || 500000);
+    // Meta do dia: a configurada ou a global dividida por 26 dias de atendimento
+    const metaDiaSetor = cfg.meta_diaria_setor || Math.round(metaGlobalMes / 26);
+    const metaIndividual = cfg.meta_individual || Math.round(metaDiaSetor / 2);
+
+    const PAGO = "status_pagamento IN ('pago','cortesia')";
+    const [indQ, setorDiaQ, setorMesQ, vendasDiaQ] = await Promise.all([
+      query(`SELECT COUNT(*)::int n, COALESCE(SUM(valor) FILTER (WHERE ${PAGO}),0)::float total
+               FROM vendas WHERE data_venda = $1 AND atendente_id = $2`, [dia, alvoId]),
+      query(`SELECT COALESCE(SUM(valor) FILTER (WHERE ${PAGO}),0)::float total
+               FROM vendas WHERE data_venda = $1 AND COALESCE(setor,'vacinas') = $2`, [dia, setor]),
+      query(`SELECT COALESCE(SUM(valor) FILTER (WHERE ${PAGO}),0)::float total
+               FROM vendas WHERE to_char(data_venda,'YYYY-MM') = $1 AND COALESCE(setor,'vacinas') = $2`, [mes, setor]),
+      // Vendas do dia da pessoa, com categoria e idade do paciente (infantil x adulto)
+      query(`SELECT v.categoria, v.paciente_nome, l.nascimento
+               FROM vendas v LEFT JOIN leads l ON l.id = v.lead_id
+              WHERE v.data_venda = $1 AND v.atendente_id = $2`, [dia, alvoId]),
+    ]);
+
+    // Realizado por categoria do relatório (infantil = paciente com menos de 12 anos)
+    const ehInfantil = (nasc) => {
+      if (!nasc) return true;   // sem data, conta como infantil (pediatria é o padrão da casa)
+      const anos = (Date.now() - new Date(nasc).getTime()) / (365.25 * 86400000);
+      return anos < 12;
+    };
+    const lista = (cfg.categorias?.length ? cfg.categorias : CATS_RELATORIO);
+    const categorias = lista.map(c => {
+      const realizado = vendasDiaQ.rows.filter(vd => {
+        if (!(c.categorias || []).includes(vd.categoria)) return false;
+        if (c.adulto) return !ehInfantil(vd.nascimento);
+        if (/infanti/i.test(c.rotulo)) return ehInfantil(vd.nascimento);
+        return true;
+      }).length;
+      return { rotulo: c.rotulo, meta: c.meta || 0, realizado, faltam: Math.max((c.meta || 0) - realizado, 0) };
+    });
+    const totMeta = categorias.reduce((sm, c) => sm + c.meta, 0);
+    const totReal = categorias.reduce((sm, c) => sm + c.realizado, 0);
+
+    const indiv = indQ.rows[0] || { n: 0, total: 0 };
+    const setorDia = setorDiaQ.rows[0]?.total || 0;
+    const setorMes = setorMesQ.rows[0]?.total || 0;
+
+    res.json({
+      data: dia, usuario: { id: u.id, nome: u.nome, setor, lider: !!u.lider },
+      metas: { global_mes: metaGlobalMes, dia_setor: metaDiaSetor, individual: metaIndividual },
+      categorias, total_categorias: { meta: totMeta, realizado: totReal, faltam: Math.max(totMeta - totReal, 0) },
+      financeiro: [
+        { indicador: 'Meta individual diária', meta: metaIndividual, realizado: indiv.total, faltam: Math.max(metaIndividual - indiv.total, 0) },
+        { indicador: 'Meta diária do setor', meta: metaDiaSetor, realizado: setorDia, faltam: Math.max(metaDiaSetor - setorDia, 0) },
+        { indicador: 'Meta global mensal', meta: metaGlobalMes, realizado: setorMes, faltam: Math.max(metaGlobalMes - setorMes, 0) },
+      ],
+      resultado: { vendas: indiv.n, valor: indiv.total, bateu: indiv.total >= metaIndividual },
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 /* ═══ 📋 RELATÓRIO DE AGENDAMENTOS DO DIA + PRODUTIVIDADE ══════════════════
    O raio-X do dia: quem veio, quem faltou, quanto entrou — e a produtividade
    de cada atendente (agendou x compareceu x faturou). Serve pra reunião de
