@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Plus, Phone, MessageSquare, Check, X as XIcon, Pencil, Trash2, ChevronLeft, ChevronRight, X } from 'lucide-react';
+import RelatorioLider from '../components/RelatorioLider.jsx';
 import { useNavigate } from 'react-router-dom';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt } from '../hooks/utils.js';
@@ -23,6 +24,7 @@ export default function Agenda() {
   // 📋 Relatório do dia + produtividade da equipe
   const [aba, setAba] = useState('lista');
   const [rel, setRel] = useState(null);
+  const [relLider, setRelLider] = useState(false);  // 📄 relatório individual (modelo da liderança)
   const [modal, setModal] = useState(null); // {} novo · {id...} edição
   const [erro, setErro] = useState('');
   const [salvando, setSalvando] = useState(false);
@@ -110,7 +112,7 @@ export default function Agenda() {
         ))}
       </div>
 
-      {aba === 'relatorio' ? <RelatorioDia rel={rel} data={data} rotuloDia={rotuloDia} /> : (
+      {aba === 'relatorio' ? <RelatorioDia rel={rel} data={data} rotuloDia={rotuloDia} onLider={() => setRelLider(true)} /> : (
       <div className="card" style={{ padding: 0, overflow: 'hidden', background: 'var(--card)' }}>
         <div style={{ padding: '13px 20px', background: 'linear-gradient(90deg,var(--tq),#0aa6ae)', color: '#fff', fontWeight: 800, fontSize: 14, textTransform: 'capitalize' }}>
           {ehHoje ? `Hoje · ${rotuloDia}` : rotuloDia}
@@ -175,6 +177,8 @@ export default function Agenda() {
         })}
       </div>
       )}
+
+      {relLider && <RelatorioLider onClose={() => setRelLider(false)} />}
 
       {/* Modal novo/editar */}
       {modal && (
@@ -353,7 +357,7 @@ function baixarPDF(eventos, dataISO, rotuloDia) {
 /* 📋 RELATÓRIO DO DIA — desfecho dos atendimentos e produtividade da equipe.
    Serve pra reunião: quem veio, quem faltou, quanto entrou e quem puxou o
    resultado. Imprimível pra deixar registrado. */
-function RelatorioDia({ rel, data, rotuloDia }) {
+function RelatorioDia({ rel, data, rotuloDia, onLider }) {
   if (!rel) return null;
   if (rel.carregando) return <div className="card" style={{ padding: 30, color: 'var(--muted)' }}>Montando o relatório do dia…</div>;
   if (rel.erro) return <div className="card" style={{ padding: 24, color: 'var(--err)', fontWeight: 600 }}>⚠️ {rel.erro}</div>;
@@ -435,6 +439,7 @@ function RelatorioDia({ rel, data, rotuloDia }) {
       <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: 14 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 18px', background: 'linear-gradient(90deg,#0E8C96,#00B8C0)', color: '#fff' }}>
           <span style={{ fontWeight: 800, fontSize: 14, flex: 1 }}>🏆 Produtividade da equipe</span>
+          {onLider && <button onClick={onLider} style={{ background: 'rgba(255,255,255,.2)', border: 'none', color: '#fff', borderRadius: 8, padding: '5px 12px', cursor: 'pointer', fontSize: 11.5, fontWeight: 800 }}>📄 Relatório individual</button>}
           <button onClick={imprimir} style={{ background: 'rgba(255,255,255,.2)', border: 'none', color: '#fff', borderRadius: 8, padding: '5px 12px', cursor: 'pointer', fontSize: 11.5, fontWeight: 800 }}>🖨️ Imprimir</button>
         </div>
         {(rel.produtividade || []).length === 0 ? (
