@@ -16,6 +16,13 @@ export default function RelatorioLider({ onClose }) {
   const [quem, setQuem] = useState(user?.id || '');
   const [equipe, setEquipe] = useState([]);
   const [rel, setRel] = useState(null);
+  // ✍️ Assinatura que sai no rodapé — nome completo, guardado por pessoa
+  const [assinatura, setAssinatura] = useState('');
+  useEffect(() => {
+    if (!rel?.usuario) return;
+    const salva = localStorage.getItem(`vh_assin_${rel.usuario.id}`);
+    setAssinatura(salva || rel.usuario.nome || '');
+  }, [rel?.usuario?.id]); // eslint-disable-line
 
   const carregar = (d, q) => {
     setRel({ carregando: true });
@@ -44,6 +51,9 @@ export default function RelatorioLider({ onClose }) {
       <td class="r ${f.faltam ? 'falta' : 'ok'}">${f.faltam ? brl(f.faltam) : '✔ batida'}</td></tr>`).join('');
 
     w.document.write(`<html><head><title>Relatório Individual - ${nome}</title><meta charset="utf-8">
+      <link rel="preconnect" href="https://fonts.googleapis.com">
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+      <link href="https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap" rel="stylesheet">
       <style>
         @page{size:A4;margin:14mm}
         *{box-sizing:border-box}
@@ -71,7 +81,13 @@ export default function RelatorioLider({ onClose }) {
         table.d tr.tot td{background:#eef3f5;font-weight:bold}
         .res{margin-top:8px;line-height:2.2;font-size:12.5px}
         .lin{display:inline-block;border-bottom:1px solid #64748b;min-width:230px}
-        .rod{margin-top:26px;text-align:center;color:#64748b;font-size:10.5px}
+        .assin{margin-top:34px;text-align:center}
+        .assin .nome{font-family:'Great Vibes','Segoe Script','Brush Script MT','Lucida Handwriting','Apple Chancery',cursive;
+          font-size:40px;color:#123240;line-height:1.1;transform:rotate(-2deg);margin-bottom:0}
+        .assin .linha{width:290px;margin:0 auto;border-bottom:1px solid #64748b}
+        .assin .cargo{margin-top:5px;font-size:11px;font-weight:bold;color:#123240}
+        .assin .cargo2{font-size:10px;color:#64748b}
+        .rod{margin-top:22px;text-align:center;color:#64748b;font-size:10.5px}
       </style></head><body>
       <div class="marca">Vittalis Saúde | Setor de ${setorTxt}</div>
       <h1>Relatório Individual - ${rel.usuario?.lider ? 'Líder ' : ''}${nome}</h1>
@@ -116,6 +132,12 @@ export default function RelatorioLider({ onClose }) {
         Clientes para follow-up amanhã: <span class="lin"></span>
       </div>
 
+      <div class="assin">
+        <div class="nome">${esc(assinatura || nome)}</div>
+        <div class="linha"></div>
+        <div class="cargo">${esc(assinatura || nome)}${rel.usuario?.lider ? ` &middot; Líder do Setor de ${setorTxt}` : ` &middot; Setor de ${setorTxt}`}</div>
+        <div class="cargo2">Vittalis Saúde &middot; ${rel.data.split('-').reverse().join('/')}</div>
+      </div>
       <div class="rod">Relatório de Agendamentos e Metas - Liderança</div>
       <script>window.onload=()=>window.print()</script></body></html>`);
     w.document.close();
@@ -206,6 +228,22 @@ export default function RelatorioLider({ onClose }) {
             </div>
           </>)}
         </div>
+
+        {rel && !rel.carregando && !rel.erro && (
+          <div style={{ padding: '10px 20px 0' }}>
+            <label style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .4 }}>✍️ Assinatura do relatório</label>
+            <input value={assinatura} onChange={e => { setAssinatura(e.target.value); if (rel.usuario) localStorage.setItem(`vh_assin_${rel.usuario.id}`, e.target.value); }}
+              placeholder="Nome completo (ex.: Raylane Moraes)"
+              style={{ width: '100%', padding: '8px 11px', borderRadius: 10, border: '1.5px solid var(--border)', fontSize: 13, background: 'var(--card)', color: 'var(--txt)', boxSizing: 'border-box', marginTop: 4 }} />
+            <div style={{ textAlign: 'center', marginTop: 8, marginBottom: 2 }}>
+              <div style={{ fontFamily: "'Great Vibes','Segoe Script','Brush Script MT','Lucida Handwriting','Apple Chancery',cursive", fontSize: 32, color: 'var(--txt)', transform: 'rotate(-2deg)', lineHeight: 1.2 }}>
+                {assinatura || rel.usuario?.nome}
+              </div>
+              <div style={{ width: 220, margin: '2px auto 0', borderBottom: '1px solid var(--muted)' }} />
+              <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 3 }}>como vai sair no papel</div>
+            </div>
+          </div>
+        )}
 
         <div style={{ display: 'flex', gap: 8, padding: '13px 20px', borderTop: '1px solid var(--border)' }}>
           <button onClick={imprimir} disabled={!rel || rel.carregando || rel.erro} className="btn btn-p" style={{ gap: 6, fontWeight: 800, flex: 1 }}>🖨️ Imprimir relatório</button>
