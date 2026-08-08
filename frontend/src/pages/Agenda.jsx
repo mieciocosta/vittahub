@@ -22,9 +22,14 @@ export default function Agenda() {
   const [data, setData] = useState(hojeISO());
   const [eventos, setEventos] = useState([]);
   // 📋 Relatório do dia + produtividade da equipe
-  const [aba, setAba] = useState('lista');
+  const [aba, setAba] = useState(() => (new URLSearchParams(window.location.search).get('aba') === 'relatorio' ? 'relatorio' : 'lista'));
   const [rel, setRel] = useState(null);
   const [relLider, setRelLider] = useState(false);  // 📄 relatório individual (modelo da liderança)
+  useEffect(() => {
+    if (aba !== 'relatorio') return;
+    setRel({ carregando: true });
+    api.get(`/extras/agenda/relatorio-dia?data=${data}`).then(setRel).catch(e => setRel({ erro: e.message }));
+  }, [aba, data]); // eslint-disable-line
   const [modal, setModal] = useState(null); // {} novo · {id...} edição
   const [erro, setErro] = useState('');
   const [salvando, setSalvando] = useState(false);

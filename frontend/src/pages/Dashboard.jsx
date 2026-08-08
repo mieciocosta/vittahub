@@ -171,6 +171,22 @@ export default function Dashboard() {
           </div>
         )}
 
+        {/* ── 📋 RELATÓRIO DO DIA — atalho em destaque (rotina de fim de expediente) ── */}
+        <button onClick={() => nav('/agenda?aba=relatorio')}
+          style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 20,
+            padding: '13px 18px', borderRadius: 14, cursor: 'pointer', textAlign: 'left',
+            background: 'linear-gradient(120deg,#0ea5e9,#0284c7)', color: '#fff', border: 'none',
+            boxShadow: '0 6px 20px rgba(14,165,233,.28)' }}>
+          <span style={{ width: 38, height: 38, borderRadius: 12, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 19, background: 'rgba(255,255,255,.22)' }}>📋</span>
+          <span style={{ flex: 1, minWidth: 180 }}>
+            <span style={{ display: 'block', fontWeight: 800, fontSize: 14.5 }}>Relatório do dia</span>
+            <span style={{ display: 'block', fontSize: 11.5, opacity: .92 }}>
+              Produtividade da equipe, comparecimento, faturamento — e o relatório individual pra imprimir
+            </span>
+          </span>
+          <span style={{ flexShrink: 0, background: 'rgba(255,255,255,.22)', borderRadius: 20, padding: '5px 14px', fontSize: 12, fontWeight: 800 }}>Abrir →</span>
+        </button>
+
         {/* ── 📈 ESTE MÊS x MÊS PASSADO (gestão) — comparação até o mesmo dia ── */}
         {comp && (
           <div className="card" style={{ padding: '15px 18px', marginBottom: 20 }}>
