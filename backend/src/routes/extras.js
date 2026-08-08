@@ -147,7 +147,26 @@ r.post('/agenda', async (req, res) => {
        cut(b.profissional, 80), cut((b.telefone || '').replace(/\D/g, ''), 13),
        cut(b.observacoes, 300), setor, b.responsavel_id || req.user.id, b.lead_id || null,
        cut(b.endereco, 160), localLink, email, valor, formaPag, parcelas, cut(b.conversa_id, 40)]);
+
+    /* 💉 Agendou vacina → a solicitação das doses nasce junto (pedido do master).
+       O serviço vira uma linha por vacina; sem serviço, entra como "A definir"
+       pra a equipe completar na aba Solicitar Vacinas. Nunca trava o salvamento. */
+    try {
+      if (setor === 'vacinas') {
+        const vacinas = String(b.servico || '').split(/[,;+]/).map(v => v.trim()).filter(Boolean);
+        const lista = vacinas.length ? vacinas.slice(0, 8) : ['A definir'];
+        for (const vac of lista) {
+          await query(`INSERT INTO solicitacoes_vacinas (agenda_id, conversa_id, lead_id, paciente, vacina,
+            quantidade, data_prevista, hora, setor, solicitante_id, solicitante_nome)
+            VALUES ($1,$2,$3,$4,$5,1,$6,$7,'vacinas',$8,$9)`,
+            [ev.id, cut(b.conversa_id, 40) || null, b.lead_id || null, paciente, cut(vac, 120),
+             b.data, b.hora, req.user.id, req.user.nome]);
+        }
+      }
+    } catch (e) { console.error('Solicitação automática:', e.message); }
+
     socketEmit('agenda_update', { id: ev.id });
+    socketEmit('vacinas_solicitacao', { agenda_id: ev.id });
     res.status(201).json(ev);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -2436,6 +2455,73 @@ r.get('/vacinas/agenda', async (req, res) => {
     res.json({
       eventos: eventos.map(e => ({ ...e, solicitacoes: porAgenda[e.id] || [] })),
       avulsas: sols.filter(x => !x.agenda_id),
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// 📋 RELATÓRIO DA SEMANA — a agenda com as doses de cada atendimento e o
+// total de cada vacina no fim (é o que a equipe leva pro estoque/fornecedor).
+r.get('/vacinas/relatorio-semana', async (req, res) => {
+  try {
+    // Semana começa na segunda; sem parâmetro, a semana corrente (fuso SLZ)
+    let inicio = req.query.inicio;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(inicio || '')) {
+      const hoje = new Date(Date.now() - 3 * 3600 * 1000);
+      const dow = (hoje.getUTCDay() + 6) % 7;                 // 0 = segunda
+      hoje.setUTCDate(hoje.getUTCDate() - dow);
+      inicio = hoje.toISOString().slice(0, 10);
+    }
+    const fimD = new Date(inicio + 'T12:00:00Z');
+    fimD.setUTCDate(fimD.getUTCDate() + 6);
+    const fim = fimD.toISOString().slice(0, 10);
+
+    const [{ rows: eventos }, { rows: sols }] = await Promise.all([
+      query(`SELECT id, paciente, servico, TO_CHAR(data,'YYYY-MM-DD') data, hora, status, setor,
+                    profissional, telefone, endereco
+               FROM agenda_eventos
+              WHERE data BETWEEN $1::date AND $2::date
+                AND LOWER(COALESCE(status,'')) NOT LIKE 'cancel%'
+              ORDER BY data, hora`, [inicio, fim]),
+      query(`SELECT * FROM solicitacoes_vacinas
+              WHERE data_prevista BETWEEN $1::date AND $2::date AND status <> 'cancelada'
+              ORDER BY data_prevista, hora`, [inicio, fim]),
+    ]);
+
+    const porAgenda = {};
+    for (const so of sols) if (so.agenda_id) (porAgenda[so.agenda_id] = porAgenda[so.agenda_id] || []).push(so);
+
+    // Um bloco por dia da semana, com os atendimentos e as doses de cada um
+    const dias = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(inicio + 'T12:00:00Z');
+      d.setUTCDate(d.getUTCDate() + i);
+      const iso = d.toISOString().slice(0, 10);
+      const doDia = eventos.filter(e => e.data === iso).map(e => ({ ...e, doses: porAgenda[e.id] || [] }));
+      const avulsas = sols.filter(x => !x.agenda_id && String(x.data_prevista).slice(0, 10) === iso);
+      // Total de doses do dia (dos atendimentos + avulsas)
+      const totalDia = doDia.reduce((n, e) => n + e.doses.reduce((m, x) => m + (x.quantidade || 1), 0), 0)
+        + avulsas.reduce((n, x) => n + (x.quantidade || 1), 0);
+      dias.push({ data: iso, eventos: doDia, avulsas, atendimentos: doDia.length, doses: totalDia });
+    }
+
+    // 🧮 Total de cada vacina na semana — o pedido pro fornecedor
+    const mapa = {};
+    for (const so of sols) {
+      const v = so.vacina || '(sem nome)';
+      mapa[v] = (mapa[v] || 0) + (so.quantidade || 1);
+    }
+    const totais = Object.entries(mapa).map(([vacina, qtd]) => ({ vacina, qtd }))
+      .sort((a, b) => b.qtd - a.qtd || a.vacina.localeCompare(b.vacina));
+
+    res.json({
+      inicio, fim, dias, totais,
+      resumo: {
+        atendimentos: eventos.length,
+        doses: totais.reduce((n, t) => n + t.qtd, 0),
+        vacinas_diferentes: totais.length,
+        sem_definir: sols.filter(x => /a definir/i.test(x.vacina || '')).length,
+        pendentes: sols.filter(x => x.status === 'solicitada').length,
+      },
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
