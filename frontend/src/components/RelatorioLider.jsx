@@ -93,16 +93,16 @@ export default function RelatorioLider({ onClose }) {
       <style>
         @page{size:A4;margin:14mm}
         *{box-sizing:border-box}
-        body{font-family:Arial,Helvetica,sans-serif;color:#1a2b33;margin:0;font-size:12px}
+        body{font-family:Arial,Helvetica,sans-serif;color:#1a2b33;margin:0;font-size:11.5px}
         .marca{text-align:right;color:#0E8C96;font-size:11px;margin-bottom:6px}
-        h1{text-align:center;font-size:25px;color:#123240;margin:0}
+        h1{text-align:center;font-size:23px;color:#123240;margin:0}
         .sub{text-align:center;color:#12889a;font-size:13px;margin:6px 0 18px}
         .cab{width:100%;border-collapse:collapse;margin-bottom:18px}
         .cab td{padding:6px 12px;font-weight:bold}
         .cab tr:nth-child(odd){background:#eaf6f8}
         .cab td.v{text-align:right;color:#12889a}
         .cab tr:first-child td.v{color:#b8912f}
-        h2{color:#123240;font-size:17px;margin:16px 0 7px}
+        h2{color:#123240;font-size:15.5px;margin:13px 0 6px}
         p{line-height:1.55;margin:0 0 6px}
         ul{margin:0 0 6px 4px;padding-left:16px}
         li{margin-bottom:4px;line-height:1.5}
@@ -115,6 +115,13 @@ export default function RelatorioLider({ onClose }) {
         table.d td.ok{color:#15803d;font-weight:bold}
         table.d td.falta{color:#b45309;font-weight:bold}
         table.d tr.tot td{background:#eef3f5;font-weight:bold}
+        h2{page-break-after:avoid}
+        table.d{page-break-inside:avoid}
+        .p2{page-break-before:always}
+        tr.gAlto td{background:#fff5f5}
+        tr.gAlto td:first-child{color:#b91c1c;font-weight:bold}
+        tr.gMed td{background:#fffbeb}
+        tr.gMed td:first-child{color:#b45309;font-weight:bold}
         .graf{display:flex;align-items:center;gap:26px;margin:6px 0 4px;flex-wrap:wrap}
         .graf .don{position:relative;width:132px;height:132px;flex-shrink:0}
         .graf .cen{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
@@ -196,6 +203,15 @@ export default function RelatorioLider({ onClose }) {
           </div>
         </div>`;
       })()}
+
+      ${(rel.gargalos || []).length ? `
+      <div class="p2">
+        <h2>Gargalos &mdash; o que est&aacute; travando o resultado</h2>
+        <table class="d"><thead><tr><th>Situa&ccedil;&atilde;o</th><th style="width:56px">Qtd</th><th>O que fazer</th></tr></thead>
+        <tbody>${rel.gargalos.map(g => `<tr class="${g.nivel === 'alto' ? 'gAlto' : 'gMed'}">
+          <td>${g.nivel === 'alto' ? '&#9679;' : '&#9675;'} ${esc(g.titulo)}</td>
+          <td class="c"><b>${g.n}</b></td><td>${esc(g.acao)}</td></tr>`).join('')}</tbody></table>
+      </div>` : ''}
 
       <h2>Resultado do dia</h2>
       <div class="res">
@@ -295,6 +311,28 @@ export default function RelatorioLider({ onClose }) {
                 </div>
               </div>
             ))}
+
+            {/* 🚧 Gargalos — o que está travando o resultado */}
+            {(rel.gargalos || []).length > 0 && (
+              <div style={{ marginTop: 14 }}>
+                <div style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: .6, color: 'var(--muted)', marginBottom: 6 }}>
+                  🚧 Gargalos — o que está travando
+                </div>
+                {rel.gargalos.map((g, i) => {
+                  const alto = g.nivel === 'alto';
+                  return (
+                    <div key={i} style={{ display: 'flex', gap: 9, alignItems: 'flex-start', padding: '7px 11px', borderRadius: 10, marginBottom: 5,
+                      background: alto ? '#fef2f2' : '#fffbeb', border: `1px solid ${alto ? '#fca5a5' : '#fcd34d'}` }}>
+                      <span style={{ fontSize: 15, fontWeight: 900, color: alto ? '#b91c1c' : '#b45309', minWidth: 26, textAlign: 'center' }}>{g.n}</span>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 12.5, fontWeight: 800, color: alto ? '#b91c1c' : '#b45309' }}>{g.titulo}</div>
+                        <div style={{ fontSize: 11.5, color: 'var(--txt2)', lineHeight: 1.5 }}>{g.acao}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
 
             {/* 📊 Gráfico da meta individual — destaca o que faltou */}
             {(() => {

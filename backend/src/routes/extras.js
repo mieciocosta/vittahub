@@ -1961,6 +1961,61 @@ r.get('/relatorio-lider', async (req, res) => {
     const totMeta = categorias.reduce((sm, c) => sm + c.meta, 0);
     const totReal = categorias.reduce((sm, c) => sm + c.realizado, 0);
 
+    /* 🚧 GARGALOS — o que está travando o resultado dela AGORA. Cada item vem
+       com o número e a ação sugerida, pra virar conversa objetiva na reunião. */
+    const gargalos = [];
+    try {
+      const donoFiltro = `c.responsavel_id = '${String(alvoId).replace(/[^a-zA-Z0-9-]/g, '')}'`;
+      const [espera, propostas, quentes, faltasQ, tempoQ, silencio] = await Promise.all([
+        query(`SELECT COUNT(*)::int n FROM conversas c
+                WHERE ${donoFiltro} AND c.last_from = 'contact' AND COALESCE(c.perdido,false) = false
+                  AND COALESCE(c.contact_id,'') NOT LIKE '%g.us%'
+                  AND c.last_message_at < NOW() - interval '30 minutes'
+                  AND c.last_message_at > NOW() - interval '3 days'`),
+        query(`SELECT COUNT(DISTINCT m.conversa_id)::int n FROM mensagens m JOIN conversas c ON c.id = m.conversa_id
+                WHERE ${donoFiltro} AND m.filename LIKE 'Proposta-%' AND m.from_type IN ('me','bot')
+                  AND m.created_at BETWEEN NOW() - interval '10 days' AND NOW() - interval '20 hours'
+                  AND COALESCE(c.perdido,false) = false
+                  AND NOT EXISTS (SELECT 1 FROM mensagens m2 WHERE m2.conversa_id = m.conversa_id
+                                    AND m2.from_type = 'contact' AND m2.created_at > m.created_at)`),
+        query(`SELECT COUNT(*)::int n FROM conversas c
+                WHERE ${donoFiltro} AND c.lead_score = 'quente' AND COALESCE(c.perdido,false) = false
+                  AND c.last_message_at < NOW() - interval '1 day'
+                  AND c.last_message_at > NOW() - interval '15 days'`),
+        query(`SELECT COUNT(*)::int n FROM agenda_eventos WHERE data = $1 AND status = 'Faltou'
+                  AND responsavel_id = $2`, [dia, alvoId]),
+        query(`WITH seq AS (
+                 SELECT from_type, sender_id,
+                        LAG(from_type) OVER (PARTITION BY conversa_id ORDER BY created_at) prev,
+                        created_at - LAG(created_at) OVER (PARTITION BY conversa_id ORDER BY created_at) gap
+                   FROM mensagens WHERE created_at >= NOW() - interval '7 days' AND from_type IN ('contact','me'))
+               SELECT ROUND(AVG(EXTRACT(EPOCH FROM gap))/60)::int m FROM seq
+                WHERE from_type = 'me' AND prev = 'contact' AND gap < interval '8 hours' AND sender_id = $1`, [alvoId]),
+        query(`SELECT COUNT(*)::int n FROM conversas c
+                WHERE ${donoFiltro} AND COALESCE(c.perdido,false) = false AND c.categoria IS NULL
+                  AND c.lead_score IN ('quente','morno')
+                  AND c.last_message_at BETWEEN NOW() - interval '20 days' AND NOW() - interval '4 days'`),
+      ]);
+      const add = (n, nivel, titulo, acao) => { if (n > 0) gargalos.push({ n, nivel, titulo, acao }); };
+      add(espera.rows[0]?.n, 'alto', 'clientes esperando resposta', 'Responder agora — cliente parado esfria em horas.');
+      add(propostas.rows[0]?.n, 'alto', 'propostas sem retorno', 'Ligar hoje e oferecer entrada + saldo em 30 dias.');
+      add(quentes.rows[0]?.n, 'alto', 'leads QUENTES parados', 'São os mais próximos de fechar — priorizar na primeira hora.');
+      add(faltasQ.rows[0]?.n, 'medio', 'faltas na agenda hoje', 'Chamar pra remarcar ainda hoje, enquanto está fresco.');
+      add(silencio.rows[0]?.n, 'medio', 'clientes em silêncio há dias', 'Reativar com o convite do calendário vacinal.');
+      const tmed = tempoQ.rows[0]?.m;
+      if (tmed != null && tmed > 15) {
+        gargalos.push({ n: tmed, nivel: tmed > 60 ? 'alto' : 'medio', titulo: 'minutos de tempo médio de resposta',
+          acao: 'Meta é responder em até 10 min — velocidade é o que mais converte.' });
+      }
+      // Gargalo de conversão: categoria do foco parada
+      for (const c of categorias) {
+        if (c.meta > 0 && c.realizado === 0) {
+          gargalos.push({ n: c.meta, nivel: 'medio', titulo: `${c.rotulo}: nenhum fechado hoje (meta ${c.meta})`,
+            acao: 'Oferecer em toda conversa de vacina avulsa — é o maior ticket.' });
+        }
+      }
+    } catch (e) { console.error('Gargalos:', e.message); }
+
     const indiv = indQ.rows[0] || { n: 0, total: 0 };
     const setorDia = setorDiaQ.rows[0]?.total || 0;
     const setorMes = setorMesQ.rows[0]?.total || 0;
@@ -1976,6 +2031,7 @@ r.get('/relatorio-lider', async (req, res) => {
         { indicador: 'Meta GERAL do mês (setor)', meta: metaGlobalMes, realizado: setorMes, faltam: Math.max(metaGlobalMes - setorMes, 0) },
       ],
       resultado: { vendas: indiv.n, valor: indiv.total, bateu: indiv.total >= metaIndividual },
+      gargalos: gargalos.sort((a, b) => (a.nivel === 'alto' ? 0 : 1) - (b.nivel === 'alto' ? 0 : 1)).slice(0, 6),
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
