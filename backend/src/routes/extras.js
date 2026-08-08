@@ -1883,9 +1883,17 @@ r.put('/relatorio-lider/config', async (req, res) => {
   try {
     if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão altera as metas do relatório.' });
     const b = req.body || {};
+    const num = (x) => Math.max(0, parseFloat(x) || 0);
+    const setores = {};
+    for (const st of ['vacinas', 'consultas', 'terapias']) {
+      const d = b.setores?.[st] || {};
+      setores[st] = { dia: num(d.dia), individual: num(d.individual) };
+    }
     const cfg = {
-      meta_diaria_setor: Math.max(0, parseFloat(b.meta_diaria_setor) || 0),
-      meta_individual: Math.max(0, parseFloat(b.meta_individual) || 0),
+      setores,
+      // compatibilidade com o formato antigo (valor único)
+      meta_diaria_setor: num(b.meta_diaria_setor),
+      meta_individual: num(b.meta_individual),
       categorias: (Array.isArray(b.categorias) ? b.categorias : []).slice(0, 12)
         .map(c => ({ rotulo: String(c.rotulo || '').slice(0, 60), meta: Math.max(0, parseInt(c.meta) || 0),
           categorias: Array.isArray(c.categorias) ? c.categorias.slice(0, 6).map(x => String(x).slice(0, 40)) : [],
@@ -1915,8 +1923,11 @@ r.get('/relatorio-lider', async (req, res) => {
     const v = cfgMetas[0]?.valor || {};
     const metaGlobalMes = Math.max(1, parseFloat(v.globais?.[setor]) || 500000);
     // Meta do dia: a configurada ou a global dividida por 26 dias de atendimento
-    const metaDiaSetor = cfg.meta_diaria_setor || Math.round(metaGlobalMes / 26);
-    const metaIndividual = cfg.meta_individual || Math.round(metaDiaSetor / 2);
+    const doSetor = cfg.setores?.[setor] || {};
+    const metaDiaSetor = doSetor.dia || cfg.meta_diaria_setor || Math.round(metaGlobalMes / 26);
+    // Meta individual da PESSOA (cadastro) tem prioridade; depois a do setor
+    const metaPessoal = Math.max(0, parseFloat(u.meta_individual) || 0);
+    const metaIndividual = metaPessoal || doSetor.individual || cfg.meta_individual || Math.round(metaDiaSetor / 2);
 
     const PAGO = "status_pagamento IN ('pago','cortesia')";
     const [indQ, setorDiaQ, setorMesQ, vendasDiaQ] = await Promise.all([

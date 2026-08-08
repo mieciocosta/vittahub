@@ -16,6 +16,29 @@ export default function RelatorioLider({ onClose }) {
   const [quem, setQuem] = useState(user?.id || '');
   const [equipe, setEquipe] = useState([]);
   const [rel, setRel] = useState(null);
+  // ⚙️ Metas do relatório (gestão): valor fixo do dia por setor, em vez do calculado
+  const [editMeta, setEditMeta] = useState(null);
+  const abrirMetas = async () => {
+    try {
+      const c = await api.get('/extras/relatorio-lider/config');
+      const st = rel?.usuario?.setor || 'vacinas';
+      setEditMeta({
+        setor: st,
+        dia: c?.setores?.[st]?.dia || rel?.metas?.dia_setor || '',
+        individual: c?.setores?.[st]?.individual || rel?.metas?.individual || '',
+        todos: c?.setores || {},
+      });
+    } catch (e) { window.alert('Erro: ' + e.message); }
+  };
+  const salvarMetas = async () => {
+    const num = (x) => Math.max(0, parseFloat(String(x).replace(/\./g, '').replace(',', '.')) || 0);
+    const setores = { ...editMeta.todos, [editMeta.setor]: { dia: num(editMeta.dia), individual: num(editMeta.individual) } };
+    try {
+      await api.put('/extras/relatorio-lider/config', { setores });
+      setEditMeta(null);
+      carregar(dia, quem);
+    } catch (e) { window.alert('Erro: ' + e.message); }
+  };
   // ✍️ Assinatura que sai no rodapé — nome completo, guardado por pessoa
   const [assinatura, setAssinatura] = useState('');
   useEffect(() => {
@@ -175,7 +198,13 @@ export default function RelatorioLider({ onClose }) {
             <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 12, textTransform: 'capitalize' }}>Setor de {rel.usuario?.setor}</div>
 
             {/* Metas */}
-            <div style={{ background: '#eaf6f8', borderRadius: 10, padding: '8px 12px', marginBottom: 14 }}>
+            <div style={{ background: '#eaf6f8', borderRadius: 10, padding: '8px 12px', marginBottom: 14, position: 'relative' }}>
+              {gestao && (
+                <button onClick={abrirMetas} title="Ajustar as metas do dia deste setor"
+                  style={{ position: 'absolute', top: 6, right: 8, background: 'rgba(18,136,154,.12)', border: 'none', color: '#12889a', borderRadius: 7, padding: '3px 9px', cursor: 'pointer', fontSize: 10.5, fontWeight: 800 }}>
+                  ⚙️ Ajustar
+                </button>
+              )}
               {[['Meta global mensal do setor', rel.metas?.global_mes], ['Meta diária do setor', rel.metas?.dia_setor], ['Meta individual', rel.metas?.individual]].map(([l, v]) => (
                 <div key={l} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, fontWeight: 700, padding: '3px 0' }}>
                   <span style={{ color: '#123240' }}>{l}</span><span style={{ color: '#12889a' }}>{brl(v)}</span>
@@ -250,6 +279,34 @@ export default function RelatorioLider({ onClose }) {
           <button onClick={() => onClose?.()} className="btn btn-s">Fechar</button>
         </div>
       </div>
+
+      {/* ⚙️ Metas do dia por setor — o que o relatório usa como alvo */}
+      {editMeta && (
+        <div onClick={e => e.target === e.currentTarget && setEditMeta(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(3,43,48,.55)', zIndex: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div className="card" style={{ width: '100%', maxWidth: 400, padding: '20px 22px' }}>
+            <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 4 }}>⚙️ Metas do dia · setor {editMeta.setor}</div>
+            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.6 }}>
+              Deixe em branco (ou 0) pra o sistema calcular sozinho: meta global do mês dividida por 26 dias.
+            </div>
+            <div className="field" style={{ marginBottom: 10 }}>
+              <label>Meta diária do setor (R$)</label>
+              <input value={editMeta.dia} onChange={e => setEditMeta({ ...editMeta, dia: e.target.value })} placeholder="19000" />
+            </div>
+            <div className="field">
+              <label>Meta individual diária (R$)</label>
+              <input value={editMeta.individual} onChange={e => setEditMeta({ ...editMeta, individual: e.target.value })} placeholder="9500" />
+              <span style={{ fontSize: 10.5, color: 'var(--muted)', display: 'block', marginTop: 4, lineHeight: 1.5 }}>
+                Vale pra todo mundo do setor. Se uma pessoa tiver meta própria no cadastro (Configurações → usuário), a dela manda.
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+              <button onClick={() => setEditMeta(null)} className="btn btn-s">Cancelar</button>
+              <button onClick={salvarMetas} className="btn btn-p" style={{ fontWeight: 800 }}>Salvar metas</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
