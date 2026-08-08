@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Printer, CalendarPlus, Check, X } from 'lucide-react';
 import { useApi } from '../context/AuthContext.jsx';
+import { mensagemAgendamento } from '../hooks/celebra.js';
 
 /* 💉 CARTEIRA VACINAL DO PACIENTE (0-18 meses e além)
    Mostra o esquema do bebê conforme o calendário cadastrado (espelho do
@@ -43,7 +44,7 @@ export default function CarteiraVacinal({ convId, onAgendar, compacto = false })
         etapa: agenda.etapa, data: agenda.data, hora: agenda.hora, vacinas: agenda.vacinas, paciente: dados?.paciente,
       });
       setAgenda(null);
-      window.alert(`✅ Agendado para ${agenda.data.split('-').reverse().join('/')} às ${agenda.hora}!\n\n${r.doses} dose(s) já solicitadas ao estoque.`);
+      window.alert(`✅ Agendado para ${agenda.data.split('-').reverse().join('/')} às ${agenda.hora}!\n\n${r.doses} dose(s) já solicitadas ao estoque.\n\n${mensagemAgendamento()}`);
       await carregar();
     } catch (e) { window.alert('Erro: ' + e.message); }
     setSalvando(null);

@@ -7,6 +7,19 @@ import { useApi, useAuth } from '../context/AuthContext.jsx';
 
 const brl = (v) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
+/* Rosca de progresso em SVG: mostra o quanto foi feito e destaca o que faltou.
+   SVG porque imprime igual na tela (fundo colorido some em muitas impressoras). */
+function rosca({ pct, cor, tamanho = 132, grosso = 15 }) {
+  const p = Math.max(0, Math.min(pct, 100));
+  const r = (tamanho - grosso) / 2, c = 2 * Math.PI * r, meio = tamanho / 2;
+  return `<svg width="${tamanho}" height="${tamanho}" viewBox="0 0 ${tamanho} ${tamanho}">
+    <circle cx="${meio}" cy="${meio}" r="${r}" fill="none" stroke="#e6edf0" stroke-width="${grosso}"/>
+    <circle cx="${meio}" cy="${meio}" r="${r}" fill="none" stroke="${cor}" stroke-width="${grosso}"
+      stroke-dasharray="${(c * p / 100).toFixed(1)} ${c.toFixed(1)}" stroke-linecap="round"
+      transform="rotate(-90 ${meio} ${meio})"/>
+  </svg>`;
+}
+
 export default function RelatorioLider({ onClose }) {
   const api = useApi();
   const { user } = useAuth();
@@ -102,6 +115,17 @@ export default function RelatorioLider({ onClose }) {
         table.d td.ok{color:#15803d;font-weight:bold}
         table.d td.falta{color:#b45309;font-weight:bold}
         table.d tr.tot td{background:#eef3f5;font-weight:bold}
+        .graf{display:flex;align-items:center;gap:26px;margin:6px 0 4px;flex-wrap:wrap}
+        .graf .don{position:relative;width:132px;height:132px;flex-shrink:0}
+        .graf .cen{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+        .graf .cen b{font-size:27px;line-height:1}
+        .graf .cen span{font-size:10px;color:#64748b}
+        .graf .leg{flex:1;min-width:220px;font-size:12.5px;line-height:1.9}
+        .graf .leg i{display:inline-block;width:11px;height:11px;border-radius:3px;vertical-align:-1px;margin-right:6px}
+        .graf .fal{color:#b91c1c;font-weight:bold;margin-top:2px}
+        .graf .bar{height:11px;border-radius:6px;background:#e6edf0;overflow:hidden;margin:8px 0 3px;max-width:330px}
+        .graf .bar span{display:block;height:100%;border-radius:6px}
+        .graf .l2{font-size:11px;color:#64748b}
         .res{margin-top:8px;line-height:2.2;font-size:12.5px}
         .lin{display:inline-block;border-bottom:1px solid #64748b;min-width:230px}
         .assin{margin-top:34px;text-align:center}
@@ -146,6 +170,29 @@ export default function RelatorioLider({ onClose }) {
       <h2>Acompanhamento financeiro individual</h2>
       <table class="d"><thead><tr><th>Indicador</th><th>Meta</th><th>Realizado</th><th>Faltam</th></tr></thead>
       <tbody>${linhasFin}</tbody></table>
+
+      ${(() => {
+        const ind = (rel.financeiro || [])[0] || {};
+        const pct = ind.meta ? Math.min(Math.round((ind.realizado / ind.meta) * 100), 100) : 0;
+        const bateu = ind.realizado >= ind.meta;
+        const pctFalta = ind.meta ? Math.max(100 - Math.round((ind.realizado / ind.meta) * 100), 0) : 0;
+        const cor = bateu ? '#15803d' : pct >= 70 ? '#d97706' : '#b91c1c';
+        return `
+        <h2>Desempenho da meta individual</h2>
+        <div class="graf">
+          <div class="don">
+            ${rosca({ pct, cor })}
+            <div class="cen"><b style="color:${cor}">${pct}%</b><span>da meta</span></div>
+          </div>
+          <div class="leg">
+            <div class="l1"><i style="background:${cor}"></i> Realizado: <b>${brl(ind.realizado)}</b></div>
+            <div class="l1"><i style="background:#e6edf0"></i> ${bateu ? 'Meta batida' : 'Faltou'}: <b style="color:${bateu ? '#15803d' : '#b91c1c'}">${bateu ? '&#10003;' : brl(ind.faltam)}</b></div>
+            ${bateu ? '' : `<div class="fal">Faltaram <b>${pctFalta}%</b> da meta do dia (${brl(ind.faltam)})</div>`}
+            <div class="bar"><span style="width:${pct}%;background:${cor}"></span></div>
+            <div class="l2">Meta do dia: ${brl(ind.meta)}</div>
+          </div>
+        </div>`;
+      })()}
 
       <h2>Resultado do dia</h2>
       <div class="res">
@@ -245,6 +292,46 @@ export default function RelatorioLider({ onClose }) {
                 </div>
               </div>
             ))}
+
+            {/* 📊 Gráfico da meta individual — destaca o que faltou */}
+            {(() => {
+              const ind = (rel.financeiro || [])[0] || {};
+              const pctReal = ind.meta ? (ind.realizado / ind.meta) * 100 : 0;
+              const pct = Math.min(Math.round(pctReal), 100);
+              const bateu = ind.realizado >= ind.meta;
+              const cor = bateu ? '#16a34a' : pct >= 70 ? '#d97706' : '#dc2626';
+              const R = 52, C = 2 * Math.PI * R;
+              return (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap', margin: '16px 0 4px', padding: '12px 14px', borderRadius: 12, background: 'var(--bg2)' }}>
+                  <div style={{ position: 'relative', width: 128, height: 128, flexShrink: 0 }}>
+                    <svg width="128" height="128" viewBox="0 0 128 128">
+                      <circle cx="64" cy="64" r={R} fill="none" stroke="var(--border)" strokeWidth="15" />
+                      <circle cx="64" cy="64" r={R} fill="none" stroke={cor} strokeWidth="15" strokeLinecap="round"
+                        strokeDasharray={`${(C * pct / 100).toFixed(1)} ${C.toFixed(1)}`} transform="rotate(-90 64 64)"
+                        style={{ transition: 'stroke-dasharray .6s' }} />
+                    </svg>
+                    <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                      <span style={{ fontSize: 26, fontWeight: 900, color: cor, lineHeight: 1 }}>{pct}%</span>
+                      <span style={{ fontSize: 10, color: 'var(--muted)' }}>da meta</span>
+                    </div>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 190 }}>
+                    <div style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: .5, color: 'var(--muted)' }}>Meta individual do dia</div>
+                    <div style={{ fontSize: 19, fontWeight: 900, color: cor }}>{brl(ind.realizado)}</div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>de {brl(ind.meta)}</div>
+                    {bateu ? (
+                      <div style={{ marginTop: 6, fontSize: 13, fontWeight: 800, color: '#16a34a' }}>🏆 Meta batida!</div>
+                    ) : (
+                      <div style={{ marginTop: 6, padding: '6px 10px', borderRadius: 9, background: '#fef2f2', border: '1px solid #fca5a5' }}>
+                        <div style={{ fontSize: 12.5, fontWeight: 800, color: '#b91c1c' }}>
+                          Faltaram {Math.max(100 - pct, 0)}% · {brl(ind.faltam)}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Resultado */}
             <div style={{ marginTop: 14, padding: '11px 14px', borderRadius: 11, background: rel.resultado?.bateu ? '#f0fdf4' : 'var(--bg2)', border: `1px solid ${rel.resultado?.bateu ? '#86efac' : 'var(--border)'}` }}>
