@@ -29,10 +29,10 @@ const SETORES_MENU = [
 // venda, depois gestão/organização, por fim equipe e motivação.
 const NAV = [
   { to:'/',           icon:LayoutDashboard, label:'Resumo', cor:'#38bdf8' },
+  { to:'/agenda?aba=relatorio', icon:ClipboardList, label:'Relatório do Dia', cor:'#0ea5e9', destaque:true },
   { to:'/metas',      icon:Target,          label:'Metas', gestao:true, destaque:true, cor:'#e879f9' },
   { to:'/inbox',      icon:MessageSquare,   label:'Chat',     unread:true, cor:'#25D366' },
   { to:'/agenda',     icon:CalendarDays,    label:'Agenda', cor:'#f59e0b' },
-  { to:'/agenda?aba=relatorio', icon:ClipboardList, label:'Relatório do Dia', cor:'#0ea5e9', destaque:true },
   { to:'/vacinas-solicitacao', icon:Syringe, label:'Solicitar Vacinas', cor:'#8b5cf6' },
   { to:'/retornos',   icon:Bell,            label:'Follow-up',  retornos:true, cor:'#fb7185' },
   { to:'/recuperacao',icon:Flame,           label:'Recuperação', cor:'#f97316' },
