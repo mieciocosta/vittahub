@@ -332,7 +332,7 @@ export default function Caixa() {
   // ➕ NOVA VENDA DE BALCÃO: cliente que chega direto na clínica (sem WhatsApp)
   const [novaVenda, setNovaVenda] = useState(null);
   const abrirNovaVenda = () => setNovaVenda({
-    cliente_nome: '', paciente_nome: '', categoria: 'Vacinação Geral', setor: 'vacinas',
+    cliente_nome: '', paciente_nome: '', categoria: 'Vacinação Geral', setor: 'vacinas', ligou: false,
     servico: '', valor: '', desconto: '', forma_pagamento: 'Pix', status_pagamento: 'pago',
     data_venda: new Date().toISOString().slice(0, 10), origem: 'Balcão', observacao: '',
   });
@@ -350,6 +350,7 @@ export default function Caixa() {
         valor: numBR(novaVenda.valor), desconto: numBR(novaVenda.desconto),
         forma_pagamento: novaVenda.forma_pagamento, status_pagamento: novaVenda.status_pagamento,
         data_venda: novaVenda.data_venda, origem: novaVenda.origem || 'Balcão', observacao: novaVenda.observacao,
+        ligou: !!novaVenda.ligou,
       });
       setNovaVenda(null); load();
       if (salva?.sugestao?.texto) setTimeout(() => window.alert('💡 ' + salva.sugestao.texto), 400);
@@ -1008,6 +1009,18 @@ export default function Caixa() {
                 <input value={novaVenda.origem} onChange={e => setNovaVenda({ ...novaVenda, origem: e.target.value })} placeholder="Balcão" /></div>
               <div className="field" style={{ gridColumn: '1 / -1' }}><label>Observação</label>
                 <textarea rows={2} value={novaVenda.observacao} onChange={e => setNovaVenda({ ...novaVenda, observacao: e.target.value })} style={{ resize: 'vertical' }} /></div>
+              {/* 📞 Ligação antes de fechar — entra no relatório da equipe */}
+              <label onClick={() => setNovaVenda({ ...novaVenda, ligou: !novaVenda.ligou })}
+                style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '9px 12px', borderRadius: 10, cursor: 'pointer', marginTop: 4,
+                  background: novaVenda.ligou ? '#ecfdf5' : 'var(--bg2)', border: `1.5px solid ${novaVenda.ligou ? '#6ee7b7' : 'var(--border)'}` }}>
+                <span style={{ width: 19, height: 19, borderRadius: 6, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  border: `2px solid ${novaVenda.ligou ? '#16a34a' : 'var(--border)'}`, background: novaVenda.ligou ? '#16a34a' : 'transparent', color: '#fff', fontSize: 12, fontWeight: 900 }}>
+                  {novaVenda.ligou ? '✓' : ''}
+                </span>
+                <span style={{ fontSize: 12.5, fontWeight: 700, color: novaVenda.ligou ? '#15803d' : 'var(--txt2)' }}>
+                  📞 Liguei para a cliente antes de fechar
+                </span>
+              </label>
             </div>
             <button onClick={salvarNovaVenda} disabled={novaVendaSaving} className="btn btn-p" style={{ width: '100%', marginTop: 12, fontWeight: 800 }}>
               {novaVendaSaving ? '…' : '💾 Registrar venda'}

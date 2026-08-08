@@ -495,7 +495,7 @@ export default function Inbox({ onUnreadChange }) {
   const [vendaOpen, setVendaOpen] = useState(false);     // modal de registrar venda
   const [vendaSaving, setVendaSaving] = useState(false);
   const [vendaErro, setVendaErro] = useState('');
-  const [vendaForm, setVendaForm] = useState({ categoria:'', valor:'', desconto:'', forma_pagamento:'', status_pagamento:'pago', servico:'', observacao:'' });
+  const [vendaForm, setVendaForm] = useState({ categoria:'', valor:'', desconto:'', forma_pagamento:'', status_pagamento:'pago', servico:'', observacao:'', ligou:false });
   const [perderOpen, setPerderOpen] = useState(false);
   const [perderSaving, setPerderSaving] = useState(false);
   const [perderForm, setPerderForm] = useState({ motivo:'', observacao:'', valor_potencial:'' });
@@ -1406,7 +1406,7 @@ export default function Inbox({ onUnreadChange }) {
   };
   const grupoCombo = (cat) => ['Vacinação Geral','Plano Vacinal','Fidelidade Mensal'].includes(cat) ? 'vacinas' : cat==='Consulta' ? 'consultas' : cat==='Terapia' ? 'terapias' : 'vacinas';
   const abrirVenda = () => {
-    setVendaForm({ categoria: CAT_SUGERIDA[sel.setor] || '', valor:'', desconto:'', forma_pagamento:'', status_pagamento:'pago', servico:'', observacao:'' });
+    setVendaForm({ categoria: CAT_SUGERIDA[sel.setor] || '', valor:'', desconto:'', forma_pagamento:'', status_pagamento:'pago', servico:'', observacao:'', ligou:false });
     setVendaOpen(true);
   };
   const salvarVenda = async () => {
@@ -2473,6 +2473,18 @@ export default function Inbox({ onUnreadChange }) {
                 </div>
               </div>
               <div className="field" style={{ margin:0 }}><label>Observação (opcional)</label><textarea value={vendaForm.observacao} onChange={e=>setVendaForm(p=>({...p,observacao:e.target.value}))} rows={2} placeholder="Anotações da venda…" style={{ resize:'vertical' }} /></div>
+              {/* 📞 Ligação: a equipe marca se falou por voz antes de fechar */}
+              <label onClick={()=>setVendaForm(p=>({...p,ligou:!p.ligou}))}
+                style={{ display:'flex', alignItems:'center', gap:9, padding:'9px 12px', borderRadius:10, cursor:'pointer', marginTop:8,
+                  background: vendaForm.ligou ? '#ecfdf5' : 'var(--bg2)', border:`1.5px solid ${vendaForm.ligou ? '#6ee7b7' : 'var(--border)'}` }}>
+                <span style={{ width:19, height:19, borderRadius:6, flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center',
+                  border:`2px solid ${vendaForm.ligou ? '#16a34a' : 'var(--border)'}`, background: vendaForm.ligou ? '#16a34a' : 'transparent', color:'#fff', fontSize:12, fontWeight:900 }}>
+                  {vendaForm.ligou ? '✓' : ''}
+                </span>
+                <span style={{ fontSize:12.5, fontWeight:700, color: vendaForm.ligou ? '#15803d' : 'var(--txt2)' }}>
+                  📞 Liguei para a cliente antes de fechar
+                </span>
+              </label>
               {vendaErro && <div style={{ fontSize:12.5, color:'#fff', background:'#dc2626', borderRadius:8, padding:'8px 11px', fontWeight:600 }}>{vendaErro}</div>}
               <div style={{ display:'flex', gap:8, marginTop:4 }}>
                 <button onClick={salvarVenda} disabled={vendaSaving} className="btn btn-p" style={{ flex:1, background:'#16a34a' }}>{vendaSaving ? <span className="spin" style={{width:14,height:14}}/> : '💰 Registrar venda'}</button>

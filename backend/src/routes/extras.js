@@ -240,15 +240,15 @@ r.post('/vendas', async (req, res) => {
       if (c) { atendenteId = c.id; atendenteNome = c.nome; }
     }
     const { rows: [v] } = await query(`
-      INSERT INTO vendas (conversa_id, lead_id, atendente_id, atendente_nome, setor, categoria, cliente_nome, paciente_nome, servico, valor, desconto, forma_pagamento, status_pagamento, data_venda, data_atendimento, origem, observacao)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,COALESCE($14,CURRENT_DATE),$15,$16,$17) RETURNING *`,
+      INSERT INTO vendas (conversa_id, lead_id, atendente_id, atendente_nome, setor, categoria, cliente_nome, paciente_nome, servico, valor, desconto, forma_pagamento, status_pagamento, data_venda, data_atendimento, origem, observacao, ligou)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,COALESCE($14,CURRENT_DATE),$15,$16,$17,$18) RETURNING *`,
       [cut(b.conversa_id, 40), b.lead_id || null, atendenteId, atendenteNome, setor, categoria,
        cut(b.cliente_nome, 80), cut(b.paciente_nome, 80), cut(b.servico, 120), valor, desconto,
        FORMAS_PG.includes(b.forma_pagamento) ? b.forma_pagamento : null,
        STATUS_PG.includes(b.status_pagamento) ? b.status_pagamento : 'pago',
        /^\d{4}-\d{2}-\d{2}$/.test(b.data_venda || '') ? b.data_venda : null,
        /^\d{4}-\d{2}-\d{2}$/.test(b.data_atendimento || '') ? b.data_atendimento : null,
-       cut(b.origem, 40), cut(b.observacao, 300)]);
+       cut(b.origem, 40), cut(b.observacao, 300), !!b.ligou]);
     socketEmit('venda_registrada', { id: v.id, setor, valor });
     console.log(`VENDA OK: ${categoria} R$${valor} (id=${v.id})`);
 
@@ -1006,7 +1006,7 @@ r.get('/vendas', async (req, res) => {
       SELECT v.id, v.conversa_id, v.lead_id, v.atendente_id, v.atendente_nome, v.setor, v.categoria,
              v.cliente_nome, v.paciente_nome, v.servico, v.valor, v.desconto, v.forma_pagamento,
              v.status_pagamento, v.data_venda, v.data_atendimento, v.origem, v.observacao,
-             v.conferido, v.conferido_em, v.conferido_por, v.repasse,
+             v.conferido, v.conferido_em, v.conferido_por, v.repasse, v.ligou,
              (SELECT u.role FROM usuarios u WHERE u.id = v.atendente_id) AS atendente_role,
              COALESCE((SELECT COUNT(*) FROM venda_comprovantes c WHERE c.venda_id = v.id),0)::int n_comprovantes,
              v.created_at, v.updated_at
@@ -1488,6 +1488,7 @@ r.put('/vendas/:id', async (req, res) => {
     if (b.forma_pagamento !== undefined) set('forma_pagamento', FORMAS_PG.includes(b.forma_pagamento) ? b.forma_pagamento : null);
     if (b.categoria !== undefined && CATEGORIAS_VENDA.includes(b.categoria)) { set('categoria', b.categoria); set('setor', setorDaCategoria(b.categoria)); }
     if (b.observacao !== undefined) set('observacao', cut(b.observacao, 300));
+    if (b.ligou !== undefined) set('ligou', !!b.ligou);
     if (!sets.length) return res.status(400).json({ error: 'Nada para atualizar' });
     params.push(req.params.id);
     const { rows: [v] } = await query(`UPDATE vendas SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${i} RETURNING *`, params);
@@ -1921,6 +1922,8 @@ r.get('/relatorio-lider', async (req, res) => {
     const v = cfgMetas[0]?.valor || {};
     const metaGlobalMes = Math.max(1, parseFloat(v.globais?.[setor]) || 500000);
     const metaMinimaMes = Math.max(0, parseFloat(v.minimas?.[setor]) || 100000);
+    const premioMinima = Math.max(0, parseFloat(v.premiosMin?.[setor]) || 1500);
+    const premioGeral = Math.max(0, parseFloat(v.premios?.[setor]) || 10000);
     // Meta do dia: a configurada ou a global dividida por 26 dias de atendimento
     const doSetor = cfg.setores?.[setor] || {};
     const metaDiaSetor = doSetor.dia || cfg.meta_diaria_setor || Math.round(metaGlobalMes / 26);
@@ -1936,8 +1939,8 @@ r.get('/relatorio-lider', async (req, res) => {
                FROM vendas WHERE data_venda = $1 AND COALESCE(setor,'vacinas') = $2`, [dia, setor]),
       query(`SELECT COALESCE(SUM(valor) FILTER (WHERE ${PAGO}),0)::float total
                FROM vendas WHERE to_char(data_venda,'YYYY-MM') = $1 AND COALESCE(setor,'vacinas') = $2`, [mes, setor]),
-      // Vendas do dia da pessoa, com categoria e idade do paciente (infantil x adulto)
-      query(`SELECT v.categoria, v.paciente_nome, l.nascimento
+      // Vendas do dia da pessoa, com categoria, idade do paciente e se houve ligação
+      query(`SELECT v.categoria, v.paciente_nome, v.ligou, l.nascimento
                FROM vendas v LEFT JOIN leads l ON l.id = v.lead_id
               WHERE v.data_venda = $1 AND v.atendente_id = $2`, [dia, alvoId]),
     ]);
@@ -2018,6 +2021,14 @@ r.get('/relatorio-lider', async (req, res) => {
           causa: 'Demora entre a mensagem do cliente e a resposta.',
           solucao: 'Meta: responder em até 10 minutos. Usar as respostas prontas (⚡) e a "IA responde" pra dar o primeiro retorno rápido, ajustando o texto depois. Manter o CRM aberto e o aviso do celular ligado.' });
       }
+      // 📞 Vendas fechadas sem ligação — ligação aumenta muito a conversão
+      const semLig = vendasDiaQ.rows.filter(x => !x.ligou).length;
+      if (semLig > 0) {
+        gargalos.push({ n: semLig, nivel: 'medio', titulo: 'vendas fechadas SEM ligação',
+          causa: 'Atendimento só por mensagem — a voz cria vínculo e derruba objeção que o texto não alcança.',
+          solucao: 'Ligar em todo atendimento com proposta enviada, avisando antes no WhatsApp de forma afirmativa: "vou te ligar daqui a pouco pra complementar nosso atendimento". Marcar o check 📞 ao registrar a venda.' });
+      }
+
       // Gargalo de conversão: categoria do foco parada
       for (const c of categorias) {
         if (c.meta > 0 && c.realizado === 0) {
@@ -2035,6 +2046,18 @@ r.get('/relatorio-lider', async (req, res) => {
     res.json({
       data: dia, usuario: { id: u.id, nome: u.nome, setor, lider: !!u.lider },
       metas: { global_mes: metaGlobalMes, minima_mes: metaMinimaMes, dia_setor: metaDiaSetor, individual: metaIndividual },
+      // 🎁 O que ela ganha ao bater cada meta do mês (repasse futuro)
+      premios: {
+        minima: { meta: metaMinimaMes, valor: premioMinima, conquistado: setorMes >= metaMinimaMes, falta: Math.max(metaMinimaMes - setorMes, 0) },
+        geral: { meta: metaGlobalMes, valor: premioGeral, conquistado: setorMes >= metaGlobalMes, falta: Math.max(metaGlobalMes - setorMes, 0) },
+      },
+      // 📞 Ligações: quantas vendas do dia tiveram ligação antes de fechar
+      ligacoes: (() => {
+        const comLigacao = vendasDiaQ.rows.filter(x => x.ligou).length;
+        const total = vendasDiaQ.rows.length;
+        return { com_ligacao: comLigacao, total_vendas: total,
+          pct: total ? Math.round((comLigacao / total) * 100) : null };
+      })(),
       categorias, total_categorias: { meta: totMeta, realizado: totReal, faltam: Math.max(totMeta - totReal, 0) },
       financeiro: [
         { indicador: 'Meta individual diária', meta: metaIndividual, realizado: indiv.total, faltam: Math.max(metaIndividual - indiv.total, 0) },
