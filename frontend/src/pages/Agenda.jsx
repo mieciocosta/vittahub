@@ -25,11 +25,27 @@ export default function Agenda() {
   const [aba, setAba] = useState(() => (new URLSearchParams(window.location.search).get('aba') === 'relatorio' ? 'relatorio' : 'lista'));
   const [rel, setRel] = useState(null);
   const [relLider, setRelLider] = useState(false);  // 📄 relatório individual (modelo da liderança)
-  useEffect(() => {
-    if (aba !== 'relatorio') return;
-    setRel({ carregando: true });
+  // Recarrega o relatório (sem piscar a tela quando já tem dados na mão)
+  const loadRel = useCallback((mostrarCarregando = true) => {
+    if (mostrarCarregando) setRel({ carregando: true });
     api.get(`/extras/agenda/relatorio-dia?data=${data}`).then(setRel).catch(e => setRel({ erro: e.message }));
-  }, [aba, data]); // eslint-disable-line
+  }, [data]); // eslint-disable-line
+  useEffect(() => { if (aba === 'relatorio') loadRel(); }, [aba, loadRel]); // eslint-disable-line
+
+  // 🔄 Agendamento criado/alterado em QUALQUER lugar (agenda, chat, carteira
+  // vacinal ou link público) sobe pro relatório na hora, sem precisar recarregar.
+  useEffect(() => {
+    let socket;
+    import('socket.io-client').then(({ io }) => {
+      const BASE = import.meta.env.VITE_API_URL || '';
+      socket = io(BASE, { transports: ['websocket', 'polling'], auth: { token: localStorage.getItem('vh_token') || '' } });
+      socket.on('agenda_update', () => {
+        load();
+        if (aba === 'relatorio') loadRel(false);
+      });
+    }).catch(() => {});
+    return () => { try { socket?.disconnect(); } catch {} };
+  }, [aba, loadRel]); // eslint-disable-line
   const [modal, setModal] = useState(null); // {} novo · {id...} edição
   const [erro, setErro] = useState('');
   const [salvando, setSalvando] = useState(false);
@@ -67,20 +83,20 @@ export default function Agenda() {
       const body = { paciente: m.paciente.trim(), responsavel_nome: m.responsavel_nome || '', servico: m.servico || '', data: m.data || data, hora: m.hora, profissional: m.profissional || '', telefone: m.telefone || '', observacoes: m.observacoes || '', setor: m.setor || 'vacinas', endereco: m.endereco || '', local_link: (m.local_link || '').trim(), email: (m.email || '').trim(), valor: m.valor ?? '', forma_pagamento: m.forma_pagamento || '', parcelas: m.parcelas || '' };
       if (m.id) await api.put(`/extras/agenda/${m.id}`, body);
       else await api.post('/extras/agenda', body);
-      setModal(null); load();
+      setModal(null); load(); if (aba === 'relatorio') loadRel(false);
     } catch (e) { setErro(e.message); }
     finally { setSalvando(false); }
   };
 
   const mudaStatus = async (ev, status) => {
     setEventos(p => p.map(x => x.id === ev.id ? { ...x, status } : x));
-    try { await api.put(`/extras/agenda/${ev.id}`, { status }); } catch { load(); }
+    try { await api.put(`/extras/agenda/${ev.id}`, { status }); if (aba === 'relatorio') loadRel(false); } catch { load(); }
   };
 
   const excluir = async (ev) => {
     if (!window.confirm(`Excluir o agendamento de ${ev.paciente}?`)) return;
     setEventos(p => p.filter(x => x.id !== ev.id));
-    try { await api.delete(`/extras/agenda/${ev.id}`); } catch { load(); }
+    try { await api.delete(`/extras/agenda/${ev.id}`); if (aba === 'relatorio') loadRel(false); } catch { load(); }
   };
 
   const ehHoje = data === hojeISO();
