@@ -118,10 +118,16 @@ export default function RelatorioLider({ onClose }) {
         h2{page-break-after:avoid}
         table.d{page-break-inside:avoid}
         .p2{page-break-before:always}
-        tr.gAlto td{background:#fff5f5}
-        tr.gAlto td:first-child{color:#b91c1c;font-weight:bold}
-        tr.gMed td{background:#fffbeb}
-        tr.gMed td:first-child{color:#b45309;font-weight:bold}
+        .garg{border-left:4px solid;border-radius:6px;padding:7px 11px;margin-bottom:7px;page-break-inside:avoid}
+        .garg.gAlto{background:#fff5f5;border-color:#b91c1c}
+        .garg.gMed{background:#fffbeb;border-color:#b45309}
+        .garg .gt{font-weight:bold;font-size:12px;margin-bottom:2px}
+        .garg.gAlto .gt{color:#b91c1c} .garg.gMed .gt{color:#b45309}
+        .garg .gn{display:inline-block;min-width:20px;text-align:center;background:#fff;border:1px solid currentColor;border-radius:5px;padding:0 4px;margin-right:5px}
+        .garg .gc{font-size:10.5px;color:#64748b;margin-bottom:2px}
+        .garg .gs{font-size:11px;line-height:1.5}
+        .plano{border:1px solid #cbd5e1;border-radius:8px;padding:9px 13px;font-size:11.5px;line-height:1.75;page-break-inside:avoid}
+        .plano div{margin-bottom:2px}
         .graf{display:flex;align-items:center;gap:26px;margin:6px 0 4px;flex-wrap:wrap}
         .graf .don{position:relative;width:132px;height:132px;flex-shrink:0}
         .graf .cen{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
@@ -206,12 +212,18 @@ export default function RelatorioLider({ onClose }) {
 
       ${(rel.gargalos || []).length ? `
       <div class="p2">
-        <h2>Gargalos &mdash; o que est&aacute; travando o resultado</h2>
-        <table class="d"><thead><tr><th>Situa&ccedil;&atilde;o</th><th style="width:56px">Qtd</th><th>O que fazer</th></tr></thead>
-        <tbody>${rel.gargalos.map(g => `<tr class="${g.nivel === 'alto' ? 'gAlto' : 'gMed'}">
-          <td>${g.nivel === 'alto' ? '&#9679;' : '&#9675;'} ${esc(g.titulo)}</td>
-          <td class="c"><b>${g.n}</b></td><td>${esc(g.acao)}</td></tr>`).join('')}</tbody></table>
+        <h2>Gargalos e poss&iacute;veis solu&ccedil;&otilde;es</h2>
+        ${rel.gargalos.map(g => `
+        <div class="garg ${g.nivel === 'alto' ? 'gAlto' : 'gMed'}">
+          <div class="gt"><span class="gn">${g.n}</span> ${esc(g.titulo)}</div>
+          ${g.causa ? `<div class="gc"><b>Por qu&ecirc;:</b> ${esc(g.causa)}</div>` : ''}
+          <div class="gs"><b>Poss&iacute;vel solu&ccedil;&atilde;o:</b> ${esc(g.solucao || '')}</div>
+        </div>`).join('')}
       </div>` : ''}
+
+      ${(rel.plano || []).length ? `
+      <h2>Plano de a&ccedil;&atilde;o para amanh&atilde;</h2>
+      <div class="plano">${rel.plano.map(x => `<div>${esc(x)}</div>`).join('')}</div>` : ''}
 
       <h2>Resultado do dia</h2>
       <div class="res">
@@ -326,11 +338,26 @@ export default function RelatorioLider({ onClose }) {
                       <span style={{ fontSize: 15, fontWeight: 900, color: alto ? '#b91c1c' : '#b45309', minWidth: 26, textAlign: 'center' }}>{g.n}</span>
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontSize: 12.5, fontWeight: 800, color: alto ? '#b91c1c' : '#b45309' }}>{g.titulo}</div>
-                        <div style={{ fontSize: 11.5, color: 'var(--txt2)', lineHeight: 1.5 }}>{g.acao}</div>
+                        {g.causa && <div style={{ fontSize: 10.5, color: 'var(--muted)', marginBottom: 2 }}>{g.causa}</div>}
+                        <div style={{ fontSize: 11.5, color: 'var(--txt2)', lineHeight: 1.5 }}>
+                          <b>Solução:</b> {g.solucao}
+                        </div>
                       </div>
                     </div>
                   );
                 })}
+              </div>
+            )}
+
+            {/* 📌 Plano de ação pra amanhã */}
+            {(rel.plano || []).length > 0 && (
+              <div style={{ marginTop: 12, padding: '11px 14px', borderRadius: 11, background: '#eff6ff', border: '1px solid #93c5fd' }}>
+                <div style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: .6, color: '#1d4ed8', marginBottom: 5 }}>
+                  📌 Plano de ação para amanhã
+                </div>
+                {rel.plano.map((x, i) => (
+                  <div key={i} style={{ fontSize: 12, lineHeight: 1.6, color: '#1e3a8a' }}>{x}</div>
+                ))}
               </div>
             )}
 

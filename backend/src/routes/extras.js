@@ -1996,22 +1996,34 @@ r.get('/relatorio-lider', async (req, res) => {
                   AND c.lead_score IN ('quente','morno')
                   AND c.last_message_at BETWEEN NOW() - interval '20 days' AND NOW() - interval '4 days'`),
       ]);
-      const add = (n, nivel, titulo, acao) => { if (n > 0) gargalos.push({ n, nivel, titulo, acao }); };
-      add(espera.rows[0]?.n, 'alto', 'clientes esperando resposta', 'Responder agora — cliente parado esfria em horas.');
-      add(propostas.rows[0]?.n, 'alto', 'propostas sem retorno', 'Ligar hoje e oferecer entrada + saldo em 30 dias.');
-      add(quentes.rows[0]?.n, 'alto', 'leads QUENTES parados', 'São os mais próximos de fechar — priorizar na primeira hora.');
-      add(faltasQ.rows[0]?.n, 'medio', 'faltas na agenda hoje', 'Chamar pra remarcar ainda hoje, enquanto está fresco.');
-      add(silencio.rows[0]?.n, 'medio', 'clientes em silêncio há dias', 'Reativar com o convite do calendário vacinal.');
+      const add = (n, nivel, titulo, causa, solucao) => { if (n > 0) gargalos.push({ n, nivel, titulo, causa, solucao }); };
+      add(espera.rows[0]?.n, 'alto', 'clientes esperando resposta',
+        'Fila acumulada: o cliente falou e ficou sem retorno.',
+        'Abrir o "Meu foco de hoje" e zerar a fila do mais antigo pro mais novo. Se não souber o preço na hora, responda mesmo assim: "Já estou verificando pra você, me dá 5 minutinhos 💙" — o silêncio é que perde a venda.');
+      add(propostas.rows[0]?.n, 'alto', 'propostas sem retorno',
+        'Orçamento enviado e o cliente não respondeu — quase sempre é preço.',
+        'Ligar (não só mandar mensagem) e apresentar a facilidade: entrada de 50% e o restante em 30 dias, ou 12x no cartão. Perguntar "o que te impediu de fechar?" abre a objeção real.');
+      add(quentes.rows[0]?.n, 'alto', 'leads QUENTES parados',
+        'Cliente demonstrou intenção de fechar e a conversa esfriou.',
+        'Prioridade da primeira hora do dia. Retomar de onde parou citando o nome do bebê e já sugerindo dia e hora: "reservo quinta às 14h pra você?" — decisão fácil converte mais que pergunta aberta.');
+      add(faltasQ.rows[0]?.n, 'medio', 'faltas na agenda hoje',
+        'Cliente marcou e não veio — o horário ficou vazio.',
+        'Chamar hoje mesmo com o botão 👻 Faltou (a Vitta manda o convite de remarcação em 1h). Pra evitar: confirmar na véspera e reforçar na manhã do atendimento.');
+      add(silencio.rows[0]?.n, 'medio', 'clientes em silêncio há dias',
+        'Base parada esfriando sem motivo definido.',
+        'Usar a aba 💉 Calendário vacinal e convidar pela idade do bebê — é o motivo mais natural pra reabrir conversa, sem parecer cobrança.');
       const tmed = tempoQ.rows[0]?.m;
       if (tmed != null && tmed > 15) {
         gargalos.push({ n: tmed, nivel: tmed > 60 ? 'alto' : 'medio', titulo: 'minutos de tempo médio de resposta',
-          acao: 'Meta é responder em até 10 min — velocidade é o que mais converte.' });
+          causa: 'Demora entre a mensagem do cliente e a resposta.',
+          solucao: 'Meta: responder em até 10 minutos. Usar as respostas prontas (⚡) e a "IA responde" pra dar o primeiro retorno rápido, ajustando o texto depois. Manter o CRM aberto e o aviso do celular ligado.' });
       }
       // Gargalo de conversão: categoria do foco parada
       for (const c of categorias) {
         if (c.meta > 0 && c.realizado === 0) {
           gargalos.push({ n: c.meta, nivel: 'medio', titulo: `${c.rotulo}: nenhum fechado hoje (meta ${c.meta})`,
-            acao: 'Oferecer em toda conversa de vacina avulsa — é o maior ticket.' });
+            causa: 'O foco do dia não foi oferecido — normalmente por falta de oferta ativa, não por recusa.',
+            solucao: `Oferecer ${c.rotulo.toLowerCase()} em TODA conversa de vacina avulsa: "por esse valor você leva só uma dose; com o plano, o calendário inteiro sai mais em conta e parcelado". Ticket maior com o mesmo esforço de atendimento.` });
         }
       }
     } catch (e) { console.error('Gargalos:', e.message); }
@@ -2031,7 +2043,21 @@ r.get('/relatorio-lider', async (req, res) => {
         { indicador: 'Meta GERAL do mês (setor)', meta: metaGlobalMes, realizado: setorMes, faltam: Math.max(metaGlobalMes - setorMes, 0) },
       ],
       resultado: { vendas: indiv.n, valor: indiv.total, bateu: indiv.total >= metaIndividual },
-      gargalos: gargalos.sort((a, b) => (a.nivel === 'alto' ? 0 : 1) - (b.nivel === 'alto' ? 0 : 1)).slice(0, 6),
+      gargalos: (() => {
+        const ord = gargalos.sort((a, b) => (a.nivel === 'alto' ? 0 : 1) - (b.nivel === 'alto' ? 0 : 1));
+        return ord.slice(0, 5);
+      })(),
+      // 📌 As 3 prioridades pra amanhã, tiradas dos próprios gargalos
+      plano: (() => {
+        const ord = [...gargalos].sort((a, b) => (a.nivel === 'alto' ? 0 : 1) - (b.nivel === 'alto' ? 0 : 1));
+        const passos = ord.slice(0, 3).map((g, i) => `${i + 1}. ${g.titulo.charAt(0).toUpperCase()}${g.titulo.slice(1)} (${g.n}) — ${String(g.solucao || '').split('.')[0]}.`);
+        if (!passos.length) passos.push('1. Manter o padrão: nenhum gargalo detectado hoje. Seguir ofertando plano e pacote em toda conversa.');
+        if (categorias.some(c => c.faltam > 0)) {
+          const f = categorias.filter(c => c.faltam > 0).map(c => `${c.faltam} ${c.rotulo.toLowerCase()}`).join(' e ');
+          passos.push(`${passos.length + 1}. Recuperar o foco do dia: faltaram ${f}.`);
+        }
+        return passos.slice(0, 4);
+      })(),
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
