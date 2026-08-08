@@ -206,6 +206,22 @@ export default async function runMigrate() {
       data DATE PRIMARY KEY, dados JSONB NOT NULL, observacao TEXT,
       fechado_por_id TEXT, fechado_por_nome TEXT, fechado_em TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
 
+    // 🎯 Metas do relatório individual — valores definidos pelo master no modelo
+    // que ele enviou (setor de vacinas: R$ 19.000/dia e R$ 9.500 por pessoa).
+    // Semeadas UMA vez; depois a gestão ajusta pela tela sem ser sobrescrita.
+    try {
+      const { rows: [jaTem] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'relatorio_lider' LIMIT 1");
+      if (!jaTem) {
+        await query(`INSERT INTO configuracoes (chave, valor) VALUES ('relatorio_lider', $1::jsonb)`,
+          [JSON.stringify({ setores: {
+            vacinas:   { dia: 19000, individual: 9500 },
+            consultas: { dia: 0, individual: 0 },
+            terapias:  { dia: 0, individual: 0 },
+          } })]);
+        console.log('🎯 Metas do relatório individual semeadas (vacinas: 19.000/dia · 9.500 individual)');
+      }
+    } catch (e) { console.error('Seed metas relatório:', e.message); }
+
     await query(`CREATE TABLE IF NOT EXISTS configuracoes (
       chave TEXT PRIMARY KEY, valor JSONB NOT NULL, updated_at TIMESTAMPTZ DEFAULT NOW()
     )`);
