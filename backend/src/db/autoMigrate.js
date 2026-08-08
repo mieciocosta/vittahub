@@ -213,11 +213,18 @@ export default async function runMigrate() {
       const { rows: [jaTem] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'relatorio_lider' LIMIT 1");
       if (!jaTem) {
         await query(`INSERT INTO configuracoes (chave, valor) VALUES ('relatorio_lider', $1::jsonb)`,
-          [JSON.stringify({ setores: {
-            vacinas:   { dia: 19000, individual: 9500 },
-            consultas: { dia: 0, individual: 0 },
-            terapias:  { dia: 0, individual: 0 },
-          } })]);
+          [JSON.stringify({
+            setores: {
+              vacinas:   { dia: 19000, individual: 9500 },
+              consultas: { dia: 0, individual: 0 },
+              terapias:  { dia: 0, individual: 0 },
+            },
+            // Foco diário definido pelo master: 2 planos e 5 pacotes mensais
+            categorias: [
+              { rotulo: 'Planos Vacinais', categorias: ['Plano Vacinal'], meta: 2 },
+              { rotulo: 'Pacotes Mensais', categorias: ['Fidelidade Mensal'], meta: 5 },
+            ],
+          })]);
         console.log('🎯 Metas do relatório individual semeadas (vacinas: 19.000/dia · 9.500 individual)');
       }
     } catch (e) { console.error('Seed metas relatório:', e.message); }

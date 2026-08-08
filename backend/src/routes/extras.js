@@ -1861,10 +1861,8 @@ r.delete('/ligacoes/:id', async (req, res) => {
    por categoria e financeiras, com "Realizado" e "Faltam" já preenchidos pelo
    sistema. Os alvos do dia ficam configuráveis por setor. */
 const CATS_RELATORIO = [
-  { rotulo: 'Planos Vacinais Infantis', categorias: ['Plano Vacinal'], setor: 'vacinas', meta: 2 },
-  { rotulo: 'Clientes Fidelidade', categorias: ['Fidelidade Mensal'], setor: 'vacinas', meta: 5 },
-  { rotulo: 'Planos Vacinais Adultos', categorias: ['Plano Vacinal'], setor: 'vacinas', meta: 5, adulto: true },
-  { rotulo: 'Vacinas Avulsas', categorias: ['Vacinação Geral'], setor: 'vacinas', meta: 5 },
+  { rotulo: 'Planos Vacinais', categorias: ['Plano Vacinal'], setor: 'vacinas', meta: 2 },
+  { rotulo: 'Pacotes Mensais', categorias: ['Fidelidade Mensal'], setor: 'vacinas', meta: 5 },
 ];
 
 async function cfgRelatorioLider() {
@@ -1922,6 +1920,7 @@ r.get('/relatorio-lider', async (req, res) => {
     ]);
     const v = cfgMetas[0]?.valor || {};
     const metaGlobalMes = Math.max(1, parseFloat(v.globais?.[setor]) || 500000);
+    const metaMinimaMes = Math.max(0, parseFloat(v.minimas?.[setor]) || 100000);
     // Meta do dia: a configurada ou a global dividida por 26 dias de atendimento
     const doSetor = cfg.setores?.[setor] || {};
     const metaDiaSetor = doSetor.dia || cfg.meta_diaria_setor || Math.round(metaGlobalMes / 26);
@@ -1968,12 +1967,13 @@ r.get('/relatorio-lider', async (req, res) => {
 
     res.json({
       data: dia, usuario: { id: u.id, nome: u.nome, setor, lider: !!u.lider },
-      metas: { global_mes: metaGlobalMes, dia_setor: metaDiaSetor, individual: metaIndividual },
+      metas: { global_mes: metaGlobalMes, minima_mes: metaMinimaMes, dia_setor: metaDiaSetor, individual: metaIndividual },
       categorias, total_categorias: { meta: totMeta, realizado: totReal, faltam: Math.max(totMeta - totReal, 0) },
       financeiro: [
         { indicador: 'Meta individual diária', meta: metaIndividual, realizado: indiv.total, faltam: Math.max(metaIndividual - indiv.total, 0) },
         { indicador: 'Meta diária do setor', meta: metaDiaSetor, realizado: setorDia, faltam: Math.max(metaDiaSetor - setorDia, 0) },
-        { indicador: 'Meta global mensal', meta: metaGlobalMes, realizado: setorMes, faltam: Math.max(metaGlobalMes - setorMes, 0) },
+        { indicador: 'Meta MÍNIMA do mês (setor)', meta: metaMinimaMes, realizado: setorMes, faltam: Math.max(metaMinimaMes - setorMes, 0) },
+        { indicador: 'Meta GERAL do mês (setor)', meta: metaGlobalMes, realizado: setorMes, faltam: Math.max(metaGlobalMes - setorMes, 0) },
       ],
       resultado: { vendas: indiv.n, valor: indiv.total, bateu: indiv.total >= metaIndividual },
     });

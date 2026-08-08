@@ -142,7 +142,8 @@ export default function RelatorioLider({ onClose }) {
 
       <table class="cab">
         <tr><td>Destinado à líder</td><td class="v">${rel.usuario?.lider ? 'Líder ' : ''}${nome}</td></tr>
-        <tr><td>Meta global mensal do setor</td><td class="v">${brl(rel.metas?.global_mes)}</td></tr>
+        <tr><td>Meta GERAL do mês (Vacinas)</td><td class="v">${brl(rel.metas?.global_mes)}</td></tr>
+        <tr><td>Meta MÍNIMA do mês (Vacinas)</td><td class="v">${brl(rel.metas?.minima_mes)}</td></tr>
         <tr><td>Meta diária do setor</td><td class="v">${brl(rel.metas?.dia_setor)}</td></tr>
         <tr><td>Meta individual</td><td class="v">${brl(rel.metas?.individual)}</td></tr>
       </table>
@@ -158,6 +159,8 @@ export default function RelatorioLider({ onClose }) {
         <li>Orientar a equipe a criar vínculo com nome, acolhimento e segurança.</li>
         <li>Selecionar clientes quentes para ligação durante o atendimento.</li>
         <li>Cobrar follow-up dos clientes que receberam proposta.</li>
+        <li><b>Foco do dia: 2 Planos Vacinais e 5 Pacotes Mensais.</b></li>
+        <li>Oferecer facilidade de pagamento: entrada + saldo em 30 dias, ou 12x no cartão.</li>
         <li>Acompanhar valor vendido e quanto falta para ${brl(rel.metas?.individual)} no dia.</li>
       </ul>
 
@@ -252,7 +255,7 @@ export default function RelatorioLider({ onClose }) {
                   ⚙️ Ajustar
                 </button>
               )}
-              {[['Meta global mensal do setor', rel.metas?.global_mes], ['Meta diária do setor', rel.metas?.dia_setor], ['Meta individual', rel.metas?.individual]].map(([l, v]) => (
+              {[['Meta GERAL do mês (Vacinas)', rel.metas?.global_mes], ['Meta MÍNIMA do mês (Vacinas)', rel.metas?.minima_mes], ['Meta diária do setor', rel.metas?.dia_setor], ['Meta individual', rel.metas?.individual]].map(([l, v]) => (
                 <div key={l} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, fontWeight: 700, padding: '3px 0' }}>
                   <span style={{ color: '#123240' }}>{l}</span><span style={{ color: '#12889a' }}>{brl(v)}</span>
                 </div>
