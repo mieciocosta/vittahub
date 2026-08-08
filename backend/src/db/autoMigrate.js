@@ -176,6 +176,8 @@ export default async function runMigrate() {
     await query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS responsavel_cpf TEXT`).catch(() => {});
     await query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS cep TEXT`).catch(() => {});
     await query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS ficha_em TIMESTAMPTZ`).catch(() => {});
+    // 📞 Marca se houve LIGAÇÃO pro cliente antes de fechar a venda
+    await query(`ALTER TABLE vendas ADD COLUMN IF NOT EXISTS ligou BOOLEAN DEFAULT false`).catch(() => {});
     // 💉 Solicitação de vacinas CONFORME A AGENDA (separar/pedir o que será aplicado)
     await query(`CREATE TABLE IF NOT EXISTS solicitacoes_vacinas (
       id SERIAL PRIMARY KEY, agenda_id INT, conversa_id TEXT, lead_id TEXT,

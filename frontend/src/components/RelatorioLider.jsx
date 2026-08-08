@@ -9,7 +9,7 @@ const brl = (v) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', c
 
 /* Rosca de progresso em SVG: mostra o quanto foi feito e destaca o que faltou.
    SVG porque imprime igual na tela (fundo colorido some em muitas impressoras). */
-function rosca({ pct, cor, tamanho = 132, grosso = 15 }) {
+function rosca({ pct, cor, tamanho = 112, grosso = 13 }) {
   const p = Math.max(0, Math.min(pct, 100));
   const r = (tamanho - grosso) / 2, c = 2 * Math.PI * r, meio = tamanho / 2;
   return `<svg width="${tamanho}" height="${tamanho}" viewBox="0 0 ${tamanho} ${tamanho}">
@@ -93,23 +93,23 @@ export default function RelatorioLider({ onClose }) {
       <style>
         @page{size:A4;margin:14mm}
         *{box-sizing:border-box}
-        body{font-family:Arial,Helvetica,sans-serif;color:#1a2b33;margin:0;font-size:11.5px}
+        body{font-family:Arial,Helvetica,sans-serif;color:#1a2b33;margin:0;font-size:11px}
         .marca{text-align:right;color:#0E8C96;font-size:11px;margin-bottom:6px}
         h1{text-align:center;font-size:23px;color:#123240;margin:0}
         .sub{text-align:center;color:#12889a;font-size:13px;margin:6px 0 18px}
         .cab{width:100%;border-collapse:collapse;margin-bottom:18px}
-        .cab td{padding:6px 12px;font-weight:bold}
+        .cab td{padding:4px 12px;font-weight:bold}
         .cab tr:nth-child(odd){background:#eaf6f8}
         .cab td.v{text-align:right;color:#12889a}
         .cab tr:first-child td.v{color:#b8912f}
-        h2{color:#123240;font-size:15.5px;margin:13px 0 6px}
+        h2{color:#123240;font-size:14.5px;margin:11px 0 5px}
         p{line-height:1.55;margin:0 0 6px}
         ul{margin:0 0 6px 4px;padding-left:16px}
-        li{margin-bottom:4px;line-height:1.5}
+        li{margin-bottom:2px;line-height:1.4}
         table.d{width:100%;border-collapse:collapse;font-size:11.5px}
         table.d th{background:#123240;color:#fff;padding:6px 9px;font-size:11px;text-align:center}
         table.d th:first-child{text-align:left}
-        table.d td{padding:6px 9px;border-bottom:1px solid #e6edf0}
+        table.d td{padding:4px 9px;border-bottom:1px solid #e6edf0}
         table.d tr:nth-child(even) td{background:#f6f9fa}
         table.d td.c{text-align:center}table.d td.r{text-align:right}
         table.d td.ok{color:#15803d;font-weight:bold}
@@ -118,7 +118,7 @@ export default function RelatorioLider({ onClose }) {
         h2{page-break-after:avoid}
         table.d{page-break-inside:avoid}
         .p2{page-break-before:always}
-        .garg{border-left:4px solid;border-radius:6px;padding:7px 11px;margin-bottom:7px;page-break-inside:avoid}
+        .garg{border-left:4px solid;border-radius:6px;padding:5px 10px;margin-bottom:5px;page-break-inside:avoid}
         .garg.gAlto{background:#fff5f5;border-color:#b91c1c}
         .garg.gMed{background:#fffbeb;border-color:#b45309}
         .garg .gt{font-weight:bold;font-size:12px;margin-bottom:2px}
@@ -126,10 +126,17 @@ export default function RelatorioLider({ onClose }) {
         .garg .gn{display:inline-block;min-width:20px;text-align:center;background:#fff;border:1px solid currentColor;border-radius:5px;padding:0 4px;margin-right:5px}
         .garg .gc{font-size:10.5px;color:#64748b;margin-bottom:2px}
         .garg .gs{font-size:11px;line-height:1.5}
-        .plano{border:1px solid #cbd5e1;border-radius:8px;padding:9px 13px;font-size:11.5px;line-height:1.75;page-break-inside:avoid}
+        .prem{display:flex;gap:9px;flex-wrap:wrap;page-break-inside:avoid}
+        .prem>div{flex:1;min-width:210px;border:1px solid #fcd34d;background:#fffbeb;border-radius:8px;padding:6px 11px}
+        .prem>div.pOk{border-color:#86efac;background:#f0fdf4}
+        .prem span{display:block;font-size:10px;color:#64748b}
+        .prem b{font-size:16px;color:#b45309}
+        .prem .pOk b{color:#15803d}
+        .prem i{font-style:normal;font-size:10.5px;font-weight:bold;margin-left:7px;color:#64748b}
+        .plano{border:1px solid #cbd5e1;border-radius:8px;padding:8px 12px;font-size:11px;line-height:1.6;page-break-inside:avoid}
         .plano div{margin-bottom:2px}
-        .graf{display:flex;align-items:center;gap:26px;margin:6px 0 4px;flex-wrap:wrap}
-        .graf .don{position:relative;width:132px;height:132px;flex-shrink:0}
+        .graf{display:flex;align-items:center;gap:22px;margin:4px 0 2px;flex-wrap:wrap}
+        .graf .don{position:relative;width:112px;height:112px;flex-shrink:0}
         .graf .cen{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
         .graf .cen b{font-size:27px;line-height:1}
         .graf .cen span{font-size:10px;color:#64748b}
@@ -139,15 +146,15 @@ export default function RelatorioLider({ onClose }) {
         .graf .bar{height:11px;border-radius:6px;background:#e6edf0;overflow:hidden;margin:8px 0 3px;max-width:330px}
         .graf .bar span{display:block;height:100%;border-radius:6px}
         .graf .l2{font-size:11px;color:#64748b}
-        .res{margin-top:8px;line-height:2.2;font-size:12.5px}
+        .res{margin-top:6px;line-height:1.95;font-size:12px}
         .lin{display:inline-block;border-bottom:1px solid #64748b;min-width:230px}
-        .assin{margin-top:34px;text-align:center}
+        .assin{margin-top:20px;text-align:center}
         .assin .nome{font-family:'Great Vibes','Segoe Script','Brush Script MT','Lucida Handwriting','Apple Chancery',cursive;
           font-size:40px;color:#123240;line-height:1.1;transform:rotate(-2deg);margin-bottom:0}
         .assin .linha{width:290px;margin:0 auto;border-bottom:1px solid #64748b}
         .assin .cargo{margin-top:5px;font-size:11px;font-weight:bold;color:#123240}
         .assin .cargo2{font-size:10px;color:#64748b}
-        .rod{margin-top:22px;text-align:center;color:#64748b;font-size:10.5px}
+        .rod{margin-top:12px;text-align:center;color:#64748b;font-size:10px}
       </style></head><body>
       <div class="marca">Vittalis Saúde | Setor de ${setorTxt}</div>
       <h1>Relatório Individual - ${rel.usuario?.lider ? 'Líder ' : ''}${nome}</h1>
@@ -173,6 +180,7 @@ export default function RelatorioLider({ onClose }) {
         <li>Selecionar clientes quentes para ligação durante o atendimento.</li>
         <li>Cobrar follow-up dos clientes que receberam proposta.</li>
         <li><b>Foco do dia: 2 Planos Vacinais e 5 Pacotes Mensais.</b></li>
+        <li><b>Atacar em LIGAÇÕES:</b> avisar no WhatsApp e ligar em todo atendimento com proposta enviada.</li>
         <li>Oferecer facilidade de pagamento: entrada + saldo em 30 dias, ou 12x no cartão.</li>
         <li>Acompanhar valor vendido e quanto falta para ${brl(rel.metas?.individual)} no dia.</li>
       </ul>
@@ -181,6 +189,9 @@ export default function RelatorioLider({ onClose }) {
       <table class="d"><thead><tr><th>Categoria</th><th>Meta do dia</th><th>Realizado</th><th>Faltam</th></tr></thead>
       <tbody>${linhasCat}
         <tr class="tot"><td>Total Geral</td><td class="c">${tc.meta || 0}</td><td class="c">${tc.realizado || 0}</td><td class="c">${tc.faltam || 0}</td></tr>
+        <tr><td>&#128222; Ligac&otilde;es antes de fechar</td><td class="c">todas</td>
+          <td class="c">${rel.ligacoes?.com_ligacao || 0} de ${rel.ligacoes?.total_vendas || 0}</td>
+          <td class="c ${(rel.ligacoes?.total_vendas || 0) - (rel.ligacoes?.com_ligacao || 0) ? 'falta' : 'ok'}">${(rel.ligacoes?.total_vendas || 0) - (rel.ligacoes?.com_ligacao || 0) || '&#10003;'}</td></tr>
       </tbody></table>
 
       <h2>Acompanhamento financeiro individual</h2>
@@ -209,6 +220,19 @@ export default function RelatorioLider({ onClose }) {
           </div>
         </div>`;
       })()}
+
+      ${rel.premios ? `
+      <h2>O que voc&ecirc; ganha</h2>
+      <div class="prem">
+        <div class="${rel.premios.minima.conquistado ? 'pOk' : ''}">
+          <span>Ao alcan&ccedil;ar ${brl(rel.premios.minima.meta)} (m&iacute;nima)</span>
+          <b>${brl(rel.premios.minima.valor)}</b><i>${rel.premios.minima.conquistado ? '&#10003; conquistado' : 'faltam ' + brl(rel.premios.minima.falta)}</i>
+        </div>
+        <div class="${rel.premios.geral.conquistado ? 'pOk' : ''}">
+          <span>Ao alcan&ccedil;ar ${brl(rel.premios.geral.meta)} (geral)</span>
+          <b>${brl(rel.premios.geral.valor)}</b><i>${rel.premios.geral.conquistado ? '&#10003; conquistado' : 'faltam ' + brl(rel.premios.geral.falta)}</i>
+        </div>
+      </div>` : ''}
 
       ${(rel.gargalos || []).length ? `
       <div class="p2">
@@ -323,6 +347,41 @@ export default function RelatorioLider({ onClose }) {
                 </div>
               </div>
             ))}
+
+            {/* 🎁 O que ela ganha ao bater cada meta */}
+            {rel.premios && (
+              <div style={{ marginTop: 14, padding: '11px 14px', borderRadius: 11, background: '#fffbeb', border: '1px solid #fcd34d' }}>
+                <div style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: .6, color: '#b45309', marginBottom: 6 }}>
+                  🎁 O que você ganha
+                </div>
+                {[['Meta MÍNIMA', rel.premios.minima], ['Meta GERAL', rel.premios.geral]].map(([lb, p2]) => (
+                  <div key={lb} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '5px 0', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 12.5, fontWeight: 700, minWidth: 96 }}>{lb}</span>
+                    <span style={{ fontSize: 11.5, color: 'var(--muted)', minWidth: 92 }}>{brl(p2.meta)}</span>
+                    <span style={{ fontSize: 14, fontWeight: 900, color: p2.conquistado ? '#16a34a' : '#b45309' }}>{brl(p2.valor)}</span>
+                    <span style={{ fontSize: 11.5, fontWeight: 700, color: p2.conquistado ? '#16a34a' : 'var(--muted)' }}>
+                      {p2.conquistado ? '✅ conquistado!' : `faltam ${brl(p2.falta)}`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* 📞 Ligações do dia */}
+            {rel.ligacoes && rel.ligacoes.total_vendas > 0 && (
+              <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 10, padding: '9px 13px', borderRadius: 11,
+                background: rel.ligacoes.pct === 100 ? '#f0fdf4' : '#eff6ff', border: `1px solid ${rel.ligacoes.pct === 100 ? '#86efac' : '#93c5fd'}` }}>
+                <span style={{ fontSize: 17 }}>📞</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 800 }}>
+                    {rel.ligacoes.com_ligacao} de {rel.ligacoes.total_vendas} vendas com ligação ({rel.ligacoes.pct}%)
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                    {rel.ligacoes.pct === 100 ? 'Perfeito! Ligar antes de fechar é o que mais converte.' : 'Meta: ligar em todo atendimento com proposta enviada.'}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* 🚧 Gargalos — o que está travando o resultado */}
             {(rel.gargalos || []).length > 0 && (
