@@ -28,6 +28,20 @@ export default function SolicitacaoVacinas() {
   const [form, setForm] = useState(null);   // { agenda_id, paciente, data, hora, itens:[{vacina,qtd}] }
   const [salvando, setSalvando] = useState(false);
   const [vacinasConhecidas, setVacinasConhecidas] = useState([]);
+  // 📋 Relatório da SEMANA: agenda + doses de cada atendimento + total por vacina
+  const [sem, setSem] = useState(null);
+  const [semIni, setSemIni] = useState('');
+  const loadSemana = (ini) => {
+    setSem({ carregando: true });
+    api.get(`/extras/vacinas/relatorio-semana${ini ? `?inicio=${ini}` : ''}`)
+      .then(d => { setSem(d); setSemIni(d.inicio); })
+      .catch(e => setSem({ erro: e.message }));
+  };
+  const andarSemana = (n) => {
+    const d = new Date((semIni || new Date().toISOString().slice(0, 10)) + 'T12:00:00');
+    d.setDate(d.getDate() + n * 7);
+    loadSemana(d.toISOString().slice(0, 10));
+  };
 
   const load = () => {
     setCarregando(true);
@@ -102,8 +116,8 @@ export default function SolicitacaoVacinas() {
       </div>
 
       <div style={{ display: 'flex', gap: 7, marginBottom: 14, flexWrap: 'wrap' }}>
-        {[['agenda', `📅 Agenda (${pendentes.length} sem pedido)`], ['pedidos', `💉 Pedidos (${ativos.length})`], ['consolidado', '📦 Consolidado']].map(([k, l]) => (
-          <button key={k} onClick={() => setAba(k)}
+        {[['agenda', `📅 Agenda (${pendentes.length} sem pedido)`], ['pedidos', `💉 Pedidos (${ativos.length})`], ['semana', '📋 Relatório da semana'], ['consolidado', '📦 Consolidado']].map(([k, l]) => (
+          <button key={k} onClick={() => { setAba(k); if (k === 'semana' && !sem) loadSemana(); }}
             style={{ padding: '7px 14px', borderRadius: 10, fontSize: 12.5, fontWeight: 800, cursor: 'pointer',
               border: `1.5px solid ${aba === k ? 'var(--tq)' : 'var(--border)'}`,
               background: aba === k ? 'var(--tq)' : 'var(--card)', color: aba === k ? '#fff' : 'var(--muted)' }}>{l}</button>
@@ -174,6 +188,9 @@ export default function SolicitacaoVacinas() {
           );
         }))}
 
+        {/* 📋 RELATÓRIO DA SEMANA — agenda + doses por atendimento + totais */}
+        {aba === 'semana' && <RelatorioSemana sem={sem} andar={andarSemana} recarregar={() => loadSemana(semIni)} />}
+
         {/* CONSOLIDADO — o que separar/pedir em cada dia */}
         {aba === 'consolidado' && ((pedidos?.consolidado || []).length === 0 ? (
           <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}>Nada solicitado ainda.</div>
@@ -242,5 +259,152 @@ export default function SolicitacaoVacinas() {
         </div>
       )}
     </div>
+  );
+}
+
+/* 📋 RELATÓRIO DA SEMANA — a agenda inteira com as doses de cada atendimento
+   e, no fim, o total de cada vacina. É o documento que vai pro estoque. */
+function RelatorioSemana({ sem, andar, recarregar }) {
+  if (!sem) return null;
+  if (sem.carregando) return <div className="card" style={{ padding: 30, color: 'var(--muted)' }}>Montando o relatório da semana…</div>;
+  if (sem.erro) return <div className="card" style={{ padding: 24, color: 'var(--err)', fontWeight: 600 }}>⚠️ {sem.erro}</div>;
+
+  const diaLongo = (d) => new Date(String(d).slice(0, 10) + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit' });
+  const r = sem.resumo || {};
+
+  const imprimir = () => {
+    const w = window.open('', '_blank'); if (!w) return;
+    const esc = (t) => String(t ?? '').replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+    const blocos = (sem.dias || []).filter(d => d.eventos.length || d.avulsas.length).map(d => `
+      <h3>${esc(diaLongo(d.data))} <small>${d.atendimentos} atendimento(s) &middot; ${d.doses} dose(s)</small></h3>
+      <table><thead><tr><th style="width:52px">Hora</th><th>Paciente</th><th>Vacinas do atendimento</th><th style="width:52px" class="c">Doses</th></tr></thead>
+      <tbody>${d.eventos.map(e => `<tr>
+        <td class="c">${esc(e.hora || '')}</td><td>${esc(e.paciente)}</td>
+        <td>${e.doses.length ? e.doses.map(x => `${x.quantidade > 1 ? x.quantidade + 'x ' : ''}${esc(x.vacina)}`).join(', ') : '<i>sem doses lançadas</i>'}</td>
+        <td class="c"><b>${e.doses.reduce((n, x) => n + (x.quantidade || 1), 0)}</b></td></tr>`).join('')}
+      ${d.avulsas.map(x => `<tr><td class="c">—</td><td>${esc(x.paciente)} <i>(avulso)</i></td><td>${esc(x.vacina)}</td><td class="c"><b>${x.quantidade || 1}</b></td></tr>`).join('')}
+      </tbody></table>`).join('');
+    const totais = (sem.totais || []).map(t => `<tr><td>${esc(t.vacina)}</td><td class="c"><b>${t.qtd}</b></td></tr>`).join('');
+    w.document.write(`<html><head><title>Solicitações da semana</title><meta charset="utf-8">
+      <style>@page{size:A4;margin:12mm}body{font-family:Arial,Helvetica,sans-serif;color:#14202b;margin:0;font-size:11.5px}
+      h1{color:#0E8C96;margin:0 0 2px;font-size:20px}
+      h3{margin:14px 0 5px;font-size:13px;color:#0f172a;text-transform:capitalize;page-break-after:avoid}
+      h3 small{font-weight:normal;color:#64748b;font-size:10.5px;text-transform:none}
+      .sub{color:#64748b;font-size:12px;margin-bottom:12px}
+      .box{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+      .box div{border:1px solid #cbd5e1;border-radius:8px;padding:6px 12px;font-size:10.5px;color:#64748b}
+      .box b{display:block;font-size:16px;color:#0E8C96}
+      table{width:100%;border-collapse:collapse;font-size:11px;page-break-inside:avoid}
+      th{background:#0E8C96;color:#fff;padding:5px 8px;text-align:left;font-size:9.5px}
+      td{border:1px solid #dbe3ea;padding:4px 8px}td.c{text-align:center}
+      .tot{margin-top:16px;page-break-inside:avoid}
+      .tot th{background:#123240}
+      .rod{margin-top:16px;border-top:1px solid #dbe3ea;padding-top:7px;font-size:9.5px;color:#94a3b8}</style></head><body>
+      <h1>Solicitação de Vacinas — Semana</h1>
+      <div class="sub">${sem.inicio.split('-').reverse().join('/')} a ${sem.fim.split('-').reverse().join('/')} &middot; Vittalis Saúde</div>
+      <div class="box">
+        <div>Atendimentos<b>${r.atendimentos || 0}</b></div>
+        <div>Doses<b>${r.doses || 0}</b></div>
+        <div>Vacinas diferentes<b>${r.vacinas_diferentes || 0}</b></div>
+        ${r.sem_definir ? `<div>A definir<b>${r.sem_definir}</b></div>` : ''}
+      </div>
+      ${blocos || '<p>Nenhum atendimento nesta semana.</p>'}
+      <div class="tot">
+        <h3>Total de cada vacina na semana</h3>
+        <table><thead><tr><th>Vacina</th><th style="width:70px" class="c">Doses</th></tr></thead>
+        <tbody>${totais || '<tr><td colspan="2">Nenhuma dose solicitada.</td></tr>'}
+        <tr><td style="background:#f0fdf9"><b>TOTAL GERAL</b></td><td class="c" style="background:#f0fdf9"><b>${r.doses || 0}</b></td></tr>
+        </tbody></table>
+      </div>
+      <div class="rod">Emitido em ${new Date().toLocaleString('pt-BR')} · VittaHub CRM</div>
+      <script>window.onload=()=>window.print()</script></body></html>`);
+    w.document.close();
+  };
+
+  return (
+    <>
+      {/* Navegação da semana + números */}
+      <div className="card" style={{ padding: '12px 16px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <button onClick={() => andar(-1)} className="btn btn-sm" style={{ padding: '5px 10px' }}>◀</button>
+        <span style={{ fontWeight: 800, fontSize: 13.5, minWidth: 168, textAlign: 'center' }}>
+          {sem.inicio.split('-').reverse().slice(0, 2).join('/')} a {sem.fim.split('-').reverse().slice(0, 2).join('/')}
+        </span>
+        <button onClick={() => andar(1)} className="btn btn-sm" style={{ padding: '5px 10px' }}>▶</button>
+        <div style={{ flex: 1 }} />
+        {[['Atendimentos', r.atendimentos], ['Doses', r.doses], ['Vacinas', r.vacinas_diferentes]].map(([l, v]) => (
+          <div key={l} style={{ textAlign: 'center', minWidth: 74 }}>
+            <div style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase' }}>{l}</div>
+            <div style={{ fontSize: 17, fontWeight: 900, color: 'var(--tq2)' }}>{v || 0}</div>
+          </div>
+        ))}
+        {r.sem_definir > 0 && (
+          <span style={{ background: '#fffbeb', border: '1px solid #fcd34d', color: '#b45309', borderRadius: 20, padding: '4px 11px', fontSize: 11, fontWeight: 800 }}>
+            {r.sem_definir} a definir
+          </span>
+        )}
+        <button onClick={recarregar} className="btn btn-s btn-sm" title="Atualizar">🔄</button>
+        <button onClick={imprimir} className="btn btn-p btn-sm" style={{ gap: 6, fontWeight: 800 }}><Printer size={13} /> Imprimir</button>
+      </div>
+
+      {/* Dia a dia com as doses de cada atendimento */}
+      {(sem.dias || []).filter(d => d.eventos.length || d.avulsas.length).length === 0 ? (
+        <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}>Nenhum atendimento nesta semana.</div>
+      ) : (sem.dias || []).filter(d => d.eventos.length || d.avulsas.length).map(d => (
+        <div key={d.data} className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '9px 16px', background: 'var(--bg2)' }}>
+            <span style={{ fontWeight: 800, fontSize: 13, textTransform: 'capitalize', flex: 1 }}>{diaLongo(d.data)}</span>
+            <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 700 }}>{d.atendimentos} atend.</span>
+            <span style={{ fontSize: 12.5, fontWeight: 900, color: 'var(--tq2)' }}>{d.doses} dose(s)</span>
+          </div>
+          {d.eventos.map(e => (
+            <div key={e.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 11, padding: '9px 16px', borderTop: '1px solid var(--border)' }}>
+              <span style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--tq2)', minWidth: 42 }}>{e.hora}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>{e.paciente}</div>
+                <div style={{ fontSize: 11.5, color: e.doses.length ? 'var(--txt2)' : '#b45309', lineHeight: 1.5 }}>
+                  {e.doses.length
+                    ? e.doses.map(x => `${x.quantidade > 1 ? `${x.quantidade}x ` : ''}${x.vacina}`).join(' · ')
+                    : '⚠️ sem doses lançadas'}
+                </div>
+              </div>
+              <span style={{ fontSize: 13, fontWeight: 900, color: 'var(--tq2)', minWidth: 24, textAlign: 'right' }}>
+                {e.doses.reduce((n, x) => n + (x.quantidade || 1), 0) || '—'}
+              </span>
+            </div>
+          ))}
+          {d.avulsas.map(x => (
+            <div key={`a-${x.id}`} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '9px 16px', borderTop: '1px solid var(--border)', background: 'var(--bg2)' }}>
+              <span style={{ fontSize: 11, color: 'var(--muted)', minWidth: 42 }}>avulso</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700 }}>{x.paciente}</div>
+                <div style={{ fontSize: 11.5, color: 'var(--txt2)' }}>{x.vacina}</div>
+              </div>
+              <span style={{ fontSize: 13, fontWeight: 900, color: 'var(--tq2)' }}>{x.quantidade || 1}</span>
+            </div>
+          ))}
+        </div>
+      ))}
+
+      {/* 🧮 Total de cada vacina na semana */}
+      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+        <div style={{ padding: '11px 16px', background: 'linear-gradient(90deg,#123240,#0E8C96)', color: '#fff', fontWeight: 800, fontSize: 13.5 }}>
+          🧮 Total de cada vacina na semana
+        </div>
+        {(sem.totais || []).length === 0 ? (
+          <div style={{ padding: 22, textAlign: 'center', color: 'var(--muted)', fontSize: 12.5 }}>Nenhuma dose solicitada nesta semana.</div>
+        ) : (<>
+          {sem.totais.map(t => (
+            <div key={t.vacina} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 16px', borderTop: '1px solid var(--border)' }}>
+              <span style={{ flex: 1, fontSize: 13 }}>{t.vacina}</span>
+              <span style={{ fontSize: 14, fontWeight: 900, color: 'var(--tq2)' }}>{t.qtd} {t.qtd === 1 ? 'dose' : 'doses'}</span>
+            </div>
+          ))}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', borderTop: '2px solid var(--tq)', background: 'var(--bg2)' }}>
+            <span style={{ flex: 1, fontSize: 13, fontWeight: 900 }}>TOTAL GERAL</span>
+            <span style={{ fontSize: 16, fontWeight: 900, color: 'var(--tq2)' }}>{r.doses || 0} doses</span>
+          </div>
+        </>)}
+      </div>
+    </>
   );
 }
