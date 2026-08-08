@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Plus, Phone, MessageSquare, Check, X as XIcon, Pencil, Trash2, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import RelatorioLider from '../components/RelatorioLider.jsx';
+import { mensagemAgendamento } from '../hooks/celebra.js';
 import { useNavigate } from 'react-router-dom';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt } from '../hooks/utils.js';
@@ -25,6 +26,7 @@ export default function Agenda() {
   const [aba, setAba] = useState(() => (new URLSearchParams(window.location.search).get('aba') === 'relatorio' ? 'relatorio' : 'lista'));
   const [rel, setRel] = useState(null);
   const [relLider, setRelLider] = useState(false);  // 📄 relatório individual (modelo da liderança)
+  const [celebra, setCelebra] = useState(null);     // 🎉 parabéns + direcionamento de venda
   // Recarrega o relatório (sem piscar a tela quando já tem dados na mão)
   const loadRel = useCallback((mostrarCarregando = true) => {
     if (mostrarCarregando) setRel({ carregando: true });
@@ -83,7 +85,10 @@ export default function Agenda() {
       const body = { paciente: m.paciente.trim(), responsavel_nome: m.responsavel_nome || '', servico: m.servico || '', data: m.data || data, hora: m.hora, profissional: m.profissional || '', telefone: m.telefone || '', observacoes: m.observacoes || '', setor: m.setor || 'vacinas', endereco: m.endereco || '', local_link: (m.local_link || '').trim(), email: (m.email || '').trim(), valor: m.valor ?? '', forma_pagamento: m.forma_pagamento || '', parcelas: m.parcelas || '' };
       if (m.id) await api.put(`/extras/agenda/${m.id}`, body);
       else await api.post('/extras/agenda', body);
+      const ehNovo = !modal?.id;
       setModal(null); load(); if (aba === 'relatorio') loadRel(false);
+      // 🎉 Comemora e aponta o próximo foco de venda (pedido do master)
+      if (ehNovo) setCelebra(mensagemAgendamento());
     } catch (e) { setErro(e.message); }
     finally { setSalvando(false); }
   };
@@ -197,6 +202,17 @@ export default function Agenda() {
           );
         })}
       </div>
+      )}
+
+      {celebra && (
+        <div onClick={() => setCelebra(null)}
+          style={{ position: 'fixed', bottom: 22, left: '50%', transform: 'translateX(-50%)', zIndex: 900, maxWidth: 460, width: 'calc(100% - 32px)',
+            background: 'linear-gradient(120deg,#0E8C96,#16a34a)', color: '#fff', borderRadius: 16, padding: '14px 18px',
+            boxShadow: '0 14px 40px rgba(3,43,48,.35)', cursor: 'pointer', animation: 'vh-sobe .45s ease both' }}>
+          <div style={{ fontSize: 13.5, fontWeight: 800, lineHeight: 1.55, whiteSpace: 'pre-line' }}>{celebra}</div>
+          <div style={{ fontSize: 10.5, opacity: .85, marginTop: 6 }}>toque para fechar</div>
+          <style>{`@keyframes vh-sobe { from { opacity:0; transform: translate(-50%, 18px) } to { opacity:1; transform: translate(-50%, 0) } }`}</style>
+        </div>
       )}
 
       {relLider && <RelatorioLider onClose={() => setRelLider(false)} />}
