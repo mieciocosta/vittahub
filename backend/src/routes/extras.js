@@ -2443,7 +2443,7 @@ r.get('/vacinas/agenda', async (req, res) => {
          AND LOWER(COALESCE(a.status,'')) NOT LIKE 'cancel%'
        ORDER BY a.data, a.hora`, [hoje, dias]);
     const { rows: sols } = await query(`
-      SELECT * FROM solicitacoes_vacinas
+      SELECT *, TO_CHAR(data_prevista,'YYYY-MM-DD') AS data_prevista FROM solicitacoes_vacinas
        WHERE data_prevista BETWEEN $1::date AND ($1::date + $2) AND status <> 'cancelada'
        ORDER BY created_at`, [hoje, dias]);
 
@@ -2482,7 +2482,7 @@ r.get('/vacinas/relatorio-semana', async (req, res) => {
               WHERE data BETWEEN $1::date AND $2::date
                 AND LOWER(COALESCE(status,'')) NOT LIKE 'cancel%'
               ORDER BY data, hora`, [inicio, fim]),
-      query(`SELECT * FROM solicitacoes_vacinas
+      query(`SELECT *, TO_CHAR(data_prevista,'YYYY-MM-DD') AS data_prevista FROM solicitacoes_vacinas
               WHERE data_prevista BETWEEN $1::date AND $2::date AND status <> 'cancelada'
               ORDER BY data_prevista, hora`, [inicio, fim]),
     ]);
@@ -2497,7 +2497,7 @@ r.get('/vacinas/relatorio-semana', async (req, res) => {
       d.setUTCDate(d.getUTCDate() + i);
       const iso = d.toISOString().slice(0, 10);
       const doDia = eventos.filter(e => e.data === iso).map(e => ({ ...e, doses: porAgenda[e.id] || [] }));
-      const avulsas = sols.filter(x => !x.agenda_id && String(x.data_prevista).slice(0, 10) === iso);
+      const avulsas = sols.filter(x => !x.agenda_id && String(x.data_prevista || '').slice(0, 10) === iso);
       // Total de doses do dia (dos atendimentos + avulsas)
       const totalDia = doDia.reduce((n, e) => n + e.doses.reduce((m, x) => m + (x.quantidade || 1), 0), 0)
         + avulsas.reduce((n, x) => n + (x.quantidade || 1), 0);
@@ -2535,7 +2535,7 @@ r.get('/vacinas/solicitacoes', async (req, res) => {
     if (/^\d{4}-\d{2}-\d{2}$/.test(req.query.de || '')) { cond.push(`data_prevista >= $${i++}`); params.push(req.query.de); }
     if (/^\d{4}-\d{2}-\d{2}$/.test(req.query.ate || '')) { cond.push(`data_prevista <= $${i++}`); params.push(req.query.ate); }
     const where = cond.length ? 'WHERE ' + cond.join(' AND ') : '';
-    const { rows } = await query(`SELECT * FROM solicitacoes_vacinas ${where} ORDER BY data_prevista, hora, paciente LIMIT 400`, params);
+    const { rows } = await query(`SELECT *, TO_CHAR(data_prevista,'YYYY-MM-DD') AS data_prevista FROM solicitacoes_vacinas ${where} ORDER BY data_prevista, hora, paciente LIMIT 400`, params);
 
     // Consolidado: quantas doses de cada vacina por dia (é o que se pede ao fornecedor)
     const mapa = {};
