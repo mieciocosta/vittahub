@@ -147,7 +147,9 @@ export default function CasesSucesso() {
               </div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 12, color: 'var(--muted)' }}>
                 <span>👤 {(c.atendente_nome || '—').split(' ')[0]}</span>
-                <span>{c.data_venda ? new Date(c.data_venda).toLocaleDateString('pt-BR') : ''}</span>
+                {/* T12:00 no meio do dia — sem isso "2026-08-12" é lido como meia-noite
+                    UTC e o nosso fuso (-3) mostra o dia ANTERIOR na tela. */}
+                <span>{c.data_venda ? new Date(String(c.data_venda).slice(0, 10) + 'T12:00:00').toLocaleDateString('pt-BR') : ''}</span>
               </div>
               {gestao && c.valor != null && (
                 <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--ok,#16a34a)' }}>{fmt.brl(c.valor)}</div>

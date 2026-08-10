@@ -15,7 +15,16 @@ const STATUS = {
   cancelada: ['Cancelada', '#dc2626', '#fef2f2'],
 };
 const PROXIMO = { solicitada: 'pedida', pedida: 'disponivel', disponivel: 'aplicada' };
-const fmtD = (d) => new Date(String(d).slice(0, 10) + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' });
+// Formatação de data à prova de bala: se vier vazia, fora do padrão ou já como
+// texto do Postgres, mostra um rótulo legível em vez do temido "Invalid Date".
+const soISO = (d) => (String(d || '').match(/\d{4}-\d{2}-\d{2}/) || [])[0] || null;
+const fmtData = (d, opts, semData = 'Sem data definida') => {
+  const iso = soISO(d);
+  if (!iso) return semData;
+  const dt = new Date(iso + 'T12:00:00');
+  return isNaN(dt) ? semData : dt.toLocaleDateString('pt-BR', opts);
+};
+const fmtD = (d) => fmtData(d, { weekday: 'short', day: '2-digit', month: '2-digit' });
 
 export default function SolicitacaoVacinas() {
   const api = useApi();
@@ -269,7 +278,7 @@ function RelatorioSemana({ sem, andar, recarregar }) {
   if (sem.carregando) return <div className="card" style={{ padding: 30, color: 'var(--muted)' }}>Montando o relatório da semana…</div>;
   if (sem.erro) return <div className="card" style={{ padding: 24, color: 'var(--err)', fontWeight: 600 }}>⚠️ {sem.erro}</div>;
 
-  const diaLongo = (d) => new Date(String(d).slice(0, 10) + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit' });
+  const diaLongo = (d) => fmtData(d, { weekday: 'long', day: '2-digit', month: '2-digit' });
   const r = sem.resumo || {};
 
   const imprimir = () => {
