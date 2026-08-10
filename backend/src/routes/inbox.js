@@ -24,9 +24,28 @@ let lastWebhooks = [];
 let ultimoPayloadDesconhecido = null;
 let ultimoAudioDebug = null;
 let ultimoPropostaDebug = null;
+// Telemetria da ENTRADA de mensagens. Quando o master diz "as mensagens não
+// estão subindo", sem isso vira adivinhação: aqui fica gravado quando chegou o
+// último webhook, quantos chegaram desde o boot, quando a última mensagem foi
+// realmente GRAVADA no banco e quais webhooks foram DESCARTADOS (com o motivo).
+let ultimoWebhookAt = null;
+let totalWebhooks = 0;
+let ultimaMsgGravadaAt = null;
+let lastDrops = [];
 function logWebhook(body) {
   lastWebhooks.unshift({ at: new Date().toISOString(), body });
   if (lastWebhooks.length > 10) lastWebhooks = lastWebhooks.slice(0, 10);
+  ultimoWebhookAt = Date.now();
+  totalWebhooks++;
+}
+// Todo webhook que o CRM joga fora passa por aqui — é o "porquê" que aparece no
+// Diagnóstico do WhatsApp.
+function registrarDrop(motivo, body) {
+  lastDrops.unshift({
+    at: new Date().toISOString(), motivo,
+    phone: body?.phone || null, tipo: body?.type || null, msgId: body?.messageId || null,
+  });
+  if (lastDrops.length > 20) lastDrops = lastDrops.slice(0, 20);
 }
 
 
@@ -1834,14 +1853,17 @@ r.post('/webhook/zapi', async (req, res) => {
   res.json({ received: true });
   try {
     const body = req.body;
+    // O registro vem ANTES de qualquer descarte — senão um webhook rejeitado
+    // some sem deixar rastro e o diagnóstico jura que "nada chegou".
+    logWebhook(body);
     // Segurança: só processa webhooks da NOSSA instância Z-API (a Z-API sempre
     // envia o instanceId). Sem isso, qualquer um que soubesse a URL poderia
     // injetar conversas/mensagens falsas no CRM.
     if (process.env.ZAPI_INSTANCE && body?.instanceId !== process.env.ZAPI_INSTANCE) {
-      console.warn('Webhook Z-API rejeitado: instanceId ausente ou não confere');
+      console.warn(`Webhook Z-API rejeitado: instanceId "${body?.instanceId || '(vazio)'}" não confere com a ZAPI_INSTANCE configurada`);
+      registrarDrop(`instanceId "${body?.instanceId || '(vazio)'}" diferente da instância configurada no Railway (ZAPI_INSTANCE)`, body);
       return;
     }
-    logWebhook(body);
     console.log(`ZAPI_WH: ${JSON.stringify(body).slice(0, 300)}`);
 
     // ── Eventos de conexão/desconexão (vêm do webhook "Ao conectar/desconectar") ──
@@ -1920,16 +1942,25 @@ r.post('/webhook/zapi', async (req, res) => {
         // Usa o telefone COMPLETO do contact_id (com 55) — senão o remoteJid não
         // bate o contact_id existente e a conversa "racha" em duas.
         if (cLid?.contact_id) phone = String(cLid.contact_id).replace('@s.whatsapp.net', '');
-        else { console.warn(`SYNC-DROP: @lid sem conversa casada (isMe=${isMe}, chatLid=${chatLid}, msgId=${msgId}) — mensagem não exibida`); return; }
+        else {
+          console.warn(`SYNC-DROP: @lid sem conversa casada (isMe=${isMe}, chatLid=${chatLid}, msgId=${msgId}) — mensagem não exibida`);
+          registrarDrop('WhatsApp mandou só o @lid (sem telefone) e ainda não existe conversa com essa chatLid', body);
+          return;
+        }
       } else {
         console.warn(`SYNC-DROP: @lid sem chatLid (isMe=${isMe}, phone=${phone}, msgId=${msgId}) — não dá pra casar a conversa`);
+        registrarDrop('WhatsApp mandou @lid sem chatLid — impossível descobrir de qual conversa é', body);
         return;                                 // @lid não-resolvível (broadcast/status/recebida sem telefone)
       }
     }
     if (String(phone).includes('broadcast') || String(phone).includes('status')) return;
     const phoneDigits = String(phone).replace(/\D/g, '');
     // Grupos têm id longo (@g.us) — não passam pela regra de telefone normal.
-    if (!isGroupMsg && (phoneDigits.length < 10 || phoneDigits.length > 15)) { console.warn(`SYNC-DROP: telefone inválido "${phone}" (isMe=${isMe}, msgId=${msgId})`); return; }
+    if (!isGroupMsg && (phoneDigits.length < 10 || phoneDigits.length > 15)) {
+      console.warn(`SYNC-DROP: telefone inválido "${phone}" (isMe=${isMe}, msgId=${msgId})`);
+      registrarDrop(`telefone em formato inválido: "${phone}"`, body);
+      return;
+    }
 
     const senderName = body.senderName || body.chatName || '';
     const profilePic = body.photo || body.senderPhoto || body.profilePicUrl || '';
@@ -2033,7 +2064,11 @@ r.post('/webhook/zapi', async (req, res) => {
     // Se é uma mensagem REAL de um tipo não suportado (enquete, view-once, etc.)
     // → grava um placeholder pra thread não ficar incompleta (a msg não some).
     if (content === '[mensagem]' && !mediaData) {
-      if (!msgId) { console.warn(`SYNC-DROP: callback sem conteúdo e sem msgId (phone=${phoneDigits}) — ignorado`); return; }
+      if (!msgId) {
+        console.warn(`SYNC-DROP: callback sem conteúdo e sem msgId (phone=${phoneDigits}) — ignorado`);
+        registrarDrop('callback da Z-API sem conteúdo reconhecível e sem messageId', body);
+        return;
+      }
       content = '[mensagem não suportada neste formato]'; type = 'text';
     }
 
@@ -2089,6 +2124,7 @@ r.post('/webhook/zapi', async (req, res) => {
 
     // ── Socket.io: entrega instantânea para todos os clientes ──
     if (newMsg) {
+      ultimaMsgGravadaAt = Date.now();          // prova de que a entrada está viva
       socketEmit('new_message', { convId: conv.id, message: newMsg, conv });
       await query(`SELECT pg_notify('vittahub', $1)`, [
         JSON.stringify({ event:'new_message', convId:conv.id, messageId:newMsg.id, conv })
@@ -2171,10 +2207,14 @@ r.post('/webhook/zapi', async (req, res) => {
       processarRespostaConfirmacao(conv, textoParaIA, phoneDigits); // fire-and-forget
     }
 
-    // 📇 Cliente mandou a ficha preenchida → salva no cadastro sozinho
+    // 📇 Cliente mandou a ficha preenchida → salva no cadastro sozinho.
+    // Blindado: a leitura da ficha é um extra — se ela falhar, a mensagem e a
+    // resposta da Vitta seguem normalmente (nada trava a conversa por causa disso).
     if (!isGroupMsg && type === 'text' && content) {
-      const ficha = extrairFicha(content);
-      if (ficha) salvarFichaNoLead(conv, ficha, isMe ? 'equipe' : 'cliente');
+      try {
+        const ficha = extrairFicha(content);
+        if (ficha) salvarFichaNoLead(conv, ficha, isMe ? 'equipe' : 'cliente');
+      } catch (e) { console.error('Ficha automática:', e.message); }
     }
 
     // ─── VITTA — IA CONVERSACIONAL COM CLAUDE ─────────────────────────────────
@@ -2571,6 +2611,126 @@ r.get('/whatsapp/diag-bot', masterOnly, async (req, res) => {
     out.veredito = falhas.length
       ? `Encontrei ${falhas.length} ponto(s) de atenção: ` + falhas.join(' | ')
       : 'Tudo certo — o bot deveria responder. Se não responder, o deploy do backend pode estar atrasado (confira a versao_backend abaixo) ou me chame pros logs.';
+    res.json(out);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+/* ─── DIAGNÓSTICO DA ENTRADA DE MENSAGENS ─────────────────────────────────────
+   "As mensagens não estão subindo do WhatsApp pro VittaHub" é o pior tipo de
+   problema: silencioso e com 5 causas possíveis. Este endpoint faz TODA a
+   checagem de uma vez e devolve um veredito em português — e com ?consertar=1
+   ele mesmo reaponta os webhooks da Z-API pra este backend.                  */
+const URL_BACKEND = () => process.env.BACKEND_URL
+  || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : 'https://vittahub-backend-production.up.railway.app');
+
+function haQuantoTempo(ms) {
+  if (!ms) return null;
+  const s = Math.floor((Date.now() - ms) / 1000);
+  if (s < 60) return `há ${s}s`;
+  if (s < 3600) return `há ${Math.floor(s / 60)} min`;
+  if (s < 86400) return `há ${Math.floor(s / 3600)}h`;
+  return `há ${Math.floor(s / 86400)} dia(s)`;
+}
+
+r.get('/whatsapp/diagnostico', masterOnly, async (req, res) => {
+  try {
+    const passos = [];
+    const add = (ok, titulo, detalhe, acao) => passos.push({ ok, titulo, detalhe, acao: acao || null });
+    const upSeg = Math.floor(process.uptime());
+    const out = { gerado_em: new Date().toISOString(), backend_no_ar_ha: `${Math.floor(upSeg / 60)} min`, webhook_url: `${URL_BACKEND()}/api/inbox/webhook/zapi` };
+
+    // 1) Credenciais da Z-API no Railway
+    if (!zapiOk()) {
+      add(false, 'Z-API não configurada',
+        'Faltam as variáveis ZAPI_INSTANCE e/ou ZAPI_TOKEN no Railway. Sem elas o VittaHub não fala com o WhatsApp.',
+        'Configure as variáveis no Railway e reinicie o serviço.');
+      out.passos = passos;
+      out.veredito = '🚫 O VittaHub não tem as credenciais da Z-API. Nada entra e nada sai até isso ser resolvido.';
+      return res.json(out);
+    }
+    add(true, 'Credenciais da Z-API', `Instância ${String(process.env.ZAPI_INSTANCE).slice(0, 6)}… configurada.`);
+
+    // 2) O celular ainda está pareado? (causa nº 1 de "parou do nada")
+    let conectado = null, statusBody = '';
+    try {
+      const rS = await zapiCall('/status', 'GET');
+      statusBody = await rS?.text().catch(() => '');
+      let js = null; try { js = JSON.parse(statusBody); } catch {}
+      out.zapi_status = js || statusBody.slice(0, 200);
+      conectado = js?.connected === true;
+      if (conectado) {
+        add(true, 'WhatsApp conectado', `Aparelho pareado${js?.smartphoneConnected === false ? ' — mas o CELULAR está fora do ar/sem internet' : ''}.`);
+        if (js?.smartphoneConnected === false) {
+          add(false, 'Celular offline',
+            'A Z-API está ligada, mas o celular que hospeda o WhatsApp está sem internet ou desligado. Enquanto isso, mensagens não chegam.',
+            'Ligue o celular, conecte no Wi-Fi e deixe o WhatsApp aberto.');
+        }
+      } else {
+        add(false, 'WhatsApp DESCONECTADO',
+          `A Z-API respondeu que a instância não está conectada${js?.error ? ` (${js.error})` : ''}. Esta é a causa mais comum de "as mensagens pararam".`,
+          'Abra o painel da Z-API e leia o QR Code novamente com o celular da clínica.');
+      }
+    } catch (e) {
+      add(false, 'Não consegui falar com a Z-API', e.message, 'Pode ser instabilidade da Z-API ou assinatura vencida — confira o painel deles.');
+    }
+
+    // 3) A Z-API está mesmo AVISANDO este backend? (webhook apontado pro lugar certo)
+    add(totalWebhooks > 0, totalWebhooks > 0 ? 'A Z-API está avisando o VittaHub' : 'Nenhum aviso da Z-API chegou',
+      totalWebhooks > 0
+        ? `${totalWebhooks} avisos desde que o backend subiu. O último chegou ${haQuantoTempo(ultimoWebhookAt)}.`
+        : `Desde que o backend subiu (${Math.floor(upSeg / 60)} min atrás) NENHUM webhook chegou. Ou o endereço do webhook na Z-API está errado, ou ninguém mandou mensagem nesse tempo.`,
+      totalWebhooks > 0 ? null : 'Clique em "Consertar agora" — eu reaponto todos os webhooks da Z-API para este backend.');
+
+    // 4) As mensagens estão realmente CAINDO NO BANCO?
+    try {
+      const { rows: [m] } = await query(`
+        SELECT MAX(created_at) FILTER (WHERE from_type='contact') ultima_cliente,
+               COUNT(*) FILTER (WHERE from_type='contact' AND created_at > NOW() - INTERVAL '1 hour') ultima_hora,
+               COUNT(*) FILTER (WHERE from_type='contact' AND created_at > NOW() - INTERVAL '24 hours') ultimo_dia
+          FROM mensagens`);
+      out.mensagens = { ultima_do_cliente: m?.ultima_cliente || null, na_ultima_hora: Number(m?.ultima_hora || 0), nas_ultimas_24h: Number(m?.ultimo_dia || 0) };
+      const atrasoMin = m?.ultima_cliente ? Math.floor((Date.now() - new Date(m.ultima_cliente).getTime()) / 60000) : null;
+      add(atrasoMin !== null && atrasoMin < 180,
+        'Mensagens gravadas no banco',
+        m?.ultima_cliente
+          ? `Última mensagem de cliente: ${haQuantoTempo(new Date(m.ultima_cliente).getTime())}. Na última hora: ${m.ultima_hora}. Nas últimas 24h: ${m.ultimo_dia}.`
+          : 'Nenhuma mensagem de cliente registrada no banco.',
+        atrasoMin !== null && atrasoMin >= 180 ? 'Mais de 3h sem nenhuma mensagem de cliente — junte isso com os itens acima pra achar a causa.' : null);
+    } catch (e) { add(false, 'Falha ao consultar o banco', e.message); }
+
+    // 5) O que o CRM jogou fora (e por quê)
+    out.descartes = lastDrops.slice(0, 10);
+    add(lastDrops.length === 0, lastDrops.length === 0 ? 'Nenhum webhook descartado' : `${lastDrops.length} webhook(s) descartado(s)`,
+      lastDrops.length === 0
+        ? 'Tudo que chegou foi processado.'
+        : `Motivo mais recente: ${lastDrops[0].motivo}.`,
+      lastDrops.length && /instanceId/.test(lastDrops[0].motivo)
+        ? 'A instância da Z-API que está mandando os webhooks é DIFERENTE da configurada no Railway (ZAPI_INSTANCE). Corrija a variável no Railway.'
+        : null);
+
+    out.ultimo_webhook_ha = haQuantoTempo(ultimoWebhookAt);
+    out.ultima_mensagem_gravada_ha = haQuantoTempo(ultimaMsgGravadaAt);
+
+    // 6) Conserto sob demanda: reaponta TODOS os webhooks pra este backend
+    if (req.query.consertar === '1') {
+      const fix = await configurarWebhooksZapi();
+      out.conserto = fix;
+      const okFix = Object.values(fix?.results || {}).filter(v => v === 'ok').length;
+      add(okFix > 0, 'Webhooks reapontados', `${okFix} de 6 avisos da Z-API agora apontam para ${fix?.webhookUrl}.`,
+        okFix < 6 ? 'Alguns webhooks recusaram — pode ser assinatura da Z-API vencida.' : null);
+      // Reapontar resolve daqui pra frente; o resgate traz o que já ficou pra trás.
+      const resgate = await resgatarMensagensRecentes({ limite: 30, amount: 30 });
+      out.resgate = resgate;
+      add(true, 'Mensagens resgatadas',
+        `${resgate.recuperadas} mensagem(ns) trazidas direto da Z-API em ${resgate.conversas} conversa(s).`,
+        'Abra o Chat e atualize com Ctrl+Shift+R para vê-las.');
+    }
+
+    out.passos = passos;
+    const falhas = passos.filter(p => !p.ok);
+    out.veredito = !falhas.length
+      ? '✅ A entrada de mensagens está saudável. Se ainda assim algo não aparecer, atualize a tela com Ctrl+Shift+R.'
+      : `⚠️ ${falhas.length} ponto(s) travando a entrada: ` + falhas.map(f => f.titulo).join(' · ');
     res.json(out);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -3883,10 +4043,13 @@ r.post('/conversations/:id/send', async (req, res) => {
       [req.params.id, type, content, req.user.id, nomeGravar]
     );
 
-    // 📇 A equipe também cola a ficha na conversa — captura igual
+    // 📇 A equipe também cola a ficha na conversa — captura igual (blindado: o
+    // envio da mensagem nunca pode falhar por causa da leitura da ficha)
     if (type === 'text' && typeof content === 'string') {
-      const fichaEq = extrairFicha(content);
-      if (fichaEq) salvarFichaNoLead(conv, fichaEq, 'equipe');
+      try {
+        const fichaEq = extrairFicha(content);
+        if (fichaEq) salvarFichaNoLead(conv, fichaEq, 'equipe');
+      } catch (e) { console.error('Ficha automática (equipe):', e.message); }
     }
 
     // 📝 Transcreve o áudio da ATENDENTE em segundo plano (aparece embaixo do
@@ -6586,6 +6749,102 @@ export async function configurarWebhooksZapi() {
     } catch (e) { results[ep] = `erro: ${e.message}`; }
   }
   return { webhookUrl, results };
+}
+
+/* ─── RESGATE DE MENSAGENS ────────────────────────────────────────────────────
+   Rede de segurança para quando o webhook falha: em vez de esperar a Z-API
+   avisar, o VittaHub vai lá BUSCAR as mensagens recentes das conversas mais
+   ativas. Assim nada se perde enquanto o problema é resolvido — o dedup por
+   wa_msg_id garante que nada duplica.                                        */
+export async function resgatarMensagensRecentes({ limite = 25, amount = 30 } = {}) {
+  if (!zapiOk()) return { skipped: true, recuperadas: 0, conversas: 0 };
+  const { rows: convs } = await query(
+    `SELECT id, phone FROM conversas
+      WHERE channel = 'whatsapp' AND phone IS NOT NULL
+      ORDER BY last_message_at DESC NULLS LAST LIMIT $1`, [limite]).catch(() => ({ rows: [] }));
+
+  let recuperadas = 0, conversasTocadas = 0;
+  for (const c of convs) {
+    let ph = String(c.phone).replace(/\D/g, '');
+    if (ph.startsWith('55') && ph.length >= 12) ph = ph.slice(2);
+    if (ph.length < 8) continue;
+
+    const n = await importZapiMessages({ id: c.id }, ph, amount);
+    if (n > 0) {
+      recuperadas += n; conversasTocadas++;
+      // Reescreve o resumo da conversa a partir do que acabou de entrar — sem
+      // isso a mensagem existe no banco mas a lista continua mostrando a antiga.
+      const { rows: [conv] } = await query(`
+        UPDATE conversas SET
+          last_message    = COALESCE((SELECT CASE WHEN m.type = 'text' THEN m.content ELSE '📎 Anexo' END
+                                        FROM mensagens m WHERE m.conversa_id = conversas.id
+                                         AND m.from_type IN ('me','contact')
+                                       ORDER BY m.created_at DESC LIMIT 1), conversas.last_message),
+          last_message_at = COALESCE((SELECT MAX(created_at) FROM mensagens
+                                       WHERE conversa_id = conversas.id AND from_type IN ('me','contact')), conversas.last_message_at),
+          last_from       = COALESCE((SELECT from_type FROM mensagens WHERE conversa_id = conversas.id
+                                       AND from_type IN ('me','contact') ORDER BY created_at DESC LIMIT 1), conversas.last_from)
+        WHERE id = $1 RETURNING *`, [c.id]).catch(() => ({ rows: [] }));
+      if (conv) {
+        cacheUpdate(conv);
+        const { rows: [ultima] } = await query(
+          `SELECT * FROM mensagens WHERE conversa_id = $1 AND from_type IN ('me','contact')
+            ORDER BY created_at DESC LIMIT 1`, [c.id]).catch(() => ({ rows: [] }));
+        if (ultima) socketEmit('new_message', { convId: conv.id, message: ultima, conv });
+      }
+    }
+    await new Promise(r => setTimeout(r, 250));   // respeita o rate-limit da Z-API
+  }
+  return { recuperadas, conversas: conversasTocadas, verificadas: convs.length };
+}
+
+// Botão "Puxar mensagens agora" — resgate sob demanda quando o master desconfia
+// que alguma conversa ficou pra trás.
+r.post('/whatsapp/resgatar-mensagens', masterOnly, async (req, res) => {
+  if (!zapiOk()) return res.status(400).json({ error: 'Z-API não configurada' });
+  try {
+    const out = await resgatarMensagensRecentes({
+      limite: Math.min(Number(req.body?.limite) || 25, 60),
+      amount: Math.min(Number(req.body?.amount) || 30, 100),
+    });
+    res.json({ ok: true, ...out });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+/* ─── VIGIA DA ENTRADA DE MENSAGENS ───────────────────────────────────────────
+   A falha "as mensagens pararam de subir" pode durar horas sem ninguém notar —
+   o chat só fica quieto. Este vigia roda a cada 10 min: se em horário comercial
+   passar tempo demais sem NENHUM webhook da Z-API, ele mesmo reaponta os
+   webhooks pra este backend e avisa o master (só o master vê o alerta).      */
+let ultimoAlertaEntrada = 0;
+export async function vigiaEntradaMensagens() {
+  if (!zapiOk()) return;
+  const agora = new Date(Date.now() - 3 * 3600 * 1000);      // fuso de São Luís
+  const hora = agora.getUTCHours(), dia = agora.getUTCDay();
+  if (dia === 0 || hora < 8 || hora >= 18) return;           // fora do expediente o silêncio é normal
+  if (process.uptime() < 15 * 60) return;                    // backend recém-subido: dá tempo de chegar algo
+
+  const minutosSemWebhook = ultimoWebhookAt ? (Date.now() - ultimoWebhookAt) / 60000 : process.uptime() / 60;
+  if (minutosSemWebhook < 40) return;                        // ainda dentro do normal
+
+  // Silêncio longo demais em pleno expediente: reaponta os webhooks (barato e
+  // idempotente) e, no máximo 1x por hora, avisa o master.
+  const fix = await configurarWebhooksZapi().catch(e => ({ results: { erro: e.message } }));
+  const okFix = Object.values(fix?.results || {}).filter(v => v === 'ok').length;
+  // Reapontar o webhook conserta o FUTURO; o resgate traz de volta o que já
+  // deixou de chegar — sem ele o cliente ficaria sem resposta do mesmo jeito.
+  const resgate = await resgatarMensagensRecentes({ limite: 30, amount: 30 }).catch(() => ({ recuperadas: 0 }));
+  console.warn(`⚠️ Vigia da entrada: ${Math.round(minutosSemWebhook)} min sem webhook — webhooks reapontados (${okFix}/6), ${resgate.recuperadas} mensagem(ns) resgatada(s)`);
+
+  if (Date.now() - ultimoAlertaEntrada < 60 * 60 * 1000) return;
+  ultimoAlertaEntrada = Date.now();
+  await query(
+    `INSERT INTO notificacoes (tipo, titulo, texto, apenas_master)
+     VALUES ('erro_sistema', $1, $2, true)`,
+    ['📵 Mensagens podem não estar chegando',
+     `Faz ${Math.round(minutosSemWebhook)} min que o WhatsApp não avisa o VittaHub em pleno expediente. Já reapontei os webhooks (${okFix}/6 aceitos) e resgatei ${resgate.recuperadas} mensagem(ns) direto da Z-API. Se continuar, abra WhatsApp → "As mensagens não estão chegando?" — o celular pode ter desconectado.`]
+  ).catch(() => {});
+  socketEmit('notificacao', { tipo: 'erro_sistema', titulo: '📵 Mensagens podem não estar chegando' });
 }
 
 r.post('/whatsapp/zapi/setup-webhooks', masterOnly, async (req, res) => {
