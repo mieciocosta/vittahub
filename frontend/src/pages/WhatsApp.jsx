@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { RefreshCw, CheckCircle, WifiOff, Loader2, QrCode,
-         LogOut, RotateCcw, ArrowRightLeft, Smartphone } from 'lucide-react';
+         LogOut, RotateCcw, ArrowRightLeft, Smartphone, Stethoscope, Wrench,
+         AlertTriangle, DownloadCloud } from 'lucide-react';
 import { useApi } from '../context/AuthContext.jsx';
 
 const WA_GREEN = '#25D366';
@@ -16,7 +17,33 @@ export default function WhatsApp() {
   const [clearConvs, setClearConvs] = useState(false);
   const [phoneInput, setPhoneInput] = useState('55');
   const [pairCode, setPairCode]     = useState(null);
+  const [diag, setDiag]         = useState(null);   // resultado do diagnóstico da entrada
+  const [diagBusy, setDiagBusy] = useState(false);
   const pollRef = useRef(null);
+
+  // Diagnóstico de "as mensagens não estão subindo": uma chamada só que checa
+  // conexão, webhook, banco e descartes. Com consertar=1 já reaponta os webhooks.
+  const rodarDiagnostico = async (consertar = false) => {
+    setDiagBusy(true);
+    try {
+      const d = await api.get(`/inbox/whatsapp/diagnostico${consertar ? '?consertar=1' : ''}`);
+      setDiag(d);
+    } catch (e) { setDiag({ erro: e.message }); }
+    setDiagBusy(false);
+  };
+
+  // Resgate: em vez de esperar o WhatsApp avisar, o VittaHub vai BUSCAR as
+  // mensagens recentes na Z-API. Serve pra recuperar o que ficou pra trás.
+  const resgatarMensagens = async () => {
+    setDiagBusy(true);
+    try {
+      const d = await api.post('/inbox/whatsapp/resgatar-mensagens', {});
+      setMsg(d.recuperadas
+        ? `✅ ${d.recuperadas} mensagem(ns) resgatada(s) em ${d.conversas} conversa(s). Abra o Chat e atualize com Ctrl+Shift+R.`
+        : `✅ Verifiquei ${d.verificadas} conversa(s) e nenhuma mensagem estava faltando.`);
+    } catch (e) { setMsg(e.message); }
+    setDiagBusy(false);
+  };
 
   const stopPoll = () => { clearInterval(pollRef.current); pollRef.current = null; };
 
@@ -312,6 +339,93 @@ export default function WhatsApp() {
         )}
         {msg && msg !== 'zapi-fallback' && (
           <div style={{ marginTop:12, padding:'9px 13px', background:'var(--bg)', borderRadius:8, fontSize:13 }}>{msg}</div>
+        )}
+      </div>
+
+      {/* ── DIAGNÓSTICO: "as mensagens não estão subindo pro VittaHub" ── */}
+      <div style={{ background:'var(--card,#fff)', borderRadius:14, padding:'20px', border:'1px solid var(--border)', marginBottom:16 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:6 }}>
+          <div style={{ width:34, height:34, borderRadius:10, background:'#e0f2fe', display:'flex', alignItems:'center', justifyContent:'center' }}>
+            <Stethoscope size={17} color="#0369a1"/>
+          </div>
+          <div>
+            <div style={{ fontWeight:700, fontSize:14.5 }}>As mensagens não estão chegando?</div>
+            <div style={{ fontSize:12.5, color:'var(--muted)' }}>Eu checo tudo e digo o que está travando.</div>
+          </div>
+        </div>
+
+        <div style={{ display:'flex', gap:8, marginTop:12, flexWrap:'wrap' }}>
+          <button onClick={() => rodarDiagnostico(false)} disabled={diagBusy}
+            style={{ flex:'1 1 180px', padding:'11px', borderRadius:10, background:'#0369a1', color:'#fff', border:'none', cursor:diagBusy?'wait':'pointer', fontWeight:700, fontSize:13.5, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
+            {diagBusy?<Loader2 size={15} style={{animation:'spin 1s linear infinite'}}/>:<Stethoscope size={15}/>}
+            Diagnosticar agora
+          </button>
+          <button onClick={() => rodarDiagnostico(true)} disabled={diagBusy}
+            style={{ flex:'1 1 180px', padding:'11px', borderRadius:10, background:'#f59e0b', color:'#fff', border:'none', cursor:diagBusy?'wait':'pointer', fontWeight:700, fontSize:13.5, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
+            <Wrench size={15}/> Consertar agora
+          </button>
+          <button onClick={resgatarMensagens} disabled={diagBusy}
+            style={{ flex:'1 1 180px', padding:'11px', borderRadius:10, background:'#0E8C96', color:'#fff', border:'none', cursor:diagBusy?'wait':'pointer', fontWeight:700, fontSize:13.5, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
+            <DownloadCloud size={15}/> Puxar mensagens agora
+          </button>
+        </div>
+        <div style={{ fontSize:11.5, color:'var(--muted)', marginTop:8, lineHeight:1.6 }}>
+          <b>Diagnosticar</b> só olha e explica · <b>Consertar</b> reaponta os avisos da Z-API e já traz o que ficou pra trás ·
+          <b> Puxar mensagens</b> busca na Z-API as mensagens recentes das conversas mais ativas.
+        </div>
+
+        {diag?.erro && (
+          <div style={{ marginTop:12, padding:'11px 13px', background:'#fee2e2', color:'#991b1b', borderRadius:10, fontSize:13 }}>
+            {diag.erro}
+          </div>
+        )}
+
+        {diag && !diag.erro && (
+          <div style={{ marginTop:14 }}>
+            <div style={{ padding:'12px 14px', borderRadius:10, fontSize:13.5, fontWeight:600, lineHeight:1.5,
+              background: diag.veredito?.startsWith('✅') ? '#dcfce7' : '#fef3c7',
+              color:      diag.veredito?.startsWith('✅') ? '#166534' : '#92400e' }}>
+              {diag.veredito}
+            </div>
+
+            <div style={{ marginTop:12, display:'flex', flexDirection:'column', gap:8 }}>
+              {(diag.passos || []).map((p, i) => (
+                <div key={i} style={{ display:'flex', gap:9, alignItems:'flex-start', padding:'10px 12px', borderRadius:10,
+                  background: p.ok ? 'var(--bg)' : '#fff7ed', border:`1px solid ${p.ok ? 'var(--border)' : '#fed7aa'}` }}>
+                  <div style={{ flexShrink:0, marginTop:1 }}>
+                    {p.ok ? <CheckCircle size={15} color="#16a34a"/> : <AlertTriangle size={15} color="#ea580c"/>}
+                  </div>
+                  <div style={{ minWidth:0 }}>
+                    <div style={{ fontWeight:700, fontSize:13 }}>{p.titulo}</div>
+                    <div style={{ fontSize:12.5, color:'var(--muted)', lineHeight:1.5, marginTop:2 }}>{p.detalhe}</div>
+                    {p.acao && (
+                      <div style={{ fontSize:12.5, color:'#b45309', fontWeight:600, marginTop:5 }}>👉 {p.acao}</div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {!!(diag.descartes || []).length && (
+              <details style={{ marginTop:12 }}>
+                <summary style={{ cursor:'pointer', fontSize:12.5, fontWeight:700, color:'var(--muted)' }}>
+                  Ver o que foi descartado ({diag.descartes.length})
+                </summary>
+                <div style={{ marginTop:8, display:'flex', flexDirection:'column', gap:6 }}>
+                  {diag.descartes.map((d, i) => (
+                    <div key={i} style={{ fontSize:12, color:'var(--muted)', background:'var(--bg)', padding:'7px 10px', borderRadius:8 }}>
+                      <b>{new Date(d.at).toLocaleTimeString('pt-BR')}</b> · {d.phone || 'sem telefone'} — {d.motivo}
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
+
+            <div style={{ fontSize:11.5, color:'var(--muted)', marginTop:10, lineHeight:1.6 }}>
+              Backend no ar há {diag.backend_no_ar_ha} · último aviso do WhatsApp {diag.ultimo_webhook_ha || 'nunca'}
+              {diag.mensagens && <> · {diag.mensagens.na_ultima_hora} mensagem(ns) de cliente na última hora</>}
+            </div>
+          </div>
         )}
       </div>
 

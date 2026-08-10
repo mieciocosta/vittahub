@@ -8,7 +8,7 @@ import { fileURLToPath } from 'url';
 import authRouter    from './routes/auth.js';
 import leadsRouter   from './routes/leads.js';
 import reportsRouter from './routes/reports.js';
-import inboxRouter, { rodarFollowups, configurarWebhooksZapi, alertarLeadsSemResposta } from './routes/inbox.js';
+import inboxRouter, { rodarFollowups, configurarWebhooksZapi, alertarLeadsSemResposta, vigiaEntradaMensagens } from './routes/inbox.js';
 import extrasRouter  from './routes/extras.js';
 import auditoriaRouter from './routes/auditoria.js';
 import integracaoRouter from './routes/integracao.js';
@@ -109,6 +109,12 @@ async function start() {
       // configurada (fuso da clínica) e dispara amanhã/aniversários sozinho.
       setInterval(() => { rodarLembretesAutomaticos().catch(e => console.error('Lembretes auto tick:', e.message)); }, 60 * 1000);
       console.log('✅ Envio automático de lembretes agendado (checagem por minuto)');
+
+      // Vigia da ENTRADA: se o WhatsApp parar de avisar o VittaHub em pleno
+      // expediente, reaponta os webhooks sozinho e alerta o master (antes era
+      // preciso alguém perceber que "o chat está quieto demais").
+      setInterval(() => { vigiaEntradaMensagens().catch(e => console.error('Vigia entrada tick:', e.message)); }, 10 * 60 * 1000);
+      console.log('✅ Vigia da entrada de mensagens agendado (10 min)');
 
       // Auto-cura dos webhooks da Z-API: reaponta TODOS (inclusive o "enviadas
       // por mim", que faz mensagens do CELULAR subirem pro CRM) para este backend.
