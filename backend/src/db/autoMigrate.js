@@ -540,6 +540,24 @@ export default async function runMigrate() {
       console.log('🚫 Fernanda: inativada');
     }
 
+    // José Carlos — MARKETING. O trabalho dele é varrer lead por lead e conversa
+    // por conversa pra achar onde a conversão trava, e responder junto com a
+    // gestão. Por isso entra como gestão (supervisor) + ve_tudo: enxerga todos os
+    // setores e todas as carteiras, e o detector anti-varredura não o bloqueia —
+    // abrir 80 conversas numa manhã É o serviço dele, não coleta de base.
+    // Senha inicial Vittalis@2026 (ele troca no primeiro acesso).
+    const { rows: [flagJose] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_jose_marketing_v1'");
+    if (!flagJose) {
+      const bcryptJ = await import('bcryptjs');
+      const hashJ = await bcryptJ.default.hash('Vittalis@2026', 10);
+      await query(`INSERT INTO usuarios (id, nome, email, cpf, senha, role, cor, ativo, setor, ve_tudo)
+        VALUES (gen_random_uuid()::text, 'José Carlos Ramos da Silva', 'jose.carlos@vittahub.local', '62075159351', $1, 'supervisor', '#f97316', true, NULL, true)
+        ON CONFLICT (email) DO UPDATE SET senha = EXCLUDED.senha, ativo = true, role = 'supervisor', ve_tudo = true`,
+        [hashJ]).catch((e) => console.error('seed José (marketing):', e.message));
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_jose_marketing_v1', '{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🌱 José Carlos: Marketing (vê todos os setores e carteiras)');
+    }
+
     // ── AUDITORIA + PRESENÇA (admin only) ─────────────────────────────────
     await query(`CREATE TABLE IF NOT EXISTS audit_logs (
       id SERIAL PRIMARY KEY, usuario_id TEXT, usuario_nome TEXT, acao TEXT NOT NULL,
