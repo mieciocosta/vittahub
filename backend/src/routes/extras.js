@@ -201,6 +201,29 @@ r.put('/agenda/:id', async (req, res) => {
     const { rows: [ev] } = await query(`UPDATE agenda_eventos SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${i} RETURNING *`, params);
     if (!ev) return res.status(404).json({ error: 'Evento não encontrado' });
     socketEmit('agenda_update', { id: ev.id });
+
+    /* 💉 Agendamento mudou → a reserva das doses acompanha.
+       · Remarcou dia/hora: as doses ainda NÃO pedidas andam junto (senão o
+         estoque ficava separado pro dia errado).
+       · Cancelou/faltou: o pedido pendente é cancelado — não se compra dose
+         pra quem não vem.
+       · Virou vacina (ou trocou o serviço): a varredura cria o que faltar.
+       Só mexe no que está 'solicitada'; o que a equipe já pediu ao fornecedor
+       fica intacto — aquele trabalho não pode ser desfeito por uma edição. */
+    try {
+      const cancelou = /^(cancel|faltou)/i.test(String(ev.status || ''));
+      if (cancelou) {
+        await query(`UPDATE solicitacoes_vacinas SET status = 'cancelada'
+                      WHERE agenda_id = $1 AND status = 'solicitada'`, [ev.id]);
+      } else {
+        if (b.data !== undefined || b.hora !== undefined) {
+          await query(`UPDATE solicitacoes_vacinas SET data_prevista = $1, hora = $2
+                        WHERE agenda_id = $3 AND status = 'solicitada'`, [ev.data, ev.hora, ev.id]);
+        }
+        await gerarSolicitacoesDaAgenda({ dias: 60, usuario: req.user });
+      }
+      socketEmit('vacinas_solicitacao', { agenda_id: ev.id });
+    } catch (e) { console.error('Sincronia da solicitação:', e.message); }
     // ── 🔄 RESGATE DE FALTOSO: marcou "Faltou" → 1h depois a Vitta chama pra
     // remarcar (dentro do horário comercial). Só na transição, nunca repetido.
     try {
@@ -2435,6 +2458,9 @@ r.get('/vacinas/agenda', async (req, res) => {
   try {
     const dias = Math.max(1, Math.min(parseInt(req.query.dias) || 15, 60));
     const hoje = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+    // Antes de mostrar, garante que todo atendimento de vacina da janela já tem
+    // seu pedido — assim a tela nunca abre "atrasada" em relação à agenda.
+    await gerarSolicitacoesDaAgenda({ dias, usuario: req.user }).catch(() => {});
     const { rows: eventos } = await query(`
       SELECT a.id, a.paciente, a.servico, TO_CHAR(a.data,'YYYY-MM-DD') data, a.hora, a.setor,
              a.status, a.telefone, a.conversa_id, a.observacoes
@@ -2459,44 +2485,54 @@ r.get('/vacinas/agenda', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-/* 🔄 PUXAR DA AGENDA — gera as solicitações que ficaram faltando.
-   A criação automática só vale pra agendamento novo: tudo que foi lançado ANTES
-   desta tela existir (ou por outro caminho) ficou sem pedido nenhum, e a
-   equipe via a agenda "sem doses". Este botão varre a janela e cria só o que
-   falta — nunca duplica o que já existe. */
+/* 💉 A SOLICITAÇÃO NASCE DA AGENDA — SOZINHA ─────────────────────────────────
+   Existem CINCO caminhos que criam agendamento no sistema: esta tela, o site
+   público, a Vitta pela conversa, a carteira vacinal e a integração com o
+   VittaMed/VittaSys. Remendar um por um sempre deixaria algum de fora — então a
+   geração é feita AQUI, varrendo a agenda inteira da janela, não importa quem
+   marcou. Roda sozinha a cada 5 min, ao abrir a tela e ao salvar/editar.
+   Nunca duplica: só cria pra atendimento de vacina que não tem pedido nenhum. */
+export async function gerarSolicitacoesDaAgenda({ dias = 30, usuario = null } = {}) {
+  const hoje = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+  const { rows: pendentes } = await query(`
+    SELECT a.id, a.paciente, a.servico, TO_CHAR(a.data,'YYYY-MM-DD') data, a.hora,
+           a.conversa_id, a.lead_id
+      FROM agenda_eventos a
+     WHERE a.data BETWEEN $1::date AND ($1::date + $2::int)
+       AND COALESCE(a.setor,'vacinas') = 'vacinas'
+       AND LOWER(COALESCE(a.status,'')) NOT LIKE 'cancel%'
+       AND NOT EXISTS (SELECT 1 FROM solicitacoes_vacinas s
+                        WHERE s.agenda_id = a.id AND s.status <> 'cancelada')
+     ORDER BY a.data, a.hora`, [hoje, dias]).catch(() => ({ rows: [] }));
+
+  let criadas = 0;
+  for (const ev of pendentes) {
+    // O serviço vira uma linha por vacina ("Hexavalente, Rotavírus" = 2 doses);
+    // sem serviço preenchido, entra "A definir" pra a equipe completar.
+    const vacinas = String(ev.servico || '').split(/[,;+]/).map(v => v.trim()).filter(Boolean);
+    const lista = vacinas.length ? vacinas.slice(0, 8) : ['A definir'];
+    for (const vac of lista) {
+      const { rows: novo } = await query(`
+        INSERT INTO solicitacoes_vacinas (agenda_id, conversa_id, lead_id, paciente, vacina,
+          quantidade, data_prevista, hora, setor, solicitante_id, solicitante_nome)
+        VALUES ($1,$2,$3,$4,$5,1,$6,$7,'vacinas',$8,$9) RETURNING id`,
+        [ev.id, ev.conversa_id || null, ev.lead_id || null, ev.paciente, cut(vac, 120),
+         ev.data, ev.hora, usuario?.id || null, usuario?.nome || 'Automático · agenda'])
+        .catch(() => ({ rows: [] }));
+      criadas += novo.length;
+    }
+  }
+  if (criadas) socketEmit('vacinas_solicitacao', { automatico: true, criadas });
+  return { atendimentos: pendentes.length, criadas };
+}
+
+// Botão manual (a varredura automática já faz isso sozinha; o botão é pra quem
+// quer ver acontecer na hora, sem esperar o próximo ciclo).
 r.post('/vacinas/puxar-da-agenda', async (req, res) => {
   try {
-    const dias = Math.max(1, Math.min(parseInt(req.body?.dias) || 15, 60));
-    const hoje = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
-    const { rows: pendentes } = await query(`
-      SELECT a.id, a.paciente, a.servico, TO_CHAR(a.data,'YYYY-MM-DD') data, a.hora,
-             a.conversa_id, a.lead_id
-        FROM agenda_eventos a
-       WHERE a.data BETWEEN $1::date AND ($1::date + $2::int)
-         AND COALESCE(a.setor,'vacinas') = 'vacinas'
-         AND LOWER(COALESCE(a.status,'')) NOT LIKE 'cancel%'
-         AND NOT EXISTS (SELECT 1 FROM solicitacoes_vacinas s
-                          WHERE s.agenda_id = a.id AND s.status <> 'cancelada')
-       ORDER BY a.data, a.hora`, [hoje, dias]);
-
-    let criadas = 0;
-    for (const ev of pendentes) {
-      // Mesma regra do agendamento novo: o serviço vira uma linha por vacina;
-      // sem serviço, entra "A definir" pra a equipe completar.
-      const vacinas = String(ev.servico || '').split(/[,;+]/).map(v => v.trim()).filter(Boolean);
-      const lista = vacinas.length ? vacinas.slice(0, 8) : ['A definir'];
-      for (const vac of lista) {
-        const { rows: novo } = await query(`
-          INSERT INTO solicitacoes_vacinas (agenda_id, conversa_id, lead_id, paciente, vacina,
-            quantidade, data_prevista, hora, setor, solicitante_id, solicitante_nome)
-          VALUES ($1,$2,$3,$4,$5,1,$6,$7,'vacinas',$8,$9) RETURNING id`,
-          [ev.id, ev.conversa_id || null, ev.lead_id || null, ev.paciente, cut(vac, 120),
-           ev.data, ev.hora, req.user.id, req.user.nome]).catch(() => ({ rows: [] }));
-        criadas += novo.length;
-      }
-    }
-    if (criadas) socketEmit('vacinas_solicitacao', { backfill: true });
-    res.json({ ok: true, atendimentos: pendentes.length, criadas });
+    const dias = Math.max(1, Math.min(parseInt(req.body?.dias) || 30, 60));
+    const out = await gerarSolicitacoesDaAgenda({ dias, usuario: req.user });
+    res.json({ ok: true, ...out });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

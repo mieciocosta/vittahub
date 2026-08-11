@@ -9,7 +9,7 @@ import authRouter    from './routes/auth.js';
 import leadsRouter   from './routes/leads.js';
 import reportsRouter from './routes/reports.js';
 import inboxRouter, { rodarFollowups, configurarWebhooksZapi, alertarLeadsSemResposta, vigiaEntradaMensagens } from './routes/inbox.js';
-import extrasRouter  from './routes/extras.js';
+import extrasRouter, { gerarSolicitacoesDaAgenda } from './routes/extras.js';
 import auditoriaRouter from './routes/auditoria.js';
 import integracaoRouter from './routes/integracao.js';
 import publicoRouter from './routes/publico.js';
@@ -109,6 +109,18 @@ async function start() {
       // configurada (fuso da clínica) e dispara amanhã/aniversários sozinho.
       setInterval(() => { rodarLembretesAutomaticos().catch(e => console.error('Lembretes auto tick:', e.message)); }, 60 * 1000);
       console.log('✅ Envio automático de lembretes agendado (checagem por minuto)');
+
+      // 💉 Solicitação de vacinas nasce da AGENDA: a cada 5 min varre os
+      // próximos 30 dias e cria o pedido de todo atendimento de vacina que
+      // ainda não tem — não importa por qual caminho ele foi marcado (esta
+      // tela, o site, a Vitta na conversa, a carteira vacinal ou o VittaMed).
+      setInterval(() => {
+        gerarSolicitacoesDaAgenda({ dias: 30 })
+          .then(o => o?.criadas && console.log(`💉 Solicitações geradas da agenda: ${o.criadas}`))
+          .catch(e => console.error('Solicitações da agenda tick:', e.message));
+      }, 5 * 60 * 1000);
+      setTimeout(() => { gerarSolicitacoesDaAgenda({ dias: 30 }).catch(() => {}); }, 30000);
+      console.log('✅ Solicitação de vacinas conforme a agenda (varredura de 5 min)');
 
       // Vigia da ENTRADA: se o WhatsApp parar de avisar o VittaHub em pleno
       // expediente, reaponta os webhooks sozinho e alerta o master (antes era

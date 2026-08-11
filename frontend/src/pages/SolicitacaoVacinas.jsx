@@ -68,14 +68,28 @@ export default function SolicitacaoVacinas() {
   const puxarDaAgenda = async () => {
     setPuxando(true);
     try {
-      const d = await api.post('/extras/vacinas/puxar-da-agenda', { dias: 15 });
+      const d = await api.post('/extras/vacinas/puxar-da-agenda', { dias: 30 });
       window.alert(d.criadas
         ? `✅ ${d.criadas} solicitação(ões) criada(s) a partir de ${d.atendimentos} atendimento(s) da agenda.`
-        : '✅ Todos os atendimentos de vacina da agenda já têm pedido.');
+        : '✅ Tudo em dia — todo atendimento de vacina da agenda já tem pedido.');
       load();
     } catch (e) { window.alert('Erro: ' + e.message); }
     setPuxando(false);
   };
+  // 🔄 Agendamento marcado em QUALQUER lugar (esta tela, o site, a Vitta na
+  // conversa, a carteira vacinal ou o VittaMed) gera a solicitação no servidor —
+  // e ela aparece aqui na hora, sem ninguém precisar recarregar a página.
+  useEffect(() => {
+    let socket;
+    import('socket.io-client').then(({ io }) => {
+      const BASE = import.meta.env.VITE_API_URL || '';
+      socket = io(BASE, { transports: ['websocket', 'polling'], auth: { token: localStorage.getItem('vh_token') || '' } });
+      socket.on('vacinas_solicitacao', () => { load(); if (aba === 'semana') loadSemana(semIni); });
+      socket.on('agenda_update', () => load());
+    }).catch(() => {});
+    return () => { try { socket?.disconnect(); } catch {} };
+  }, [aba, semIni]); // eslint-disable-line
+
   useEffect(() => {
     load();
     // Sugestões de nomes de vacina: tabela de preços já cadastrada
@@ -134,7 +148,7 @@ export default function SolicitacaoVacinas() {
             <Syringe size={20} color="var(--tq2)" /> Solicitação de Vacinas
           </h1>
           <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 3 }}>
-            Conforme a agenda dos próximos 15 dias — ninguém aplica sem dose reservada.
+            Gerada sozinha a partir da agenda — ninguém aplica sem dose reservada.
           </div>
         </div>
         <button onClick={puxarDaAgenda} disabled={puxando} className="btn btn-s btn-sm" style={{ gap: 6, fontWeight: 700 }}>
