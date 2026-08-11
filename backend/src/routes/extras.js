@@ -2439,12 +2439,12 @@ r.get('/vacinas/agenda', async (req, res) => {
       SELECT a.id, a.paciente, a.servico, TO_CHAR(a.data,'YYYY-MM-DD') data, a.hora, a.setor,
              a.status, a.telefone, a.conversa_id, a.observacoes
         FROM agenda_eventos a
-       WHERE a.data BETWEEN $1::date AND ($1::date + $2)
+       WHERE a.data BETWEEN $1::date AND ($1::date + $2::int)
          AND LOWER(COALESCE(a.status,'')) NOT LIKE 'cancel%'
        ORDER BY a.data, a.hora`, [hoje, dias]);
     const { rows: sols } = await query(`
       SELECT *, TO_CHAR(data_prevista,'YYYY-MM-DD') AS data_prevista FROM solicitacoes_vacinas
-       WHERE data_prevista BETWEEN $1::date AND ($1::date + $2) AND status <> 'cancelada'
+       WHERE data_prevista BETWEEN $1::date AND ($1::date + $2::int) AND status <> 'cancelada'
        ORDER BY created_at`, [hoje, dias]);
 
     const porAgenda = {};
@@ -2456,6 +2456,47 @@ r.get('/vacinas/agenda', async (req, res) => {
       eventos: eventos.map(e => ({ ...e, solicitacoes: porAgenda[e.id] || [] })),
       avulsas: sols.filter(x => !x.agenda_id),
     });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* 🔄 PUXAR DA AGENDA — gera as solicitações que ficaram faltando.
+   A criação automática só vale pra agendamento novo: tudo que foi lançado ANTES
+   desta tela existir (ou por outro caminho) ficou sem pedido nenhum, e a
+   equipe via a agenda "sem doses". Este botão varre a janela e cria só o que
+   falta — nunca duplica o que já existe. */
+r.post('/vacinas/puxar-da-agenda', async (req, res) => {
+  try {
+    const dias = Math.max(1, Math.min(parseInt(req.body?.dias) || 15, 60));
+    const hoje = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+    const { rows: pendentes } = await query(`
+      SELECT a.id, a.paciente, a.servico, TO_CHAR(a.data,'YYYY-MM-DD') data, a.hora,
+             a.conversa_id, a.lead_id
+        FROM agenda_eventos a
+       WHERE a.data BETWEEN $1::date AND ($1::date + $2::int)
+         AND COALESCE(a.setor,'vacinas') = 'vacinas'
+         AND LOWER(COALESCE(a.status,'')) NOT LIKE 'cancel%'
+         AND NOT EXISTS (SELECT 1 FROM solicitacoes_vacinas s
+                          WHERE s.agenda_id = a.id AND s.status <> 'cancelada')
+       ORDER BY a.data, a.hora`, [hoje, dias]);
+
+    let criadas = 0;
+    for (const ev of pendentes) {
+      // Mesma regra do agendamento novo: o serviço vira uma linha por vacina;
+      // sem serviço, entra "A definir" pra a equipe completar.
+      const vacinas = String(ev.servico || '').split(/[,;+]/).map(v => v.trim()).filter(Boolean);
+      const lista = vacinas.length ? vacinas.slice(0, 8) : ['A definir'];
+      for (const vac of lista) {
+        const { rows: novo } = await query(`
+          INSERT INTO solicitacoes_vacinas (agenda_id, conversa_id, lead_id, paciente, vacina,
+            quantidade, data_prevista, hora, setor, solicitante_id, solicitante_nome)
+          VALUES ($1,$2,$3,$4,$5,1,$6,$7,'vacinas',$8,$9) RETURNING id`,
+          [ev.id, ev.conversa_id || null, ev.lead_id || null, ev.paciente, cut(vac, 120),
+           ev.data, ev.hora, req.user.id, req.user.nome]).catch(() => ({ rows: [] }));
+        criadas += novo.length;
+      }
+    }
+    if (criadas) socketEmit('vacinas_solicitacao', { backfill: true });
+    res.json({ ok: true, atendimentos: pendentes.length, criadas });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Syringe, Check, X, Printer, AlertTriangle } from 'lucide-react';
+import { Syringe, Check, X, Printer, AlertTriangle, RefreshCw } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 
 /* 💉 SOLICITAÇÃO DE VACINAS — CONFORME A AGENDA
@@ -52,12 +52,29 @@ export default function SolicitacaoVacinas() {
     loadSemana(d.toISOString().slice(0, 10));
   };
 
+  // Antes o erro era engolido e a tela ficava VAZIA sem explicar nada — foi o
+  // que escondeu a falha na leitura da agenda. Agora o motivo aparece na tela.
+  const [erro, setErro] = useState('');
   const load = () => {
-    setCarregando(true);
+    setCarregando(true); setErro('');
     Promise.all([
-      api.get('/extras/vacinas/agenda?dias=15').catch(() => ({ eventos: [] })),
-      api.get('/extras/vacinas/solicitacoes').catch(() => ({ solicitacoes: [], consolidado: [] })),
+      api.get('/extras/vacinas/agenda?dias=15').catch(e => { setErro(`Não consegui ler a agenda: ${e.message}`); return { eventos: [] }; }),
+      api.get('/extras/vacinas/solicitacoes').catch(e => { setErro(p => p || `Não consegui ler os pedidos: ${e.message}`); return { solicitacoes: [], consolidado: [] }; }),
     ]).then(([a, p]) => { setDados(a); setPedidos(p); }).finally(() => setCarregando(false));
+  };
+
+  // Puxa da agenda os atendimentos de vacina que ficaram sem pedido nenhum
+  const [puxando, setPuxando] = useState(false);
+  const puxarDaAgenda = async () => {
+    setPuxando(true);
+    try {
+      const d = await api.post('/extras/vacinas/puxar-da-agenda', { dias: 15 });
+      window.alert(d.criadas
+        ? `✅ ${d.criadas} solicitação(ões) criada(s) a partir de ${d.atendimentos} atendimento(s) da agenda.`
+        : '✅ Todos os atendimentos de vacina da agenda já têm pedido.');
+      load();
+    } catch (e) { window.alert('Erro: ' + e.message); }
+    setPuxando(false);
   };
   useEffect(() => {
     load();
@@ -120,9 +137,21 @@ export default function SolicitacaoVacinas() {
             Conforme a agenda dos próximos 15 dias — ninguém aplica sem dose reservada.
           </div>
         </div>
+        <button onClick={puxarDaAgenda} disabled={puxando} className="btn btn-s btn-sm" style={{ gap: 6, fontWeight: 700 }}>
+          <RefreshCw size={14} style={puxando ? { animation: 'spin 1s linear infinite' } : undefined} /> {puxando ? 'Puxando…' : 'Puxar da agenda'}
+        </button>
         <button onClick={imprimir} className="btn btn-s btn-sm" style={{ gap: 6, fontWeight: 700 }}><Printer size={14} /> Imprimir lista</button>
         <button onClick={() => abrirPedido(null)} className="btn btn-p btn-sm" style={{ gap: 6, fontWeight: 700 }}>+ Pedido avulso</button>
       </div>
+
+      {erro && (
+        <div style={{ marginBottom: 14, padding: '12px 14px', borderRadius: 10, background: '#fef2f2',
+          border: '1px solid #fecaca', color: '#991b1b', fontSize: 13, fontWeight: 600 }}>
+          ⚠️ {erro}
+          <button onClick={load} style={{ marginLeft: 10, padding: '4px 12px', borderRadius: 8, border: 'none',
+            background: '#991b1b', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Tentar de novo</button>
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: 7, marginBottom: 14, flexWrap: 'wrap' }}>
         {[['agenda', `📅 Agenda (${pendentes.length} sem pedido)`], ['pedidos', `💉 Pedidos (${ativos.length})`], ['semana', '📋 Relatório da semana'], ['consolidado', '📦 Consolidado']].map(([k, l]) => (
