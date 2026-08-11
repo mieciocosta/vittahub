@@ -558,6 +558,21 @@ export default async function runMigrate() {
       console.log('🌱 José Carlos: Marketing (vê todos os setores e carteiras)');
     }
 
+    // Carlos Eduardo — MARKETING, mesma dupla do José: analisa conversa por
+    // conversa atrás dos pontos onde o lead esfria. Mesmo acesso, mesmo motivo
+    // (volume de leitura é o trabalho dele, não varredura de base).
+    const { rows: [flagCarlos] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_carlos_marketing_v1'");
+    if (!flagCarlos) {
+      const bcryptC2 = await import('bcryptjs');
+      const hashC2 = await bcryptC2.default.hash('Vittalis@2026', 10);
+      await query(`INSERT INTO usuarios (id, nome, email, cpf, senha, role, cor, ativo, setor, ve_tudo)
+        VALUES (gen_random_uuid()::text, 'Carlos Eduardo Santos Rosa', 'carlos.eduardo@vittahub.local', '07964909371', $1, 'supervisor', '#a855f7', true, NULL, true)
+        ON CONFLICT (email) DO UPDATE SET senha = EXCLUDED.senha, ativo = true, role = 'supervisor', ve_tudo = true`,
+        [hashC2]).catch((e) => console.error('seed Carlos (marketing):', e.message));
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_carlos_marketing_v1', '{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🌱 Carlos Eduardo: Marketing (vê todos os setores e carteiras)');
+    }
+
     // ── AUDITORIA + PRESENÇA (admin only) ─────────────────────────────────
     await query(`CREATE TABLE IF NOT EXISTS audit_logs (
       id SERIAL PRIMARY KEY, usuario_id TEXT, usuario_nome TEXT, acao TEXT NOT NULL,
