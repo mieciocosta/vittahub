@@ -590,6 +590,20 @@ export default async function runMigrate() {
       console.log('🌱 Mayara: atendimento geral (vacinas + consultas + terapias)');
     }
 
+    // Suellen — ATENDIMENTO GERAL, mesma configuração da Mayara: híbrida nos três
+    // setores, com as travas normais da ponta.
+    const { rows: [flagSuellen] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_suellen_geral_v1'");
+    if (!flagSuellen) {
+      const bcryptS = await import('bcryptjs');
+      const hashS = await bcryptS.default.hash('Vittalis@2026', 10);
+      await query(`INSERT INTO usuarios (id, nome, email, cpf, senha, role, cor, ativo, setor, setores)
+        VALUES (gen_random_uuid()::text, 'Suellen Pãozinho Anceles', 'suellen.anceles@vittahub.local', '61683378300', $1, 'atendente', '#22c55e', true, 'vacinas', '{vacinas,consultas,terapias}')
+        ON CONFLICT (email) DO UPDATE SET senha = EXCLUDED.senha, ativo = true, setores = EXCLUDED.setores`,
+        [hashS]).catch((e) => console.error('seed Suellen:', e.message));
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_suellen_geral_v1', '{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🌱 Suellen: atendimento geral (vacinas + consultas + terapias)');
+    }
+
     // ── AUDITORIA + PRESENÇA (admin only) ─────────────────────────────────
     await query(`CREATE TABLE IF NOT EXISTS audit_logs (
       id SERIAL PRIMARY KEY, usuario_id TEXT, usuario_nome TEXT, acao TEXT NOT NULL,
