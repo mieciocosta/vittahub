@@ -573,6 +573,23 @@ export default async function runMigrate() {
       console.log('🌱 Carlos Eduardo: Marketing (vê todos os setores e carteiras)');
     }
 
+    // Mayara — ATENDIMENTO GERAL: atende os três setores (vacinas, consultas e
+    // terapias), então entra como atendente híbrida. Continua com as travas da
+    // ponta — telefone mascarado nas listas e só os leads da carteira dela.
+    // Setor principal 'vacinas' (é o carro-chefe da casa); os outros dois vêm
+    // pela lista de setores.
+    const { rows: [flagMayara] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_mayara_geral_v1'");
+    if (!flagMayara) {
+      const bcryptM = await import('bcryptjs');
+      const hashM = await bcryptM.default.hash('Vittalis@2026', 10);
+      await query(`INSERT INTO usuarios (id, nome, email, cpf, senha, role, cor, ativo, setor, setores)
+        VALUES (gen_random_uuid()::text, 'Mayara Santos Aguiar Miranda', 'mayara.miranda@vittahub.local', '61242108351', $1, 'atendente', '#0ea5e9', true, 'vacinas', '{vacinas,consultas,terapias}')
+        ON CONFLICT (email) DO UPDATE SET senha = EXCLUDED.senha, ativo = true, setores = EXCLUDED.setores`,
+        [hashM]).catch((e) => console.error('seed Mayara:', e.message));
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_mayara_geral_v1', '{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🌱 Mayara: atendimento geral (vacinas + consultas + terapias)');
+    }
+
     // ── AUDITORIA + PRESENÇA (admin only) ─────────────────────────────────
     await query(`CREATE TABLE IF NOT EXISTS audit_logs (
       id SERIAL PRIMARY KEY, usuario_id TEXT, usuario_nome TEXT, acao TEXT NOT NULL,
