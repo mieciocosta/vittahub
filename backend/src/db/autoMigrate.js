@@ -604,6 +604,20 @@ export default async function runMigrate() {
       console.log('🌱 Suellen: atendimento geral (vacinas + consultas + terapias)');
     }
 
+    // Stefany — ATENDIMENTO HÍBRIDO: mesma configuração da Mayara e da Suellen,
+    // atende os três setores com as travas normais da ponta.
+    const { rows: [flagStefany] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_stefany_hibrida_v1'");
+    if (!flagStefany) {
+      const bcryptSt = await import('bcryptjs');
+      const hashSt = await bcryptSt.default.hash('Vittalis@2026', 10);
+      await query(`INSERT INTO usuarios (id, nome, email, cpf, senha, role, cor, ativo, setor, setores)
+        VALUES (gen_random_uuid()::text, 'Stefany Cristiny Costa Bandeira', 'stefany.bandeira@vittahub.local', '61953622399', $1, 'atendente', '#f43f5e', true, 'vacinas', '{vacinas,consultas,terapias}')
+        ON CONFLICT (email) DO UPDATE SET senha = EXCLUDED.senha, ativo = true, setores = EXCLUDED.setores`,
+        [hashSt]).catch((e) => console.error('seed Stefany:', e.message));
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_stefany_hibrida_v1', '{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🌱 Stefany: atendimento híbrido (vacinas + consultas + terapias)');
+    }
+
     // ── AUDITORIA + PRESENÇA (admin only) ─────────────────────────────────
     await query(`CREATE TABLE IF NOT EXISTS audit_logs (
       id SERIAL PRIMARY KEY, usuario_id TEXT, usuario_nome TEXT, acao TEXT NOT NULL,
