@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { Plus, Phone, MessageSquare, Check, X as XIcon, Pencil, Trash2, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import RelatorioLider from '../components/RelatorioLider.jsx';
 import { mensagemAgendamento } from '../hooks/celebra.js';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt } from '../hooks/utils.js';
 
@@ -18,6 +18,7 @@ const hojeISO = () => { const d = new Date(); return `${d.getFullYear()}-${Strin
 
 export default function Agenda() {
   const navigate = useNavigate();
+  const location = useLocation();
   const api = useApi();
   const { user } = useAuth();
   const [data, setData] = useState(hojeISO());
@@ -25,7 +26,18 @@ export default function Agenda() {
   // 📋 Relatório do dia + produtividade da equipe
   const [aba, setAba] = useState(() => (new URLSearchParams(window.location.search).get('aba') === 'relatorio' ? 'relatorio' : 'lista'));
   const [rel, setRel] = useState(null);
-  const [relLider, setRelLider] = useState(false);  // 📄 relatório individual (modelo da liderança)
+  // 📄 Relatório individual. Abre já aberto quando vem do atalho "Meu Relatório"
+  // do menu (pedido do master: cada uma gera o dela sem caçar botão).
+  const [relLider, setRelLider] = useState(() => new URLSearchParams(window.location.search).get('individual') === '1');
+
+  // Sair de "Relatório do Dia" pra "Meu Relatório" é a MESMA rota, só muda a
+  // busca — o componente não remonta e o estado inicial acima não roda de novo.
+  // Sem isto, clicar no atalho estando já na Agenda não fazia nada.
+  useEffect(() => {
+    const q = new URLSearchParams(location.search);
+    if (q.get('aba') === 'relatorio') setAba('relatorio');
+    setRelLider(q.get('individual') === '1');
+  }, [location.search]);
   const [celebra, setCelebra] = useState(null);     // 🎉 parabéns + direcionamento de venda
   // Recarrega o relatório (sem piscar a tela quando já tem dados na mão)
   const loadRel = useCallback((mostrarCarregando = true) => {
