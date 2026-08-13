@@ -618,6 +618,25 @@ export default async function runMigrate() {
       console.log('🌱 Stefany: atendimento híbrido (vacinas + consultas + terapias)');
     }
 
+    // Abertura da conversa: a equipe passa a usar o mesmo texto do menu da Vitta
+    // (as três frentes com o que a cliente reconhece, sem tom de call center).
+    const { rows: [flagAbertura] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_abertura_tres_frentes_v1'");
+    if (!flagAbertura) {
+      await query(`UPDATE respostas_rapidas SET texto = $1 WHERE titulo = 'Boas-vindas'`, [
+`Oi! Que bom falar com você 😊
+Aqui é da *Vittalis Saúde* 💙
+
+A gente cuida da sua família em três frentes:
+
+💉 *Vacinas* — infantil e adulto, na clínica ou em casa
+🩺 *Consultas* — pediatria, neuropediatria e outras especialidades
+🤲 *Terapias* — fono, psicologia, psicopedagogia, T.O. e ABA
+
+Qual delas te trouxe aqui hoje?`]).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_abertura_tres_frentes_v1', '{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('👋 Abertura atualizada: as três frentes da clínica');
+    }
+
     // ── AUDITORIA + PRESENÇA (admin only) ─────────────────────────────────
     await query(`CREATE TABLE IF NOT EXISTS audit_logs (
       id SERIAL PRIMARY KEY, usuario_id TEXT, usuario_nome TEXT, acao TEXT NOT NULL,

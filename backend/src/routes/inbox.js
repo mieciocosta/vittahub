@@ -784,19 +784,26 @@ function detectarSetor(texto) {
   return null;
 }
 
-const MENU_TITULO = `Olá! 👋
-Seja muito bem-vindo(a) à *Vittalis Saúde!* 💎
+/* Abertura da conversa (pedido do master). Três decisões de propósito:
+   · Nada de "para te direcionar ao setor correto" — soava call center. Quem
+     chega quer ser recebido, não protocolado.
+   · Cada frente vem com o que ELA reconhece: a mãe não sabe o que é "Terapias",
+     mas sabe o que é "fono" e "ABA" — sem isso ela marca "Vacinas" por ser a
+     única palavra que entendeu, e a triagem nasce errada.
+   · A numeração 1-4 é intocável: é ela que o detectarSetor lê pra rotear. */
+const MENU_TITULO = `Oi! Que bom falar com você 😊
+Aqui é da *Vittalis Saúde* 💙
 
-Para te direcionar ao setor correto e oferecer o melhor atendimento, escolha uma das opções abaixo:`;
+A gente cuida da sua família em três frentes:`;
 
 const MENU_TRIAGEM = `${MENU_TITULO}
 
-1️⃣ 💉 Vacinação
-2️⃣ 🩺 Consultas
-3️⃣ 🤲 Terapias
-4️⃣ 💬 Outros Assuntos
+1️⃣ 💉 *Vacinas* — infantil e adulto, na clínica ou em casa
+2️⃣ 🩺 *Consultas* — pediatria, neuropediatria e outras especialidades
+3️⃣ 🤲 *Terapias* — fono, psicologia, psicopedagogia, T.O. e ABA
+4️⃣ 💬 *Outro assunto*
 
-É só responder com o número ou o nome da opção 😊`;
+Qual delas te trouxe aqui hoje? É só responder com o número ou o nome 😊`;
 
 // Menu de triagem em TEXTO numerado. (Botões da Z-API exigem aceitar os "termos
 // de mensagem com botões" no painel — sem isso a Z-API ACEITA o envio mas RECUSA
