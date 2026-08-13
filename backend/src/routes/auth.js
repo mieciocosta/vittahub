@@ -131,7 +131,7 @@ r.post('/impersonar/:id', auth, async (req, res) => {
 r.get('/usuarios', auth, async (req, res) => {
   if (req.user.role !== 'master') return res.status(403).json({ error: 'Acesso negado' });
   try {
-    const { rows } = await query("SELECT id,nome,email,cpf,role,cor,ativo,avatar,setor,setores,lider,meta_individual FROM usuarios WHERE role!='bot' ORDER BY nome");
+    const { rows } = await query("SELECT id,nome,email,cpf,role,cor,ativo,avatar,setor,setores,lider,meta_individual,meta_tipo,meta_qtd_dia,meta_dias_uteis FROM usuarios WHERE role!='bot' ORDER BY nome");
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -181,6 +181,10 @@ r.put('/usuarios/:id', auth, async (req, res) => {
     }
     if (req.body.lider !== undefined) set('lider', !!req.body.lider);
     if (req.body.meta_individual !== undefined) set('meta_individual', Math.max(0, Math.min(parseFloat(req.body.meta_individual) || 0, 100000000)));
+    // Meta individual em duas unidades: R$ no mês ou consultas por dia
+    if (req.body.meta_tipo !== undefined) set('meta_tipo', ['valor', 'consultas'].includes(req.body.meta_tipo) ? req.body.meta_tipo : 'valor');
+    if (req.body.meta_qtd_dia !== undefined) set('meta_qtd_dia', Math.max(0, Math.min(parseInt(req.body.meta_qtd_dia) || 0, 500)));
+    if (req.body.meta_dias_uteis !== undefined) set('meta_dias_uteis', Math.max(1, Math.min(parseInt(req.body.meta_dias_uteis) || 26, 31)));
     set('ativo', ativo);
     if (senha) {
       if (String(senha).length < 8) return res.status(400).json({ error: 'A senha precisa de pelo menos 8 caracteres' });
@@ -190,7 +194,7 @@ r.put('/usuarios/:id', auth, async (req, res) => {
     if (!updates.length) return res.status(400).json({ error: 'Nada para atualizar' });
     params.push(req.params.id);
     const { rows } = await query(
-      `UPDATE usuarios SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${pi} RETURNING id,nome,email,cpf,role,cor,ativo,setor,setores,lider`,
+      `UPDATE usuarios SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${pi} RETURNING id,nome,email,cpf,role,cor,ativo,setor,setores,lider,meta_individual,meta_tipo,meta_qtd_dia,meta_dias_uteis`,
       params
     );
     if (!rows[0]) return res.status(404).json({ error: 'Usuário não encontrado' });

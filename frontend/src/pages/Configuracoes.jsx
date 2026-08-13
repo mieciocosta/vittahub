@@ -82,7 +82,11 @@ export default function Configuracoes() {
     if (editUser.cpf && cpfDig.length !== 11) return setUserErr('CPF incompleto — precisa de 11 dígitos.');
     if (editUser.senha && editUser.senha.length < 8) return setUserErr('A nova senha precisa de pelo menos 8 caracteres.');
     try {
-      const payload = { cpf: cpfDig, ativo: editUser.ativo, setor: editUser.setor || null, setores: (editUser.setores || []).length ? editUser.setores : null, lider: !!editUser.lider, meta_individual: parseFloat(editUser.meta_individual) || 0 };
+      const payload = { cpf: cpfDig, ativo: editUser.ativo, setor: editUser.setor || null, setores: (editUser.setores || []).length ? editUser.setores : null, lider: !!editUser.lider,
+        meta_individual: parseFloat(editUser.meta_individual) || 0,
+        meta_tipo: editUser.meta_tipo || 'valor',
+        meta_qtd_dia: parseInt(editUser.meta_qtd_dia) || 0,
+        meta_dias_uteis: parseInt(editUser.meta_dias_uteis) || 26 };
       if (editUser.senha) payload.senha = editUser.senha;
       const upd = await api.put(`/auth/usuarios/${editUser.id}`, payload);
       setUsers(prev => prev.map(u => u.id === upd.id ? { ...u, ...upd } : u));
@@ -453,7 +457,7 @@ export default function Configuracoes() {
                   {u.role==='master'?'Master':u.role==='supervisor'?'Supervisora':'Atendente'}
                 </span>
                 {isMaster && (
-                  <button onClick={()=>{setUserErr('');setEditUser(editUser?.id===u.id?null:{ id:u.id, cpf:maskCpf(u.cpf||''), senha:'', ativo:u.ativo, setor:u.setor||'', setores:Array.isArray(u.setores)?u.setores:[], lider:!!u.lider, meta_individual:u.meta_individual||'' });}}
+                  <button onClick={()=>{setUserErr('');setEditUser(editUser?.id===u.id?null:{ id:u.id, cpf:maskCpf(u.cpf||''), senha:'', ativo:u.ativo, setor:u.setor||'', setores:Array.isArray(u.setores)?u.setores:[], lider:!!u.lider, meta_individual:u.meta_individual||'', meta_tipo:u.meta_tipo||'valor', meta_qtd_dia:u.meta_qtd_dia||'', meta_dias_uteis:u.meta_dias_uteis||26 });}}
                     style={{ width:26, height:26, borderRadius:8, border:'1.5px solid var(--border)', background:'var(--card)', color:'var(--muted)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
                     {editUser?.id===u.id?<X size={12}/>:<Pencil size={12}/>}
                   </button>
@@ -485,8 +489,37 @@ export default function Configuracoes() {
                     </select>
                   </div>
                   <div className="field">
-                    <label>🎯 Meta individual do mês (R$ — 0 = sem meta própria)</label>
-                    <input type="number" min={0} step={1000} value={editUser.meta_individual ?? ''} onChange={e=>setEditUser({...editUser, meta_individual:e.target.value})} placeholder="ex: 50000" />
+                    {/* 🎯 Duas unidades de meta: quem é cobrada em R$ no mês e
+                        quem é cobrada em consultas por dia. */}
+                    <label>🎯 Meta individual</label>
+                    <div style={{ display:'flex', gap:7, marginBottom:8 }}>
+                      {[['valor','R$ por mês'],['consultas','Consultas por dia']].map(([v,l])=>{
+                        const on = (editUser.meta_tipo || 'valor') === v;
+                        return (
+                          <button key={v} type="button" onClick={()=>setEditUser({...editUser, meta_tipo:v})}
+                            style={{ padding:'6px 12px', borderRadius:9, cursor:'pointer', fontSize:12, fontWeight:700,
+                              border:`1.5px solid ${on?'var(--tq)':'var(--border)'}`,
+                              background:on?'var(--tq3)':'var(--card)', color:on?'var(--tq)':'var(--muted)' }}>{on?'✓ ':''}{l}</button>
+                        );
+                      })}
+                    </div>
+                    {(editUser.meta_tipo || 'valor') === 'consultas' ? (
+                      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:9 }}>
+                        <div className="field">
+                          <label>Consultas por dia</label>
+                          <input type="number" min={0} step={1} value={editUser.meta_qtd_dia ?? ''} onChange={e=>setEditUser({...editUser, meta_qtd_dia:e.target.value})} placeholder="ex: 10" />
+                        </div>
+                        <div className="field">
+                          <label>Dias úteis no mês</label>
+                          <input type="number" min={1} max={31} step={1} value={editUser.meta_dias_uteis ?? 26} onChange={e=>setEditUser({...editUser, meta_dias_uteis:e.target.value})} placeholder="26" />
+                        </div>
+                        <span style={{ gridColumn:'1 / -1', fontSize:11, color:'var(--muted)' }}>
+                          Meta do mês: <b>{(parseInt(editUser.meta_qtd_dia)||0) * (parseInt(editUser.meta_dias_uteis)||26)}</b> consultas marcadas.
+                        </span>
+                      </div>
+                    ) : (
+                      <input type="number" min={0} step={1000} value={editUser.meta_individual ?? ''} onChange={e=>setEditUser({...editUser, meta_individual:e.target.value})} placeholder="ex: 100000 (0 = sem meta própria)" />
+                    )}
                   </div>
                   <div className="field">
                     <label>Setores que enxerga (acesso)</label>
