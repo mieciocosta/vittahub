@@ -9,6 +9,10 @@ import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { useSearchParams } from 'react-router-dom';
 import { fmt, openWA, avatarGrad } from '../hooks/utils.js';
 import { Toast } from '../hooks/toast.js';
+
+// Mesma lista do cadastro de lead (LeadModal) — duas listas divergentes fariam
+// a mesma base ser classificada de dois jeitos.
+const INTERESSES_FAIXA = ['Vacina','Plano Vacinal','Consulta','Terapia','Plano Infantil','Gestante','Outro'];
 import PropostaModal from '../components/PropostaModal.jsx';
 import CarteiraVacinal from '../components/CarteiraVacinal.jsx';
 import TerapiaOrcamentoModal from '../components/TerapiaOrcamentoModal.jsx';
@@ -1747,7 +1751,8 @@ export default function Inbox({ onUnreadChange }) {
 
           {/* Faixa de contexto: Interesse · Responsável · Etapa · Meta do setor */}
           <FaixaContexto sel={sel} leadInfo={leadInfo} setLeadInfo={setLeadInfo} api={api}
-            scoreChip={scoreChip} setScoreChip={setScoreChip} usersById={usersById} metaSetor={metaSetor} />
+            scoreChip={scoreChip} setScoreChip={setScoreChip} usersById={usersById} metaSetor={metaSetor}
+            changeResp={changeResp} />
 
           {/* Área de mensagens + info panel */}
           <div style={{ flex:1, display:'flex', minHeight:0, overflow:'hidden' }}>
@@ -2714,7 +2719,7 @@ function BibliotecaPicker({ convId, setor, api, onClose, abaInicial = 'foto' }) 
 
 
 /* ── Faixa de contexto sob o header (Interesse · Responsável · Etapa · Score) ── */
-function FaixaContexto({ sel, leadInfo, setLeadInfo, api, scoreChip, setScoreChip, usersById, metaSetor }) {
+function FaixaContexto({ sel, leadInfo, setLeadInfo, api, scoreChip, setScoreChip, usersById, metaSetor, changeResp }) {
   React.useEffect(() => {
     setLeadInfo(null); setScoreChip(null);
     if (!sel?.lead_id) return;
@@ -2732,23 +2737,89 @@ function FaixaContexto({ sel, leadInfo, setLeadInfo, api, scoreChip, setScoreChi
   };
 
   const resp = sel?.responsavel_id ? usersById?.[sel.responsavel_id]?.nome?.split(' ')[0] : null;
+
+  /* Classificação editável NA FAIXA (pedido do master). Antes era só leitura e
+     pra trocar qualquer coisa era preciso abrir o lead noutra tela — o que
+     ninguém fazia no meio do atendimento, e a base ficava desclassificada. */
+  const [etapas, setEtapas] = React.useState([]);
+  const [editando, setEditando] = React.useState(null);   // campo aberto
+  const [rascunho, setRascunho] = React.useState('');
+  React.useEffect(() => {
+    api.get('/leads/colunas').then(c => setEtapas((Array.isArray(c) ? c : []).map(x => x.nome).filter(Boolean))).catch(() => {});
+  }, []); // eslint-disable-line
+
+  // Grava no lead e atualiza a faixa na hora (sem esperar recarregar a conversa)
+  const salvarLead = async (campo, valor) => {
+    setEditando(null);
+    if (!sel?.lead_id) { Toast.show('Esta conversa ainda não virou lead — classifique depois de qualificar.', 'info'); return; }
+    setLeadInfo(p => ({ ...(p || {}), [campo]: valor }));
+    try { await api.put(`/leads/${sel.lead_id}`, { [campo]: valor }); }
+    catch (e) { Toast.show(e.message, 'error'); api.get(`/leads/${sel.lead_id}`).then(setLeadInfo).catch(() => {}); }
+  };
+
+  const caixa = { display:'flex', alignItems:'center', gap:8, padding:'0 14px', borderRight:'1px solid var(--tq3)' };
+  const rotulo = { fontSize:9.5, fontWeight:800, color:'var(--tq2)', textTransform:'uppercase', letterSpacing:.4 };
+  const valorSt = { fontSize:12, fontWeight:700, color:'var(--txt)', maxWidth:140, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' };
+  const campoSt = { fontSize:12, fontWeight:700, padding:'2px 6px', borderRadius:7, border:'1.5px solid var(--tq)', background:'var(--card)', color:'var(--txt)', maxWidth:150 };
+
   const Item = ({ ic, label, valor }) => (
-    <div style={{ display:'flex', alignItems:'center', gap:8, padding:'0 14px', borderRight:'1px solid var(--tq3)' }}>
-      <span style={{ fontSize:14 }}>{ic}</span>
-      <div>
-        <div style={{ fontSize:9.5, fontWeight:800, color:'var(--tq2)', textTransform:'uppercase', letterSpacing:.4 }}>{label}</div>
-        <div style={{ fontSize:12, fontWeight:700, color:'var(--txt)', maxWidth:140, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{valor || '—'}</div>
-      </div>
+    <div style={caixa}><span style={{ fontSize:14 }}>{ic}</span>
+      <div><div style={rotulo}>{label}</div><div style={valorSt}>{valor || '—'}</div></div>
     </div>
   );
 
+  // Campo clicável: vira <select> (lista fixa) ou <input> (texto livre)
+  const Editavel = ({ ic, label, valor, campo, opcoes }) => {
+    const aberto = editando === campo;
+    return (
+      <div style={{ ...caixa, cursor:'pointer' }} title={`Clique para alterar ${label.toLowerCase()}`}
+        onClick={() => { if (!aberto) { setRascunho(valor || ''); setEditando(campo); } }}>
+        <span style={{ fontSize:14 }}>{ic}</span>
+        <div>
+          <div style={rotulo}>{label} <span style={{ opacity:.55 }}>✎</span></div>
+          {!aberto ? (
+            <div style={valorSt}>{valor || '—'}</div>
+          ) : opcoes ? (
+            <select autoFocus value={valor || ''} style={campoSt}
+              onChange={e => salvarLead(campo, e.target.value)} onBlur={() => setEditando(null)}>
+              <option value="">—</option>
+              {opcoes.map(o => <option key={o} value={o}>{o}</option>)}
+            </select>
+          ) : (
+            <input autoFocus value={rascunho} style={campoSt}
+              onChange={e => setRascunho(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') salvarLead(campo, rascunho.trim()); if (e.key === 'Escape') setEditando(null); }}
+              onBlur={() => salvarLead(campo, rascunho.trim())} />
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div style={{ display:'flex', alignItems:'center', padding:'7px 6px', background:'var(--tq4)', borderBottom:'1px solid var(--tq3)', overflowX:'auto', flexShrink:0 }}>
-      <Item ic="💉" label="Interesse" valor={leadInfo?.interesse || sel?.setor} />
-      <Item ic="👤" label="Responsável" valor={resp || 'Sem responsável'} />
-      <Item ic="👶" label="Paciente" valor={leadInfo?.nome || sel?.contact_name} />
-      {leadInfo?.filhos && <Item ic="👧" label="Outros filhos" valor={leadInfo.filhos} />}
-      <Item ic="📋" label="Etapa" valor={leadInfo?.status || (sel?.lead_id ? '' : 'Sem lead')} />
+      <Editavel ic="💉" label="Interesse" campo="interesse" valor={leadInfo?.interesse || sel?.setor} opcoes={INTERESSES_FAIXA} />
+
+      {/* Responsável é da CONVERSA (não do lead) — quem atende é quem responde */}
+      <div style={{ ...caixa, cursor:'pointer' }} title="Clique para trocar o responsável"
+        onClick={() => { if (editando !== 'resp') setEditando('resp'); }}>
+        <span style={{ fontSize:14 }}>👤</span>
+        <div>
+          <div style={rotulo}>Responsável <span style={{ opacity:.55 }}>✎</span></div>
+          {editando === 'resp' ? (
+            <select autoFocus value={sel?.responsavel_id || ''} style={campoSt}
+              onChange={e => { changeResp(e.target.value || null); setEditando(null); }} onBlur={() => setEditando(null)}>
+              <option value="">Sem responsável</option>
+              {Object.values(usersById || {}).filter(u => u?.ativo !== false)
+                .map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}
+            </select>
+          ) : <div style={valorSt}>{resp || 'Sem responsável'}</div>}
+        </div>
+      </div>
+
+      <Editavel ic="👶" label="Paciente" campo="nome" valor={leadInfo?.nome || sel?.contact_name} />
+      <Editavel ic="👧" label="Outros filhos" campo="filhos" valor={leadInfo?.filhos} />
+      <Editavel ic="📋" label="Etapa" campo="status" valor={leadInfo?.status || (sel?.lead_id ? '' : 'Sem lead')} opcoes={etapas} />
       {SCORE_CFG[sel?.lead_score] && (
         <Item ic={SCORE_CFG[sel.lead_score].emoji} label="Temperatura" valor={SCORE_CFG[sel.lead_score].label} />
       )}
