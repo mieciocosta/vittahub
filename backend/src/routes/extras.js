@@ -2,6 +2,7 @@ import express from 'express';
 import { query } from '../db/pool.js';
 import { auth, masterOnly } from '../middleware/auth.js';
 import { socketEmit } from '../socketServer.js';
+import { htmlParaPDF } from '../services/pdf.js';
 import { versoDoDia } from '../versiculos.js';
 import { getVapid, enviarPush } from '../services/push.js';
 import { temIA, usaClaude, openaiMessages, anthropicClient, CLAUDE_MODEL_MINI } from './inbox.js';
@@ -2671,6 +2672,92 @@ export async function gerarSolicitacoesDaAgenda({ dias = 30, atras = 7, usuario 
     janela: { de: `${atras} dia(s) atrás`, ate: `${dias} dia(s) à frente` },
   };
 }
+
+/* 📄 SOLICITAR VACINAS → PDF PRONTO ──────────────────────────────────────────
+   Um clique só faz o serviço inteiro: garante que a agenda virou solicitação e
+   devolve o PDF assinável pra levar ao fornecedor/estoque. O PDF sai do
+   servidor (Puppeteer), não da caixa de impressão do navegador — assim o
+   arquivo é igual pra todo mundo, em qualquer aparelho. */
+r.post('/vacinas/solicitar-pdf', async (req, res) => {
+  try {
+    const dias = Math.max(1, Math.min(parseInt(req.body?.dias) || 30, 60));
+    const geracao = await gerarSolicitacoesDaAgenda({ dias, atras: 30, usuario: req.user });
+
+    const hoje = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+    const { rows } = await query(`
+      SELECT TO_CHAR(data_prevista,'YYYY-MM-DD') dia, paciente, hora, vacina,
+             COALESCE(quantidade,1)::int qtd, status
+        FROM solicitacoes_vacinas
+       WHERE status <> 'cancelada'
+         AND data_prevista BETWEEN ($1::date - 30) AND ($1::date + $2::int)
+       ORDER BY data_prevista, hora, paciente`, [hoje, dias]);
+
+    // Por dia (o que separar em cada data) e o total de cada vacina no período
+    const porDia = {}, totais = {};
+    for (const s of rows) {
+      const d = s.dia || 'sem-data';
+      (porDia[d] = porDia[d] || []).push(s);
+      totais[s.vacina] = (totais[s.vacina] || 0) + s.qtd;
+    }
+    const esc = (t) => String(t ?? '').replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+    const dataBR = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d)
+      ? new Date(d + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit' })
+      : 'Sem data definida';
+
+    const blocos = Object.keys(porDia).sort().map(d => {
+      const itens = porDia[d];
+      const doses = itens.reduce((n, i) => n + i.qtd, 0);
+      return `<h3>${esc(dataBR(d))} <small>${itens.length} atendimento(s) · ${doses} dose(s)</small></h3>
+        <table><thead><tr><th style="width:70px">Hora</th><th>Paciente</th><th>Vacina</th>
+          <th style="width:55px;text-align:center">Doses</th><th style="width:90px">Lote</th></tr></thead>
+        <tbody>${itens.map(i => `<tr><td>${esc(i.hora || '—')}</td><td>${esc(i.paciente)}</td>
+          <td>${esc(i.vacina)}</td><td style="text-align:center"><b>${i.qtd}</b></td><td></td></tr>`).join('')}</tbody></table>`;
+    }).join('');
+
+    const linhasTotais = Object.entries(totais).sort((a, b) => b[1] - a[1])
+      .map(([v, q]) => `<tr><td>${esc(v)}</td><td style="text-align:center"><b>${q}</b></td></tr>`).join('');
+    const totalDoses = Object.values(totais).reduce((n, q) => n + q, 0);
+
+    const html = `<!doctype html><html><head><meta charset="utf-8"><style>
+      *{box-sizing:border-box} body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:0;padding:26px 28px}
+      h1{color:#0E8C96;margin:0 0 3px;font-size:22px}
+      .sub{color:#555;font-size:12px;margin-bottom:16px}
+      h3{margin:16px 0 6px;color:#0f172a;font-size:14px;text-transform:capitalize;
+         border-bottom:2px solid #0E8C96;padding-bottom:3px}
+      h3 small{font-weight:400;color:#64748b;font-size:11.5px;text-transform:none}
+      table{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:4px}
+      th,td{border:1px solid #dbe3e6;padding:5px 7px;text-align:left}
+      th{background:#f0fdf9;color:#0E8C96;font-size:11.5px}
+      .tot{margin-top:22px;page-break-inside:avoid}
+      .tot h2{color:#0E8C96;font-size:15px;margin:0 0 7px}
+      .tot table{width:60%}
+      .assin{margin-top:34px;display:flex;gap:40px;page-break-inside:avoid}
+      .assin div{flex:1;border-top:1px solid #999;padding-top:5px;font-size:11px;color:#555;text-align:center}
+      .rod{margin-top:26px;font-size:10.5px;color:#888;text-align:center}
+    </style></head><body>
+      <h1>Solicitação de Vacinas — Vittalis Saúde</h1>
+      <div class="sub">Gerada a partir da agenda · ${new Date(Date.now() - 3 * 3600 * 1000).toLocaleString('pt-BR')} · por ${esc(req.user?.nome || '—')}</div>
+      ${blocos || '<p><b>Nenhum atendimento de vacina na agenda deste período.</b></p>'}
+      ${linhasTotais ? `<div class="tot"><h2>📦 Total por vacina (${totalDoses} doses)</h2>
+        <table><thead><tr><th>Vacina</th><th style="width:70px;text-align:center">Doses</th></tr></thead>
+        <tbody>${linhasTotais}</tbody></table></div>` : ''}
+      <div class="assin"><div>Solicitado por</div><div>Conferido/Separado por</div></div>
+      <div class="rod">VittaHub CRM · Vittalis Saúde — São Luís/MA</div>
+    </body></html>`;
+
+    const pdf = await htmlParaPDF(html);
+    res.json({
+      ok: true,
+      pdf: pdf.toString('base64'),
+      filename: `Solicitacao-Vacinas-${hoje}.pdf`,
+      atendimentos: rows.length, doses: totalDoses,
+      geradas_agora: geracao.criadas, agenda: geracao.agenda,
+    });
+  } catch (err) {
+    console.error('PDF solicitação de vacinas:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // Botão manual (a varredura automática já faz isso sozinha; o botão é pra quem
 // quer ver acontecer na hora, sem esperar o próximo ciclo).

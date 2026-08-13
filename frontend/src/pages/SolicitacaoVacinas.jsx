@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Syringe, Check, X, Printer, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Syringe, Check, X, Printer, AlertTriangle, FileDown } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 
 /* 💉 SOLICITAÇÃO DE VACINAS — CONFORME A AGENDA
@@ -63,26 +63,51 @@ export default function SolicitacaoVacinas() {
     ]).then(([a, p]) => { setDados(a); setPedidos(p); }).finally(() => setCarregando(false));
   };
 
-  // Puxa da agenda os atendimentos de vacina que ficaram sem pedido nenhum
+  /* 💉 SOLICITAR VACINAS — um clique faz tudo: garante que a agenda virou
+     solicitação e traz o PDF pronto pra levar ao fornecedor. Quando não há o
+     que solicitar, explica o porquê em vez de devolver folha em branco. */
   const [puxando, setPuxando] = useState(false);
-  const puxarDaAgenda = async () => {
-    setPuxando(true);
+  const [solic, setSolic] = useState(null);
+  const solicitarVacinas = async () => {
+    setPuxando(true); setSolic(null);
     try {
-      const d = await api.post('/extras/vacinas/puxar-da-agenda', { dias: 30 });
+      const d = await api.post('/extras/vacinas/solicitar-pdf', { dias: 30 });
       const ag = d.agenda || {};
-      if (d.criadas) {
-        window.alert(`✅ ${d.criadas} solicitação(ões) criada(s) a partir de ${d.atendimentos} atendimento(s) da agenda.`);
-      } else if (!ag.total) {
-        window.alert('A agenda está vazia nesta janela (30 dias pra trás e 30 pra frente). Nada a gerar.');
-      } else if (!ag.de_vacinas) {
-        // A causa nº 1 de "agenda cheia, solicitação vazia"
-        window.alert(`⚠️ A agenda tem ${ag.total} atendimento(s), mas NENHUM está no setor Vacinas — todos estão em consultas/terapias.\n\nA solicitação só nasce de atendimento de vacina. Abra o agendamento na Agenda e troque o setor para 💉 Vacinas.`);
+      if (!d.atendimentos) {
+        setSolic({
+          titulo: '⚠️ Nada para solicitar',
+          detalhe: !ag.total
+            ? 'A agenda está vazia nesta janela (30 dias para trás e 30 para frente).'
+            : !ag.de_vacinas
+              ? `A agenda tem ${ag.total} atendimento(s), mas nenhum está no setor Vacinas — estão todos em consultas/terapias. A solicitação só nasce de atendimento de vacina: abra o agendamento na Agenda e troque o setor para 💉 Vacinas.`
+              : 'Nenhuma dose pendente no período.',
+        });
       } else {
-        window.alert(`✅ Tudo em dia — os ${ag.de_vacinas} atendimento(s) de vacina da agenda já têm pedido.`);
+        setSolic({
+          titulo: `✅ ${d.doses} dose(s) solicitadas em ${d.atendimentos} atendimento(s)`,
+          detalhe: d.geradas_agora
+            ? `${d.geradas_agora} pedido(s) foram criados agora a partir da agenda. O PDF já sai com a lista por dia, o total de cada vacina e o campo de lote.`
+            : 'Tudo já estava lançado. O PDF sai com a lista por dia, o total de cada vacina e o campo de lote.',
+          pdf: d.pdf, filename: d.filename,
+        });
       }
       load();
-    } catch (e) { window.alert('Erro: ' + e.message); }
+    } catch (e) { setSolic({ titulo: '⚠️ Não consegui gerar', detalhe: e.message }); }
     setPuxando(false);
+  };
+
+  // O PDF vem do servidor em base64 — vira arquivo salvo no aparelho.
+  const baixarPdf = (s) => {
+    try {
+      const bin = atob(s.pdf);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+      const a = document.createElement('a');
+      a.href = url; a.download = s.filename || 'Solicitacao-Vacinas.pdf';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    } catch { window.open(`data:application/pdf;base64,${s.pdf}`, '_blank'); }
   };
   // 🔄 Agendamento marcado em QUALQUER lugar (esta tela, o site, a Vitta na
   // conversa, a carteira vacinal ou o VittaMed) gera a solicitação no servidor —
@@ -162,12 +187,29 @@ export default function SolicitacaoVacinas() {
             Gerada sozinha a partir da agenda — ninguém aplica sem dose reservada.
           </div>
         </div>
-        <button onClick={puxarDaAgenda} disabled={puxando} className="btn btn-s btn-sm" style={{ gap: 6, fontWeight: 700 }}>
-          <RefreshCw size={14} style={puxando ? { animation: 'spin 1s linear infinite' } : undefined} /> {puxando ? 'Puxando…' : 'Puxar da agenda'}
+        <button onClick={solicitarVacinas} disabled={puxando} className="btn btn-p btn-sm" style={{ gap: 6, fontWeight: 700 }}>
+          <Syringe size={14} style={puxando ? { animation: 'spin 1s linear infinite' } : undefined} />
+          {puxando ? 'Solicitando…' : 'Solicitar vacinas'}
         </button>
-        <button onClick={imprimir} className="btn btn-s btn-sm" style={{ gap: 6, fontWeight: 700 }}><Printer size={14} /> Imprimir lista</button>
-        <button onClick={() => abrirPedido(null)} className="btn btn-p btn-sm" style={{ gap: 6, fontWeight: 700 }}>+ Pedido avulso</button>
+        <button onClick={imprimir} className="btn btn-s btn-sm" style={{ gap: 6, fontWeight: 700 }}><Printer size={14} /> Imprimir</button>
+        <button onClick={() => abrirPedido(null)} className="btn btn-s btn-sm" style={{ gap: 6, fontWeight: 700 }}>+ Pedido avulso</button>
       </div>
+
+      {/* Resultado do "Solicitar vacinas" — com o PDF pronto pra baixar */}
+      {solic && (
+        <div style={{ marginBottom: 14, padding: '14px 16px', borderRadius: 12, background: 'var(--card)', border: '1.5px solid var(--tq)' }}>
+          <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 4 }}>{solic.titulo}</div>
+          <div style={{ fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.55, marginBottom: solic.pdf ? 11 : 0 }}>{solic.detalhe}</div>
+          {solic.pdf && (
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button onClick={() => baixarPdf(solic)} className="btn btn-p btn-sm" style={{ gap: 6, fontWeight: 800 }}>
+                <FileDown size={14} /> Gerar PDF
+              </button>
+              <button onClick={() => setSolic(null)} className="btn btn-s btn-sm" style={{ fontWeight: 700 }}>Fechar</button>
+            </div>
+          )}
+        </div>
+      )}
 
       {erro && (
         <div style={{ marginBottom: 14, padding: '12px 14px', borderRadius: 10, background: '#fef2f2',

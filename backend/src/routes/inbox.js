@@ -10,6 +10,7 @@ import { socketEmit, setConvGroupFn, setUserSetorFn, socketEmitToUsers } from '.
 import * as propostaGen from '../services/proposta-gen.js';
 import { enviarPush, enviarPushEquipe } from '../services/push.js';
 import { getCalendario as getCalendarioVacinal } from '../services/calendario.js';
+import { htmlParaPDF } from '../services/pdf.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const r = express.Router();
@@ -705,29 +706,8 @@ function formatarPrecos(precos) {
   return `\nTABELA DE PREÇOS DAS VACINAS (use estes valores reais quando o cliente perguntar):\n${linhas.join('\n')}`;
 }
 
-// Gera PDF da proposta: HTML local (módulo proposta-gen) → Puppeteer
-async function htmlParaPDF(html) {
-  const puppeteer = (await import('puppeteer-core')).default;
-  let browser;
-  try {
-    const fsMod = await import('fs');
-    const sysChromePaths = ['/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome'];
-    let execPath = sysChromePaths.find(p => { try { return fsMod.existsSync(p); } catch { return false; } });
-    let launchArgs = ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--single-process'];
-    if (!execPath) {
-      const chromium = (await import('@sparticuz/chromium')).default;
-      execPath = await chromium.executablePath();
-      launchArgs = chromium.args;
-    }
-    browser = await puppeteer.launch({ args: launchArgs, executablePath: execPath, headless: true });
-    const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: 'networkidle0', timeout: 20000 });
-    const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true });
-    return Buffer.from(pdfBuffer);
-  } finally {
-    if (browser) await browser.close().catch(() => {});
-  }
-}
+// Gera PDF da proposta: HTML local (módulo proposta-gen) → htmlParaPDF, que
+// mora em services/pdf.js e é compartilhado com a Solicitação de Vacinas.
 
 // Proposta de VACINAS INDIVIDUAIS (gera localmente)
 async function gerarPropostaPDF({ nomeCliente, nomeBebe, template, pacoteNome, vacinas, desconto, parcelas, creditoFechado }) {
