@@ -109,6 +109,12 @@ export default async function runMigrate() {
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS historico_zapi BOOLEAN DEFAULT false`).catch(() => {});
     // Meta INDIVIDUAL de vendas por usuário (R$/mês) — 0 = sem meta individual
     await query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS meta_individual NUMERIC(12,2) DEFAULT 0`).catch(() => {});
+    /* Meta individual em DUAS unidades (pedido do master): algumas pessoas são
+       cobradas em R$ no mês, outras em QUANTIDADE de consultas por dia. Misturar
+       as duas num campo só faria "10" virar dez reais. */
+    await query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS meta_tipo TEXT DEFAULT 'valor'`).catch(() => {});
+    await query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS meta_qtd_dia INT DEFAULT 0`).catch(() => {});
+    await query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS meta_dias_uteis INT DEFAULT 26`).catch(() => {});
     // LIMPEZA (one-time, idempotente): conversas fantasma criadas pelo sync com
     // identificador @lid como nome, e eventos de ligação gravados como texto cru.
     await query(`UPDATE conversas SET contact_name = COALESCE(NULLIF(regexp_replace(phone, '\\D', '', 'g'), ''), 'Contato')
@@ -635,6 +641,23 @@ A gente cuida da sua família em três frentes:
 Qual delas te trouxe aqui hoje?`]).catch(() => {});
       await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_abertura_tres_frentes_v1', '{"ok":true}') ON CONFLICT DO NOTHING`);
       console.log('👋 Abertura atualizada: as três frentes da clínica');
+    }
+
+    /* 🎯 METAS INDIVIDUAIS (definidas pelo master). Duas unidades convivendo:
+       · Raylane e Stefany → R$ 100 mil no mês
+       · Danielle, Suellen e Mayara → 10 consultas por dia (× 26 dias = 260/mês)
+       Não usa flag de "roda uma vez": se o master mudar depois pela tela, o
+       UPDATE aqui não desfaz — ele só cria o que ainda está zerado. */
+    const { rows: [flagMetasInd] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_metas_individuais_v1'");
+    if (!flagMetasInd) {
+      // Meta em dinheiro (mês)
+      await query(`UPDATE usuarios SET meta_tipo = 'valor', meta_individual = 100000
+                    WHERE cpf IN ('63358210367','61953622399')`).catch(() => {});
+      // Meta em consultas por dia (× dias úteis)
+      await query(`UPDATE usuarios SET meta_tipo = 'consultas', meta_qtd_dia = 10, meta_dias_uteis = 26
+                    WHERE cpf IN ('61867382300','61683378300','61242108351')`).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_metas_individuais_v1', '{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🎯 Metas individuais: Raylane/Stefany R$100k · Danielle/Suellen/Mayara 10 consultas/dia');
     }
 
     // ── AUDITORIA + PRESENÇA (admin only) ─────────────────────────────────

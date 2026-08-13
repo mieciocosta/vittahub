@@ -124,12 +124,24 @@ r.get('/minha-producao', async (req, res) => {
     // Só a gestão escolhe de quem é o painel; a atendente vê sempre o dela.
     const alvoId = (gestao(req) && req.query.usuario_id) ? String(req.query.usuario_id) : req.user.id;
     const { rows: [u] } = await query(
-      'SELECT id, nome, cor, COALESCE(meta_individual,0)::float meta FROM usuarios WHERE id = $1', [alvoId]);
+      `SELECT id, nome, cor, COALESCE(meta_individual,0)::float meta,
+              COALESCE(meta_tipo,'valor') meta_tipo, COALESCE(meta_qtd_dia,0)::int meta_qtd_dia,
+              COALESCE(NULLIF(meta_dias_uteis,0),26)::int meta_dias_uteis
+         FROM usuarios WHERE id = $1`, [alvoId]);
     if (!u) return res.status(404).json({ error: 'Usuário não encontrado' });
 
     const hoje = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);   // dia de São Luís
     const mes = hoje.slice(0, 7);
     const PAGO = "status_pagamento IN ('pago','cortesia')";
+
+    // Consultas MARCADAS por ela (é assim que se mede quem agenda): conta pelo
+    // dia em que o agendamento foi criado, não pelo dia do atendimento.
+    const consultasCriadas = (de, ate) => query(
+      `SELECT COUNT(*)::int n FROM agenda_eventos
+        WHERE responsavel_id = $1 AND COALESCE(setor,'vacinas') = 'consultas'
+          AND (created_at - interval '3 hours')::date BETWEEN $2::date AND $3::date
+          AND LOWER(COALESCE(status,'')) NOT LIKE 'cancel%'`, [alvoId, de, ate])
+      .catch(() => ({ rows: [{ n: 0 }] }));
 
     const [vHoje, vMes, agHoje, agMes, convHoje] = await Promise.all([
       query(`SELECT COUNT(*)::int n, COALESCE(SUM(valor) FILTER (WHERE ${PAGO}),0)::float confirmado,
@@ -151,6 +163,38 @@ r.get('/minha-producao', async (req, res) => {
     ]);
 
     const confMes = vMes.rows[0]?.confirmado || 0;
+
+    /* 🎯 A meta pode estar em R$ (mês) ou em CONSULTAS por dia. Cada uma tem o
+       seu "realizado" próprio — comparar 10 consultas com R$ 100 mil na mesma
+       barra daria um número sem sentido. */
+    const ehConsultas = u.meta_tipo === 'consultas' && u.meta_qtd_dia > 0;
+    let metaBloco;
+    if (ehConsultas) {
+      const [cDia, cMes] = await Promise.all([
+        consultasCriadas(hoje, hoje),
+        consultasCriadas(`${mes}-01`, hoje),
+      ]);
+      const feitasDia = cDia.rows[0]?.n || 0, feitasMes = cMes.rows[0]?.n || 0;
+      const alvoMes = u.meta_qtd_dia * u.meta_dias_uteis;
+      metaBloco = {
+        tipo: 'consultas', unidade: 'consultas',
+        alvo_dia: u.meta_qtd_dia, feito_dia: feitasDia,
+        falta_dia: Math.max(u.meta_qtd_dia - feitasDia, 0),
+        pct_dia: +((feitasDia / u.meta_qtd_dia) * 100).toFixed(0),
+        alvo_mes: alvoMes, feito_mes: feitasMes,
+        falta_mes: Math.max(alvoMes - feitasMes, 0),
+        pct_mes: +((feitasMes / alvoMes) * 100).toFixed(1),
+        dias_uteis: u.meta_dias_uteis,
+      };
+    } else {
+      metaBloco = u.meta > 0 ? {
+        tipo: 'valor', unidade: 'R$',
+        alvo_mes: u.meta, feito_mes: confMes,
+        falta_mes: Math.max(u.meta - confMes, 0),
+        pct_mes: +((confMes / u.meta) * 100).toFixed(1),
+      } : null;
+    }
+
     res.json({
       usuario: { id: u.id, nome: u.nome, cor: u.cor },
       hoje: {
@@ -166,10 +210,12 @@ r.get('/minha-producao', async (req, res) => {
         vendas: vMes.rows[0]?.n || 0,
         confirmado: confMes,
         agendamentos: agMes.rows[0]?.n || 0,
+        // compat: campos antigos (meta em R$)
         meta: u.meta,
         falta: u.meta ? Math.max(u.meta - confMes, 0) : null,
         pct: u.meta ? +((confMes / u.meta) * 100).toFixed(1) : null,
       },
+      metaInd: metaBloco,
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

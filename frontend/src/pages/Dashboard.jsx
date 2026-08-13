@@ -582,19 +582,39 @@ export default function Dashboard() {
                 <span style={{ fontWeight: 800 }}>{fmt.brl(prod.mes.confirmado)}</span>
               </div>
 
-              {prod.mes.meta > 0 && (
-                <>
-                  <div style={{ height: 8, borderRadius: 6, background: 'var(--bg2)', overflow: 'hidden', marginBottom: 5 }}>
-                    <div style={{ width: `${Math.min(prod.mes.pct || 0, 100)}%`, height: '100%', borderRadius: 6,
-                      background: (prod.mes.pct || 0) >= 100 ? 'var(--ok,#16a34a)' : 'var(--tq)' }} />
-                  </div>
-                  <div style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 600 }}>
-                    {(prod.mes.pct || 0) >= 100
-                      ? `🏆 Meta batida! ${prod.mes.pct}% da sua meta de ${fmt.brl(prod.mes.meta)}`
-                      : `${prod.mes.pct || 0}% da sua meta · faltam ${fmt.brl(prod.mes.falta)}`}
-                  </div>
-                </>
-              )}
+              {/* 🎯 Meta individual — em R$ ou em CONSULTAS, conforme o cadastro
+                  dela. Quem é cobrada por consulta vê a do DIA (que é como a
+                  meta foi combinada) e o acumulado do mês logo abaixo. */}
+              {prod.metaInd && (() => {
+                const m = prod.metaInd;
+                const porConsulta = m.tipo === 'consultas';
+                const pct = porConsulta ? m.pct_dia : m.pct_mes;
+                const barra = Math.min(pct || 0, 100);
+                return (
+                  <>
+                    <div style={{ height: 8, borderRadius: 6, background: 'var(--bg2)', overflow: 'hidden', marginBottom: 5, marginTop: 4 }}>
+                      <div style={{ width: `${barra}%`, height: '100%', borderRadius: 6,
+                        background: (pct || 0) >= 100 ? 'var(--ok,#16a34a)' : 'var(--tq)' }} />
+                    </div>
+                    <div style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 600, lineHeight: 1.5 }}>
+                      {porConsulta ? (
+                        (m.pct_dia || 0) >= 100
+                          ? <>🏆 Meta do dia batida! {m.feito_dia} de {m.alvo_dia} consultas</>
+                          : <>{m.feito_dia} de {m.alvo_dia} consultas hoje · faltam <b>{m.falta_dia}</b></>
+                      ) : (
+                        (m.pct_mes || 0) >= 100
+                          ? <>🏆 Meta batida! {m.pct_mes}% de {fmt.brl(m.alvo_mes)}</>
+                          : <>{m.pct_mes || 0}% da sua meta · faltam {fmt.brl(m.falta_mes)}</>
+                      )}
+                      {porConsulta && (
+                        <div style={{ marginTop: 3 }}>
+                          No mês: {m.feito_mes} de {m.alvo_mes} ({m.pct_mes || 0}%)
+                        </div>
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           )}
 
