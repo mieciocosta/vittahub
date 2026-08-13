@@ -413,6 +413,18 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
           </div>
         )}
 
+        {/* 👥 ENTRAR COMO — antes era só um ícone de 13px perdido na fileira de
+            botõezinhos, e o master não achava. Agora é uma faixa com legenda,
+            logo abaixo do nome. Só o dono enxerga. */}
+        {podeTrocar && !collapsed && (
+          <button onClick={abrirTroca}
+            style={{ width:'100%', marginTop:8, padding:'8px 10px', borderRadius:10, cursor:'pointer',
+              border:'1px solid rgba(255,255,255,.28)', background:'rgba(255,255,255,.13)', color:'#fff',
+              fontWeight:800, fontSize:12, display:'flex', alignItems:'center', justifyContent:'center', gap:7 }}>
+            <Users size={14} /> {trocaOpen ? 'Fechar' : 'Entrar como…'}
+          </button>
+        )}
+
       </div>
 
       {/* 🏥 Ponte pro Vittasys — fica logo abaixo do Chat, no topo do menu */}
