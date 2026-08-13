@@ -791,12 +791,21 @@ function detectarSetor(texto) {
      mas sabe o que é "fono" e "ABA" — sem isso ela marca "Vacinas" por ser a
      única palavra que entendeu, e a triagem nasce errada.
    · A numeração 1-4 é intocável: é ela que o detectarSetor lê pra rotear. */
-const MENU_TITULO = `Oi! Que bom falar com você 😊
+// Bom dia / Boa tarde / Boa noite pela hora de São Luís (UTC-3). Sempre pelo
+// fuso da clínica: o servidor roda em UTC e às 21h daqui já seria "amanhã" lá.
+export function saudacaoDoTurno() {
+  const h = parseInt(new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: 'numeric', hour12: false }), 10);
+  return h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite';
+}
+
+const MENU_TITULO = () => `${saudacaoDoTurno()}! Que bom falar com você 😊
 Aqui é da *Vittalis Saúde* 💙
 
 A gente cuida da sua família em três frentes:`;
 
-const MENU_TRIAGEM = `${MENU_TITULO}
+// Função (não constante): a saudação muda ao longo do dia, e um texto fixo
+// montado no boot cumprimentaria "Bom dia" às 20h.
+const MENU_TRIAGEM = () => `${MENU_TITULO()}
 
 1️⃣ 💉 *Vacinas* — infantil e adulto, na clínica ou em casa
 2️⃣ 🩺 *Consultas* — pediatria, neuropediatria e outras especialidades
@@ -810,9 +819,10 @@ Qual delas te trouxe aqui hoje? É só responder com o número ou o nome 😊`;
 // a entrega de forma assíncrona, e o cliente nunca recebe o menu. Texto sempre
 // chega, e o detectarSetor já entende resposta por número ou por palavra.)
 async function enviarMenuTriagem(phoneNum) {
-  if (!zapiOk()) return MENU_TRIAGEM;
-  await zapiCall('/send-text', 'POST', { phone: `55${phoneNum}`, message: MENU_TRIAGEM });
-  return MENU_TRIAGEM;
+  const texto = MENU_TRIAGEM();
+  if (!zapiOk()) return texto;
+  await zapiCall('/send-text', 'POST', { phone: `55${phoneNum}`, message: texto });
+  return texto;
 }
 
 // Rodízio: pega a próxima atendente ativa do setor (contador em configuracoes)
@@ -1199,8 +1209,7 @@ async function triagemSetor(conv, texto, phoneNum) {
   if (mc) socketEmit('new_message', { convId: conv.id, message: mc, conv });
 
   // Saudação por turno + apresentação da atendente sorteada (espec da gestão)
-  const h = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: 'numeric', hour12: false });
-  const saud = parseInt(h) < 12 ? 'Bom dia' : parseInt(h) < 18 ? 'Boa tarde' : 'Boa noite';
+  const saud = saudacaoDoTurno();
   const nomeAt = atendente ? atendente.nome.split(' ')[0] : null;
   const confirma = nomeAt
     ? `${saud}! 😊\n\nEu me chamo *${nomeAt}*.\nÉ um prazer receber você na Vittalis Saúde. 💎\n\nPara que eu possa oferecer um atendimento personalizado e com toda atenção que você merece, poderia me informar seu nome, por gentileza?`
