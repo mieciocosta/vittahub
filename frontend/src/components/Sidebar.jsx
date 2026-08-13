@@ -6,7 +6,7 @@ import {
   CalendarClock, CalendarDays, Bell, CheckCheck, UserPlus, Shield,
   Gift, Bot, Image, FileText, Smile, Phone, Star, Database, Stethoscope, Target,
   Trophy, GraduationCap, Rocket, Wallet, Palette, Gamepad2, BookOpen, LayoutGrid, Pencil, Flame,
-  BellRing, Syringe, ExternalLink, ClipboardList,
+  BellRing, Syringe, ExternalLink, ClipboardList, FileSignature,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useApi } from '../context/AuthContext.jsx';
@@ -30,6 +30,8 @@ const SETORES_MENU = [
 const NAV = [
   { to:'/',           icon:LayoutDashboard, label:'Resumo', cor:'#38bdf8' },
   { to:'/agenda?aba=relatorio', icon:ClipboardList, label:'Relatório do Dia', cor:'#0ea5e9', destaque:true },
+  // Atalho de cada uma pro relatório DELA — no topo, porque é rotina de fim de dia.
+  { to:'/agenda?aba=relatorio&individual=1', icon:FileSignature, label:'Meu Relatório', cor:'#f59e0b', destaque:true },
   { to:'/metas',      icon:Target,          label:'Metas', gestao:true, destaque:true, cor:'#e879f9' },
   { to:'/inbox',      icon:MessageSquare,   label:'Chat',     unread:true, cor:'#25D366' },
   { to:'/agenda',     icon:CalendarDays,    label:'Agenda', cor:'#f59e0b' },
