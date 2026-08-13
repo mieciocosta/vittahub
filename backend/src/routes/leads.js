@@ -332,7 +332,7 @@ r.post('/', async (req, res) => {
 // ─── UPDATE ────────────────────────────────────────────────────────────────────
 r.put('/:id', async (req, res) => {
   try {
-    const { nome, telefone, email, origem, interesse, status, responsavel_id, valor_proposta, servico, data_retorno, observacoes, motivo_perda, tags, nascimento, endereco, bairro, responsavel_cliente } = normBody(req.body);
+    const { nome, telefone, email, origem, interesse, status, responsavel_id, valor_proposta, servico, data_retorno, observacoes, motivo_perda, tags, nascimento, endereco, bairro, responsavel_cliente, filhos } = normBody(req.body);
     const valor = req.user.role === 'master' && valor_proposta !== undefined ? parseFloat(valor_proposta) || 0 : undefined;
 
     const updates = [];
@@ -348,6 +348,8 @@ r.put('/:id', async (req, res) => {
     set('servico', servico);
     set('data_retorno', data_retorno || null); set('observacoes', observacoes);
     set('motivo_perda', motivo_perda); set('tags', tags);
+    // Outros filhos da família — editável direto na faixa de classificação
+    set('filhos', filhos);
     if (valor !== undefined) set('valor_proposta', valor);
 
     if (!updates.length) return res.status(400).json({ error: 'Nada para atualizar' });
