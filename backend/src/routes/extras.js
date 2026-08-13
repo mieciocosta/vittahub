@@ -2017,9 +2017,11 @@ r.get('/relatorio-lider', async (req, res) => {
     const mes = dia.slice(0, 7);
     // Atendente do relatório: a pedida (gestão) ou a própria pessoa logada
     const alvoId = (gestao(req) && req.query.usuario_id) ? req.query.usuario_id : req.user.id;
-    const { rows: [u] } = await query('SELECT id, nome, setor, meta_individual, lider FROM usuarios WHERE id = $1', [alvoId]);
+    const { rows: [u] } = await query('SELECT id, nome, setor, setores, meta_individual, lider FROM usuarios WHERE id = $1', [alvoId]);
     if (!u) return res.status(404).json({ error: 'Usuário não encontrado.' });
     const setor = u.setor || 'vacinas';
+    // Híbrida atende mais de um setor — o relatório dela precisa enxergar todos.
+    const setoresPessoa = (Array.isArray(u.setores) && u.setores.length) ? u.setores : [setor];
 
     const [{ rows: cfgMetas }, cfg] = await Promise.all([
       query("SELECT valor FROM configuracoes WHERE chave = 'metas'"),
@@ -2057,7 +2059,12 @@ r.get('/relatorio-lider', async (req, res) => {
       const anos = (Date.now() - new Date(nasc).getTime()) / (365.25 * 86400000);
       return anos < 12;
     };
-    const lista = (cfg.categorias?.length ? cfg.categorias : CATS_RELATORIO);
+    /* As metas de foco são POR SETOR: "2 Planos Vacinais por dia" faz sentido pra
+       vacinas, não pra quem atende terapia. Categoria sem setor definido vale
+       pra todo mundo; com setor, só aparece pra quem trabalha nele (a híbrida vê
+       as dos três). Antes, todas recebiam as de vacina — inclusive consultas. */
+    const lista = (cfg.categorias?.length ? cfg.categorias : CATS_RELATORIO)
+      .filter(c => !c.setor || setoresPessoa.includes(c.setor));
     const categorias = lista.map(c => {
       const realizado = vendasDiaQ.rows.filter(vd => {
         if (!(c.categorias || []).includes(vd.categoria)) return false;
@@ -2257,6 +2264,11 @@ r.get('/agenda/relatorio-dia', async (req, res) => {
     };
 
     const faturado = vendasQ.rows.reduce((sm, v) => sm + Number(v.confirmado || 0), 0);
+    /* 🔒 Valores e produção NOMINAL das colegas são da gestão (pedido do master).
+       A atendente vê o movimento do dia — quantos vieram, quantos faltaram, taxa
+       de comparecimento — e a SUA linha de produtividade. O faturamento da casa
+       e o de cada colega ficam de fora. */
+    const ehGestor = gestao(req);
     res.json({
       data: dia, eventos,
       resumo: {
@@ -2265,11 +2277,15 @@ r.get('/agenda/relatorio-dia', async (req, res) => {
         faltas: faltou, cancelados: st('Cancelado'), reagendados: st('Reagendado'),
         taxa_comparecimento: base ? +((compareceu / base) * 100).toFixed(0) : null,
         taxa_falta: base ? +((faltou / base) * 100).toFixed(0) : null,
-        previsto: ativos.reduce((sm, e) => sm + Number(e.valor || 0), 0),
-        faturado, doses_aplicadas: dosesQ.rows[0]?.n || 0,
-        ticket_medio: compareceu ? +(faturado / compareceu).toFixed(2) : 0,
+        doses_aplicadas: dosesQ.rows[0]?.n || 0,
+        ...(ehGestor ? {
+          previsto: ativos.reduce((sm, e) => sm + Number(e.valor || 0), 0),
+          faturado,
+          ticket_medio: compareceu ? +(faturado / compareceu).toFixed(2) : 0,
+        } : {}),
       },
-      produtividade, por_setor: agrupa('setor'), por_profissional: agrupa('profissional'),
+      produtividade: ehGestor ? produtividade : produtividade.filter(p => p.nome === req.user.nome),
+      por_setor: agrupa('setor'), por_profissional: agrupa('profissional'),
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
