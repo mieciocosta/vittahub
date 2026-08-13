@@ -2704,45 +2704,120 @@ r.post('/vacinas/solicitar-pdf', async (req, res) => {
       ? new Date(d + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit' })
       : 'Sem data definida';
 
-    const blocos = Object.keys(porDia).sort().map(d => {
+    const diasOrdenados = Object.keys(porDia).sort();
+    const totalDoses = Object.values(totais).reduce((n, q) => n + q, 0);
+    const maiorTotal = Math.max(...Object.values(totais), 1);
+
+    const blocos = diasOrdenados.map(d => {
       const itens = porDia[d];
       const doses = itens.reduce((n, i) => n + i.qtd, 0);
-      return `<h3>${esc(dataBR(d))} <small>${itens.length} atendimento(s) · ${doses} dose(s)</small></h3>
-        <table><thead><tr><th style="width:70px">Hora</th><th>Paciente</th><th>Vacina</th>
-          <th style="width:55px;text-align:center">Doses</th><th style="width:90px">Lote</th></tr></thead>
-        <tbody>${itens.map(i => `<tr><td>${esc(i.hora || '—')}</td><td>${esc(i.paciente)}</td>
-          <td>${esc(i.vacina)}</td><td style="text-align:center"><b>${i.qtd}</b></td><td></td></tr>`).join('')}</tbody></table>`;
+      const [semana, ...resto] = dataBR(d).split(', ');
+      // Só a 1ª letra em maiúscula: o capitalize do CSS escreve "sexta-Feira",
+      // porque ele capitaliza depois do hífen também.
+      const semanaFmt = semana ? semana[0].toUpperCase() + semana.slice(1) : '';
+      return `<section class="dia">
+        <div class="dia-cab">
+          <div class="dia-data"><span class="dia-num">${esc(resto.join(', ') || semanaFmt)}</span><span class="dia-sem">${esc(resto.length ? semanaFmt : '')}</span></div>
+          <div class="chips"><span class="chip">${itens.length} atendimento${itens.length > 1 ? 's' : ''}</span><span class="chip chip-forte">${doses} dose${doses > 1 ? 's' : ''}</span></div>
+        </div>
+        <table>
+          <thead><tr><th style="width:58px">Hora</th><th>Paciente</th><th>Vacina</th>
+            <th style="width:52px;text-align:center">Doses</th><th style="width:96px">Lote</th></tr></thead>
+          <tbody>${itens.map(i => `<tr>
+            <td class="hora">${esc(i.hora || '—')}</td>
+            <td class="nome">${esc(i.paciente)}</td>
+            <td>${esc(i.vacina)}</td>
+            <td class="qtd">${i.qtd}</td>
+            <td class="lote"></td></tr>`).join('')}</tbody>
+        </table>
+      </section>`;
     }).join('');
 
-    const linhasTotais = Object.entries(totais).sort((a, b) => b[1] - a[1])
-      .map(([v, q]) => `<tr><td>${esc(v)}</td><td style="text-align:center"><b>${q}</b></td></tr>`).join('');
-    const totalDoses = Object.values(totais).reduce((n, q) => n + q, 0);
+    const linhasTotais = Object.entries(totais).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([v, q]) => `<tr>
+        <td class="tv">${esc(v)}</td>
+        <td class="tb"><span class="barra" style="width:${Math.round((q / maiorTotal) * 100)}%"></span></td>
+        <td class="tq">${q}</td></tr>`).join('');
 
-    const html = `<!doctype html><html><head><meta charset="utf-8"><style>
-      *{box-sizing:border-box} body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:0;padding:26px 28px}
-      h1{color:#0E8C96;margin:0 0 3px;font-size:22px}
-      .sub{color:#555;font-size:12px;margin-bottom:16px}
-      h3{margin:16px 0 6px;color:#0f172a;font-size:14px;text-transform:capitalize;
-         border-bottom:2px solid #0E8C96;padding-bottom:3px}
-      h3 small{font-weight:400;color:#64748b;font-size:11.5px;text-transform:none}
-      table{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:4px}
-      th,td{border:1px solid #dbe3e6;padding:5px 7px;text-align:left}
-      th{background:#f0fdf9;color:#0E8C96;font-size:11.5px}
-      .tot{margin-top:22px;page-break-inside:avoid}
-      .tot h2{color:#0E8C96;font-size:15px;margin:0 0 7px}
-      .tot table{width:60%}
-      .assin{margin-top:34px;display:flex;gap:40px;page-break-inside:avoid}
-      .assin div{flex:1;border-top:1px solid #999;padding-top:5px;font-size:11px;color:#555;text-align:center}
-      .rod{margin-top:26px;font-size:10.5px;color:#888;text-align:center}
+    const agora = new Date(Date.now() - 3 * 3600 * 1000);
+    const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><style>
+      @page{size:A4;margin:0}
+      *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+      body{font-family:'Segoe UI',Helvetica,Arial,sans-serif;color:#0f172a;margin:0;font-size:12px}
+      .pag{padding:0 34px 34px}
+
+      /* Cabeçalho de marca — a faixa sangra até a borda da folha */
+      .topo{background:linear-gradient(120deg,#0E8C96 0%,#12a9ab 55%,#3fc9b8 100%);
+            color:#fff;padding:26px 34px 22px;margin-bottom:22px}
+      .marca{font-size:10.5px;letter-spacing:2.4px;text-transform:uppercase;opacity:.85;font-weight:600}
+      .topo h1{margin:5px 0 0;font-size:25px;font-weight:800;letter-spacing:-.4px}
+      .topo .meta{margin-top:7px;font-size:11px;opacity:.9}
+
+      /* Resumo em três números — a leitura de 3 segundos */
+      .kpis{display:flex;gap:11px;margin:-40px 0 24px}
+      .kpi{flex:1;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px;
+           box-shadow:0 2px 8px rgba(14,140,150,.09)}
+      .kpi b{display:block;font-size:23px;color:#0E8C96;line-height:1.1;font-weight:800}
+      .kpi span{font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.7px;font-weight:700}
+
+      /* Um cartão por dia — nunca partido entre duas páginas */
+      .dia{margin-bottom:17px;page-break-inside:avoid;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden}
+      .dia-cab{display:flex;align-items:center;justify-content:space-between;
+               background:#E6F7F8;padding:9px 14px;border-bottom:1px solid #cfeaec}
+      .dia-num{font-weight:800;font-size:13.5px;color:#0a6b73}
+      .dia-sem{font-size:11px;color:#4d8d92;margin-left:7px}
+      .chip{display:inline-block;background:#fff;color:#0a6b73;border:1px solid #b7e0e3;
+            border-radius:20px;padding:2px 10px;font-size:10px;font-weight:700;margin-left:5px}
+      .chip-forte{background:#0E8C96;color:#fff;border-color:#0E8C96}
+
+      table{width:100%;border-collapse:collapse;font-size:11.5px}
+      th{background:#fafcfc;color:#5b7276;font-size:9.5px;text-transform:uppercase;letter-spacing:.6px;
+         font-weight:700;padding:7px 12px;text-align:left;border-bottom:1px solid #e2e8f0}
+      td{padding:7px 12px;border-bottom:1px solid #f1f5f9}
+      tbody tr:nth-child(even) td{background:#fcfdfd}
+      tbody tr:last-child td{border-bottom:none}
+      .hora{color:#64748b;font-variant-numeric:tabular-nums}
+      .nome{font-weight:600}
+      .qtd{text-align:center;font-weight:800;color:#0E8C96}
+      .lote{border-bottom:1px solid #f1f5f9;background:#fffdf5}
+
+      /* Total por vacina — é o pedido que vai pro fornecedor */
+      .tot{page-break-inside:avoid;margin-top:22px;border:1.5px solid #0E8C96;border-radius:12px;overflow:hidden}
+      .tot-cab{background:#0E8C96;color:#fff;padding:9px 14px;font-weight:800;font-size:13px;
+               display:flex;justify-content:space-between;align-items:center}
+      .tot-cab span{font-size:11px;font-weight:600;opacity:.9}
+      .tot td{padding:6px 14px}
+      .tv{font-weight:600;width:46%}
+      .tb{width:38%}
+      .barra{display:block;height:8px;border-radius:5px;background:linear-gradient(90deg,#0E8C96,#3fc9b8);min-width:6px}
+      .tq{text-align:right;font-weight:800;color:#0a6b73;font-size:13px;width:16%}
+
+      .assin{margin-top:36px;display:flex;gap:46px;page-break-inside:avoid}
+      .assin div{flex:1;border-top:1.5px solid #cbd5e1;padding-top:6px;font-size:10.5px;
+                 color:#64748b;text-align:center;font-weight:600}
+      .rod{margin-top:22px;padding-top:11px;border-top:1px solid #eef2f4;
+           font-size:9.5px;color:#94a3b8;text-align:center;letter-spacing:.3px}
+      .vazio{padding:26px;text-align:center;color:#64748b;border:1px dashed #cbd5e1;border-radius:12px}
     </style></head><body>
-      <h1>Solicitação de Vacinas — Vittalis Saúde</h1>
-      <div class="sub">Gerada a partir da agenda · ${new Date(Date.now() - 3 * 3600 * 1000).toLocaleString('pt-BR')} · por ${esc(req.user?.nome || '—')}</div>
-      ${blocos || '<p><b>Nenhum atendimento de vacina na agenda deste período.</b></p>'}
-      ${linhasTotais ? `<div class="tot"><h2>📦 Total por vacina (${totalDoses} doses)</h2>
-        <table><thead><tr><th>Vacina</th><th style="width:70px;text-align:center">Doses</th></tr></thead>
-        <tbody>${linhasTotais}</tbody></table></div>` : ''}
-      <div class="assin"><div>Solicitado por</div><div>Conferido/Separado por</div></div>
-      <div class="rod">VittaHub CRM · Vittalis Saúde — São Luís/MA</div>
+      <div class="topo">
+        <div class="marca">Vittalis Saúde · São Luís / MA</div>
+        <h1>Solicitação de Vacinas</h1>
+        <div class="meta">Gerada a partir da agenda · ${esc(agora.toLocaleString('pt-BR'))} · por ${esc(req.user?.nome || '—')}</div>
+      </div>
+      <div class="pag">
+        <div class="kpis">
+          <div class="kpi"><b>${rows.length}</b><span>Atendimentos</span></div>
+          <div class="kpi"><b>${totalDoses}</b><span>Doses</span></div>
+          <div class="kpi"><b>${Object.keys(totais).length}</b><span>Vacinas diferentes</span></div>
+        </div>
+        ${blocos || '<div class="vazio"><b>Nenhum atendimento de vacina na agenda deste período.</b></div>'}
+        ${linhasTotais ? `<div class="tot">
+          <div class="tot-cab">Total por vacina <span>${totalDoses} doses no período</span></div>
+          <table><tbody>${linhasTotais}</tbody></table>
+        </div>` : ''}
+        <div class="assin"><div>Solicitado por</div><div>Conferido / Separado por</div></div>
+        <div class="rod">VittaHub CRM · Vittalis Saúde — documento gerado automaticamente a partir da agenda</div>
+      </div>
     </body></html>`;
 
     const pdf = await htmlParaPDF(html);
