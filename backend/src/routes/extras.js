@@ -2673,6 +2673,80 @@ export async function gerarSolicitacoesDaAgenda({ dias = 30, atras = 7, usuario 
   };
 }
 
+/* 👛 MINHA CARTEIRA — o ano inteiro da atendente numa tela ──────────────────
+   Cada mês traz quem FECHOU com ela e se esse cliente já foi retomado no mês
+   corrente. É a diferença entre "vendi" e "mantive": cliente de plano vacinal
+   e pacote mensal precisa voltar todo mês, e sem esta visão ninguém percebe
+   quem sumiu. A atendente vê a carteira dela; a gestão vê a de qualquer uma. */
+r.get('/carteira/anual', async (req, res) => {
+  try {
+    const ano = /^\d{4}$/.test(req.query.ano || '') ? req.query.ano
+      : String(new Date(Date.now() - 3 * 3600 * 1000).getFullYear());
+    const alvoId = (gestao(req) && req.query.usuario_id) ? String(req.query.usuario_id) : req.user.id;
+    const { rows: [u] } = await query('SELECT id, nome FROM usuarios WHERE id = $1', [alvoId]);
+    if (!u) return res.status(404).json({ error: 'Usuário não encontrado' });
+
+    const mesAtual = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 7);
+    const PAGO = "status_pagamento IN ('pago','cortesia')";
+
+    // Uma linha por cliente/mês de fechamento. DISTINCT ON evita repetir quem
+    // comprou duas vezes no mesmo mês — a carteira é de PESSOAS, não de vendas.
+    const { rows: vendas } = await query(`
+      SELECT DISTINCT ON (to_char(v.data_venda,'YYYY-MM'), COALESCE(v.conversa_id, v.cliente_nome))
+             to_char(v.data_venda,'YYYY-MM') mes,
+             v.conversa_id, v.lead_id, v.cliente_nome, v.paciente_nome, v.servico, v.categoria,
+             v.valor::float valor, TO_CHAR(v.data_venda,'YYYY-MM-DD') data_venda,
+             c.contact_name, c.phone
+        FROM vendas v
+        LEFT JOIN conversas c ON c.id = v.conversa_id
+       WHERE v.atendente_id = $1 AND ${PAGO}
+         AND to_char(v.data_venda,'YYYY') = $2
+       ORDER BY to_char(v.data_venda,'YYYY-MM'),
+                COALESCE(v.conversa_id, v.cliente_nome), v.data_venda DESC`, [alvoId, ano]);
+
+    // Quem já foi retomado NESTE mês (o check da Fidelidade é a fonte da verdade)
+    const { rows: checks } = await query(
+      `SELECT conversa_id FROM fidelidade_checks WHERE mes = $1 AND feito = true`, [mesAtual])
+      .catch(() => ({ rows: [] }));
+    const retomados = new Set(checks.map(c => String(c.conversa_id)));
+
+    const NOMES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+    const meses = NOMES.map((nome, i) => {
+      const ref = `${ano}-${String(i + 1).padStart(2, '0')}`;
+      const doMes = vendas.filter(v => v.mes === ref).map(v => ({
+        conversa_id: v.conversa_id, lead_id: v.lead_id,
+        nome: v.paciente_nome || v.cliente_nome || v.contact_name || 'Cliente',
+        responsavel_nome: v.contact_name && v.paciente_nome && v.contact_name !== v.paciente_nome ? v.contact_name : null,
+        telefone: v.phone, servico: v.servico, categoria: v.categoria,
+        valor: v.valor || 0, data_venda: v.data_venda,
+        // "Recorrente" = plano/pacote: é quem TEM que voltar todo mês
+        recorrente: /plano|fidelidade|pacote|mensal/i.test(`${v.categoria || ''} ${v.servico || ''}`),
+        retomado_no_mes: v.conversa_id ? retomados.has(String(v.conversa_id)) : false,
+      }));
+      return {
+        ref, nome, n: doMes.length,
+        valor: +doMes.reduce((s, c) => s + c.valor, 0).toFixed(2),
+        recorrentes: doMes.filter(c => c.recorrente).length,
+        clientes: doMes,
+      };
+    });
+
+    const todos = meses.flatMap(m => m.clientes);
+    const recorrentes = todos.filter(c => c.recorrente);
+    res.json({
+      ano, usuario: { id: u.id, nome: u.nome }, mes_atual: mesAtual, meses,
+      resumo: {
+        clientes: todos.length,
+        valor: +todos.reduce((s, c) => s + c.valor, 0).toFixed(2),
+        recorrentes: recorrentes.length,
+        // O número que importa: recorrentes que ainda NÃO voltaram este mês
+        a_retomar: recorrentes.filter(c => !c.retomado_no_mes).length,
+        melhor_mes: meses.reduce((a, b) => (b.n > a.n ? b : a), meses[0])?.nome || null,
+      },
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 /* 📄 SOLICITAR VACINAS → PDF PRONTO ──────────────────────────────────────────
    Um clique só faz o serviço inteiro: garante que a agenda virou solicitação e
    devolve o PDF assinável pra levar ao fornecedor/estoque. O PDF sai do

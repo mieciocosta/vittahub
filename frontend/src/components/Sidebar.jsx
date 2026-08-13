@@ -39,6 +39,7 @@ const NAV = [
   { to:'/retornos',   icon:Bell,            label:'Follow-up',  retornos:true, cor:'#fb7185' },
   { to:'/recuperacao',icon:Flame,           label:'Recuperação', cor:'#f97316' },
   { to:'/leads',      icon:Users,           label:'Clientes', cor:'#a78bfa' },
+  { to:'/minha-carteira', icon:Wallet,     label:'Minha Carteira', cor:'#2dd4bf' },
   { to:'/lembretes',  icon:BellRing,        label:'Lembretes', cor:'#facc15' },
   { to:'/caixa',      icon:Wallet,          label:'Caixa', cor:'#34d399' },
   { to:'/relatorios', icon:BarChart2,       label:'Relatórios', cor:'#60a5fa' },

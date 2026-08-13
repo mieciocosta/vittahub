@@ -5530,6 +5530,52 @@ r.post('/fidelidade/check', async (req, res) => {
 });
 
 /* ═══ 📇 FICHA COMPLETA DO CLIENTE (perfil + histórico de serviços) ═════════ */
+/* 📝 BLOCO DE NOTAS DO CLIENTE ───────────────────────────────────────────────
+   O que se descobre numa ligação ("o pai paga, a mãe decide", "vai viajar em
+   janeiro", "não quer injeção no mesmo dia") vira histórico com autor e data.
+   Guardar isso num campo único seria pior que não guardar: a próxima pessoa
+   apagaria a anotação da anterior sem perceber. */
+r.get('/conversations/:id/notas', async (req, res) => {
+  try {
+    const { rows: [conv] } = await query('SELECT id, lead_id FROM conversas WHERE id = $1', [req.params.id]);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso.' });
+    const { rows } = await query(
+      `SELECT id, texto, tipo, autor_id, autor_nome, created_at FROM cliente_notas
+        WHERE conversa_id = $1 OR (lead_id IS NOT NULL AND lead_id = $2)
+        ORDER BY created_at DESC LIMIT 200`, [req.params.id, conv.lead_id || null]);
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.post('/conversations/:id/notas', async (req, res) => {
+  try {
+    const texto = String(req.body?.texto || '').trim().slice(0, 4000);
+    if (!texto) return res.status(400).json({ error: 'Escreva a anotação.' });
+    const tipo = ['nota', 'ligacao', 'visita', 'importante'].includes(req.body?.tipo) ? req.body.tipo : 'nota';
+    const { rows: [conv] } = await query('SELECT id, lead_id FROM conversas WHERE id = $1', [req.params.id]);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso.' });
+    const { rows: [n] } = await query(
+      `INSERT INTO cliente_notas (conversa_id, lead_id, texto, tipo, autor_id, autor_nome)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [conv.id, conv.lead_id || null, texto, tipo, req.user.id, req.user.nome]);
+    res.status(201).json(n);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Apaga a própria anotação (gestão apaga qualquer uma) — anotação de outra
+// pessoa é registro dela, não se mexe.
+r.delete('/notas/:id', async (req, res) => {
+  try {
+    const cond = ehGestao(req.user) ? '' : ' AND autor_id = $2';
+    const params = ehGestao(req.user) ? [parseInt(req.params.id)] : [parseInt(req.params.id), req.user.id];
+    const { rowCount } = await query(`DELETE FROM cliente_notas WHERE id = $1${cond}`, params);
+    if (!rowCount) return res.status(403).json({ error: 'Só quem escreveu (ou a gestão) pode apagar.' });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.get('/conversations/:id/ficha', async (req, res) => {
   try {
     const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
