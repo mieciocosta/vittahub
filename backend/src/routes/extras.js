@@ -105,7 +105,71 @@ r.get('/agenda/meta', async (req, res) => {
       total: { feitos: totFeitos, alvo: totAlvo, falta: Math.max(totAlvo - totFeitos, 0), pct: totAlvo ? +((totFeitos / totAlvo) * 100).toFixed(1) : null },
       // compat: campos antigos (total geral)
       feitos: totFeitos, alvo: totAlvo, pct: totAlvo ? +((totFeitos / totAlvo) * 100).toFixed(1) : null,
-      porAtendente: porResp.rows,
+      /* Placar nominal da equipe é da GESTÃO (pedido do master). A atendente vê
+         a meta do SETOR (que é de todas) e a SUA própria linha — nunca o número
+         das colegas. Expor produção alheia vira comparação e fofoca de corredor. */
+      porAtendente: gestao(req) ? porResp.rows
+        : porResp.rows.filter(x => x.nome === req.user.nome),
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* 📊 MINHA PRODUÇÃO — o que EU fiz hoje e no mês ────────────────────────────
+   Cada uma acompanha o próprio resultado sem ver o das colegas (pedido do
+   master). A gestão pode olhar a de qualquer uma passando ?usuario_id=.
+   Números pessoais: agendamentos marcados, vendas fechadas, valor confirmado e
+   o quanto falta pra meta individual. */
+r.get('/minha-producao', async (req, res) => {
+  try {
+    // Só a gestão escolhe de quem é o painel; a atendente vê sempre o dela.
+    const alvoId = (gestao(req) && req.query.usuario_id) ? String(req.query.usuario_id) : req.user.id;
+    const { rows: [u] } = await query(
+      'SELECT id, nome, cor, COALESCE(meta_individual,0)::float meta FROM usuarios WHERE id = $1', [alvoId]);
+    if (!u) return res.status(404).json({ error: 'Usuário não encontrado' });
+
+    const hoje = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);   // dia de São Luís
+    const mes = hoje.slice(0, 7);
+    const PAGO = "status_pagamento IN ('pago','cortesia')";
+
+    const [vHoje, vMes, agHoje, agMes, convHoje] = await Promise.all([
+      query(`SELECT COUNT(*)::int n, COALESCE(SUM(valor) FILTER (WHERE ${PAGO}),0)::float confirmado,
+                    COALESCE(SUM(valor) FILTER (WHERE NOT (${PAGO})),0)::float pendente
+               FROM vendas WHERE atendente_id = $1 AND data_venda = $2::date`, [alvoId, hoje]),
+      query(`SELECT COUNT(*)::int n, COALESCE(SUM(valor) FILTER (WHERE ${PAGO}),0)::float confirmado
+               FROM vendas WHERE atendente_id = $1 AND to_char(data_venda,'YYYY-MM') = $2`, [alvoId, mes]),
+      query(`SELECT COUNT(*)::int n FROM agenda_eventos
+              WHERE responsavel_id = $1 AND data = $2::date
+                AND LOWER(COALESCE(status,'')) NOT LIKE 'cancel%'`, [alvoId, hoje]),
+      query(`SELECT COUNT(*)::int n FROM agenda_eventos
+              WHERE responsavel_id = $1 AND to_char(data,'YYYY-MM') = $2
+                AND LOWER(COALESCE(status,'')) NOT LIKE 'cancel%'`, [alvoId, mes]),
+      // Atendimento de verdade: conversas DIFERENTES que ela respondeu hoje
+      query(`SELECT COUNT(DISTINCT conversa_id)::int n FROM mensagens
+              WHERE sender_id = $1 AND from_type = 'me'
+                AND created_at >= (NOW() - interval '3 hours')::date + interval '3 hours'`, [alvoId])
+        .catch(() => ({ rows: [{ n: 0 }] })),
+    ]);
+
+    const confMes = vMes.rows[0]?.confirmado || 0;
+    res.json({
+      usuario: { id: u.id, nome: u.nome, cor: u.cor },
+      hoje: {
+        data: hoje,
+        vendas: vHoje.rows[0]?.n || 0,
+        confirmado: vHoje.rows[0]?.confirmado || 0,
+        pendente: vHoje.rows[0]?.pendente || 0,
+        agendamentos: agHoje.rows[0]?.n || 0,
+        conversas: convHoje.rows[0]?.n || 0,
+      },
+      mes: {
+        ref: mes,
+        vendas: vMes.rows[0]?.n || 0,
+        confirmado: confMes,
+        agendamentos: agMes.rows[0]?.n || 0,
+        meta: u.meta,
+        falta: u.meta ? Math.max(u.meta - confMes, 0) : null,
+        pct: u.meta ? +((confMes / u.meta) * 100).toFixed(1) : null,
+      },
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

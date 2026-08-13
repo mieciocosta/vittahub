@@ -37,6 +37,7 @@ export default function Dashboard() {
 
   const [agendaHoje, setAgendaHoje] = useState([]);
   const [agMeta, setAgMeta] = useState(null);
+  const [prod, setProd] = useState(null);   // 📊 produção individual (só a própria)
   const [vendasResumo, setVendasResumo] = useState(null);
   const [atencao, setAtencao] = useState(null);
   const [metaSetor, setMetaSetor] = useState(null);
@@ -50,6 +51,7 @@ export default function Dashboard() {
     api.get('/extras/meta-setor').then(setMetaSetor).catch(() => {});
     api.get('/extras/vitta-hoje').then(setVittaHoje).catch(() => {});
     api.get('/extras/foco-hoje').then(setFoco).catch(() => {});
+    api.get('/extras/minha-producao').then(setProd).catch(() => {});
     if (['master', 'supervisor'].includes(user?.role)) api.get('/extras/comparativo-mes').then(setComp).catch(() => {});
     if (isMaster) api.get('/extras/vendas/resumo').then(setVendasResumo).catch(() => {}); // painel comercial é só do master
     const loadAt = () => api.get('/inbox/atencao-agora').then(setAtencao).catch(() => {});
@@ -548,8 +550,56 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* Ranking de agendamentos do mês — por atendente */}
-          {agMeta && (agMeta.porAtendente || []).length > 0 && (
+          {/* 📊 MINHA PRODUÇÃO — cada uma vê o SEU resultado, nunca o das colegas
+              (pedido do master). A gestão continua com o placar completo abaixo. */}
+          {prod && (
+            <div className="card" style={{ padding: '17px 19px', background: 'var(--card)' }}>
+              <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 2, display: 'flex', alignItems: 'center', gap: 8 }}>
+                📊 Minha produção de hoje
+              </div>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 12 }}>
+                {prod.usuario?.nome?.split(' ')[0]} · só você vê estes números
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 13 }}>
+                {[['Vendas', prod.hoje.vendas, 'var(--tq2)'],
+                  ['Agendamentos', prod.hoje.agendamentos, '#8b5cf6'],
+                  ['Atendimentos', prod.hoje.conversas, '#f97316']].map(([rot, val, cor]) => (
+                  <div key={rot} style={{ background: 'var(--bg)', borderRadius: 10, padding: '9px 6px', textAlign: 'center' }}>
+                    <div style={{ fontSize: 19, fontWeight: 800, color: cor, lineHeight: 1.1 }}>{val}</div>
+                    <div style={{ fontSize: 10.5, color: 'var(--muted)', fontWeight: 600, marginTop: 2 }}>{rot}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, paddingBottom: 9, marginBottom: 9, borderBottom: '1px solid var(--border)' }}>
+                <span style={{ color: 'var(--muted)', fontWeight: 600 }}>Fechado hoje</span>
+                <span style={{ fontWeight: 800, color: 'var(--ok,#16a34a)' }}>{fmt.brl(prod.hoje.confirmado)}</span>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, marginBottom: prod.mes.meta ? 9 : 0 }}>
+                <span style={{ color: 'var(--muted)', fontWeight: 600 }}>No mês</span>
+                <span style={{ fontWeight: 800 }}>{fmt.brl(prod.mes.confirmado)}</span>
+              </div>
+
+              {prod.mes.meta > 0 && (
+                <>
+                  <div style={{ height: 8, borderRadius: 6, background: 'var(--bg2)', overflow: 'hidden', marginBottom: 5 }}>
+                    <div style={{ width: `${Math.min(prod.mes.pct || 0, 100)}%`, height: '100%', borderRadius: 6,
+                      background: (prod.mes.pct || 0) >= 100 ? 'var(--ok,#16a34a)' : 'var(--tq)' }} />
+                  </div>
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 600 }}>
+                    {(prod.mes.pct || 0) >= 100
+                      ? `🏆 Meta batida! ${prod.mes.pct}% da sua meta de ${fmt.brl(prod.mes.meta)}`
+                      : `${prod.mes.pct || 0}% da sua meta · faltam ${fmt.brl(prod.mes.falta)}`}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Placar nominal da equipe — só a gestão enxerga o número das colegas */}
+          {agMeta && (agMeta.porAtendente || []).length > 1 && (
             <div className="card" style={{ padding: '17px 19px', background: 'var(--card)' }}>
               <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}>🎯 Agendamentos do mês</div>
               <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 12 }}>
