@@ -2618,18 +2618,21 @@ r.get('/vacinas/agenda', async (req, res) => {
    geração é feita AQUI, varrendo a agenda inteira da janela, não importa quem
    marcou. Roda sozinha a cada 5 min, ao abrir a tela e ao salvar/editar.
    Nunca duplica: só cria pra atendimento de vacina que não tem pedido nenhum. */
-export async function gerarSolicitacoesDaAgenda({ dias = 30, usuario = null } = {}) {
+export async function gerarSolicitacoesDaAgenda({ dias = 30, atras = 7, usuario = null } = {}) {
   const hoje = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+  /* A janela olha alguns dias PRA TRÁS também: agendamento lançado ontem (ou no
+     início da semana) ficaria fora pra sempre de uma janela que começa hoje —
+     foi assim que a agenda apareceu cheia com a solicitação zerada. */
   const { rows: pendentes } = await query(`
     SELECT a.id, a.paciente, a.servico, TO_CHAR(a.data,'YYYY-MM-DD') data, a.hora,
            a.conversa_id, a.lead_id
       FROM agenda_eventos a
-     WHERE a.data BETWEEN $1::date AND ($1::date + $2::int)
+     WHERE a.data BETWEEN ($1::date - $3::int) AND ($1::date + $2::int)
        AND COALESCE(a.setor,'vacinas') = 'vacinas'
        AND LOWER(COALESCE(a.status,'')) NOT LIKE 'cancel%'
        AND NOT EXISTS (SELECT 1 FROM solicitacoes_vacinas s
                         WHERE s.agenda_id = a.id AND s.status <> 'cancelada')
-     ORDER BY a.data, a.hora`, [hoje, dias]).catch(() => ({ rows: [] }));
+     ORDER BY a.data, a.hora`, [hoje, dias, atras]).catch(() => ({ rows: [] }));
 
   let criadas = 0;
   for (const ev of pendentes) {
@@ -2649,7 +2652,24 @@ export async function gerarSolicitacoesDaAgenda({ dias = 30, usuario = null } = 
     }
   }
   if (criadas) socketEmit('vacinas_solicitacao', { automatico: true, criadas });
-  return { atendimentos: pendentes.length, criadas };
+
+  /* Diagnóstico: quando não gera nada, o motivo tem que aparecer. "Agenda cheia
+     e solicitação vazia" quase sempre é agendamento lançado em OUTRO setor —
+     e sem este número ninguém descobre isso olhando a tela. */
+  const { rows: [d] } = await query(`
+    SELECT COUNT(*)::int total,
+           COUNT(*) FILTER (WHERE COALESCE(setor,'vacinas') = 'vacinas')::int vacinas,
+           COUNT(*) FILTER (WHERE COALESCE(setor,'vacinas') <> 'vacinas')::int outros_setores
+      FROM agenda_eventos
+     WHERE data BETWEEN ($1::date - $3::int) AND ($1::date + $2::int)
+       AND LOWER(COALESCE(status,'')) NOT LIKE 'cancel%'`, [hoje, dias, atras])
+    .catch(() => ({ rows: [{ total: 0, vacinas: 0, outros_setores: 0 }] }));
+
+  return {
+    atendimentos: pendentes.length, criadas,
+    agenda: { total: d.total, de_vacinas: d.vacinas, de_outros_setores: d.outros_setores },
+    janela: { de: `${atras} dia(s) atrás`, ate: `${dias} dia(s) à frente` },
+  };
 }
 
 // Botão manual (a varredura automática já faz isso sozinha; o botão é pra quem
@@ -2657,7 +2677,7 @@ export async function gerarSolicitacoesDaAgenda({ dias = 30, usuario = null } = 
 r.post('/vacinas/puxar-da-agenda', async (req, res) => {
   try {
     const dias = Math.max(1, Math.min(parseInt(req.body?.dias) || 30, 60));
-    const out = await gerarSolicitacoesDaAgenda({ dias, usuario: req.user });
+    const out = await gerarSolicitacoesDaAgenda({ dias, atras: 30, usuario: req.user });
     res.json({ ok: true, ...out });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

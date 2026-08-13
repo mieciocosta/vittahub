@@ -69,9 +69,17 @@ export default function SolicitacaoVacinas() {
     setPuxando(true);
     try {
       const d = await api.post('/extras/vacinas/puxar-da-agenda', { dias: 30 });
-      window.alert(d.criadas
-        ? `✅ ${d.criadas} solicitação(ões) criada(s) a partir de ${d.atendimentos} atendimento(s) da agenda.`
-        : '✅ Tudo em dia — todo atendimento de vacina da agenda já tem pedido.');
+      const ag = d.agenda || {};
+      if (d.criadas) {
+        window.alert(`✅ ${d.criadas} solicitação(ões) criada(s) a partir de ${d.atendimentos} atendimento(s) da agenda.`);
+      } else if (!ag.total) {
+        window.alert('A agenda está vazia nesta janela (30 dias pra trás e 30 pra frente). Nada a gerar.');
+      } else if (!ag.de_vacinas) {
+        // A causa nº 1 de "agenda cheia, solicitação vazia"
+        window.alert(`⚠️ A agenda tem ${ag.total} atendimento(s), mas NENHUM está no setor Vacinas — todos estão em consultas/terapias.\n\nA solicitação só nasce de atendimento de vacina. Abra o agendamento na Agenda e troque o setor para 💉 Vacinas.`);
+      } else {
+        window.alert(`✅ Tudo em dia — os ${ag.de_vacinas} atendimento(s) de vacina da agenda já têm pedido.`);
+      }
       load();
     } catch (e) { window.alert('Erro: ' + e.message); }
     setPuxando(false);
@@ -132,7 +140,10 @@ export default function SolicitacaoVacinas() {
       th,td{border:1px solid #ddd;padding:7px 9px;text-align:left}th{background:#f0fdf9;color:#0E8C96}</style></head><body>
       <h1>Solicitação de vacinas — Vittalis Saúde</h1>
       <div class="sub">Conforme a agenda · gerado em ${new Date().toLocaleString('pt-BR')}</div>
-      ${blocos || '<p>Nenhuma vacina solicitada no período.</p>'}
+      ${blocos || `<p><b>Nenhuma vacina solicitada no período.</b></p>
+        <p style="color:#555;font-size:13px;line-height:1.6">A agenda tem ${(dados?.eventos || []).length} atendimento(s) de vacina carregado(s) nesta tela.
+        Se esse número for maior que zero, feche esta janela e clique em <b>“Puxar da agenda”</b> — os pedidos são criados na hora.
+        Se for zero, os agendamentos existem mas estão em outro setor (consultas/terapias): abra cada um na Agenda e troque o setor para 💉 Vacinas.</p>`}
       <script>window.onload=()=>window.print()</script></body></html>`);
     w.document.close();
   };
