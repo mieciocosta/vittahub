@@ -2704,6 +2704,26 @@ r.get('/carteira/anual', async (req, res) => {
        ORDER BY to_char(v.data_venda,'YYYY-MM'),
                 COALESCE(v.conversa_id, v.cliente_nome), v.data_venda DESC`, [alvoId, ano]);
 
+    /* 🔁 FOLLOW-UP: quem está na carteira dela e NÃO tem venda registrada.
+       É a metade que faltava — a carteira mostrava só quem fechou, e quem não
+       fechou simplesmente sumia da vista. Aqui eles aparecem por mês de
+       entrada, com há quantos dias estão parados. */
+    const { rows: semVenda } = await query(`
+      SELECT c.id conversa_id, c.lead_id, c.contact_name, c.phone, c.setor,
+             to_char(c.created_at - interval '3 hours','YYYY-MM') mes,
+             TO_CHAR(c.last_message_at,'YYYY-MM-DD') ultima,
+             GREATEST(0, EXTRACT(DAY FROM (NOW() - c.last_message_at))::int) parado_ha,
+             l.interesse, l.status
+        FROM conversas c
+        LEFT JOIN leads l ON l.id = c.lead_id
+       WHERE c.responsavel_id = $1
+         AND to_char(c.created_at - interval '3 hours','YYYY') = $2
+         AND NOT EXISTS (SELECT 1 FROM vendas v
+                          WHERE (v.conversa_id = c.id OR (c.lead_id IS NOT NULL AND v.lead_id = c.lead_id))
+                            AND v.status_pagamento IN ('pago','cortesia'))
+       ORDER BY c.last_message_at DESC NULLS LAST
+       LIMIT 800`, [alvoId, ano]).catch(() => ({ rows: [] }));
+
     // Quem já foi retomado NESTE mês (o check da Fidelidade é a fonte da verdade)
     const { rows: checks } = await query(
       `SELECT conversa_id FROM fidelidade_checks WHERE mes = $1 AND feito = true`, [mesAtual])
@@ -2723,11 +2743,18 @@ r.get('/carteira/anual', async (req, res) => {
         recorrente: /plano|fidelidade|pacote|mensal/i.test(`${v.categoria || ''} ${v.servico || ''}`),
         retomado_no_mes: v.conversa_id ? retomados.has(String(v.conversa_id)) : false,
       }));
+      const semVendaMes = semVenda.filter(v => v.mes === ref).map(v => ({
+        conversa_id: v.conversa_id, lead_id: v.lead_id,
+        nome: v.contact_name || 'Cliente', telefone: v.phone,
+        interesse: v.interesse || v.setor, etapa: v.status,
+        ultima: v.ultima, parado_ha: v.parado_ha ?? null,
+      }));
       return {
         ref, nome, n: doMes.length,
         valor: +doMes.reduce((s, c) => s + c.valor, 0).toFixed(2),
         recorrentes: doMes.filter(c => c.recorrente).length,
         clientes: doMes,
+        followup: semVendaMes, n_followup: semVendaMes.length,
       };
     });
 
@@ -2742,6 +2769,9 @@ r.get('/carteira/anual', async (req, res) => {
         // O número que importa: recorrentes que ainda NÃO voltaram este mês
         a_retomar: recorrentes.filter(c => !c.retomado_no_mes).length,
         melhor_mes: meses.reduce((a, b) => (b.n > a.n ? b : a), meses[0])?.nome || null,
+        // Follow-up: quem ainda não comprou nada — e quantos já esfriaram
+        sem_venda: semVenda.length,
+        parados_7d: semVenda.filter(v => (v.parado_ha ?? 0) >= 7).length,
       },
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
