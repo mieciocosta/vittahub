@@ -541,6 +541,33 @@ export default function Inbox({ onUnreadChange }) {
     setFicha({ carregando: true });
     try { setFicha(await api.get(`/inbox/conversations/${sel.id}/ficha`)); }
     catch (e) { setFicha({ erro: e.message }); }
+    carregarNotas();
+  };
+
+  /* 📝 Bloco de notas do cliente: o que se descobre na ligação fica registrado
+     com autor e data, em vez de morar na cabeça de quem atendeu. */
+  const [notas, setNotas] = useState([]);
+  const [notaTxt, setNotaTxt] = useState('');
+  const [notaTipo, setNotaTipo] = useState('ligacao');
+  const [notaBusy, setNotaBusy] = useState(false);
+  const carregarNotas = async () => {
+    if (!sel?.id) return;
+    try { setNotas(await api.get(`/inbox/conversations/${sel.id}/notas`) || []); } catch { setNotas([]); }
+  };
+  const salvarNota = async () => {
+    const t = notaTxt.trim();
+    if (!t) return;
+    setNotaBusy(true);
+    try {
+      const n = await api.post(`/inbox/conversations/${sel.id}/notas`, { texto: t, tipo: notaTipo });
+      setNotas(p => [n, ...p]); setNotaTxt('');
+      Toast.show('Anotação salva 📝', 'success');
+    } catch (e) { Toast.show(e.message, 'error'); }
+    setNotaBusy(false);
+  };
+  const apagarNota = async (id) => {
+    try { await api.del(`/inbox/notas/${id}`); setNotas(p => p.filter(n => n.id !== id)); }
+    catch (e) { Toast.show(e.message, 'error'); }
   };
   const [protoAberto, setProtoAberto] = useState(true);
   const [protoBusy, setProtoBusy] = useState('');
@@ -2114,6 +2141,13 @@ export default function Inbox({ onUnreadChange }) {
                 <div style={{ fontSize:11, opacity:.9, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
                   {ficha.cliente?.paciente || ficha.cliente?.nome_conversa || sel?.contact_name || ''}
                 </div>
+                {/* Dono do cliente por extenso — antes só existia a inicial num
+                    círculo, e ninguém sabia de quem era a carteira. */}
+                <div style={{ fontSize:11, marginTop:3, display:'flex', alignItems:'center', gap:5 }}>
+                  <span style={{ background:'rgba(255,255,255,.22)', borderRadius:20, padding:'2px 9px', fontWeight:800 }}>
+                    👤 {sel?.responsavel_nome ? `Responsável: ${sel.responsavel_nome}` : 'Sem responsável definido'}
+                  </span>
+                </div>
               </div>
               {ficha.cliente && !fichaEdit && (
                 <button onClick={() => window.open('https://vittasys.vittalissaude.com.br', '_blank')}
@@ -2213,6 +2247,44 @@ export default function Inbox({ onUnreadChange }) {
                     </div>
                   ))}
                 </>)}
+
+                {/* 📝 BLOCO DE NOTAS — o que se descobre na ligação fica aqui,
+                    com quem anotou e quando. Nada some quando outra pessoa edita. */}
+                <div style={{ fontSize:10.5, fontWeight:800, color:'var(--muted)', textTransform:'uppercase', letterSpacing:.6, margin:'18px 0 7px' }}>
+                  📝 Bloco de notas {notas.length ? `(${notas.length})` : ''}
+                </div>
+                <div style={{ display:'flex', gap:6, marginBottom:7, flexWrap:'wrap' }}>
+                  {[['ligacao','📞 Ligação'],['nota','📝 Nota'],['visita','🏥 Visita'],['importante','⭐ Importante']].map(([v,l]) => (
+                    <button key={v} onClick={() => setNotaTipo(v)}
+                      style={{ padding:'4px 10px', borderRadius:8, fontSize:11, fontWeight:700, cursor:'pointer',
+                        border:`1.5px solid ${notaTipo===v?'var(--tq)':'var(--border)'}`,
+                        background:notaTipo===v?'var(--tq3)':'var(--card)', color:notaTipo===v?'var(--tq2)':'var(--muted)' }}>{l}</button>
+                  ))}
+                </div>
+                <textarea value={notaTxt} onChange={e => setNotaTxt(e.target.value)} rows={3}
+                  placeholder="Ex.: Liguei 14h. A mãe decide, o pai paga. Vai viajar em janeiro, quer retomar em fevereiro."
+                  style={{ width:'100%', padding:'9px 11px', borderRadius:10, border:'1.5px solid var(--border)', fontSize:12.5,
+                    background:'var(--card)', color:'var(--txt)', boxSizing:'border-box', resize:'vertical', fontFamily:'inherit' }} />
+                <button onClick={salvarNota} disabled={notaBusy || !notaTxt.trim()} className="btn btn-p btn-sm"
+                  style={{ marginTop:7, fontWeight:700, opacity:(notaBusy || !notaTxt.trim())?.5:1 }}>
+                  {notaBusy ? 'Salvando…' : 'Salvar anotação'}
+                </button>
+
+                <div style={{ marginTop:12, display:'flex', flexDirection:'column', gap:8 }}>
+                  {!notas.length && <div style={{ fontSize:12.5, color:'var(--muted)' }}>Nenhuma anotação ainda.</div>}
+                  {notas.map(n => (
+                    <div key={n.id} style={{ padding:'9px 11px', borderRadius:10, background:'var(--bg2)',
+                      borderLeft:`3px solid ${n.tipo==='importante'?'#eab308':n.tipo==='ligacao'?'#34d399':n.tipo==='visita'?'#8b5cf6':'var(--tq)'}` }}>
+                      <div style={{ fontSize:12.5, whiteSpace:'pre-wrap', lineHeight:1.5 }}>{n.texto}</div>
+                      <div style={{ display:'flex', alignItems:'center', gap:7, marginTop:5, fontSize:10.5, color:'var(--muted)' }}>
+                        <b>{String(n.autor_nome || '—').split(' ')[0]}</b>
+                        <span>{new Date(n.created_at).toLocaleString('pt-BR')}</span>
+                        <button onClick={() => apagarNota(n.id)} title="Apagar"
+                          style={{ marginLeft:'auto', border:'none', background:'none', color:'var(--muted)', cursor:'pointer', fontSize:11 }}>✕</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </>)}
             </div>
           </div>

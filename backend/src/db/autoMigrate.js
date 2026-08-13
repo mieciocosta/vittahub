@@ -200,6 +200,15 @@ export default async function runMigrate() {
       observacao TEXT, feito_por_id TEXT, feito_por_nome TEXT,
       feito_em TIMESTAMPTZ DEFAULT NOW(), PRIMARY KEY (conversa_id, mes))`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS idx_fidcheck_mes ON fidelidade_checks (mes)`).catch(() => {});
+    /* 📝 BLOCO DE NOTAS DO CLIENTE (pedido do master): tudo que se descobre numa
+       ligação fica registrado no perfil dele, com autor e data. É histórico, não
+       um campo único que a próxima pessoa apaga ao editar. */
+    await query(`CREATE TABLE IF NOT EXISTS cliente_notas (
+      id SERIAL PRIMARY KEY, conversa_id TEXT, lead_id TEXT,
+      texto TEXT NOT NULL, tipo TEXT DEFAULT 'nota',
+      autor_id TEXT, autor_nome TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS idx_notas_conv ON cliente_notas (conversa_id, created_at DESC)`).catch(() => {});
     // 💉 Carteira vacinal do paciente: dose de cada marco (0-18m) aplicada
     await query(`CREATE TABLE IF NOT EXISTS carteira_doses (
       id SERIAL PRIMARY KEY, conversa_id TEXT, lead_id TEXT, marco_mes INT NOT NULL,
