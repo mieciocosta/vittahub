@@ -164,6 +164,10 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
   // Quem é o dono vem DO SERVIDOR (user.dono) — o regex no nome quebrava assim
   // que o master renomeava a própria conta, e o botão sumia sem explicação.
   // O regex fica só como reserva pra sessão antiga, até o próximo login.
+  // Setores da pessoa (lista multi-setor ou o principal). Sem nenhum = vê tudo.
+  const meusSetores = (Array.isArray(user?.setores) && user.setores.length)
+    ? user.setores : [user?.setor].filter(Boolean);
+  const podeSetor = (s) => user?.role === 'master' || !meusSetores.length || meusSetores.includes(s);
   const ehDono = user?.dono === true || /mi[eé]cio/i.test(`${user?.nome || ''} ${user?.email || ''}`);
   const podeTrocar = (isMaster && ehDono) || !!localStorage.getItem('vh_token_master');
   const tokenMaster = () => localStorage.getItem('vh_token_master') || localStorage.getItem('vh_token') || '';
@@ -461,10 +465,12 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                Danielle/Suellen/Mayara o de terapias. Só o MASTER vê os dois —
                'supervisor' não serve aqui, porque Raylane e Danielle são
                supervisoras e é justamente entre elas que a separação vale. */
-            && (!n.terapias || user?.role === 'master' || user?.ve_tudo || user?.setor === 'terapias'
-                || (Array.isArray(user?.setores) && user.setores.includes('terapias')))
-            && (!n.vacinas || user?.role === 'master' || user?.ve_tudo || user?.setor === 'vacinas'
-                || (Array.isArray(user?.setores) && user.setores.includes('vacinas')))
+            /* Vale o SETOR da pessoa. Nem 'supervisor' nem 've_tudo' entram na
+               exceção: as duas coisas a Danielle tem, e é justamente ela que
+               não pode ver o plano de vacinas. Quem vê os dois é o master e
+               quem não tem setor nenhum (marketing) — aí não há o que filtrar. */
+            && (!n.terapias || podeSetor('terapias'))
+            && (!n.vacinas || podeSetor('vacinas'))
             && (!n.lider || user?.lider || user?.role === 'master')
           ).map((n) => {
             // Título de seção: só desenha o rótulo e segue (não é link)
