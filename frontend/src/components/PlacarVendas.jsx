@@ -47,7 +47,14 @@ export default function PlacarVendas() {
   const verValores = meta.mostra_valores !== false;
   const nomeSetor = meta.setor && meta.setor !== 'geral' ? meta.setor[0].toUpperCase() + meta.setor.slice(1) : 'Geral';
   const pct = Math.min(meta.pctGlobal ?? 0, 100);
-  const batida = (meta.faltaGlobal ?? 0) <= 0;
+  /* "Meta batida" precisa vir de um número que EXISTE. Quando escondi os
+     valores do setor da equipe, faltaGlobal passou a chegar null — e
+     (null ?? 0) <= 0 dava TRUE: o placar inteiro ficava verde comemorando sem
+     ninguém ter vendido nada. Pra quem não recebe valores, o que vale é a meta
+     do DIA; e o padrão de ausência agora é "não batida", nunca o contrário. */
+  const focos = Object.values(meta.focoDia || {});
+  const focoTudoOk = focos.length > 0 && focos.every(itens => itens.every(f => (f.falta ?? 1) === 0));
+  const batida = verValores ? (meta.faltaGlobal ?? 1) <= 0 : focoTudoOk;
   const nHoje = hoje?.n ?? 0;
   // Faturamento do mês = soma do confirmado dos setores do usuário
   const faturamento = (meta.porSetor && meta.porSetor.length ? meta.porSetor : [meta]).reduce((s, x) => s + (x.confirmado || 0), 0);
