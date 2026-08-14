@@ -286,16 +286,25 @@ h1 { letter-spacing: -0.7px; }
 }
 .inbox-resize-handle:hover { background: var(--tq); }
 
-/* Ícones coloridos premium da barra de mensagem */
+/* Ícones coloridos premium da barra de mensagem.
+   Maiores (42px) e com acabamento de verdade: borda na própria cor, brilho
+   suave no topo e sombra colorida. A 34px eles pareciam botõezinhos de teste —
+   e no celular era fácil errar o alvo. */
 .tb-ico-color {
-  border: 1px solid transparent !important;
-  border-radius: 10px !important;
+  width: 42px; height: 42px; padding: 0 !important;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--ic, #888) 26%, transparent) !important;
+  border-radius: 13px !important;
+  box-shadow: 0 1px 2px rgba(0,0,0,.05), inset 0 1px 0 rgba(255,255,255,.45);
   transition: transform .14s ease, box-shadow .14s ease, filter .14s ease !important;
 }
+/* O "IA responde" tem texto: largura livre, mesma altura dos demais */
+.tb-ico-color.tb-largo { width: auto; padding: 0 14px !important; }
 .tb-ico-color:hover:not(:disabled) {
   transform: translateY(-2px) scale(1.06);
-  box-shadow: 0 4px 12px color-mix(in srgb, var(--ic, #888) 38%, transparent);
-  filter: brightness(1.03);
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--ic, #888) 42%, transparent),
+              inset 0 1px 0 rgba(255,255,255,.55);
+  filter: brightness(1.04);
 }
 .tb-ico-color:active:not(:disabled) { transform: translateY(0) scale(.97); }
 
