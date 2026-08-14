@@ -18,8 +18,6 @@ const ST = {
 const fmtBR = (d) => (d ? new Date(String(d).slice(0, 10) + 'T12:00:00').toLocaleDateString('pt-BR') : '—');
 
 export default function CarteiraVacinal({ convId, onAgendar, compacto = false }) {
-  // Lista fechada por padrão quando não há nascimento (ver comentário na lista)
-  const [verTudo, setVerTudo] = useState(false);
   const api = useApi();
   const [dados, setDados] = useState(null);
   const [salvando, setSalvando] = useState(null);
@@ -224,17 +222,9 @@ export default function CarteiraVacinal({ convId, onAgendar, compacto = false })
           Sem rolagem própria: a caixa de 260px com overflow criava uma rolagem
           DENTRO de uma página que já rola, e as linhas ficavam cortadas pela
           metade na borda — parecia que uma estava em cima da outra.
-          E quando o nascimento não está cadastrado, o esquema inteiro é
-          suposição: as 12 etapas viram 32 linhas vazias sem data nenhuma. Nesse
-          caso a lista nasce fechada, atrás de um botão. */}
-      {!dados.nascimento && !verTudo ? (
-        <button onClick={() => setVerTudo(true)}
-          style={{ width: '100%', padding: '11px 14px', borderRadius: 12, cursor: 'pointer',
-            border: '1.5px dashed var(--border)', background: 'var(--bg)', color: 'var(--muted)',
-            fontSize: 12.5, fontWeight: 700 }}>
-          Ver as {dados.marcos.length} etapas do esquema (sem datas até cadastrar o nascimento)
-        </button>
-      ) : (
+          O esquema aparece SEMPRE, mesmo sem a data de nascimento: eu havia
+          escondido a lista atrás de um botão nesse caso e o master precisava
+          dela à vista de qualquer jeito — sem as datas, mas com as etapas. */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {dados.marcos.map(m => {
           const st = ST[m.status] || ST.futura;
@@ -290,7 +280,6 @@ export default function CarteiraVacinal({ convId, onAgendar, compacto = false })
           );
         })}
       </div>
-      )}
 
       {/* 📅 Modal: agendar a etapa (cria o horário E solicita as doses) */}
       {agenda && (
