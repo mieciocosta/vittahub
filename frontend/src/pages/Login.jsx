@@ -76,14 +76,36 @@ export default function Login() {
         .vh-field:focus-within { border-color:#00B8C0; box-shadow:0 0 0 3px rgba(0,184,192,.13); }
         .vh-field input { border:none; outline:none; flex:1; font-size:14.5px; background:transparent; color:#0c2a30; min-width:0; }
         .vh-field input::placeholder { color:#9fb3ba; }
+        /* Estrela respira: escala e brilho juntos, sem sumir de vez */
+        @keyframes vh-estrela {
+          0%, 100% { transform: scale(.82) rotate(0deg);   filter: brightness(.85); }
+          50%      { transform: scale(1.12) rotate(12deg); filter: brightness(1.35); }
+        }
+        @media (prefers-reduced-motion: reduce) { [style*="vh-estrela"] { animation: none !important; } }
       `}</style>
 
       {/* ── Painel esquerdo — marca, mensagem do dia ── */}
       <div className="vh-login-left" style={{ flex: '1.15 1 0', position: 'relative', overflow: 'hidden', flexDirection: 'column', justifyContent: 'space-between', padding: '46px 52px',
         background: 'linear-gradient(150deg, #00B8C0 0%, #0E8C96 55%, #07555c 100%)', color: '#fff' }}>
-        {/* brilhos + diamante watermark */}
-        <div style={{ position: 'absolute', top: 60, right: 120, width: 10, height: 10, borderRadius: '50%', background: '#fff', opacity: .8, boxShadow: '0 0 26px 8px rgba(255,255,255,.55)' }} />
-        <div style={{ position: 'absolute', top: 160, right: 50, width: 5, height: 5, borderRadius: '50%', background: '#fff', opacity: .6, boxShadow: '0 0 14px 5px rgba(255,255,255,.4)' }} />
+        {/* ✨ Estrelas no lugar dos pontos de luz (pedido do master). São SVG de
+            4 pontas, com o brilho por trás: bolinha com sombra parecia poeira na
+            tela; a estrela lê como estrela mesmo no celular. Cada uma pisca no
+            seu ritmo — o desencontro é o que dá vida ao céu. */}
+        {[
+          { top: 52,  right: 118, tam: 26, op: .95, dur: 3.4, atraso: 0 },
+          { top: 158, right: 46,  tam: 15, op: .75, dur: 4.6, atraso: .9 },
+          { top: 246, right: 150, tam: 10, op: .6,  dur: 5.2, atraso: 2.1 },
+          { top: 96,  right: 214, tam: 8,  op: .5,  dur: 4.1, atraso: 1.5 },
+          { top: 330, right: 74,  tam: 12, op: .55, dur: 3.9, atraso: 2.8 },
+        ].map((e, i) => (
+          <span key={i} aria-hidden style={{ position: 'absolute', top: e.top, right: e.right, width: e.tam, height: e.tam,
+            opacity: e.op, pointerEvents: 'none', animation: `vh-estrela ${e.dur}s ${e.atraso}s ease-in-out infinite` }}>
+            <svg viewBox="0 0 24 24" width={e.tam} height={e.tam} style={{ display: 'block', filter: `drop-shadow(0 0 ${Math.round(e.tam * .7)}px rgba(255,255,255,.75))` }}>
+              {/* 4 pontas com a cintura fina — o desenho clássico de brilho */}
+              <path d="M12 0c.6 6.4 5 10.8 12 12-7 1.2-11.4 5.6-12 12-.6-6.4-5-10.8-12-12C7 10.8 11.4 6.4 12 0z" fill="#fff" />
+            </svg>
+          </span>
+        ))}
         <img src="/logos/logo-icon-white.png" alt="" style={{ position: 'absolute', right: -110, top: '32%', width: 460, opacity: .10, pointerEvents: 'none' }} />
 
         <div style={{ position: 'relative' }}>
