@@ -593,7 +593,13 @@ r.get('/meta-setor', async (req, res) => {
        anterior ("gestão vê tudo") devolvia os três pra elas.
        Os três setores ficam pra quem realmente cuida de todos: o master e quem
        está sem setor definido (aí não dá pra adivinhar qual mostrar). */
-    const ordem = (req.user.role === 'master' || !setores.length)
+    // Marketing (ve_tudo) enxerga os três de propósito: o trabalho do José e do
+    // Carlos é comparar a conversão dos setores entre si. Antes isso funcionava
+    // só por eles estarem sem setor — bastaria alguém marcar um setor pra eles
+    // que a visão quebrava sem ninguém entender o porquê.
+    const { rows: [acesso] } = await query('SELECT ve_tudo FROM usuarios WHERE id = $1', [req.user.id]).catch(() => ({ rows: [{}] }));
+    const veTodosSetores = req.user.role === 'master' || acesso?.ve_tudo === true || !setores.length;
+    const ordem = veTodosSetores
       ? [...setores, ...['vacinas', 'consultas', 'terapias'].filter(s => !setores.includes(s))]
       : setores;
     const porSetor = [];
