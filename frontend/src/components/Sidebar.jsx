@@ -650,48 +650,72 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
           {collapsed ? <ChevronRight size={14}/> : <><ChevronLeft size={14}/><span>Recolher</span></>}
         </button>
 
-        {/* Paleta de cores — compacta: 1 linha, abre só ao clicar (não rouba espaço do menu) */}
+        {/* 🎨 Cor do CRM. O painel usa position:FIXED de propósito: a barra
+            lateral inteira tem overflow:hidden, então qualquer coisa que se
+            sobreponha a ela é cortada — era por isso que o clique parecia não
+            fazer nada. Fixed sai da barra e nada mais o corta. */}
         {!collapsed && paletaCores.length > 0 && (() => {
           const corAtual = corDia === 'auto' || corDia === 'off' ? null : paletaCores[parseInt(corDia)];
           return (
-          /* A paleta mora no RODAPÉ da barra, que não rola. Aberta pra baixo,
-             ela passava do fim da tela e ficava inalcançável — o clique parecia
-             não fazer nada. Agora abre PRA CIMA, sobreposta, como o sino. */
-          <div style={{ position:'relative', marginTop:8, borderRadius:12, background:'rgba(255,255,255,.08)', border:'1px solid rgba(255,255,255,.14)' }}>
+          <>
             <button onClick={() => setPaletaAberta(a => !a)}
-              style={{ width:'100%', display:'flex', alignItems:'center', gap:7, padding:'7px 10px', background:'none', border:'none', cursor:'pointer', color:'#fff' }}>
-              <span style={{ width:15, height:15, borderRadius:'50%', flexShrink:0, background: corAtual?.tq || 'conic-gradient(#00B8C0,#7c3aed,#f59e0b,#16a34a,#00B8C0)', border:'1.5px solid rgba(255,255,255,.5)' }} />
-              <span style={{ fontSize:11, fontWeight:800, flex:1, textAlign:'left', color:'rgba(255,255,255,.9)' }}>Cor do CRM</span>
-              <span style={{ fontSize:9, fontWeight:700, color:'rgba(255,255,255,.6)' }}>{corDia === 'auto' ? 'do dia' : (corAtual?.nome || '')}</span>
+              style={{ width:'100%', display:'flex', alignItems:'center', gap:7, padding:'8px 10px', marginTop:8,
+                borderRadius:12, background:'rgba(255,255,255,.08)', border:'1px solid rgba(255,255,255,.14)',
+                cursor:'pointer', color:'#fff' }}>
+              <span style={{ width:16, height:16, borderRadius:'50%', flexShrink:0, background: corAtual?.tq || 'conic-gradient(#00B8C0,#7c3aed,#f59e0b,#16a34a,#00B8C0)', border:'1.5px solid rgba(255,255,255,.5)' }} />
+              <span style={{ fontSize:11.5, fontWeight:800, flex:1, textAlign:'left', color:'rgba(255,255,255,.92)' }}>Cor do CRM</span>
+              <span style={{ fontSize:9.5, fontWeight:700, color:'rgba(255,255,255,.62)' }}>{corDia === 'auto' ? 'do dia' : (corAtual?.nome || '')}</span>
               {paletaAberta ? <ChevronDown size={13} color="rgba(255,255,255,.7)" /> : <ChevronRight size={13} color="rgba(255,255,255,.7)" />}
             </button>
+
             {paletaAberta && (
-              <div style={{ position:'absolute', bottom:'calc(100% + 6px)', left:0, right:0, zIndex:500,
-                padding:'11px 12px', borderRadius:13, background:'var(--card,#0f2b36)',
-                border:'1px solid rgba(255,255,255,.18)', boxShadow:'0 -10px 30px rgba(0,0,0,.35)' }}>
-                <button onClick={() => { onSetCorDia && onSetCorDia('auto'); setPaletaAberta(false); }} title="Trocar automaticamente a cada dia"
-                  style={{ fontSize:9.5, fontWeight:800, padding:'3px 9px', borderRadius:20, cursor:'pointer', marginBottom:8,
-                    border: corDia === 'auto' ? '1px solid #fff' : '1px solid rgba(255,255,255,.3)',
-                    background: corDia === 'auto' ? 'rgba(255,255,255,.9)' : 'transparent',
-                    color: corDia === 'auto' ? '#0a1622' : 'rgba(255,255,255,.85)' }}>
-                  ✨ Cor do dia (automático)
-                </button>
-                <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
-                  {paletaCores.map((c, i) => {
-                    const ativo = String(corDia) === String(i);
-                    return (
-                      <button key={i} onClick={() => { onSetCorDia && onSetCorDia(String(i)); setPaletaAberta(false); }} title={c.nome}
-                        style={{ width:20, height:20, borderRadius:'50%', cursor:'pointer', padding:0, background:c.tq,
-                          border: ativo ? '2px solid #fff' : '2px solid rgba(255,255,255,.25)',
-                          boxShadow: ativo ? '0 0 0 2px rgba(255,255,255,.35)' : 'none', transition:'transform .12s' }}
-                        onMouseEnter={e => e.currentTarget.style.transform='scale(1.15)'}
-                        onMouseLeave={e => e.currentTarget.style.transform='scale(1)'} />
-                    );
-                  })}
+              <>
+                <div onClick={() => setPaletaAberta(false)} style={{ position:'fixed', inset:0, zIndex:600 }} />
+                <div style={{ position:'fixed', left:12, bottom:16, zIndex:601, width:250, maxHeight:'70vh', overflowY:'auto',
+                  padding:14, borderRadius:16, background:'var(--card,#fff)', border:'1px solid var(--border,#e2e8f0)',
+                  boxShadow:'0 18px 44px rgba(0,0,0,.34)' }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:11 }}>
+                    <span style={{ fontSize:13, fontWeight:800, flex:1, color:'var(--txt,#0f172a)' }}>🎨 Cor do CRM</span>
+                    <button onClick={() => setPaletaAberta(false)}
+                      style={{ border:'none', background:'var(--bg2,#f1f5f9)', color:'var(--muted,#64748b)', borderRadius:8, padding:'3px 8px', cursor:'pointer', fontSize:12, fontWeight:800 }}>✕</button>
+                  </div>
+
+                  <button onClick={() => { onSetCorDia && onSetCorDia('auto'); setPaletaAberta(false); }}
+                    style={{ width:'100%', display:'flex', alignItems:'center', gap:8, padding:'9px 11px', marginBottom:10,
+                      borderRadius:11, cursor:'pointer', fontSize:12.5, fontWeight:700, textAlign:'left',
+                      border: corDia === 'auto' ? '1.5px solid var(--tq)' : '1.5px solid var(--border,#e2e8f0)',
+                      background: corDia === 'auto' ? 'var(--tq3,#eef6f7)' : 'var(--card,#fff)',
+                      color: corDia === 'auto' ? 'var(--tq2)' : 'var(--txt,#0f172a)' }}>
+                    <span style={{ width:20, height:20, borderRadius:'50%', flexShrink:0,
+                      background:'conic-gradient(#00B8C0,#7c3aed,#f59e0b,#16a34a,#00B8C0)' }} />
+                    <span style={{ flex:1 }}>Cor do dia (automático)</span>
+                    {corDia === 'auto' && <span style={{ fontSize:13 }}>✓</span>}
+                  </button>
+
+                  <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:1.2, color:'var(--muted,#64748b)', textTransform:'uppercase', marginBottom:7 }}>
+                    Escolher uma cor fixa
+                  </div>
+                  <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(30px,1fr))', gap:7 }}>
+                    {paletaCores.map((c, i) => {
+                      const ativo = String(corDia) === String(i);
+                      return (
+                        <button key={i} onClick={() => { onSetCorDia && onSetCorDia(String(i)); setPaletaAberta(false); }} title={c.nome}
+                          style={{ width:30, height:30, borderRadius:'50%', cursor:'pointer', padding:0, background:c.tq,
+                            border: ativo ? '3px solid var(--txt,#0f172a)' : '2px solid rgba(0,0,0,.08)',
+                            boxShadow: ativo ? '0 0 0 3px var(--tq3,#eef6f7)' : '0 1px 3px rgba(0,0,0,.14)',
+                            transition:'transform .12s' }}
+                          onMouseEnter={e => e.currentTarget.style.transform='scale(1.18)'}
+                          onMouseLeave={e => e.currentTarget.style.transform='scale(1)'} />
+                      );
+                    })}
+                  </div>
+                  <div style={{ fontSize:11, color:'var(--muted,#64748b)', marginTop:10, lineHeight:1.5 }}>
+                    A cor vale só pra você, neste aparelho.
+                  </div>
                 </div>
-              </div>
+              </>
             )}
-          </div>
+          </>
           );
         })()}
       </div>
