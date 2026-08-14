@@ -287,63 +287,57 @@ h1 { letter-spacing: -0.7px; }
 .inbox-resize-handle:hover { background: var(--tq); }
 
 /* ─── Barra de mensagem ──────────────────────────────────────────────────────
-   Redesenho: dez quadrados coloridos em fila viravam uma parede de botões — a
-   pessoa lia todos pra achar um. Agora só as ações do dia a dia ficam à vista,
-   em botão discreto (ícone colorido sobre fundo neutro, cor só no hover), e o
-   resto mora no menu "+". Menos ruído, mesmo alcance. */
+   Os ícones voltam lado a lado, mas dentro de UMA cápsula com fundo próprio e
+   divisória interna — em vez de dez quadrados soltos flutuando. É a cápsula que
+   dá o acabamento: o olho lê um objeto só, não dez. */
+.tb-grupo {
+  display: inline-flex; align-items: center; gap: 2px;
+  padding: 4px; border-radius: 15px;
+  background: var(--bg2, #f1f5f9);
+  border: 1px solid var(--border, #e2e8f0);
+  box-shadow: inset 0 1px 2px rgba(0,0,0,.045);
+}
+.tb-grupo .tb-div {
+  width: 1px; height: 22px; margin: 0 4px;
+  background: var(--border, #e2e8f0); flex-shrink: 0;
+}
+
+/* Dentro da cápsula os botões são transparentes: a cor aparece no toque, não
+   o tempo todo. Fundo colorido em dez botões vira poluição; ícone colorido não. */
 .tb-ico-color {
-  width: 40px; height: 40px; padding: 0 !important;
+  width: 36px; height: 36px; padding: 0 !important;
   display: inline-flex; align-items: center; justify-content: center;
-  background: var(--bg2, #f1f5f9) !important;
+  background: transparent !important;
   border: 1.5px solid transparent !important;
   color: var(--ic, #64748b) !important;
-  border-radius: 12px !important;
-  transition: transform .13s ease, background .16s ease, border-color .16s ease, box-shadow .16s ease !important;
+  border-radius: 11px !important;
+  transition: transform .13s ease, background .16s ease, box-shadow .16s ease !important;
 }
-.tb-ico-color.tb-largo { width: auto; padding: 0 15px !important; }
-
 .tb-ico-color:hover:not(:disabled) {
   transform: translateY(-1px);
-  background: color-mix(in srgb, var(--ic, #888) 14%, transparent) !important;
-  border-color: color-mix(in srgb, var(--ic, #888) 32%, transparent) !important;
-  box-shadow: 0 4px 12px color-mix(in srgb, var(--ic, #888) 26%, transparent);
+  background: color-mix(in srgb, var(--ic, #888) 16%, transparent) !important;
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--ic, #888) 28%, transparent);
 }
-.tb-ico-color:active:not(:disabled) { transform: translateY(0) scale(.96); }
+.tb-ico-color:active:not(:disabled) { transform: translateY(0) scale(.94); }
 
 /* Ligado / em ação: a cor toma o botão inteiro */
 .tb-ico-color.tb-on {
   background: var(--ic, #888) !important;
-  border-color: var(--ic, #888) !important;
   color: #fff !important;
-  box-shadow: 0 4px 14px color-mix(in srgb, var(--ic, #888) 42%, transparent);
+  box-shadow: 0 3px 12px color-mix(in srgb, var(--ic, #888) 45%, transparent);
 }
 
-/* "IA responde": é a ação principal da barra, então tem peso de botão cheio */
+/* "IA responde" fica FORA da cápsula: é a ação principal, tem peso próprio */
+.tb-ico-color.tb-largo { width: auto; padding: 0 15px !important; height: 40px; }
 .tb-primaria {
   background: linear-gradient(135deg, #f43f5e, #e11d48) !important;
-  border-color: transparent !important;
   color: #fff !important;
+  border-radius: 13px !important;
   box-shadow: 0 3px 12px rgba(225,29,72,.34);
 }
 .tb-primaria:hover:not(:disabled) {
   background: linear-gradient(135deg, #fb7185, #e11d48) !important;
   box-shadow: 0 6px 18px rgba(225,29,72,.44);
-}
-
-/* Item do menu "+" — ícone colorido + nome, bem mais fácil de achar que um
-   ícone solto sem legenda */
-.tb-menu-item {
-  display: flex; align-items: center; gap: 10px; width: 100%;
-  padding: 9px 11px; border: none; background: transparent; cursor: pointer;
-  border-radius: 10px; font-size: 13px; font-weight: 600; text-align: left;
-  color: var(--txt, #0f172a); transition: background .13s ease;
-}
-.tb-menu-item:hover { background: var(--bg2, #f1f5f9); }
-.tb-menu-ico {
-  width: 30px; height: 30px; border-radius: 9px; flex-shrink: 0;
-  display: inline-flex; align-items: center; justify-content: center;
-  background: color-mix(in srgb, var(--ic, #888) 15%, transparent);
-  color: var(--ic, #888);
 }
 
 /* Badge pulsante do Quiz do dia — "chegou a hora do quiz" */

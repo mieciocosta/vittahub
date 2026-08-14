@@ -48,7 +48,7 @@ export default function Calculadora({ comoItem = false }) {
       ) : (
         <button onClick={() => setOpen(o => !o)} title="Calculadora"
           className={`tb-ico-color${open ? ' tb-on' : ''}`} style={{ '--ic':'#84cc16' }}>
-          <Calculator size={19} />
+          <Calculator size={18} />
         </button>
       )}
       {open && (

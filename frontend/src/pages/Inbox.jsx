@@ -536,7 +536,6 @@ export default function Inbox({ onUnreadChange }) {
   const [showTerapia, setShowTerapia] = useState(false);
   const [showBib, setShowBib] = useState(false);
   const [bibAba, setBibAba] = useState('foto');
-  const [showMais, setShowMais] = useState(false);   // menu '+' da barra de mensagem
   const [showAgendar, setShowAgendar] = useState(false);
   const [resumo, setResumo] = useState(null);        // 📋 raio-X da conversa
   const [proto, setProto] = useState(null);          // ✅ protocolo de atendimento
@@ -2108,45 +2107,34 @@ export default function Inbox({ onUnreadChange }) {
                 {sugerindo ? <Loader2 size={18} className="spin"/> : <MessageCircle size={18}/>} {sugerindo ? 'Escrevendo…' : 'IA responde'}
               </button>
 
-              {/* MENU "+" — tudo que não é do minuto a minuto sai da fila e vem
-                  pra cá COM NOME. Ícone sem legenda a pessoa decora; com legenda
-                  ela acha de primeira. */}
-              <div style={{ position:'relative', display:'inline-flex' }}>
-                <button onClick={()=>{setShowMais(o=>!o);setShowEmoji(false);setShowQR(false);setShowDocs(false);}}
-                  title="Mais ferramentas" className={`tb-ico-color${showMais?' tb-on':''}`} style={{ '--ic':'#64748b' }}>
-                  <Plus size={20} style={{ transform: showMais?'rotate(45deg)':'none', transition:'transform .18s ease' }}/>
+              {/* Cápsula única com as ferramentas — lado a lado, mas lidas como
+                  UM objeto. A divisória separa o que é conteúdo (mensagens,
+                  figurinhas, mídia) do que é anexo do momento (clipe e emoji),
+                  que ficam colados no campo de escrever. */}
+              <div className="tb-grupo">
+                <button onClick={corrigirTexto} disabled={!input.trim() || corrigindo} title="Corrigir ortografia com IA (não muda o tom)"
+                  className="tb-ico-color" style={{ '--ic':'#8b5cf6', opacity:!input.trim()?.4:1 }}>
+                  {corrigindo ? <Loader2 size={18} className="spin"/> : <Sparkles size={18}/>}
                 </button>
-                {showMais && (
-                  <>
-                    <div onClick={()=>setShowMais(false)} style={{ position:'fixed', inset:0, zIndex:940 }}/>
-                    <div style={{ position:'absolute', bottom:48, left:0, zIndex:950, width:238, padding:7,
-                      background:'var(--card,#fff)', border:'1px solid var(--border)', borderRadius:14, boxShadow:'0 12px 34px rgba(0,0,0,.2)' }}>
-                      {[
-                        ['#06b6d4', <Zap size={16}/>, 'Mensagens automáticas', ()=>{setShowQR(true);setShowMais(false);}],
-                        ['#eab308', <Sticker size={16}/>, 'Figurinhas', ()=>{setBibAba('figurinha');setShowBib(true);setShowMais(false);}],
-                        ['#d946ef', <Image size={16}/>, 'Fotos e vídeos', ()=>{setBibAba('foto');setShowBib(true);setShowMais(false);}],
-                        ['#10b981', <FileText size={16}/>, 'Documentos', ()=>{setShowDocs(true);setShowMais(false);}],
-                        ['#6366f1', <Clock size={16}/>, 'Agendar mensagem', ()=>{setShowAgendarMsg(true);setShowMais(false);}],
-                        ['#8b5cf6', <Sparkles size={16}/>, 'Corrigir o texto', ()=>{corrigirTexto();setShowMais(false);}],
-                      ].map(([cor, ico, nome, fn]) => (
-                        <button key={nome} onClick={fn} className="tb-menu-item">
-                          <span className="tb-menu-ico" style={{ '--ic':cor }}>{ico}</span>{nome}
-                        </button>
-                      ))}
-                      <div style={{ borderTop:'1px solid var(--border)', marginTop:5, paddingTop:5 }}>
-                        <Calculadora comoItem />
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
+                <button onClick={()=>{setShowQR(p=>!p);setShowEmoji(false);}} title="Mensagens automáticas"
+                  className={`tb-ico-color${showQR?' tb-on':''}`} style={{ '--ic':'#06b6d4' }}><Zap size={18}/></button>
+                <button onClick={()=>{setBibAba('figurinha');setShowBib(true);}} title="Figurinhas da Vittalis"
+                  className="tb-ico-color" style={{ '--ic':'#eab308' }}><Sticker size={18}/></button>
+                <button onClick={()=>{setBibAba('foto');setShowBib(true);}} title="Fotos e vídeos da Biblioteca"
+                  className="tb-ico-color" style={{ '--ic':'#d946ef' }}><Image size={18}/></button>
+                <button onClick={()=>{setShowDocs(p=>!p);setShowQR(false);setShowEmoji(false);}} title="Banco de documentos — envie os principais em 1 clique"
+                  className={`tb-ico-color${showDocs?' tb-on':''}`} style={{ '--ic':'#10b981' }}><FileText size={18}/></button>
+                <button onClick={()=>setShowAgendarMsg(true)} title="⏰ Agendar mensagem — escolha o dia e a hora pra disparar pro cliente"
+                  className="tb-ico-color" style={{ '--ic':'#6366f1' }}><Clock size={18}/></button>
+                <Calculadora />
 
-              {/* Clipe e emoji COLADOS no campo de escrever (pedido do master) —
-                  é onde a mão já está quando ela quer anexar. */}
-              <button onClick={()=>fileRef.current?.click()} title="Anexar arquivo"
-                className="tb-ico-color" style={{ '--ic':'#3b82f6' }}><Paperclip size={19}/></button>
-              <button onClick={()=>{setShowEmoji(p=>!p);setShowQR(false);}} title="Emojis"
-                className={`tb-ico-color${showEmoji?' tb-on':''}`} style={{ '--ic':'#f59e0b' }}><Smile size={19}/></button>
+                <span className="tb-div" />
+
+                <button onClick={()=>fileRef.current?.click()} title="Anexar arquivo"
+                  className="tb-ico-color" style={{ '--ic':'#3b82f6' }}><Paperclip size={18}/></button>
+                <button onClick={()=>{setShowEmoji(p=>!p);setShowQR(false);}} title="Emojis"
+                  className={`tb-ico-color${showEmoji?' tb-on':''}`} style={{ '--ic':'#f59e0b' }}><Smile size={18}/></button>
+              </div>
               <input ref={fileRef} type="file" accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.gif" style={{ display:'none' }} onChange={handleFile}/>
               <textarea ref={textRef} onPaste={handlePaste} spellCheck lang="pt-BR" value={input} onChange={e=>setInput(e.target.value)}
                 onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}}}
