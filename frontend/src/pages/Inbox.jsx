@@ -2101,28 +2101,28 @@ export default function Inbox({ onUnreadChange }) {
           <div className="chat-input-bar" style={{ background:'var(--card,#fff)', padding:'9px 12px', borderTop:'1px solid var(--border)', flexShrink:0 }}>
             <div style={{ display:'flex', gap:6, alignItems:'flex-end' }}>
               <button onClick={sugerirResposta} disabled={!sel || sugerindo} title="Lê a conversa e escreve uma resposta humanizada, no seu tom"
-                className="tb-ico-color tb-largo" style={{ '--ic':'#e11d48', gap:7, cursor: sel?'pointer':'not-allowed', fontSize:13, fontWeight:800, whiteSpace:'nowrap',
-                  color: sugerindo?'#fff':'#e11d48', background: sugerindo?'#e11d48':'rgba(225,29,72,.12)', opacity:!sel?.5:1 }}>
+                className={`tb-ico-color tb-largo${sugerindo?' tb-on':''}`} style={{ '--ic':'#e11d48', gap:7,
+                  cursor: sel?'pointer':'not-allowed', fontSize:13, fontWeight:800, whiteSpace:'nowrap', opacity:!sel?.5:1 }}>
                 {sugerindo ? <Loader2 size={18} className="spin"/> : <MessageCircle size={18}/>} {sugerindo ? 'Escrevendo…' : 'IA responde'}
               </button>
               <button onClick={corrigirTexto} disabled={!input.trim() || corrigindo} title="Corrigir ortografia com IA (não muda o tom)"
-                className="tb-ico-color" style={{ '--ic':'#8b5cf6', color:'#8b5cf6', background:'rgba(139,92,246,.12)', opacity:!input.trim()?.45:1 }}>
+                className="tb-ico-color" style={{ '--ic':'#8b5cf6', opacity:!input.trim()?.45:1 }}>
                 {corrigindo ? <Loader2 size={19} className="spin"/> : <Sparkles size={19}/>}
               </button>
               <button onClick={()=>fileRef.current?.click()} title="Anexar arquivo"
-                className="tb-ico-color" style={{ '--ic':'#2563eb', color:'#2563eb', background:'rgba(37,99,235,.12)' }}><Paperclip size={19}/></button>
+                className="tb-ico-color" style={{ '--ic':'#3b82f6' }}><Paperclip size={19}/></button>
               <button onClick={()=>{setShowEmoji(p=>!p);setShowQR(false);}} title="Emojis"
-                className="tb-ico-color" style={{ '--ic':'#f59e0b', color:showEmoji?'#fff':'#f59e0b', background:showEmoji?'#f59e0b':'rgba(245,158,11,.14)' }}><Smile size={19}/></button>
+                className={`tb-ico-color${showEmoji?' tb-on':''}`} style={{ '--ic':'#f59e0b' }}><Smile size={19}/></button>
               <button onClick={()=>{setShowQR(p=>!p);setShowEmoji(false);}} title="Mensagens automáticas"
-                className="tb-ico-color" style={{ '--ic':'#00B8C0', color:showQR?'#fff':'#0891b2', background:showQR?'#00B8C0':'rgba(0,184,192,.14)' }}><Zap size={19}/></button>
+                className={`tb-ico-color${showQR?' tb-on':''}`} style={{ '--ic':'#06b6d4' }}><Zap size={19}/></button>
               <button onClick={()=>{setBibAba('foto');setShowBib(true);}} title="Biblioteca de Experiências (fotos e vídeos)"
-                className="tb-ico-color" style={{ '--ic':'#ec4899', color:'#ec4899', background:'rgba(236,72,153,.12)' }}><Image size={19}/></button>
+                className="tb-ico-color" style={{ '--ic':'#d946ef' }}><Image size={19}/></button>
               <button onClick={()=>{setShowDocs(p=>!p);setShowQR(false);setShowEmoji(false);}} title="Banco de documentos — envie os principais em 1 clique"
-                className="tb-ico-color" style={{ '--ic':'#0d9488', color:showDocs?'#fff':'#0d9488', background:showDocs?'#0d9488':'rgba(13,148,136,.13)' }}><FileText size={19}/></button>
+                className={`tb-ico-color${showDocs?' tb-on':''}`} style={{ '--ic':'#10b981' }}><FileText size={19}/></button>
               <button onClick={()=>{setBibAba('figurinha');setShowBib(true);}} title="Figurinhas da Vittalis"
-                className="tb-ico-color" style={{ '--ic':'#f43f5e', color:'#f43f5e', background:'rgba(244,63,94,.12)' }}><Sticker size={19}/></button>
+                className="tb-ico-color" style={{ '--ic':'#eab308' }}><Sticker size={19}/></button>
               <button onClick={()=>setShowAgendarMsg(true)} title="⏰ Agendar mensagem — escolha o dia e a hora pra disparar pro cliente"
-                className="tb-ico-color" style={{ '--ic':'#7c3aed', color:'#7c3aed', background:'rgba(124,58,237,.13)' }}><Clock size={19}/></button>
+                className="tb-ico-color" style={{ '--ic':'#6366f1' }}><Clock size={19}/></button>
               <Calculadora />
               <input ref={fileRef} type="file" accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.gif" style={{ display:'none' }} onChange={handleFile}/>
               <textarea ref={textRef} onPaste={handlePaste} spellCheck lang="pt-BR" value={input} onChange={e=>setInput(e.target.value)}
