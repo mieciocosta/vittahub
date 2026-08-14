@@ -27,33 +27,47 @@ const SETORES_MENU = [
 
 // Ordem = PRIORIDADE do dia a dia (pedido do master): 1º o atendimento que gera
 // venda, depois gestão/organização, por fim equipe e motivação.
+/* Ordem = MOMENTO DO DIA, não importância abstrata (pedido do master).
+   A rotina real é: abre o Resumo, passa o dia no Chat vendendo, registra o que
+   fechou, e só no fim do expediente puxa relatório e fecha caixa. Relatório
+   estava em 2º e 3º lugar — antes até do Chat — o que colocava a tarefa de fim
+   de dia na frente da que gera venda.
+   `grupo` desenha o título da seção; não muda permissão nem rota. */
 const NAV = [
+  { grupo:'Meu dia' },
   { to:'/',           icon:LayoutDashboard, label:'Resumo', cor:'#38bdf8' },
-  { to:'/agenda?aba=relatorio', icon:ClipboardList, label:'Relatório do Dia', cor:'#0ea5e9', destaque:true },
-  // Atalho de cada uma pro relatório DELA — no topo, porque é rotina de fim de dia.
-  { to:'/agenda?aba=relatorio&individual=1', icon:FileSignature, label:'Meu Relatório', cor:'#f59e0b', destaque:true },
-  { to:'/metas',      icon:Target,          label:'Metas', gestao:true, destaque:true, cor:'#e879f9' },
   { to:'/inbox',      icon:MessageSquare,   label:'Chat',     unread:true, cor:'#25D366' },
+  { to:'/agenda',     icon:CalendarDays,    label:'Agenda', cor:'#f59e0b' },
+
+  { grupo:'Vender' },
   { to:'/plano-vacinal', icon:Syringe, label:'Plano Vacinal', vacinas:true, cor:'#22c55e', destaque:true },
   { to:'/plano-terapias', icon:Puzzle,      label:'Plano de Terapias', terapias:true, destaque:true, cor:'#a855f7' },
-  { to:'/agenda',     icon:CalendarDays,    label:'Agenda', cor:'#f59e0b' },
-  { to:'/vacinas-solicitacao', icon:Syringe, label:'Solicitar Vacinas', cor:'#8b5cf6' },
   { to:'/retornos',   icon:Bell,            label:'Follow-up',  retornos:true, cor:'#fb7185' },
   { to:'/recuperacao',icon:Flame,           label:'Recuperação', cor:'#f97316' },
-  { to:'/leads',      icon:Users,           label:'Clientes', cor:'#a78bfa' },
   { to:'/minha-carteira', icon:Wallet,     label:'Minha Carteira', cor:'#2dd4bf' },
+  { to:'/leads',      icon:Users,           label:'Clientes', cor:'#a78bfa' },
   { to:'/lembretes',  icon:BellRing,        label:'Lembretes', cor:'#facc15' },
+
+  { grupo:'Fim do dia' },
+  { to:'/agenda?aba=relatorio', icon:ClipboardList, label:'Relatório do Dia', cor:'#0ea5e9', destaque:true },
+  { to:'/agenda?aba=relatorio&individual=1', icon:FileSignature, label:'Meu Relatório', cor:'#f59e0b', destaque:true },
   { to:'/caixa',      icon:Wallet,          label:'Caixa', cor:'#34d399' },
-  { to:'/relatorios', icon:BarChart2,       label:'Relatórios', cor:'#60a5fa' },
-  { to:'/funil',      icon:Kanban,          label:'Organização', cor:'#2dd4bf' },
-  { to:'/banco-dados',icon:Database,        label:'Banco de Dados', cor:'#94a3b8' },
+  { to:'/metas',      icon:Target,          label:'Metas', gestao:true, cor:'#e879f9' },
+
+  { grupo:'Operação' },
+  { to:'/vacinas-solicitacao', icon:Syringe, label:'Solicitar Vacinas', cor:'#8b5cf6' },
   { to:'/profissionais', icon:Stethoscope,  label:'Profissionais', consultas:true, cor:'#22d3ee' },
+  { to:'/funil',      icon:Kanban,          label:'Organização', cor:'#2dd4bf' },
+  { to:'/relatorios', icon:BarChart2,       label:'Relatórios', cor:'#60a5fa' },
+  { to:'/banco-dados',icon:Database,        label:'Banco de Dados', cor:'#94a3b8' },
+
+  { grupo:'Equipe' },
   { to:'/equipe',     icon:Users,           label:'Chat da Equipe', equipe:true, cor:'#4ade80' },
   { to:'/meu-painel', icon:LayoutGrid,      label:'Meu Painel', cor:'#c084fc' },
   { to:'/amigo',      icon:BookOpen,        label:'Meu Devocional', cor:'#fbbf24' },
+  { to:'/planejamento', icon:Rocket,        label:'Planejamento', lider:true, plan:true, cor:'#fb923c' },
   { to:'/quiz',       icon:Gamepad2,        label:'Quiz de Vendas', cor:'#f472b6' },
   { to:'/cases-sucesso', icon:Trophy,       label:'Cases de Sucesso', cor:'#eab308' },
-  { to:'/planejamento', icon:Rocket,        label:'Planejamento', lider:true, plan:true, cor:'#fb923c' },
   { to:'/cursos',     icon:GraduationCap,   label:'Cursos', cor:'#818cf8' },
   { to:'/indicacoes', icon:Gift,            label:'Indicações', cor:'#f43f5e' },
   { to:'/ia',         icon:Bot,             label:'IA Assistente', cor:'#10b981' },
@@ -452,7 +466,14 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
             && (!n.vacinas || user?.role === 'master' || user?.ve_tudo || user?.setor === 'vacinas'
                 || (Array.isArray(user?.setores) && user.setores.includes('vacinas')))
             && (!n.lider || user?.lider || user?.role === 'master')
-          ).map(({ to, icon:Icon, label, unread:showU, retornos:retBadge, equipe:eqBadge, plan:planBadge, destaque, cor }) => (
+          ).map((n) => {
+            // Título de seção: só desenha o rótulo e segue (não é link)
+            if (n.grupo) return collapsed
+              ? <div key={`g-${n.grupo}`} style={{ height:1, background:'rgba(255,255,255,.18)', margin:'7px 8px' }} />
+              : <div key={`g-${n.grupo}`} style={{ fontSize:9, fontWeight:800, letterSpacing:1.5,
+                  color:'rgba(255,255,255,.55)', padding:'11px 12px 4px', textTransform:'uppercase' }}>{n.grupo}</div>;
+            const { to, icon:Icon, label, unread:showU, retornos:retBadge, equipe:eqBadge, plan:planBadge, destaque, cor } = n;
+            return (
           <React.Fragment key={to}>
           <NavLink to={to} end={to==='/'} title={collapsed ? label : ''}
             className={({ isActive }) => `vh-nav${isActive ? ' ativo' : ''}`}
@@ -507,7 +528,8 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
           {to === '/inbox' && vittasysLink}
           {to === '/leads' && setoresBlock}
           </React.Fragment>
-        ))}
+            );
+          })}
 
         {/* ── Administração (só master) ── */}
         {user?.role === 'master' && (
