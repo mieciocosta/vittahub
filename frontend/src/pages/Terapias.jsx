@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { Plus, Search, MessageCircle, Trash2, X, ClipboardList, Target } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt } from '../hooks/utils.js';
+import TerapiasRelatorio from '../components/TerapiasRelatorio.jsx';
 
 /* ─── 🧩 ÁREA DE TERAPIAS ──────────────────────────────────────────────────────
    Pedido do master: uma aba só de terapias, onde a equipe PUXA o paciente pra
@@ -221,7 +222,7 @@ export default function Terapias() {
 
       {/* Abas */}
       <div style={{ display: 'flex', gap: 7, marginBottom: 14, flexWrap: 'wrap' }}>
-        {[['pacientes', '👥 Pacientes'], ['grade', '🗓️ Grade da semana']].map(([k, l]) => (
+        {[['pacientes', '👥 Pacientes'], ['grade', '🗓️ Grade da semana'], ['relatorio', '📊 Relatório']].map(([k, l]) => (
           <button key={k} onClick={() => setAba(k)}
             style={{ padding: '7px 15px', borderRadius: 10, fontSize: 12.5, fontWeight: 800, cursor: 'pointer',
               border: `1.5px solid ${aba === k ? 'var(--tq)' : 'var(--border)'}`,
@@ -231,7 +232,7 @@ export default function Terapias() {
         ))}
       </div>
 
-      {aba === 'grade' ? <GradeSemana grade={grade} /> : (<>
+      {aba === 'relatorio' ? <TerapiasRelatorio /> : aba === 'grade' ? <GradeSemana grade={grade} /> : (<>
 
       {/* Filtros */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>

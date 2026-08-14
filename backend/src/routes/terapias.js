@@ -345,6 +345,78 @@ r.get('/resumo', auth, async (req, res) => {
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* 📊 RELATÓRIO DA ÁREA — números para gráfico e para impressão ───────────────
+   Além do "quantos planos fiz", responde o que a gestão pergunta de verdade:
+   estamos crescendo?, qual terapia sustenta a área?, quanto entra por mês de
+   forma recorrente?, e o que está pedindo ação agora. */
+r.get('/relatorio', auth, async (req, res) => {
+  if (!guarda(req, res)) return;
+  try {
+    const mes = /^\d{4}-\d{2}$/.test(req.query.mes || '') ? req.query.mes : mesLocal();
+    const [evolucao, porTerapia, porStatus, recorrente, semHorario, paradosQ, resumo] = await Promise.all([
+      // 6 meses pra trás: a linha do tempo é o que mostra se a área cresce
+      query(`SELECT to_char(created_at,'YYYY-MM') mes, COUNT(*)::int n,
+                    COALESCE(SUM(valor_mensal),0)::float valor
+               FROM terapia_planos
+              WHERE status <> 'cancelado'
+                AND created_at >= (date_trunc('month', $1::date) - interval '5 months')
+                AND created_at <  (date_trunc('month', $1::date) + interval '1 month')
+              GROUP BY 1 ORDER BY 1`, [`${mes}-01`]).catch(() => ({ rows: [] })),
+      query(`SELECT COALESCE(NULLIF(especialidade,''),'(sem terapia)') nome, COUNT(*)::int n,
+                    COALESCE(SUM(valor_mensal),0)::float valor
+               FROM terapia_planos WHERE status = 'ativo'
+              GROUP BY 1 ORDER BY n DESC`).catch(() => ({ rows: [] })),
+      query(`SELECT COALESCE(status,'avaliacao') status, COUNT(*)::int n
+               FROM terapia_pacientes GROUP BY 1`).catch(() => ({ rows: [] })),
+      query(`SELECT COUNT(*)::int n, COALESCE(SUM(valor_mensal),0)::float mrr,
+                    COALESCE(SUM(sessoes_semana),0)::int sessoes
+               FROM terapia_planos WHERE status = 'ativo'`).catch(() => ({ rows: [{}] })),
+      // Plano ativo sem dia/hora não entra na grade — vira sessão que ninguém marca
+      query(`SELECT p.id, p.especialidade, pa.nome paciente
+               FROM terapia_planos p JOIN terapia_pacientes pa ON pa.id = p.paciente_id
+              WHERE p.status = 'ativo' AND COALESCE(jsonb_array_length(p.horarios),0) = 0
+              ORDER BY pa.nome LIMIT 30`).catch(() => ({ rows: [] })),
+      // Em avaliação há mais de 7 dias e ainda sem plano: é aqui que o lead esfria
+      query(`SELECT pa.id, pa.nome, pa.telefone,
+                    EXTRACT(DAY FROM (NOW() - pa.created_at))::int dias
+               FROM terapia_pacientes pa
+              WHERE COALESCE(pa.status,'avaliacao') = 'avaliacao'
+                AND pa.created_at < NOW() - INTERVAL '7 days'
+                AND NOT EXISTS (SELECT 1 FROM terapia_planos p WHERE p.paciente_id = pa.id AND p.status <> 'cancelado')
+              ORDER BY pa.created_at LIMIT 30`).catch(() => ({ rows: [] })),
+      resumoPlanos(mes),
+    ]);
+
+    // Preenche os 6 meses (mês sem plano precisa aparecer como zero no gráfico,
+    // senão a linha "pula" o buraco e some justamente o mês ruim)
+    const serie = [];
+    const [a0, m0] = mes.split('-').map(Number);
+    for (let i = 5; i >= 0; i--) {
+      const dt = new Date(a0, m0 - 1 - i, 1);
+      const ref = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
+      const achado = evolucao.rows.find(r2 => r2.mes === ref);
+      serie.push({ mes: ref, rotulo: ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'][dt.getMonth()],
+        n: achado?.n || 0, valor: achado?.valor || 0 });
+    }
+
+    res.json({
+      mes, resumo,
+      evolucao: serie,
+      por_terapia: porTerapia.rows,
+      por_status: porStatus.rows,
+      recorrente: {
+        planos: recorrente.rows[0]?.n || 0,
+        mrr: recorrente.rows[0]?.mrr || 0,
+        sessoes_semana: recorrente.rows[0]?.sessoes || 0,
+      },
+      alertas: {
+        sem_horario: semHorario.rows,
+        parados: paradosQ.rows,
+      },
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.put('/meta', auth, async (req, res) => {
   if (!ehGestao(req)) return res.status(403).json({ error: 'Apenas a gestão define metas.' });
   const n = Math.max(0, Math.min(parseInt(req.body?.meta) || 0, 100000));
