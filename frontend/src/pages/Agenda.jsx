@@ -53,10 +53,12 @@ export default function Agenda() {
   }, [data]); // eslint-disable-line
   useEffect(() => { if (aba === 'relatorio') loadRel(); }, [aba, loadRel]); // eslint-disable-line
 
+  // ⚠️ `api` NÃO entra nas dependências: useApi() devolve um objeto novo a cada
+  // render, e isso faria o efeito abaixo rodar sem parar (mesmo motivo do loadRel).
   const loadVmed = useCallback(() => {
     setVmed({ carregando: true });
     api.get(`/extras/vittamed/agenda?data=${data}`).then(setVmed).catch(e => setVmed({ erro: e.message, itens: [] }));
-  }, [api, data]);
+  }, [data]); // eslint-disable-line
   useEffect(() => { if (aba === 'vittamed') { if (!podeVerVittaMed) setAba('lista'); else loadVmed(); } }, [aba, loadVmed, podeVerVittaMed]);
 
   // 🔄 Agendamento criado/alterado em QUALQUER lugar (agenda, chat, carteira

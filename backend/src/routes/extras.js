@@ -1658,6 +1658,15 @@ r.put('/vendas/metas-faturamento', async (req, res) => {
 
 // ─── METAS DE AGENDAMENTO (quantidade por setor no mês) ───────────────────────
 // Configuráveis pela gestão. Guardadas em configuracoes.metas.agendamentos.
+// Meta de PLANOS terapêuticos do mês — aparece na aba Metas ao lado das de
+// venda. Pedido do master: em terapias o que conta é plano, não só dinheiro.
+r.get('/terapias/meta-planos', async (req, res) => {
+  try {
+    const { resumoPlanos } = await import('./terapias.js');
+    res.json(await resumoPlanos(req.query.mes));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.get('/agendamentos/meta', async (req, res) => {
   try {
     const { rows } = await query("SELECT valor FROM configuracoes WHERE chave = 'metas'");

@@ -24,6 +24,10 @@ export default function Metas() {
   const [agEdit, setAgEdit] = useState({ vacinas: '', consultas: '', terapias: '' });
   const [agSalvo, setAgSalvo] = useState(false);
   const [agSalvando, setAgSalvando] = useState(false);
+  // 🧩 Meta de PLANOS terapêuticos (pedido do master: 100 planos no mês)
+  const [planos, setPlanos] = useState(null);
+  const [planoMeta, setPlanoMeta] = useState('');
+  const [planoSalvo, setPlanoSalvo] = useState(false);
 
   const load = () => api.get('/extras/vendas/resumo').then(d => {
     setData(d);
@@ -36,7 +40,13 @@ export default function Metas() {
     setAgResumo(resumo);
     if (meta) setAgEdit({ vacinas: meta.vacinas || '', consultas: meta.consultas || '', terapias: meta.terapias || '' });
   });
-  useEffect(() => { load(); loadAg(); }, []); // eslint-disable-line
+  const loadPlanos = () => api.get('/extras/terapias/meta-planos').then(setPlanos).catch(() => {});
+  useEffect(() => { load(); loadAg(); loadPlanos(); }, []); // eslint-disable-line
+
+  const salvarPlanoMeta = async () => {
+    try { await api.put('/terapias/meta', { meta: +planoMeta || 0 }); setPlanoMeta(''); setPlanoSalvo(true); setTimeout(() => setPlanoSalvo(false), 2000); loadPlanos(); }
+    catch (e) { window.alert('Erro: ' + e.message); }
+  };
 
   const salvarAgMeta = async () => {
     setAgSalvando(true);
@@ -105,6 +115,37 @@ export default function Metas() {
           );
         })}
       </div>
+
+      {/* 🧩 Meta de PLANOS TERAPÊUTICOS — em terapias o que conta é plano, não só
+          dinheiro. Pedido do master: 100 planos no mês. */}
+      {planos && (
+        <div className="card" style={{ padding: '18px 20px', marginBottom: 22, background: 'linear-gradient(135deg,#5b21b6,#a855f7)', color: '#fff', border: 'none' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 10 }}>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 1.4, textTransform: 'uppercase', opacity: .85 }}>🧩 Terapias · planos terapêuticos do mês</div>
+              <div style={{ fontSize: 17, fontWeight: 800, marginTop: 3 }}>
+                {planos.falta === 0 ? '🏆 Meta batida! Que time.' : `Faltam ${planos.falta} plano${planos.falta > 1 ? 's' : ''} para os ${planos.meta}`}
+              </div>
+              <div style={{ fontSize: 12, opacity: .85, marginTop: 2 }}>
+                {planos.ativos} em andamento{planos.valor_ativo > 0 ? ` · ${fmt.brl(planos.valor_ativo)} por mês` : ''}
+              </div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: 36, fontWeight: 900, fontFamily: 'monospace', lineHeight: 1 }}>{planos.feitos}<span style={{ fontSize: 19, opacity: .7 }}>/{planos.meta}</span></div>
+              <div style={{ fontSize: 11, opacity: .85, marginTop: 2 }}>{planos.pct}% da meta</div>
+            </div>
+          </div>
+          <div style={{ height: 9, borderRadius: 6, background: 'rgba(255,255,255,.25)', overflow: 'hidden', marginTop: 12 }}>
+            <div style={{ width: `${Math.min(100, planos.pct)}%`, height: '100%', borderRadius: 6, background: '#fff', transition: 'width .7s' }} />
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+            <input type="number" min={0} value={planoMeta} onChange={e => setPlanoMeta(e.target.value)} placeholder={String(planos.meta)}
+              style={{ width: 110, padding: '7px 10px', borderRadius: 9, border: 'none', fontSize: 13, fontWeight: 700 }} />
+            <button onClick={salvarPlanoMeta} className="btn btn-s" style={{ fontSize: 12 }}>{planoSalvo ? 'Salvo!' : 'Salvar meta de planos'}</button>
+            <a href="/terapias" style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 800, color: '#fff', textDecoration: 'underline' }}>Abrir a área de Terapias →</a>
+          </div>
+        </div>
+      )}
 
       {/* Definir metas (gestão) */}
       {ehGestao && (

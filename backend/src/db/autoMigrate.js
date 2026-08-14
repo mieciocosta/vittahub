@@ -1021,6 +1021,31 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       }
     } catch (e) { console.error('Seed figurinhas:', e.message); }
 
+    /* 🧩 ÁREA DE TERAPIAS — pedido do master: uma aba só de terapias, onde a
+       equipe puxa o paciente para a área e registra o plano terapêutico.
+       Fica separada das vendas: aqui o que conta é o acompanhamento. */
+    await query(`CREATE TABLE IF NOT EXISTS terapia_pacientes (
+      id SERIAL PRIMARY KEY,
+      nome TEXT NOT NULL, telefone TEXT, responsavel TEXT,
+      conversa_id TEXT, lead_id TEXT, origem TEXT DEFAULT 'manual',
+      status TEXT DEFAULT 'avaliacao',
+      observacoes TEXT,
+      criado_por_id TEXT, criado_por_nome TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
+    // Mesmo telefone não entra duas vezes na área (evita paciente duplicado)
+    await query(`CREATE UNIQUE INDEX IF NOT EXISTS terapia_pacientes_tel_idx
+      ON terapia_pacientes(telefone) WHERE telefone IS NOT NULL AND telefone <> ''`).catch(() => {});
+
+    await query(`CREATE TABLE IF NOT EXISTS terapia_planos (
+      id SERIAL PRIMARY KEY,
+      paciente_id INT NOT NULL REFERENCES terapia_pacientes(id) ON DELETE CASCADE,
+      especialidade TEXT, sessoes_semana INT DEFAULT 1, valor_mensal NUMERIC,
+      data_inicio DATE, status TEXT DEFAULT 'ativo', observacoes TEXT,
+      criado_por_id TEXT, criado_por_nome TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS terapia_planos_pac_idx ON terapia_planos(paciente_id)`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS terapia_planos_criado_idx ON terapia_planos(created_at)`).catch(() => {});
+
     // Controle dos lembretes enviados para a agenda do VittaMed. Sem isto o
     // paciente do outro sistema receberia a mensagem de novo a cada rodada.
     await query(`CREATE TABLE IF NOT EXISTS lembretes_vittamed (
