@@ -8,7 +8,7 @@ import { fmt } from '../hooks/utils.js';
 
 // "1 Consulta" / "7 Consultas" — o rótulo vem no plural do servidor, então o
 // singular é ajustado aqui na hora de escrever a frase.
-const SINGULAR = { 'Consultas': 'Consulta', 'Sessões': 'Sessão' };
+const SINGULAR = { 'Consultas': 'Consulta', 'Sessões': 'Sessão', 'Planos': 'Plano' };
 const qtdTexto = (f) => {
   const n = f.falta ?? 0;
   return `${n} ${n === 1 ? (SINGULAR[f.rotulo] || f.rotulo) : f.rotulo}`;
@@ -127,9 +127,13 @@ export default function PlacarVendas() {
                     : (ok ? '🏆 Meta batida!' : <span>falta {fmt.brl(faltaMin)}</span>)}
                   {/* O alvo do MÊS ao lado do alvo do dia: 1 por dia é o passo,
                       20 é o destino — juntos mostram se está no ritmo. */}
+                  {/* "1/20" dava pra ler como "o 1º de 20". Escrito por extenso
+                      não sobra dúvida: o que falta e o que já foi fechado. */}
                   {mes && (
                     <span style={{ fontSize: 10.5, fontWeight: 700, opacity: .78, marginLeft: 7 }}>
-                      · mês: {mes.feitos}/{mes.alvo} {mes.rotulo}
+                      {mes.falta > 0
+                        ? `· falta: ${qtdTexto({ rotulo: mes.rotulo, falta: mes.falta })} · fechados: ${mes.feitos}`
+                        : `· 🏆 ${mes.alvo} ${mes.rotulo} do mês — completo!`}
                     </span>
                   )}
                 </div>
@@ -146,10 +150,10 @@ export default function PlacarVendas() {
           <div title={`Sua produção: ${fmt.brl(meta.individual.confirmado)} de ${fmt.brl(meta.individual.meta)}`}
             style={{ lineHeight: 1.15, transition: 'transform .3s', transform: pulse ? 'scale(1.06)' : 'scale(1)' }}>
             <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: .6, textTransform: 'uppercase', color: 'rgba(255,255,255,.7)' }}>
-              🎯 Sua meta · {Math.min(meta.individual.pct, 100)}%
+              🎯 Sua meta global · {Math.min(meta.individual.pct, 100)}%
             </div>
             <div style={{ fontSize: 12.5, fontWeight: 900, color: meta.individual.falta <= 0 ? '#6ee7b7' : '#f9a8d4' }}>
-              {meta.individual.falta <= 0 ? '🏆 Sua meta batida!' : `falta ${fmt.brl(meta.individual.falta)}`}
+              {meta.individual.falta <= 0 ? '🏆 Meta global batida!' : `falta ${fmt.brl(meta.individual.falta)}`}
             </div>
           </div>
         </div>
