@@ -1083,7 +1083,17 @@ export default function Inbox({ onUnreadChange }) {
     if (!convDeepLink || convAbertaRef.current === convDeepLink) return;
     convAbertaRef.current = convDeepLink;
     api.get(`/inbox/conversations/${convDeepLink}`)
-      .then(c => { if (c?.id) openConvo(c); })
+      .then(c => {
+        if (!c?.id) return;
+        openConvo(c);
+        /* Rascunho vindo da pasta Fidelidade: o "chamar" já deixa a mensagem
+           escrita aqui na caixa. Só isso — quem aperta enviar é a atendente,
+           que lê e ajusta antes. Consome e apaga, pra não ressurgir depois. */
+        try {
+          const rascunho = sessionStorage.getItem('vh_rascunho_' + c.id);
+          if (rascunho) { setInput(rascunho); sessionStorage.removeItem('vh_rascunho_' + c.id); }
+        } catch { /* sessionStorage bloqueado: só não pré-preenche */ }
+      })
       .catch(() => {});
   }, [convDeepLink]); // eslint-disable-line
 

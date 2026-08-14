@@ -163,6 +163,17 @@ export default function PastaClientes({ categoria, classificacao }) {
   };
   useEffect(carregarProx, [carregarProx]);
 
+  /* 📞 CHAMAR — o painel dizia QUEM chamar e deixava a atendente sozinha na
+     parte difícil: o que falar. Agora o texto já vai escrito (nome do bebê,
+     dose que vem, convite pra marcar) direto na caixa do chat. Ela lê, ajusta
+     se quiser e envia — chamar 20 famílias vira trabalho de 10 minutos.
+     Nada é enviado daqui: quem aperta enviar é sempre uma pessoa. */
+  const chamar = (c) => {
+    const m = prox[c.id]?.mensagem;
+    if (m) { try { sessionStorage.setItem('vh_rascunho_' + c.id, m); } catch {} }
+    nav(`/inbox?conv=${c.id}`);
+  };
+
   const marcar = async (c) => {
     const jaTem = !!checks[c.id];
     setChecks(p => { const n = { ...p }; if (jaTem) delete n[c.id]; else n[c.id] = { feito_por_nome: user?.nome, feito_em: new Date().toISOString() }; return n; });
@@ -331,6 +342,39 @@ export default function PastaClientes({ categoria, classificacao }) {
           </div>
         )}
 
+        {/* 🚨 SUMINDO — o alerta que faltava. "Atrasado" olha o calendário da
+            vacina; isto olha a FAMÍLIA: passou de 45 dias sem aparecer, está
+            saindo do programa mesmo com a dose em dia. É o mais barato de agir
+            e o mais caro de ignorar. */}
+        {ehFidelidade && resumoFid?.sumindo > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', width: '100%',
+            background: '#fef2f2', border: '1.5px solid #fecaca', borderRadius: 14, padding: '11px 15px', marginBottom: 10 }}>
+            <span style={{ fontSize: 17 }}>🚨</span>
+            <div style={{ flex: 1, minWidth: 200, fontSize: 13, fontWeight: 700, color: '#991b1b', lineHeight: 1.5 }}>
+              <b>{resumoFid.sumindo} família(s) sem aparecer há mais de um mês e meio.</b> Elas estão no topo da lista —
+              chame hoje: mensalista que some não volta sozinho.
+            </div>
+          </div>
+        )}
+
+        {/* 💰 Quanto o programa vale — é este número que explica pra equipe por
+            que vale a pena ligar pra 43 famílias. Só a gestão vê valores. */}
+        {ehFidelidade && gestao && resumoFid?.valor_total > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap', width: '100%',
+            background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 14, padding: '11px 16px', marginBottom: 10 }}>
+            {[['👶 Na carteira', `${resumoFid.total}`, 'famílias mensalistas'],
+              ['💰 Entrou este mês', fmt.brl(resumoFid.valor_mes), 'destas famílias'],
+              ['📈 Já trouxeram', fmt.brl(resumoFid.valor_total), 'no histórico'],
+              ['🎟️ Média por família', fmt.brl(resumoFid.ticket), 'desde o início']].map(([rot, val, sub]) => (
+              <div key={rot} style={{ minWidth: 120 }}>
+                <div style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .4 }}>{rot}</div>
+                <div style={{ fontSize: 17, fontWeight: 900, lineHeight: 1.2 }}>{val}</div>
+                <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>{sub}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
         {ehFidelidade && (() => {
           const total = filtrada.length;
           const feitos = filtrada.filter(c => checks[c.id]).length;
@@ -439,19 +483,41 @@ export default function PastaClientes({ categoria, classificacao }) {
                       );
                       const d = x.proxima.dias;
                       const cor = x.atrasado ? ['#fee2e2','#991b1b'] : d <= 7 ? ['#fff7ed','#9a3412'] : ['#eff6ff','#1e40af'];
+                      /* "Sumindo" vem ANTES da dose: dose atrasada se recupera,
+                         cliente perdido não. */
+                      const selos = [];
+                      if (x.sumindo) selos.push(
+                        <span key="sum" style={{ display:'inline-block', marginTop:4, marginRight:5, fontSize:10.5, fontWeight:800, padding:'2px 9px', borderRadius:20, background:'#fef2f2', color:'#991b1b', border:'1px solid #fecaca' }}>
+                          🚨 não vem há {Math.round(x.dias_sem_vir / 30)} {Math.round(x.dias_sem_vir / 30) === 1 ? 'mês' : 'meses'}
+                        </span>
+                      );
                       const quando = d == null ? '' : x.atrasado ? `atrasada há ${Math.abs(d)}d`
                         : d === 0 ? 'é hoje' : d === 1 ? 'é amanhã' : `em ${d} dias`;
-                      return (
+                      return (<>
+                        {selos}
                         <span style={{ display:'inline-block', marginTop:4, fontSize:10.5, fontWeight:800, padding:'2px 9px', borderRadius:20, background:cor[0], color:cor[1] }}>
                           {x.atrasado ? '🔴' : '💉'} {x.proxima.nome} · {quando}
                         </span>
-                      );
+                        {x.valor_total > 0 && (
+                          <span title={`${x.compras} compra(s) no histórico`} style={{ display:'inline-block', marginTop:4, marginLeft:5, fontSize:10.5, fontWeight:800, padding:'2px 9px', borderRadius:20, background:'#f0fdf4', color:'#15803d' }}>
+                            💰 já trouxe {fmt.brl(x.valor_total)}
+                          </span>
+                        )}
+                      </>);
                     })()}
                   </div>
                   {/* ✅ APLICOU — o passo que faltava pra saber se o bebê foi
                       mesmo vacinado. Sem ele a carteira nunca avança e o painel
                       segue cobrando dose que já foi dada. Registra as vacinas da
                       etapa, fecha o mês e já oferece agendar a próxima. */}
+                  {ehFidelidade && prox[c.id]?.mensagem && !prox[c.id]?.agendado && (
+                    <button onClick={() => chamar(c)} title="Abrir a conversa com a mensagem já escrita"
+                      style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 10px', borderRadius: 8,
+                        border: '1px solid var(--tq3,#7fd8dd)', background: 'var(--tq4,#e8f7f8)', color: 'var(--tq2,#0E8C96)',
+                        cursor: 'pointer', fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap' }}>
+                      <MessageSquare size={13} /> chamar
+                    </button>
+                  )}
                   {ehFidelidade && prox[c.id]?.proxima && !prox[c.id]?.agendado && (
                     <button onClick={() => aplicou(c, prox[c.id].proxima)} disabled={aplicando === c.id}
                       title={`Registrar que aplicou: ${prox[c.id].proxima.vacinas.join(', ')}`}

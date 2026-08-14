@@ -5693,15 +5693,38 @@ r.get('/fidelidade/resumo', async (req, res) => {
       vittasys: { configurado: pontePronta(), ultima: await ultimaSincronizacaoFidelidade() } } });
 
     const ids = convs.map(c => c.id);
-    const [{ rows: doses }, { rows: agenda }, calendario] = await Promise.all([
+    const [{ rows: doses }, { rows: agenda }, { rows: dinheiro }, { rows: visitas }, calendario] = await Promise.all([
       query(`SELECT conversa_id, marco_mes, vacina FROM carteira_doses WHERE conversa_id = ANY($1)`, [ids]).catch(() => ({ rows: [] })),
       // Um agendamento futuro já resolve o mês — não precisa cobrar de novo
       query(`SELECT conversa_id, MIN(data) proxima FROM agenda_eventos
               WHERE conversa_id = ANY($1) AND data >= (NOW() - interval '3 hours')::date
                 AND LOWER(COALESCE(status,'')) NOT LIKE 'cancel%'
               GROUP BY conversa_id`, [ids]).catch(() => ({ rows: [] })),
+      /* 💰 Quanto cada bebê já trouxe. É o número que faz a equipe entender por
+         que este painel importa: mensalista não é "mais um lead", é receita que
+         volta todo mês — e some sem avisar se ninguém chamar. */
+      query(`SELECT conversa_id,
+                    COALESCE(SUM(valor),0)::float total,
+                    COALESCE(SUM(valor) FILTER (WHERE to_char(data_venda,'YYYY-MM') = to_char(NOW() - interval '3 hours','YYYY-MM')),0)::float mes,
+                    COUNT(*)::int compras,
+                    MAX(data_venda)::text ultima_compra
+               FROM vendas WHERE conversa_id = ANY($1) GROUP BY conversa_id`, [ids]).catch(() => ({ rows: [] })),
+      /* 🕰️ Última vez que a família PISOU na clínica (atendimento realizado ou
+         dose aplicada). É daqui que sai o alerta de quem está sumindo. */
+      query(`SELECT conversa_id, MAX(quando)::text ultima FROM (
+               SELECT conversa_id, data quando FROM agenda_eventos
+                WHERE conversa_id = ANY($1) AND data <= (NOW() - interval '3 hours')::date
+                  AND LOWER(COALESCE(status,'')) NOT LIKE 'cancel%'
+               UNION ALL
+               SELECT conversa_id, data_venda FROM vendas WHERE conversa_id = ANY($1)
+               UNION ALL
+               SELECT conversa_id, data_aplicacao FROM carteira_doses
+                WHERE conversa_id = ANY($1) AND aplicada = true AND data_aplicacao IS NOT NULL
+             ) t GROUP BY conversa_id`, [ids]).catch(() => ({ rows: [] })),
       getCalendarioVacinal(),
     ]);
+    const dinPor = new Map(dinheiro.map(d => [String(d.conversa_id), d]));
+    const visitaPor = new Map(visitas.map(v => [String(v.conversa_id), String(v.ultima).slice(0, 10)]));
     const porConv = new Map();
     for (const d of doses) {
       const k = String(d.conversa_id);
@@ -5740,11 +5763,42 @@ r.get('/fidelidade/resumo', async (req, res) => {
       const agendado = agendaPor.get(String(c.id)) || null;
       // Atrasado só quando dá pra afirmar: precisa de nascimento E data vencida
       const atrasado = !!(prox && prox.dias != null && prox.dias < 0 && !agendado);
+
+      /* 🚨 SUMINDO — o risco que o painel não enxergava. "Atrasado" olha o
+         calendário da vacina; isto olha a FAMÍLIA: faz quantos dias que ela não
+         aparece? Mensalista que passa de 45 dias sem vir está saindo do
+         programa, mesmo que a próxima dose ainda não tenha vencido. É o alerta
+         mais barato de agir e o mais caro de ignorar. */
+      const ultimaVisita = visitaPor.get(String(c.id)) || null;
+      const diasSemVir = ultimaVisita
+        ? Math.round((new Date(hojeISO + 'T12:00:00') - new Date(ultimaVisita + 'T12:00:00')) / 86400000)
+        : null;
+      const sumindo = !agendado && diasSemVir != null && diasSemVir >= 45;
+      const din = dinPor.get(String(c.id)) || {};
+
+      /* ✍️ A mensagem já escrita. O painel dizia QUEM chamar e deixava a
+         atendente sozinha na parte difícil: o que falar. Com o texto pronto —
+         nome do bebê, dose que vem e convite pra marcar — chamar 20 famílias
+         vira trabalho de 10 minutos. Ela edita antes de enviar, sempre. */
+      const primeiro = String(c.lead_nome || c.contact_name || '').trim().split(' ')[0] || '';
+      const doses = prox?.vacinas?.length ? prox.vacinas.join(' e ') : null;
+      const mensagem = !doses ? null
+        : atrasado
+          ? `Oi! 💙 Passando pra lembrar do${primeiro ? ` ${primeiro}` : ''}: a etapa de ${prox.nome} (${doses}) está um pouquinho atrasada. Quer que eu já reserve um horário essa semana pra deixar a caderneta em dia?`
+          : `Oi! 💙 Chegou o mês do${primeiro ? ` ${primeiro}` : ''}: a próxima etapa é ${prox.nome} (${doses}). Qual dia fica melhor pra vocês? Já separo o horário. 😊`;
+
       return {
         conversa_id: c.id, nome: c.lead_nome || c.contact_name || 'Cliente',
         nascimento, idade_meses: idadeMeses, proxima: prox, agendado, atrasado,
-        // Ordem de trabalho: atrasado primeiro, depois o que vence antes
-        ordem: agendado ? 3000 : atrasado ? -(Math.abs(prox?.dias || 0)) : (prox?.dias ?? 2000),
+        ultima_visita: ultimaVisita, dias_sem_vir: diasSemVir, sumindo,
+        valor_total: din.total || 0, valor_mes: din.mes || 0, compras: din.compras || 0,
+        mensagem,
+        /* Ordem de trabalho: quem está sumindo vem ANTES até do atrasado —
+           dose atrasada se recupera, cliente perdido não. */
+        ordem: agendado ? 3000
+          : sumindo ? -100000 - diasSemVir
+          : atrasado ? -(Math.abs(prox?.dias || 0))
+          : (prox?.dias ?? 2000),
       };
     }).sort((a, b) => a.ordem - b.ordem);
 
@@ -5755,6 +5809,11 @@ r.get('/fidelidade/resumo', async (req, res) => {
         atrasados: itens.filter(i => i.atrasado).length,
         agendados: itens.filter(i => i.agendado).length,
         sem_nascimento: itens.filter(i => !i.nascimento).length,
+        sumindo: itens.filter(i => i.sumindo).length,
+        // Quanto o programa vale: o que já entrou no mês e o histórico da carteira
+        valor_mes: +itens.reduce((a, i) => a + (i.valor_mes || 0), 0).toFixed(2),
+        valor_total: +itens.reduce((a, i) => a + (i.valor_total || 0), 0).toFixed(2),
+        ticket: itens.length ? +(itens.reduce((a, i) => a + (i.valor_total || 0), 0) / itens.length).toFixed(2) : 0,
         // Estado da ponte com o VittaSys — a pasta mostra quando foi a última
         // sincronização e a gestão ganha o botão de puxar agora.
         vittasys: { configurado: pontePronta(), ultima: await ultimaSincronizacaoFidelidade() },
