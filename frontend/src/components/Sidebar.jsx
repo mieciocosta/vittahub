@@ -67,7 +67,7 @@ const NAV = [
   { to:'/metas',      icon:Target,          label:'Metas', gestao:true, cor:'#e879f9' },
 
   { grupo:'Operação' },
-  { to:'/vacinas-solicitacao', icon:Syringe, label:'Solicitar Vacinas', cor:'#8b5cf6' },
+  { to:'/vacinas-solicitacao', icon:Syringe, label:'Solicitar Vacinas', vacinas:true, cor:'#8b5cf6' },
   { to:'/profissionais', icon:Stethoscope,  label:'Profissionais', consultas:true, cor:'#22d3ee' },
   { to:'/funil',      icon:Kanban,          label:'Organização', cor:'#2dd4bf' },
   { to:'/relatorios', icon:BarChart2,       label:'Relatórios', cor:'#60a5fa' },
@@ -492,7 +492,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
         {!collapsed && <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:1.6, color:'rgba(255,255,255,.62)', padding:'0 12px 6px', textTransform:'uppercase' }}>Menu</div>}
         {NAV.filter(n => (!n.masterOnly || user?.role === 'master')
             && (!n.gestao || ['master','supervisor'].includes(user?.role))
-            && (!n.consultas || ['master','supervisor'].includes(user?.role) || user?.setor === 'consultas')
+            && (!n.consultas || podeSetor('consultas'))
             /* Cada uma vê o plano do SEU setor: Raylane e Stefany o vacinal,
                Danielle/Suellen/Mayara o de terapias. Só o MASTER vê os dois —
                'supervisor' não serve aqui, porque Raylane e Danielle são

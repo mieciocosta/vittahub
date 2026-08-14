@@ -550,6 +550,34 @@ export default function Inbox({ onUnreadChange }) {
 
   /* 📝 Bloco de notas do cliente: o que se descobre na ligação fica registrado
      com autor e data, em vez de morar na cabeça de quem atendeu. */
+  /* 🏥 Puxa a ficha do Vittasys pra dentro do VittaHub. Só preenche o que está
+     VAZIO aqui: dado digitado pela equipe não é sobrescrito por importação —
+     quem está na conversa costuma ter a informação mais recente. */
+  const [puxandoVs, setPuxandoVs] = useState(false);
+  const puxarVittasys = async () => {
+    setPuxandoVs(true);
+    try {
+      const tel = String(sel?.phone || '').replace(/\D/g, '');
+      const d = await api.get(`/extras/vittasys/paciente?telefone=${tel}&nome=${encodeURIComponent(sel?.contact_name || '')}`);
+      if (d.configurado === false) { Toast.show(d.aviso, 'info'); setPuxandoVs(false); return; }
+      if (d.erro) { Toast.show(d.erro, 'error'); setPuxandoVs(false); return; }
+      const p = d.paciente;
+      if (!p) { Toast.show('O Vittasys não encontrou esse paciente.', 'info'); setPuxandoVs(false); return; }
+      const atual = ficha?.cliente || {};
+      const novo = {};
+      if (p.nascimento && !atual.nascimento) novo.nascimento = p.nascimento;
+      if (p.cpf && !atual.cpf) novo.cpf = p.cpf;
+      if (p.responsavel && !atual.responsavel) novo.responsavel = p.responsavel;
+      if (p.nome && !atual.paciente) novo.paciente = p.nome;
+      if (Object.keys(novo).length) await api.put(`/inbox/conversations/${sel.id}/ficha`, novo);
+      Toast.show(
+        `${Object.keys(novo).length} campo(s) preenchido(s) do Vittasys` +
+        (p.doses?.length ? ` · ${p.doses.length} dose(s) encontradas lá` : ''), 'success');
+      abrirFicha();
+    } catch (e) { Toast.show(e.message, 'error'); }
+    setPuxandoVs(false);
+  };
+
   const [notas, setNotas] = useState([]);
   const [notaTxt, setNotaTxt] = useState('');
   const [notaTipo, setNotaTipo] = useState('ligacao');
@@ -2193,10 +2221,15 @@ export default function Inbox({ onUnreadChange }) {
                   </span>
                 </div>
               </div>
+              {/* 🏥 PUXAR DO VITTASYS: traz nascimento, responsável e doses já
+                  aplicadas de lá. Evita a equipe redigitar o que já existe no
+                  outro sistema — e errar a data, que é o que quebra a carteira. */}
               {ficha.cliente && !fichaEdit && (
-                <button onClick={() => window.open('https://vittasys.vittalissaude.com.br', '_blank')}
-                  title="Abrir o Vittasys"
-                  style={{ background:'rgba(255,255,255,.2)', border:'none', color:'#fff', borderRadius:8, padding:'5px 10px', cursor:'pointer', fontSize:11.5, fontWeight:800 }}>🏥 Vittasys</button>
+                <button onClick={puxarVittasys} disabled={puxandoVs}
+                  title="Puxar dados e doses do Vittasys"
+                  style={{ background:'rgba(255,255,255,.2)', border:'none', color:'#fff', borderRadius:8, padding:'5px 10px', cursor:puxandoVs?'wait':'pointer', fontSize:11.5, fontWeight:800 }}>
+                  {puxandoVs ? '⏳ puxando…' : '🏥 Puxar do Vittasys'}
+                </button>
               )}
               {ficha.cliente && !fichaEdit && (
                 <button onClick={() => setFichaEdit({ ...ficha.cliente })} title="Corrigir dados"

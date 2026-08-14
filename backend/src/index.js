@@ -13,6 +13,7 @@ import extrasRouter, { gerarSolicitacoesDaAgenda } from './routes/extras.js';
 import auditoriaRouter from './routes/auditoria.js';
 import integracaoRouter from './routes/integracao.js';
 import vittamedRouter from './routes/vittamed.js';
+import vittasysRouter from './routes/vittasys.js';
 import terapiasRouter from './routes/terapias.js';
 import publicoRouter from './routes/publico.js';
 import lembretesRouter, { rodarLembretesAutomaticos } from './routes/lembretes.js';
@@ -58,6 +59,7 @@ app.use('/api/extras',  extrasRouter);
 app.use('/api/auditoria', auditoriaRouter);
 app.use('/api/integracao', integracaoRouter);
 app.use('/api/extras/vittamed', vittamedRouter); // agenda do VittaMed lida daqui
+app.use('/api/extras/vittasys', vittasysRouter); // ficha e doses lidas do Vittasys
 app.use('/api/terapias', terapiasRouter);            // area de terapias + meta de planos
 app.use('/api/publico', publicoRouter); // 🔗 agendamento pelo site (sem login)
 app.use('/api/lembretes', lembretesRouter);
