@@ -33,6 +33,9 @@ export default function Agenda() {
   // cada setor tem sua agenda e a equipe daqui precisa ver o que está marcado lá.
   const [vmed, setVmed] = useState(null);
   const [vmedSetor, setVmedSetor] = useState('');
+  // A aba do VittaMed é da equipe de CONSULTAS (e da gestão) — pedido do master.
+  const meusSetores = (Array.isArray(user?.setores) && user.setores.length ? user.setores : [user?.setor]).filter(Boolean);
+  const podeVerVittaMed = ['master', 'supervisor'].includes(user?.role) || meusSetores.includes('consultas');
 
   // Sair de "Relatório do Dia" pra "Meu Relatório" é a MESMA rota, só muda a
   // busca — o componente não remonta e o estado inicial acima não roda de novo.
@@ -54,7 +57,7 @@ export default function Agenda() {
     setVmed({ carregando: true });
     api.get(`/extras/vittamed/agenda?data=${data}`).then(setVmed).catch(e => setVmed({ erro: e.message, itens: [] }));
   }, [api, data]);
-  useEffect(() => { if (aba === 'vittamed') loadVmed(); }, [aba, loadVmed]);
+  useEffect(() => { if (aba === 'vittamed') { if (!podeVerVittaMed) setAba('lista'); else loadVmed(); } }, [aba, loadVmed, podeVerVittaMed]);
 
   // 🔄 Agendamento criado/alterado em QUALQUER lugar (agenda, chat, carteira
   // vacinal ou link público) sobe pro relatório na hora, sem precisar recarregar.
@@ -89,6 +92,7 @@ export default function Agenda() {
     if (salvando) return;
     setErro('');
     const m = modal;
+    let forcar = false; // vira true quando a equipe confirma agendar em cima
     if (!m.paciente?.trim()) return setErro('Informe o nome do paciente.');
     if (!/^\d{2}:\d{2}$/.test(m.hora || '')) return setErro('Hora no formato HH:MM.');
     // Anti-choque do MOTORISTA ÚNICO — só vacinas: avisa se já tem agendamento
@@ -98,13 +102,16 @@ export default function Agenda() {
       let doDia = dia === data ? eventos : [];
       if (dia !== data) { try { doDia = await api.get(`/extras/agenda?data=${dia}`); } catch { doDia = []; } }
       const choque = (doDia || []).find(ev => ev.id !== m.id && ev.hora === m.hora && (ev.setor || 'vacinas') === 'vacinas' && ev.status !== 'Cancelado');
-      if (choque && !window.confirm(`⚠️ Já existe um agendamento de VACINAS às ${m.hora} neste dia — o motorista é único. Agendar mesmo assim?`)) return;
+      if (choque) {
+        if (!window.confirm(`⚠️ Já existe um agendamento de VACINAS às ${m.hora} neste dia — o motorista é único. Agendar mesmo assim?`)) return;
+        forcar = true; // confirmado na tela: o servidor deixa passar
+      }
     }
     setSalvando(true);
     try {
       if (m.local_link && !/^https?:\/\//i.test(m.local_link.trim())) { setErro('O link da localização precisa começar com http:// ou https://'); setSalvando(false); return; }
       if (m.email && !/.+@.+\..+/.test(m.email.trim())) { setErro('E-mail inválido.'); setSalvando(false); return; }
-      const body = { paciente: m.paciente.trim(), responsavel_nome: m.responsavel_nome || '', servico: m.servico || '', data: m.data || data, hora: m.hora, profissional: m.profissional || '', telefone: m.telefone || '', observacoes: m.observacoes || '', setor: m.setor || 'vacinas', endereco: m.endereco || '', local_link: (m.local_link || '').trim(), email: (m.email || '').trim(), valor: m.valor ?? '', forma_pagamento: m.forma_pagamento || '', parcelas: m.parcelas || '' };
+      const body = { paciente: m.paciente.trim(), responsavel_nome: m.responsavel_nome || '', servico: m.servico || '', data: m.data || data, hora: m.hora, profissional: m.profissional || '', telefone: m.telefone || '', observacoes: m.observacoes || '', setor: m.setor || 'vacinas', endereco: m.endereco || '', local_link: (m.local_link || '').trim(), email: (m.email || '').trim(), valor: m.valor ?? '', forma_pagamento: m.forma_pagamento || '', parcelas: m.parcelas || '', forcar };
       if (m.id) await api.put(`/extras/agenda/${m.id}`, body);
       else await api.post('/extras/agenda', body);
       const ehNovo = !modal?.id;
@@ -152,7 +159,7 @@ export default function Agenda() {
       </div>
 
       <div style={{ display: 'flex', gap: 7, marginBottom: 12, flexWrap: 'wrap' }}>
-        {[['lista', '📅 Agenda do dia'], ['vittamed', '🏥 VittaMed'], ['relatorio', '📋 Relatório e produtividade']].map(([k, l]) => (
+        {[['lista', '📅 Agenda do dia'], ...(podeVerVittaMed ? [['vittamed', '🏥 VittaMed']] : []), ['relatorio', '📋 Relatório e produtividade']].map(([k, l]) => (
           <button key={k} onClick={() => { setAba(k); if (k === 'relatorio') { setRel({ carregando: true }); api.get(`/extras/agenda/relatorio-dia?data=${data}`).then(setRel).catch(e => setRel({ erro: e.message })); } }}
             style={{ padding: '7px 15px', borderRadius: 10, fontSize: 12.5, fontWeight: 800, cursor: 'pointer',
               border: `1.5px solid ${aba === k ? 'var(--tq)' : 'var(--border)'}`,

@@ -236,6 +236,23 @@ r.put('/agenda/meta', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* 💉 MOTORISTA ÚNICO — a agenda de VACINAS é compartilhada por toda a equipe
+   de vacinas: existe UMA equipe saindo por vez, então dois agendamentos no
+   mesmo dia e horário são impossíveis na vida real. A tela já avisa antes de
+   salvar, mas duas atendentes clicando ao mesmo tempo passariam pelo aviso —
+   por isso a trava de verdade fica aqui no servidor (pedido do master). */
+async function choqueVacina({ data, hora, ignorarId }) {
+  if (!data || !hora) return null;
+  const { rows } = await query(
+    `SELECT id, paciente FROM agenda_eventos
+      WHERE COALESCE(setor,'vacinas') = 'vacinas' AND data = $1 AND hora = $2
+        AND LOWER(COALESCE(status,'')) NOT LIKE 'cancel%'
+        AND ($3::int IS NULL OR id <> $3::int) LIMIT 1`,
+    [data, hora, ignorarId || null]).catch(() => ({ rows: [] }));
+  return rows[0] || null;
+}
+const msgChoque = (c) => `Esse horário já está ocupado na agenda de vacinas (${c.paciente || 'outro cliente'}). Como a equipe é uma só, escolha outro horário.`;
+
 r.post('/agenda', async (req, res) => {
   try {
     const b = req.body || {};
@@ -244,6 +261,13 @@ r.post('/agenda', async (req, res) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(b.data || '')) return res.status(400).json({ error: 'Data inválida' });
     if (!/^\d{2}:\d{2}$/.test(b.hora || '')) return res.status(400).json({ error: 'Hora inválida (HH:MM)' });
     const setor = ['vacinas', 'consultas', 'terapias'].includes(b.setor) ? b.setor : 'vacinas';
+    // A tela pergunta antes; se a equipe confirmar que quer mesmo assim, manda
+    // forcar=true. Sem confirmação, o servidor barra — é o que impede duas
+    // atendentes clicando junto pegarem o mesmo horário.
+    if (setor === 'vacinas' && b.forcar !== true) {
+      const c = await choqueVacina({ data: b.data, hora: b.hora });
+      if (c) return res.status(409).json({ error: msgChoque(c), choque: { id: c.id, paciente: c.paciente } });
+    }
     const localLink = b.local_link && /^https?:\/\//i.test(b.local_link) ? cut(b.local_link, 300) : null;
     const email = b.email && /.+@.+\..+/.test(b.email) ? cut(b.email.trim(), 120) : null;
     const FORMAS = ['À vista', 'Pix', 'Débito', 'Crédito'];
@@ -304,6 +328,17 @@ r.put('/agenda/:id', async (req, res) => {
     if (b.forma_pagamento !== undefined) set('forma_pagamento', ['À vista', 'Pix', 'Débito', 'Crédito'].includes(b.forma_pagamento) ? b.forma_pagamento : null);
     if (b.parcelas !== undefined || b.forma_pagamento !== undefined) set('parcelas', b.forma_pagamento === 'Crédito' && b.parcelas ? Math.max(1, Math.min(parseInt(b.parcelas) || 1, 12)) : null);
     if (!sets.length) return res.status(400).json({ error: 'Nada para atualizar' });
+    // Remarcar/arrastar também passa pela trava do motorista único
+    if ((b.data !== undefined || b.hora !== undefined) && b.forcar !== true) {
+      const { rows: [atual] } = await query(
+        `SELECT TO_CHAR(data,'YYYY-MM-DD') AS data, hora, COALESCE(setor,'vacinas') AS setor
+           FROM agenda_eventos WHERE id = $1`, [req.params.id]).catch(() => ({ rows: [] }));
+      const setorFinal = ['vacinas', 'consultas', 'terapias'].includes(b.setor) ? b.setor : (atual?.setor || 'vacinas');
+      if (setorFinal === 'vacinas') {
+        const c = await choqueVacina({ data: b.data ?? atual?.data, hora: b.hora ?? atual?.hora, ignorarId: Number(req.params.id) });
+        if (c) return res.status(409).json({ error: msgChoque(c), choque: { id: c.id, paciente: c.paciente } });
+      }
+    }
     // Pro resgate de faltosos: precisa saber o status ANTERIOR (só dispara na virada)
     const { rows: [antes] } = b.status === 'Faltou'
       ? await query('SELECT status FROM agenda_eventos WHERE id = $1', [req.params.id]).catch(() => ({ rows: [] }))

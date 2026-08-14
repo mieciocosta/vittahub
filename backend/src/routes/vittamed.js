@@ -18,8 +18,18 @@ const configurado = () =>
 // depois das 21h e a agenda do dia sumiria da tela.
 const hojeLocal = () => new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
 
+// Quem enxerga a agenda do VittaMed: gestão e o pessoal de CONSULTAS.
+// Pedido do master: é a equipe de consultas que recebe essa agenda. Vacinas e
+// terapias têm as suas e não precisam dessa aqui atravessando a tela.
+function podeVerVittaMed(user) {
+  if (['master', 'supervisor'].includes(user?.role)) return true;
+  const setores = Array.isArray(user?.setores) && user.setores.length ? user.setores : [user?.setor];
+  return setores.includes('consultas');
+}
+
 // GET /api/extras/vittamed/agenda?data=YYYY-MM-DD[&setor=terapias]
 r.get('/agenda', auth, async (req, res) => {
+  if (!podeVerVittaMed(req.user)) return res.status(403).json({ error: 'A agenda do VittaMed é da equipe de consultas.' });
   if (!configurado()) {
     return res.json({
       ok: false, configurado: false, itens: [], total: 0, por_setor: {},

@@ -96,6 +96,19 @@ r.post('/agenda', async (req, res) => {
          AND status NOT IN ('Cancelado') LIMIT 1`, [paciente, b.data, hora]);
     if (dup.length) return res.json({ ok: true, id: dup[0].id, duplicado: true });
 
+    // Motorista único: a agenda de vacinas é uma só. Quem vem de fora também
+    // não pode ocupar um horário que já está com outra família.
+    if (setor === 'vacinas') {
+      const { rows: choque } = await query(
+        `SELECT id, paciente FROM agenda_eventos
+          WHERE COALESCE(setor,'vacinas')='vacinas' AND data=$1 AND hora=$2
+            AND LOWER(COALESCE(status,'')) NOT LIKE 'cancel%' LIMIT 1`, [b.data, hora]);
+      if (choque.length) return res.status(409).json({
+        error: `Horário de vacinas já ocupado (${choque[0].paciente || 'outro cliente'}).`,
+        choque: { id: choque[0].id },
+      });
+    }
+
     const { rows: [ev] } = await query(`
       INSERT INTO agenda_eventos (paciente, responsavel_nome, servico, data, hora, profissional,
         telefone, observacoes, status, setor, endereco)
