@@ -207,9 +207,28 @@ function SecurityLock({ user }) {
     // selecionado contiver um número com 8+ dígitos (telefone), a cópia é
     // bloqueada. Impressão/salvar página seguem bloqueados (vazariam a lista).
     const temTelefone = (txt) => /\d{8,}/.test(String(txt || '').replace(/[\s().+\-–—]/g, ''));
+
+    /* Toda tentativa de copiar telefone vira registro na Auditoria (pedido do
+       master, no lugar da marca d'água): bloquear sozinho não te conta NADA —
+       você não fica sabendo quem tentou, quantas vezes nem em que tela. Só o
+       registro transforma isso em informação. Agrupado por 15s pra um Ctrl+C
+       repetido não virar dez linhas iguais. */
+    let ultimaCopia = 0;
+    const registra = (acao, extra) => {
+      api.post('/auditoria/log', {
+        acao, entidade: 'seguranca',
+        detalhes: { tela: window.location.pathname, ...extra },
+      }).catch(() => {});
+    };
     const filtraCopia = (e) => {
       const sel = String(window.getSelection?.() || '');
-      if (temTelefone(sel)) { e.preventDefault(); return false; }
+      if (!temTelefone(sel)) return;
+      e.preventDefault();
+      if (Date.now() - ultimaCopia > 15000) {
+        ultimaCopia = Date.now();
+        registra('copia_telefone_bloqueada', { trecho: sel.slice(0, 60) });
+      }
+      return false;
     };
     // Arrastar o texto pra fora também é cópia — fecha a porta dos fundos.
     const filtraArrasto = (e) => {
@@ -234,11 +253,7 @@ function SecurityLock({ user }) {
       if (!ehPrint) return;
       if (Date.now() - ultimoAviso < 15000) return;                      // não repete em rajada
       ultimoAviso = Date.now();
-      api.post('/auditoria/log', {
-        acao: 'captura_tela',
-        entidade: 'tela',
-        detalhes: { tela: window.location.pathname, atalho: k },
-      }).catch(() => {});
+      registra('captura_tela', { atalho: k });
     };
 
     document.addEventListener('copy', filtraCopia);
@@ -262,25 +277,11 @@ function SecurityLock({ user }) {
     };
   }, []);
 
-  /* 🪪 MARCA D'ÁGUA RASTREÁVEL. Já existiu aqui e foi removida porque atrapalhava
-     a leitura. Voltou bem mais leve (3% de opacidade, texto pequeno e espaçado):
-     não se enxerga lendo a tela, mas aparece em qualquer print ou foto — e nele
-     está o nome de quem estava logado. Se a base vazar, dá pra saber de quem
-     partiu. É a única proteção real contra captura de tela.
-     O master não recebe marca: os relatórios que ele imprime sairiam sujos. */
-  if (!user || user.role === 'master') return null;
-  const selo = `${user.nome} · ${new Date().toLocaleDateString('pt-BR')}`;
-  const svg = encodeURIComponent(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="420" height="220">
-       <text x="0" y="120" transform="rotate(-24 0 120)" font-family="Arial" font-size="15"
-             fill="#0E8C96" fill-opacity="0.5">${selo.replace(/[<>&]/g, '')}</text>
-     </svg>`);
-  return (
-    <div aria-hidden="true" style={{
-      position: 'fixed', inset: 0, zIndex: 2147483000, pointerEvents: 'none',
-      opacity: 0.06, backgroundImage: `url("data:image/svg+xml,${svg}")`, backgroundRepeat: 'repeat',
-    }} />
-  );
+  /* Marca d'água ficou de fora: o master preferiu o RELATÓRIO DE SEGURANÇA da
+     Auditoria, que mostra quem tentou copiar telefone e quem capturou a tela.
+     É melhor mesmo — a marca só serve depois que o vazamento acontece; o
+     relatório mostra a intenção no dia em que ela aparece. */
+  return null;
 }
 
 export default function App() {

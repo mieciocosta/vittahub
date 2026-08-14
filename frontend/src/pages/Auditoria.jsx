@@ -29,6 +29,13 @@ export default function Auditoria() {
   const [presenca, setPresenca] = useState([]);
   const [usuarios, setUsuarios] = useState([]);
   const [dias, setDias] = useState([]);
+  // 🔒 Tentativas de copiar telefone e capturas de tela (pedido do master)
+  const [seg, setSeg] = useState(null);
+  useEffect(() => {
+    if (nivel !== 'seguranca') return;
+    setSeg(null);
+    api.get('/auditoria/seguranca?dias=30').then(setSeg).catch(e => setSeg({ erro: e.message }));
+  }, [nivel]); // eslint-disable-line
   const [timeline, setTimeline] = useState(null);
   const [search, setSearch] = useState('');
 
@@ -86,13 +93,13 @@ export default function Auditoria() {
           <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 2 }}>Presença, localização, atividades e ociosidade da equipe</p>
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
-          {['presenca', 'usuarios'].map(n => (
+          {['presenca', 'usuarios', 'seguranca'].map(n => (
             <button key={n} onClick={() => { setNivel(n); setSelUser(null); setSelDia(null); }}
               style={{ padding: '7px 15px', borderRadius: 10, fontSize: 12.5, fontWeight: 700, cursor: 'pointer',
                 border: `1.5px solid ${nivel === n || (n === 'usuarios' && ['dias', 'timeline'].includes(nivel)) ? 'var(--tq)' : 'var(--border)'}`,
                 background: nivel === n || (n === 'usuarios' && ['dias', 'timeline'].includes(nivel)) ? 'var(--tq)' : '#fff',
                 color: nivel === n || (n === 'usuarios' && ['dias', 'timeline'].includes(nivel)) ? '#fff' : 'var(--muted)' }}>
-              {n === 'presenca' ? '🟢 Tempo Real' : '📊 Histórico'}
+              {n === 'presenca' ? '🟢 Tempo Real' : n === 'usuarios' ? '📊 Histórico' : '🔒 Segurança'}
             </button>
           ))}
         </div>
@@ -108,6 +115,67 @@ export default function Auditoria() {
       )}
 
       {/* ── Presença em tempo real ── */}
+      {/* 🔒 SEGURANÇA — quem tentou copiar telefone e quem capturou a tela */}
+      {nivel === 'seguranca' && (
+        <div>
+          {!seg && <div className="card" style={{ padding: 26, color: 'var(--muted)' }}>Carregando…</div>}
+          {seg?.erro && <div className="card" style={{ padding: 20, color: 'var(--err)', fontWeight: 600 }}>⚠️ {seg.erro}</div>}
+          {seg && !seg.erro && (<>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
+              <StatCard label="Cópias bloqueadas" valor={seg.resumo.copias} cor="#ea580c" />
+              <StatCard label="Capturas de tela" valor={seg.resumo.prints} cor="#dc2626" />
+              <StatCard label="Pessoas envolvidas" valor={seg.resumo.pessoas} cor="var(--tq)" />
+              <StatCard label="Período" valor={`${seg.dias}d`} cor="var(--muted)" />
+            </div>
+
+            {!seg.por_pessoa.length ? (
+              <div className="card" style={{ padding: 26, textAlign: 'center', color: 'var(--muted)', fontSize: 13.5 }}>
+                ✅ Nenhuma tentativa de copiar telefone ou captura de tela nos últimos {seg.dias} dias.
+              </div>
+            ) : (<>
+              <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: 16 }}>
+                <div style={{ padding: '12px 16px', background: 'var(--bg)', borderBottom: '1px solid var(--border)', fontWeight: 800, fontSize: 14 }}>
+                  Por pessoa
+                </div>
+                {seg.por_pessoa.map(p => (
+                  <div key={p.usuario_id || p.nome} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 16px', borderBottom: '1px solid var(--border)' }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, fontSize: 13.5 }}>{p.nome}</div>
+                      <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                        última em {new Date(p.ultima).toLocaleString('pt-BR')}
+                      </div>
+                    </div>
+                    {p.copias > 0 && <span style={{ fontSize: 11.5, fontWeight: 800, padding: '3px 10px', borderRadius: 20, background: '#fff7ed', color: '#9a3412' }}>📋 {p.copias} cópia(s)</span>}
+                    {p.prints > 0 && <span style={{ fontSize: 11.5, fontWeight: 800, padding: '3px 10px', borderRadius: 20, background: '#fee2e2', color: '#991b1b' }}>📸 {p.prints} print(s)</span>}
+                  </div>
+                ))}
+              </div>
+
+              <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+                <div style={{ padding: '12px 16px', background: 'var(--bg)', borderBottom: '1px solid var(--border)', fontWeight: 800, fontSize: 14 }}>
+                  Últimos registros
+                </div>
+                <div style={{ maxHeight: 420, overflowY: 'auto' }}>
+                  {seg.ultimos.map((u, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 16px', borderBottom: '1px solid var(--border)', fontSize: 12.5 }}>
+                      <span style={{ fontSize: 15 }}>{u.acao === 'captura_tela' ? '📸' : '📋'}</span>
+                      <b style={{ minWidth: 110 }}>{String(u.usuario_nome || '—').split(' ')[0]}</b>
+                      <span style={{ flex: 1, minWidth: 0, color: 'var(--muted)' }}>
+                        {u.acao === 'captura_tela' ? 'capturou a tela' : 'tentou copiar telefone'}
+                        {u.detalhes?.tela ? ` em ${u.detalhes.tela}` : ''}
+                      </span>
+                      <span style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                        {new Date(u.created_at).toLocaleString('pt-BR')}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>)}
+          </>)}
+        </div>
+      )}
+
       {nivel === 'presenca' && (
         <div className="card" style={{ padding: 0, overflow: 'hidden', background: 'var(--card)' }}>
           <div style={{ padding: '13px 18px', background: 'linear-gradient(90deg,var(--tq),#0aa6ae)', color: '#fff', fontWeight: 800, fontSize: 14 }}>

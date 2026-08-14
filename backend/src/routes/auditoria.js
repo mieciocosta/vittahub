@@ -65,6 +65,43 @@ r.get('/stats', onlyMaster, async (req, res) => {
 });
 
 // Presença em tempo real: quem está online, ocioso, offline
+/* 🔒 RELATÓRIO DE SEGURANÇA — tentativas de copiar telefone e capturas de tela.
+   Bloquear sozinho não conta nada ao master: ele não fica sabendo quem tentou,
+   quantas vezes nem em que tela. É este relatório que transforma o bloqueio em
+   informação — e no dia em que a intenção aparece, não depois do vazamento. */
+r.get('/seguranca', onlyMaster, async (req, res) => {
+  try {
+    const dias = Math.max(1, Math.min(parseInt(req.query.dias) || 30, 180));
+    const [porPessoa, ultimos, porDia] = await Promise.all([
+      query(`SELECT COALESCE(usuario_nome,'(desconhecido)') nome, usuario_id,
+                    COUNT(*) FILTER (WHERE acao = 'copia_telefone_bloqueada')::int copias,
+                    COUNT(*) FILTER (WHERE acao = 'captura_tela')::int prints,
+                    MAX(created_at) ultima
+               FROM audit_logs
+              WHERE acao IN ('copia_telefone_bloqueada','captura_tela')
+                AND created_at > NOW() - ($1 || ' days')::interval
+              GROUP BY 1,2 ORDER BY (COUNT(*)) DESC`, [dias]),
+      query(`SELECT usuario_nome, acao, detalhes, ip, created_at
+               FROM audit_logs
+              WHERE acao IN ('copia_telefone_bloqueada','captura_tela')
+                AND created_at > NOW() - ($1 || ' days')::interval
+              ORDER BY created_at DESC LIMIT 200`, [dias]),
+      query(`SELECT TO_CHAR(created_at - interval '3 hours','YYYY-MM-DD') dia,
+                    COUNT(*) FILTER (WHERE acao = 'copia_telefone_bloqueada')::int copias,
+                    COUNT(*) FILTER (WHERE acao = 'captura_tela')::int prints
+               FROM audit_logs
+              WHERE acao IN ('copia_telefone_bloqueada','captura_tela')
+                AND created_at > NOW() - ($1 || ' days')::interval
+              GROUP BY 1 ORDER BY 1`, [dias]),
+    ]);
+    const tot = porPessoa.rows.reduce((a, p) => ({ copias: a.copias + p.copias, prints: a.prints + p.prints }), { copias: 0, prints: 0 });
+    res.json({
+      dias, por_pessoa: porPessoa.rows, ultimos: ultimos.rows, por_dia: porDia.rows,
+      resumo: { ...tot, pessoas: porPessoa.rows.length },
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.get('/presenca', onlyMaster, async (req, res) => {
   try {
     const { rows } = await query(`
