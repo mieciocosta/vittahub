@@ -5476,10 +5476,22 @@ r.get('/conversations/:id/carteira', async (req, res) => {
       // Uma linha por VACINA (dose a dose)
       const doMarco = feitas.get(c.mes) || [];
       const legado = doMarco.find(d => (d.vacina || '') === (c.vacinas || ''));  // registro antigo = marco inteiro
-      const doses = String(c.vacinas || '').split(',').map(v => v.trim()).filter(Boolean).map(v => {
-        const reg = doMarco.find(d => (d.vacina || '').trim().toLowerCase() === v.toLowerCase()) || legado || null;
-        return { vacina: v, aplicada: !!reg,
-          aplicada_em: reg?.data_aplicacao ? String(reg.data_aplicacao).slice(0, 10) : null,
+      /* "Pneumocócica 20 | Pneumo 15" = uma OU outra: a equipe escolhe na tela
+         qual foi aplicada de verdade (pedido do master — a maioria fecha a 20,
+         mas o esquema só oferecia a 15). O que já estiver registrado no nome de
+         qualquer alternativa mantém a linha marcada, com o nome escolhido. */
+      const doses = String(c.vacinas || '').split(',').map(v => v.trim()).filter(Boolean).map(item => {
+        const opcoes = item.split(/\s+ou\s+/i).map(x => x.trim()).filter(Boolean);
+        const padrao = opcoes[0];
+        const reg = doMarco.find(d => opcoes.some(o => (d.vacina || '').trim().toLowerCase() === o.toLowerCase())) || legado || null;
+        // Linha pode existir só pra guardar a ESCOLHA da marca, sem estar aplicada
+        const foiAplicada = !!reg && reg.aplicada !== false;
+        // Se já foi aplicada, o nome que vale é o REGISTRADO, não o padrão
+        const escolhida = (reg && reg.vacina && opcoes.some(o => o.toLowerCase() === String(reg.vacina).trim().toLowerCase()))
+          ? String(reg.vacina).trim() : padrao;
+        return { vacina: escolhida, padrao, opcoes, aplicada: foiAplicada,
+          aplicada_em: foiAplicada && reg?.data_aplicacao ? String(reg.data_aplicacao).slice(0, 10) : null,
+          observacao: reg?.observacao || null,
           registrado_por: reg?.registrado_por || null };
       });
       const nAplic = doses.filter(d => d.aplicada).length;
@@ -5524,6 +5536,13 @@ r.post('/conversations/:id/carteira', async (req, res) => {
     }
     const data = /^\d{4}-\d{2}-\d{2}$/.test(req.body?.data_aplicacao || '') ? req.body.data_aplicacao
       : new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+    /* Trocar "Pneumo 15" por "Pneumocócica 20" precisa APAGAR a anterior, senão
+       a criança fica com as duas aplicadas no mesmo marco. */
+    const trocarDe = String(req.body?.substitui || '').trim();
+    if (trocarDe && trocarDe.toLowerCase() !== vac.toLowerCase()) {
+      await query(`DELETE FROM carteira_doses WHERE conversa_id = $1 AND marco_mes = $2 AND LOWER(TRIM(COALESCE(vacina,''))) = LOWER($3)`,
+        [req.params.id, marco, trocarDe]).catch(() => {});
+    }
     const { rows: [d] } = await query(`
       INSERT INTO carteira_doses (conversa_id, lead_id, marco_mes, vacina, aplicada, data_aplicacao, observacao, registrado_por)
       VALUES ($1,$2,$3,$4,true,$5,$6,$7)
@@ -5531,8 +5550,33 @@ r.post('/conversations/:id/carteira', async (req, res) => {
       DO UPDATE SET aplicada = true, data_aplicacao = $5, observacao = COALESCE($6, carteira_doses.observacao), registrado_por = $7
       RETURNING *`,
       [req.params.id, conv.lead_id || null, marco, vac || null,
-       data, String(req.body?.observacao || '').slice(0, 200) || null, req.user.nome]);
+       data, req.body?.observacao !== undefined ? String(req.body.observacao).slice(0, 300) || null : null, req.user.nome]);
     res.json({ ok: true, aplicada: true, dose: d });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* Guarda QUAL marca a família vai tomar, sem dizer que já tomou. Serve pra a
+   equipe solicitar ao estoque e agendar a vacina certa (a maioria fecha a
+   Pneumocócica 20, e o esquema padrão trazia a 15). */
+r.post('/conversations/:id/carteira/escolha', async (req, res) => {
+  try {
+    const marco = parseInt(req.body?.marco_mes);
+    const vac = String(req.body?.vacina || '').trim().slice(0, 200);
+    if (isNaN(marco) || !vac) return res.status(400).json({ error: 'Informe o marco e a vacina.' });
+    const { rows: [conv] } = await query('SELECT id, lead_id FROM conversas WHERE id = $1', [req.params.id]);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    const trocarDe = String(req.body?.substitui || '').trim();
+    if (trocarDe && trocarDe.toLowerCase() !== vac.toLowerCase()) {
+      await query(`DELETE FROM carteira_doses WHERE conversa_id = $1 AND marco_mes = $2 AND LOWER(TRIM(COALESCE(vacina,''))) = LOWER($3)`,
+        [req.params.id, marco, trocarDe]).catch(() => {});
+    }
+    const { rows: [d] } = await query(`
+      INSERT INTO carteira_doses (conversa_id, lead_id, marco_mes, vacina, aplicada, data_aplicacao, registrado_por)
+      VALUES ($1,$2,$3,$4,false,NULL,$5)
+      ON CONFLICT (COALESCE(conversa_id,''), marco_mes, COALESCE(vacina,''))
+      DO UPDATE SET aplicada = false, data_aplicacao = NULL, registrado_por = $5
+      RETURNING *`, [req.params.id, conv.lead_id || null, marco, vac, req.user.nome]);
+    res.json({ ok: true, escolha: d });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

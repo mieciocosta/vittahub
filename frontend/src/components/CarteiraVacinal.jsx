@@ -22,6 +22,7 @@ export default function CarteiraVacinal({ convId, onAgendar, compacto = false })
   const [dados, setDados] = useState(null);
   const [salvando, setSalvando] = useState(null);
   const [agenda, setAgenda] = useState(null);   // 📅 agendamento da etapa
+  const [nota, setNota] = useState(null);      // ✏️ anotação de uma dose
 
   // Sugere a data: a prevista, se ainda vier; senão, daqui a 3 dias úteis
   const sugerirData = (m) => {
@@ -57,11 +58,55 @@ export default function CarteiraVacinal({ convId, onAgendar, compacto = false })
   const marcarDose = async (m, d) => {
     setSalvando(`${m.mes}|${d.vacina}`);
     try {
-      await api.post(`/inbox/conversations/${convId}/carteira`, { marco_mes: m.mes, vacina: d.vacina, aplicada: !d.aplicada });
+      if (d.aplicada && (d.opcoes || []).length > 1) {
+        // Desmarcar sem perder a marca escolhida (senão voltava pro padrão)
+        await api.post(`/inbox/conversations/${convId}/carteira/escolha`, { marco_mes: m.mes, vacina: d.vacina });
+      } else {
+        await api.post(`/inbox/conversations/${convId}/carteira`, { marco_mes: m.mes, vacina: d.vacina, aplicada: !d.aplicada });
+      }
       await carregar();
     } catch (e) { window.alert('Erro: ' + e.message); }
     setSalvando(null);
   };
+  /* Troca a alternativa da dose (Pneumocócica 20 ↔ Pneumo 15 ↔ Pneumo 13).
+     Pedido do master: o esquema trazia uma só, mas a maioria fecha a 20 — e a
+     atendente precisava registrar o que foi aplicado DE VERDADE. */
+  const trocarOpcao = async (m, d, nova) => {
+    if (!nova || nova === d.vacina) return;
+    setSalvando(`${m.mes}|${d.vacina}`);
+    try {
+      if (d.aplicada) {
+        // Já aplicada: regrava no nome novo e apaga o antigo (senão contam duas)
+        await api.post(`/inbox/conversations/${convId}/carteira`, {
+          marco_mes: m.mes, vacina: nova, aplicada: true,
+          data_aplicacao: d.aplicada_em || undefined, substitui: d.vacina,
+          observacao: d.observacao ?? undefined,
+        });
+      } else {
+        /* Ainda não aplicada: a escolha fica guardada como "prevista" — sem
+           marcar aplicada — pra a equipe já solicitar/agendar a certa. */
+        await api.post(`/inbox/conversations/${convId}/carteira/escolha`, { marco_mes: m.mes, vacina: nova, substitui: d.vacina });
+      }
+      await carregar();
+    } catch (e) { window.alert('Erro: ' + e.message); }
+    setSalvando(null);
+  };
+
+  // ✏️ Qualquer informação da dose: lote, marca, reação, quem aplicou…
+  const salvarNota = async () => {
+    const { m, d, texto } = nota;
+    setSalvando(`${m.mes}|${d.vacina}`);
+    try {
+      await api.post(`/inbox/conversations/${convId}/carteira`, {
+        marco_mes: m.mes, vacina: d.vacina, aplicada: true,
+        data_aplicacao: d.aplicada_em || undefined, observacao: texto,
+      });
+      setNota(null);
+      await carregar();
+    } catch (e) { window.alert('Erro: ' + e.message); }
+    setSalvando(null);
+  };
+
   // Marca/desmarca TODAS as doses do marco de uma vez
   const marcarMarco = async (m) => {
     const aplicando = m.aplicadas < m.total_doses;
@@ -258,21 +303,54 @@ export default function CarteiraVacinal({ convId, onAgendar, compacto = false })
 
               {/* DOSE A DOSE: cada vacina com o seu próprio check */}
               <div style={{ background: 'var(--card)', borderTop: '1px solid var(--border)' }}>
-                {m.doses.map(d => (
-                  <div key={d.vacina} onClick={() => marcarDose(m, d)}
-                    style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px 5px 14px', cursor: 'pointer', borderBottom: '1px solid var(--border)', opacity: salvando === `${m.mes}|${d.vacina}` ? .5 : 1 }}>
-                    <span style={{ width: 17, height: 17, borderRadius: 5, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                {m.doses.map(d => {
+                  const temOpcoes = (d.opcoes || []).length > 1;
+                  return (
+                  <div key={`${m.mes}-${d.padrao || d.vacina}`}
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px 5px 14px', borderBottom: '1px solid var(--border)', opacity: salvando === `${m.mes}|${d.vacina}` ? .5 : 1 }}>
+                    <span onClick={() => marcarDose(m, d)} title={d.aplicada ? 'Desmarcar' : 'Marcar como aplicada'}
+                      style={{ width: 17, height: 17, borderRadius: 5, flexShrink: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
                       border: `2px solid ${d.aplicada ? '#16a34a' : 'var(--border)'}`, background: d.aplicada ? '#16a34a' : 'transparent', color: '#fff' }}>
                       {d.aplicada && <Check size={11} strokeWidth={3} />}
                     </span>
-                    <span style={{ flex: 1, minWidth: 0, fontSize: 11.5, color: d.aplicada ? 'var(--muted)' : 'var(--txt)', textDecoration: d.aplicada ? 'line-through' : 'none' }}>
-                      {d.vacina}
-                    </span>
+
+                    {/* Quando a etapa aceita mais de uma marca, a escolha é da
+                        equipe — e não some depois de marcar aplicada. */}
+                    {temOpcoes ? (
+                      <select value={d.vacina} onChange={e => trocarOpcao(m, d, e.target.value)}
+                        onClick={e => e.stopPropagation()} title="Escolha qual foi aplicada"
+                        style={{ flex: 1, minWidth: 0, fontSize: 11.5, padding: '2px 5px', borderRadius: 7, cursor: 'pointer',
+                          border: '1px solid var(--border)', background: 'var(--card)',
+                          color: d.aplicada ? 'var(--muted)' : 'var(--txt)', fontWeight: 700 }}>
+                        {d.opcoes.map(o => <option key={o} value={o}>{o}</option>)}
+                      </select>
+                    ) : (
+                      <span onClick={() => marcarDose(m, d)}
+                        style={{ flex: 1, minWidth: 0, cursor: 'pointer', fontSize: 11.5, color: d.aplicada ? 'var(--muted)' : 'var(--txt)', textDecoration: d.aplicada ? 'line-through' : 'none' }}>
+                        {d.vacina}
+                      </span>
+                    )}
+
                     {d.aplicada && (
                       <span style={{ fontSize: 9.5, color: '#16a34a', fontWeight: 700, whiteSpace: 'nowrap' }}>
                         {d.aplicada_em ? fmtBR(d.aplicada_em) : 'aplicada'}{d.registrado_por ? ` · ${String(d.registrado_por).split(' ')[0]}` : ''}
                       </span>
                     )}
+                    {/* ✏️ lote, marca, reação — qualquer informação do paciente */}
+                    <button onClick={() => setNota({ m, d, texto: d.observacao || '' })}
+                      title={d.observacao ? `Anotação: ${d.observacao}` : 'Anotar lote, marca, reação…'}
+                      style={{ flexShrink: 0, width: 22, height: 22, borderRadius: 7, cursor: 'pointer', fontSize: 11,
+                        border: `1px solid ${d.observacao ? '#d97706' : 'var(--border)'}`,
+                        background: d.observacao ? '#fef3c7' : 'transparent', color: d.observacao ? '#92400e' : 'var(--muted)' }}>
+                      ✏️
+                    </button>
+                  </div>
+                  );
+                })}
+                {/* A anotação fica visível na lista — informação escondida não serve */}
+                {m.doses.filter(d => d.observacao).map(d => (
+                  <div key={`obs-${d.vacina}`} style={{ padding: '4px 10px 6px 39px', fontSize: 10.5, color: '#92400e', background: '#fffbeb' }}>
+                    ✏️ <b>{d.vacina}:</b> {d.observacao}
                   </div>
                 ))}
               </div>
@@ -280,6 +358,30 @@ export default function CarteiraVacinal({ convId, onAgendar, compacto = false })
           );
         })}
       </div>
+
+      {/* ✏️ Modal: qualquer informação sobre a dose do paciente */}
+      {nota && (
+        <div onClick={e => e.target === e.currentTarget && setNota(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(3,43,48,.55)', zIndex: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div className="card" style={{ width: '100%', maxWidth: 420, padding: '18px 20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <span style={{ fontWeight: 800, fontSize: 15, flex: 1 }}>✏️ {nota.d.vacina}</span>
+              <button onClick={() => setNota(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={16} /></button>
+            </div>
+            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 10 }}>
+              {dados.paciente || 'Paciente'} · {nota.m.nome} — anote o que precisar: lote, marca, reação, quem aplicou.
+            </div>
+            <textarea value={nota.texto} onChange={e => setNota({ ...nota, texto: e.target.value })} rows={4} autoFocus
+              placeholder="Ex.: Pneumocócica 20 · lote AB1234 · sem reação · mãe pediu avisar 1 dia antes"
+              style={{ width: '100%', padding: '10px 12px', borderRadius: 11, border: '1.5px solid var(--border)', fontSize: 13,
+                background: 'var(--card)', color: 'var(--txt)', boxSizing: 'border-box', resize: 'vertical', fontFamily: 'inherit' }} />
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
+              <button onClick={() => setNota(null)} className="btn btn-s">Cancelar</button>
+              <button onClick={salvarNota} className="btn btn-p" style={{ fontWeight: 800 }}>Salvar anotação</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 📅 Modal: agendar a etapa (cria o horário E solicita as doses) */}
       {agenda && (

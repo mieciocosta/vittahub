@@ -449,14 +449,17 @@ export default function Lembretes() {
             <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 6 }}>💉 Calendário vacinal (rede privada)</div>
             <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6, marginBottom: 12 }}>
               Uma linha por marco, no formato <b>meses | nome | vacinas</b>. Deixe igual ao esquema cadastrado no Vittasys.<br />
-              Exemplo: <code>2 | 2 meses | Hexavalente, Rotavírus, Pneumo 15</code>
+              Exemplo: <code>2 | 2 meses | Hexavalente, Rotavírus, Pneumocócica 20 ou Pneumo 15</code><br />
+              {/* pedido do master: a maioria fecha a Pneumo 20, mas o esquema só oferecia a 15 */}
+              Escreva <b>ou</b> entre marcas que se substituem — a equipe escolhe qual foi aplicada direto na carteira do paciente.
             </div>
             <textarea value={editCal} onChange={e => setEditCal(e.target.value)} rows={14}
               style={{ width: '100%', padding: 12, borderRadius: 12, border: '1.5px solid var(--border)', fontSize: 12.5, fontFamily: 'monospace', lineHeight: 1.7, background: 'var(--card)', color: 'var(--txt)', boxSizing: 'border-box', resize: 'vertical' }} />
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
               <button onClick={() => setEditCal(null)} className="btn btn-s">Cancelar</button>
               <button onClick={async () => {
-                const marcos = editCal.split('\n').map(l => l.split('|').map(x => x.trim()))
+                // junta o resto: "|" a mais na parte das vacinas não pode comer a linha
+                const marcos = editCal.split('\n').map(l => { const p3 = l.split('|').map(x => x.trim()); return p3.length > 3 ? [p3[0], p3[1], p3.slice(2).join(', ')] : p3; })
                   .filter(p2 => p2.length >= 3 && p2[1] && p2[2])
                   .map(p2 => ({ mes: parseInt(p2[0]) || 0, nome: p2[1], vacinas: p2[2] }));
                 if (!marcos.length) return showToast('⚠️ Nenhuma linha válida (use: meses | nome | vacinas)');
