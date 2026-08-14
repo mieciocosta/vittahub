@@ -588,12 +588,12 @@ r.get('/meta-setor', async (req, res) => {
       individual = { meta: metaInd, confirmado: confI, falta: Math.max(metaInd - confI, 0), pct: +((confI / metaInd) * 100).toFixed(1) };
     }
 
-    /* Cada uma vê o SEU setor; a gestão vê os três (pedido do master, revisto).
-       Antes todo mundo via os três "por espírito de time" — mas na prática a
-       atendente de vacinas ficava olhando o quanto falta em consultas e
-       terapias, que não é trabalho dela e só polui a cobrança. Quem não tem
-       setor definido continua vendo os três (não dá pra adivinhar o dela). */
-    const ordem = (gestao(req) || !setores.length)
+    /* Quem TEM setor definido vê só o dela — inclusive supervisora. Raylane e
+       Danielle são supervisoras DO SETOR delas, não da clínica inteira; a regra
+       anterior ("gestão vê tudo") devolvia os três pra elas.
+       Os três setores ficam pra quem realmente cuida de todos: o master e quem
+       está sem setor definido (aí não dá pra adivinhar qual mostrar). */
+    const ordem = (req.user.role === 'master' || !setores.length)
       ? [...setores, ...['vacinas', 'consultas', 'terapias'].filter(s => !setores.includes(s))]
       : setores;
     const porSetor = [];
