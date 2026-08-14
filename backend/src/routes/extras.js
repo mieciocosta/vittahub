@@ -724,12 +724,14 @@ r.get('/meta-setor', async (req, res) => {
        anterior ("gestão vê tudo") devolvia os três pra elas.
        Os três setores ficam pra quem realmente cuida de todos: o master e quem
        está sem setor definido (aí não dá pra adivinhar qual mostrar). */
-    /* O que manda aqui é ter SETOR, não o nível de acesso. Eu tinha incluído
-       ve_tudo pensando no marketing — mas a Danielle também tem ve_tudo (pra
-       enxergar todas as conversas) e voltou a ver os três setores no placar.
-       José e Carlos seguem vendo os três por não terem setor nenhum, que é a
-       condição certa: quem não tem setor não tem meta própria pra mostrar. */
-    const veTodosSetores = req.user.role === 'master' || !setores.length;
+    /* Só o master vê os três. "Sem setor cadastrado" NÃO abre mais tudo: era
+       essa exceção que fazia a Raylane seguir vendo consultas e terapias — o
+       setor dela nunca chegou a ser gravado (o seed comparava o CPF cru e não
+       achava ninguém), e a regra lia a falta de dado como permissão.
+       Agora cadastro faltando ESCONDE os blocos de setor: fica visível, alguém
+       reclama e se corrige — em vez de vazar em silêncio. O marketing tem os
+       três setores marcados de propósito no cadastro. */
+    const veTodosSetores = req.user.role === 'master';
     const ordem = veTodosSetores
       ? [...setores, ...['vacinas', 'consultas', 'terapias'].filter(s => !setores.includes(s))]
       : setores;

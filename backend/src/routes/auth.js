@@ -126,6 +126,32 @@ export const ehDono = (u) => {
   return /mi[eé]cio/i.test(`${u.nome || ''} ${u.email || ''}`);
 };
 
+/* 🧭 DIAGNÓSTICO DE SETORES (master) — mostra, numa lista só, o que está
+   gravado no cadastro de cada pessoa. Nasceu de um erro que se escondeu: o seed
+   de setores comparava o CPF cru, não achava ninguém, e a equipe ficava sem
+   setor — o que fazia o sistema mostrar as abas de TODOS os setores pra elas.
+   Com esta lista o master vê o dado real em vez de depender do meu palpite. */
+r.get('/diagnostico-setores', auth, async (req, res) => {
+  if (req.user?.role !== 'master') return res.status(403).json({ error: 'Acesso restrito ao master.' });
+  try {
+    const { rows } = await query(`
+      SELECT nome, role, setor, setores, ve_tudo,
+             regexp_replace(COALESCE(cpf,''),'\\D','','g') cpf_digitos, cpf cpf_bruto
+        FROM usuarios WHERE role <> 'bot' AND ativo = true ORDER BY nome`);
+    const itens = rows.map(u => {
+      const setores = (Array.isArray(u.setores) && u.setores.length) ? u.setores : [u.setor].filter(Boolean);
+      return {
+        nome: u.nome, papel: u.role, setores,
+        // O que a pessoa REALMENTE enxerga hoje, pelas regras em vigor
+        ve: u.role === 'master' ? 'tudo (master)' : setores.length ? setores.join(' e ') : '⚠️ nenhum setor — abas de setor escondidas',
+        problema: u.role !== 'master' && !setores.length ? 'Cadastro sem setor: marque em Configurações → Usuários' : null,
+        cpf_com_pontuacao: u.cpf_bruto !== u.cpf_digitos,
+      };
+    });
+    res.json({ itens, sem_setor: itens.filter(i => i.problema).length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.post('/impersonar/:id', auth, async (req, res) => {
   try {
     // Confere no BANCO, não no token: o token não carrega CPF e pode estar
