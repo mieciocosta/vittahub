@@ -2114,26 +2114,26 @@ export default function Inbox({ onUnreadChange }) {
               <div className="tb-grupo">
                 <button onClick={corrigirTexto} disabled={!input.trim() || corrigindo} title="Corrigir ortografia com IA (não muda o tom)"
                   className="tb-ico-color" style={{ '--ic':'#8b5cf6', opacity:!input.trim()?.4:1 }}>
-                  {corrigindo ? <Loader2 size={18} className="spin"/> : <Sparkles size={18}/>}
+                  {corrigindo ? <Loader2 size={18} className="spin"/> : <Sparkles size={18} strokeWidth={2.3}/>}
                 </button>
                 <button onClick={()=>{setShowQR(p=>!p);setShowEmoji(false);}} title="Mensagens automáticas"
-                  className={`tb-ico-color${showQR?' tb-on':''}`} style={{ '--ic':'#06b6d4' }}><Zap size={18}/></button>
+                  className={`tb-ico-color${showQR?' tb-on':''}`} style={{ '--ic':'#06b6d4' }}><Zap size={18} strokeWidth={2.3}/></button>
                 <button onClick={()=>{setBibAba('figurinha');setShowBib(true);}} title="Figurinhas da Vittalis"
-                  className="tb-ico-color" style={{ '--ic':'#eab308' }}><Sticker size={18}/></button>
+                  className="tb-ico-color" style={{ '--ic':'#eab308' }}><Sticker size={18} strokeWidth={2.3}/></button>
                 <button onClick={()=>{setBibAba('foto');setShowBib(true);}} title="Fotos e vídeos da Biblioteca"
-                  className="tb-ico-color" style={{ '--ic':'#d946ef' }}><Image size={18}/></button>
+                  className="tb-ico-color" style={{ '--ic':'#d946ef' }}><Image size={18} strokeWidth={2.3}/></button>
                 <button onClick={()=>{setShowDocs(p=>!p);setShowQR(false);setShowEmoji(false);}} title="Banco de documentos — envie os principais em 1 clique"
-                  className={`tb-ico-color${showDocs?' tb-on':''}`} style={{ '--ic':'#10b981' }}><FileText size={18}/></button>
+                  className={`tb-ico-color${showDocs?' tb-on':''}`} style={{ '--ic':'#10b981' }}><FileText size={18} strokeWidth={2.3}/></button>
                 <button onClick={()=>setShowAgendarMsg(true)} title="⏰ Agendar mensagem — escolha o dia e a hora pra disparar pro cliente"
-                  className="tb-ico-color" style={{ '--ic':'#6366f1' }}><Clock size={18}/></button>
+                  className="tb-ico-color" style={{ '--ic':'#6366f1' }}><Clock size={18} strokeWidth={2.3}/></button>
                 <Calculadora />
 
                 <span className="tb-div" />
 
                 <button onClick={()=>fileRef.current?.click()} title="Anexar arquivo"
-                  className="tb-ico-color" style={{ '--ic':'#3b82f6' }}><Paperclip size={18}/></button>
+                  className="tb-ico-color" style={{ '--ic':'#3b82f6' }}><Paperclip size={18} strokeWidth={2.3}/></button>
                 <button onClick={()=>{setShowEmoji(p=>!p);setShowQR(false);}} title="Emojis"
-                  className={`tb-ico-color${showEmoji?' tb-on':''}`} style={{ '--ic':'#f59e0b' }}><Smile size={18}/></button>
+                  className={`tb-ico-color${showEmoji?' tb-on':''}`} style={{ '--ic':'#f59e0b' }}><Smile size={18} strokeWidth={2.3}/></button>
               </div>
               <input ref={fileRef} type="file" accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.gif" style={{ display:'none' }} onChange={handleFile}/>
               <textarea ref={textRef} onPaste={handlePaste} spellCheck lang="pt-BR" value={input} onChange={e=>setInput(e.target.value)}
