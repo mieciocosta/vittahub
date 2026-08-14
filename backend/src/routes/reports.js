@@ -11,6 +11,17 @@ r.get('/dashboard', async (req, res) => {
     const uid = String(req.user.id).replace(/[^a-zA-Z0-9-]/g, ''); // só charset de UUID (anti-injection)
     const verTudo = isMaster || req.user.role === 'supervisor';
     const uFilter = verTudo ? '' : `AND l.responsavel_id = '${uid}'`;
+    /* Setores de quem pediu (autoridade: banco, não o token). Só o master vê os
+       três — supervisora é supervisora DO SETOR dela. NULL = sem recorte. */
+    const meusSetores = await (async () => {
+      if (isMaster) return null;
+      const { rows: [u] } = await query('SELECT setor, setores FROM usuarios WHERE id = $1', [req.user.id])
+        .catch(() => ({ rows: [null] }));
+      const vals = ['vacinas', 'consultas', 'terapias'];
+      if (u && Array.isArray(u.setores) && u.setores.length) return u.setores.filter(s => vals.includes(s));
+      if (u && vals.includes(u.setor)) return [u.setor];
+      return [];
+    })();
     // Período dos gráficos: ?days=7|30|90 (validado — nunca interpola entrada crua)
     const days = [7, 30, 90].includes(parseInt(req.query.days)) ? parseInt(req.query.days) : 7;
 
@@ -96,12 +107,15 @@ r.get('/dashboard', async (req, res) => {
         COUNT(*) FILTER (WHERE lower(COALESCE(lead_score,'')) LIKE 'quente%' AND NOT COALESCE(perdido,false))::int quentes,
         COUNT(*) FILTER (WHERE COALESCE(perdido,false))::int perdidas
         FROM conversas c
-        WHERE ($1::text IS NULL OR COALESCE(c.setor,(SELECT u2.setor FROM usuarios u2 WHERE u2.id=c.responsavel_id))=$1)`,
-        [verTudo ? null : (req.user.setor || null)]).catch(() => ({ rows: [{}] })),
-      // Conversas por setor — admin vê a distribuição de TODAS
+        WHERE ($1::text[] IS NULL OR COALESCE(c.setor,(SELECT u2.setor FROM usuarios u2 WHERE u2.id=c.responsavel_id)) = ANY($1))`,
+        [meusSetores]).catch(() => ({ rows: [{}] })),
+      // Conversas por setor — só o master vê a distribuição da clínica inteira;
+      // a equipe vê a fatia do próprio setor (nada de vacina em consultas).
       query(`SELECT COALESCE(setor,'sem setor') setor, COUNT(*)::int n,
                COUNT(*) FILTER (WHERE last_from='contact')::int aguardando
-             FROM conversas GROUP BY setor ORDER BY n DESC`).catch(() => ({ rows: [] })),
+             FROM conversas
+             WHERE ($1::text[] IS NULL OR COALESCE(setor,'sem setor') = ANY($1))
+             GROUP BY setor ORDER BY n DESC`, [meusSetores]).catch(() => ({ rows: [] })),
     ]);
 
     const t = totals.rows[0];
@@ -171,12 +185,18 @@ r.get('/dashboard', async (req, res) => {
         ];
       })(),
       porSetorConv: (porSetorConv.rows || []).map(s => ({ setor: s.setor, n: parseInt(s.n) || 0, aguardando: parseInt(s.aguardando) || 0 })),
-      impacto: {
-        familias: parseInt(impacto.rows[0]?.familias) || 0,
-        convVacinas: parseInt(impacto.rows[0]?.conv_vacinas) || 0,
-        convConsultas: parseInt(impacto.rows[0]?.conv_consultas) || 0,
-        convTerapias: parseInt(impacto.rows[0]?.conv_terapias) || 0,
-      },
+      /* Painel de impacto: cada linha de setor só vai pra quem é DAQUELE setor
+         (o master vê os três). Era por aqui que "Conversas — Consultas" ainda
+         aparecia no painel de quem só trabalha com vacina. */
+      impacto: (() => {
+        const meu = (s) => !meusSetores || meusSetores.includes(s);
+        return {
+          familias: parseInt(impacto.rows[0]?.familias) || 0,
+          convVacinas: meu('vacinas') ? parseInt(impacto.rows[0]?.conv_vacinas) || 0 : null,
+          convConsultas: meu('consultas') ? parseInt(impacto.rows[0]?.conv_consultas) || 0 : null,
+          convTerapias: meu('terapias') ? parseInt(impacto.rows[0]?.conv_terapias) || 0 : null,
+        };
+      })(),
     });
   } catch (err) {
     console.error('dashboard error:', err.message);

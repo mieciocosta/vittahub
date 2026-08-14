@@ -19,6 +19,21 @@ const gestao = (req) => ['master', 'supervisor'].includes(req.user.role);
 // Erro da IA — mostra só "IA inativa" (sem detalhe técnico)
 const erroIA = () => 'IA inativa';
 
+/* Setores de quem está pedindo — a AUTORIDADE é o banco, nunca o token (que
+   pode ser velho, de antes de a gestão arrumar o cadastro). Só o master enxerga
+   os três; supervisora é supervisora DO SETOR DELA (regra do master, já custou
+   vazamento de placar entre vacinas e consultas). Sem setor cadastrado NÃO
+   significa "vê tudo": significa lista vazia, e as telas escondem as abas. */
+const SETORES_VALIDOS = ['vacinas', 'consultas', 'terapias'];
+export async function setoresDoUsuario(req) {
+  if (req.user.role === 'master') return [...SETORES_VALIDOS];
+  const { rows: [u] } = await query('SELECT setor, setores FROM usuarios WHERE id = $1', [req.user.id])
+    .catch(() => ({ rows: [null] }));
+  if (u && Array.isArray(u.setores) && u.setores.length) return u.setores.filter(s => SETORES_VALIDOS.includes(s));
+  if (u && SETORES_VALIDOS.includes(u.setor)) return [u.setor];
+  return [];
+}
+
 /* ═══ AGENDA ═════════════════════════════════════════════════════════════════ */
 const AG_STATUS = ['Agendado', 'Confirmado', 'Realizado', 'Cancelado', 'Reagendado', 'Faltou'];
 
@@ -98,7 +113,10 @@ r.get('/agenda/meta', async (req, res) => {
     const feitosPor = Object.fromEntries(porSetor.rows.map(r2 => [r2.setor, r2.n]));
     const setores = {};
     let totFeitos = 0, totAlvo = 0;
-    for (const s of SETORES_META) {
+    /* Cada uma vê a meta de agendamento DO SETOR DELA. Era aqui que a Raylane
+       (vacinas) continuava enxergando consultas e terapias no painel. */
+    const meus = await setoresDoUsuario(req);
+    for (const s of SETORES_META.filter(x => meus.includes(x))) {
       const feitos = feitosPor[s] || 0;
       const alvo = parseInt(metas[s]) || 0;
       setores[s] = { feitos, alvo, falta: Math.max(alvo - feitos, 0), pct: alvo ? +((feitos / alvo) * 100).toFixed(1) : null };
@@ -3374,7 +3392,10 @@ r.post('/push/testar', async (req, res) => {
    mês (comparar 5 dias contra 30 mentiria), com variação em %. */
 r.get('/comparativo-mes', async (req, res) => {
   try {
-    if (!gestao(req)) return res.status(403).json({ error: 'Acesso restrito à gestão.' });
+    /* Faturamento da CASA inteira é do dono, não da supervisora de setor
+       (regra do master). A supervisora acompanha o número do setor dela no
+       placar — este comparativo soma vacinas + consultas + terapias. */
+    if (req.user.role !== 'master') return res.status(403).json({ error: 'Acesso restrito ao master.' });
     const agora = new Date(Date.now() - 3 * 3600 * 1000); // São Luís
     const diaAtual = agora.getUTCDate();
     const mesAtual = agora.toISOString().slice(0, 7);

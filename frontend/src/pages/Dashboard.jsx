@@ -85,7 +85,8 @@ export default function Dashboard() {
     api.get('/extras/vitta-hoje').then(setVittaHoje).catch(() => {});
     api.get('/extras/foco-hoje').then(setFoco).catch(() => {});
     api.get('/extras/minha-producao').then(setProd).catch(() => {});
-    if (['master', 'supervisor'].includes(user?.role)) api.get('/extras/comparativo-mes').then(setComp).catch(() => {});
+    // Comparativo soma a clínica inteira → só o dono (a supervisora vê o setor dela no placar)
+    if (isMaster) api.get('/extras/comparativo-mes').then(setComp).catch(() => {});
     if (isMaster) api.get('/extras/vendas/resumo').then(setVendasResumo).catch(() => {}); // painel comercial é só do master
     const loadAt = () => api.get('/inbox/atencao-agora').then(setAtencao).catch(() => {});
     loadAt(); const t = setInterval(loadAt, 20000); return () => clearInterval(t);
@@ -102,10 +103,9 @@ export default function Dashboard() {
 
   if (!data) return <div style={{ padding: 40, color: 'var(--muted)' }}>Carregando seu dia…</div>;
 
-  const { resumo = {}, porStatus = [], followups = [], porResponsavel = [], metas, impacto, funil = [], porSetorConv = [] } = data;
+  const { resumo = {}, porStatus = [], followups = [], porResponsavel = [], impacto, funil = [], porSetorConv = [] } = data;
   const fupsHoje = followups.filter(f => f.data_retorno === hojeLocalISO());
   const fupsVencidos = followups.filter(f => f.data_retorno < hojeLocalISO());
-  const proxMarco = metas ? [25, 50, 75, 100].find(m => m > metas.vacinas.pct) : null;
   const maxFunil = Math.max(...funil.map(f => f.n), 1);
   const setorEmoji = { vacinas: '💉', consultas: '🩺', terapias: '🧩', 'sem setor': '📥' };
   // Meta GERAL do mês (todos os setores somados) + quebras por setor e atendente
@@ -125,11 +125,16 @@ export default function Dashboard() {
     { Icon: Bell, label: 'Follow-ups pendentes', valor: followups.length, sub: 'Retornos programados', go: '/retornos' },
   ];
 
+  /* Atalho do sistema de origem conforme o SETOR (pedido do master): quem é de
+     vacina registra no Vittasys, quem é de consulta/terapia no VittaMed. Antes
+     "Registrar vacina" aparecia pra todo mundo — inclusive pra Danielle. */
+  const meusSetores = (Array.isArray(user?.setores) && user.setores.length) ? user.setores : [user?.setor].filter(Boolean);
+  const podeSetor = (s) => user?.role === 'master' || meusSetores.includes(s);
   const acoes = [
     { Icon: MessageSquare, label: 'Nova conversa', go: '/inbox' },
     { Icon: UserPlus, label: 'Novo cliente', go: '/leads' },
     { Icon: Send, label: 'Enviar orçamento', go: '/inbox' },
-    { Icon: Syringe, label: 'Registrar vacina', href: 'https://vittasys.vittalissaude.com.br' },
+    ...(podeSetor('vacinas') ? [{ Icon: Syringe, label: 'Registrar vacina', href: 'https://vittasys.vittalissaude.com.br' }] : []),
     { Icon: ClipboardList, label: 'Nova tarefa', go: '/retornos' },
   ];
 
@@ -231,7 +236,7 @@ export default function Dashboard() {
               <span style={{ background: 'rgba(255,255,255,.22)', borderRadius: 20, padding: '3px 11px', fontSize: 11.5, fontWeight: 800 }}>{foco.total} pra hoje</span>
             </div>
             <div style={{ maxHeight: 330, overflowY: 'auto' }}>
-              {foco.itens.map((it, i) => (
+              {(foco.itens || []).map((it, i) => (
                 <div key={i} onClick={() => it.conv_id ? nav(`/inbox?conv=${it.conv_id}`) : it.telefone ? nav(`/inbox?phone=${String(it.telefone).replace(/\D/g, '')}`) : nav('/agenda')}
                   style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '10px 18px', borderBottom: i < foco.itens.length - 1 ? '1px solid var(--border)' : 'none', cursor: 'pointer' }}
                   onMouseEnter={e => e.currentTarget.style.background = 'var(--bg2)'}
@@ -267,14 +272,14 @@ export default function Dashboard() {
         </button>
 
         {/* ── 📈 ESTE MÊS x MÊS PASSADO (gestão) — comparação até o mesmo dia ── */}
-        {comp && (
+        {comp?.itens?.length > 0 && (
           <div className="card" style={{ padding: '15px 18px', marginBottom: 20 }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
               <span style={{ fontWeight: 800, fontSize: 14 }}>📈 Este mês x mês passado</span>
               <span style={{ fontSize: 11, color: 'var(--muted)' }}>comparação justa: até o dia {comp.dia} dos dois meses</span>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 12 }}>
-              {comp.itens.map(it => {
+              {(comp.itens || []).map(it => {
                 const sobe = it.variacao > 0, igual = it.variacao === 0;
                 const cor = igual ? 'var(--muted)' : sobe ? 'var(--ok,#16a34a)' : 'var(--err,#dc2626)';
                 const val = (v) => it.formato === 'brl' ? fmt.brl(v) : it.formato === 'pct' ? `${v}%` : v;
@@ -316,8 +321,13 @@ export default function Dashboard() {
               const nome = s.setor && s.setor !== 'geral' ? s.setor[0].toUpperCase() + s.setor.slice(1) : 'Geral';
               const cor = { vacinas: '#7c5cbf', consultas: '#00B8C0', terapias: '#C4973B' }[s.setor] || '#0E8C96';
               const emoji = { vacinas: '💉', consultas: '🩺', terapias: '🧩' }[s.setor] || '🎯';
-              const pct = Math.min(s.pctGlobal ?? 0, 100);
-              const batida = (s.faltaGlobal ?? 0) <= 0;
+              /* A meta que vale é a MÍNIMA do setor (R$ 100 mil) — o master
+                 mandou tirar a "meta ideal" de R$ 500 mil da frente da equipe:
+                 número grande demais desanima em vez de puxar. */
+              const alvo = s.metaMinima || s.meta || 0;
+              const falta = s.faltaMinima ?? Math.max(alvo - (s.confirmado || 0), 0);
+              const pct = Math.min(s.pctMinima ?? 0, 100);
+              const batida = alvo > 0 && falta <= 0;
               return (
                 <div key={s.setor} className="card" style={{ padding: '16px 18px', borderTop: `3px solid ${cor}` }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
@@ -325,7 +335,7 @@ export default function Dashboard() {
                     <span style={{ fontSize: 13, fontWeight: 900, color: cor }}>{pct}%</span>
                   </div>
                   <div style={{ fontSize: 22, fontWeight: 900 }}>{fmt.brl(s.confirmado || 0)}</div>
-                  <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>de {fmt.brl(s.metaGlobal)}{batida ? ' · 🏆 batida!' : ` · faltam ${fmt.brl(s.faltaGlobal)}`}</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>de {fmt.brl(alvo)}{batida ? ' · 🏆 batida!' : ` · faltam ${fmt.brl(falta)}`}</div>
                   <div style={{ height: 9, borderRadius: 6, background: 'var(--bg2)', overflow: 'hidden' }}>
                     <div style={{ width: `${pct}%`, height: '100%', borderRadius: 6, background: batida ? 'var(--ok,#16a34a)' : cor, transition: 'width .5s' }} />
                   </div>
@@ -374,7 +384,7 @@ export default function Dashboard() {
         </div>
 
         {/* ── 🤖 Vitta trabalhando por você — automações de hoje ── */}
-        {vittaHoje && (vittaHoje.enviadas + vittaHoje.pendentes) > 0 && (
+        {vittaHoje && ((vittaHoje.enviadas || 0) + (vittaHoje.pendentes || 0)) > 0 && (
           <div className="card" style={{ padding: '14px 18px', marginBottom: 16, borderLeft: '4px solid var(--tq)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
               <span style={{ fontWeight: 800, fontSize: 14 }}>🤖 Vitta trabalhando por você — hoje</span>
@@ -383,7 +393,7 @@ export default function Dashboard() {
               </span>
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {vittaHoje.lista.map((o) => {
+              {(vittaHoje.lista || []).map((o) => {
                 const rot = String(o.origem).replace(/^Vitta · /, '').replace(/^Campanha · /, 'Campanha ');
                 const emoji = /confirma/i.test(o.origem) ? '📅' : /orçament|orcament/i.test(o.origem) ? '💰'
                   : /faltoso/i.test(o.origem) ? '🔄' : /pós-venda|pos-venda/i.test(o.origem) ? '💙'
@@ -547,7 +557,8 @@ export default function Dashboard() {
         {/* ── Segunda linha: Equipe hoje · Atividades · Mensagem ── */}
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px,1.1fr) minmax(260px,1fr) minmax(300px,1.3fr)', gap: 16, marginBottom: 16 }}>
 
-          {/* Desempenho da Equipe — Hoje */}
+          {/* Desempenho da Equipe — Hoje (linha de cada colega é só do master) */}
+          {isMaster && (
           <div className="card" style={{ padding: '17px 19px', background: 'var(--card)' }}>
             <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 13, display: 'flex', alignItems: 'center', gap: 8 }}>👏 Desempenho da Equipe — Hoje</div>
             {(porResponsavel || []).slice(0, 5).map((u2, i) => {
@@ -572,8 +583,9 @@ export default function Dashboard() {
                 </div>
               );
             })}
-            {(porResponsavel || []).length === 0 && <div style={{ fontSize: 12, color: 'var(--muted)' }}>Visível para a gestão.</div>}
+            {(porResponsavel || []).length === 0 && <div style={{ fontSize: 12, color: 'var(--muted)' }}>Sem atendimentos registrados hoje.</div>}
           </div>
+          )}
 
           {/* Vendas por atendente — mês (confirmado) — só master */}
           {isMaster && porAtend.length > 0 && (
@@ -787,11 +799,12 @@ export default function Dashboard() {
               )}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 12 }}>
+              {/* O servidor manda null no setor que não é da pessoa — some da lista */}
               {[['👨‍👩‍👧', impacto.familias, 'Famílias atendidas'],
                 ['💉', impacto.convVacinas, 'Conversas — Vacinas'],
                 ['🩺', impacto.convConsultas, 'Conversas — Consultas'],
                 ['🧩', impacto.convTerapias, 'Conversas — Terapias'],
-                ['💬', resumo.totalUnread || 0, 'Não lidas agora']].map(([ic, v, l]) => (
+                ['💬', resumo.totalUnread || 0, 'Não lidas agora']].filter(([, v]) => v != null).map(([ic, v, l]) => (
                 <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <span style={{ fontSize: 26 }}>{ic}</span>
                   <div>
