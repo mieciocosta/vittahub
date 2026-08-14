@@ -109,7 +109,7 @@ r.get('/agenda/meta', async (req, res) => {
       /* Placar nominal da equipe é da GESTÃO (pedido do master). A atendente vê
          a meta do SETOR (que é de todas) e a SUA própria linha — nunca o número
          das colegas. Expor produção alheia vira comparação e fofoca de corredor. */
-      porAtendente: gestao(req) ? porResp.rows
+      porAtendente: req.user.role === 'master' ? porResp.rows
         : porResp.rows.filter(x => x.nome === req.user.nome),
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -524,7 +524,7 @@ r.post('/vendas', async (req, res) => {
 // R$ só vai para a gestão (regra do painel comercial); a contagem é pra todos.
 r.get('/vendas/hoje', async (req, res) => {
   try {
-    const podeValor = gestao(req);
+    const podeValor = req.user.role === 'master';   // o número da casa e a campeã são só do dono
     /* "Vendas hoje" passa a ser o que a PRÓPRIA pessoa fechou (pedido do
        master). O número da casa não movia ninguém: a atendente via "12
        fechadas" sem saber quantas eram dela. O total da clínica continua, mas
@@ -668,7 +668,22 @@ r.get('/meta-setor', async (req, res) => {
     const porSetor = [];
     for (const s of ordem) porSetor.push(await confDe(s));
     // Topo = primeiro setor (compat com quem lê os campos direto); porSetor separa cada um.
-    res.json({ ...porSetor[0], porSetor, multi: true, individual, focoDia });
+    /* 🔒 Colega não vê o número da colega — nem por subtração (pedido do
+       master). Raylane e Stefany dividem o setor de vacinas: se as duas veem o
+       total do SETOR e cada uma sabe o próprio, descobrir o da outra é uma
+       conta de menos. Fora da gestão, os valores em R$ do setor não são nem
+       enviados: sobra a meta do dia (que já é individual) e a "Sua meta". */
+    /* Só o MASTER. 'gestao' não serve aqui: Raylane e Danielle são supervisoras
+       e é justamente delas que o master quer separar os números. */
+    const podeValores = req.user.role === 'master';
+    const porSetorSeguro = podeValores ? porSetor : porSetor.map(s => ({
+      setor: s.setor, metaGlobal: s.metaGlobal, metaMinima: s.metaMinima,
+      confirmado: null, faltaMinima: null, faltaGlobal: null, pctMinima: null, pctGlobal: null,
+    }));
+    res.json({
+      ...porSetorSeguro[0], porSetor: porSetorSeguro,
+      multi: true, individual, focoDia, mostra_valores: podeValores,
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -2445,7 +2460,7 @@ r.get('/agenda/relatorio-dia', async (req, res) => {
        A atendente vê o movimento do dia — quantos vieram, quantos faltaram, taxa
        de comparecimento — e a SUA linha de produtividade. O faturamento da casa
        e o de cada colega ficam de fora. */
-    const ehGestor = gestao(req);
+    const ehGestor = req.user.role === 'master';    // supervisora tambem nao ve a linha da colega
     res.json({
       data: dia, eventos,
       resumo: {

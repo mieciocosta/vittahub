@@ -6,6 +6,14 @@ import { fmt } from '../hooks/utils.js';
    Mostra vendas do dia + progresso da meta do mês, atualizando ao vivo a cada
    venda registrada. Some no Login (sem user). */
 
+// "1 Consulta" / "7 Consultas" — o rótulo vem no plural do servidor, então o
+// singular é ajustado aqui na hora de escrever a frase.
+const SINGULAR = { 'Consultas': 'Consulta', 'Sessões': 'Sessão' };
+const qtdTexto = (f) => {
+  const n = f.falta ?? 0;
+  return `${n} ${n === 1 ? (SINGULAR[f.rotulo] || f.rotulo) : f.rotulo}`;
+};
+
 export default function PlacarVendas() {
   const api = useApi();
   const { user } = useAuth();
@@ -34,6 +42,9 @@ export default function PlacarVendas() {
 
   if (!user || !meta || !meta.metaGlobal) return null;
   const gestao = ['master', 'supervisor'].includes(user.role);
+  // O servidor decide se manda os valores do setor. Fora da gestão eles nem
+  // chegam — assim a colega não descobre o número da outra por subtração.
+  const verValores = meta.mostra_valores !== false;
   const nomeSetor = meta.setor && meta.setor !== 'geral' ? meta.setor[0].toUpperCase() + meta.setor.slice(1) : 'Geral';
   const pct = Math.min(meta.pctGlobal ?? 0, 100);
   const batida = (meta.faltaGlobal ?? 0) <= 0;
@@ -88,19 +99,23 @@ export default function PlacarVendas() {
               <div key={s.setor}
                 // A meta ideal saiu da faixa, mas continua aqui no "passar o
                 // mouse" — quem quiser conferir o alvo cheio ainda alcança.
-                title={`${nome}: ${fmt.brl(s.confirmado || 0)} de ${fmt.brl(minMeta)} (${p}% da mínima) · meta ideal ${fmt.brl(s.metaGlobal || 0)}`}
+                title={!verValores
+                  ? (foco ? `${nome} hoje: ${foco.map(f => `${f.feitos} de ${f.alvo} ${f.rotulo.toLowerCase()}`).join(' ou ')}` : nome)
+                  : foco
+                    ? `${nome} hoje: ${foco.map(f => `${f.feitos} de ${f.alvo} ${f.rotulo.toLowerCase()}`).join(' ou ')} · no mês ${fmt.brl(s.confirmado || 0)} de ${fmt.brl(minMeta)}`
+                    : `${nome}: ${fmt.brl(s.confirmado || 0)} de ${fmt.brl(minMeta)} (${p}% da mínima) · meta ideal ${fmt.brl(s.metaGlobal || 0)}`}
                 style={{ lineHeight: 1.15, transition: 'transform .3s', transform: pulse ? 'scale(1.06)' : 'scale(1)' }}>
                 <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: .6, textTransform: 'uppercase', color: 'rgba(255,255,255,.7)' }}>
-                  {EMOJI[s.setor] || '🎯'} {nome}{foco ? ' · hoje' : ` · ${p}%`}
+                  {EMOJI[s.setor] || '🎯'} {nome}{foco ? ' · sua meta' : (verValores ? ` · ${p}%` : '')}
                 </div>
                 <div style={{ fontSize: 12.5, fontWeight: 900, color: (foco ? focoOk : ok) ? '#6ee7b7' : (CORES[s.setor] || '#fde68a') }}>
                   {/* Onde existe meta em QUANTIDADE, ela substitui o valor em R$:
-                      "falta R$ 99.600" não diz o que fazer hoje; "faltam 7
-                      consultas" diz. O valor continua no passar do mouse. */}
+                      "falta R$ 99.600" não diz o que fazer hoje; "1 Plano
+                      Vacinal" diz. Mostra o que FALTA, não o que já foi feito —
+                      é a tarefa, não o extrato. O valor fica no passar do mouse. */}
                   {foco
-                    ? (focoOk
-                        ? `🏆 ${foco.map(f => `${f.feitos}/${f.alvo} ${f.rotulo.toLowerCase()}`).join(' ou ')} — feito!`
-                        : foco.map(f => `${f.feitos}/${f.alvo} ${f.rotulo.toLowerCase()}`).join(' ou '))
+                    ? (focoOk ? '🏆 Meta do dia batida!' : foco.map(qtdTexto).join(' ou '))
+                    : !verValores ? <span style={{ opacity: .8 }}>meta do time</span>
                     : (ok ? '🏆 Meta batida!' : <span>falta {fmt.brl(faltaMin)}</span>)}
                 </div>
               </div>
