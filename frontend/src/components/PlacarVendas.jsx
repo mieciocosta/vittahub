@@ -87,8 +87,9 @@ export default function PlacarVendas() {
   const carregar = () => {
     api.get('/extras/meta-setor').then(setMeta).catch(() => {});
     api.get('/extras/vendas/hoje').then(setHoje).catch(() => {});
-    // Estado do freio geral — só o master enxerga (e só ele pode mexer)
-    if (user?.role === 'master') api.get('/inbox/automacao/pausa').then(setPausa).catch(() => {});
+    /* Estado do freio — TODA a equipe vê a tarja (com a Vitta calada, quem não
+       responder na mão deixa o cliente no vácuo). Só o master tem o botão. */
+    api.get('/inbox/automacao/pausa').then(setPausa).catch(() => {});
   };
 
   /* ⏸️ PARAR TUDO — um clique estanca toda mensagem automática: Vitta, menu,
@@ -350,7 +351,8 @@ export default function PlacarVendas() {
       {pausa?.pausada && (
         <div style={{ width: '100%', marginTop: 6, padding: '6px 12px', borderRadius: 10, textAlign: 'center',
           background: 'rgba(220,38,38,.9)', color: '#fff', fontSize: 12, fontWeight: 900 }}>
-          ⏸️ AUTOMÁTICO PAUSADO — a Vitta não responde, e follow-ups, lembretes e agendadas não saem. Só mensagem escrita à mão.
+          ⏸️ BOT DESLIGADO — a Vitta não responde, e follow-ups, lembretes e agendadas não saem.
+          <b> Todo cliente precisa ser respondido à mão.</b> Fique de olho no Chat e em "Atenção agora". 👀
         </div>
       )}
 

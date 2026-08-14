@@ -4201,8 +4201,10 @@ export async function automacaoPausada() {
   } catch { return true; }
 }
 
-// Estado + botão do freio (só o master)
-r.get('/automacao/pausa', masterOnly, async (req, res) => {
+/* Estado do freio: TODA a equipe precisa saber que o automático está parado —
+   com a Vitta calada, quem não responder na mão deixa o cliente no vácuo.
+   Ver é de todos; mexer continua sendo só do master (POST abaixo). */
+r.get('/automacao/pausa', async (req, res) => {
   try {
     const { rows: [r2] } = await query("SELECT valor FROM configuracoes WHERE chave = 'automacao_pausada'").catch(() => ({ rows: [] }));
     res.json({ pausada: r2?.valor?.pausada === true, por: r2?.valor?.por || null, em: r2?.valor?.em || null });

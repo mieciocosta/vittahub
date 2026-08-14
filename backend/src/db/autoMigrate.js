@@ -1335,6 +1335,23 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log('🌱 Poliana: atendimento de vacinas');
     }
 
+    /* ⏸️ BOT DESLIGADO — ordem direta do master ("desliga o BOT").
+       Liga o freio geral: nada sai sozinho pro cliente (Vitta respondendo,
+       menu, reabertura de 24h, follow-up, resgate, lembretes e fila agendada),
+       nem nas conversas com o bot ligado na mão. O Chat continua normal — a
+       equipe escreve e envia.
+       Roda UMA vez (flag): se depois o master religar pelo botão do topo, esta
+       passada não desliga de novo no próximo deploy. */
+    const { rows: [flagBot] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_bot_desligado_v1'");
+    if (!flagBot) {
+      await query(`INSERT INTO configuracoes (chave, valor)
+                   VALUES ('automacao_pausada', $1::jsonb)
+                   ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`,
+        [JSON.stringify({ pausada: true, por: 'Dr Miécio', em: new Date().toISOString() })]).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_bot_desligado_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('⏸️ BOT DESLIGADO por ordem do master — nenhuma mensagem automática sai');
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);
