@@ -12,7 +12,7 @@ import { enviarPush, enviarPushEquipe } from '../services/push.js';
 import { getCalendario as getCalendarioVacinal } from '../services/calendario.js';
 import { sincronizarFidelidadeVittasys, pontePronta, ultimaSincronizacaoFidelidade, setAvisarCacheConversaFidelidade } from '../services/fidelidadeVittasys.js';
 import { htmlParaPDF } from '../services/pdf.js';
-import { pareceMensagemDeTeste, avisarTesteBloqueado } from '../services/freio.js';
+import { pareceMensagemDeTeste, pareceArquivoDeTeste, avisarTesteBloqueado } from '../services/freio.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const r = express.Router();
@@ -702,11 +702,23 @@ async function zapiCall(path, method = 'GET', body = null) {
      lembrete, fila agendada, Chat ou endpoint de diagnóstico). É de propósito
      que a checagem mora AQUI, na porta, e não em cada chamador: bloquear num
      lugar só empurrava o problema pro caminho seguinte. */
-  if (/send-(text|message)/.test(path) && body && pareceMensagemDeTeste(body.message)) {
-    await avisarTesteBloqueado(query, { texto: body.message, destino: body.phone, origem: 'envio interno' });
-    // Resposta falsa de "ok" pra não derrubar o fluxo de quem chamou —
-    // o importante é que nada saiu.
-    return { ok: false, status: 409, text: async () => 'bloqueado: mensagem de teste', json: async () => ({ bloqueado: true }) };
+  if (/\/send-/.test(path) && body) {
+    /* Olha os TRÊS lugares por onde um "teste" chega no balão do cliente:
+       o texto, a legenda da foto e o TÍTULO do arquivo — um PDF chamado
+       "Proposta-Teste.pdf" é mensagem de teste do mesmo jeito, mesmo com a
+       legenda vazia (pedido do master: "não pode ser mensagem com título teste"). */
+    const suspeito = pareceMensagemDeTeste(body.message)
+      || pareceMensagemDeTeste(body.caption)
+      || pareceArquivoDeTeste(body.fileName);
+    if (suspeito) {
+      await avisarTesteBloqueado(query, {
+        texto: body.message || body.caption || body.fileName,
+        destino: body.phone, origem: 'envio interno',
+      });
+      // Resposta falsa de "não ok" pra não derrubar o fluxo de quem chamou —
+      // o importante é que nada saiu.
+      return { ok: false, status: 409, text: async () => 'bloqueado: mensagem de teste', json: async () => ({ bloqueado: true }) };
+    }
   }
   const headers = { 'Content-Type': 'application/json' };
   if (ZAPI_CTOKEN()) headers['Client-Token'] = ZAPI_CTOKEN();

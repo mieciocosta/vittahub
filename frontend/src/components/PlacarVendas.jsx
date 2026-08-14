@@ -393,11 +393,35 @@ export default function PlacarVendas() {
 
       {/* Pausado precisa GRITAR: esquecer o freio puxado é pior que o problema
           que ele resolve (cliente fica sem resposta e ninguém percebe). */}
+      {/* O que está parado, em pastilhas — texto corrido em faixa vermelha vira
+          ruído e some da vista em dois dias. Aqui cada área é um item, e a
+          cobrança de responder à mão só aparece quando é o BOT que está fora. */}
       {desligadas.length > 0 && (
-        <div style={{ width: '100%', marginTop: 6, padding: '6px 12px', borderRadius: 10, textAlign: 'center',
-          background: 'rgba(220,38,38,.9)', color: '#fff', fontSize: 12, fontWeight: 900 }}>
-          ⏸️ PARADO: {desligadas.map(([, rot]) => rot.replace(/^\S+\s/, '')).join(' · ')}
-          {pausa?.ligado?.bot === false && <b> — todo cliente precisa ser respondido à mão. Fique de olho no Chat e em "Atenção agora". 👀</b>}
+        <div style={{ width: '100%', marginTop: 7, display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap',
+          padding: '7px 12px', borderRadius: 12,
+          background: 'linear-gradient(90deg, rgba(127,29,29,.92), rgba(153,27,27,.72))',
+          border: '1px solid rgba(252,165,165,.4)' }}>
+          <span style={{ fontSize: 10, fontWeight: 900, letterSpacing: .8, textTransform: 'uppercase',
+            color: '#fecaca', whiteSpace: 'nowrap' }}>⏸️ Fora do ar</span>
+          {desligadas.map(([k, rot]) => (
+            <span key={k} style={{ fontSize: 11, fontWeight: 800, color: '#fff', whiteSpace: 'nowrap',
+              background: 'rgba(0,0,0,.28)', border: '1px solid rgba(255,255,255,.16)', borderRadius: 20, padding: '3px 10px' }}>
+              {rot}
+            </span>
+          ))}
+          {pausa?.ligado?.bot === false && (
+            <span style={{ fontSize: 11.5, fontWeight: 800, color: '#fff' }}>
+              👀 Ninguém responde sozinho — <b>todo cliente é na mão</b>. Olho no Chat e em “Atenção agora”.
+            </span>
+          )}
+          {user?.role === 'master' && (
+            <button onClick={() => setPainel(true)}
+              style={{ marginLeft: 'auto', padding: '4px 11px', borderRadius: 20, cursor: 'pointer', whiteSpace: 'nowrap',
+                border: '1px solid rgba(255,255,255,.35)', background: 'rgba(255,255,255,.14)', color: '#fff',
+                fontSize: 11, fontWeight: 900 }}>
+              Religar →
+            </button>
+          )}
         </div>
       )}
 
