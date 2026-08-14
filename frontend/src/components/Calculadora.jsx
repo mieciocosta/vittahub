@@ -3,7 +3,7 @@ import { Calculator } from 'lucide-react';
 
 /* Calculadora — botão na barra do chat (ao lado do anexar). Abre um teclado
    simples num popover acima do botão. Avaliação restrita a números/operadores. */
-export default function Calculadora() {
+export default function Calculadora({ comoItem = false }) {
   const [open, setOpen] = useState(false);
   const [expr, setExpr] = useState('');
   const [res, setRes] = useState('');
@@ -38,12 +38,21 @@ export default function Calculadora() {
 
   return (
     <div ref={ref} style={{ position:'relative', display:'inline-flex' }}>
-      <button onClick={() => setOpen(o => !o)} title="Calculadora"
-        className={`tb-ico-color${open ? ' tb-on' : ''}`} style={{ '--ic':'#84cc16' }}>
-        <Calculator size={19} />
-      </button>
+      {/* comoItem: vira linha do menu "+" (ícone + nome). Sem a prop, segue
+          sendo o botão redondo da barra — os dois usos convivem. */}
+      {comoItem ? (
+        <button onClick={() => setOpen(o => !o)} className="tb-menu-item">
+          <span className="tb-menu-ico" style={{ '--ic':'#84cc16' }}><Calculator size={16} /></span>
+          Calculadora
+        </button>
+      ) : (
+        <button onClick={() => setOpen(o => !o)} title="Calculadora"
+          className={`tb-ico-color${open ? ' tb-on' : ''}`} style={{ '--ic':'#84cc16' }}>
+          <Calculator size={19} />
+        </button>
+      )}
       {open && (
-        <div style={{ position:'absolute', bottom:42, left:0, zIndex:950, width:236, borderRadius:14,
+        <div style={{ position:'absolute', bottom: comoItem ? 8 : 42, left: comoItem ? 244 : 0, zIndex:960, width:236, borderRadius:14,
           background:'var(--card,#fff)', border:'1px solid var(--border,#e2e8f0)', boxShadow:'0 10px 30px rgba(0,0,0,.22)', padding:12 }}>
           <div style={{ background:'var(--bg2,#f1f5f9)', borderRadius:9, padding:'8px 10px', marginBottom:10, minHeight:46 }}>
             <div style={{ fontSize:13, color:'var(--muted,#64748b)', minHeight:16, wordBreak:'break-all' }}>{expr || '0'}</div>
