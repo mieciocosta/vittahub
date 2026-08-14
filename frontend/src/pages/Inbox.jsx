@@ -1650,7 +1650,13 @@ export default function Inbox({ onUnreadChange }) {
                     animation: urgente ? 'pulse 1.6s infinite' : 'none' }}>⏱️ esperando {txt}</span>;
                 })()}
               </div>
-              {sel.phone && <div style={{ fontSize:10.5, color:'var(--muted)' }}>{fmt.phone(sel.phone)}</div>}
+              {/* Telefone do cabeçalho da conversa: visível, mas não selecionável */}
+              {sel.phone && (
+                <div onCopy={e => e.preventDefault()} onContextMenu={e => e.preventDefault()}
+                  style={{ fontSize:10.5, color:'var(--muted)',
+                    userSelect:'none', WebkitUserSelect:'none', MozUserSelect:'none',
+                    WebkitTouchCallout:'none', cursor:'default' }}>{fmt.phone(sel.phone)}</div>
+              )}
             </div>
 
             {/* Ferramentas do atendimento — agrupadas com quebra automática (não cortam ao dar zoom) */}
@@ -2211,7 +2217,19 @@ export default function Inbox({ onUnreadChange }) {
                   <div key={lb} style={{ display:'flex', gap:9, padding:'6px 0', borderBottom:'1px solid var(--border)' }}>
                     <span style={{ fontSize:13, width:18, flexShrink:0 }}>{ic}</span>
                     <span style={{ fontSize:11.5, color:'var(--muted)', minWidth:120, fontWeight:700 }}>{lb}</span>
-                    <span style={{ fontSize:12.5, flex:1, minWidth:0, wordBreak:'break-word' }}>{v}</span>
+                    {/* Telefone e CPF da ficha nem chegam a ser SELECIONÁVEIS
+                        (pedido do master). O bloqueio de Ctrl+C já existia, mas
+                        aqui o dado nem entra na seleção — não dá pra arrastar,
+                        pegar no toque longo do celular nem no menu do botão
+                        direito. Continua legível pra atendente ligar. */}
+                    {/telefone|cpf/i.test(lb) ? (
+                      <span onCopy={e => e.preventDefault()} onContextMenu={e => e.preventDefault()}
+                        style={{ fontSize:12.5, flex:1, minWidth:0, wordBreak:'break-word',
+                          userSelect:'none', WebkitUserSelect:'none', MozUserSelect:'none', msUserSelect:'none',
+                          WebkitTouchCallout:'none', cursor:'default' }}>{v}</span>
+                    ) : (
+                      <span style={{ fontSize:12.5, flex:1, minWidth:0, wordBreak:'break-word' }}>{v}</span>
+                    )}
                   </div>
                 ))}
 
