@@ -588,9 +588,14 @@ r.get('/meta-setor', async (req, res) => {
       individual = { meta: metaInd, confirmado: confI, falta: Math.max(metaInd - confI, 0), pct: +((confI / metaInd) * 100).toFixed(1) };
     }
 
-    // Pedido do master: TODO MUNDO vê as metas dos 3 setores (transparência e
-    // espírito de time). O setor da própria usuária vem primeiro na fila.
-    const ordem = [...setores, ...['vacinas', 'consultas', 'terapias'].filter(s => !setores.includes(s))];
+    /* Cada uma vê o SEU setor; a gestão vê os três (pedido do master, revisto).
+       Antes todo mundo via os três "por espírito de time" — mas na prática a
+       atendente de vacinas ficava olhando o quanto falta em consultas e
+       terapias, que não é trabalho dela e só polui a cobrança. Quem não tem
+       setor definido continua vendo os três (não dá pra adivinhar o dela). */
+    const ordem = (gestao(req) || !setores.length)
+      ? [...setores, ...['vacinas', 'consultas', 'terapias'].filter(s => !setores.includes(s))]
+      : setores;
     const porSetor = [];
     for (const s of ordem) porSetor.push(await confDe(s));
     // Topo = primeiro setor (compat com quem lê os campos direto); porSetor separa cada um.
