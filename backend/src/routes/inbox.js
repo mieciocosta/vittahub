@@ -2272,8 +2272,8 @@ r.post('/webhook/zapi', async (req, res) => {
     /* ⏸️ FREIO GERAL: pausado = nada sai sozinho, nem nas conversas com o bot
        ligado na mão. A mensagem do cliente já foi salva e aparece no Chat —
        só a RESPOSTA automática é que não acontece. */
-    if (await automacaoPausada()) {
-      console.log(`⏸️ conv=${conv.id}: automação pausada pelo master — nenhum envio automático`);
+    if (await automacaoPausada('bot')) {
+      console.log(`⏸️ conv=${conv.id}: bot desligado pelo master — nenhuma resposta automática`);
       return;
     }
 
@@ -4189,16 +4189,40 @@ let agendadorRodando = false;
    escrever e enviar.
    Cache de 10s pra não ir ao banco a cada mensagem; qualquer erro de leitura
    é tratado como PAUSADO (fail-closed: no susto, o certo é calar a boca). */
+/* Um interruptor por ÁREA (o master pediu: bot desligado, mas follow-up e
+   lembretes trabalhando). Cada área existe porque tem dono e risco diferente:
+     · bot        → a Vitta CONVERSANDO com o cliente: resposta, menu, reabertura
+     · followup   → follow-up de lead parado e resgate de quem não fechou
+     · lembretes  → "amanhã você tem consulta", aniversário, próxima dose
+     · agendadas  → mensagem que uma ATENDENTE escreveu e marcou pra depois
+   O que era um botão só virou quatro, porque desligar o bot não pode calar o
+   que a equipe programou na mão. */
+const AREAS = ['bot', 'followup', 'lembretes', 'agendadas'];
+const PADRAO_LIGADO = { bot: true, followup: true, lembretes: true, agendadas: true };
 let pausaCache = { valor: null, em: 0 };
 export function invalidarPausa() { pausaCache = { valor: null, em: 0 }; }
-export async function automacaoPausada() {
-  if (pausaCache.valor !== null && Date.now() - pausaCache.em < 10000) return pausaCache.valor;
-  try {
-    const { rows: [r2] } = await query("SELECT valor FROM configuracoes WHERE chave = 'automacao_pausada'");
-    const v = r2?.valor?.pausada === true;
-    pausaCache = { valor: v, em: Date.now() };
-    return v;
-  } catch { return true; }
+
+async function lerAutomacao() {
+  if (pausaCache.valor && Date.now() - pausaCache.em < 10000) return pausaCache.valor;
+  const { rows: [r2] } = await query("SELECT valor FROM configuracoes WHERE chave = 'automacao_pausada'");
+  const v = r2?.valor || {};
+  /* Compatível com o formato antigo ({pausada:true} = tudo parado), pra não
+     religar sozinho quem estava pausado quando este código subiu. */
+  const base = v.ligado && typeof v.ligado === 'object'
+    ? v.ligado
+    : (v.pausada === true ? { bot: false, followup: false, lembretes: false, agendadas: false } : PADRAO_LIGADO);
+  const ligado = {};
+  for (const a of AREAS) ligado[a] = base[a] !== false;
+  const out = { ligado, por: v.por || null, em: v.em || null };
+  pausaCache = { valor: out, em: Date.now() };
+  return out;
+}
+
+/* `true` = esta área está PARADA. Erro de leitura conta como parada
+   (fail-closed: no susto, o certo é calar a boca, não disparar). */
+export async function automacaoPausada(area = 'bot') {
+  try { return (await lerAutomacao()).ligado[area] === false; }
+  catch { return true; }
 }
 
 /* Estado do freio: TODA a equipe precisa saber que o automático está parado —
@@ -4206,29 +4230,42 @@ export async function automacaoPausada() {
    Ver é de todos; mexer continua sendo só do master (POST abaixo). */
 r.get('/automacao/pausa', async (req, res) => {
   try {
-    const { rows: [r2] } = await query("SELECT valor FROM configuracoes WHERE chave = 'automacao_pausada'").catch(() => ({ rows: [] }));
-    res.json({ pausada: r2?.valor?.pausada === true, por: r2?.valor?.por || null, em: r2?.valor?.em || null });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+    const a = await lerAutomacao();
+    // `pausada` continua no retorno pra tarja antiga não quebrar: só é true
+    // quando NADA está ligado (o "parou tudo" de verdade).
+    res.json({ ...a, pausada: AREAS.every(x => a.ligado[x] === false) });
+  } catch (err) { res.json({ ligado: { bot: false, followup: false, lembretes: false, agendadas: false }, pausada: true }); }
 });
 r.post('/automacao/pausa', masterOnly, async (req, res) => {
   try {
-    const pausada = req.body?.pausada !== false;
-    const dados = { pausada, por: req.user.nome, em: new Date().toISOString() };
+    const atual = await lerAutomacao().catch(() => ({ ligado: { ...PADRAO_LIGADO } }));
+    const ligado = { ...atual.ligado };
+    // Aceita { area, ligado } pra uma chave, ou { pausada } pro "parar tudo"
+    if (req.body?.area && AREAS.includes(req.body.area)) {
+      ligado[req.body.area] = req.body.ligado !== false;
+    } else if (req.body?.ligado && typeof req.body.ligado === 'object') {
+      for (const a of AREAS) if (req.body.ligado[a] !== undefined) ligado[a] = req.body.ligado[a] !== false;
+    } else {
+      const parar = req.body?.pausada !== false;
+      for (const a of AREAS) ligado[a] = !parar;
+    }
+    const dados = { ligado, por: req.user.nome, em: new Date().toISOString() };
     await query(`INSERT INTO configuracoes (chave, valor) VALUES ('automacao_pausada', $1::jsonb)
                  ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`, [JSON.stringify(dados)]);
     invalidarPausa();
+    const paradas = AREAS.filter(a => !ligado[a]);
     await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('alerta', $1, $2, true)`,
-      [pausada ? '⏸️ Automação PAUSADA' : '▶️ Automação religada',
-       pausada ? `${req.user.nome} parou tudo que sai sozinho. Mensagem só sai se alguém escrever e enviar.`
-               : `${req.user.nome} religou a Vitta, os follow-ups e os lembretes automáticos.`]).catch(() => {});
-    console.warn(`⏸️ AUTOMAÇÃO ${pausada ? 'PAUSADA' : 'RELIGADA'} por ${req.user.nome}`);
-    res.json({ ok: true, ...dados });
+      [paradas.length ? '⏸️ Automático alterado' : '▶️ Automático religado',
+       paradas.length ? `${req.user.nome} deixou parado: ${paradas.join(', ')}.`
+                      : `${req.user.nome} religou tudo que é automático.`]).catch(() => {});
+    console.warn(`⏸️ AUTOMAÇÃO por ${req.user.nome}: ${JSON.stringify(ligado)}`);
+    res.json({ ok: true, ...dados, pausada: paradas.length === AREAS.length });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 async function processarAgendadas() {
   if (agendadorRodando) return;
-  if (await automacaoPausada()) return;        // ⏸️ freio geral
+  if (await automacaoPausada('agendadas')) return;   // ⏸️ freio da fila agendada
   agendadorRodando = true;
   try {
     const { rows } = await query(`SELECT * FROM mensagens_agendadas WHERE status = 'pendente' AND enviar_em <= NOW() ORDER BY enviar_em LIMIT 20`).catch(() => ({ rows: [] }));
@@ -7406,7 +7443,7 @@ async function gerarMensagemFollowup(conv, count) {
 
 let followupRodando = false;
 export async function rodarFollowups() {
-  if (await automacaoPausada()) return { pausado: true };   // ⏸️ freio geral
+  if (await automacaoPausada('followup')) return { pausado: true };
   if (followupRodando) return;          // evita sobreposição de ticks
   followupRodando = true;
   try {
@@ -7534,7 +7571,7 @@ Regras: português do Brasil, caloroso e humano, 2 a 4 linhas, no máximo 2 emoj
 
 let resgateRodando = false;
 export async function rodarResgateIA() {
-  if (await automacaoPausada()) return { pausado: true };   // ⏸️ freio geral
+  if (await automacaoPausada('followup')) return { pausado: true };
   if (resgateRodando) return;
   resgateRodando = true;
   try {

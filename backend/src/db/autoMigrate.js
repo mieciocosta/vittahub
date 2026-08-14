@@ -1352,6 +1352,21 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log('⏸️ BOT DESLIGADO por ordem do master — nenhuma mensagem automática sai');
     }
 
+    /* Ajuste pedido pelo master depois de desligar o bot: ele quer o FOLLOW-UP
+       (e o resgate de leads) e os LEMBRETES trabalhando — só a Vitta
+       conversando com o cliente é que fica calada.
+       A fila de mensagens AGENDADAS segue parada: ela dispara texto escrito por
+       uma atendente, e religar isso é decisão dele, não minha. */
+    const { rows: [flagAut] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_automacao_areas_v1'");
+    if (!flagAut) {
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('automacao_pausada', $1::jsonb)
+                   ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`,
+        [JSON.stringify({ ligado: { bot: false, followup: true, lembretes: true, agendadas: false },
+                          por: 'Dr Miécio', em: new Date().toISOString() })]).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_automacao_areas_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('⏸️ Bot desligado · follow-up e lembretes LIGADOS (pedido do master)');
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);

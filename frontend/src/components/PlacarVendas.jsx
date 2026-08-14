@@ -81,7 +81,8 @@ export default function PlacarVendas() {
   const [hoje, setHoje] = useState(null);
   const [pulse, setPulse] = useState(false);
   const [festa, setFesta] = useState(false);   // comemoração de venda ao vivo
-  const [pausa, setPausa] = useState(null);    // ⏸️ freio geral da automação
+  const [pausa, setPausa] = useState(null);    // ⏸️ chaves do automático
+  const [painel, setPainel] = useState(false); // painel de chaves (master)
   const sockRef = useRef(null);
 
   const carregar = () => {
@@ -92,19 +93,27 @@ export default function PlacarVendas() {
     api.get('/inbox/automacao/pausa').then(setPausa).catch(() => {});
   };
 
-  /* ⏸️ PARAR TUDO — um clique estanca toda mensagem automática: Vitta, menu,
-     reabertura de 24h, follow-up, resgate, lembretes e a fila agendada. Fica
-     aqui no topo de propósito: no aperto, ninguém vai caçar em Configurações. */
-  const alternarPausa = async () => {
-    const parar = !pausa?.pausada;
-    if (!window.confirm(parar
-      ? 'PARAR TODA MENSAGEM AUTOMÁTICA agora?\n\nA Vitta para de responder, e follow-ups, lembretes e mensagens agendadas não saem. O Chat continua normal: a equipe escreve e envia na mão.'
-      : 'Religar as mensagens automáticas?')) return;
+  /* ⏸️ CHAVES DO AUTOMÁTICO — uma por área, porque desligar a Vitta não pode
+     calar o follow-up e os lembretes (foi exatamente o que o master pediu).
+     Fica aqui no topo de propósito: no aperto ninguém caça em Configurações. */
+  const trocarArea = async (area, ligar) => {
     try {
-      const d = await api.post('/inbox/automacao/pausa', { pausada: parar });
+      const d = await api.post('/inbox/automacao/pausa', { area, ligado: ligar });
       setPausa(d);
     } catch (e) { window.alert('Erro: ' + e.message); }
   };
+  const pararTudo = async () => {
+    if (!window.confirm('PARAR TUDO que é automático agora?\n\nVitta, follow-up, lembretes e mensagens agendadas. O Chat continua normal: a equipe escreve e envia na mão.')) return;
+    try { setPausa(await api.post('/inbox/automacao/pausa', { pausada: true })); }
+    catch (e) { window.alert('Erro: ' + e.message); }
+  };
+  const AREAS_UI = [
+    ['bot', '🤖 Vitta respondendo', 'Resposta automática, menu de triagem e reabertura de 24h'],
+    ['followup', '♻️ Follow-up e resgate', 'Reativa lead parado e resgata quem não fechou'],
+    ['lembretes', '🔔 Lembretes', 'Consulta de amanhã, aniversário e próxima dose'],
+    ['agendadas', '📤 Mensagens agendadas', 'Texto que a equipe escreveu e marcou pra depois'],
+  ];
+  const desligadas = AREAS_UI.filter(([k]) => pausa?.ligado && pausa.ligado[k] === false);
 
   useEffect(() => {
     if (!user) return;
@@ -311,16 +320,52 @@ export default function PlacarVendas() {
         </span>
       )}
 
-      {/* ⏸️ Freio geral (só o master) */}
-      {user?.role === 'master' && (
-        <button onClick={alternarPausa}
-          title={pausa?.pausada ? 'Religar as mensagens automáticas' : 'Parar TODA mensagem automática agora'}
-          style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 12, cursor: 'pointer',
-            whiteSpace: 'nowrap', fontSize: 11.5, fontWeight: 900,
-            border: `1px solid ${pausa?.pausada ? 'rgba(110,231,183,.7)' : 'rgba(252,165,165,.7)'}`,
-            background: pausa?.pausada ? 'rgba(16,185,129,.25)' : 'rgba(220,38,38,.28)', color: '#fff' }}>
-          {pausa?.pausada ? '▶️ Religar a Vitta' : '⏸️ Parar automático'}
-        </button>
+      {/* ⏸️ Chaves do automático (só o master) */}
+      {user?.role === 'master' && pausa?.ligado && (
+        <div style={{ position: 'relative' }}>
+          <button onClick={() => setPainel(v => !v)} title="Ligar/desligar cada automático"
+            style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 12, cursor: 'pointer',
+              whiteSpace: 'nowrap', fontSize: 11.5, fontWeight: 900,
+              border: `1px solid ${desligadas.length ? 'rgba(252,165,165,.7)' : 'rgba(255,255,255,.3)'}`,
+              background: desligadas.length ? 'rgba(220,38,38,.28)' : 'rgba(255,255,255,.1)', color: '#fff' }}>
+            {desligadas.length ? `⏸️ ${desligadas.length} desligado${desligadas.length > 1 ? 's' : ''}` : '⚙️ Automático'}
+          </button>
+          {painel && (
+            <>
+              <span onClick={() => setPainel(false)} style={{ position: 'fixed', inset: 0, zIndex: 300 }} />
+              <div className="card" style={{ position: 'absolute', right: 0, top: 'calc(100% + 8px)', zIndex: 301, width: 320, padding: '12px 14px', color: 'var(--txt)' }}>
+                <div style={{ fontWeight: 900, fontSize: 13, marginBottom: 2 }}>O que sai sozinho</div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 10 }}>
+                  Cada chave é independente — desligar a Vitta não cala os lembretes.
+                </div>
+                {AREAS_UI.map(([k, rot, sub]) => {
+                  const on = pausa.ligado[k] !== false;
+                  return (
+                    <div key={k} onClick={() => trocarArea(k, !on)}
+                      style={{ display: 'flex', alignItems: 'flex-start', gap: 9, padding: '8px 0', cursor: 'pointer',
+                        borderBottom: '1px solid var(--border)' }}>
+                      <span style={{ width: 34, height: 20, borderRadius: 20, flexShrink: 0, marginTop: 2, position: 'relative',
+                        background: on ? 'var(--ok,#16a34a)' : 'var(--border)', transition: 'background .2s' }}>
+                        <span style={{ position: 'absolute', top: 2, left: on ? 16 : 2, width: 16, height: 16, borderRadius: '50%',
+                          background: '#fff', transition: 'left .2s', boxShadow: '0 1px 3px rgba(0,0,0,.3)' }} />
+                      </span>
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <span style={{ display: 'block', fontWeight: 800, fontSize: 12.5 }}>{rot}</span>
+                        <span style={{ display: 'block', fontSize: 10.5, color: 'var(--muted)', lineHeight: 1.35 }}>{sub}</span>
+                      </span>
+                      <span style={{ fontSize: 10.5, fontWeight: 900, color: on ? 'var(--ok,#16a34a)' : 'var(--err,#dc2626)' }}>
+                        {on ? 'LIGADO' : 'PARADO'}
+                      </span>
+                    </div>
+                  );
+                })}
+                <button onClick={pararTudo} className="btn btn-s" style={{ width: '100%', marginTop: 10, color: 'var(--err,#dc2626)', fontWeight: 800 }}>
+                  ⏸️ Parar tudo de uma vez
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       )}
 
       {/* 🏆 Atalho pro pódio — a disputa mora aqui em cima, não escondida no menu */}
@@ -348,11 +393,11 @@ export default function PlacarVendas() {
 
       {/* Pausado precisa GRITAR: esquecer o freio puxado é pior que o problema
           que ele resolve (cliente fica sem resposta e ninguém percebe). */}
-      {pausa?.pausada && (
+      {desligadas.length > 0 && (
         <div style={{ width: '100%', marginTop: 6, padding: '6px 12px', borderRadius: 10, textAlign: 'center',
           background: 'rgba(220,38,38,.9)', color: '#fff', fontSize: 12, fontWeight: 900 }}>
-          ⏸️ BOT DESLIGADO — a Vitta não responde, e follow-ups, lembretes e agendadas não saem.
-          <b> Todo cliente precisa ser respondido à mão.</b> Fique de olho no Chat e em "Atenção agora". 👀
+          ⏸️ PARADO: {desligadas.map(([, rot]) => rot.replace(/^\S+\s/, '')).join(' · ')}
+          {pausa?.ligado?.bot === false && <b> — todo cliente precisa ser respondido à mão. Fique de olho no Chat e em "Atenção agora". 👀</b>}
         </div>
       )}
 
