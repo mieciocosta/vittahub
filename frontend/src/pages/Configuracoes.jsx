@@ -200,6 +200,19 @@ export default function Configuracoes() {
                 </span>
               </label>
 
+              <label style={{ display:'flex', alignItems:'flex-start', gap:10, cursor:'pointer', background:'#eff6ff', border:'1px solid #bfdbfe', padding:'10px 12px', borderRadius:10 }}>
+                <input type="checkbox" checked={bot.resgateIA === true} onChange={e=>setBot(p=>({...p,resgateIA:e.target.checked}))} style={{ width:16, height:16, accentColor:'#2563eb', marginTop:1 }}/>
+                <span>
+                  <span style={{ fontWeight:700, display:'block' }}>🤖 Resgate de leads SEM VENDA (tentativas em dias diferentes)</span>
+                  <span style={{ fontSize:11.5, color:'var(--muted)' }}>
+                    Cuida de quem a EQUIPE atendeu e não fechou — o follow-up acima só age quando a Vitta falou por último.
+                    Antes de cada tentativa, a IA deixa um <b>resumo interno</b> na conversa (balão amarelo, o cliente não vê) dizendo onde parou e o que travou.
+                    São 3 tentativas em <b>3, 7 e 14 dias</b>, cada uma por um ângulo diferente (retomada leve → facilidade de pagamento → porta aberta),
+                    nunca duas no mesmo dia, só em horário comercial. Para na hora em que o cliente responde ou a venda é registrada.
+                  </span>
+                </span>
+              </label>
+
               <div className="field">
                 <label>Mensagem de boas-vindas</label>
                 <textarea value={bot.mensagemBoasVindas} onChange={e=>setBot(p=>({...p,mensagemBoasVindas:e.target.value}))} rows={5} style={{ resize:'vertical' }} />

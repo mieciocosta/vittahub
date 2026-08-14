@@ -2118,6 +2118,12 @@ r.post('/webhook/zapi', async (req, res) => {
       [conv.id, type, finalContent, filename, ts, msgId, isMe ? 'me' : 'contact', isMe ? 'delivered' : 'sent']
     );
 
+    // Cliente respondeu → o resgate automático para aqui. Continuar insistindo
+    // com quem já voltou a falar é o jeito mais rápido de queimar o lead.
+    if (!isMe && !isGroupMsg && conv.resgate_tentativas > 0 && !conv.resgate_pausado) {
+      query(`UPDATE conversas SET resgate_pausado = true WHERE id = $1`, [conv.id]).catch(() => {});
+    }
+
     // ── Socket.io: entrega instantânea para todos os clientes ──
     if (newMsg) {
       ultimaMsgGravadaAt = Date.now();          // prova de que a entrada está viva
@@ -7139,6 +7145,158 @@ export async function rodarFollowups() {
   } finally {
     followupRodando = false;
   }
+}
+
+/* ═══ 🤖 RESGATE COM IA — LEAD SEM VENDA REGISTRADA ═══════════════════════════
+   O follow-up antigo só agia quando o BOT tinha falado por último — ou seja,
+   ignorava justamente os leads que a equipe atendeu e não fechou, que são a
+   maioria. Este motor cuida deles:
+
+   · Resumo INTERNO antes de cada tentativa — a atendente abre a conversa e já
+     sabe onde parou, sem reler tudo. Balão amarelo, o cliente não vê.
+   · Tentativas em DIAS diferentes e com ÂNGULOS diferentes (3, 7 e 14 dias):
+     insistir com o mesmo texto é o que queima lead.
+   · Para na hora em que o cliente responde ou em que a venda é registrada.
+
+   Nasce DESLIGADO (opt-in em Configurações). O histórico desta clínica com IA
+   automática pede isso: é melhor ligar de propósito do que descobrir depois.  */
+const RESGATE_MAX = 3;
+const RESGATE_ESPERA_DIAS = [3, 7, 14];   // 1ª, 2ª e 3ª tentativa
+
+// Resumo pra EQUIPE (nunca vai pro cliente) — o "onde paramos" da conversa.
+async function resumoInternoDoLead(conv, hist) {
+  const linhas = hist.map(m => `${m.from_type === 'contact' ? 'Cliente' : 'Nós'}: ${String(m.content || '').slice(0, 200)}`).join('\n');
+  if (!temIA() || !linhas) return null;
+  try {
+    const d = await openaiMessages({
+      model: 'gpt-4o-mini', max_tokens: 320,
+      system: `Você resume conversas de WhatsApp de uma clínica de pediatria e vacinação (Vittalis Saúde) PARA A EQUIPE INTERNA — o cliente nunca lê isto.
+Escreva no máximo 5 linhas curtas, em português do Brasil, começando com "📋 Onde paramos:". Cubra, quando houver: o que a pessoa procurava, o que já foi oferecido, o que travou (preço? data? esperando alguém decidir?) e qual o próximo passo mais provável.
+Seja concreto e útil pra quem vai ligar agora. Nada de "o cliente demonstrou interesse" — diga o que ele disse.`,
+      messages: [{ role: 'user', content: linhas.slice(0, 6000) }],
+    });
+    const txt = (d.content || []).filter(b => b.type === 'text').map(b => b.text).join(' ').trim();
+    return txt || null;
+  } catch { return null; }
+}
+
+// Cada tentativa ataca por um lado diferente — repetir o mesmo texto queima.
+async function mensagemResgate(conv, tentativa, hist) {
+  const primeiro = String(conv.contact_name || '').trim().split(/\s+/)[0] || '';
+  const trato = primeiro && !/^\d+$/.test(primeiro) ? primeiro : 'mamãe';
+  const ANGULOS = [
+    'Retome com leveza e SEM cobrar: lembre que ficou algo em aberto e ofereça ajuda pra resolver a dúvida que travou.',
+    'Traga FACILIDADE concreta: formas de pagamento (entrada + restante em 30 dias), possibilidade de agendar sem compromisso, ou aplicação em casa. Nada de pressão.',
+    'Última tentativa, tom de porta aberta: agradeça o contato, diga que não vai insistir mais e deixe claro que estará por aqui quando fizer sentido.',
+  ];
+  const fallback = [
+    `Oi, ${trato}! 😊 Passando pra saber se posso te ajudar com aquilo que conversamos. Qualquer dúvida sobre valores ou datas, é só me chamar 💙`,
+    `Oii, ${trato}! 🥰 Se o que pesou foi o valor, a gente consegue facilitar: dá pra fechar com uma entrada e o restante em 30 dias. Quer que eu veja uma data pra vocês?`,
+    `Oi, ${trato}! 💙 Não vou te incomodar mais 😊 Só deixar registrado que, quando fizer sentido, a Vittalis está aqui de portas abertas pra cuidar de vocês.`,
+  ];
+  const i = Math.min(tentativa, 2);
+  if (!temIA() || !hist.length) return fallback[i];
+  try {
+    const linhas = hist.map(m => `${m.from_type === 'contact' ? 'Cliente' : 'Vitta'}: ${String(m.content || '').slice(0, 180)}`).join('\n');
+    const d = await openaiMessages({
+      model: 'gpt-4o-mini', max_tokens: 260,
+      system: `Você é a Vitta, atendente da Vittalis Saúde (pediatria e vacinação, São Luís-MA), escrevendo no WhatsApp para um cliente que conversou e NÃO fechou.
+Esta é a tentativa ${tentativa + 1} de 3. ${ANGULOS[i]}
+Regras: português do Brasil, caloroso e humano, 2 a 4 linhas, no máximo 2 emojis, trate por "${trato}". Use o que a pessoa realmente disse na conversa. NUNCA invente preço, data ou informação que não esteja no histórico. Não diga que é uma IA. Responda SOMENTE com o texto da mensagem.`,
+      messages: [{ role: 'user', content: linhas.slice(0, 5000) }],
+    });
+    const txt = (d.content || []).filter(b => b.type === 'text').map(b => b.text).join(' ').trim();
+    return txt && txt.length > 15 ? txt : fallback[i];
+  } catch { return fallback[i]; }
+}
+
+let resgateRodando = false;
+export async function rodarResgateIA() {
+  if (resgateRodando) return;
+  resgateRodando = true;
+  try {
+    if (!zapiOk() || !dentroDoHorarioComercial()) return;
+    const { rows: [cfgRow] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'").catch(() => ({ rows: [{}] }));
+    const cfg = cfgRow?.valor || {};
+    if (cfg.resgateIA !== true) return;                 // opt-in explícito
+
+    /* Só entra quem: não tem venda registrada, ficou em silêncio o bastante pra
+       esta tentativa, não está em grupo, não foi marcado como perdido e não
+       recebeu tentativa nas últimas 24h (nunca duas no mesmo dia). */
+    const { rows: alvos } = await query(`
+      SELECT c.* FROM conversas c
+       WHERE c.phone IS NOT NULL AND c.phone <> ''
+         AND COALESCE(c.contact_id,'') NOT LIKE '%g.us%'
+         AND COALESCE(c.resgate_pausado, false) = false
+         AND COALESCE(c.resgate_tentativas, 0) < $1
+         AND (c.resgate_ultima IS NULL OR c.resgate_ultima < NOW() - INTERVAL '24 hours')
+         AND c.last_message_at < NOW() - (
+              (ARRAY[3,7,14])[LEAST(COALESCE(c.resgate_tentativas,0),2) + 1] || ' days')::interval
+         AND NOT EXISTS (SELECT 1 FROM vendas v
+                          WHERE (v.conversa_id = c.id OR (c.lead_id IS NOT NULL AND v.lead_id = c.lead_id))
+                            AND v.status_pagamento IN ('pago','cortesia'))
+         AND NOT EXISTS (SELECT 1 FROM leads l
+                          WHERE l.id = c.lead_id AND LOWER(COALESCE(l.status,'')) LIKE 'perdid%')
+       ORDER BY c.last_message_at ASC
+       LIMIT 8`, [RESGATE_MAX]);
+
+    for (const conv of alvos) {
+      try {
+        let phoneNum = String(conv.phone || '').replace(/\D/g, '');
+        if (phoneNum.startsWith('55') && phoneNum.length >= 12) phoneNum = phoneNum.slice(2);
+        if (phoneNum.length < 10) continue;
+
+        const { rows: histRows } = await query(
+          `SELECT from_type, content FROM mensagens
+            WHERE conversa_id = $1 AND type IN ('text','document') AND from_type NOT IN ('system','interno')
+            ORDER BY created_at DESC LIMIT 24`, [conv.id]);
+        const hist = histRows.reverse();
+        if (!hist.length) continue;                     // sem conversa não há o que resgatar
+
+        const tentativa = conv.resgate_tentativas || 0;
+
+        // 1) Resumo interno pra equipe (balão amarelo, cliente não vê)
+        const resumo = await resumoInternoDoLead(conv, hist);
+        if (resumo) {
+          const { rows: [mi] } = await query(
+            `INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome)
+             VALUES ($1,'interno','text',$2,'Vitta') RETURNING *`,
+            [conv.id, `${resumo}\n\n🤖 Tentativa ${tentativa + 1} de ${RESGATE_MAX} do resgate automático.`]
+          ).catch(() => ({ rows: [null] }));
+          if (mi) socketEmit('new_message', { convId: conv.id, message: mi, conv });
+        }
+
+        // 2) A tentativa em si
+        const msg = await mensagemResgate(conv, tentativa, hist);
+        const zr = await zapiCall('/send-text', 'POST', { phone: `55${phoneNum}`, message: msg });
+        if (!zr?.ok) { console.error('Resgate Z-API falhou:', conv.id, zr?.status); continue; }
+
+        const { rows: [botMsg] } = await query(
+          `INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome)
+           VALUES ($1,'bot','text',$2,'Vitta') RETURNING *`, [conv.id, msg]
+        ).catch(() => ({ rows: [null] }));
+
+        const { rows: [novo] } = await query(
+          `UPDATE conversas SET resgate_tentativas = COALESCE(resgate_tentativas,0) + 1,
+                  resgate_ultima = NOW(), last_message = $2, last_from = 'bot', last_message_at = NOW()
+            WHERE id = $1 RETURNING *`, [conv.id, msg.slice(0, 120)]);
+        if (novo) cacheUpdate(novo);
+        if (botMsg) socketEmit('new_message', { convId: conv.id, message: botMsg, conv: novo || conv });
+        console.log(`🤖 Resgate ${tentativa + 1}/${RESGATE_MAX}: ${conv.contact_name || conv.phone}`);
+
+        await new Promise(r2 => setTimeout(r2, 2500));  // ritmo humano entre envios
+      } catch (e) { console.error('Resgate IA (conversa):', e.message); }
+    }
+  } catch (e) {
+    console.error('Resgate IA:', e.message);
+  } finally {
+    resgateRodando = false;
+  }
+}
+
+// Cliente respondeu → o resgate para na hora (quem responde vira atendimento).
+export async function pausarResgate(convId) {
+  await query(`UPDATE conversas SET resgate_pausado = true WHERE id = $1`, [convId]).catch(() => {});
 }
 
 export default r;
