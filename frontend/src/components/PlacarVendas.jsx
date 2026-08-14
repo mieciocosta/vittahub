@@ -82,6 +82,8 @@ export default function PlacarVendas() {
             const faltaMin = Math.max(0, s.faltaMinima ?? Math.max(minMeta - (s.confirmado || 0), 0));
             const ok = faltaMin <= 0;
             const p = Math.min(s.pctMinima ?? 0, 100);
+            const foco = meta.focoDia?.[s.setor] || null;      // metas em quantidade
+            const focoOk = foco ? foco.every(f => (f.falta ?? 0) === 0) : false;
             return (
               <div key={s.setor}
                 // A meta ideal saiu da faixa, mas continua aqui no "passar o
@@ -89,33 +91,21 @@ export default function PlacarVendas() {
                 title={`${nome}: ${fmt.brl(s.confirmado || 0)} de ${fmt.brl(minMeta)} (${p}% da mínima) · meta ideal ${fmt.brl(s.metaGlobal || 0)}`}
                 style={{ lineHeight: 1.15, transition: 'transform .3s', transform: pulse ? 'scale(1.06)' : 'scale(1)' }}>
                 <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: .6, textTransform: 'uppercase', color: 'rgba(255,255,255,.7)' }}>
-                  {EMOJI[s.setor] || '🎯'} {nome} · {p}%
+                  {EMOJI[s.setor] || '🎯'} {nome}{foco ? ' · hoje' : ` · ${p}%`}
                 </div>
-                <div style={{ fontSize: 12.5, fontWeight: 900, color: ok ? '#6ee7b7' : (CORES[s.setor] || '#fde68a') }}>
-                  {ok ? '🏆 Meta batida!' : <span>falta {fmt.brl(faltaMin)}</span>}
+                <div style={{ fontSize: 12.5, fontWeight: 900, color: (foco ? focoOk : ok) ? '#6ee7b7' : (CORES[s.setor] || '#fde68a') }}>
+                  {/* Onde existe meta em QUANTIDADE, ela substitui o valor em R$:
+                      "falta R$ 99.600" não diz o que fazer hoje; "faltam 7
+                      consultas" diz. O valor continua no passar do mouse. */}
+                  {foco
+                    ? (focoOk
+                        ? `🏆 ${foco.map(f => `${f.feitos}/${f.alvo} ${f.rotulo.toLowerCase()}`).join(' ou ')} — feito!`
+                        : foco.map(f => `${f.feitos}/${f.alvo} ${f.rotulo.toLowerCase()}`).join(' ou '))
+                    : (ok ? '🏆 Meta batida!' : <span>falta {fmt.brl(faltaMin)}</span>)}
                 </div>
               </div>
             );
           })}
-        </div>
-      )}
-
-      {/* 💉 FOCO DO DIA de quem é de vacinas: 1 Plano Vacinal por dia.
-          Fica colado na meta em R$ de propósito — o valor é o destino, o plano
-          do dia é o passo. Só o valor não diz o que fazer agora. */}
-      {meta.planoDia && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 1, height: 26, background: 'rgba(255,255,255,.25)' }} />
-          <div style={{ lineHeight: 1.15, transition: 'transform .3s', transform: pulse ? 'scale(1.06)' : 'scale(1)' }}>
-            <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: .6, textTransform: 'uppercase', color: 'rgba(255,255,255,.7)' }}>
-              💉 Plano Vacinal · hoje
-            </div>
-            <div style={{ fontSize: 12.5, fontWeight: 900, color: meta.planoDia.falta === 0 ? '#6ee7b7' : '#fde68a' }}>
-              {meta.planoDia.falta === 0
-                ? `✅ ${meta.planoDia.feitos} de ${meta.planoDia.alvo} — feito!`
-                : `${meta.planoDia.feitos} de ${meta.planoDia.alvo} · falta ${meta.planoDia.falta}`}
-            </div>
-          </div>
         </div>
       )}
 

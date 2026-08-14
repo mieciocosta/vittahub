@@ -603,20 +603,52 @@ r.get('/meta-setor', async (req, res) => {
       individual = { meta: metaInd, confirmado: confI, falta: Math.max(metaInd - confI, 0), pct: +((confI / metaInd) * 100).toFixed(1) };
     }
 
-    /* 💉 FOCO DO DIA de quem é de vacinas: 1 Plano Vacinal por dia (pedido do
-       master, ao lado da meta de R$ 100 mil). O valor do mês é o destino; o
-       plano do dia é o passo — sem ele a pessoa olha só um número grande e não
-       sabe o que fazer AGORA. */
-    let planoDia = null;
-    if (setores.includes('vacinas')) {
-      const hojeSLZ = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
-      const { rows: [pv] } = await query(
+    /* 🎯 FOCO DO DIA POR SETOR — metas em QUANTIDADE, não em dinheiro (pedido
+       do master). "Falta R$ 99.600" não diz o que fazer hoje; "faltam 7
+       consultas" diz. Cada setor tem o seu alvo diário:
+         · vacinas   → 1 Plano Vacinal
+         · consultas → 10 consultas marcadas
+         · terapias  → 1 Plano Mensal OU 5 sessões (alternativas: bater uma basta)
+       Onde existe foco do dia, o placar mostra ele NO LUGAR do valor em R$. */
+    const hojeSLZ = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+    const contaVenda = async (categoria, setorV) => {
+      const { rows: [x] } = await query(
         `SELECT COUNT(*)::int n FROM vendas
-          WHERE atendente_id = $1 AND data_venda = $2::date
-            AND categoria = 'Plano Vacinal' AND ${METfilter}`,
+          WHERE atendente_id = $1 AND data_venda = $2::date AND categoria = $3
+            AND COALESCE(setor,'vacinas') = $4 AND ${METfilter}`,
+        [req.user.id, hojeSLZ, categoria, setorV]).catch(() => ({ rows: [{ n: 0 }] }));
+      return x?.n || 0;
+    };
+    const focoDia = {};
+    if (setores.includes('vacinas')) {
+      const feitos = await contaVenda('Plano Vacinal', 'vacinas');
+      focoDia.vacinas = [{ rotulo: 'Plano Vacinal', alvo: 1, feitos }];
+    }
+    if (setores.includes('consultas')) {
+      // Consultas MARCADAS por ela hoje — é o trabalho de quem agenda
+      const { rows: [c] } = await query(
+        `SELECT COUNT(*)::int n FROM agenda_eventos
+          WHERE responsavel_id = $1 AND COALESCE(setor,'vacinas') = 'consultas'
+            AND (created_at - interval '3 hours')::date = $2::date
+            AND LOWER(COALESCE(status,'')) NOT LIKE 'cancel%'`,
         [req.user.id, hojeSLZ]).catch(() => ({ rows: [{ n: 0 }] }));
-      const feitos = pv?.n || 0;
-      planoDia = { rotulo: 'Plano Vacinal', alvo: 1, feitos, falta: Math.max(1 - feitos, 0) };
+      focoDia.consultas = [{ rotulo: 'Consultas', alvo: 10, feitos: c?.n || 0 }];
+    }
+    if (setores.includes('terapias')) {
+      const [planos, sessoes] = await Promise.all([
+        contaVenda('Fidelidade Mensal', 'terapias'),
+        contaVenda('Terapia', 'terapias'),
+      ]);
+      focoDia.terapias = [
+        { rotulo: 'Plano Mensal', alvo: 1, feitos: planos, ou: true },
+        { rotulo: 'Sessões', alvo: 5, feitos: sessoes, ou: true },
+      ];
+    }
+    // Alternativas: bateu uma do grupo, o setor está cumprido — não cobra a outra
+    for (const s of Object.keys(focoDia)) {
+      const itens = focoDia[s];
+      const algumOk = itens.some(i => i.feitos >= i.alvo);
+      itens.forEach(i => { i.falta = algumOk && i.ou ? 0 : Math.max(i.alvo - i.feitos, 0); });
     }
 
     /* Quem TEM setor definido vê só o dela — inclusive supervisora. Raylane e
@@ -624,19 +656,19 @@ r.get('/meta-setor', async (req, res) => {
        anterior ("gestão vê tudo") devolvia os três pra elas.
        Os três setores ficam pra quem realmente cuida de todos: o master e quem
        está sem setor definido (aí não dá pra adivinhar qual mostrar). */
-    // Marketing (ve_tudo) enxerga os três de propósito: o trabalho do José e do
-    // Carlos é comparar a conversão dos setores entre si. Antes isso funcionava
-    // só por eles estarem sem setor — bastaria alguém marcar um setor pra eles
-    // que a visão quebrava sem ninguém entender o porquê.
-    const { rows: [acesso] } = await query('SELECT ve_tudo FROM usuarios WHERE id = $1', [req.user.id]).catch(() => ({ rows: [{}] }));
-    const veTodosSetores = req.user.role === 'master' || acesso?.ve_tudo === true || !setores.length;
+    /* O que manda aqui é ter SETOR, não o nível de acesso. Eu tinha incluído
+       ve_tudo pensando no marketing — mas a Danielle também tem ve_tudo (pra
+       enxergar todas as conversas) e voltou a ver os três setores no placar.
+       José e Carlos seguem vendo os três por não terem setor nenhum, que é a
+       condição certa: quem não tem setor não tem meta própria pra mostrar. */
+    const veTodosSetores = req.user.role === 'master' || !setores.length;
     const ordem = veTodosSetores
       ? [...setores, ...['vacinas', 'consultas', 'terapias'].filter(s => !setores.includes(s))]
       : setores;
     const porSetor = [];
     for (const s of ordem) porSetor.push(await confDe(s));
     // Topo = primeiro setor (compat com quem lê os campos direto); porSetor separa cada um.
-    res.json({ ...porSetor[0], porSetor, multi: true, individual, planoDia });
+    res.json({ ...porSetor[0], porSetor, multi: true, individual, focoDia });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
