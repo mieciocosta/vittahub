@@ -76,6 +76,25 @@ function cacheUpdate(conv) {
    input}] } — o formato que a Vitta/Copiloto já consomem.
    PROVEDOR: com ANTHROPIC_API_KEY configurada, usa o Claude (Anthropic) —
    preferido. Sem ela, cai para a OpenAI (OPENAI_API_KEY), como antes.       */
+/* Traduz o erro cru do provedor de IA pra algo que a equipe entenda e saiba o
+   que fazer. "400 {"type":"error","message":"Your credit balance is too low…"}"
+   não diz nada pra quem está atendendo — e ela fica achando que o sistema
+   quebrou, quando é só a conta da IA que precisa de recarga. */
+export function erroIAamigavel(erro) {
+  // Aceita a mensagem crua OU o objeto de erro — os chamadores usam os dois
+  const msg = typeof erro === 'string' ? erro : (erro?.message || erro?.error?.message || String(erro || ''));
+  const t = String(msg).toLowerCase();
+  if (/credit balance|insufficient|quota|billing|payment required/.test(t))
+    return '💳 A conta da IA está sem crédito. Avise o Dr. Miécio para recarregar — as demais funções do VittaHub seguem normais.';
+  if (/rate limit|429|overloaded|too many requests/.test(t))
+    return '⏳ A IA está sobrecarregada neste momento. Tente de novo em 1 minuto.';
+  if (/invalid.*api.?key|authentication|unauthorized|401|permission/.test(t))
+    return '🔑 A chave da IA está inválida ou expirada. Avise o Dr. Miécio para atualizá-la no Railway.';
+  if (/timeout|etimedout|econnreset|network|fetch failed/.test(t))
+    return '📡 Falha de conexão com a IA. Tente de novo em instantes.';
+  return `Não consegui analisar agora: ${(msg || 'erro desconhecido').slice(0, 120)}`;
+}
+
 export const temIA = () => !!(process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY);
 export const usaClaude = () => !!process.env.ANTHROPIC_API_KEY;
 
@@ -171,8 +190,6 @@ export async function openaiMessages({ model = 'gpt-4o-mini', max_tokens = 800, 
   return { content };
 }
 
-// Mensagem de erro da IA em PT amigável (esconde o texto técnico da OpenAI)
-export function erroIAamigavel() { return 'IA inativa'; }
 
 // Transcreve áudio (base64) com Whisper — usado no chat do Copiloto
 async function transcreverAudio(base64, mime = 'audio/webm') {
@@ -5861,7 +5878,17 @@ Na avaliação, nota de 0 a 10 sobre COMO a atendente conduziu, cobrando o PROTO
         messages: [{ role: 'user', content: prompt }] });
       if (d.error) {
         console.error('RESUMO erro (fallback):', d.error.message);
-        return res.status(400).json({ error: `Não consegui analisar agora: ${String(d.error.message).slice(0, 120)}` });
+        // Sem crédito na IA vira alerta pro master — senão ele só descobre
+        // quando alguém reclama que "o sistema não carrega".
+        const amigavel = erroIAamigavel(d.error);
+        if (/sem crédito|inválida ou expirada/.test(amigavel)) {
+          query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master)
+                 SELECT 'erro_ia', $1, $2, true
+                  WHERE NOT EXISTS (SELECT 1 FROM notificacoes
+                                     WHERE tipo = 'erro_ia' AND created_at > NOW() - INTERVAL '6 hours')`,
+            ['🤖 IA fora do ar', amigavel]).catch(() => {});
+        }
+        return res.status(400).json({ error: amigavel });
       }
     }
     let j = null;
