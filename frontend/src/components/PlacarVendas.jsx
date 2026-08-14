@@ -92,6 +92,25 @@ export default function PlacarVendas() {
         </div>
       )}
 
+      {/* 💉 FOCO DO DIA de quem é de vacinas: 1 Plano Vacinal por dia.
+          Fica colado na meta em R$ de propósito — o valor é o destino, o plano
+          do dia é o passo. Só o valor não diz o que fazer agora. */}
+      {meta.planoDia && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 1, height: 26, background: 'rgba(255,255,255,.25)' }} />
+          <div style={{ lineHeight: 1.15, transition: 'transform .3s', transform: pulse ? 'scale(1.06)' : 'scale(1)' }}>
+            <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: .6, textTransform: 'uppercase', color: 'rgba(255,255,255,.7)' }}>
+              💉 Plano Vacinal · hoje
+            </div>
+            <div style={{ fontSize: 12.5, fontWeight: 900, color: meta.planoDia.falta === 0 ? '#6ee7b7' : '#fde68a' }}>
+              {meta.planoDia.falta === 0
+                ? `✅ ${meta.planoDia.feitos} de ${meta.planoDia.alvo} — feito!`
+                : `${meta.planoDia.feitos} de ${meta.planoDia.alvo} · falta ${meta.planoDia.falta}`}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 🎯 META INDIVIDUAL do usuário logado (se definida no cadastro) */}
       {meta.individual && meta.individual.meta > 0 && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

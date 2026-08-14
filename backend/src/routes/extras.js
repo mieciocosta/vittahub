@@ -588,6 +588,22 @@ r.get('/meta-setor', async (req, res) => {
       individual = { meta: metaInd, confirmado: confI, falta: Math.max(metaInd - confI, 0), pct: +((confI / metaInd) * 100).toFixed(1) };
     }
 
+    /* 💉 FOCO DO DIA de quem é de vacinas: 1 Plano Vacinal por dia (pedido do
+       master, ao lado da meta de R$ 100 mil). O valor do mês é o destino; o
+       plano do dia é o passo — sem ele a pessoa olha só um número grande e não
+       sabe o que fazer AGORA. */
+    let planoDia = null;
+    if (setores.includes('vacinas')) {
+      const hojeSLZ = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+      const { rows: [pv] } = await query(
+        `SELECT COUNT(*)::int n FROM vendas
+          WHERE atendente_id = $1 AND data_venda = $2::date
+            AND categoria = 'Plano Vacinal' AND ${METfilter}`,
+        [req.user.id, hojeSLZ]).catch(() => ({ rows: [{ n: 0 }] }));
+      const feitos = pv?.n || 0;
+      planoDia = { rotulo: 'Plano Vacinal', alvo: 1, feitos, falta: Math.max(1 - feitos, 0) };
+    }
+
     /* Quem TEM setor definido vê só o dela — inclusive supervisora. Raylane e
        Danielle são supervisoras DO SETOR delas, não da clínica inteira; a regra
        anterior ("gestão vê tudo") devolvia os três pra elas.
@@ -605,7 +621,7 @@ r.get('/meta-setor', async (req, res) => {
     const porSetor = [];
     for (const s of ordem) porSetor.push(await confDe(s));
     // Topo = primeiro setor (compat com quem lê os campos direto); porSetor separa cada um.
-    res.json({ ...porSetor[0], porSetor, multi: true, individual });
+    res.json({ ...porSetor[0], porSetor, multi: true, individual, planoDia });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -2064,7 +2080,7 @@ r.delete('/ligacoes/:id', async (req, res) => {
    'terapia_mes'): o master definiu "1 Plano Mensal OU 5 sessões" — bater
    qualquer uma das duas cumpre o mês, não as duas. */
 const CATS_RELATORIO = [
-  { rotulo: 'Planos Vacinais', categorias: ['Plano Vacinal'], setor: 'vacinas', meta: 2 },
+  { rotulo: 'Planos Vacinais', categorias: ['Plano Vacinal'], setor: 'vacinas', meta: 1 },
   { rotulo: 'Pacotes Mensais', categorias: ['Fidelidade Mensal'], setor: 'vacinas', meta: 5 },
   { rotulo: 'Plano Mensal (Terapia)', categorias: ['Fidelidade Mensal'], setor: 'terapias', meta: 1, grupo_ou: 'terapia_mes' },
   { rotulo: 'Sessões de Terapia', categorias: ['Terapia'], setor: 'terapias', meta: 5, grupo_ou: 'terapia_mes' },
