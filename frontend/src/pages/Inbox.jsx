@@ -1652,7 +1652,7 @@ export default function Inbox({ onUnreadChange }) {
               </div>
               {/* Telefone do cabeçalho da conversa: visível, mas não selecionável */}
               {sel.phone && (
-                <div onCopy={e => e.preventDefault()} onContextMenu={e => e.preventDefault()}
+                <div data-nocopy="1" onCopy={e => e.preventDefault()} onContextMenu={e => e.preventDefault()}
                   style={{ fontSize:10.5, color:'var(--muted)',
                     userSelect:'none', WebkitUserSelect:'none', MozUserSelect:'none',
                     WebkitTouchCallout:'none', cursor:'default' }}>{fmt.phone(sel.phone)}</div>
@@ -2223,7 +2223,7 @@ export default function Inbox({ onUnreadChange }) {
                         pegar no toque longo do celular nem no menu do botão
                         direito. Continua legível pra atendente ligar. */}
                     {/telefone|cpf/i.test(lb) ? (
-                      <span onCopy={e => e.preventDefault()} onContextMenu={e => e.preventDefault()}
+                      <span data-nocopy="1" onCopy={e => e.preventDefault()} onContextMenu={e => e.preventDefault()}
                         style={{ fontSize:12.5, flex:1, minWidth:0, wordBreak:'break-word',
                           userSelect:'none', WebkitUserSelect:'none', MozUserSelect:'none', msUserSelect:'none',
                           WebkitTouchCallout:'none', cursor:'default' }}>{v}</span>

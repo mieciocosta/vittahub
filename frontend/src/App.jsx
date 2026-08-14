@@ -202,11 +202,22 @@ function PwaSetup() {
 
 function SecurityLock({ user }) {
   React.useEffect(() => {
-    // REGRA (pedido do master): a equipe pode selecionar e copiar TUDO
-    // normalmente (mensagens, textos) — EXCETO telefones. Se o trecho
-    // selecionado contiver um número com 8+ dígitos (telefone), a cópia é
-    // bloqueada. Impressão/salvar página seguem bloqueados (vazariam a lista).
-    const temTelefone = (txt) => /\d{8,}/.test(String(txt || '').replace(/[\s().+\-–—]/g, ''));
+    /* REGRA (revista pelo master): a equipe copia TUDO normalmente — mensagens,
+       textos, valores. A trava vale APENAS nos campos marcados com
+       [data-nocopy]: o telefone e os CPFs da ficha do cliente e o telefone do
+       cabeçalho da conversa.
+
+       Antes a regra era "qualquer seleção com 8+ dígitos" e isso pegava coisa
+       demais: mensagem do cliente com número de nota, valores, datas coladas.
+       Atrapalhava o trabalho pra proteger o que já está protegido — aqueles
+       campos nem selecionáveis são. */
+    const dentroDeProtegido = () => {
+      const sel = window.getSelection?.();
+      if (!sel || sel.rangeCount === 0) return false;
+      let n = sel.anchorNode;
+      if (n && n.nodeType === 3) n = n.parentElement;          // texto → elemento
+      return !!(n && n.closest && n.closest('[data-nocopy]'));
+    };
 
     /* Toda tentativa de copiar telefone vira registro na Auditoria (pedido do
        master, no lugar da marca d'água): bloquear sozinho não te conta NADA —
@@ -221,19 +232,18 @@ function SecurityLock({ user }) {
       }).catch(() => {});
     };
     const filtraCopia = (e) => {
-      const sel = String(window.getSelection?.() || '');
-      if (!temTelefone(sel)) return;
+      if (!dentroDeProtegido()) return;                        // texto normal: copia à vontade
       e.preventDefault();
       if (Date.now() - ultimaCopia > 15000) {
         ultimaCopia = Date.now();
-        registra('copia_telefone_bloqueada', { trecho: sel.slice(0, 60) });
+        registra('copia_telefone_bloqueada', {});
       }
       return false;
     };
-    // Arrastar o texto pra fora também é cópia — fecha a porta dos fundos.
+    // Arrastar pra fora é cópia por outro caminho — vale só nos mesmos campos.
     const filtraArrasto = (e) => {
-      const sel = String(window.getSelection?.() || '');
-      if (temTelefone(sel) || temTelefone(e.target?.innerText)) { e.preventDefault(); return false; }
+      const alvo = e.target?.closest?.('[data-nocopy]');
+      if (alvo || dentroDeProtegido()) { e.preventDefault(); return false; }
     };
     const bloqueiaTeclas = (e) => {
       const k = (e.key || '').toLowerCase();
