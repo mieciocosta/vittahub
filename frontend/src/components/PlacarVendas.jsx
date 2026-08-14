@@ -91,7 +91,7 @@ export default function PlacarVendas() {
           {meta.porSetor.map((s) => {
             const nome = s.setor && s.setor !== 'geral' ? s.setor[0].toUpperCase() + s.setor.slice(1) : 'Geral';
             const EMOJI = { vacinas: '💉', consultas: '🩺', terapias: '🧩' };
-            const CORES = { vacinas: '#a78bfa', consultas: '#22d3ee', terapias: '#fbbf24' };
+            const CORES = { vacinas: '#fcd34d', consultas: '#67e8f9', terapias: '#fda4af' };
             /* Só a meta MÍNIMA no placar (pedido do master): duas metas lado a
                lado diluíam o alvo — a equipe olhava o número grande e desistia.
                O percentual também passa a ser o da mínima, senão ficava "3.9%"
@@ -113,10 +113,12 @@ export default function PlacarVendas() {
                     ? `${nome} hoje: ${foco.map(f => `${f.feitos} de ${f.alvo} ${f.rotulo.toLowerCase()}`).join(' ou ')} · no mês ${fmt.brl(s.confirmado || 0)} de ${fmt.brl(minMeta)}`
                     : `${nome}: ${fmt.brl(s.confirmado || 0)} de ${fmt.brl(minMeta)} (${p}% da mínima) · meta ideal ${fmt.brl(s.metaGlobal || 0)}`}
                 style={{ lineHeight: 1.15, transition: 'transform .3s', transform: pulse ? 'scale(1.06)' : 'scale(1)' }}>
-                <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: .6, textTransform: 'uppercase', color: 'rgba(255,255,255,.7)' }}>
+                <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: .7, textTransform: 'uppercase', color: 'rgba(255,255,255,.88)' }}>
                   {EMOJI[s.setor] || '🎯'} {nome}{foco ? ' · meta do dia' : (verValores ? ` · ${p}%` : '')}
                 </div>
-                <div style={{ fontSize: 12.5, fontWeight: 900, color: (foco ? focoOk : ok) ? '#6ee7b7' : (CORES[s.setor] || '#fde68a') }}>
+                <div style={{ fontSize: 13.5, fontWeight: 900, letterSpacing: .1,
+                  textShadow: '0 1px 3px rgba(0,0,0,.45)',
+                  color: (foco ? focoOk : ok) ? '#6ee7b7' : (CORES[s.setor] || '#fde68a') }}>
                   {/* Onde existe meta em QUANTIDADE, ela substitui o valor em R$:
                       "falta R$ 99.600" não diz o que fazer hoje; "1 Plano
                       Vacinal" diz. Mostra o que FALTA, não o que já foi feito —
@@ -130,7 +132,7 @@ export default function PlacarVendas() {
                   {/* "1/20" dava pra ler como "o 1º de 20". Escrito por extenso
                       não sobra dúvida: o que falta e o que já foi fechado. */}
                   {mes && (
-                    <span style={{ fontSize: 10.5, fontWeight: 700, opacity: .78, marginLeft: 7 }}>
+                    <span style={{ fontSize: 11.5, fontWeight: 800, color: 'rgba(255,255,255,.92)', marginLeft: 7 }}>
                       {mes.falta > 0
                         ? `· falta: ${qtdTexto({ rotulo: mes.rotulo, falta: mes.falta })} · fechados: ${mes.feitos}`
                         : `· 🏆 ${mes.alvo} ${mes.rotulo} do mês — completo!`}
