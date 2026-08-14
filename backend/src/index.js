@@ -51,6 +51,18 @@ app.use('/uploads', express.static(path.join(__dirname, '../../uploads')));
 app.get('/',           (_, res) => res.json({ ok:true, app:'VittaHub API v2.3', realtime:'socket.io' }));
 app.get('/api/health', (_, res) => res.json({ ok:true, status:'online', realtime:'socket.io' }));
 
+// 🔗 Ponte para a TELA do Inbox (pedido do master, 14/08/2026): o VittaSys e o
+// VittaMed guardam UMA env (VITTAHUB_URL) apontando para ESTE backend — serve
+// para as chamadas de API (send-text, agenda). Mas o botão "abrir no Hub" da
+// lista de fidelidade monta VITTAHUB_URL/inbox?phone=..., e a tela mora no
+// FRONTEND. Este redirect preserva a query e entrega o usuário no lugar certo,
+// sem precisar de uma segunda env nos outros sistemas.
+app.get('/inbox', (req, res) => {
+  const front = (process.env.FRONTEND_URL || '').trim().replace(/\/$/, '')
+    || 'https://vittahub-frontend-production.up.railway.app';
+  res.redirect(302, front + req.originalUrl);
+});
+
 app.use('/api/auth',    authRouter);
 app.use('/api/leads',   leadsRouter);
 app.use('/api/reports', reportsRouter);
