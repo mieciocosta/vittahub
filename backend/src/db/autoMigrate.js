@@ -1048,6 +1048,16 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
     await query(`ALTER TABLE terapia_planos ADD COLUMN IF NOT EXISTS horarios JSONB DEFAULT '[]'::jsonb`).catch(() => {});
     // Quanto a família paga por SESSÃO e por MÊS naquela terapia (pedido do master)
     await query(`ALTER TABLE terapia_planos ADD COLUMN IF NOT EXISTS valor_sessao NUMERIC`).catch(() => {});
+    // Quem atende aquela terapia — sem isso a grade da semana não consegue
+    // apontar terapeuta marcado em dois lugares no mesmo horário.
+    await query(`ALTER TABLE terapia_planos ADD COLUMN IF NOT EXISTS profissional TEXT`).catch(() => {});
+    // Convênio e autorização: em TEA boa parte das terapias vem por plano de
+    // saúde, com número de guia, quantidade de sessões e VALIDADE. Autorização
+    // vencida = atendimento feito e não pago.
+    await query(`ALTER TABLE terapia_planos ADD COLUMN IF NOT EXISTS convenio TEXT`).catch(() => {});
+    await query(`ALTER TABLE terapia_planos ADD COLUMN IF NOT EXISTS autorizacao TEXT`).catch(() => {});
+    await query(`ALTER TABLE terapia_planos ADD COLUMN IF NOT EXISTS sessoes_autorizadas INT`).catch(() => {});
+    await query(`ALTER TABLE terapia_planos ADD COLUMN IF NOT EXISTS autorizacao_validade DATE`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS terapia_planos_pac_idx ON terapia_planos(paciente_id)`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS terapia_planos_criado_idx ON terapia_planos(created_at)`).catch(() => {});
 

@@ -48,7 +48,9 @@ r.get('/', auth, async (req, res) => {
     const { rows: planos } = await query(
       `SELECT id, paciente_id, especialidade, sessoes_semana, valor_sessao, valor_mensal,
               TO_CHAR(data_inicio,'YYYY-MM-DD') AS data_inicio, status, observacoes,
-              COALESCE(horarios,'[]'::jsonb) AS horarios, criado_por_nome, created_at
+              COALESCE(horarios,'[]'::jsonb) AS horarios, profissional, convenio, autorizacao,
+              sessoes_autorizadas, TO_CHAR(autorizacao_validade,'YYYY-MM-DD') AS autorizacao_validade,
+              criado_por_nome, created_at
          FROM terapia_planos ORDER BY created_at DESC`);
     res.json({ pacientes, planos });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -156,12 +158,17 @@ async function criarPlano(req, b, pacienteId) {
   // Se a equipe informou só o valor da sessão, o mensal sai da conta:
   // sessões por semana × 4 semanas. Continua editável na tela.
   const valor = dinheiro(b.valor_mensal) ?? (valorSessao != null ? Math.round(valorSessao * sessoes * 4 * 100) / 100 : null);
+  const validade = /^\d{4}-\d{2}-\d{2}$/.test(b.autorizacao_validade || '') ? b.autorizacao_validade : null;
   const { rows: [pl] } = await query(`
-    INSERT INTO terapia_planos (paciente_id, especialidade, sessoes_semana, valor_sessao, valor_mensal, data_inicio, status, observacoes, horarios, criado_por_id, criado_por_nome)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11) RETURNING *`,
+    INSERT INTO terapia_planos (paciente_id, especialidade, sessoes_semana, valor_sessao, valor_mensal, data_inicio,
+      status, observacoes, horarios, profissional, convenio, autorizacao, sessoes_autorizadas, autorizacao_validade,
+      criado_por_id, criado_por_nome)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
     [pacienteId, especialidade, sessoes, valorSessao, valor, dataInicio,
      STATUS_PLANO.includes(b.status) ? b.status : 'ativo', cut(b.observacoes, 400),
-     JSON.stringify(horarios), req.user.id, req.user.nome]);
+     JSON.stringify(horarios), cut(b.profissional, 80), cut(b.convenio, 60), cut(b.autorizacao, 40),
+     b.sessoes_autorizadas ? Math.max(0, Math.min(parseInt(b.sessoes_autorizadas) || 0, 999)) : null, validade,
+     req.user.id, req.user.nome]);
   return pl;
 }
 
@@ -205,6 +212,17 @@ r.put('/planos/:id', auth, async (req, res) => {
     const h = limpaHorarios(b.horarios);
     sets.push(`horarios = $${i++}::jsonb`); params.push(JSON.stringify(h));
     sets.push(`sessoes_semana = $${i++}`); params.push(h.length || 1);
+  }
+  for (const campo of ['profissional', 'convenio', 'autorizacao']) {
+    if (b[campo] !== undefined) { sets.push(`${campo} = $${i++}`); params.push(cut(b[campo], 80)); }
+  }
+  if (b.sessoes_autorizadas !== undefined) {
+    sets.push(`sessoes_autorizadas = $${i++}`);
+    params.push(b.sessoes_autorizadas === '' || b.sessoes_autorizadas == null ? null : Math.max(0, Math.min(parseInt(b.sessoes_autorizadas) || 0, 999)));
+  }
+  if (b.autorizacao_validade !== undefined) {
+    sets.push(`autorizacao_validade = $${i++}`);
+    params.push(/^\d{4}-\d{2}-\d{2}$/.test(b.autorizacao_validade || '') ? b.autorizacao_validade : null);
   }
   for (const campo of ['valor_mensal', 'valor_sessao']) {
     if (b[campo] !== undefined) {
@@ -250,6 +268,74 @@ export async function resumoPlanos(mes) {
     valor_ativo: ativosQ.rows[0]?.v || 0,
   };
 }
+
+// ── Grade da semana + conflitos ──────────────────────────────────────────────
+// Os sistemas da área (Terapee, Neoaba, Plataforma ABA) tratam a agenda como
+// MULTIRRECURSO: o mesmo terapeuta não pode estar em dois lugares no mesmo
+// horário. Aqui a grade sai dos horários fixos dos planos ativos, e a rota já
+// aponta os choques em vez de deixar a equipe descobrir na hora do atendimento.
+r.get('/grade', auth, async (req, res) => {
+  if (!guarda(req, res)) return;
+  try {
+    const { rows } = await query(`
+      SELECT pl.id, pl.especialidade, pl.profissional, pl.horarios, pl.convenio,
+             p.id AS paciente_id, p.nome AS paciente
+        FROM terapia_planos pl
+        JOIN terapia_pacientes p ON p.id = pl.paciente_id
+       WHERE pl.status = 'ativo' AND p.status <> 'alta'`);
+
+    // Uma linha por dia/hora marcado
+    const slots = [];
+    for (const pl of rows) {
+      for (const h of (Array.isArray(pl.horarios) ? pl.horarios : [])) {
+        if (!Number.isInteger(+h?.dia) || !/^\d{2}:\d{2}$/.test(h?.hora || '')) continue;
+        slots.push({
+          plano_id: pl.id, paciente_id: pl.paciente_id, paciente: pl.paciente,
+          especialidade: pl.especialidade, profissional: pl.profissional || null,
+          convenio: pl.convenio || null, dia: +h.dia, hora: h.hora,
+        });
+      }
+    }
+
+    // Choque = MESMO terapeuta, mesmo dia e hora, em pacientes diferentes.
+    // Sem terapeuta informado não dá para afirmar choque — fica de fora.
+    const porChave = new Map();
+    for (const s2 of slots) {
+      if (!s2.profissional) continue;
+      const k = `${s2.profissional.toLowerCase()}|${s2.dia}|${s2.hora}`;
+      porChave.set(k, [...(porChave.get(k) || []), s2]);
+    }
+    const conflitos = [...porChave.values()]
+      .filter(g => new Set(g.map(x => x.paciente_id)).size > 1)
+      .map(g => ({ profissional: g[0].profissional, dia: g[0].dia, hora: g[0].hora, itens: g }));
+    const chavesEmConflito = new Set(conflitos.map(c => `${c.profissional.toLowerCase()}|${c.dia}|${c.hora}`));
+    slots.forEach(s2 => {
+      s2.conflito = !!s2.profissional && chavesEmConflito.has(`${s2.profissional.toLowerCase()}|${s2.dia}|${s2.hora}`);
+    });
+
+    slots.sort((a, b) => a.hora.localeCompare(b.hora) || a.dia - b.dia);
+    res.json({ slots, conflitos, sem_horario: rows.filter(r2 => !(Array.isArray(r2.horarios) && r2.horarios.length)).length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── Autorizações de convênio vencendo ────────────────────────────────────────
+// Autorização vencida é atendimento feito e não pago. Avisa 15 dias antes.
+r.get('/autorizacoes', auth, async (req, res) => {
+  if (!guarda(req, res)) return;
+  try {
+    const { rows } = await query(`
+      SELECT pl.id, pl.especialidade, pl.convenio, pl.autorizacao, pl.sessoes_autorizadas,
+             TO_CHAR(pl.autorizacao_validade,'YYYY-MM-DD') AS validade,
+             (pl.autorizacao_validade - CURRENT_DATE) AS dias,
+             p.id AS paciente_id, p.nome AS paciente, p.telefone
+        FROM terapia_planos pl
+        JOIN terapia_pacientes p ON p.id = pl.paciente_id
+       WHERE pl.status = 'ativo' AND pl.autorizacao_validade IS NOT NULL
+         AND pl.autorizacao_validade <= CURRENT_DATE + INTERVAL '15 days'
+       ORDER BY pl.autorizacao_validade`);
+    res.json({ itens: rows, vencidas: rows.filter(r2 => r2.dias < 0).length, vencendo: rows.filter(r2 => r2.dias >= 0).length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
 r.get('/resumo', auth, async (req, res) => {
   if (!guarda(req, res)) return;

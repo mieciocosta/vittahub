@@ -42,6 +42,9 @@ export default function Terapias() {
   const [aberto, setAberto] = useState(null);   // paciente expandido
   const [toast, setToast] = useState(null);
   const [metaEdit, setMetaEdit] = useState('');
+  const [aba, setAba] = useState('pacientes');   // pacientes | grade
+  const [grade, setGrade] = useState(null);
+  const [autoriz, setAutoriz] = useState(null);
   const mostra = (m) => { setToast(m); setTimeout(() => setToast(null), 3000); };
   const ehGestao = ['master', 'supervisor'].includes(user?.role);
 
@@ -54,6 +57,13 @@ export default function Terapias() {
       .catch(() => setCarregando(false));
   }, []); // eslint-disable-line
   useEffect(() => { load(); }, [load]);
+
+  // Grade da semana e autorizações vencendo (mesma trava de `api` nas deps)
+  const loadGrade = useCallback(() => {
+    api.get('/terapias/grade').then(setGrade).catch(() => setGrade({ slots: [], conflitos: [] }));
+    api.get('/terapias/autorizacoes').then(setAutoriz).catch(() => {});
+  }, []); // eslint-disable-line
+  useEffect(() => { loadGrade(); }, [loadGrade]);
 
   // Buscar quem trazer pra área (conversas, clientes e agenda)
   useEffect(() => {
@@ -76,7 +86,7 @@ export default function Terapias() {
     setPlano(pl => {
       const atuais = pl.terapias || {};
       if (atuais[nome]) { const c = { ...atuais }; delete c[nome]; return { ...pl, terapias: c }; }
-      return { ...pl, terapias: { ...atuais, [nome]: { horarios: [{ dia: '1', hora: '14:00' }], valor_sessao: '', valor_mensal: '' } } };
+      return { ...pl, terapias: { ...atuais, [nome]: { horarios: [{ dia: '1', hora: '14:00' }], valor_sessao: '', valor_mensal: '', profissional: '', convenio: '', autorizacao: '', sessoes_autorizadas: '', autorizacao_validade: '' } } };
     });
   }
   const editaTerapia = (nome, campo, valor) =>
@@ -107,12 +117,14 @@ export default function Terapias() {
         horarios: (t.horarios || []).filter(h => h.dia !== '' && h.hora),
         valor_sessao: t.valor_sessao,
         valor_mensal: t.valor_mensal !== '' ? t.valor_mensal : (mensalSugerido(t) ?? ''),
+        profissional: t.profissional, convenio: t.convenio, autorizacao: t.autorizacao,
+        sessoes_autorizadas: t.sessoes_autorizadas, autorizacao_validade: t.autorizacao_validade,
       }));
       const r = await api.post('/terapias/planos', {
         paciente_id: plano.paciente_id, terapias,
         data_inicio: plano.data_inicio, observacoes: plano.observacoes,
       });
-      setPlano(null); load();
+      setPlano(null); load(); loadGrade();
       mostra(`✓ ${r?.criados || terapias.length} plano(s) registrado(s)`);
     } catch (e) { mostra('⚠️ ' + (e.message || 'Erro')); }
   }
@@ -177,6 +189,41 @@ export default function Terapias() {
         </div>
       )}
 
+      {/* ⚠️ Guias de convênio vencendo — autorização vencida é atendimento feito
+          e não pago. Os sistemas da área avisam antes; aqui também. */}
+      {autoriz && autoriz.itens?.length > 0 && (
+        <div className="card" style={{ padding: '14px 18px', marginBottom: 16, borderLeft: '5px solid #e8671a' }}>
+          <div style={{ fontWeight: 800, fontSize: 13.5, marginBottom: 8, color: '#b45309' }}>
+            ⚠️ {autoriz.vencidas > 0 && `${autoriz.vencidas} guia(s) VENCIDA(S)`}
+            {autoriz.vencidas > 0 && autoriz.vencendo > 0 && ' · '}
+            {autoriz.vencendo > 0 && `${autoriz.vencendo} vencendo em até 15 dias`}
+          </div>
+          {autoriz.itens.map(a => (
+            <div key={a.id} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '5px 0', fontSize: 12.5, flexWrap: 'wrap' }}>
+              <b style={{ minWidth: 150 }}>{a.paciente}</b>
+              <span style={{ color: 'var(--muted)' }}>{a.especialidade}{a.convenio ? ` · ${a.convenio}` : ''}{a.autorizacao ? ` · guia ${a.autorizacao}` : ''}{a.sessoes_autorizadas ? ` · ${a.sessoes_autorizadas} sessões` : ''}</span>
+              <span style={{ marginLeft: 'auto', fontWeight: 800, color: a.dias < 0 ? '#c0392b' : '#b45309' }}>
+                {a.dias < 0 ? `venceu há ${Math.abs(a.dias)} dia(s)` : a.dias === 0 ? 'vence hoje' : `vence em ${a.dias} dia(s)`}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Abas */}
+      <div style={{ display: 'flex', gap: 7, marginBottom: 14, flexWrap: 'wrap' }}>
+        {[['pacientes', '👥 Pacientes'], ['grade', '🗓️ Grade da semana']].map(([k, l]) => (
+          <button key={k} onClick={() => setAba(k)}
+            style={{ padding: '7px 15px', borderRadius: 10, fontSize: 12.5, fontWeight: 800, cursor: 'pointer',
+              border: `1.5px solid ${aba === k ? 'var(--tq)' : 'var(--border)'}`,
+              background: aba === k ? 'var(--tq)' : 'var(--card)', color: aba === k ? '#fff' : 'var(--muted)' }}>
+            {l}{k === 'grade' && grade?.conflitos?.length > 0 && <span style={{ marginLeft: 6, background: '#c0392b', color: '#fff', borderRadius: 999, padding: '1px 7px', fontSize: 10.5 }}>{grade.conflitos.length}</span>}
+          </button>
+        ))}
+      </div>
+
+      {aba === 'grade' ? <GradeSemana grade={grade} /> : (<>
+
       {/* Filtros */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
         <div style={{ position: 'relative' }}>
@@ -240,7 +287,9 @@ export default function Terapias() {
                           🗓️ {resumoHorarios(pl.horarios)}
                           {pl.valor_sessao ? ` · ${fmt.brl(pl.valor_sessao)}/sessão` : ''}
                           {pl.valor_mensal ? ` · ${fmt.brl(pl.valor_mensal)}/mês` : ''}
-                          {pl.data_inicio ? ` · desde ${pl.data_inicio.split('-').reverse().join('/')}` : ''}
+                          {pl.profissional ? ` · 👩‍⚕️ ${pl.profissional}` : ''}
+                          {pl.convenio ? ` · ${pl.convenio}` : ''}
+                          {pl.autorizacao_validade ? ` · guia até ${pl.autorizacao_validade.split('-').reverse().join('/')}` : ''}
                         </span>
                         <span style={{ marginLeft: 'auto', fontSize: 10.5, fontWeight: 800, padding: '2px 9px', borderRadius: 999,
                           background: pl.status === 'ativo' ? '#e2f8ef' : '#eef2f6', color: pl.status === 'ativo' ? '#0a8f5b' : '#5a6b7b' }}>{pl.status}</span>
@@ -253,6 +302,8 @@ export default function Terapias() {
             </div>
           );
         })}
+
+      </>)}
 
       {/* ── Popup: puxar paciente ── */}
       {puxar && (
@@ -360,6 +411,37 @@ export default function Terapias() {
                             💡 {t.horarios.length} sessão(ões) por semana × 4 semanas = <b>{fmt.brl(sugerido)}/mês</b>. Deixe em branco para usar essa conta.
                           </p>
                         )}
+                        {/* Quem atende: é o que permite a grade apontar terapeuta
+                            marcado em dois lugares no mesmo horário. */}
+                        <div style={{ marginTop: 8 }}>
+                          <label style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5 }}>Terapeuta que atende</label>
+                          <input value={t.profissional} onChange={e => editaTerapia(nome, 'profissional', e.target.value)} placeholder="Nome do terapeuta"
+                            style={{ width: '100%', padding: '7px 10px', borderRadius: 9, border: '1.5px solid var(--border)', fontSize: 13, background: 'var(--card)', color: 'var(--txt)' }} />
+                        </div>
+                        {/* Convênio e autorização — em TEA boa parte vem por plano
+                            de saúde, e autorização vencida é atendimento não pago. */}
+                        <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                          <div style={{ flex: '1 1 120px' }}>
+                            <label style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5 }}>Convênio</label>
+                            <input value={t.convenio} onChange={e => editaTerapia(nome, 'convenio', e.target.value)} placeholder="Particular"
+                              style={{ width: '100%', padding: '7px 10px', borderRadius: 9, border: '1.5px solid var(--border)', fontSize: 13, background: 'var(--card)', color: 'var(--txt)' }} />
+                          </div>
+                          <div style={{ flex: '1 1 110px' }}>
+                            <label style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5 }}>Nº autorização</label>
+                            <input value={t.autorizacao} onChange={e => editaTerapia(nome, 'autorizacao', e.target.value)} placeholder="guia"
+                              style={{ width: '100%', padding: '7px 10px', borderRadius: 9, border: '1.5px solid var(--border)', fontSize: 13, background: 'var(--card)', color: 'var(--txt)' }} />
+                          </div>
+                          <div style={{ flex: '0 1 100px' }}>
+                            <label style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5 }}>Sessões aut.</label>
+                            <input type="number" min={0} value={t.sessoes_autorizadas} onChange={e => editaTerapia(nome, 'sessoes_autorizadas', e.target.value)} placeholder="0"
+                              style={{ width: '100%', padding: '7px 10px', borderRadius: 9, border: '1.5px solid var(--border)', fontSize: 13, background: 'var(--card)', color: 'var(--txt)' }} />
+                          </div>
+                          <div style={{ flex: '1 1 130px' }}>
+                            <label style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5 }}>Validade da guia</label>
+                            <input type="date" value={t.autorizacao_validade} onChange={e => editaTerapia(nome, 'autorizacao_validade', e.target.value)}
+                              style={{ width: '100%', padding: '7px 10px', borderRadius: 9, border: '1.5px solid var(--border)', fontSize: 13, background: 'var(--card)', color: 'var(--txt)' }} />
+                          </div>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -380,6 +462,86 @@ export default function Terapias() {
       )}
 
       {toast && <div style={{ position: 'fixed', bottom: 24, right: 24, background: '#111827', color: '#fff', padding: '12px 20px', borderRadius: 14, fontSize: 13, fontWeight: 600, zIndex: 99 }}>{toast}</div>}
+    </div>
+  );
+}
+
+/* ─── 🗓️ GRADE DA SEMANA ───────────────────────────────────────────────────────
+   Os sistemas da área tratam a agenda como MULTIRRECURSO: o terapeuta não pode
+   estar em dois lugares no mesmo horário. A grade sai dos horários fixos dos
+   planos ativos e destaca em vermelho quem está marcado duas vezes. */
+function GradeSemana({ grade }) {
+  if (!grade) return <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}>Montando a grade…</div>;
+  const slots = grade.slots || [];
+  if (!slots.length) return (
+    <div className="card" style={{ padding: 44, textAlign: 'center', color: 'var(--muted)' }}>
+      <div style={{ fontSize: 38, opacity: .5, marginBottom: 8 }}>🗓️</div>
+      <div style={{ fontWeight: 700 }}>Nenhum horário marcado ainda.</div>
+      <div style={{ fontSize: 12.5, marginTop: 6 }}>Registre um plano com dia e hora e a grade se monta sozinha.</div>
+    </div>
+  );
+
+  const horas = [...new Set(slots.map(s => s.hora))].sort();
+  const COR = { 'Terapia ABA': '#7c5cbf', 'Fonoaudiologia': '#00B8C0', 'Terapia Ocupacional': '#C4973B',
+    'Psicologia': '#0e7490', 'Psicopedagogia': '#a855f7', 'Fisioterapia': '#16a34a',
+    'Musicoterapia': '#ec4899', 'Nutrição': '#84cc16' };
+
+  return (
+    <div>
+      {grade.conflitos?.length > 0 && (
+        <div className="card" style={{ padding: '13px 18px', marginBottom: 12, borderLeft: '5px solid #c0392b' }}>
+          <div style={{ fontWeight: 800, fontSize: 13.5, color: '#c0392b', marginBottom: 6 }}>
+            ⚠️ {grade.conflitos.length} choque(s) de horário — o mesmo terapeuta está marcado com dois pacientes
+          </div>
+          {grade.conflitos.map((c, i) => (
+            <div key={i} style={{ fontSize: 12.5, color: 'var(--muted)', padding: '3px 0' }}>
+              <b style={{ color: 'var(--txt)' }}>{c.profissional}</b> · {nomeDia(c.dia)} {c.hora} — {c.itens.map(x => x.paciente).join(' e ')}
+            </div>
+          ))}
+        </div>
+      )}
+      {grade.sem_horario > 0 && (
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
+          ℹ️ {grade.sem_horario} plano(s) ativo(s) ainda sem dia/horário definido — eles não aparecem na grade.
+        </div>
+      )}
+
+      <div className="card" style={{ padding: 0, overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>
+          <thead>
+            <tr>
+              <th style={{ padding: '10px 8px', fontSize: 11, textTransform: 'uppercase', letterSpacing: .5, color: 'var(--muted)', borderBottom: '1px solid var(--border)', width: 62 }}>Hora</th>
+              {DIAS.map(([v, l]) => (
+                <th key={v} style={{ padding: '10px 8px', fontSize: 11.5, fontWeight: 800, color: 'var(--txt)', borderBottom: '1px solid var(--border)' }}>{l}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {horas.map(h => (
+              <tr key={h}>
+                <td style={{ padding: '8px', fontFamily: 'monospace', fontWeight: 800, fontSize: 12.5, color: 'var(--tq2)', borderBottom: '1px solid var(--border)', verticalAlign: 'top' }}>{h}</td>
+                {DIAS.map(([v]) => {
+                  const doSlot = slots.filter(s => s.hora === h && s.dia === +v);
+                  return (
+                    <td key={v} style={{ padding: 5, borderBottom: '1px solid var(--border)', borderLeft: '1px solid var(--border)', verticalAlign: 'top' }}>
+                      {doSlot.map((s, i) => (
+                        <div key={i} title={`${s.paciente} · ${s.especialidade}${s.profissional ? ` · ${s.profissional}` : ''}`}
+                          style={{ background: s.conflito ? '#fdecec' : `${COR[s.especialidade] || '#64748b'}18`,
+                            border: `1.5px solid ${s.conflito ? '#c0392b' : (COR[s.especialidade] || '#64748b')}`,
+                            borderRadius: 9, padding: '5px 7px', marginBottom: 4 }}>
+                          <div style={{ fontWeight: 800, fontSize: 11.5, lineHeight: 1.25 }}>{s.conflito && '⚠️ '}{s.paciente.split(' ').slice(0, 2).join(' ')}</div>
+                          <div style={{ fontSize: 10, color: 'var(--muted)' }}>{s.especialidade}</div>
+                          {s.profissional && <div style={{ fontSize: 10, color: COR[s.especialidade] || '#64748b', fontWeight: 700 }}>{s.profissional.split(' ')[0]}</div>}
+                        </div>
+                      ))}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
