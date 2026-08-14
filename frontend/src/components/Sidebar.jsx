@@ -199,22 +199,36 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
 
   // Foto/avatar: o clique na foto abre o modal com as DUAS opções (foto própria
   // do aparelho ou avatar ilustrado) — antes o clique abria um seletor escondido.
+  /* 🏥 Ponte pro sistema do SETOR (pedido do master). Cada equipe usa um:
+     vacinas trabalha no Vittasys, consultas e terapias no VittaMed. Mostrar os
+     dois pra todo mundo era mandar a Danielle abrir o sistema que não é dela.
+     Quem não tem setor (master, marketing) vê os dois. */
   const [vittasysUrl, setVittasysUrl] = useState('https://vittasys.vittalissaude.com.br');
-  // 🏥 Ponte pro Vittasys: encaminha direto (abre em nova aba)
-  const vittasysLink = (
-        <a href={vittasysUrl} target="_blank" rel="noreferrer" title="Abrir o Vittasys"
+  const [vittamedUrl, setVittamedUrl] = useState('');
+  const pontes = [
+    { k:'vittasys', nome:'Vittasys', setores:['vacinas'], url:vittasysUrl,
+      cor:'linear-gradient(135deg,#0ea5e9,#0284c7)', sombra:'rgba(14,165,233,.4)' },
+    { k:'vittamed', nome:'VittaMed', setores:['consultas','terapias'], url:vittamedUrl,
+      cor:'linear-gradient(135deg,#a855f7,#7c3aed)', sombra:'rgba(168,85,247,.4)' },
+  ].filter(p2 => p2.url && p2.setores.some(st => podeSetor(st)));
+
+  const vittasysLink = pontes.map(p2 => (
+        <a key={p2.k} href={p2.url} target="_blank" rel="noreferrer" title={`Abrir o ${p2.nome}`}
           className="vh-nav"
           style={{ display:'flex', alignItems:'center', gap: collapsed ? 0 : 10,
             padding: collapsed ? '8px 0' : '6px 10px', justifyContent: collapsed ? 'center' : 'flex-start',
             borderRadius:12, textDecoration:'none', color:'rgba(255,255,255,.88)', fontSize:13, fontWeight:500 }}>
           <span className="vh-chip" style={{ width:25, height:25, borderRadius:8, flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center',
-            background:'linear-gradient(135deg,#0ea5e9,#0284c7)', boxShadow:'0 2px 8px rgba(14,165,233,.4)' }}>
+            background:p2.cor, boxShadow:`0 2px 8px ${p2.sombra}` }}>
             <Stethoscope size={14} strokeWidth={2} color="#fff" />
           </span>
-          {!collapsed && <><span style={{ flex:1 }}>Vittasys</span><ExternalLink size={11} color="rgba(255,255,255,.5)" /></>}
+          {!collapsed && <><span style={{ flex:1 }}>{p2.nome}</span><ExternalLink size={11} color="rgba(255,255,255,.5)" /></>}
         </a>
-  );
-  useEffect(() => { api.get('/extras/vittasys/config').then(d => d?.url && setVittasysUrl(d.url)).catch(() => {}); }, []); // eslint-disable-line
+  ));
+  useEffect(() => {
+    api.get('/extras/vittasys/config').then(d => d?.url && setVittasysUrl(d.url)).catch(() => {});
+    api.get('/extras/vittamed/config').then(d => d?.url && setVittamedUrl(d.url)).catch(() => {});
+  }, []); // eslint-disable-line
   const [showAvatarBuilder, setShowAvatarBuilder] = useState(false);
   const [paletaAberta, setPaletaAberta] = useState(false);
   // Editar o próprio nome — instantâneo (novo token com o nome novo).

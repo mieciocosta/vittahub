@@ -11,6 +11,30 @@ import { auth } from '../middleware/auth.js';
 
 const r = express.Router();
 
+/* Endereço do VittaMed pra ABRIR no navegador (o atalho da barra lateral). É
+   diferente do VITTAMED_URL, que é o endereço da API usado servidor-a-servidor:
+   a equipe precisa do endereço do sistema, não do endpoint. Sai da mesma tabela
+   de configurações do Vittasys, então o master edita pela tela. */
+r.get('/config', auth, async (req, res) => {
+  try {
+    const { query } = await import('../db/pool.js');
+    const { rows: [c] } = await query("SELECT valor FROM configuracoes WHERE chave = 'vittamed'").catch(() => ({ rows: [] }));
+    res.json({ url: c?.valor?.url || process.env.VITTAMED_SITE_URL || 'https://vittamed.vittalissaude.com.br' });
+  } catch { res.json({ url: 'https://vittamed.vittalissaude.com.br' }); }
+});
+
+r.put('/config', auth, async (req, res) => {
+  if (req.user?.role !== 'master') return res.status(403).json({ error: 'Apenas o master altera o endereço.' });
+  const url = String(req.body?.url || '').trim().slice(0, 300);
+  if (!/^https?:\/\//i.test(url)) return res.status(400).json({ error: 'Informe um endereço válido (https://…).' });
+  try {
+    const { query } = await import('../db/pool.js');
+    await query(`INSERT INTO configuracoes (chave, valor) VALUES ('vittamed', $1::jsonb)
+                 ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`, [JSON.stringify({ url })]);
+    res.json({ ok: true, url });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 const configurado = () =>
   !!(process.env.VITTAMED_URL && process.env.INTEGRACAO_TOKEN && process.env.INTEGRACAO_TOKEN.length >= 16);
 
