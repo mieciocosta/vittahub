@@ -102,6 +102,7 @@ export default function PlacarVendas() {
             const p = Math.min(s.pctMinima ?? 0, 100);
             const foco = meta.focoDia?.[s.setor] || null;      // metas em quantidade
             const focoOk = foco ? foco.every(f => (f.falta ?? 0) === 0) : false;
+            const mes = meta.focoMes?.[s.setor] || null;      // alvo do mês (ex.: 20 Planos)
             return (
               <div key={s.setor}
                 // A meta ideal saiu da faixa, mas continua aqui no "passar o
@@ -113,7 +114,7 @@ export default function PlacarVendas() {
                     : `${nome}: ${fmt.brl(s.confirmado || 0)} de ${fmt.brl(minMeta)} (${p}% da mínima) · meta ideal ${fmt.brl(s.metaGlobal || 0)}`}
                 style={{ lineHeight: 1.15, transition: 'transform .3s', transform: pulse ? 'scale(1.06)' : 'scale(1)' }}>
                 <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: .6, textTransform: 'uppercase', color: 'rgba(255,255,255,.7)' }}>
-                  {EMOJI[s.setor] || '🎯'} {nome}{foco ? ' · sua meta' : (verValores ? ` · ${p}%` : '')}
+                  {EMOJI[s.setor] || '🎯'} {nome}{foco ? ' · meta do dia' : (verValores ? ` · ${p}%` : '')}
                 </div>
                 <div style={{ fontSize: 12.5, fontWeight: 900, color: (foco ? focoOk : ok) ? '#6ee7b7' : (CORES[s.setor] || '#fde68a') }}>
                   {/* Onde existe meta em QUANTIDADE, ela substitui o valor em R$:
@@ -124,6 +125,13 @@ export default function PlacarVendas() {
                     ? (focoOk ? '🏆 Meta do dia batida!' : foco.map(qtdTexto).join(' ou '))
                     : !verValores ? <span style={{ opacity: .8 }}>meta do time</span>
                     : (ok ? '🏆 Meta batida!' : <span>falta {fmt.brl(faltaMin)}</span>)}
+                  {/* O alvo do MÊS ao lado do alvo do dia: 1 por dia é o passo,
+                      20 é o destino — juntos mostram se está no ritmo. */}
+                  {mes && (
+                    <span style={{ fontSize: 10.5, fontWeight: 700, opacity: .78, marginLeft: 7 }}>
+                      · mês: {mes.feitos}/{mes.alvo} {mes.rotulo}
+                    </span>
+                  )}
                 </div>
               </div>
             );

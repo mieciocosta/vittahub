@@ -620,9 +620,20 @@ r.get('/meta-setor', async (req, res) => {
       return x?.n || 0;
     };
     const focoDia = {};
+    const focoMes = {};                       // alvo do MÊS, ao lado do alvo do dia
     if (setores.includes('vacinas')) {
       const feitos = await contaVenda('Plano Vacinal', 'vacinas');
       focoDia.vacinas = [{ rotulo: 'Plano Vacinal', alvo: 1, feitos }];
+      /* 20 Planos Vacinais no mês (pedido do master), ao lado da meta do dia:
+         1 por dia é o passo, 20 é o destino — e ver os dois juntos mostra se
+         está no ritmo ou já ficou pra trás. */
+      const { rows: [pm] } = await query(
+        `SELECT COUNT(*)::int n FROM vendas
+          WHERE atendente_id = $1 AND ${mesCol}
+            AND categoria = 'Plano Vacinal' AND COALESCE(setor,'vacinas') = 'vacinas' AND ${METfilter}`,
+        [req.user.id]).catch(() => ({ rows: [{ n: 0 }] }));
+      const feitosMes = pm?.n || 0;
+      focoMes.vacinas = { rotulo: 'Planos', alvo: 20, feitos: feitosMes, falta: Math.max(20 - feitosMes, 0) };
     }
     if (setores.includes('consultas')) {
       // Consultas MARCADAS por ela hoje — é o trabalho de quem agenda
@@ -682,7 +693,7 @@ r.get('/meta-setor', async (req, res) => {
     }));
     res.json({
       ...porSetorSeguro[0], porSetor: porSetorSeguro,
-      multi: true, individual, focoDia, mostra_valores: podeValores,
+      multi: true, individual, focoDia, focoMes, mostra_valores: podeValores,
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
