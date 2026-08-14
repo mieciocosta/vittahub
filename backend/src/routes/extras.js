@@ -741,9 +741,12 @@ r.get('/meta-setor', async (req, res) => {
        total do SETOR e cada uma sabe o próprio, descobrir o da outra é uma
        conta de menos. Fora da gestão, os valores em R$ do setor não são nem
        enviados: sobra a meta do dia (que já é individual) e a "Sua meta". */
-    /* Só o MASTER. 'gestao' não serve aqui: Raylane e Danielle são supervisoras
-       e é justamente delas que o master quer separar os números. */
-    const podeValores = req.user.role === 'master';
+    /* Supervisora ACUMULA dois papéis (esclarecido pelo master): é atendente do
+       setor — com meta própria — e responde pelo setor. Então ela vê o TOTAL do
+       setor dela (os setores já vêm filtrados acima), mas nunca a linha de cada
+       colega: a Raylane não vê o número da Stefany, nem o contrário.
+       Total do setor = trabalho dela. Número da colega = do master. */
+    const podeValores = req.user.role === 'master' || req.user.role === 'supervisor';
     const porSetorSeguro = podeValores ? porSetor : porSetor.map(s => ({
       setor: s.setor, metaGlobal: s.metaGlobal, metaMinima: s.metaMinima,
       confirmado: null, faltaMinima: null, faltaGlobal: null, pctMinima: null, pctGlobal: null,
