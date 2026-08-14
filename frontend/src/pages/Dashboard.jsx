@@ -167,8 +167,8 @@ export default function Dashboard() {
             ele quer isso aqui em cima, não escondido na lateral). */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, position: 'relative' }}>
           {user?.avatar
-            ? <img src={user.avatar} alt="" style={{ width: 40, height: 40, borderRadius: '50%', objectFit: 'cover', border: '2px solid var(--tq)' }} />
-            : <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'linear-gradient(135deg,var(--tq),var(--pet))', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 800, fontSize: 14 }}>{fmt.initials(user?.nome)}</div>}
+            ? <img src={user.avatar} alt="" style={{ width: 56, height: 56, borderRadius: '50%', objectFit: 'cover', border: '2px solid var(--tq)' }} />
+            : <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'linear-gradient(135deg,var(--tq),var(--pet))', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 800, fontSize: 19 }}>{fmt.initials(user?.nome)}</div>}
           <div>
             <div style={{ fontWeight: 800, fontSize: 13.5 }}>{nome}</div>
             {podeTrocar ? (

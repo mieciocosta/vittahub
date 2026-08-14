@@ -326,7 +326,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
         {collapsed ? (
           <div style={{ display:'flex', flexDirection:'column', gap:6, alignItems:'center' }}>
             <button onClick={()=>setShowAvatarBuilder(true)} title="Foto de perfil (foto própria ou avatar)" style={{ background:'none', border:'none', cursor:'pointer', padding:0 }}>
-              <UserAvatar size={32} />
+              <UserAvatar size={40} />
             </button>
             <button onClick={onToggleTheme} title={theme === 'dark' ? 'Modo claro' : 'Modo escuro'} style={{ padding:5, background:'none', color:'rgba(255,255,255,.62)', borderRadius:6, cursor:'pointer', border:'none' }}
               onMouseEnter={e=>e.currentTarget.style.color='#ffffff'}
@@ -341,8 +341,10 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
           </div>
         ) : (
           <div style={{ display:'flex', flexWrap:'wrap', alignItems:'center', gap:9, padding:'10px 10px', borderRadius:12, background:'rgba(255,255,255,.14)', border:'1px solid rgba(255,255,255,.2)' }}>
-            <button onClick={()=>setShowAvatarBuilder(true)} title="Foto de perfil (foto própria ou avatar)" style={{ background:'none', border:'none', cursor:'pointer', padding:0 }}>
-              <UserAvatar size={34} />
+            <button onClick={()=>setShowAvatarBuilder(true)} title="Foto de perfil (foto própria ou avatar)"
+              style={{ background:'none', border:'none', cursor:'pointer', padding:0, borderRadius:'50%', lineHeight:0,
+                boxShadow:'0 0 0 2px rgba(255,255,255,.55)' }}>
+              <UserAvatar size={56} />
             </button>
             <div style={{ flex:1, minWidth:0 }}>
               {/* Nome COMPLETO, sem corte: quebra em até 2 linhas se precisar */}
