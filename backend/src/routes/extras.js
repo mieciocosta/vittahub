@@ -3409,19 +3409,34 @@ setInterval(relatorioSemanal, 20 * 60 * 1000);
 // de AMANHÃ (status Agendado/Confirmado). Dedup por evento (confirmacao_enviada).
 async function confirmacaoVespera() {
   try {
-    if (new Date().getUTCHours() !== 20) return;
+    /* A janela é "das 17h em diante", não "às 17h em ponto". Antes a checagem
+       era `hora !== 20 UTC` e, com o tick de 20 min, bastava o backend reiniciar
+       perto do horário (deploy, por exemplo) pra a janela inteira passar batido
+       e NINGUÉM daquele dia receber lembrete — sem erro nenhum aparecer.
+       Agora um marcador diário garante que roda uma vez por dia, mais cedo ou
+       mais tarde, mas roda. */
+    const agoraSLZ = new Date(Date.now() - 3 * 3600 * 1000);
+    if (agoraSLZ.getUTCHours() < 17) return;                  // antes das 17h de São Luís
+    const hojeSLZ = agoraSLZ.toISOString().slice(0, 10);
+    const { rows: [marca] } = await query(
+      "SELECT valor FROM configuracoes WHERE chave = 'confirmacao_vespera_dia'").catch(() => ({ rows: [] }));
+    if (marca?.valor?.dia === hojeSLZ) return;                // já rodou hoje
+    await query(`INSERT INTO configuracoes (chave, valor) VALUES ('confirmacao_vespera_dia', $1::jsonb)
+                 ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`,
+      [JSON.stringify({ dia: hojeSLZ })]).catch(() => {});
+
     const amanha = new Date(Date.now() - 3 * 3600 * 1000 + 86400000).toISOString().slice(0, 10); // amanhã no fuso SLZ
     const { rows: eventos } = await query(`
       SELECT * FROM agenda_eventos
       WHERE data = $1 AND status IN ('Agendado','Confirmado')
         AND COALESCE(confirmacao_enviada, false) = false
       ORDER BY hora LIMIT 60`, [amanha]);
-    let n = 0;
+    let n = 0, semConversa = 0;
     for (const ev of eventos) {
       // Marca ANTES de enviar: mesmo sem conversa, não fica re-tentando pra sempre
       await query('UPDATE agenda_eventos SET confirmacao_enviada = true WHERE id = $1', [ev.id]).catch(() => {});
       const convId = await convDoEvento(ev);
-      if (!convId) continue;
+      if (!convId) { semConversa++; continue; }
       const nome = String(ev.paciente || '').split(' ')[0];
       // Data por extenso ("quinta-feira, 07/08") — mensagem com cara de gente
       const dt = new Date(`${amanha}T12:00:00Z`);
@@ -3444,9 +3459,23 @@ async function confirmacaoVespera() {
       n++;
     }
     if (n) console.log(`📅 Confirmação de véspera: ${n} mensagem(ns) para ${amanha}`);
+    /* Agendamento sem conversa no WhatsApp (marcado por telefone, pelo site ou
+       importado) nunca receberia o lembrete e ninguém saberia. Vira alerta pra
+       gestão ligar — é a diferença entre falha silenciosa e falha avisada. */
+    if (semConversa) {
+      console.warn(`📅 Confirmação de véspera: ${semConversa} agendamento(s) de ${amanha} sem conversa no WhatsApp`);
+      await query(
+        `INSERT INTO notificacoes (tipo, titulo, texto, apenas_master)
+         VALUES ('agenda', $1, $2, true)`,
+        ['📵 Lembretes de amanhã não enviados',
+         `${semConversa} agendamento(s) de amanhã não têm conversa no WhatsApp, então não receberam o lembrete automático. Vale ligar ou mandar mensagem manual.`]
+      ).catch(() => {});
+    }
   } catch (e) { console.error('Confirmação véspera erro:', e.message); }
 }
+// Tick de 20 min: com o marcador diário acima, basta uma passada depois das 17h.
 setInterval(confirmacaoVespera, 20 * 60 * 1000);
+setTimeout(confirmacaoVespera, 45000);   // e uma logo após o boot, pra deploy tardio não perder o dia
 
 // ─── 💰 RESGATE DE ORÇAMENTO SEM RESPOSTA ────────────────────────────────────
 // Proposta (PDF) enviada há 24-48h e o cliente não respondeu nada desde então →
