@@ -35,6 +35,17 @@ export default async function runMigrate() {
     await query(`UPDATE usuarios SET pode_impersonar = true
                   WHERE regexp_replace(COALESCE(cpf,''),'\\D','','g') = '02914270305'
                     AND COALESCE(pode_impersonar,false) = false`).catch(() => {});
+    /* Conta "Maria" (a segunda master) — o master usa esta conta no dia a dia e
+       pediu a troca de usuário nela. Roda UMA vez: se ele revogar depois pela
+       tela, o seed não devolve a permissão por cima. */
+    const { rows: [flagMariaImp] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_maria_impersonar_v1'");
+    if (!flagMariaImp) {
+      await query(`UPDATE usuarios SET pode_impersonar = true
+                    WHERE email = 'nagila@vittalissaude.com.br'
+                       OR regexp_replace(COALESCE(cpf,''),'\\D','','g') = '35411272874'`).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_maria_impersonar_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('👤 Conta Maria: liberada para entrar como outro usuário');
+    }
     // MEU PAINEL: mural pessoal — notas, tarefas e documentos (por usuário).
     await query(`CREATE TABLE IF NOT EXISTS painel_itens (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
