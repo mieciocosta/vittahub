@@ -1051,13 +1051,14 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
     // Quem atende aquela terapia — sem isso a grade da semana não consegue
     // apontar terapeuta marcado em dois lugares no mesmo horário.
     await query(`ALTER TABLE terapia_planos ADD COLUMN IF NOT EXISTS profissional TEXT`).catch(() => {});
-    // Convênio e autorização: em TEA boa parte das terapias vem por plano de
-    // saúde, com número de guia, quantidade de sessões e VALIDADE. Autorização
-    // vencida = atendimento feito e não pago.
-    await query(`ALTER TABLE terapia_planos ADD COLUMN IF NOT EXISTS convenio TEXT`).catch(() => {});
-    await query(`ALTER TABLE terapia_planos ADD COLUMN IF NOT EXISTS autorizacao TEXT`).catch(() => {});
-    await query(`ALTER TABLE terapia_planos ADD COLUMN IF NOT EXISTS sessoes_autorizadas INT`).catch(() => {});
-    await query(`ALTER TABLE terapia_planos ADD COLUMN IF NOT EXISTS autorizacao_validade DATE`).catch(() => {});
+    // A clínica é PARTICULAR — o master confirmou que não trabalhamos com plano
+    // de saúde. Os campos de convênio/guia saíram; o que importa aqui é o dia
+    // em que a família paga a mensalidade daquela terapia.
+    await query(`ALTER TABLE terapia_planos DROP COLUMN IF EXISTS convenio`).catch(() => {});
+    await query(`ALTER TABLE terapia_planos DROP COLUMN IF EXISTS autorizacao`).catch(() => {});
+    await query(`ALTER TABLE terapia_planos DROP COLUMN IF EXISTS sessoes_autorizadas`).catch(() => {});
+    await query(`ALTER TABLE terapia_planos DROP COLUMN IF EXISTS autorizacao_validade`).catch(() => {});
+    await query(`ALTER TABLE terapia_planos ADD COLUMN IF NOT EXISTS dia_pagamento INT`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS terapia_planos_pac_idx ON terapia_planos(paciente_id)`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS terapia_planos_criado_idx ON terapia_planos(created_at)`).catch(() => {});
 

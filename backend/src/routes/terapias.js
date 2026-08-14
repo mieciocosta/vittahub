@@ -48,8 +48,7 @@ r.get('/', auth, async (req, res) => {
     const { rows: planos } = await query(
       `SELECT id, paciente_id, especialidade, sessoes_semana, valor_sessao, valor_mensal,
               TO_CHAR(data_inicio,'YYYY-MM-DD') AS data_inicio, status, observacoes,
-              COALESCE(horarios,'[]'::jsonb) AS horarios, profissional, convenio, autorizacao,
-              sessoes_autorizadas, TO_CHAR(autorizacao_validade,'YYYY-MM-DD') AS autorizacao_validade,
+              COALESCE(horarios,'[]'::jsonb) AS horarios, profissional, dia_pagamento,
               criado_por_nome, created_at
          FROM terapia_planos ORDER BY created_at DESC`);
     res.json({ pacientes, planos });
@@ -158,16 +157,15 @@ async function criarPlano(req, b, pacienteId) {
   // Se a equipe informou só o valor da sessão, o mensal sai da conta:
   // sessões por semana × 4 semanas. Continua editável na tela.
   const valor = dinheiro(b.valor_mensal) ?? (valorSessao != null ? Math.round(valorSessao * sessoes * 4 * 100) / 100 : null);
-  const validade = /^\d{4}-\d{2}-\d{2}$/.test(b.autorizacao_validade || '') ? b.autorizacao_validade : null;
+  // Dia do mês em que a família paga aquela terapia (clínica particular)
+  const diaPag = b.dia_pagamento ? Math.max(1, Math.min(parseInt(b.dia_pagamento) || 0, 31)) : null;
   const { rows: [pl] } = await query(`
     INSERT INTO terapia_planos (paciente_id, especialidade, sessoes_semana, valor_sessao, valor_mensal, data_inicio,
-      status, observacoes, horarios, profissional, convenio, autorizacao, sessoes_autorizadas, autorizacao_validade,
-      criado_por_id, criado_por_nome)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
+      status, observacoes, horarios, profissional, dia_pagamento, criado_por_id, criado_por_nome)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13) RETURNING *`,
     [pacienteId, especialidade, sessoes, valorSessao, valor, dataInicio,
      STATUS_PLANO.includes(b.status) ? b.status : 'ativo', cut(b.observacoes, 400),
-     JSON.stringify(horarios), cut(b.profissional, 80), cut(b.convenio, 60), cut(b.autorizacao, 40),
-     b.sessoes_autorizadas ? Math.max(0, Math.min(parseInt(b.sessoes_autorizadas) || 0, 999)) : null, validade,
+     JSON.stringify(horarios), cut(b.profissional, 80), diaPag,
      req.user.id, req.user.nome]);
   return pl;
 }
@@ -213,16 +211,10 @@ r.put('/planos/:id', auth, async (req, res) => {
     sets.push(`horarios = $${i++}::jsonb`); params.push(JSON.stringify(h));
     sets.push(`sessoes_semana = $${i++}`); params.push(h.length || 1);
   }
-  for (const campo of ['profissional', 'convenio', 'autorizacao']) {
-    if (b[campo] !== undefined) { sets.push(`${campo} = $${i++}`); params.push(cut(b[campo], 80)); }
-  }
-  if (b.sessoes_autorizadas !== undefined) {
-    sets.push(`sessoes_autorizadas = $${i++}`);
-    params.push(b.sessoes_autorizadas === '' || b.sessoes_autorizadas == null ? null : Math.max(0, Math.min(parseInt(b.sessoes_autorizadas) || 0, 999)));
-  }
-  if (b.autorizacao_validade !== undefined) {
-    sets.push(`autorizacao_validade = $${i++}`);
-    params.push(/^\d{4}-\d{2}-\d{2}$/.test(b.autorizacao_validade || '') ? b.autorizacao_validade : null);
+  if (b.profissional !== undefined) { sets.push(`profissional = $${i++}`); params.push(cut(b.profissional, 80)); }
+  if (b.dia_pagamento !== undefined) {
+    sets.push(`dia_pagamento = $${i++}`);
+    params.push(b.dia_pagamento === '' || b.dia_pagamento == null ? null : Math.max(1, Math.min(parseInt(b.dia_pagamento) || 1, 31)));
   }
   for (const campo of ['valor_mensal', 'valor_sessao']) {
     if (b[campo] !== undefined) {
@@ -278,7 +270,7 @@ r.get('/grade', auth, async (req, res) => {
   if (!guarda(req, res)) return;
   try {
     const { rows } = await query(`
-      SELECT pl.id, pl.especialidade, pl.profissional, pl.horarios, pl.convenio,
+      SELECT pl.id, pl.especialidade, pl.profissional, pl.horarios,
              p.id AS paciente_id, p.nome AS paciente
         FROM terapia_planos pl
         JOIN terapia_pacientes p ON p.id = pl.paciente_id
@@ -292,7 +284,7 @@ r.get('/grade', auth, async (req, res) => {
         slots.push({
           plano_id: pl.id, paciente_id: pl.paciente_id, paciente: pl.paciente,
           especialidade: pl.especialidade, profissional: pl.profissional || null,
-          convenio: pl.convenio || null, dia: +h.dia, hora: h.hora,
+          dia: +h.dia, hora: h.hora,
         });
       }
     }
@@ -318,22 +310,32 @@ r.get('/grade', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ── Autorizações de convênio vencendo ────────────────────────────────────────
-// Autorização vencida é atendimento feito e não pago. Avisa 15 dias antes.
-r.get('/autorizacoes', auth, async (req, res) => {
+// ── Mensalidades a receber ───────────────────────────────────────────────────
+// A clínica é PARTICULAR: quem paga é a família, no dia combinado de cada mês.
+// Esta lista mostra quem vence nos próximos 5 dias e quem já passou do dia,
+// para a equipe cobrar antes de virar mês.
+r.get('/cobrancas', auth, async (req, res) => {
   if (!guarda(req, res)) return;
   try {
     const { rows } = await query(`
-      SELECT pl.id, pl.especialidade, pl.convenio, pl.autorizacao, pl.sessoes_autorizadas,
-             TO_CHAR(pl.autorizacao_validade,'YYYY-MM-DD') AS validade,
-             (pl.autorizacao_validade - CURRENT_DATE) AS dias,
-             p.id AS paciente_id, p.nome AS paciente, p.telefone
+      SELECT pl.id, pl.especialidade, pl.valor_mensal, pl.dia_pagamento,
+             p.id AS paciente_id, p.nome AS paciente, p.responsavel, p.telefone
         FROM terapia_planos pl
         JOIN terapia_pacientes p ON p.id = pl.paciente_id
-       WHERE pl.status = 'ativo' AND pl.autorizacao_validade IS NOT NULL
-         AND pl.autorizacao_validade <= CURRENT_DATE + INTERVAL '15 days'
-       ORDER BY pl.autorizacao_validade`);
-    res.json({ itens: rows, vencidas: rows.filter(r2 => r2.dias < 0).length, vencendo: rows.filter(r2 => r2.dias >= 0).length });
+       WHERE pl.status = 'ativo' AND pl.dia_pagamento IS NOT NULL AND p.status <> 'alta'`);
+
+    // Dia de hoje no fuso de São Luís
+    const hoje = +new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(8, 10);
+    const itens = rows
+      .map(r2 => ({ ...r2, faltam: r2.dia_pagamento - hoje }))
+      .filter(r2 => r2.faltam <= 5 && r2.faltam >= -10)   // 5 dias antes até 10 de atraso
+      .sort((a, b) => a.faltam - b.faltam);
+    res.json({
+      itens,
+      atrasadas: itens.filter(x => x.faltam < 0).length,
+      vencendo: itens.filter(x => x.faltam >= 0).length,
+      total: itens.reduce((s2, x) => s2 + (+x.valor_mensal || 0), 0),
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

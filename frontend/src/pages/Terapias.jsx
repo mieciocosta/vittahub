@@ -44,7 +44,7 @@ export default function Terapias() {
   const [metaEdit, setMetaEdit] = useState('');
   const [aba, setAba] = useState('pacientes');   // pacientes | grade
   const [grade, setGrade] = useState(null);
-  const [autoriz, setAutoriz] = useState(null);
+  const [cobrancas, setCobrancas] = useState(null);
   const mostra = (m) => { setToast(m); setTimeout(() => setToast(null), 3000); };
   const ehGestao = ['master', 'supervisor'].includes(user?.role);
 
@@ -61,7 +61,7 @@ export default function Terapias() {
   // Grade da semana e autorizações vencendo (mesma trava de `api` nas deps)
   const loadGrade = useCallback(() => {
     api.get('/terapias/grade').then(setGrade).catch(() => setGrade({ slots: [], conflitos: [] }));
-    api.get('/terapias/autorizacoes').then(setAutoriz).catch(() => {});
+    api.get('/terapias/cobrancas').then(setCobrancas).catch(() => {});
   }, []); // eslint-disable-line
   useEffect(() => { loadGrade(); }, [loadGrade]);
 
@@ -86,7 +86,7 @@ export default function Terapias() {
     setPlano(pl => {
       const atuais = pl.terapias || {};
       if (atuais[nome]) { const c = { ...atuais }; delete c[nome]; return { ...pl, terapias: c }; }
-      return { ...pl, terapias: { ...atuais, [nome]: { horarios: [{ dia: '1', hora: '14:00' }], valor_sessao: '', valor_mensal: '', profissional: '', convenio: '', autorizacao: '', sessoes_autorizadas: '', autorizacao_validade: '' } } };
+      return { ...pl, terapias: { ...atuais, [nome]: { horarios: [{ dia: '1', hora: '14:00' }], valor_sessao: '', valor_mensal: '', profissional: '', dia_pagamento: '' } } };
     });
   }
   const editaTerapia = (nome, campo, valor) =>
@@ -117,8 +117,7 @@ export default function Terapias() {
         horarios: (t.horarios || []).filter(h => h.dia !== '' && h.hora),
         valor_sessao: t.valor_sessao,
         valor_mensal: t.valor_mensal !== '' ? t.valor_mensal : (mensalSugerido(t) ?? ''),
-        profissional: t.profissional, convenio: t.convenio, autorizacao: t.autorizacao,
-        sessoes_autorizadas: t.sessoes_autorizadas, autorizacao_validade: t.autorizacao_validade,
+        profissional: t.profissional, dia_pagamento: t.dia_pagamento,
       }));
       const r = await api.post('/terapias/planos', {
         paciente_id: plano.paciente_id, terapias,
@@ -189,21 +188,31 @@ export default function Terapias() {
         </div>
       )}
 
-      {/* ⚠️ Guias de convênio vencendo — autorização vencida é atendimento feito
-          e não pago. Os sistemas da área avisam antes; aqui também. */}
-      {autoriz && autoriz.itens?.length > 0 && (
+      {/* 💰 Mensalidades a receber — a clínica é particular: quem paga é a
+          família, no dia combinado. Cobrar antes de virar mês é o que segura
+          o plano de pé. */}
+      {cobrancas && cobrancas.itens?.length > 0 && (
         <div className="card" style={{ padding: '14px 18px', marginBottom: 16, borderLeft: '5px solid #e8671a' }}>
-          <div style={{ fontWeight: 800, fontSize: 13.5, marginBottom: 8, color: '#b45309' }}>
-            ⚠️ {autoriz.vencidas > 0 && `${autoriz.vencidas} guia(s) VENCIDA(S)`}
-            {autoriz.vencidas > 0 && autoriz.vencendo > 0 && ' · '}
-            {autoriz.vencendo > 0 && `${autoriz.vencendo} vencendo em até 15 dias`}
+          <div style={{ fontWeight: 800, fontSize: 13.5, marginBottom: 8, color: '#b45309', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+            <span>
+              💰 {cobrancas.atrasadas > 0 && `${cobrancas.atrasadas} mensalidade(s) ATRASADA(S)`}
+              {cobrancas.atrasadas > 0 && cobrancas.vencendo > 0 && ' · '}
+              {cobrancas.vencendo > 0 && `${cobrancas.vencendo} vencendo nos próximos dias`}
+            </span>
+            {cobrancas.total > 0 && <span style={{ color: 'var(--muted)' }}>{fmt.brl(cobrancas.total)} a receber</span>}
           </div>
-          {autoriz.itens.map(a => (
+          {cobrancas.itens.map(a => (
             <div key={a.id} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '5px 0', fontSize: 12.5, flexWrap: 'wrap' }}>
               <b style={{ minWidth: 150 }}>{a.paciente}</b>
-              <span style={{ color: 'var(--muted)' }}>{a.especialidade}{a.convenio ? ` · ${a.convenio}` : ''}{a.autorizacao ? ` · guia ${a.autorizacao}` : ''}{a.sessoes_autorizadas ? ` · ${a.sessoes_autorizadas} sessões` : ''}</span>
-              <span style={{ marginLeft: 'auto', fontWeight: 800, color: a.dias < 0 ? '#c0392b' : '#b45309' }}>
-                {a.dias < 0 ? `venceu há ${Math.abs(a.dias)} dia(s)` : a.dias === 0 ? 'vence hoje' : `vence em ${a.dias} dia(s)`}
+              <span style={{ color: 'var(--muted)' }}>{a.especialidade}{a.valor_mensal ? ` · ${fmt.brl(a.valor_mensal)}` : ''} · dia {a.dia_pagamento}</span>
+              {a.telefone && (
+                <a href={wa(a.telefone, `Olá! 💙 Aqui é da Vittalis Saúde. Passando para lembrar da mensalidade da terapia de ${String(a.paciente).split(' ')[0]} (dia ${a.dia_pagamento}). Qualquer dúvida é só falar com a gente!`)}
+                  target="_blank" rel="noreferrer" className="btn btn-sm" style={{ gap: 4, background: '#25D366', color: '#fff', border: 'none', fontWeight: 800, padding: '3px 10px' }}>
+                  <MessageCircle size={11} /> Cobrar
+                </a>
+              )}
+              <span style={{ marginLeft: 'auto', fontWeight: 800, color: a.faltam < 0 ? '#c0392b' : '#b45309' }}>
+                {a.faltam < 0 ? `atrasada há ${Math.abs(a.faltam)} dia(s)` : a.faltam === 0 ? 'vence hoje' : `vence em ${a.faltam} dia(s)`}
               </span>
             </div>
           ))}
@@ -288,8 +297,7 @@ export default function Terapias() {
                           {pl.valor_sessao ? ` · ${fmt.brl(pl.valor_sessao)}/sessão` : ''}
                           {pl.valor_mensal ? ` · ${fmt.brl(pl.valor_mensal)}/mês` : ''}
                           {pl.profissional ? ` · 👩‍⚕️ ${pl.profissional}` : ''}
-                          {pl.convenio ? ` · ${pl.convenio}` : ''}
-                          {pl.autorizacao_validade ? ` · guia até ${pl.autorizacao_validade.split('-').reverse().join('/')}` : ''}
+                          {pl.dia_pagamento ? ` · paga dia ${pl.dia_pagamento}` : ''}
                         </span>
                         <span style={{ marginLeft: 'auto', fontSize: 10.5, fontWeight: 800, padding: '2px 9px', borderRadius: 999,
                           background: pl.status === 'ativo' ? '#e2f8ef' : '#eef2f6', color: pl.status === 'ativo' ? '#0a8f5b' : '#5a6b7b' }}>{pl.status}</span>
@@ -418,29 +426,13 @@ export default function Terapias() {
                           <input value={t.profissional} onChange={e => editaTerapia(nome, 'profissional', e.target.value)} placeholder="Nome do terapeuta"
                             style={{ width: '100%', padding: '7px 10px', borderRadius: 9, border: '1.5px solid var(--border)', fontSize: 13, background: 'var(--card)', color: 'var(--txt)' }} />
                         </div>
-                        {/* Convênio e autorização — em TEA boa parte vem por plano
-                            de saúde, e autorização vencida é atendimento não pago. */}
-                        <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
-                          <div style={{ flex: '1 1 120px' }}>
-                            <label style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5 }}>Convênio</label>
-                            <input value={t.convenio} onChange={e => editaTerapia(nome, 'convenio', e.target.value)} placeholder="Particular"
-                              style={{ width: '100%', padding: '7px 10px', borderRadius: 9, border: '1.5px solid var(--border)', fontSize: 13, background: 'var(--card)', color: 'var(--txt)' }} />
-                          </div>
-                          <div style={{ flex: '1 1 110px' }}>
-                            <label style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5 }}>Nº autorização</label>
-                            <input value={t.autorizacao} onChange={e => editaTerapia(nome, 'autorizacao', e.target.value)} placeholder="guia"
-                              style={{ width: '100%', padding: '7px 10px', borderRadius: 9, border: '1.5px solid var(--border)', fontSize: 13, background: 'var(--card)', color: 'var(--txt)' }} />
-                          </div>
-                          <div style={{ flex: '0 1 100px' }}>
-                            <label style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5 }}>Sessões aut.</label>
-                            <input type="number" min={0} value={t.sessoes_autorizadas} onChange={e => editaTerapia(nome, 'sessoes_autorizadas', e.target.value)} placeholder="0"
-                              style={{ width: '100%', padding: '7px 10px', borderRadius: 9, border: '1.5px solid var(--border)', fontSize: 13, background: 'var(--card)', color: 'var(--txt)' }} />
-                          </div>
-                          <div style={{ flex: '1 1 130px' }}>
-                            <label style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5 }}>Validade da guia</label>
-                            <input type="date" value={t.autorizacao_validade} onChange={e => editaTerapia(nome, 'autorizacao_validade', e.target.value)}
-                              style={{ width: '100%', padding: '7px 10px', borderRadius: 9, border: '1.5px solid var(--border)', fontSize: 13, background: 'var(--card)', color: 'var(--txt)' }} />
-                          </div>
+                        {/* Clínica particular: o que importa é o dia em que a
+                            família paga essa terapia todo mês. */}
+                        <div style={{ marginTop: 8 }}>
+                          <label style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5 }}>Paga todo dia (do mês)</label>
+                          <input type="number" min={1} max={31} value={t.dia_pagamento} onChange={e => editaTerapia(nome, 'dia_pagamento', e.target.value)} placeholder="Ex: 10"
+                            style={{ width: 110, padding: '7px 10px', borderRadius: 9, border: '1.5px solid var(--border)', fontSize: 13, background: 'var(--card)', color: 'var(--txt)' }} />
+                          <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 8 }}>a equipe é avisada quando chega perto</span>
                         </div>
                       </div>
                     )}
