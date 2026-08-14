@@ -695,6 +695,24 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log('🎯 Metas individuais: Raylane/Stefany R$100k · Danielle/Suellen/Mayara 10 consultas/dia');
     }
 
+    /* 🧭 SETORES DEFINITIVOS (definidos pelo master):
+       · Raylane e Stefany → VACINAS (meta R$ 100 mil/mês)
+       · Danielle, Suellen e Mayara → CONSULTAS + TERAPIAS
+       Suellen, Mayara e Stefany tinham entrado como híbridas nos três setores;
+       aqui elas ficam onde realmente atendem — senão a triagem manda conversa
+       de vacina pra quem é de consulta, e o placar cobra a meta errada. */
+    const { rows: [flagSetores2] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_setores_definitivos_v1'");
+    if (!flagSetores2) {
+      // Raylane (63358210367) e Stefany (61953622399) → só vacinas
+      await query(`UPDATE usuarios SET setor = 'vacinas', setores = NULL
+                    WHERE cpf IN ('63358210367','61953622399')`).catch(() => {});
+      // Danielle (61867382300), Suellen (61683378300) e Mayara (61242108351)
+      await query(`UPDATE usuarios SET setor = 'consultas', setores = '{consultas,terapias}'
+                    WHERE cpf IN ('61867382300','61683378300','61242108351')`).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_setores_definitivos_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🧭 Setores: Raylane/Stefany = vacinas · Danielle/Suellen/Mayara = consultas+terapias');
+    }
+
     // ── AUDITORIA + PRESENÇA (admin only) ─────────────────────────────────
     await query(`CREATE TABLE IF NOT EXISTS audit_logs (
       id SERIAL PRIMARY KEY, usuario_id TEXT, usuario_nome TEXT, acao TEXT NOT NULL,

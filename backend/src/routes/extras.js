@@ -2054,9 +2054,14 @@ r.delete('/ligacoes/:id', async (req, res) => {
    Acompanhamento DIÁRIO de desempenho e conversão, por pessoa: metas do dia
    por categoria e financeiras, com "Realizado" e "Faltam" já preenchidos pelo
    sistema. Os alvos do dia ficam configuráveis por setor. */
+/* Metas de FOCO por setor. As de terapias são ALTERNATIVAS entre si (grupo
+   'terapia_mes'): o master definiu "1 Plano Mensal OU 5 sessões" — bater
+   qualquer uma das duas cumpre o mês, não as duas. */
 const CATS_RELATORIO = [
   { rotulo: 'Planos Vacinais', categorias: ['Plano Vacinal'], setor: 'vacinas', meta: 2 },
   { rotulo: 'Pacotes Mensais', categorias: ['Fidelidade Mensal'], setor: 'vacinas', meta: 5 },
+  { rotulo: 'Plano Mensal (Terapia)', categorias: ['Fidelidade Mensal'], setor: 'terapias', meta: 1, grupo_ou: 'terapia_mes' },
+  { rotulo: 'Sessões de Terapia', categorias: ['Terapia'], setor: 'terapias', meta: 5, grupo_ou: 'terapia_mes' },
 ];
 
 async function cfgRelatorioLider() {
@@ -2159,8 +2164,15 @@ r.get('/relatorio-lider', async (req, res) => {
         if (/infanti/i.test(c.rotulo)) return ehInfantil(vd.nascimento);
         return true;
       }).length;
-      return { rotulo: c.rotulo, meta: c.meta || 0, realizado, faltam: Math.max((c.meta || 0) - realizado, 0) };
+      return { rotulo: c.rotulo, meta: c.meta || 0, realizado, faltam: Math.max((c.meta || 0) - realizado, 0), grupo_ou: c.grupo_ou || null };
     });
+    /* Metas alternativas ("1 Plano Mensal OU 5 sessões"): se uma do grupo já foi
+       batida, as outras do mesmo grupo deixam de cobrar — senão o relatório
+       apontaria como pendente algo que o mês já resolveu por outro caminho. */
+    const gruposOk = new Set(categorias.filter(c => c.grupo_ou && c.meta > 0 && c.realizado >= c.meta).map(c => c.grupo_ou));
+    for (const c of categorias) {
+      if (c.grupo_ou && gruposOk.has(c.grupo_ou)) { c.faltam = 0; c.cumprido_por_alternativa = c.realizado < c.meta; }
+    }
     const totMeta = categorias.reduce((sm, c) => sm + c.meta, 0);
     const totReal = categorias.reduce((sm, c) => sm + c.realizado, 0);
 
