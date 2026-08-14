@@ -5520,6 +5520,92 @@ r.post('/conversations/:id/carteira/agendar', async (req, res) => {
 /* ═══ ⭐ FIDELIDADE — CONTROLE MENSAL (check por cliente) ═══════════════════
    Mensalista tem que ser atendido TODO mês. Aqui a equipe marca quem já foi
    atendido no mês, e o que sobra sem check é exatamente quem falta buscar. */
+/* 👶 FIDELIDADE — o painel de quem volta TODO MÊS ───────────────────────────
+   Estes bebês são receita recorrente: cada um vale uma consulta por mês e some
+   sem avisar. Antes era preciso abrir cliente por cliente pra descobrir qual
+   dose vem agora — com 43 na lista, ninguém faz isso todo dia, e o bebê que
+   atrasou fica igual ao que está em dia.
+   Este resumo devolve, de uma vez só, a PRÓXIMA etapa de cada um, se já está
+   agendado e há quantos dias está parado — o suficiente pra lista se ordenar
+   por urgência e a equipe trabalhar de cima pra baixo.                       */
+r.get('/fidelidade/resumo', async (req, res) => {
+  try {
+    const { rows: convs } = await query(`
+      SELECT c.id, c.contact_name, c.lead_id, c.memoria,
+             TO_CHAR(l.nascimento,'YYYY-MM-DD') nascimento, l.nome lead_nome
+        FROM conversas c LEFT JOIN leads l ON l.id = c.lead_id
+       WHERE c.classificacao = 'fidelidade'
+       LIMIT 400`).catch(() => ({ rows: [] }));
+    if (!convs.length) return res.json({ itens: [], resumo: { total: 0, atrasados: 0, agendados: 0, sem_nascimento: 0 } });
+
+    const ids = convs.map(c => c.id);
+    const [{ rows: doses }, { rows: agenda }, calendario] = await Promise.all([
+      query(`SELECT conversa_id, marco_mes, vacina FROM carteira_doses WHERE conversa_id = ANY($1)`, [ids]).catch(() => ({ rows: [] })),
+      // Um agendamento futuro já resolve o mês — não precisa cobrar de novo
+      query(`SELECT conversa_id, MIN(data) proxima FROM agenda_eventos
+              WHERE conversa_id = ANY($1) AND data >= (NOW() - interval '3 hours')::date
+                AND LOWER(COALESCE(status,'')) NOT LIKE 'cancel%'
+              GROUP BY conversa_id`, [ids]).catch(() => ({ rows: [] })),
+      getCalendarioVacinal(),
+    ]);
+    const porConv = new Map();
+    for (const d of doses) {
+      const k = String(d.conversa_id);
+      if (!porConv.has(k)) porConv.set(k, new Set());
+      porConv.get(k).add(`${d.marco_mes}|${String(d.vacina || '').trim().toLowerCase()}`);
+    }
+    const agendaPor = new Map(agenda.map(a => [String(a.conversa_id), String(a.proxima).slice(0, 10)]));
+    const hoje = new Date(Date.now() - 3 * 3600 * 1000);
+    const hojeISO = hoje.toISOString().slice(0, 10);
+
+    const itens = convs.map(c => {
+      const nascimento = c.nascimento || c.memoria?.nascimento || null;
+      const feitas = porConv.get(String(c.id)) || new Set();
+      let idadeMeses = null;
+      if (nascimento) {
+        const n = new Date(nascimento + 'T12:00:00');
+        idadeMeses = (hoje.getFullYear() - n.getFullYear()) * 12 + (hoje.getMonth() - n.getMonth());
+        if (hoje.getDate() < n.getDate()) idadeMeses--;
+      }
+      // Primeira etapa com dose faltando — é ela que precisa ser agendada
+      let prox = null;
+      for (const marco of calendario) {
+        const vacinas = String(marco.vacinas || '').split(',').map(v => v.trim()).filter(Boolean);
+        const falta = vacinas.filter(v => !feitas.has(`${marco.mes}|${v.toLowerCase()}`));
+        if (!falta.length) continue;
+        let previsao = null, dias = null;
+        if (nascimento) {
+          const d = new Date(nascimento + 'T12:00:00');
+          d.setMonth(d.getMonth() + marco.mes);
+          previsao = d.toISOString().slice(0, 10);
+          dias = Math.round((new Date(previsao + 'T12:00:00') - new Date(hojeISO + 'T12:00:00')) / 86400000);
+        }
+        prox = { marco: marco.mes, nome: marco.nome || `${marco.mes} meses`, vacinas: falta, previsao, dias };
+        break;
+      }
+      const agendado = agendaPor.get(String(c.id)) || null;
+      // Atrasado só quando dá pra afirmar: precisa de nascimento E data vencida
+      const atrasado = !!(prox && prox.dias != null && prox.dias < 0 && !agendado);
+      return {
+        conversa_id: c.id, nome: c.lead_nome || c.contact_name || 'Cliente',
+        nascimento, idade_meses: idadeMeses, proxima: prox, agendado, atrasado,
+        // Ordem de trabalho: atrasado primeiro, depois o que vence antes
+        ordem: agendado ? 3000 : atrasado ? -(Math.abs(prox?.dias || 0)) : (prox?.dias ?? 2000),
+      };
+    }).sort((a, b) => a.ordem - b.ordem);
+
+    res.json({
+      itens,
+      resumo: {
+        total: itens.length,
+        atrasados: itens.filter(i => i.atrasado).length,
+        agendados: itens.filter(i => i.agendado).length,
+        sem_nascimento: itens.filter(i => !i.nascimento).length,
+      },
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.get('/fidelidade/checks', async (req, res) => {
   try {
     const mes = /^\d{4}-\d{2}$/.test(req.query.mes || '') ? req.query.mes

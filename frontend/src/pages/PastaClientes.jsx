@@ -120,6 +120,18 @@ export default function PastaClientes({ categoria, classificacao }) {
   }, [mesCtrl, ehFidelidade]); // eslint-disable-line
   useEffect(carregarChecks, [carregarChecks]);
 
+  /* 👶 Próxima dose de cada bebê, em UMA chamada. Antes era preciso abrir
+     cliente por cliente pra saber qual dose vem agora — com 43 na lista,
+     ninguém faz isso todo dia, e quem atrasou ficava igual a quem está em dia. */
+  const [prox, setProx] = useState({});
+  const [resumoFid, setResumoFid] = useState(null);
+  useEffect(() => {
+    if (!ehFidelidade) return;
+    api.get('/inbox/fidelidade/resumo')
+      .then(d => { setProx(Object.fromEntries((d.itens || []).map(i => [i.conversa_id, i]))); setResumoFid(d.resumo); })
+      .catch(() => {});
+  }, [ehFidelidade]); // eslint-disable-line
+
   const marcar = async (c) => {
     const jaTem = !!checks[c.id];
     setChecks(p => { const n = { ...p }; if (jaTem) delete n[c.id]; else n[c.id] = { feito_por_nome: user?.nome, feito_em: new Date().toISOString() }; return n; });
@@ -244,6 +256,24 @@ export default function PastaClientes({ categoria, classificacao }) {
             {equipe.map(u => <option key={u.id} value={u.id}>👤 {(u.nome || '').split(' ')[0]}</option>)}
           </select>
         )}
+        {/* 🔴 O que precisa de ação HOJE. Sem esta faixa, o painel era uma lista
+            de 43 nomes iguais — e o bebê atrasado ficava indistinguível do que
+            está em dia. Estes são clientes de receita mensal: cada um que
+            atrasa é uma aplicação que não acontece naquele mês. */}
+        {ehFidelidade && resumoFid && (resumoFid.atrasados > 0 || resumoFid.sem_nascimento > 0) && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', width: '100%',
+            background: '#fff7ed', border: '1.5px solid #fed7aa', borderRadius: 14, padding: '11px 15px', marginBottom: 10 }}>
+            <span style={{ fontSize: 17 }}>🔴</span>
+            <div style={{ flex: 1, minWidth: 200, fontSize: 13, fontWeight: 700, color: '#9a3412', lineHeight: 1.5 }}>
+              {resumoFid.atrasados > 0 && <>{resumoFid.atrasados} bebê(s) com dose <b>atrasada</b> e sem agendamento. </>}
+              {resumoFid.sem_nascimento > 0 && <>{resumoFid.sem_nascimento} sem data de nascimento — sem ela o sistema não sabe qual dose vem.</>}
+            </div>
+            <span style={{ fontSize: 11.5, fontWeight: 800, color: '#166534', background: '#dcfce7', padding: '3px 10px', borderRadius: 20 }}>
+              ✅ {resumoFid.agendados} já agendado(s)
+            </span>
+          </div>
+        )}
+
         {ehFidelidade && (() => {
           const total = filtrada.length;
           const feitos = filtrada.filter(c => checks[c.id]).length;
@@ -331,6 +361,35 @@ export default function PastaClientes({ categoria, classificacao }) {
                     <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {c.phone ? fmt.phone(c.phone) : ''}{c.last_message ? ` · ${c.last_message}` : ''}
                     </div>
+                    {/* Próxima dose direto na linha: é a informação que decide se
+                        essa família precisa ser chamada hoje ou não. */}
+                    {ehFidelidade && prox[c.id] && (() => {
+                      const x = prox[c.id];
+                      if (x.agendado) return (
+                        <span style={{ display:'inline-block', marginTop:4, fontSize:10.5, fontWeight:800, padding:'2px 9px', borderRadius:20, background:'#dcfce7', color:'#166534' }}>
+                          ✅ agendado {x.agendado.split('-').reverse().slice(0,2).join('/')}
+                        </span>
+                      );
+                      if (!x.nascimento) return (
+                        <span style={{ display:'inline-block', marginTop:4, fontSize:10.5, fontWeight:800, padding:'2px 9px', borderRadius:20, background:'#fff7ed', color:'#9a3412' }}>
+                          📅 falta cadastrar o nascimento
+                        </span>
+                      );
+                      if (!x.proxima) return (
+                        <span style={{ display:'inline-block', marginTop:4, fontSize:10.5, fontWeight:800, padding:'2px 9px', borderRadius:20, background:'var(--bg2)', color:'var(--muted)' }}>
+                          🏆 esquema completo
+                        </span>
+                      );
+                      const d = x.proxima.dias;
+                      const cor = x.atrasado ? ['#fee2e2','#991b1b'] : d <= 7 ? ['#fff7ed','#9a3412'] : ['#eff6ff','#1e40af'];
+                      const quando = d == null ? '' : x.atrasado ? `atrasada há ${Math.abs(d)}d`
+                        : d === 0 ? 'é hoje' : d === 1 ? 'é amanhã' : `em ${d} dias`;
+                      return (
+                        <span style={{ display:'inline-block', marginTop:4, fontSize:10.5, fontWeight:800, padding:'2px 9px', borderRadius:20, background:cor[0], color:cor[1] }}>
+                          {x.atrasado ? '🔴' : '💉'} {x.proxima.nome} · {quando}
+                        </span>
+                      );
+                    })()}
                   </div>
                   {ehFidelidade && (
                     <button onClick={() => definirDia(c)} title="Dia do mês que costuma vacinar"
