@@ -73,3 +73,22 @@ export function avatarGrad(seed) {
   const [a, b] = AV_GRADS[h % AV_GRADS.length];
   return `linear-gradient(135deg, ${a}, ${b})`;
 }
+
+/* ─── Mistura de cores ────────────────────────────────────────────────────────
+   Usado pelo seletor "monte a sua cor" e por quem precisa derivar tons de um
+   acento. Fica aqui, e não no App, porque a Sidebar também usa: importar do App
+   criaria ciclo (App → Sidebar → App), que é o tipo de fragilidade que derruba
+   a tela inteira sem o build acusar nada. */
+const _hexRGB = (h) => {
+  const x = String(h || '').replace('#', '');
+  const f = x.length === 3 ? x.split('').map(c => c + c).join('') : x;
+  return [0, 2, 4].map(i => parseInt(f.slice(i, i + 2), 16) || 0);
+};
+const _hx2 = (n) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, '0');
+const _mix = (hex, alvo, p) => {
+  const [r, g, b] = _hexRGB(hex), [R, G, B] = alvo;
+  return `#${_hx2(r + (R - r) * p)}${_hx2(g + (G - g) * p)}${_hx2(b + (B - b) * p)}`;
+};
+export const hexRGB = _hexRGB;
+export const clarear = (hex, p) => _mix(hex, [255, 255, 255], p);
+export const escurecer = (hex, p) => _mix(hex, [0, 0, 0], p);

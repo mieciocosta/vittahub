@@ -9,6 +9,7 @@ import TrocaUsuario from './components/TrocaUsuario.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 import Login from './pages/Login.jsx';
 import { api } from './hooks/api.js';
+import { hexRGB, clarear, escurecer } from './hooks/utils.js';
 
 // Páginas carregadas sob demanda (code-splitting) — cada tela vira um pedaço
 // separado, baixado só quando abre. Deixa o carregamento inicial bem mais leve.
@@ -73,11 +74,28 @@ const CORES_DIA = [
   { nome: 'Ouro Velho',        tq: '#b08428', tq2: '#8a6417', l3: '#faf1dc', l4: '#fdf9ef', rgb: '176,132,40',  sidebar: 'linear-gradient(178deg,#b08428 0%,#9c7420 55%,#8a6417 100%)' },
 ];
 
-/* vh_cor: 'off' (usa a marca padrão) | 'auto' (cor do dia) | '0'..'6' (fixa escolhida) */
+/* ─── Cor personalizada ───────────────────────────────────────────────────────
+   A paleta fixa tem 17 entradas escritas à mão, cada uma com 5 valores casados
+   (acento, acento escuro, dois fundos claros e o degradê da barra). Pra deixar a
+   pessoa montar a PRÓPRIA cor, esses 5 valores passam a ser DERIVADOS de um tom
+   só — misturando com branco e com preto. Assim qualquer cor escolhida já nasce
+   com a família completa e coerente, sem ninguém precisar acertar tom por tom. */
+function corDeHex(hex) {
+  const [r, g, b] = hexRGB(hex);
+  return {
+    nome: 'Minha cor', tq: hex, tq2: escurecer(hex, .3),
+    l3: clarear(hex, .88), l4: clarear(hex, .95), rgb: `${r},${g},${b}`,
+    sidebar: `linear-gradient(178deg, ${hex} 0%, ${escurecer(hex, .12)} 55%, ${escurecer(hex, .26)} 100%)`,
+  };
+}
+
+/* vh_cor: 'off' (marca padrão) | 'auto' (cor do dia) | '0'..'16' (da paleta)
+   | '#RRGGBB' (tom montado pela pessoa) */
 function corSelecionada() {
   const v = localStorage.getItem('vh_cor') || 'auto';
   if (v === 'off') return null;
   if (v === 'auto') return CORES_DIA[new Date().getDay()] || CORES_DIA[0];
+  if (/^#[0-9a-f]{3,6}$/i.test(v)) return corDeHex(v);
   const i = parseInt(v, 10);
   return Number.isInteger(i) && CORES_DIA[i] ? CORES_DIA[i] : (CORES_DIA[new Date().getDay()] || CORES_DIA[0]);
 }

@@ -11,8 +11,17 @@ import {
 import { useAuth } from '../context/AuthContext.jsx';
 import { useApi } from '../context/AuthContext.jsx';
 import { setToken } from '../hooks/api.js';
-import { fmt } from '../hooks/utils.js';
+import { fmt, clarear, escurecer } from '../hooks/utils.js';
 import { versiculoDoDia } from '../hooks/versiculos.js';
+
+// 4 tons por família: p<0 clareia, p>0 escurece. Quatro é o ponto em que a
+// pessoa vê diferença real entre eles sem virar um degradê indeciso.
+const TONS = [
+  { nome: 'Claro',  p: -0.35 },
+  { nome: 'Médio',  p: 0 },
+  { nome: 'Forte',  p: 0.28 },
+  { nome: 'Escuro', p: 0.5 },
+];
 import AvatarBuilder from './AvatarBuilder.jsx';
 
 // Atalhos coloridos por classificação → abrem o chat filtrado (?cls=).
@@ -231,6 +240,11 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
   }, []); // eslint-disable-line
   const [showAvatarBuilder, setShowAvatarBuilder] = useState(false);
   const [paletaAberta, setPaletaAberta] = useState(false);
+  // Família escolhida no seletor de cor (o tom sai dela). Começa na cor atual.
+  const [familia, setFamilia] = useState(() => {
+    const v = localStorage.getItem('vh_cor') || '';
+    return /^#[0-9a-f]{3,6}$/i.test(v) ? v : '#00B8C0';
+  });
   // Editar o próprio nome — instantâneo (novo token com o nome novo).
   // Popup próprio em vez de window.prompt: no celular/webview o prompt nativo
   // muitas vezes nem abre, e aí parecia que o lápis "não fazia nada".
@@ -692,23 +706,56 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                     {corDia === 'auto' && <span style={{ fontSize:13 }}>✓</span>}
                   </button>
 
+                  {/* 🎨 MONTE A SUA COR (ideia do master): escolhe a família e
+                      depois o TOM dentro dela. Cada tom vira uma cor completa —
+                      o sistema deriva sozinho o acento escuro, os dois fundos
+                      claros e o degradê da barra a partir do tom escolhido. */}
                   <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:1.2, color:'var(--muted,#64748b)', textTransform:'uppercase', marginBottom:7 }}>
-                    Escolher uma cor fixa
+                    Escolha a família
                   </div>
-                  <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(30px,1fr))', gap:7 }}>
-                    {paletaCores.map((c, i) => {
-                      const ativo = String(corDia) === String(i);
+                  <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(28px,1fr))', gap:6, marginBottom:12 }}>
+                    {paletaCores.map((c, i) => (
+                      <button key={i} onClick={() => setFamilia(c.tq)} title={c.nome}
+                        style={{ width:28, height:28, borderRadius:'50%', cursor:'pointer', padding:0, background:c.tq,
+                          border: familia === c.tq ? '3px solid var(--txt,#0f172a)' : '2px solid rgba(0,0,0,.08)',
+                          boxShadow: familia === c.tq ? '0 0 0 3px var(--tq3,#eef6f7)' : '0 1px 3px rgba(0,0,0,.14)',
+                          transition:'transform .12s' }}
+                        onMouseEnter={e => e.currentTarget.style.transform='scale(1.18)'}
+                        onMouseLeave={e => e.currentTarget.style.transform='scale(1)'} />
+                    ))}
+                  </div>
+
+                  <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:1.2, color:'var(--muted,#64748b)', textTransform:'uppercase', marginBottom:7 }}>
+                    Agora o tom
+                  </div>
+                  <div style={{ display:'flex', gap:7, marginBottom:12 }}>
+                    {TONS.map(t => {
+                      const cor = t.p === 0 ? familia
+                        : t.p < 0 ? clarear(familia, -t.p) : escurecer(familia, t.p);
+                      const ativo = String(corDia).toLowerCase() === cor.toLowerCase();
                       return (
-                        <button key={i} onClick={() => { onSetCorDia && onSetCorDia(String(i)); setPaletaAberta(false); }} title={c.nome}
-                          style={{ width:30, height:30, borderRadius:'50%', cursor:'pointer', padding:0, background:c.tq,
-                            border: ativo ? '3px solid var(--txt,#0f172a)' : '2px solid rgba(0,0,0,.08)',
-                            boxShadow: ativo ? '0 0 0 3px var(--tq3,#eef6f7)' : '0 1px 3px rgba(0,0,0,.14)',
-                            transition:'transform .12s' }}
-                          onMouseEnter={e => e.currentTarget.style.transform='scale(1.18)'}
-                          onMouseLeave={e => e.currentTarget.style.transform='scale(1)'} />
+                        <button key={t.nome} onClick={() => { onSetCorDia && onSetCorDia(cor); setPaletaAberta(false); }} title={t.nome}
+                          style={{ flex:1, height:44, borderRadius:11, cursor:'pointer', padding:0, background:cor,
+                            border: ativo ? '3px solid var(--txt,#0f172a)' : '1.5px solid rgba(0,0,0,.1)',
+                            boxShadow: ativo ? '0 0 0 3px var(--tq3,#eef6f7)' : '0 1px 4px rgba(0,0,0,.16)',
+                            display:'flex', alignItems:'flex-end', justifyContent:'center', paddingBottom:3,
+                            fontSize:8.5, fontWeight:800, color: t.p >= .3 ? '#fff' : 'rgba(0,0,0,.55)', transition:'transform .12s' }}
+                          onMouseEnter={e => e.currentTarget.style.transform='translateY(-2px)'}
+                          onMouseLeave={e => e.currentTarget.style.transform='none'}>
+                          {t.nome}
+                        </button>
                       );
                     })}
                   </div>
+
+                  <label style={{ display:'flex', alignItems:'center', gap:9, padding:'9px 11px', borderRadius:11,
+                    border:'1.5px dashed var(--border,#cbd5e1)', cursor:'pointer', fontSize:12.5, fontWeight:700, color:'var(--txt,#0f172a)' }}>
+                    <input type="color" value={familia}
+                      onChange={e => setFamilia(e.target.value)}
+                      style={{ width:28, height:28, border:'none', background:'none', padding:0, cursor:'pointer' }} />
+                    Escolher qualquer cor
+                  </label>
+
                   <div style={{ fontSize:11, color:'var(--muted,#64748b)', marginTop:10, lineHeight:1.5 }}>
                     A cor vale só pra você, neste aparelho.
                   </div>
