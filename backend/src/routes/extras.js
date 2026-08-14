@@ -633,6 +633,86 @@ r.get('/planos-vacinais', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* ═══ 🏆 RANKING — quem está em 1º, 2º e 3º ═══════════════════════════════════
+   Pedido do master: um pódio por QUANTIDADE de vendas, nunca por valor. A
+   diferença não é detalhe — é o que faz o placar ser justo e não virar fofoca:
+   · quantidade todo mundo consegue comparar (fechou 8, fechou 5);
+   · valor exporia o número de faturamento de cada colega, que é do master.
+   O ranking é DENTRO DO SETOR: consultas fecha 10 por dia e vacina fecha 1
+   Plano — misturar os dois só humilharia quem vende o item mais caro.
+   O master vê o pódio de cada setor. */
+r.get('/ranking', async (req, res) => {
+  try {
+    const periodo = ['hoje', 'semana', 'mes'].includes(req.query.periodo) ? req.query.periodo : 'mes';
+    const hojeSLZ = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+    /* Conta VENDA REALIZADA, igual ao resto do painel: fechou é fechou. Filtrar
+       por "já pago" deixava fora sinal e parcelado e colocava no fim do pódio
+       quem tinha vendido mais (o master comparou com Vendas realizadas). */
+    const filtroPeriodo = periodo === 'hoje'
+      ? `v.data_venda = '${hojeSLZ}'::date`
+      : periodo === 'semana'
+        ? `v.data_venda >= '${hojeSLZ}'::date - INTERVAL '6 days' AND v.data_venda <= '${hojeSLZ}'::date`
+        : `to_char(v.data_venda,'YYYY-MM') = to_char('${hojeSLZ}'::date,'YYYY-MM')`;
+
+    const meus = await setoresDoUsuario(req);
+    // Sem setor cadastrado não abre o ranking da clínica inteira — mesma regra
+    // do resto do sistema: dado faltando esconde, nunca libera.
+    if (!meus.length) return res.json({ periodo, setores: [], aviso: 'Seu cadastro está sem setor — peça pra gestão marcar em Configurações → Usuários.' });
+
+    const { rows } = await query(
+      `SELECT COALESCE(v.setor,'vacinas') setor,
+              COALESCE(v.atendente_id,'') aid,
+              COALESCE(u.nome, v.atendente_nome, '(sem nome)') nome,
+              u.avatar, u.cor,
+              COUNT(*)::int n,
+              COUNT(*) FILTER (WHERE v.data_venda = $2::date)::int hoje
+         FROM vendas v
+         LEFT JOIN usuarios u ON u.id = v.atendente_id
+        WHERE ${filtroPeriodo} AND COALESCE(v.setor,'vacinas') = ANY($1)
+        GROUP BY 1,2,3,4,5
+        ORDER BY n DESC, nome ASC`, [meus, hojeSLZ]);
+
+    /* Quem ainda não vendeu no período some da consulta acima — mas precisa
+       aparecer no fim do pódio, senão a pessoa não se acha na lista e o
+       ranking deixa de cobrar justamente quem mais precisa. */
+    const { rows: equipe } = await query(
+      `SELECT id, nome, avatar, cor, setor, setores FROM usuarios
+        WHERE ativo = true AND role IN ('atendente','supervisor','master')`).catch(() => ({ rows: [] }));
+
+    const setores = meus.map((s) => {
+      const doSetor = rows.filter(x => x.setor === s);
+      const daCasa = equipe.filter(u => {
+        const ss = (Array.isArray(u.setores) && u.setores.length) ? u.setores : [u.setor].filter(Boolean);
+        return ss.includes(s) && u.role !== 'master';
+      });
+      for (const u of daCasa) {
+        if (!doSetor.some(x => x.aid === u.id)) doSetor.push({ setor: s, aid: u.id, nome: u.nome, avatar: u.avatar, cor: u.cor, n: 0, hoje: 0 });
+      }
+      doSetor.sort((a, b) => b.n - a.n || b.hoje - a.hoje || String(a.nome).localeCompare(String(b.nome)));
+      // Empate divide a mesma posição — "2º lugar" pras duas, sem desempate inventado
+      let pos = 0, ultimo = null;
+      const itens = doSetor.map((x, i) => {
+        if (x.n !== ultimo) { pos = i + 1; ultimo = x.n; }
+        return {
+          pos, id: x.aid, nome: x.nome, avatar: x.avatar || null, cor: x.cor || null,
+          n: x.n, hoje: x.hoje, voce: x.aid === req.user.id,
+        };
+      });
+      const lider = itens[0]?.n || 0;
+      const eu = itens.find(x => x.voce) || null;
+      return {
+        setor: s, itens,
+        // "Falta 1 pra alcançar a líder" é o que faz a pessoa correr hoje
+        minhaPos: eu?.pos || null, meuTotal: eu?.n ?? null,
+        paraLiderar: eu && eu.pos > 1 ? Math.max(lider - eu.n + 1, 1) : 0,
+        total: itens.reduce((a, x) => a + x.n, 0),
+      };
+    });
+
+    res.json({ periodo, setores });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Meta GLOBAL do setor do mês — visível pra TODA a equipe (clima de time). Cada
 // um vê a meta do seu setor; master/sem setor vê a geral (todos os setores).
 r.get('/meta-setor', async (req, res) => {
@@ -656,11 +736,20 @@ r.get('/meta-setor', async (req, res) => {
     let setores = [];
     if (u && Array.isArray(u.setores) && u.setores.length) setores = u.setores.filter(s => ['vacinas', 'consultas', 'terapias'].includes(s));
     else if (u && ['vacinas', 'consultas', 'terapias'].includes(u.setor)) setores = [u.setor];
+    /* O placar conta VENDA REALIZADA, não só o dinheiro que já entrou (o master
+       comparou com a tela de Vendas realizadas e o painel estava atrás).
+       Fechou é fechou: sinal, parcelado e aguardando entram no avanço da meta.
+       O que ainda não caiu no caixa fica visível à parte, em `aReceber` —
+       transparência sem punir quem já vendeu. */
     const confDe = async (s) => {
-      const { rows: [r2] } = await query(`SELECT COALESCE(SUM(valor) FILTER (WHERE ${METfilter}),0)::float conf FROM vendas WHERE COALESCE(setor,'vacinas') = $1 AND ${mesCol}`, [s]);
-      const meta = parseFloat(metaV[s]) || 0, conf = r2?.conf || 0;
+      const { rows: [r2] } = await query(
+        `SELECT COALESCE(SUM(valor),0)::float vendido,
+                COALESCE(SUM(valor) FILTER (WHERE ${METfilter}),0)::float recebido
+           FROM vendas WHERE COALESCE(setor,'vacinas') = $1 AND ${mesCol}`, [s]);
+      const meta = parseFloat(metaV[s]) || 0, conf = r2?.vendido || 0;
+      const recebido = r2?.recebido || 0, aReceber = Math.max(conf - recebido, 0);
       const MG = metaGlobalDe(s), MM = metaMinimaDe(s);
-      return { setor: s, confirmado: conf, meta, pct: meta ? +((conf / meta) * 100).toFixed(1) : 0, falta: Math.max(meta - conf, 0),
+      return { setor: s, confirmado: conf, recebido, aReceber, meta, pct: meta ? +((conf / meta) * 100).toFixed(1) : 0, falta: Math.max(meta - conf, 0),
         metaGlobal: MG, pctGlobal: +((conf / MG) * 100).toFixed(1), faltaGlobal: Math.max(MG - conf, 0),
         metaMinima: MM, pctMinima: MM ? +((conf / MM) * 100).toFixed(1) : 100, faltaMinima: Math.max(MM - conf, 0),
         premio: premioDe(s), premioConquistado: conf >= MG,
@@ -672,10 +761,13 @@ r.get('/meta-setor', async (req, res) => {
     const metaInd = parseFloat(meU?.meta_individual) || 0;
     if (metaInd > 0) {
       const { rows: [mv] } = await query(
-        `SELECT COALESCE(SUM(valor) FILTER (WHERE ${METfilter}),0)::float conf FROM vendas WHERE atendente_id = $1 AND ${mesCol}`,
-        [req.user.id]).catch(() => ({ rows: [{ conf: 0 }] }));
-      const confI = mv?.conf || 0;
-      individual = { meta: metaInd, confirmado: confI, falta: Math.max(metaInd - confI, 0), pct: +((confI / metaInd) * 100).toFixed(1) };
+        `SELECT COALESCE(SUM(valor),0)::float vendido,
+                COALESCE(SUM(valor) FILTER (WHERE ${METfilter}),0)::float recebido
+           FROM vendas WHERE atendente_id = $1 AND ${mesCol}`,
+        [req.user.id]).catch(() => ({ rows: [{ vendido: 0, recebido: 0 }] }));
+      const confI = mv?.vendido || 0, recI = mv?.recebido || 0;
+      individual = { meta: metaInd, confirmado: confI, recebido: recI, aReceber: Math.max(confI - recI, 0),
+        falta: Math.max(metaInd - confI, 0), pct: +((confI / metaInd) * 100).toFixed(1) };
     }
 
     /* 🎯 FOCO DO DIA POR SETOR — metas em QUANTIDADE, não em dinheiro (pedido
@@ -769,7 +861,8 @@ r.get('/meta-setor', async (req, res) => {
     const podeValores = req.user.role === 'master' || req.user.role === 'supervisor';
     const porSetorSeguro = podeValores ? porSetor : porSetor.map(s => ({
       setor: s.setor, metaGlobal: s.metaGlobal, metaMinima: s.metaMinima,
-      confirmado: null, faltaMinima: null, faltaGlobal: null, pctMinima: null, pctGlobal: null,
+      confirmado: null, recebido: null, aReceber: null,
+      faltaMinima: null, faltaGlobal: null, pctMinima: null, pctGlobal: null,
     }));
     res.json({
       ...porSetorSeguro[0], porSetor: porSetorSeguro,
@@ -1363,6 +1456,13 @@ r.get('/vendas', async (req, res) => {
   try {
     const cond = [], params = []; let i = 1;
     if (!gestao(req)) { cond.push(`atendente_id = $${i++}`); params.push(req.user.id); }
+    /* Supervisora responde pelo SETOR dela, não pelo Caixa da clínica inteira:
+       ela via as vendas de consultas no Caixa dela (e vice-versa). O master
+       continua vendo tudo. */
+    else if (req.user.role !== 'master') {
+      const meus = await setoresDoUsuario(req);
+      cond.push(`COALESCE(setor,'vacinas') = ANY($${i++})`); params.push(meus);
+    }
     if (['vacinas', 'consultas', 'terapias'].includes(req.query.setor)) { cond.push(`setor = $${i++}`); params.push(req.query.setor); }
     if (/^\d{4}-\d{2}$/.test(req.query.mes || '')) { cond.push(`to_char(data_venda,'YYYY-MM') = $${i++}`); params.push(req.query.mes); }
     if (/^\d{4}-\d{2}-\d{2}$/.test(req.query.dia || '')) { cond.push(`data_venda = $${i++}`); params.push(req.query.dia); }
@@ -1387,7 +1487,8 @@ r.get('/vendas', async (req, res) => {
 // respeitando ajuste manual por venda) + controle de pagamento (marcar pago).
 r.get('/repasses-mes', async (req, res) => {
   try {
-    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão.' });
+    // Quanto cada colega recebe é assunto do dono, não da supervisora de setor
+    if (req.user.role !== 'master') return res.status(403).json({ error: 'Apenas o master vê os repasses.' });
     const mes = /^\d{4}-\d{2}$/.test(req.query.mes || '') ? req.query.mes : new Date().toISOString().slice(0, 7);
     const { rows } = await query(
       `SELECT v.atendente_id, COALESCE(NULLIF(v.atendente_nome,''), u.nome, '—') AS nome,
@@ -2590,23 +2691,29 @@ r.get('/fechamento-diario', async (req, res) => {
     }
 
     const PAGO = "status_pagamento IN ('pago','cortesia')";
+    /* O caixa do dia é o do SETOR de quem abriu (o master vê a casa toda). A
+       supervisora de vacinas estava conferindo o dinheiro de consultas — e o
+       contrário também acontecia. */
+    const setoresCaixa = req.user.role === 'master' ? null : await setoresDoUsuario(req);
+    const filtroSetor = setoresCaixa ? ` AND COALESCE(setor,'vacinas') = ANY($2)` : '';
+    const parDia = setoresCaixa ? [dia, setoresCaixa] : [dia];
     const [vendasQ, formasQ, dosesQ, agendaQ] = await Promise.all([
       // Vendas do dia (lista curta pra conferência)
       query(`SELECT id, cliente_nome, paciente_nome, servico, categoria, setor, valor, forma_pagamento,
                     status_pagamento, atendente_nome,
                     (SELECT COUNT(*) FROM venda_comprovantes c WHERE c.venda_id = v.id)::int comprovantes
-               FROM vendas v WHERE data_venda = $1 ORDER BY created_at`, [dia]),
+               FROM vendas v WHERE data_venda = $1${setoresCaixa ? ` AND COALESCE(v.setor,'vacinas') = ANY($2)` : ''} ORDER BY created_at`, parDia),
       // Total por forma de pagamento (o que precisa bater no fim do dia)
       query(`SELECT COALESCE(forma_pagamento,'Outros') forma, COUNT(*)::int n,
                     COALESCE(SUM(valor) FILTER (WHERE ${PAGO}),0)::float recebido,
                     COALESCE(SUM(valor) FILTER (WHERE NOT (${PAGO})),0)::float a_receber
-               FROM vendas WHERE data_venda = $1 GROUP BY 1 ORDER BY recebido DESC`, [dia]),
+               FROM vendas WHERE data_venda = $1${filtroSetor} GROUP BY 1 ORDER BY recebido DESC`, parDia),
       // 💉 Doses aplicadas no dia (saída de estoque pela carteira vacinal)
       query(`SELECT COALESCE(vacina,'(sem nome)') vacina, COUNT(*)::int qtd
                FROM carteira_doses WHERE data_aplicacao = $1 AND aplicada = true
               GROUP BY 1 ORDER BY qtd DESC`, [dia]).catch(() => ({ rows: [] })),
       // Atendimentos do dia (contexto: quantos realizados x faltas)
-      query(`SELECT status, COUNT(*)::int n FROM agenda_eventos WHERE data = $1 GROUP BY 1`, [dia]).catch(() => ({ rows: [] })),
+      query(`SELECT status, COUNT(*)::int n FROM agenda_eventos WHERE data = $1${filtroSetor} GROUP BY 1`, parDia).catch(() => ({ rows: [] })),
     ]);
 
     // Doses que estavam solicitadas pra hoje (o que era esperado sair)
@@ -2614,8 +2721,10 @@ r.get('/fechamento-diario', async (req, res) => {
       `SELECT vacina, COALESCE(SUM(quantidade),0)::int qtd FROM solicitacoes_vacinas
         WHERE data_prevista = $1 AND status <> 'cancelada' GROUP BY 1`, [dia]).catch(() => ({ rows: [] }));
 
-    const aplicadas = Object.fromEntries(dosesQ.rows.map(d => [d.vacina, d.qtd]));
-    const vacinas = new Set([...dosesQ.rows.map(d => d.vacina), ...solQ.map(s2 => s2.vacina)]);
+    // Estoque de doses é assunto de VACINAS — não aparece pro caixa de consultas
+    const veVacinas = !setoresCaixa || setoresCaixa.includes('vacinas');
+    const aplicadas = veVacinas ? Object.fromEntries(dosesQ.rows.map(d => [d.vacina, d.qtd])) : {};
+    const vacinas = veVacinas ? new Set([...dosesQ.rows.map(d => d.vacina), ...solQ.map(s2 => s2.vacina)]) : new Set();
     const estoque = [...vacinas].map(v => ({
       vacina: v,
       previstas: solQ.find(s2 => s2.vacina === v)?.qtd || 0,
@@ -2728,7 +2837,11 @@ r.get('/metas/fechamento', async (req, res) => {
     ]);
 
     const mapa = Object.fromEntries(porSetorQ.rows.map(r2 => [r2.setor, r2]));
-    const setores = ['vacinas', 'consultas', 'terapias'].map(s2 => {
+    /* O fechamento do mês também respeita o setor: a supervisora de vacinas via
+       aqui o valor atingido de consultas e terapias (e vice-versa). Só o master
+       fecha a clínica inteira. */
+    const meusSet = await setoresDoUsuario(req);
+    const setores = ['vacinas', 'consultas', 'terapias'].filter(x => meusSet.includes(x)).map(s2 => {
       const d = mapa[s2] || { n: 0, confirmado: 0 };
       const MM = minDe(s2), MG = gloDe(s2);
       return { setor: s2, vendas: d.n, confirmado: d.confirmado,
@@ -2740,21 +2853,31 @@ r.get('/metas/fechamento', async (req, res) => {
         premio_conquistado: (d.confirmado >= MG ? preDe(s2) : d.confirmado >= MM ? preMinDe(s2) : 0) };
     });
 
-    // Meta individual de cada atendente (quando cadastrada)
+    // Meta individual de cada atendente (quando cadastrada). A LINHA NOMINAL de
+    // cada colega é do master — a supervisora vê só a dela (regra do master:
+    // Raylane e Stefany são do mesmo setor e não veem o número uma da outra).
     const { rows: usuarios } = await query('SELECT id, nome, meta_individual FROM usuarios').catch(() => ({ rows: [] }));
     const metaInd = Object.fromEntries(usuarios.map(u => [u.id, parseFloat(u.meta_individual) || 0]));
-    const atendentes = porAtendQ.rows.map(a => {
+    const atendentes = porAtendQ.rows
+      .filter(a => req.user.role === 'master' || a.atendente_id === req.user.id)
+      .map(a => {
       const meta = metaInd[a.atendente_id] || 0;
       return { nome: a.nome, vendas: a.n, confirmado: a.confirmado, meta,
         falta: meta ? Math.max(meta - a.confirmado, 0) : null,
         pct: meta ? +((a.confirmado / meta) * 100).toFixed(1) : null, bateu: meta ? a.confirmado >= meta : null };
     });
 
+    /* O TOTAL da casa (soma dos três setores) é do master. Pra quem é de um
+       setor só, o "total" é o total do setor dela — senão o número da colega
+       de outro setor voltaria pela soma. */
     const t = totQ.rows[0] || { n: 0, confirmado: 0, pendente: 0 };
+    const totalVisivel = req.user.role === 'master'
+      ? { vendas: t.n, confirmado: t.confirmado, pendente: t.pendente }
+      : { vendas: setores.reduce((sm, s2) => sm + s2.vendas, 0),
+          confirmado: setores.reduce((sm, s2) => sm + s2.confirmado, 0), pendente: null };
     res.json({
       mes, fechado: false,
-      total: { vendas: t.n, confirmado: t.confirmado, pendente: t.pendente,
-        premios: setores.reduce((sm, s2) => sm + s2.premio_conquistado, 0) },
+      total: { ...totalVisivel, premios: setores.reduce((sm, s2) => sm + s2.premio_conquistado, 0) },
       setores, atendentes,
     });
   } catch (err) { res.status(500).json({ error: err.message }); }

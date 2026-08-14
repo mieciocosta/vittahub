@@ -56,6 +56,9 @@ const NAV = [
   { to:'/plano-terapias', icon:Puzzle,      label:'Plano de Terapias', terapias:true, destaque:true, cor:'#a855f7' },
   { to:'/retornos',   icon:Bell,            label:'Follow-up',  retornos:true, cor:'#fb7185' },
   { to:'/recuperacao',icon:Flame,           label:'Recuperação', cor:'#f97316' },
+  // Pódio por QUANTIDADE de vendas (pedido do master) — fica em "Vender"
+  // de propósito: ranking é combustível de venda, não relatório de fim de dia.
+  { to:'/ranking',    icon:Trophy,          label:'Ranking', cor:'#f59e0b', destaque:true },
   { to:'/minha-carteira', icon:Wallet,     label:'Minha Carteira', cor:'#2dd4bf' },
   { to:'/leads',      icon:Users,           label:'Clientes', cor:'#a78bfa' },
   { to:'/lembretes',  icon:BellRing,        label:'Lembretes', cor:'#facc15' },

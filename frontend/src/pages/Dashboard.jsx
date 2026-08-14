@@ -331,11 +331,20 @@ export default function Dashboard() {
               return (
                 <div key={s.setor} className="card" style={{ padding: '16px 18px', borderTop: `3px solid ${cor}` }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                    <span style={{ fontWeight: 800, fontSize: 14.5 }}>{emoji} Meta {nome}</span>
+                    {/* "do setor" no título evita o que confundiu o master: este
+                        cartão soma a equipe do setor, enquanto a faixa do topo
+                        mostra a produção individual — números diferentes, e agora
+                        está escrito qual é qual. */}
+                    <span style={{ fontWeight: 800, fontSize: 14.5 }}>{emoji} Meta {nome} · do setor</span>
                     <span style={{ fontSize: 13, fontWeight: 900, color: cor }}>{pct}%</span>
                   </div>
                   <div style={{ fontSize: 22, fontWeight: 900 }}>{fmt.brl(s.confirmado || 0)}</div>
-                  <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>de {fmt.brl(alvo)}{batida ? ' · 🏆 batida!' : ` · faltam ${fmt.brl(falta)}`}</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
+                    de {fmt.brl(alvo)}{batida ? ' · 🏆 batida!' : ` · faltam ${fmt.brl(falta)}`}
+                    {/* Vendido inclui o que ainda não caiu no caixa — mostrar o
+                        quanto é evita a dúvida de "por que o caixa não bate?" */}
+                    {s.aReceber > 0 && <span> · {fmt.brl(s.aReceber)} a receber</span>}
+                  </div>
                   <div style={{ height: 9, borderRadius: 6, background: 'var(--bg2)', overflow: 'hidden' }}>
                     <div style={{ width: `${pct}%`, height: '100%', borderRadius: 6, background: batida ? 'var(--ok,#16a34a)' : cor, transition: 'width .5s' }} />
                   </div>

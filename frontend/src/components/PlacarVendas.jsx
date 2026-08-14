@@ -1,10 +1,21 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt } from '../hooks/utils.js';
 
-/* PLACAR DE VENDAS — faixa chamativa no topo pra equipe RESPIRAR VENDAS. 🔥
-   Mostra vendas do dia + progresso da meta do mês, atualizando ao vivo a cada
-   venda registrada. Some no Login (sem user). */
+/* PLACAR DE VENDAS — a faixa do topo é a primeira coisa que a equipe vê. 🔥
+   Ela não está aqui pra informar: está aqui pra PROVOCAR a próxima venda.
+
+   O que move gente a vender (e por isso está na faixa, nesta ordem):
+     1. O que já fiz hoje  → orgulho / vergonha saudável do zero
+     2. A tarefa de HOJE   → "1 Plano Vacinal" é fazível; "R$ 100 mil" paralisa
+     3. O ritmo do mês     → barra enchendo, com o que falta por dia útil
+     4. O PRÊMIO           → dinheiro no bolso dela é o gatilho mais forte
+     5. Um botão pra agir  → do impulso ao registro em um clique
+
+   Regras que valem aqui: o servidor decide se manda valores em R$ (colega não
+   descobre o número da colega nem por subtração) e cada uma só vê o SETOR dela.
+   Some no Login (sem user). */
 
 // "1 Consulta" / "7 Consultas" — o rótulo vem no plural do servidor, então o
 // singular é ajustado aqui na hora de escrever a frase.
@@ -13,13 +24,63 @@ const qtdTexto = (f) => {
   const n = f.falta ?? 0;
   return `${n} ${n === 1 ? (SINGULAR[f.rotulo] || f.rotulo) : f.rotulo}`;
 };
+const EMOJI = { vacinas: '💉', consultas: '🩺', terapias: '🧩' };
+const CORES = { vacinas: '#fcd34d', consultas: '#67e8f9', terapias: '#fda4af' };
+
+/* Dias em que a clínica trabalha até o fim do mês (domingo não conta).
+   Serve pra transformar "faltam R$ 83 mil" — que desanima — em "R$ 4.150 por
+   dia", que é uma tarefa que cabe no dia de hoje. */
+function diasUteisRestantes() {
+  const agora = new Date(Date.now() - 3 * 3600 * 1000); // São Luís = UTC-3
+  const ano = agora.getUTCFullYear(), mes = agora.getUTCMonth();
+  const ultimo = new Date(Date.UTC(ano, mes + 1, 0)).getUTCDate();
+  let n = 0;
+  for (let d = agora.getUTCDate(); d <= ultimo; d++) {
+    if (new Date(Date.UTC(ano, mes, d)).getUTCDay() !== 0) n++;
+  }
+  return Math.max(n, 1);
+}
+
+/* Quanto ainda dá pra fazer HOJE. Urgência honesta: só aparece dentro do
+   expediente (até as 18h de São Luís), senão vira cobrança fora de hora. */
+function horasDeExpediente() {
+  const agora = new Date(Date.now() - 3 * 3600 * 1000);
+  const h = agora.getUTCHours() + agora.getUTCMinutes() / 60;
+  if (h < 7 || h >= 18) return null;
+  const falta = 18 - h;
+  const hh = Math.floor(falta), mm = Math.round((falta - hh) * 60);
+  return hh > 0 ? `${hh}h${String(mm).padStart(2, '0')}` : `${mm}min`;
+}
+
+// Cápsula de vidro — todo bloco da faixa usa o mesmo desenho, pra ficar limpo
+const Capsula = ({ children, destaque, title, onClick }) => (
+  <div title={title} onClick={onClick}
+    style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '5px 12px', borderRadius: 13,
+      background: destaque ? 'rgba(252,211,77,.16)' : 'rgba(255,255,255,.09)',
+      border: `1px solid ${destaque ? 'rgba(252,211,77,.45)' : 'rgba(255,255,255,.16)'}`,
+      backdropFilter: 'blur(6px)', whiteSpace: 'nowrap', cursor: onClick ? 'pointer' : 'default' }}>
+    {children}
+  </div>
+);
+const Rotulo = ({ children }) => (
+  <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: .7, textTransform: 'uppercase', color: 'rgba(255,255,255,.68)' }}>{children}</div>
+);
+
+// Barrinha de progresso reaproveitada nas cápsulas
+const Barra = ({ pct, cor, largura = 62 }) => (
+  <div style={{ width: largura, height: 5, borderRadius: 4, background: 'rgba(0,0,0,.28)', overflow: 'hidden' }}>
+    <div style={{ width: `${Math.max(Math.min(pct, 100), 2)}%`, height: '100%', borderRadius: 4, background: cor, transition: 'width .8s cubic-bezier(.2,.8,.2,1)' }} />
+  </div>
+);
 
 export default function PlacarVendas() {
   const api = useApi();
+  const nav = useNavigate();
   const { user } = useAuth();
   const [meta, setMeta] = useState(null);
   const [hoje, setHoje] = useState(null);
   const [pulse, setPulse] = useState(false);
+  const [festa, setFesta] = useState(false);   // comemoração de venda ao vivo
   const sockRef = useRef(null);
 
   const carregar = () => {
@@ -34,7 +95,13 @@ export default function PlacarVendas() {
     import('socket.io-client').then(({ io }) => {
       const BASE = import.meta.env.VITE_API_URL || '';
       const s = io(BASE, { transports: ['websocket', 'polling'], auth: { token: localStorage.getItem('vh_token') || '' } });
-      s.on('venda_registrada', () => { carregar(); setPulse(true); setTimeout(() => setPulse(false), 1500); });
+      s.on('venda_registrada', () => {
+        carregar();
+        setPulse(true); setTimeout(() => setPulse(false), 1600);
+        /* Venda fechada merece festa na tela. Não é enfeite: comemorar em
+           público é o que faz a próxima vir mais rápido (pedido do master). */
+        setFesta(true); setTimeout(() => setFesta(false), 3200);
+      });
       sockRef.current = s;
     }).catch(() => {});
     return () => { clearInterval(t); try { sockRef.current?.disconnect(); } catch {} };
@@ -45,8 +112,9 @@ export default function PlacarVendas() {
   // O servidor decide se manda os valores do setor. Fora da gestão eles nem
   // chegam — assim a colega não descobre o número da outra por subtração.
   const verValores = meta.mostra_valores !== false;
-  const nomeSetor = meta.setor && meta.setor !== 'geral' ? meta.setor[0].toUpperCase() + meta.setor.slice(1) : 'Geral';
-  const pct = Math.min(meta.pctGlobal ?? 0, 100);
+  const setoresLista = (meta.porSetor && meta.porSetor.length) ? meta.porSetor : [meta];
+  const nHoje = hoje?.n ?? 0;
+
   /* "Meta batida" precisa vir de um número que EXISTE. Quando escondi os
      valores do setor da equipe, faltaGlobal passou a chegar null — e
      (null ?? 0) <= 0 dava TRUE: o placar inteiro ficava verde comemorando sem
@@ -54,121 +122,224 @@ export default function PlacarVendas() {
      do DIA; e o padrão de ausência agora é "não batida", nunca o contrário. */
   const focos = Object.values(meta.focoDia || {});
   const focoTudoOk = focos.length > 0 && focos.every(itens => itens.every(f => (f.falta ?? 1) === 0));
-  const batida = verValores ? (meta.faltaGlobal ?? 1) <= 0 : focoTudoOk;
-  const nHoje = hoje?.n ?? 0;
-  // Faturamento do mês = soma do confirmado dos setores do usuário
-  const faturamento = (meta.porSetor && meta.porSetor.length ? meta.porSetor : [meta]).reduce((s, x) => s + (x.confirmado || 0), 0);
+
+  /* UM só número em R$ na faixa. Antes apareciam dois — o do SETOR e o
+     INDIVIDUAL — e como o setor soma a produção das colegas, davam valores
+     diferentes lado a lado ("83 mil aqui, 80 mil ali"): parecia erro do
+     sistema. Quem tem meta individual acompanha a DELA, que é a que ela
+     controla; quem não tem, acompanha a do setor. */
+  const ind = (meta.individual && meta.individual.meta > 0) ? meta.individual : null;
+  const alvoMes = ind ? ind.meta : setoresLista.reduce((a, s) => a + (s.metaMinima || 0), 0);
+  const feitoMes = ind ? (ind.confirmado || 0) : setoresLista.reduce((a, s) => a + (s.confirmado || 0), 0);
+  const aReceber = ind ? (ind.aReceber || 0) : setoresLista.reduce((a, s) => a + (s.aReceber || 0), 0);
+  const faltaMes = Math.max(alvoMes - feitoMes, 0);
+  const pctMes = alvoMes ? Math.min((feitoMes / alvoMes) * 100, 100) : 0;
+  const batida = verValores ? (alvoMes > 0 && faltaMes <= 0) : focoTudoOk;
+
+  /* 🎁 O PRÊMIO é o argumento mais forte da faixa: não é "a meta da clínica",
+     é dinheiro no bolso dela. Mostra sempre o prêmio mais PERTO de ser ganho —
+     bateu a mínima, a faixa já aponta pro próximo. */
+  const s0 = setoresLista[0] || {};
+  const premio = !verValores ? null
+    : (s0.premioMinimo > 0 && !s0.premioMinimoConquistado)
+      ? { valor: s0.premioMinimo, falta: Math.max(s0.faltaMinima ?? 0, 0), pct: Math.min(s0.pctMinima ?? 0, 100), alvo: s0.metaMinima }
+      : (s0.premio > 0 && !s0.premioConquistado)
+        ? { valor: s0.premio, falta: Math.max(s0.faltaGlobal ?? 0, 0), pct: Math.min(s0.pctGlobal ?? 0, 100), alvo: s0.metaGlobal }
+        : (s0.premio > 0 ? { valor: s0.premio, falta: 0, pct: 100, alvo: s0.metaGlobal, ganho: true } : null);
+
+  const dias = diasUteisRestantes();
+  const porDia = faltaMes > 0 ? faltaMes / dias : 0;
+  const restaHoje = horasDeExpediente();
+
+  const grito = festa ? '🎉 VENDA FECHADA! Bora pra próxima!'
+    : batida ? '🏆 Meta batida! Agora é lucro!'
+    : focoTudoOk ? '✅ Meta do dia feita — cada venda a mais já é bônus!'
+    : nHoje > 0 ? 'Bora fechar mais uma! 💪'
+    : restaHoje ? 'A primeira do dia é sua — ainda dá tempo! 🚀'
+    : 'A primeira venda do dia é sua! 🚀';
 
   return (
-    <div style={{ position: 'sticky', top: 0, zIndex: 90, display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap',
-      padding: '8px 18px', color: '#fff', overflow: 'hidden',
-      background: batida ? 'linear-gradient(90deg,#065f46,#059669,#10b981)' : 'linear-gradient(90deg,#0b1023,#3b0764,#7c3aed)',
-      boxShadow: '0 3px 14px rgba(0,0,0,.22)', borderBottom: '1px solid rgba(212,175,55,.35)' }}>
-      <span style={{ position: 'absolute', inset: 0, background: 'linear-gradient(90deg,transparent,rgba(255,255,255,.14),transparent)', transform: 'translateX(-100%)', animation: 'vh-placar-shine 4.5s ease-in-out infinite', pointerEvents: 'none' }} />
+    <div style={{ position: 'sticky', top: 0, zIndex: 90, display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap',
+      padding: '9px 18px 11px', color: '#fff', overflow: 'hidden',
+      background: festa ? 'linear-gradient(90deg,#78350f,#b45309,#f59e0b)'
+        : batida ? 'linear-gradient(90deg,#064e3b,#047857,#10b981)'
+        : 'linear-gradient(100deg,#0b1023 0%,#2e1065 45%,#6d28d9 100%)',
+      transition: 'background .6s ease',
+      boxShadow: '0 4px 18px rgba(0,0,0,.28)', borderBottom: '1px solid rgba(212,175,55,.4)' }}>
 
-      {/* Vendas do dia */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, transition: 'transform .3s', transform: pulse ? 'scale(1.08)' : 'scale(1)' }}>
-        <span style={{ fontSize: 18 }}>🔥</span>
-        <div style={{ lineHeight: 1.1 }}>
-          {/* Agora é o que EU fechei hoje. O numero da casa nao movia ninguem:
+      {/* brilho que atravessa a faixa — o movimento é o que puxa o olho pra cá */}
+      <span style={{ position: 'absolute', inset: 0, background: 'linear-gradient(90deg,transparent,rgba(255,255,255,.13),transparent)', transform: 'translateX(-100%)', animation: 'vh-placar-shine 5s ease-in-out infinite', pointerEvents: 'none' }} />
+
+      {/* 1️⃣ O QUE EU FIZ HOJE */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '5px 13px 5px 10px', borderRadius: 13,
+        background: nHoje > 0 ? 'rgba(16,185,129,.2)' : 'rgba(255,255,255,.09)',
+        border: `1px solid ${nHoje > 0 ? 'rgba(110,231,183,.5)' : 'rgba(255,255,255,.16)'}`,
+        transition: 'transform .35s cubic-bezier(.2,.9,.3,1.4)', transform: pulse ? 'scale(1.1)' : 'scale(1)' }}>
+        <span style={{ fontSize: 19, filter: nHoje > 0 ? 'none' : 'grayscale(.6) opacity(.8)' }}>🔥</span>
+        <div style={{ lineHeight: 1.12 }}>
+          {/* É o que EU fechei hoje. O número da casa não movia ninguém:
               a atendente via "12 fechadas" sem saber quantas eram dela. */}
-          <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: .6, textTransform: 'uppercase', color: 'rgba(255,255,255,.7)' }}>Minhas vendas hoje</div>
-          <div style={{ fontSize: 15, fontWeight: 900 }}>
+          <Rotulo>Minhas vendas hoje</Rotulo>
+          <div style={{ fontSize: 15.5, fontWeight: 900, letterSpacing: .2 }}>
             {nHoje} {nHoje === 1 ? 'fechada' : 'fechadas'}
-            {hoje?.total ? ` · ${fmt.brl(hoje.total)}` : ''}
+            {hoje?.total ? <span style={{ color: '#6ee7b7' }}> · {fmt.brl(hoje.total)}</span> : ''}
             {gestao && hoje?.casa && (
-              <span style={{ fontSize: 11, fontWeight: 700, opacity: .72 }}> · casa: {hoje.casa.n} ({fmt.brl(hoje.casa.total)})</span>
+              <span style={{ fontSize: 11, fontWeight: 700, opacity: .7 }}> · casa: {hoje.casa.n} ({fmt.brl(hoje.casa.total)})</span>
             )}
           </div>
         </div>
       </div>
 
-      {/* QUANTO FALTA por setor — cada usuário vê a meta DO SEU setor
-          (o backend já filtra: atendente recebe só o setor dela; master vê todos) */}
-      {(meta.porSetor || []).length > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <div style={{ width: 1, height: 26, background: 'rgba(255,255,255,.25)' }} />
-          {meta.porSetor.map((s) => {
-            const nome = s.setor && s.setor !== 'geral' ? s.setor[0].toUpperCase() + s.setor.slice(1) : 'Geral';
-            const EMOJI = { vacinas: '💉', consultas: '🩺', terapias: '🧩' };
-            const CORES = { vacinas: '#fcd34d', consultas: '#67e8f9', terapias: '#fda4af' };
-            /* Só a meta MÍNIMA no placar (pedido do master): duas metas lado a
-               lado diluíam o alvo — a equipe olhava o número grande e desistia.
-               O percentual também passa a ser o da mínima, senão ficava "3.9%"
-               ao lado de "falta R$ 80 mil de 100 mil", que não fecha. */
-            const minMeta = s.metaMinima || 100000;
-            const faltaMin = Math.max(0, s.faltaMinima ?? Math.max(minMeta - (s.confirmado || 0), 0));
-            const ok = faltaMin <= 0;
-            const p = Math.min(s.pctMinima ?? 0, 100);
-            const foco = meta.focoDia?.[s.setor] || null;      // metas em quantidade
-            const focoOk = foco ? foco.every(f => (f.falta ?? 0) === 0) : false;
-            const mes = meta.focoMes?.[s.setor] || null;      // alvo do mês (ex.: 20 Planos)
-            return (
-              <div key={s.setor}
-                // A meta ideal saiu da faixa, mas continua aqui no "passar o
-                // mouse" — quem quiser conferir o alvo cheio ainda alcança.
-                title={!verValores
-                  ? (foco ? `${nome} hoje: ${foco.map(f => `${f.feitos} de ${f.alvo} ${f.rotulo.toLowerCase()}`).join(' ou ')}` : nome)
-                  : foco
-                    ? `${nome} hoje: ${foco.map(f => `${f.feitos} de ${f.alvo} ${f.rotulo.toLowerCase()}`).join(' ou ')} · no mês ${fmt.brl(s.confirmado || 0)} de ${fmt.brl(minMeta)}`
-                    : `${nome}: ${fmt.brl(s.confirmado || 0)} de ${fmt.brl(minMeta)} (${p}% da mínima) · meta ideal ${fmt.brl(s.metaGlobal || 0)}`}
-                style={{ lineHeight: 1.15, transition: 'transform .3s', transform: pulse ? 'scale(1.06)' : 'scale(1)' }}>
-                <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: .7, textTransform: 'uppercase', color: 'rgba(255,255,255,.88)' }}>
-                  {EMOJI[s.setor] || '🎯'} {nome}{foco ? ' · meta do dia' : (verValores ? ` · ${p}%` : '')}
-                </div>
-                <div style={{ fontSize: 13.5, fontWeight: 900, letterSpacing: .1,
-                  textShadow: '0 1px 3px rgba(0,0,0,.45)',
-                  color: (foco ? focoOk : ok) ? '#6ee7b7' : (CORES[s.setor] || '#fde68a') }}>
-                  {/* Onde existe meta em QUANTIDADE, ela substitui o valor em R$:
-                      "falta R$ 99.600" não diz o que fazer hoje; "1 Plano
-                      Vacinal" diz. Mostra o que FALTA, não o que já foi feito —
-                      é a tarefa, não o extrato. O valor fica no passar do mouse. */}
-                  {foco
-                    ? (focoOk ? '🏆 Meta do dia batida!' : foco.map(qtdTexto).join(' ou '))
-                    : !verValores ? <span style={{ opacity: .8 }}>meta do time</span>
-                    : (ok ? '🏆 Meta batida!' : <span>falta {fmt.brl(faltaMin)}</span>)}
-                  {/* O alvo do MÊS ao lado do alvo do dia: 1 por dia é o passo,
-                      20 é o destino — juntos mostram se está no ritmo. */}
-                  {/* "1/20" dava pra ler como "o 1º de 20". Escrito por extenso
-                      não sobra dúvida: o que falta e o que já foi fechado. */}
-                  {mes && (
-                    <span style={{ fontSize: 11.5, fontWeight: 800, color: 'rgba(255,255,255,.92)', marginLeft: 7 }}>
-                      {mes.falta > 0
-                        ? `· falta: ${qtdTexto({ rotulo: mes.rotulo, falta: mes.falta })} · fechados: ${mes.feitos}`
-                        : `· 🏆 ${mes.alvo} ${mes.rotulo} do mês — completo!`}
-                    </span>
-                  )}
-                </div>
+      {/* 2️⃣ A TAREFA DE HOJE — por setor (o backend já filtra o setor de cada uma) */}
+      {setoresLista.map((s) => {
+        const nome = s.setor && s.setor !== 'geral' ? s.setor[0].toUpperCase() + s.setor.slice(1) : 'Geral';
+        const foco = meta.focoDia?.[s.setor] || null;      // meta em QUANTIDADE
+        const focoOk = foco ? foco.every(f => (f.falta ?? 0) === 0) : false;
+        const mes = meta.focoMes?.[s.setor] || null;       // alvo do mês (ex.: 20 Planos)
+        const minMeta = s.metaMinima || 100000;
+        const faltaMin = Math.max(0, s.faltaMinima ?? Math.max(minMeta - (s.confirmado || 0), 0));
+        const cor = CORES[s.setor] || '#fde68a';
+        if (!foco && !verValores) return null;
+        return (
+          <Capsula key={s.setor}
+            // A meta ideal saiu da faixa, mas continua no "passar o mouse".
+            title={foco
+              ? `${nome} hoje: ${foco.map(f => `${f.feitos} de ${f.alvo} ${f.rotulo.toLowerCase()}`).join(' ou ')}${verValores ? ` · no mês ${fmt.brl(s.confirmado || 0)} de ${fmt.brl(minMeta)}` : ''}`
+              : `${nome}: ${fmt.brl(s.confirmado || 0)} de ${fmt.brl(minMeta)} · meta ideal ${fmt.brl(s.metaGlobal || 0)}`}>
+            <span style={{ fontSize: 15 }}>{EMOJI[s.setor] || '🎯'}</span>
+            <div style={{ lineHeight: 1.12, transition: 'transform .35s', transform: pulse ? 'scale(1.05)' : 'scale(1)' }}>
+              <Rotulo>{nome} · meta de hoje</Rotulo>
+              <div style={{ fontSize: 13.5, fontWeight: 900, color: focoOk ? '#6ee7b7' : cor, textShadow: '0 1px 3px rgba(0,0,0,.45)' }}>
+                {/* Onde existe meta em QUANTIDADE ela substitui o R$: "falta
+                    R$ 99.600" não diz o que fazer hoje; "1 Plano Vacinal" diz. */}
+                {foco
+                  ? (focoOk ? '✅ Feita! Bora além' : foco.map(qtdTexto).join(' ou '))
+                  : (faltaMin <= 0 ? '🏆 Meta batida!' : `falta ${fmt.brl(faltaMin)}`)}
               </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* 🎯 META INDIVIDUAL do usuário logado (se definida no cadastro) */}
-      {meta.individual && meta.individual.meta > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 1, height: 26, background: 'rgba(255,255,255,.25)' }} />
-          <div title={`Sua produção: ${fmt.brl(meta.individual.confirmado)} de ${fmt.brl(meta.individual.meta)}`}
-            style={{ lineHeight: 1.15, transition: 'transform .3s', transform: pulse ? 'scale(1.06)' : 'scale(1)' }}>
-            <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: .6, textTransform: 'uppercase', color: 'rgba(255,255,255,.7)' }}>
-              🎯 Sua meta global · {Math.min(meta.individual.pct, 100)}%
+              {/* O alvo do MÊS logo abaixo: 1 por dia é o passo, 20 é o destino */}
+              {mes && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
+                  <Barra pct={mes.alvo ? (mes.feitos / mes.alvo) * 100 : 0} cor={`linear-gradient(90deg,${cor},#fff8e1)`} largura={54} />
+                  <span style={{ fontSize: 10, fontWeight: 800, color: 'rgba(255,255,255,.9)' }}>
+                    {mes.falta > 0 ? `${mes.feitos} de ${mes.alvo} ${mes.rotulo} no mês` : `🏆 ${mes.alvo} ${mes.rotulo} — completo!`}
+                  </span>
+                </div>
+              )}
             </div>
-            <div style={{ fontSize: 12.5, fontWeight: 900, color: meta.individual.falta <= 0 ? '#6ee7b7' : '#f9a8d4' }}>
-              {meta.individual.falta <= 0 ? '🏆 Meta global batida!' : `falta ${fmt.brl(meta.individual.falta)}`}
+          </Capsula>
+        );
+      })}
+
+      {/* 3️⃣ RITMO DO MÊS — a barra enchendo e quanto falta POR DIA */}
+      {verValores && alvoMes > 0 && (
+        <Capsula title={`${ind ? 'Sua produção' : 'Setor'} no mês: ${fmt.brl(feitoMes)} vendidos de ${fmt.brl(alvoMes)}`
+          + (aReceber > 0 ? ` · ${fmt.brl(aReceber)} ainda a receber` : '')
+          + ` · ${dias} dia(s) de trabalho até o fim do mês`}>
+          <span style={{ fontSize: 15 }}>📈</span>
+          <div style={{ lineHeight: 1.12 }}>
+            <Rotulo>{ind ? 'Minha meta do mês' : 'Meta do setor'} · {fmt.brl(feitoMes)} de {fmt.brl(alvoMes)} · {pctMes.toFixed(1)}%</Rotulo>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 2 }}>
+              <Barra pct={pctMes} cor={pctMes >= 100 ? '#6ee7b7' : 'linear-gradient(90deg,#f59e0b,#fcd34d)'} largura={76} />
+              <span style={{ fontSize: 11.5, fontWeight: 900, color: faltaMes <= 0 ? '#6ee7b7' : '#fff' }}>
+                {faltaMes <= 0 ? '🏆 completo!' : `${fmt.brl(porDia)}/dia · ${dias}d`}
+              </span>
             </div>
           </div>
+        </Capsula>
+      )}
+
+      {/* 4️⃣ O PRÊMIO — o motivo mais concreto de fechar mais uma hoje */}
+      {premio && premio.valor > 0 && (
+        <Capsula destaque title={`Prêmio de ${fmt.brl(premio.valor)} ao alcançar ${fmt.brl(premio.alvo || 0)}`}>
+          <span style={{ fontSize: 16 }}>{premio.ganho ? '🏆' : '🎁'}</span>
+          <div style={{ lineHeight: 1.12 }}>
+            <Rotulo>{premio.ganho ? 'Prêmio conquistado' : 'Seu prêmio'}</Rotulo>
+            <div style={{ fontSize: 13.5, fontWeight: 900, color: '#fcd34d', textShadow: '0 1px 3px rgba(0,0,0,.45)' }}>
+              {fmt.brl(premio.valor)}
+              {!premio.ganho && (
+                <span style={{ fontSize: 11, fontWeight: 800, color: 'rgba(255,255,255,.92)', marginLeft: 6 }}>
+                  · faltam {fmt.brl(premio.falta)}
+                </span>
+              )}
+            </div>
+          </div>
+        </Capsula>
+      )}
+
+      {/* 5️⃣ Só faz sentido enquanto a cápsula do ritmo estiver mostrando o SETOR:
+             quando ela já mostra a meta individual, esta aqui seria o mesmo
+             número duas vezes — foi exatamente o que confundiu o master. */}
+      {!ind && meta.individual && meta.individual.meta > 0 && (
+        <Capsula title={`Sua produção: ${fmt.brl(meta.individual.confirmado)} de ${fmt.brl(meta.individual.meta)}`}>
+          <span style={{ fontSize: 15 }}>🎯</span>
+          <div style={{ lineHeight: 1.12 }}>
+            <Rotulo>Sua meta global · {Math.min(meta.individual.pct, 100)}%</Rotulo>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 2 }}>
+              <Barra pct={meta.individual.pct} cor={meta.individual.falta <= 0 ? '#6ee7b7' : 'linear-gradient(90deg,#ec4899,#f9a8d4)'} largura={58} />
+              <span style={{ fontSize: 11.5, fontWeight: 900, color: meta.individual.falta <= 0 ? '#6ee7b7' : '#f9a8d4' }}>
+                {meta.individual.falta <= 0 ? '🏆 batida!' : `falta ${fmt.brl(meta.individual.falta)}`}
+              </span>
+            </div>
+          </div>
+        </Capsula>
+      )}
+
+      <div style={{ flex: 1, minWidth: 8 }} />
+
+      {/* ⏳ Quanto ainda dá pra fazer hoje — urgência só no expediente */}
+      {restaHoje && !batida && (
+        <span style={{ fontSize: 11, fontWeight: 800, color: 'rgba(255,255,255,.8)', whiteSpace: 'nowrap' }}>
+          ⏳ {restaHoje} de expediente
+        </span>
+      )}
+
+      {/* 🏆 Atalho pro pódio — a disputa mora aqui em cima, não escondida no menu */}
+      <button onClick={() => nav('/ranking')} title="Ver o ranking da equipe (por quantidade de vendas)"
+        style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 12, cursor: 'pointer',
+          border: '1px solid rgba(255,255,255,.28)', background: 'rgba(255,255,255,.1)', color: '#fff',
+          fontSize: 11.5, fontWeight: 900, whiteSpace: 'nowrap' }}>
+        🏆 Ranking
+      </button>
+
+      {/* 6️⃣ DO IMPULSO À AÇÃO — registrar a venda sem sair procurando onde */}
+      <button onClick={() => nav('/caixa')}
+        title="Registrar uma venda agora"
+        style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 12, cursor: 'pointer',
+          border: '1px solid rgba(255,255,255,.3)', color: '#0b1023', whiteSpace: 'nowrap',
+          background: 'linear-gradient(180deg,#fde68a,#f59e0b)', fontSize: 12, fontWeight: 900,
+          boxShadow: '0 3px 12px rgba(245,158,11,.45)' }}>
+        💰 Registrar venda
+      </button>
+
+      {/* Grito de guerra */}
+      <div style={{ fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        {grito}
+      </div>
+
+      {/* Barra grande do mês colada na base da faixa — o "termômetro" do time.
+          Enche na frente de todo mundo a cada venda registrada. */}
+      {verValores && alvoMes > 0 && (
+        <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 4, background: 'rgba(0,0,0,.3)' }}>
+          <div style={{ width: `${Math.max(pctMes, 1.5)}%`, height: '100%',
+            background: pctMes >= 100 ? 'linear-gradient(90deg,#10b981,#6ee7b7)' : 'linear-gradient(90deg,#f59e0b,#fcd34d,#fff8e1)',
+            boxShadow: '0 0 12px rgba(252,211,77,.85)', transition: 'width 1s cubic-bezier(.2,.8,.2,1)' }} />
         </div>
       )}
 
-      <div style={{ flex: 1 }} />
+      {/* 🎉 Chuva de comemoração quando entra uma venda ao vivo */}
+      {festa && (
+        <span aria-hidden style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden' }}>
+          {['🎉', '💰', '✨', '🎊', '⭐', '💵', '🎉', '✨'].map((e, i) => (
+            <span key={i} style={{ position: 'absolute', top: -18, left: `${8 + i * 11.5}%`, fontSize: 15,
+              animation: `vh-placar-cai 3s ${i * .18}s ease-in forwards` }}>{e}</span>
+          ))}
+        </span>
+      )}
 
-      {/* Grito de guerra */}
-      <div style={{ fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap' }}>
-        {batida ? '🎉 Meta batida! Bora além!' : nHoje > 0 ? 'Bora fechar mais uma! 💪' : 'Primeira venda do dia é sua! 🚀'}
-      </div>
-
-      <style>{`@keyframes vh-placar-shine { 0% { transform: translateX(-100%);} 55%,100% { transform: translateX(200%);} }`}</style>
+      <style>{`
+        @keyframes vh-placar-shine { 0% { transform: translateX(-100%);} 55%,100% { transform: translateX(200%);} }
+        @keyframes vh-placar-cai { 0% { transform: translateY(0) rotate(0); opacity: 1; } 100% { transform: translateY(90px) rotate(220deg); opacity: 0; } }
+      `}</style>
     </div>
   );
 }

@@ -2775,11 +2775,16 @@ r.get('/whatsapp/test-post', async (req, res) => {
 });
 
 // ─── DEBUG: enviar mensagem de teste e checar webhook (via ?k=vt24) ──────────
-r.get('/whatsapp/test-send', masterOnly, async (req, res) => {
+/* Era GET: bastava o link ser aberto (ou pré-carregado pelo navegador) pra sair
+   um WhatsApp de verdade. Virou POST com confirmação explícita — não existe
+   mais caminho em que uma mensagem de teste saia "do nada". */
+r.post('/whatsapp/test-send', masterOnly, async (req, res) => {
   if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
+  if (String(req.body?.confirmar) !== 'SIM') return res.status(400).json({ error: 'Envie {"confirmar":"SIM"} — este endpoint dispara um WhatsApp real.' });
   if (!zapiOk()) return res.json({ error: 'Z-API não configurada' });
   try {
-    const phone = req.query.phone || '559888278736'; // número do Miécio
+    const phone = String(req.body?.phone || req.query.phone || '').replace(/\D/g, '');
+    if (!phone) return res.status(400).json({ error: 'Informe o telefone de destino.' });
     const before = lastWebhooks.length;
     // Envia mensagem de teste
     const r2 = await zapiCall('/send-text', 'POST', { phone, message: 'Teste webhook VittaHub ' + new Date().toLocaleTimeString() });
@@ -4214,6 +4219,21 @@ async function enviarTextoConversa(conv, texto, senderNome) {
 
 // Agendador: a cada 60s dispara as pendentes cujo horário chegou.
 let agendadorRodando = false;
+/* 🚨 FREIO DE MENSAGEM DE TESTE (pedido do master: "está mandando mensagem
+   teste do nada, tira isso").
+   Mensagem automática é a que sai SOZINHA — ninguém confere antes. Se o texto
+   agendado for só um "teste" (sobra de homologação, disparo experimental,
+   template esquecido na fila), ele não pode chegar num cliente de verdade.
+   Aqui o envio é CANCELADO e o master é avisado, em vez de enviado. Vale só
+   pra fila automática: mensagem digitada e enviada por uma atendente na hora
+   não passa por este filtro — se ela quiser escrever "teste", é escolha dela. */
+function pareceMensagemDeTeste(texto) {
+  const t = String(texto || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  if (!t || t.length > 60) return false;                       // texto de verdade é maior
+  if (/^teste webhook vittahub/.test(t)) return true;
+  return /^(oi\s+)?(teste|test|testando|testes|teste de envio|mensagem de teste|msg de teste)([\s.!\-–—:]*\d*)?$/.test(t);
+}
+
 async function processarAgendadas() {
   if (agendadorRodando) return;
   agendadorRodando = true;
@@ -4223,6 +4243,15 @@ async function processarAgendadas() {
       try {
         const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [ag.conversa_id]);
         if (!conv) { await query(`UPDATE mensagens_agendadas SET status='erro', erro='conversa não encontrada' WHERE id=$1`, [ag.id]); continue; }
+        if (pareceMensagemDeTeste(ag.texto)) {
+          await query(`UPDATE mensagens_agendadas SET status='cancelada', erro=$2 WHERE id=$1`,
+            [ag.id, 'Bloqueada: parecia mensagem de teste']).catch(() => {});
+          await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('alerta', $1, $2, true)`,
+            ['🚨 Mensagem de teste bloqueada',
+             `Uma mensagem automática com o texto "${String(ag.texto).slice(0, 40)}" ia sair para ${conv.contact_name || conv.phone}. O envio foi cancelado.`]).catch(() => {});
+          console.warn('🚨 Mensagem de teste bloqueada na fila:', ag.id, JSON.stringify(String(ag.texto).slice(0, 60)));
+          continue;
+        }
         await enviarTextoConversa(conv, ag.texto, ag.criado_por);
         await query(`UPDATE mensagens_agendadas SET status='enviada', enviada_em=NOW() WHERE id=$1`, [ag.id]);
       } catch (e) {
@@ -4233,6 +4262,42 @@ async function processarAgendadas() {
 }
 setInterval(processarAgendadas, 60000);
 setTimeout(processarAgendadas, 15000); // primeira passada logo após subir
+
+/* 📋 FILA DE MENSAGENS AUTOMÁTICAS — o master vê TUDO que está pra sair e pode
+   cancelar antes. Sem esta tela, descobrir "quem mandou isso" só depois que o
+   cliente recebeu (foi o caso da mensagem de teste). */
+r.get('/agendadas/fila', masterOnly, async (req, res) => {
+  try {
+    const { rows } = await query(
+      `SELECT a.id, a.texto, a.enviar_em, a.criado_por, a.status, a.erro,
+              c.contact_name, c.phone
+         FROM mensagens_agendadas a
+         LEFT JOIN conversas c ON c.id = a.conversa_id
+        WHERE a.status = 'pendente'
+        ORDER BY a.enviar_em LIMIT 300`).catch(() => ({ rows: [] }));
+    res.json({
+      total: rows.length,
+      // Já marca quais o freio vai barrar, pra não assustar quando sumirem
+      itens: rows.map(x => ({ ...x, suspeita_de_teste: pareceMensagemDeTeste(x.texto) })),
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Cancela uma da fila (ou TODAS as suspeitas de teste, com ?suspeitas=1)
+r.delete('/agendadas/fila/:id', masterOnly, async (req, res) => {
+  try {
+    if (req.params.id === 'suspeitas') {
+      const { rows } = await query(`SELECT id, texto FROM mensagens_agendadas WHERE status='pendente'`).catch(() => ({ rows: [] }));
+      const alvos = rows.filter(x => pareceMensagemDeTeste(x.texto)).map(x => x.id);
+      if (alvos.length) {
+        await query(`UPDATE mensagens_agendadas SET status='cancelada', erro='Cancelada pelo master (mensagem de teste)' WHERE id = ANY($1)`, [alvos]);
+      }
+      return res.json({ ok: true, canceladas: alvos.length });
+    }
+    await query(`UPDATE mensagens_agendadas SET status='cancelada', erro='Cancelada pelo master' WHERE id=$1 AND status='pendente'`, [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
 // Agenda uma mensagem pra ser enviada no futuro
 r.post('/conversations/:id/agendar', async (req, res) => {
