@@ -162,6 +162,64 @@ const msgCalendario = (c) => {
   return `Oi! 💙 Aqui é da Vittalis Saúde 😊\n\n${abre}:\n\n💉 ${c.vacinas}\n\nManter o calendário em dia é o maior presente de proteção pra ${primeiro}. Quer que eu já reserve um horário pra vocês? Atendemos na clínica e também em domicílio. 🥰`;
 };
 
+// ─── Agenda do VittaMed ──────────────────────────────────────────────────────
+// Pedido do master: a equipe de consultas recebe a agenda do VittaMed do jeito
+// que ela é, e o VittaHub pega todo mundo que estiver lá e manda o lembrete um
+// dia antes. Quem fala com o cliente é um só — este aqui.
+const pontePronta = () =>
+  !!(process.env.VITTAMED_URL && process.env.INTEGRACAO_TOKEN && process.env.INTEGRACAO_TOKEN.length >= 16);
+
+async function agendaVittaMed(dataISO) {
+  if (!pontePronta()) return [];
+  try {
+    const { default: fetch } = await import('node-fetch');
+    const base = String(process.env.VITTAMED_URL).replace(/\/+$/, '');
+    const vr = await fetch(`${base}/api/integracao/agenda?data=${dataISO}`, {
+      headers: { 'x-integracao-token': process.env.INTEGRACAO_TOKEN },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!vr.ok) return [];
+    const j = await vr.json();
+    // Cancelado e falta não recebem lembrete de "amanhã"
+    return (j.itens || []).filter(i => !['cancelado', 'faltou'].includes(String(i.status || '').toLowerCase()));
+  } catch (_) { return []; }
+}
+
+// Já mandamos lembrete para esses atendimentos do VittaMed?
+async function jaLembrados(ids) {
+  if (!ids.length) return new Set();
+  const { rows } = await query(`SELECT agendamento_id FROM lembretes_vittamed WHERE agendamento_id = ANY($1::int[])`, [ids]);
+  return new Set(rows.map(r => r.agendamento_id));
+}
+
+// Envia o lembrete de amanhã para uma lista vinda do VittaMed.
+// Pula quem já recebeu e quem já tem o MESMO horário na agenda daqui — senão
+// o cliente que existe nos dois sistemas levaria a mensagem em dobro.
+async function enviarLembretesVittaMed(itens, dataISO, autor) {
+  let enviados = 0, falhas = 0, pulados = 0;
+  const lembrados = await jaLembrados(itens.map(i => Number(i.id)));
+  const { rows: daqui } = await query(
+    `SELECT hora, telefone FROM agenda_eventos WHERE data = $1 AND LOWER(COALESCE(status,'')) NOT LIKE 'cancel%'`, [dataISO]);
+  const jaNaCasa = new Set(daqui.map(e => `${String(e.telefone || '').replace(/\D/g, '').slice(-11)}|${e.hora}`));
+
+  for (const ev of itens) {
+    const tel = String(ev.telefone || '').replace(/\D/g, '');
+    if (tel.length < 10) { pulados++; continue; }
+    if (lembrados.has(Number(ev.id))) { pulados++; continue; }
+    if (jaNaCasa.has(`${tel.slice(-11)}|${ev.hora}`)) { pulados++; continue; }
+    const texto = msgAmanha({ paciente: ev.paciente, servico: ev.servico, hora: ev.hora, profissional: ev.profissional, setor: ev.setor });
+    const zr = await zapiSendText(tel, texto).catch(() => null);
+    if (zr?.ok) {
+      enviados++;
+      await query(`INSERT INTO lembretes_vittamed (agendamento_id, data, telefone, paciente)
+                   VALUES ($1,$2,$3,$4) ON CONFLICT (agendamento_id) DO NOTHING`,
+        [Number(ev.id), dataISO, tel, String(ev.paciente || '').slice(0, 80)]).catch(() => {});
+      await registraNaConversa(tel, texto, autor);
+    } else falhas++;
+  }
+  return { enviados, falhas, pulados };
+}
+
 // GET /api/lembretes/resumo?amanha=YYYY-MM-DD&hoje=YYYY-MM-DD — as 3 listas de uma vez
 r.get('/resumo', async (req, res) => {
   try {
@@ -195,7 +253,12 @@ r.get('/resumo', async (req, res) => {
         WHERE v.data_venda >= CURRENT_DATE - INTERVAL '7 days'
         ORDER BY COALESCE(c.phone, v.cliente_nome), v.data_venda DESC`);
 
-    res.json({ amanha, aniversarios, indicacoes, whatsapp: zapiOk() });
+    // A agenda do VittaMed entra ao lado da daqui, marcando quem já foi lembrado
+    const vmed = await agendaVittaMed(amanhaStr);
+    const lembrados = await jaLembrados(vmed.map(i => Number(i.id)));
+    const amanha_vittamed = vmed.map(i => ({ ...i, lembrete_enviado_em: lembrados.has(Number(i.id)) ? true : null }));
+
+    res.json({ amanha, amanha_vittamed, aniversarios, indicacoes, whatsapp: zapiOk(), vittamed: pontePronta() });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -219,6 +282,12 @@ r.post('/enviar', async (req, res) => {
         if (zr?.ok) { enviados++; await query(`UPDATE agenda_eventos SET lembrete_enviado_em = NOW() WHERE id = $1`, [ev.id]); await registraNaConversa(ev.telefone, texto, req.user?.nome); }
         else falhas++;
       }
+    } else if (tipo === 'amanha_vittamed') {
+      const dataISO = /^\d{4}-\d{2}-\d{2}$/.test(req.body?.data || '') ? req.body.data : new Date(Date.now() + 86400000 - 3 * 3600 * 1000).toISOString().slice(0, 10);
+      const alvo = new Set(ids.map(Number));
+      const itens = (await agendaVittaMed(dataISO)).filter(i => alvo.has(Number(i.id)));
+      const r2 = await enviarLembretesVittaMed(itens, dataISO, req.user?.nome);
+      enviados = r2.enviados; falhas = r2.falhas; pulados = r2.pulados;
     } else if (tipo === 'aniversarios') {
       const { rows } = await query(`SELECT id, nome, telefone FROM leads WHERE id = ANY($1::text[])`, [ids.map(String)]);
       for (const l of rows) {
@@ -353,6 +422,14 @@ export async function rodarLembretesAutomaticos() {
       if (zr?.ok) { n++; await query(`UPDATE agenda_eventos SET lembrete_enviado_em = NOW() WHERE id = $1`, [ev.id]); await registraNaConversa(ev.telefone, texto, 'Envio automático 🤖'); }
     }
     if (rows.length) console.log(`🤖 Lembretes automáticos de amanhã: ${n}/${rows.length} enviado(s)`);
+
+    // E a agenda do VittaMed do mesmo dia — pedido do master: o Hub pega todo
+    // mundo que estiver marcado lá e manda o lembrete um dia antes.
+    const doVittaMed = await agendaVittaMed(amanhaLocal);
+    if (doVittaMed.length) {
+      const r2 = await enviarLembretesVittaMed(doVittaMed, amanhaLocal, 'Envio automático 🤖');
+      console.log(`🤖 Lembretes VittaMed de amanhã: ${r2.enviados}/${doVittaMed.length} enviado(s) (${r2.pulados} pulado(s))`);
+    }
   }
 
   // 🎂 Parabéns dos aniversariantes de HOJE

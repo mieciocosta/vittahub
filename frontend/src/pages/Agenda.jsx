@@ -29,6 +29,10 @@ export default function Agenda() {
   // 📄 Relatório individual. Abre já aberto quando vem do atalho "Meu Relatório"
   // do menu (pedido do master: cada uma gera o dela sem caçar botão).
   const [relLider, setRelLider] = useState(() => new URLSearchParams(window.location.search).get('individual') === '1');
+  // 🏥 Agenda do VittaMed (só leitura, puxada pela ponte) — pedido do master:
+  // cada setor tem sua agenda e a equipe daqui precisa ver o que está marcado lá.
+  const [vmed, setVmed] = useState(null);
+  const [vmedSetor, setVmedSetor] = useState('');
 
   // Sair de "Relatório do Dia" pra "Meu Relatório" é a MESMA rota, só muda a
   // busca — o componente não remonta e o estado inicial acima não roda de novo.
@@ -45,6 +49,12 @@ export default function Agenda() {
     api.get(`/extras/agenda/relatorio-dia?data=${data}`).then(setRel).catch(e => setRel({ erro: e.message }));
   }, [data]); // eslint-disable-line
   useEffect(() => { if (aba === 'relatorio') loadRel(); }, [aba, loadRel]); // eslint-disable-line
+
+  const loadVmed = useCallback(() => {
+    setVmed({ carregando: true });
+    api.get(`/extras/vittamed/agenda?data=${data}`).then(setVmed).catch(e => setVmed({ erro: e.message, itens: [] }));
+  }, [api, data]);
+  useEffect(() => { if (aba === 'vittamed') loadVmed(); }, [aba, loadVmed]);
 
   // 🔄 Agendamento criado/alterado em QUALQUER lugar (agenda, chat, carteira
   // vacinal ou link público) sobe pro relatório na hora, sem precisar recarregar.
@@ -142,7 +152,7 @@ export default function Agenda() {
       </div>
 
       <div style={{ display: 'flex', gap: 7, marginBottom: 12, flexWrap: 'wrap' }}>
-        {[['lista', '📅 Agenda do dia'], ['relatorio', '📋 Relatório e produtividade']].map(([k, l]) => (
+        {[['lista', '📅 Agenda do dia'], ['vittamed', '🏥 VittaMed'], ['relatorio', '📋 Relatório e produtividade']].map(([k, l]) => (
           <button key={k} onClick={() => { setAba(k); if (k === 'relatorio') { setRel({ carregando: true }); api.get(`/extras/agenda/relatorio-dia?data=${data}`).then(setRel).catch(e => setRel({ erro: e.message })); } }}
             style={{ padding: '7px 15px', borderRadius: 10, fontSize: 12.5, fontWeight: 800, cursor: 'pointer',
               border: `1.5px solid ${aba === k ? 'var(--tq)' : 'var(--border)'}`,
@@ -150,7 +160,8 @@ export default function Agenda() {
         ))}
       </div>
 
-      {aba === 'relatorio' ? <RelatorioDia rel={rel} data={data} rotuloDia={rotuloDia} onLider={() => setRelLider(true)} /> : (
+      {aba === 'vittamed' ? <AgendaVittaMed vmed={vmed} setor={vmedSetor} setSetor={setVmedSetor} rotuloDia={rotuloDia} onRecarregar={loadVmed} /> :
+       aba === 'relatorio' ? <RelatorioDia rel={rel} data={data} rotuloDia={rotuloDia} onLider={() => setRelLider(true)} /> : (
       <div className="card" style={{ padding: 0, overflow: 'hidden', background: 'var(--card)' }}>
         <div style={{ padding: '13px 20px', background: 'linear-gradient(90deg,var(--tq),#0aa6ae)', color: '#fff', fontWeight: 800, fontSize: 14, textTransform: 'capitalize' }}>
           {ehHoje ? `Hoje · ${rotuloDia}` : rotuloDia}
@@ -406,6 +417,82 @@ function baixarPDF(eventos, dataISO, rotuloDia) {
 /* 📋 RELATÓRIO DO DIA — desfecho dos atendimentos e produtividade da equipe.
    Serve pra reunião: quem veio, quem faltou, quanto entrou e quem puxou o
    resultado. Imprimível pra deixar registrado. */
+/* ─── Agenda do VittaMed (só leitura, pela ponte) ─────────────────────────────
+   Pedido do master: cada setor tem sua agenda. Aqui a equipe do Hub enxerga o
+   que está marcado no VittaMed sem trocar de sistema — e sem poder mexer:
+   agendar continua no sistema de origem, para não existirem duas verdades. */
+function AgendaVittaMed({ vmed, setor, setSetor, rotuloDia, onRecarregar }) {
+  const SET = { vacinas: ['💉 Vacinas', '#7c5cbf'], consultas: ['🩺 Consultas', '#00B8C0'], terapias: ['🧩 Terapias', '#C4973B'] };
+  const ST = { finalizado: ['#e2f8ef', '#0a8f5b'], confirmado: ['#e2f8ef', '#0a8f5b'], agendado: ['#e8f4fd', '#1d6fb8'], aguardando: ['#fdf3e2', '#a07514'], em_atendimento: ['#e8f4fd', '#1d6fb8'], faltou: ['#fdf0e8', '#c2410c'], cancelado: ['#fdecec', '#c0392b'] };
+
+  if (!vmed || vmed.carregando) return <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--muted)', fontSize: 13.5 }}>Buscando a agenda do VittaMed…</div>;
+
+  const aviso = vmed.aviso || vmed.erro;
+  if (aviso) return (
+    <div className="card" style={{ padding: 28, textAlign: 'center' }}>
+      <div style={{ fontSize: 34, marginBottom: 8, opacity: .5 }}>🏥</div>
+      <div style={{ fontWeight: 800, fontSize: 14.5, marginBottom: 6 }}>Agenda do VittaMed indisponível</div>
+      <p style={{ color: 'var(--muted)', fontSize: 13, maxWidth: 520, margin: '0 auto', lineHeight: 1.6 }}>{aviso}</p>
+      <button onClick={onRecarregar} className="btn btn-s" style={{ marginTop: 14 }}>Tentar de novo</button>
+    </div>
+  );
+
+  const itens = (vmed.itens || []).filter(i => !setor || i.setor === setor);
+  const porSetor = vmed.por_setor || {};
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 7, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+        <button onClick={() => setSetor('')}
+          style={{ padding: '6px 13px', borderRadius: 999, fontSize: 12, fontWeight: 800, cursor: 'pointer',
+            border: `1.5px solid ${setor === '' ? 'var(--tq)' : 'var(--border)'}`,
+            background: setor === '' ? 'var(--tq)' : 'var(--card)', color: setor === '' ? '#fff' : 'var(--muted)' }}>
+          Todos ({vmed.total || 0})
+        </button>
+        {Object.entries(SET).map(([k, [rot, cor]]) => (porSetor[k] > 0 ? (
+          <button key={k} onClick={() => setSetor(setor === k ? '' : k)}
+            style={{ padding: '6px 13px', borderRadius: 999, fontSize: 12, fontWeight: 800, cursor: 'pointer',
+              border: `1.5px solid ${setor === k ? cor : 'var(--border)'}`,
+              background: setor === k ? cor : 'var(--card)', color: setor === k ? '#fff' : 'var(--muted)' }}>
+            {rot} ({porSetor[k]})
+          </button>
+        ) : null))}
+        <button onClick={onRecarregar} className="btn btn-s" style={{ fontSize: 12, marginLeft: 'auto' }}>↻ Atualizar</button>
+      </div>
+
+      <div className="card" style={{ padding: 0, overflow: 'hidden', background: 'var(--card)' }}>
+        <div style={{ padding: '13px 20px', background: 'linear-gradient(90deg,#1B5E7D,#00A9CE)', color: '#fff', fontWeight: 800, fontSize: 14, display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+          <span style={{ textTransform: 'capitalize' }}>🏥 VittaMed · {rotuloDia}</span>
+          <span style={{ fontSize: 11.5, fontWeight: 700, opacity: .9 }}>somente leitura — agendar é no VittaMed</span>
+        </div>
+
+        {itens.length === 0 ? (
+          <div style={{ padding: '46px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: 13.5 }}>
+            Nenhum atendimento marcado no VittaMed nesse dia{setor ? ' para esse setor' : ''}.
+          </div>
+        ) : itens.map(ev => {
+          const [rot, cor] = SET[ev.setor] || ['📌', 'var(--muted)'];
+          const [bg, fg] = ST[ev.status] || ['#eef2f6', '#5a6b7b'];
+          return (
+            <div key={ev.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 18px', borderTop: '1px solid var(--border)', flexWrap: 'wrap' }}>
+              <div style={{ fontWeight: 800, fontSize: 14, minWidth: 54, color: cor }}>{ev.hora}</div>
+              <div style={{ flex: 1, minWidth: 160 }}>
+                <div style={{ fontWeight: 700, fontSize: 13.5 }}>{ev.paciente}</div>
+                <div style={{ color: 'var(--muted)', fontSize: 11.5, marginTop: 1 }}>
+                  {rot.split(' ')[0]} {ev.servico}{ev.profissional ? ` · ${ev.profissional}` : ''}{ev.especialidade ? ` · ${ev.especialidade}` : ''}
+                </div>
+              </div>
+              <span style={{ background: bg, color: fg, padding: '3px 10px', borderRadius: 999, fontSize: 11, fontWeight: 800, textTransform: 'capitalize' }}>
+                {String(ev.status || '').replace('_', ' ')}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function RelatorioDia({ rel, data, rotuloDia, onLider }) {
   if (!rel) return null;
   if (rel.carregando) return <div className="card" style={{ padding: 30, color: 'var(--muted)' }}>Montando o relatório do dia…</div>;

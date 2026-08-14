@@ -984,6 +984,13 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       }
     } catch (e) { console.error('Seed figurinhas:', e.message); }
 
+    // Controle dos lembretes enviados para a agenda do VittaMed. Sem isto o
+    // paciente do outro sistema receberia a mensagem de novo a cada rodada.
+    await query(`CREATE TABLE IF NOT EXISTS lembretes_vittamed (
+      agendamento_id INT PRIMARY KEY, data DATE NOT NULL, telefone TEXT,
+      paciente TEXT, enviado_em TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS lembretes_vittamed_data_idx ON lembretes_vittamed(data)`).catch(() => {});
+
     await query(`CREATE TABLE IF NOT EXISTS ligacoes (
       id SERIAL PRIMARY KEY, contato_nome TEXT NOT NULL, telefone TEXT NOT NULL,
       usuario_id TEXT, direcao TEXT DEFAULT 'realizada', status TEXT DEFAULT 'Atendida',

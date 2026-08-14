@@ -13,7 +13,7 @@ export default function Lembretes() {
   const api = useApi();
   const { user } = useAuth();
   const [aba, setAba] = useState('aniversarios');
-  const [dados, setDados] = useState({ amanha: [], aniversarios: [], indicacoes: [], whatsapp: false });
+  const [dados, setDados] = useState({ amanha: [], amanha_vittamed: [], aniversarios: [], indicacoes: [], whatsapp: false });
   const [cal, setCal] = useState(null);        // 💉 calendário vacinal da base
   const [selCal, setSelCal] = useState(new Set());
   const [editCal, setEditCal] = useState(null);   // ✏️ ajuste do calendário (gestão)
@@ -69,11 +69,11 @@ export default function Lembretes() {
   const msgNiver = (nome) => `🎂🎉 Parabéns, ${String(nome || '').split(' ')[0]}! A equipe da Vittalis Saúde deseja um aniversário cheio de saúde e alegria! 💙 Conte sempre com a gente. "Sua vida é preciosa!"`;
   const msgInd = (nome) => `Olá! 💙 Aqui é da Vittalis Saúde. Foi um prazer atender ${String(nome || '').split(' ')[0]}! Se você conhece alguém que também precisa de vacinas, consultas ou terapias, adoraríamos receber sua indicação. 😊 É só encaminhar nosso contato: (98) 98422-1002. Obrigado pela confiança!`;
 
-  async function enviar(tipo, ids) {
+  async function enviar(tipo, ids, extra = {}) {
     if (!ids.length) return;
     setEnviando(true);
     try {
-      const j = await api.post('/lembretes/enviar', { tipo, ids });
+      const j = await api.post('/lembretes/enviar', { tipo, ids, ...extra });
       showToast(`✓ ${j.enviados} enviado(s)${j.pulados ? ` · ${j.pulados} sem telefone` : ''}${j.falhas ? ` · ⚠ ${j.falhas} falha(s)` : ''}`);
       load();
     } catch (e) { showToast('⚠️ ' + (e.message || 'Erro ao enviar')); }
@@ -82,13 +82,16 @@ export default function Lembretes() {
 
   const temTel = (t) => String(t || '').replace(/\D/g, '').length >= 10;
   const amanhaPend = (dados.amanha || []).filter(e => !e.lembrete_enviado_em && temTel(e.telefone));
+  // 🏥 A agenda do VittaMed entra na mesma aba: o Hub é quem fala com o cliente.
+  const vmed = dados.amanha_vittamed || [];
+  const vmedPend = vmed.filter(e => !e.lembrete_enviado_em && temTel(e.telefone));
   const niverHoje = (dados.aniversarios || []).filter(a => a.dias === 0 && temTel(a.telefone));
   const toggleSel = (id) => setSel(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
   const ABAS = [
     { k: 'calendario', label: 'Calendário vacinal', Icon: Syringe, n: cal?.total || 0 },
     { k: 'aniversarios', label: 'Aniversários', Icon: Cake, n: (dados.aniversarios || []).length },
-    { k: 'amanha', label: 'Amanhã', Icon: CalendarClock, n: (dados.amanha || []).length },
+    { k: 'amanha', label: 'Amanhã', Icon: CalendarClock, n: (dados.amanha || []).length + (dados.amanha_vittamed || []).length },
     { k: 'indicacoes', label: 'Indicações', Icon: Gift, n: (dados.indicacoes || []).length },
     { k: 'enviar', label: 'Mensagem', Icon: Send, n: 0 },
     { k: 'meus', label: 'Meus lembretes', Icon: StickyNote, n: meus.filter(m => !m.concluido).length },
@@ -179,8 +182,11 @@ export default function Lembretes() {
           {aba === 'meus' && <>📝 Seus lembretes pessoais — só você vê (meta, tarefas, o que for importante)</>}
         </div>
         {dados.whatsapp && aba === 'amanha' && (
-          <button onClick={() => enviar('amanha', amanhaPend.map(e => e.id))} disabled={enviando || !amanhaPend.length} className="btn btn-p btn-sm" style={{ gap: 6 }}>
-            <Send size={13} /> {enviando ? 'Enviando…' : `Enviar todos (${amanhaPend.length})`}
+          <button onClick={async () => {
+              if (amanhaPend.length) await enviar('amanha', amanhaPend.map(e => e.id));
+              if (vmedPend.length) await enviar('amanha_vittamed', vmedPend.map(e => e.id), { data: amanhaStr });
+            }} disabled={enviando || (!amanhaPend.length && !vmedPend.length)} className="btn btn-p btn-sm" style={{ gap: 6 }}>
+            <Send size={13} /> {enviando ? 'Enviando…' : `Enviar todos (${amanhaPend.length + vmedPend.length})`}
           </button>
         )}
         {dados.whatsapp && aba === 'aniversarios' && (
@@ -292,6 +298,33 @@ export default function Lembretes() {
               </div>
             </div>
           )))}
+
+          {/* 🏥 Agenda do VittaMed — mesma aba, listada à parte para a equipe saber
+              de onde veio. Enviar daqui evita o cliente receber duas mensagens. */}
+          {aba === 'amanha' && vmed.length > 0 && (
+            <div style={{ marginTop: 6 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '10px 2px 8px', flexWrap: 'wrap' }}>
+                <span style={{ fontWeight: 900, fontSize: 12.5, color: '#1B5E7D' }}>🏥 Agenda do VittaMed ({vmed.length})</span>
+                <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>quem está marcado lá também recebe o lembrete daqui</span>
+              </div>
+              {vmed.map(ev => (
+                <div key={`vm${ev.id}`} className="card" style={{ padding: 0, overflow: 'hidden', display: 'flex', marginBottom: 8 }}>
+                  <div style={{ width: 5, background: SETOR_COR[ev.setor] || '#1B5E7D', flexShrink: 0 }} />
+                  <div style={{ padding: '12px 16px', flex: 1, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                    <div style={{ fontWeight: 900, fontFamily: 'monospace', fontSize: 14, color: 'var(--tq2)', minWidth: 46 }}>{ev.hora}</div>
+                    <div style={{ flex: 1, minWidth: 160 }}>
+                      <div style={{ fontWeight: 800, fontSize: 14 }}>{ev.paciente} <span style={{ fontSize: 10, fontWeight: 800, color: '#1B5E7D', background: '#e6f4f8', borderRadius: 20, padding: '2px 7px' }}>VittaMed</span></div>
+                      <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{[ev.servico, ev.profissional, ev.setor].filter(Boolean).join(' · ')}</div>
+                    </div>
+                    {ev.lembrete_enviado_em && <span style={{ fontSize: 10.5, fontWeight: 800, color: '#16a34a', background: '#e7f8ef', borderRadius: 20, padding: '3px 9px' }}>✓ lembrete enviado</span>}
+                    {temTel(ev.telefone)
+                      ? <a href={wa(ev.telefone, msgAmanha(ev))} target="_blank" rel="noreferrer" className="btn btn-sm" style={{ gap: 5, background: '#25D366', color: '#fff', border: 'none', fontWeight: 800 }}><MessageCircle size={13} /> WhatsApp</a>
+                      : <span style={{ fontSize: 11, color: 'var(--light)', fontWeight: 600 }}>sem telefone</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
           {aba === 'indicacoes' && ((dados.indicacoes || []).length === 0 ? (
             <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}>
