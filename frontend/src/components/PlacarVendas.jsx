@@ -81,11 +81,28 @@ export default function PlacarVendas() {
   const [hoje, setHoje] = useState(null);
   const [pulse, setPulse] = useState(false);
   const [festa, setFesta] = useState(false);   // comemoração de venda ao vivo
+  const [pausa, setPausa] = useState(null);    // ⏸️ freio geral da automação
   const sockRef = useRef(null);
 
   const carregar = () => {
     api.get('/extras/meta-setor').then(setMeta).catch(() => {});
     api.get('/extras/vendas/hoje').then(setHoje).catch(() => {});
+    // Estado do freio geral — só o master enxerga (e só ele pode mexer)
+    if (user?.role === 'master') api.get('/inbox/automacao/pausa').then(setPausa).catch(() => {});
+  };
+
+  /* ⏸️ PARAR TUDO — um clique estanca toda mensagem automática: Vitta, menu,
+     reabertura de 24h, follow-up, resgate, lembretes e a fila agendada. Fica
+     aqui no topo de propósito: no aperto, ninguém vai caçar em Configurações. */
+  const alternarPausa = async () => {
+    const parar = !pausa?.pausada;
+    if (!window.confirm(parar
+      ? 'PARAR TODA MENSAGEM AUTOMÁTICA agora?\n\nA Vitta para de responder, e follow-ups, lembretes e mensagens agendadas não saem. O Chat continua normal: a equipe escreve e envia na mão.'
+      : 'Religar as mensagens automáticas?')) return;
+    try {
+      const d = await api.post('/inbox/automacao/pausa', { pausada: parar });
+      setPausa(d);
+    } catch (e) { window.alert('Erro: ' + e.message); }
   };
 
   useEffect(() => {
@@ -293,6 +310,18 @@ export default function PlacarVendas() {
         </span>
       )}
 
+      {/* ⏸️ Freio geral (só o master) */}
+      {user?.role === 'master' && (
+        <button onClick={alternarPausa}
+          title={pausa?.pausada ? 'Religar as mensagens automáticas' : 'Parar TODA mensagem automática agora'}
+          style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 12, cursor: 'pointer',
+            whiteSpace: 'nowrap', fontSize: 11.5, fontWeight: 900,
+            border: `1px solid ${pausa?.pausada ? 'rgba(110,231,183,.7)' : 'rgba(252,165,165,.7)'}`,
+            background: pausa?.pausada ? 'rgba(16,185,129,.25)' : 'rgba(220,38,38,.28)', color: '#fff' }}>
+          {pausa?.pausada ? '▶️ Religar a Vitta' : '⏸️ Parar automático'}
+        </button>
+      )}
+
       {/* 🏆 Atalho pro pódio — a disputa mora aqui em cima, não escondida no menu */}
       <button onClick={() => nav('/ranking')} title="Ver o ranking da equipe (por quantidade de vendas)"
         style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 12, cursor: 'pointer',
@@ -315,6 +344,15 @@ export default function PlacarVendas() {
       <div style={{ fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
         {grito}
       </div>
+
+      {/* Pausado precisa GRITAR: esquecer o freio puxado é pior que o problema
+          que ele resolve (cliente fica sem resposta e ninguém percebe). */}
+      {pausa?.pausada && (
+        <div style={{ width: '100%', marginTop: 6, padding: '6px 12px', borderRadius: 10, textAlign: 'center',
+          background: 'rgba(220,38,38,.9)', color: '#fff', fontSize: 12, fontWeight: 900 }}>
+          ⏸️ AUTOMÁTICO PAUSADO — a Vitta não responde, e follow-ups, lembretes e agendadas não saem. Só mensagem escrita à mão.
+        </div>
+      )}
 
       {/* Barra grande do mês colada na base da faixa — o "termômetro" do time.
           Enche na frente de todo mundo a cada venda registrada. */}

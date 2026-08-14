@@ -2257,6 +2257,14 @@ r.post('/webhook/zapi', async (req, res) => {
     // já foi salva e exibida acima; encerra aqui.
     if (isGroupMsg) return;
 
+    /* ⏸️ FREIO GERAL: pausado = nada sai sozinho, nem nas conversas com o bot
+       ligado na mão. A mensagem do cliente já foi salva e aparece no Chat —
+       só a RESPOSTA automática é que não acontece. */
+    if (await automacaoPausada()) {
+      console.log(`⏸️ conv=${conv.id}: automação pausada pelo master — nenhum envio automático`);
+      return;
+    }
+
     // FAIL-CLOSED: erro ao ler a config = tudo DESLIGADO (nunca dispara por engano).
     const { rows: [cfgBotRow] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'")
       .catch(() => ({ rows: [{ valor: { ativo: false, consultaIA: false } }] }));
@@ -4238,8 +4246,53 @@ function pareceMensagemDeTeste(texto) {
   return /^(oi\s+)?(teste|test|testando|testes|teste de envio|mensagem de teste|msg de teste)([\s.!\-–—:]*\d*)?$/.test(t);
 }
 
+/* ⏸️ FREIO GERAL DA AUTOMAÇÃO — um interruptor só, que para TUDO que sai
+   sozinho: Vitta respondendo, menu, reabertura de 24h, follow-up, resgate,
+   lembretes e a fila de mensagens agendadas.
+   Existia liga/desliga espalhado (bot global, IA de consultas, bot da conversa)
+   e no aperto ninguém acha todos — o master precisava de UM botão que
+   estanca na hora. Enquanto estiver pausado, mensagem só sai se uma pessoa
+   escrever e enviar.
+   Cache de 10s pra não ir ao banco a cada mensagem; qualquer erro de leitura
+   é tratado como PAUSADO (fail-closed: no susto, o certo é calar a boca). */
+let pausaCache = { valor: null, em: 0 };
+export function invalidarPausa() { pausaCache = { valor: null, em: 0 }; }
+export async function automacaoPausada() {
+  if (pausaCache.valor !== null && Date.now() - pausaCache.em < 10000) return pausaCache.valor;
+  try {
+    const { rows: [r2] } = await query("SELECT valor FROM configuracoes WHERE chave = 'automacao_pausada'");
+    const v = r2?.valor?.pausada === true;
+    pausaCache = { valor: v, em: Date.now() };
+    return v;
+  } catch { return true; }
+}
+
+// Estado + botão do freio (só o master)
+r.get('/automacao/pausa', masterOnly, async (req, res) => {
+  try {
+    const { rows: [r2] } = await query("SELECT valor FROM configuracoes WHERE chave = 'automacao_pausada'").catch(() => ({ rows: [] }));
+    res.json({ pausada: r2?.valor?.pausada === true, por: r2?.valor?.por || null, em: r2?.valor?.em || null });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+r.post('/automacao/pausa', masterOnly, async (req, res) => {
+  try {
+    const pausada = req.body?.pausada !== false;
+    const dados = { pausada, por: req.user.nome, em: new Date().toISOString() };
+    await query(`INSERT INTO configuracoes (chave, valor) VALUES ('automacao_pausada', $1::jsonb)
+                 ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`, [JSON.stringify(dados)]);
+    invalidarPausa();
+    await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('alerta', $1, $2, true)`,
+      [pausada ? '⏸️ Automação PAUSADA' : '▶️ Automação religada',
+       pausada ? `${req.user.nome} parou tudo que sai sozinho. Mensagem só sai se alguém escrever e enviar.`
+               : `${req.user.nome} religou a Vitta, os follow-ups e os lembretes automáticos.`]).catch(() => {});
+    console.warn(`⏸️ AUTOMAÇÃO ${pausada ? 'PAUSADA' : 'RELIGADA'} por ${req.user.nome}`);
+    res.json({ ok: true, ...dados });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 async function processarAgendadas() {
   if (agendadorRodando) return;
+  if (await automacaoPausada()) return;        // ⏸️ freio geral
   agendadorRodando = true;
   try {
     const { rows } = await query(`SELECT * FROM mensagens_agendadas WHERE status = 'pendente' AND enviar_em <= NOW() ORDER BY enviar_em LIMIT 20`).catch(() => ({ rows: [] }));
@@ -7417,6 +7470,7 @@ async function gerarMensagemFollowup(conv, count) {
 
 let followupRodando = false;
 export async function rodarFollowups() {
+  if (await automacaoPausada()) return { pausado: true };   // ⏸️ freio geral
   if (followupRodando) return;          // evita sobreposição de ticks
   followupRodando = true;
   try {
@@ -7544,6 +7598,7 @@ Regras: português do Brasil, caloroso e humano, 2 a 4 linhas, no máximo 2 emoj
 
 let resgateRodando = false;
 export async function rodarResgateIA() {
+  if (await automacaoPausada()) return { pausado: true };   // ⏸️ freio geral
   if (resgateRodando) return;
   resgateRodando = true;
   try {

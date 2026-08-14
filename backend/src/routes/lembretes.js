@@ -400,6 +400,9 @@ function agoraLocal() {
 }
 
 export async function rodarLembretesAutomaticos() {
+  // ⏸️ Freio geral do master: pausado, nenhum lembrete sai sozinho
+  const { automacaoPausada } = await import('./inbox.js');
+  if (await automacaoPausada()) return { pausado: true };
   if (!zapiOk()) return;
   const cfg = await lerAuto();
   if (!cfg.ativo) return;
