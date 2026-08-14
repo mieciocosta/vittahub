@@ -712,16 +712,36 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
        Suellen, Mayara e Stefany tinham entrado como híbridas nos três setores;
        aqui elas ficam onde realmente atendem — senão a triagem manda conversa
        de vacina pra quem é de consulta, e o placar cobra a meta errada. */
-    const { rows: [flagSetores2] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_setores_definitivos_v1'");
-    if (!flagSetores2) {
-      // Raylane (63358210367) e Stefany (61953622399) → só vacinas
-      await query(`UPDATE usuarios SET setor = 'vacinas', setores = NULL
-                    WHERE cpf IN ('63358210367','61953622399')`).catch(() => {});
-      // Danielle (61867382300), Suellen (61683378300) e Mayara (61242108351)
-      await query(`UPDATE usuarios SET setor = 'consultas', setores = '{consultas,terapias}'
-                    WHERE cpf IN ('61867382300','61683378300','61242108351')`).catch(() => {});
-      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_setores_definitivos_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
-      console.log('🧭 Setores: Raylane/Stefany = vacinas · Danielle/Suellen/Mayara = consultas+terapias');
+    /* v2 do seed. A v1 comparava o CPF CRU (`cpf IN ('61867382300')`), mas o
+       cadastro pode ter o CPF com ponto e traço — o próprio login normaliza
+       antes de comparar, justamente por isso. Nenhuma linha era atingida, o
+       .catch engolia o silêncio e a flag marcava o seed como feito: a Danielle
+       ficou SEM setor, e quem não tem setor vê todas as abas. Era esse o motivo
+       de "Solicitar Vacinas" continuar aparecendo pra ela.
+       Agora normaliza igual ao login, sem catch mudo, e registra quantas linhas
+       mudaram — se der zero, aparece no log em vez de passar batido. */
+    const { rows: [flagSetores3] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_setores_definitivos_v2'");
+    if (!flagSetores3) {
+      const soDigitos = "regexp_replace(COALESCE(cpf,''),'\\D','','g')";
+      const rVac = await query(
+        `UPDATE usuarios SET setor = 'vacinas', setores = NULL
+          WHERE ${soDigitos} IN ('63358210367','61953622399')`);        // Raylane, Stefany
+      const rCon = await query(
+        `UPDATE usuarios SET setor = 'consultas', setores = '{consultas,terapias}'
+          WHERE ${soDigitos} IN ('61867382300','61683378300','61242108351')`); // Danielle, Suellen, Mayara
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_setores_definitivos_v2','{"ok":true}') ON CONFLICT DO NOTHING`);
+      /* Marketing (José e Carlos) recebe os TRÊS setores de forma explícita.
+         Antes eles ficavam "sem setor" e a regra usava isso como sinal de "vê
+         tudo" — o que tornava qualquer cadastro incompleto indistinguível do
+         marketing. Com os três marcados, "sem setor" volta a significar
+         cadastro faltando, e o sistema pode fechar em vez de abrir. */
+      const rMkt = await query(
+        `UPDATE usuarios SET setores = '{vacinas,consultas,terapias}'
+          WHERE ${soDigitos} IN ('62075159351','07964909371')`);          // José, Carlos
+      console.log(`🧭 Setores aplicados — vacinas: ${rVac.rowCount} · consultas+terapias: ${rCon.rowCount} · marketing: ${rMkt.rowCount}`);
+      if (rVac.rowCount + rCon.rowCount < 5) {
+        console.warn('⚠️ Nem todos os setores foram aplicados: confira os CPFs em Configurações → Usuários');
+      }
     }
 
     // ── AUDITORIA + PRESENÇA (admin only) ─────────────────────────────────

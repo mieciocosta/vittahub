@@ -179,7 +179,15 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
   // Setores da pessoa (lista multi-setor ou o principal). Sem nenhum = vê tudo.
   const meusSetores = (Array.isArray(user?.setores) && user.setores.length)
     ? user.setores : [user?.setor].filter(Boolean);
-  const podeSetor = (s) => user?.role === 'master' || !meusSetores.length || meusSetores.includes(s);
+  /* Quem vê aba de OUTRO setor: só o master e o marketing (ve_tudo E sem setor
+     nenhum — é a combinação do José e do Carlos).
+     Antes bastava "não ter setor" pra ver tudo, e isso transformava qualquer
+     cadastro incompleto num vazamento silencioso: foi assim que a Danielle,
+     com o setor não aplicado por um seed furado, voltou a ver Solicitar
+     Vacinas. Agora falta de cadastro FECHA em vez de abrir — e o marketing
+     (José e Carlos) recebe os três setores explicitamente no cadastro, em vez
+     de depender de "não ter setor". */
+  const podeSetor = (s) => user?.role === 'master' || meusSetores.includes(s);
   const ehDono = user?.dono === true || /mi[eé]cio/i.test(`${user?.nome || ''} ${user?.email || ''}`);
   const podeTrocar = (isMaster && ehDono) || !!localStorage.getItem('vh_token_master');
   const tokenMaster = () => localStorage.getItem('vh_token_master') || localStorage.getItem('vh_token') || '';
