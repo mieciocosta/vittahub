@@ -12,14 +12,23 @@ import { fmt } from '../hooks/utils.js';
 
 const PERIODOS = [['hoje', 'Hoje'], ['semana', 'Últimos 7 dias'], ['mes', 'Este mês']];
 const SETOR_INFO = {
+  equipe: { rotulo: 'Equipe Vittalis', emoji: '👑', cor: '#f59e0b' },
   vacinas: { rotulo: 'Vacinas', emoji: '💉', cor: '#7c5cbf' },
   consultas: { rotulo: 'Consultas', emoji: '🩺', cor: '#00B8C0' },
   terapias: { rotulo: 'Terapias', emoji: '🧩', cor: '#C4973B' },
 };
-const MEDALHA = { 1: '🥇', 2: '🥈', 3: '🥉' };
+const MEDALHA = { 1: '🥇', 2: '🥈', 3: '🥉', 4: '4º', 5: '5º' };
 // Alturas do pódio: o 1º lugar precisa ser visivelmente mais alto
-const DEGRAU = { 1: 96, 2: 68, 3: 50 };
-const ORDEM_PODIO = [2, 1, 3];   // prata à esquerda, ouro no meio, bronze à direita
+const DEGRAU = { 1: 100, 2: 76, 3: 58, 4: 44, 5: 34 };
+// Pódio de 5 (pedido do master): o ouro no meio e os degraus caindo pros lados
+const ORDEM_PODIO = [4, 2, 1, 3, 5];
+const COR_DEGRAU = {
+  1: 'linear-gradient(180deg,#fcd34d,#f59e0b)',
+  2: 'linear-gradient(180deg,#e5e7eb,#9ca3af)',
+  3: 'linear-gradient(180deg,#f3c99b,#b45309)',
+  4: 'linear-gradient(180deg,#dbeafe,#93c5fd)',
+  5: 'linear-gradient(180deg,#ede9fe,#c4b5fd)',
+};
 
 const Avatar = ({ p, tam }) => (
   p.avatar
@@ -33,6 +42,8 @@ export default function Ranking() {
   const api = useApi();
   const { user } = useAuth();
   const [periodo, setPeriodo] = useState('mes');
+  // Equipe toda no mesmo pódio é o padrão (pedido do master); por setor é opção
+  const [visao, setVisao] = useState('equipe');
   const [dados, setDados] = useState(null);
   const [erro, setErro] = useState('');
   const [carregando, setCarregando] = useState(true);
@@ -106,10 +117,23 @@ export default function Ranking() {
         </div>
       )}
 
-      {(dados?.setores || []).map((bloco) => {
+      {/* Equipe toda x por setor */}
+      {dados?.geral && (dados.setores || []).length > 1 && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 18 }}>
+          {[['equipe', '👑 Equipe toda'], ['setor', '🎯 Por setor']].map(([k, rot]) => (
+            <button key={k} onClick={() => setVisao(k)}
+              style={{ padding: '6px 13px', borderRadius: 20, fontSize: 12, fontWeight: 800, cursor: 'pointer',
+                border: `1.5px solid ${visao === k ? '#f59e0b' : 'var(--border)'}`,
+                background: visao === k ? '#fef3c7' : 'var(--card)', color: visao === k ? '#92400e' : 'var(--txt2)' }}>
+              {rot}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {((visao === 'equipe' && dados?.geral) ? [dados.geral] : (dados?.setores || [])).map((bloco) => {
         const info = SETOR_INFO[bloco.setor] || { rotulo: bloco.setor, emoji: '🎯', cor: '#0E8C96' };
-        const podio = bloco.itens.filter(x => x.pos <= 3).slice(0, 3);
-        const restante = bloco.itens.filter(x => !podio.includes(x));
+        const podio = bloco.itens.slice(0, 5);
         const ninguemVendeu = bloco.total === 0;
 
         return (
@@ -142,25 +166,31 @@ export default function Ranking() {
               <>
                 {/* 🏆 O PÓDIO */}
                 <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-                <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'center', gap: 14, flexWrap: 'wrap',
-                  padding: '26px 18px 0',
+                <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'center', gap: 10, flexWrap: 'wrap',
+                  padding: '26px 16px 12px',
                   background: 'linear-gradient(180deg, rgba(245,158,11,.14), rgba(245,158,11,0))' }}>
                   {ORDEM_PODIO.map((lugar) => {
-                    const p = podio.find(x => x.pos === lugar) || podio[lugar - 1];
+                    /* Posição na LISTA, não no campo `pos`: com empate duas
+                       pessoas dividem o 2º e ninguém ocuparia o 3º degrau. */
+                    const p = podio[lugar - 1];
                     if (!p) return null;
                     const ouro = lugar === 1;
-                    const corDeg = ouro ? 'linear-gradient(180deg,#fcd34d,#f59e0b)'
-                      : lugar === 2 ? 'linear-gradient(180deg,#e5e7eb,#9ca3af)'
-                        : 'linear-gradient(180deg,#f3c99b,#b45309)';
+                    const corDeg = COR_DEGRAU[lugar];
                     return (
-                      <div key={lugar} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 128 }}>
+                      <div key={lugar} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: lugar <= 3 ? 122 : 100 }}>
                         {ouro && <div style={{ fontSize: 22, marginBottom: -4 }}>👑</div>}
                         <div style={{ position: 'relative', marginBottom: 7 }}>
-                          <Avatar p={p} tam={ouro ? 66 : 52} />
-                          <span style={{ position: 'absolute', right: -6, bottom: -4, fontSize: ouro ? 24 : 20 }}>{MEDALHA[lugar]}</span>
+                          <Avatar p={p} tam={ouro ? 66 : lugar <= 3 ? 52 : 42} />
+                          {/* 4º e 5º ganham um selo redondo — o texto solto por
+                              cima da foto ficava ilegível. */}
+                          {p.pos <= 3
+                            ? <span style={{ position: 'absolute', right: -6, bottom: -4, fontSize: ouro ? 24 : 19 }}>{MEDALHA[p.pos]}</span>
+                            : <span style={{ position: 'absolute', right: -6, bottom: -4, width: 20, height: 20, borderRadius: '50%',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 900,
+                                background: 'var(--card)', color: 'var(--txt2)', border: '1.5px solid var(--border)' }}>{p.pos}º</span>}
                         </div>
-                        <div style={{ fontWeight: 900, fontSize: ouro ? 14 : 13, textAlign: 'center', lineHeight: 1.15,
-                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 124 }}>
+                        <div style={{ fontWeight: 900, fontSize: ouro ? 14 : lugar <= 3 ? 13 : 12, textAlign: 'center', lineHeight: 1.15,
+                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 118 }}>
                           {(p.nome || '').split(' ')[0]}
                           {p.voce && <span style={{ fontSize: 10, fontWeight: 800, color: 'var(--tq2)' }}> (você)</span>}
                         </div>
@@ -168,10 +198,10 @@ export default function Ranking() {
                           {p.hoje > 0 ? `${p.hoje} hoje` : 'nada hoje'}
                         </div>
                         {/* O degrau */}
-                        <div style={{ width: '100%', height: DEGRAU[lugar], borderRadius: '12px 12px 0 0', background: corDeg,
+                        <div style={{ width: '100%', height: DEGRAU[lugar], borderRadius: '12px 12px 4px 4px', background: corDeg,
                           display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                           boxShadow: '0 -3px 14px rgba(0,0,0,.14)', color: '#3b2a00' }}>
-                          <div style={{ fontSize: ouro ? 30 : 24, fontWeight: 900, lineHeight: 1 }}>{p.n}</div>
+                          <div style={{ fontSize: ouro ? 30 : lugar <= 3 ? 24 : 20, fontWeight: 900, lineHeight: 1 }}>{p.n}</div>
                           <div style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: .5 }}>
                             venda{p.n === 1 ? '' : 's'}
                           </div>

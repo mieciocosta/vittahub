@@ -709,7 +709,34 @@ r.get('/ranking', async (req, res) => {
       };
     });
 
-    res.json({ periodo, setores });
+    /* PÓDIO ÚNICO DA EQUIPE — o master pediu uma lista só com as cinco: Raylane,
+       Danielle, Suellen, Stefany e Mayara. A quebra por setor continua na tela
+       como opção (é ela que compara laranja com laranja), mas o padrão é a
+       equipe inteira disputando junto. */
+    const juntas = new Map();
+    for (const b2 of setores) {
+      for (const it of b2.itens) {
+        const k = it.id || it.nome;
+        const j = juntas.get(k);
+        if (j) { j.n += it.n; j.hoje += it.hoje; }
+        else juntas.set(k, { ...it });
+      }
+    }
+    const lista = [...juntas.values()].sort((a, b2) => b2.n - a.n || b2.hoje - a.hoje || String(a.nome).localeCompare(String(b2.nome)));
+    let posG = 0, ultG = null;
+    const itensGeral = lista.map((x, i) => { if (x.n !== ultG) { posG = i + 1; ultG = x.n; } return { ...x, pos: posG }; });
+    const liderG = itensGeral[0]?.n || 0;
+    const euG = itensGeral.find(x => x.voce) || null;
+
+    res.json({
+      periodo, setores,
+      geral: {
+        setor: 'equipe', itens: itensGeral,
+        minhaPos: euG?.pos || null, meuTotal: euG?.n ?? null,
+        paraLiderar: euG && euG.pos > 1 ? Math.max(liderG - euG.n + 1, 1) : 0,
+        total: itensGeral.reduce((a, x) => a + x.n, 0),
+      },
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

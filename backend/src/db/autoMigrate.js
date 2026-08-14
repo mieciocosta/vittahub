@@ -1298,6 +1298,17 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_calendario_alternativas_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
     }
 
+    /* Beatriz saiu da equipe (avisado pelo master). Desativar em vez de apagar:
+       o histórico de vendas e conversas dela continua no lugar, mas ela some do
+       ranking, das listas e do login. Reversível em Configurações → Usuários. */
+    const { rows: [flagBea] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_desativa_beatriz_v1'");
+    if (!flagBea) {
+      const r = await query(`UPDATE usuarios SET ativo = false, updated_at = NOW()
+                              WHERE nome ILIKE 'Beatriz%' AND role IN ('atendente','supervisor')`).catch(() => ({ rowCount: 0 }));
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_desativa_beatriz_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log(`👋 Beatriz desativada (${r.rowCount || 0} cadastro)`);
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);
