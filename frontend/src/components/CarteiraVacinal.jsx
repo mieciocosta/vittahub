@@ -18,6 +18,8 @@ const ST = {
 const fmtBR = (d) => (d ? new Date(String(d).slice(0, 10) + 'T12:00:00').toLocaleDateString('pt-BR') : '—');
 
 export default function CarteiraVacinal({ convId, onAgendar, compacto = false }) {
+  // Lista fechada por padrão quando não há nascimento (ver comentário na lista)
+  const [verTudo, setVerTudo] = useState(false);
   const api = useApi();
   const [dados, setDados] = useState(null);
   const [salvando, setSalvando] = useState(null);
@@ -192,8 +194,11 @@ export default function CarteiraVacinal({ convId, onAgendar, compacto = false })
         const prox = dados.marcos.find(m => ['atrasada', 'parcial', 'no_ponto'].includes(m.status))
           || dados.marcos.find(m => m.status === 'chegando');
         if (!prox) return (
-          <div style={{ padding: '9px 12px', borderRadius: 11, background: '#f0fdf4', border: '1px solid #86efac', fontSize: 12.5, fontWeight: 700, color: '#15803d', marginBottom: 10 }}>
-            🏆 Esquema em dia! Nenhuma dose pendente no momento.
+          <div style={{ padding: '9px 12px', borderRadius: 11, marginBottom: 10, fontSize: 12.5, fontWeight: 700,
+            background: dados.nascimento ? '#f0fdf4' : '#fff7ed',
+            border: `1px solid ${dados.nascimento ? '#86efac' : '#fed7aa'}`,
+            color: dados.nascimento ? '#15803d' : '#9a3412' }}>
+            {dados.nascimento ? '🏆 Esquema em dia! Nenhuma dose pendente no momento.' : '📅 Cadastre a data de nascimento para o sistema montar o esquema e as datas de cada etapa.'}
           </div>
         );
         const atras = prox.status === 'atrasada';
@@ -215,8 +220,22 @@ export default function CarteiraVacinal({ convId, onAgendar, compacto = false })
         );
       })()}
 
-      {/* Linha do tempo do esquema */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 5, maxHeight: compacto ? 260 : 'none', overflowY: compacto ? 'auto' : 'visible' }}>
+      {/* Linha do tempo do esquema.
+          Sem rolagem própria: a caixa de 260px com overflow criava uma rolagem
+          DENTRO de uma página que já rola, e as linhas ficavam cortadas pela
+          metade na borda — parecia que uma estava em cima da outra.
+          E quando o nascimento não está cadastrado, o esquema inteiro é
+          suposição: as 12 etapas viram 32 linhas vazias sem data nenhuma. Nesse
+          caso a lista nasce fechada, atrás de um botão. */}
+      {!dados.nascimento && !verTudo ? (
+        <button onClick={() => setVerTudo(true)}
+          style={{ width: '100%', padding: '11px 14px', borderRadius: 12, cursor: 'pointer',
+            border: '1.5px dashed var(--border)', background: 'var(--bg)', color: 'var(--muted)',
+            fontSize: 12.5, fontWeight: 700 }}>
+          Ver as {dados.marcos.length} etapas do esquema (sem datas até cadastrar o nascimento)
+        </button>
+      ) : (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {dados.marcos.map(m => {
           const st = ST[m.status] || ST.futura;
           const parcial = m.status === 'parcial';
@@ -271,6 +290,7 @@ export default function CarteiraVacinal({ convId, onAgendar, compacto = false })
           );
         })}
       </div>
+      )}
 
       {/* 📅 Modal: agendar a etapa (cria o horário E solicita as doses) */}
       {agenda && (
