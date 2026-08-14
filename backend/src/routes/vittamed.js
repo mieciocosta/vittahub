@@ -57,7 +57,15 @@ r.get('/agenda', auth, async (req, res) => {
   if (!configurado()) {
     return res.json({
       ok: false, configurado: false, itens: [], total: 0, por_setor: {},
-      aviso: 'Ponte com o VittaMed ainda não configurada (falta VITTAMED_URL ou INTEGRACAO_TOKEN no ambiente).',
+      // Mensagem que a EQUIPE entende: dizer "falta VITTAMED_URL no ambiente"
+      // não ajuda quem está atendendo — ela precisa saber que não é defeito e
+      // quem resolve.
+      aviso: 'A ligação com o VittaMed ainda não foi ligada. Não é um defeito: falta o Dr. Miécio cadastrar o endereço do VittaMed e a chave de integração no Railway. Enquanto isso, consulte a agenda direto no VittaMed.',
+      falta: [
+        !process.env.VITTAMED_URL ? 'VITTAMED_URL (endereço da API do VittaMed)' : null,
+        (!process.env.INTEGRACAO_TOKEN || process.env.INTEGRACAO_TOKEN.length < 16)
+          ? 'INTEGRACAO_TOKEN (senha compartilhada entre os dois sistemas, 16+ caracteres)' : null,
+      ].filter(Boolean),
     });
   }
   const data = /^\d{4}-\d{2}-\d{2}$/.test(req.query.data || '') ? req.query.data : hojeLocal();

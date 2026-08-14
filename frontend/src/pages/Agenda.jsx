@@ -169,7 +169,7 @@ export default function Agenda() {
         ))}
       </div>
 
-      {aba === 'vittamed' ? <AgendaVittaMed vmed={vmed} setor={vmedSetor} setSetor={setVmedSetor} rotuloDia={rotuloDia} onRecarregar={loadVmed} /> :
+      {aba === 'vittamed' ? <AgendaVittaMed vmed={vmed} setor={vmedSetor} setSetor={setVmedSetor} rotuloDia={rotuloDia} onRecarregar={loadVmed} ehMaster={user?.role === 'master'} /> :
        aba === 'relatorio' ? <RelatorioDia rel={rel} data={data} rotuloDia={rotuloDia} onLider={() => setRelLider(true)} /> : (
       <div className="card" style={{ padding: 0, overflow: 'hidden', background: 'var(--card)' }}>
         <div style={{ padding: '13px 20px', background: 'linear-gradient(90deg,var(--tq),#0aa6ae)', color: '#fff', fontWeight: 800, fontSize: 14, textTransform: 'capitalize' }}>
@@ -430,7 +430,7 @@ function baixarPDF(eventos, dataISO, rotuloDia) {
    Pedido do master: cada setor tem sua agenda. Aqui a equipe do Hub enxerga o
    que está marcado no VittaMed sem trocar de sistema — e sem poder mexer:
    agendar continua no sistema de origem, para não existirem duas verdades. */
-function AgendaVittaMed({ vmed, setor, setSetor, rotuloDia, onRecarregar }) {
+function AgendaVittaMed({ vmed, setor, setSetor, rotuloDia, onRecarregar, ehMaster }) {
   const SET = { vacinas: ['💉 Vacinas', '#7c5cbf'], consultas: ['🩺 Consultas', '#00B8C0'], terapias: ['🧩 Terapias', '#C4973B'] };
   const ST = { finalizado: ['#e2f8ef', '#0a8f5b'], confirmado: ['#e2f8ef', '#0a8f5b'], agendado: ['#e8f4fd', '#1d6fb8'], aguardando: ['#fdf3e2', '#a07514'], em_atendimento: ['#e8f4fd', '#1d6fb8'], faltou: ['#fdf0e8', '#c2410c'], cancelado: ['#fdecec', '#c0392b'] };
 
@@ -442,6 +442,16 @@ function AgendaVittaMed({ vmed, setor, setSetor, rotuloDia, onRecarregar }) {
       <div style={{ fontSize: 34, marginBottom: 8, opacity: .5 }}>🏥</div>
       <div style={{ fontWeight: 800, fontSize: 14.5, marginBottom: 6 }}>Agenda do VittaMed indisponível</div>
       <p style={{ color: 'var(--muted)', fontSize: 13, maxWidth: 520, margin: '0 auto', lineHeight: 1.6 }}>{aviso}</p>
+      {/* Só o master precisa da parte técnica — pra equipe isso seria ruído */}
+      {ehMaster && !!(vmed.falta || []).length && (
+        <div style={{ maxWidth: 520, margin: '13px auto 0', padding: '11px 14px', borderRadius: 11,
+          background: 'var(--bg2)', textAlign: 'left', fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
+          <b style={{ color: 'var(--txt)' }}>Pra ligar (Railway → Variables):</b>
+          <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+            {vmed.falta.map(f => <li key={f}>{f}</li>)}
+          </ul>
+        </div>
+      )}
       <button onClick={onRecarregar} className="btn btn-s" style={{ marginTop: 14 }}>Tentar de novo</button>
     </div>
   );
