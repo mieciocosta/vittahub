@@ -1,6 +1,7 @@
 import express from 'express';
 import { socketEmit } from '../socketServer.js';
 import { query } from '../db/pool.js';
+import { pareceMensagemDeTeste, avisarTesteBloqueado } from '../services/freio.js';
 
 // ─── Integração servidor-a-servidor (ex.: VittaMed/VittaSys → VittaHub) ───────
 // Permite que outro sistema da clínica envie mensagens pelo WhatsApp conectado
@@ -40,6 +41,13 @@ r.post('/send-text', async (req, res) => {
   const message = String(b.message || '').slice(0, 3000);
   if (!phone || phone.length < 10 || !message.trim()) return res.status(400).json({ error: 'Informe phone e message.' });
   if (!phone.startsWith('55')) phone = `55${phone}`;
+  /* 🚨 A ponte com o VittaSys/VittaMed é uma porta de envio como qualquer
+     outra — e a mais provável de carregar sobra de homologação do outro lado.
+     Mensagem de teste não passa por aqui pro WhatsApp do cliente. */
+  if (pareceMensagemDeTeste(message)) {
+    await avisarTesteBloqueado(query, { texto: message, destino: phone, origem: 'ponte de integração (VittaSys/VittaMed)' });
+    return res.status(409).json({ error: 'Mensagem de teste bloqueada — o VittaHub não envia texto de teste para clientes.' });
+  }
   try {
     const zr = await zapiSendText(phone, message);
     const txt = await zr.text().catch(() => '');

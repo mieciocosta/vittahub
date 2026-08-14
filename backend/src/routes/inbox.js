@@ -12,6 +12,7 @@ import { enviarPush, enviarPushEquipe } from '../services/push.js';
 import { getCalendario as getCalendarioVacinal } from '../services/calendario.js';
 import { sincronizarFidelidadeVittasys, pontePronta, ultimaSincronizacaoFidelidade, setAvisarCacheConversaFidelidade } from '../services/fidelidadeVittasys.js';
 import { htmlParaPDF } from '../services/pdf.js';
+import { pareceMensagemDeTeste, avisarTesteBloqueado } from '../services/freio.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const r = express.Router();
@@ -696,6 +697,17 @@ const zapiOk = () => process.env.ZAPI_INSTANCE && process.env.ZAPI_TOKEN;
 // Helper: call Z-API
 async function zapiCall(path, method = 'GET', body = null) {
   const { default: fetch } = await import('node-fetch');
+  /* 🚨 TRANCA ÚNICA: nenhuma mensagem de teste chega no WhatsApp do cliente,
+     não importa por qual caminho ela veio (Vitta, menu, follow-up, resgate,
+     lembrete, fila agendada, Chat ou endpoint de diagnóstico). É de propósito
+     que a checagem mora AQUI, na porta, e não em cada chamador: bloquear num
+     lugar só empurrava o problema pro caminho seguinte. */
+  if (/send-(text|message)/.test(path) && body && pareceMensagemDeTeste(body.message)) {
+    await avisarTesteBloqueado(query, { texto: body.message, destino: body.phone, origem: 'envio interno' });
+    // Resposta falsa de "ok" pra não derrubar o fluxo de quem chamou —
+    // o importante é que nada saiu.
+    return { ok: false, status: 409, text: async () => 'bloqueado: mensagem de teste', json: async () => ({ bloqueado: true }) };
+  }
   const headers = { 'Content-Type': 'application/json' };
   if (ZAPI_CTOKEN()) headers['Client-Token'] = ZAPI_CTOKEN();
   return fetch(`${ZAPI_BASE()}${path}`, {
@@ -2766,52 +2778,10 @@ r.get('/whatsapp/diagnostico', masterOnly, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ─── DEBUG: testar POST no próprio webhook (via ?k=vt24) ─────────────────────
-r.get('/whatsapp/test-post', async (req, res) => {
-  if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
-  try {
-    const { default: fetch } = await import('node-fetch');
-    const url = 'https://vittahub-backend-production.up.railway.app/api/inbox/webhook/zapi';
-    const r2 = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ test: true, phone: '5598999999999', text: { message: 'teste POST' } }),
-    });
-    const body = await r2.text();
-    res.json({
-      post_status: r2.status,
-      post_body: body.slice(0, 200),
-      post_ok: r2.status === 200,
-    });
-  } catch (e) { res.json({ error: e.message }); }
-});
-
-// ─── DEBUG: enviar mensagem de teste e checar webhook (via ?k=vt24) ──────────
-/* Era GET: bastava o link ser aberto (ou pré-carregado pelo navegador) pra sair
-   um WhatsApp de verdade. Virou POST com confirmação explícita — não existe
-   mais caminho em que uma mensagem de teste saia "do nada". */
-r.post('/whatsapp/test-send', masterOnly, async (req, res) => {
-  if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
-  if (String(req.body?.confirmar) !== 'SIM') return res.status(400).json({ error: 'Envie {"confirmar":"SIM"} — este endpoint dispara um WhatsApp real.' });
-  if (!zapiOk()) return res.json({ error: 'Z-API não configurada' });
-  try {
-    const phone = String(req.body?.phone || req.query.phone || '').replace(/\D/g, '');
-    if (!phone) return res.status(400).json({ error: 'Informe o telefone de destino.' });
-    const before = lastWebhooks.length;
-    // Envia mensagem de teste
-    const r2 = await zapiCall('/send-text', 'POST', { phone, message: 'Teste webhook VittaHub ' + new Date().toLocaleTimeString() });
-    const sendResult = await r2?.text() || '';
-    // Aguarda 3s para o webhook "ao enviar" chegar
-    await new Promise(r => setTimeout(r, 3000));
-    res.json({
-      enviou: { status: r2?.status, body: sendResult.slice(0, 200) },
-      webhooks_antes: before,
-      webhooks_depois: lastWebhooks.length,
-      recebeu_webhook: lastWebhooks.length > before,
-      ultimos: lastWebhooks.slice(0, 3),
-    });
-  } catch (e) { res.json({ error: e.message }); }
-});
+/* O endpoint que mandava "Teste webhook VittaHub …" pelo WhatsApp foi REMOVIDO
+   (pedido do master: "não quero que apareça nada disso"). Diagnóstico de
+   entrada de mensagem não precisa disparar mensagem: /whatsapp/diagnostico já
+   confere webhook, fila e resgate sem falar com nenhum cliente. */
 
 // ─── DEBUG: forçar configuração de webhooks e ver resultado (via ?k=vt24) ────
 r.get('/whatsapp/force-webhooks', masterOnly, async (req, res) => {
@@ -2903,38 +2873,11 @@ r.get('/proposta/test-precos', async (req, res) => {
   } catch (e) { res.json({ error: e.message }); }
 });
 
-// ─── DEBUG: testar ENVIO completo de proposta ───────────────────────────────
-r.get('/proposta/test-envio', async (req, res) => {
-  if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
-  const phone = req.query.phone || '559888278736';
-  try {
-    const precos = await getPrecosVittaSys();
-    const influ = precos.find(p => p.nome.toLowerCase().includes('influenza')) || { nome:'Influenza', avista:170, credito:180, parcelas:1 };
-    const t0 = Date.now();
-    const pdfBuf = await gerarPropostaPDF({
-      nomeCliente: 'Teste Envio', template: 'adulto', pacoteNome: 'Teste',
-      vacinas: [influ], desconto: 0, parcelas: 1,
-    });
-    const t1 = Date.now();
-    const b64 = pdfBuf.toString('base64');
-    let ph = phone.replace(/\D/g, '');
-    if (ph.startsWith('55') && ph.length >= 12) ph = ph.slice(2);
-    const zr = await enviarPDFZapi(`55${ph}`, b64, 'Proposta-Teste.pdf');
-    const zrBody = await zr?.text().catch(() => '');
-    res.json({
-      pdf_bytes: pdfBuf.length,
-      pdf_base64_kb: Math.round(b64.length / 1024),
-      tempo_geracao_ms: t1 - t0,
-      precos_carregados: precos.length,
-      envio_status: zr?.status,
-      envio_resposta: zrBody.slice(0, 300),
-      phone_usado: `55${ph}`,
-    });
-  } catch (e) {
-    res.status(500).json({ error: e.message, stack: e.stack?.slice(0, 400) });
-  }
-});
-
+/* O disparo de "Proposta-Teste.pdf" pelo WhatsApp foi REMOVIDO. Era um GET
+   com chave fixa e telefone padrão: bastava o link ser aberto — ou pré-carregado
+   pelo navegador — pra um PDF chamado "Teste" sair pra um número real.
+   Conferir a geração da proposta não precisa de envio: /proposta/preview
+   devolve o PDF na tela, sem falar com ninguém. */
 // ─── DEBUG: testar geração de PLANO vacinal (via ?k=vt24&plano=plano_0_a_6_meses) ──
 r.get('/proposta/test-plano', async (req, res) => {
   if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
@@ -4215,6 +4158,12 @@ r.post('/conversations/:id/send', async (req, res) => {
 /* ─── MENSAGENS AGENDADAS: dispara texto pro cliente em data/hora marcada ──────── */
 // Envia um texto pela conversa (usado pelo agendador) e registra no histórico.
 async function enviarTextoConversa(conv, texto, senderNome) {
+  /* Bloqueia ANTES de gravar: se a tranca barrar depois, o histórico mostra a
+     mensagem como enviada e ninguém entende por que o cliente não respondeu. */
+  if (pareceMensagemDeTeste(texto)) {
+    await avisarTesteBloqueado(query, { texto, destino: conv.contact_name || conv.phone, origem: 'fila automática' });
+    throw new Error('Mensagem de teste bloqueada — não sai para o cliente.');
+  }
   const { rows: [msg] } = await query(
     `INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome, status) VALUES ($1,'me','text',$2,$3,'sent') RETURNING *`,
     [conv.id, texto, senderNome || 'Agendada']);
@@ -4231,21 +4180,6 @@ async function enviarTextoConversa(conv, texto, senderNome) {
 
 // Agendador: a cada 60s dispara as pendentes cujo horário chegou.
 let agendadorRodando = false;
-/* 🚨 FREIO DE MENSAGEM DE TESTE (pedido do master: "está mandando mensagem
-   teste do nada, tira isso").
-   Mensagem automática é a que sai SOZINHA — ninguém confere antes. Se o texto
-   agendado for só um "teste" (sobra de homologação, disparo experimental,
-   template esquecido na fila), ele não pode chegar num cliente de verdade.
-   Aqui o envio é CANCELADO e o master é avisado, em vez de enviado. Vale só
-   pra fila automática: mensagem digitada e enviada por uma atendente na hora
-   não passa por este filtro — se ela quiser escrever "teste", é escolha dela. */
-function pareceMensagemDeTeste(texto) {
-  const t = String(texto || '').trim().toLowerCase().replace(/\s+/g, ' ');
-  if (!t || t.length > 60) return false;                       // texto de verdade é maior
-  if (/^teste webhook vittahub/.test(t)) return true;
-  return /^(oi\s+)?(teste|test|testando|testes|teste de envio|mensagem de teste|msg de teste)([\s.!\-–—:]*\d*)?$/.test(t);
-}
-
 /* ⏸️ FREIO GERAL DA AUTOMAÇÃO — um interruptor só, que para TUDO que sai
    sozinho: Vitta respondendo, menu, reabertura de 24h, follow-up, resgate,
    lembretes e a fila de mensagens agendadas.
