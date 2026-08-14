@@ -52,7 +52,10 @@ r.get('/agenda', async (req, res) => {
     // entre si (motorista único) e vê tudo — precisa gerar o PDF completo (cliente,
     // vacina, pagamento, endereço) para as vacinadoras. Não compartilha com
     // consultas nem terapias, e vice-versa. Gestão vê tudo.
-    const isGestao = ['master', 'supervisor'].includes(req.user.role);
+    /* Só o MASTER vê a agenda inteira. 'supervisor' não serve: Raylane e
+       Danielle são supervisoras DO SETOR delas, e cada setor tem a sua agenda —
+       era por isso que a separação parecia não valer pra elas. */
+    const isGestao = req.user.role === 'master';
     const meuSetor = req.user.setor;
     const meusSetores = Array.isArray(req.user.setores) && req.user.setores.length ? req.user.setores : null;
     const out = isGestao

@@ -26,12 +26,15 @@ import AvatarBuilder from './AvatarBuilder.jsx';
 
 // Atalhos coloridos por classificação → abrem o chat filtrado (?cls=).
 // Fidelidade abre a PASTA (as conversas dela saem do inbox).
+// `setor` diz de quem é a pasta (pedido do master): Vacinação, Planos Vacinais e
+// Fidelidade são do setor de VACINAS; Consultas e Terapias, do de CONSULTAS.
+// Quem não é do setor não vê a pasta — antes todas apareciam pra todo mundo.
 const SETORES_MENU = [
-  { cls:'vacinacao',       label:'Vacinação',       cor:'#7c5cbf', to:'/vacinacao' },
-  { cls:'planos_vacinais', label:'Planos Vacinais', cor:'#3b82f6', to:'/planos-vacinais' },
-  { cls:'consultas',       label:'Consultas',       cor:'#00B8C0', to:'/consultas' },
-  { cls:'terapias',        label:'Terapias',        cor:'#C4973B', to:'/terapias' },
-  { cls:'fidelidade',      label:'Fidelidade',      cor:'#eab308', to:'/fidelidade' },
+  { cls:'vacinacao',       label:'Vacinação',       cor:'#7c5cbf', to:'/vacinacao',       setor:'vacinas' },
+  { cls:'planos_vacinais', label:'Planos Vacinais', cor:'#3b82f6', to:'/planos-vacinais', setor:'vacinas' },
+  { cls:'fidelidade',      label:'Fidelidade',      cor:'#eab308', to:'/fidelidade',      setor:'vacinas' },
+  { cls:'consultas',       label:'Consultas',       cor:'#00B8C0', to:'/consultas',       setor:'consultas' },
+  { cls:'terapias',        label:'Terapias',        cor:'#C4973B', to:'/terapias',        setor:'terapias' },
 ];
 
 // Ordem = PRIORIDADE do dia a dia (pedido do master): 1º o atendimento que gera
@@ -335,7 +338,8 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
     <>
       {!collapsed && <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:1.6, color:'rgba(255,255,255,.62)', padding:'10px 12px 5px', textTransform:'uppercase' }}>Setores</div>}
       {setorItem('/classificar', '#94a3b8', 'Novos a classificar', setorCount.sem_classificacao)}
-      {SETORES_MENU.map(s => setorItem(s.to || `/inbox?cls=${s.cls}`, s.cor, s.label, setorCount[s.cls]))}
+      {SETORES_MENU.filter(s => podeSetor(s.setor))
+        .map(s => setorItem(s.to || `/inbox?cls=${s.cls}`, s.cor, s.label, setorCount[s.cls]))}
     </>
   );
 
