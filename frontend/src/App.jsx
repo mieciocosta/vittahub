@@ -395,7 +395,7 @@ export default function App() {
           <Route path="/plano-vacinal" element={<PlanoVacinal />} />
           <Route path="/profissionais" element={(['master','supervisor'].includes(user.role) || user.setor === 'consultas') ? <Profissionais /> : <Navigate to="/" />} />
           <Route path="/metas" element={<Metas />} />
-          <Route path="/terapias" element={<Terapias />} />
+          <Route path="/plano-terapias" element={<Terapias />} />
           <Route path="/caixa" element={<Caixa />} />
           <Route path="/quiz" element={<Quiz />} />
           <Route path="/amigo" element={<Amigo />} />

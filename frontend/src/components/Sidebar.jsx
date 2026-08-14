@@ -34,7 +34,8 @@ const NAV = [
   { to:'/agenda?aba=relatorio&individual=1', icon:FileSignature, label:'Meu Relatório', cor:'#f59e0b', destaque:true },
   { to:'/metas',      icon:Target,          label:'Metas', gestao:true, destaque:true, cor:'#e879f9' },
   { to:'/inbox',      icon:MessageSquare,   label:'Chat',     unread:true, cor:'#25D366' },
-  { to:'/plano-vacinal', icon:Syringe, label:'Plano Vacinal', cor:'#22c55e', destaque:true },
+  { to:'/plano-vacinal', icon:Syringe, label:'Plano Vacinal', vacinas:true, cor:'#22c55e', destaque:true },
+  { to:'/plano-terapias', icon:Puzzle,      label:'Plano de Terapias', terapias:true, destaque:true, cor:'#a855f7' },
   { to:'/agenda',     icon:CalendarDays,    label:'Agenda', cor:'#f59e0b' },
   { to:'/vacinas-solicitacao', icon:Syringe, label:'Solicitar Vacinas', cor:'#8b5cf6' },
   { to:'/retornos',   icon:Bell,            label:'Follow-up',  retornos:true, cor:'#fb7185' },
@@ -46,7 +47,6 @@ const NAV = [
   { to:'/relatorios', icon:BarChart2,       label:'Relatórios', cor:'#60a5fa' },
   { to:'/funil',      icon:Kanban,          label:'Organização', cor:'#2dd4bf' },
   { to:'/banco-dados',icon:Database,        label:'Banco de Dados', cor:'#94a3b8' },
-  { to:'/terapias',   icon:Puzzle,          label:'Terapias', terapias:true, cor:'#a855f7' },
   { to:'/profissionais', icon:Stethoscope,  label:'Profissionais', consultas:true, cor:'#22d3ee' },
   { to:'/equipe',     icon:Users,           label:'Chat da Equipe', equipe:true, cor:'#4ade80' },
   { to:'/meu-painel', icon:LayoutGrid,      label:'Meu Painel', cor:'#c084fc' },
@@ -443,8 +443,14 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
         {NAV.filter(n => (!n.masterOnly || user?.role === 'master')
             && (!n.gestao || ['master','supervisor'].includes(user?.role))
             && (!n.consultas || ['master','supervisor'].includes(user?.role) || user?.setor === 'consultas')
-            && (!n.terapias || ['master','supervisor'].includes(user?.role) || user?.setor === 'terapias'
+            /* Cada uma vê o plano do SEU setor: Raylane e Stefany o vacinal,
+               Danielle/Suellen/Mayara o de terapias. Só o MASTER vê os dois —
+               'supervisor' não serve aqui, porque Raylane e Danielle são
+               supervisoras e é justamente entre elas que a separação vale. */
+            && (!n.terapias || user?.role === 'master' || user?.ve_tudo || user?.setor === 'terapias'
                 || (Array.isArray(user?.setores) && user.setores.includes('terapias')))
+            && (!n.vacinas || user?.role === 'master' || user?.ve_tudo || user?.setor === 'vacinas'
+                || (Array.isArray(user?.setores) && user.setores.includes('vacinas')))
             && (!n.lider || user?.lider || user?.role === 'master')
           ).map(({ to, icon:Icon, label, unread:showU, retornos:retBadge, equipe:eqBadge, plan:planBadge, destaque, cor }) => (
           <React.Fragment key={to}>
