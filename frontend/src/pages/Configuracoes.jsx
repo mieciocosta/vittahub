@@ -83,6 +83,7 @@ export default function Configuracoes() {
     if (editUser.senha && editUser.senha.length < 8) return setUserErr('A nova senha precisa de pelo menos 8 caracteres.');
     try {
       const payload = { cpf: cpfDig, ativo: editUser.ativo, setor: editUser.setor || null, setores: (editUser.setores || []).length ? editUser.setores : null, lider: !!editUser.lider,
+        pode_impersonar: !!editUser.pode_impersonar,
         meta_individual: parseFloat(editUser.meta_individual) || 0,
         meta_tipo: editUser.meta_tipo || 'valor',
         meta_qtd_dia: parseInt(editUser.meta_qtd_dia) || 0,
@@ -470,7 +471,7 @@ export default function Configuracoes() {
                   {u.role==='master'?'Master':u.role==='supervisor'?'Supervisora':'Atendente'}
                 </span>
                 {isMaster && (
-                  <button onClick={()=>{setUserErr('');setEditUser(editUser?.id===u.id?null:{ id:u.id, cpf:maskCpf(u.cpf||''), senha:'', ativo:u.ativo, setor:u.setor||'', setores:Array.isArray(u.setores)?u.setores:[], lider:!!u.lider, meta_individual:u.meta_individual||'', meta_tipo:u.meta_tipo||'valor', meta_qtd_dia:u.meta_qtd_dia||'', meta_dias_uteis:u.meta_dias_uteis||26 });}}
+                  <button onClick={()=>{setUserErr('');setEditUser(editUser?.id===u.id?null:{ id:u.id, cpf:maskCpf(u.cpf||''), senha:'', ativo:u.ativo, setor:u.setor||'', setores:Array.isArray(u.setores)?u.setores:[], lider:!!u.lider, pode_impersonar:!!u.pode_impersonar, meta_individual:u.meta_individual||'', meta_tipo:u.meta_tipo||'valor', meta_qtd_dia:u.meta_qtd_dia||'', meta_dias_uteis:u.meta_dias_uteis||26 });}}
                     style={{ width:26, height:26, borderRadius:8, border:'1.5px solid var(--border)', background:'var(--card)', color:'var(--muted)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
                     {editUser?.id===u.id?<X size={12}/>:<Pencil size={12}/>}
                   </button>
@@ -555,6 +556,18 @@ export default function Configuracoes() {
                   <label style={{ display:'flex', alignItems:'center', gap:7, fontSize:12.5, fontWeight:600, color:'var(--txt2)', cursor:'pointer' }}>
                     <input type="checkbox" checked={!!editUser.lider} onChange={e=>setEditUser({...editUser, lider:e.target.checked})} style={{ width:15, height:15 }} />
                     🚀 Líder de equipe (ganha a tela de Planejamento)
+                  </label>
+                  {/* Permissão poderosa: quem tem isso opera o sistema como
+                      outra pessoa. Fica com o master, e só ele muda aqui. */}
+                  <label style={{ display:'flex', alignItems:'flex-start', gap:7, fontSize:12.5, fontWeight:600, color:'var(--txt2)', cursor:'pointer', background:'#f5f3ff', border:'1px solid #ddd6fe', padding:'9px 11px', borderRadius:10 }}>
+                    <input type="checkbox" checked={!!editUser.pode_impersonar} onChange={e=>setEditUser({...editUser, pode_impersonar:e.target.checked})} style={{ width:15, height:15, accentColor:'#7c3aed', marginTop:1 }} />
+                    <span>
+                      <span style={{ display:'block' }}>👤 Pode entrar como outro usuário</span>
+                      <span style={{ fontSize:11, color:'var(--muted)', fontWeight:500 }}>
+                        Vê e opera o sistema pelos olhos de qualquer pessoa da equipe. Toda visita fica registrada na Auditoria.
+                        Entrar na conta de um <b>master</b> continua sendo só do dono.
+                      </span>
+                    </span>
                   </label>
                   {userErr && <div style={{ fontSize:12, color:'var(--err)', fontWeight:600 }}>{userErr}</div>}
                   <div style={{ display:'flex', gap:8 }}>

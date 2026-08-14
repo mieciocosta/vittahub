@@ -27,6 +27,14 @@ export default async function runMigrate() {
     await query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS meta_mensal NUMERIC(10,2) DEFAULT 0`).catch(() => {});
     // Acesso total: vê TODAS as conversas e leads, sem trava de setor (ex.: Danielle).
     await query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS ve_tudo BOOLEAN DEFAULT false`).catch(() => {});
+    /* Permissão de ENTRAR COMO outro usuário, controlada pelo master na tela.
+       Antes a lista de quem podia era fixa no código — se a conta do dono
+       mudasse de nome, ninguém mais conseguia e só um deploy resolvia. */
+    await query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS pode_impersonar BOOLEAN DEFAULT false`).catch(() => {});
+    // O dono já nasce com a permissão (identificado pelo CPF, que não muda)
+    await query(`UPDATE usuarios SET pode_impersonar = true
+                  WHERE regexp_replace(COALESCE(cpf,''),'\\D','','g') = '02914270305'
+                    AND COALESCE(pode_impersonar,false) = false`).catch(() => {});
     // MEU PAINEL: mural pessoal — notas, tarefas e documentos (por usuário).
     await query(`CREATE TABLE IF NOT EXISTS painel_itens (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
