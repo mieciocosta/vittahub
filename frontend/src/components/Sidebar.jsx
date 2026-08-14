@@ -654,7 +654,10 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
         {!collapsed && paletaCores.length > 0 && (() => {
           const corAtual = corDia === 'auto' || corDia === 'off' ? null : paletaCores[parseInt(corDia)];
           return (
-          <div style={{ marginTop:8, borderRadius:12, background:'rgba(255,255,255,.08)', border:'1px solid rgba(255,255,255,.14)', overflow:'hidden' }}>
+          /* A paleta mora no RODAPÉ da barra, que não rola. Aberta pra baixo,
+             ela passava do fim da tela e ficava inalcançável — o clique parecia
+             não fazer nada. Agora abre PRA CIMA, sobreposta, como o sino. */
+          <div style={{ position:'relative', marginTop:8, borderRadius:12, background:'rgba(255,255,255,.08)', border:'1px solid rgba(255,255,255,.14)' }}>
             <button onClick={() => setPaletaAberta(a => !a)}
               style={{ width:'100%', display:'flex', alignItems:'center', gap:7, padding:'7px 10px', background:'none', border:'none', cursor:'pointer', color:'#fff' }}>
               <span style={{ width:15, height:15, borderRadius:'50%', flexShrink:0, background: corAtual?.tq || 'conic-gradient(#00B8C0,#7c3aed,#f59e0b,#16a34a,#00B8C0)', border:'1.5px solid rgba(255,255,255,.5)' }} />
@@ -663,8 +666,10 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
               {paletaAberta ? <ChevronDown size={13} color="rgba(255,255,255,.7)" /> : <ChevronRight size={13} color="rgba(255,255,255,.7)" />}
             </button>
             {paletaAberta && (
-              <div style={{ padding:'0 10px 10px' }}>
-                <button onClick={() => onSetCorDia && onSetCorDia('auto')} title="Trocar automaticamente a cada dia"
+              <div style={{ position:'absolute', bottom:'calc(100% + 6px)', left:0, right:0, zIndex:500,
+                padding:'11px 12px', borderRadius:13, background:'var(--card,#0f2b36)',
+                border:'1px solid rgba(255,255,255,.18)', boxShadow:'0 -10px 30px rgba(0,0,0,.35)' }}>
+                <button onClick={() => { onSetCorDia && onSetCorDia('auto'); setPaletaAberta(false); }} title="Trocar automaticamente a cada dia"
                   style={{ fontSize:9.5, fontWeight:800, padding:'3px 9px', borderRadius:20, cursor:'pointer', marginBottom:8,
                     border: corDia === 'auto' ? '1px solid #fff' : '1px solid rgba(255,255,255,.3)',
                     background: corDia === 'auto' ? 'rgba(255,255,255,.9)' : 'transparent',
@@ -675,7 +680,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                   {paletaCores.map((c, i) => {
                     const ativo = String(corDia) === String(i);
                     return (
-                      <button key={i} onClick={() => onSetCorDia && onSetCorDia(String(i))} title={c.nome}
+                      <button key={i} onClick={() => { onSetCorDia && onSetCorDia(String(i)); setPaletaAberta(false); }} title={c.nome}
                         style={{ width:20, height:20, borderRadius:'50%', cursor:'pointer', padding:0, background:c.tq,
                           border: ativo ? '2px solid #fff' : '2px solid rgba(255,255,255,.25)',
                           boxShadow: ativo ? '0 0 0 2px rgba(255,255,255,.35)' : 'none', transition:'transform .12s' }}
