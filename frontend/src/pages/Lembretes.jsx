@@ -455,7 +455,20 @@ export default function Lembretes() {
             </div>
             <textarea value={editCal} onChange={e => setEditCal(e.target.value)} rows={14}
               style={{ width: '100%', padding: 12, borderRadius: 12, border: '1.5px solid var(--border)', fontSize: 12.5, fontFamily: 'monospace', lineHeight: 1.7, background: 'var(--card)', color: 'var(--txt)', boxSizing: 'border-box', resize: 'vertical' }} />
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12, flexWrap: 'wrap' }}>
+              {/* Volta pro esquema de referência da rede privada — útil quando a
+                  lista salva ficou errada e é mais rápido recomeçar do que
+                  caçar a linha torta (foi o caso do "Pneumo 15" fixo). */}
+              <button onClick={async () => {
+                if (!window.confirm('Trocar o que está escrito pelo esquema padrão da rede privada? Nada é salvo antes de você clicar em "Salvar calendário".')) return;
+                try {
+                  const d = await api.get('/lembretes/calendario-config');
+                  const base = Array.isArray(d?.padrao) && d.padrao.length ? d.padrao : [];
+                  if (!base.length) return showToast('⚠️ Não consegui carregar o padrão');
+                  setEditCal(base.map(m => `${m.mes} | ${m.nome} | ${m.vacinas}`).join('\n'));
+                  showToast('Esquema padrão carregado — confira e salve');
+                } catch (e) { showToast('⚠️ ' + (e.message || 'Erro')); }
+              }} className="btn btn-s" style={{ marginRight: 'auto' }}>↺ Usar o padrão da rede privada</button>
               <button onClick={() => setEditCal(null)} className="btn btn-s">Cancelar</button>
               <button onClick={async () => {
                 // junta o resto: "|" a mais na parte das vacinas não pode comer a linha

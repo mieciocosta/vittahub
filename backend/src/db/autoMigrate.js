@@ -1259,6 +1259,45 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log('🪪 Conta e mensagens renomeadas para Maria');
     }
 
+    /* 💉 CALENDÁRIO VACINAL — mistura o esquema salvo com as ALTERNATIVAS de
+       marca (pedido do master: "muitos são Pneumocócica 20").
+       O calendário fica salvo em configuracoes.calendario_vacinal, e é ELE que
+       manda na tela — por isso mexer só no padrão do código não mudava nada
+       pra clínica. Esta passada acrescenta as alternativas ("A ou B") ao que já
+       está salvo, SEM apagar o que a gestão escreveu: só reescreve os nomes que
+       viraram opção. Marcos, idades e demais vacinas ficam intactos. */
+    const { rows: [flagCal] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_calendario_alternativas_v1'");
+    if (!flagCal) {
+      const { rows: [cal] } = await query("SELECT valor FROM configuracoes WHERE chave = 'calendario_vacinal'");
+      const marcos = cal?.valor?.marcos;
+      if (Array.isArray(marcos) && marcos.length) {
+        // Cada troca: nome antigo → lista de alternativas com o padrão na frente
+        const TROCAS = [
+          [/\bPneumo(c[óo]cica)?\s*1[035]\b/gi, 'Pneumocócica 20 ou Pneumo 15 ou Pneumo 13'],
+          [/\bHexavalente\b/gi, 'Hexavalente ou Hexacelular'],
+          [/\bPentavalente\b/gi, 'Pentavalente ou Pentacelular'],
+        ];
+        let mexeu = 0;
+        const novos = marcos.map(m => {
+          let v = String(m.vacinas || '');
+          for (const [re, sub] of TROCAS) {
+            // Não mexe onde a alternativa já foi escrita à mão
+            if (/\bou\b/i.test(v) && v.includes(sub.split(' ou ')[0])) continue;
+            const antes = v;
+            v = v.replace(re, sub);
+            if (v !== antes) mexeu++;
+          }
+          return { ...m, vacinas: v.slice(0, 300) };
+        });
+        if (mexeu) {
+          await query(`UPDATE configuracoes SET valor = $1::jsonb, updated_at = NOW() WHERE chave = 'calendario_vacinal'`,
+            [JSON.stringify({ marcos: novos })]);
+          console.log(`💉 Calendário vacinal: ${mexeu} linha(s) ganharam alternativa de marca`);
+        }
+      }
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_calendario_alternativas_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);
