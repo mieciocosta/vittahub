@@ -1043,6 +1043,11 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       data_inicio DATE, status TEXT DEFAULT 'ativo', observacoes TEXT,
       criado_por_id TEXT, criado_por_nome TEXT,
       created_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
+    // Dias e horários fixos de cada terapia: [{dia:1,hora:'14:00'}, …]
+    // (0=domingo … 6=sábado). É o que a equipe marca ao registrar o plano.
+    await query(`ALTER TABLE terapia_planos ADD COLUMN IF NOT EXISTS horarios JSONB DEFAULT '[]'::jsonb`).catch(() => {});
+    // Quanto a família paga por SESSÃO e por MÊS naquela terapia (pedido do master)
+    await query(`ALTER TABLE terapia_planos ADD COLUMN IF NOT EXISTS valor_sessao NUMERIC`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS terapia_planos_pac_idx ON terapia_planos(paciente_id)`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS terapia_planos_criado_idx ON terapia_planos(created_at)`).catch(() => {});
 

@@ -46,9 +46,9 @@ r.get('/', auth, async (req, res) => {
        GROUP BY p.id
        ORDER BY (p.status = 'alta'), p.created_at DESC`);
     const { rows: planos } = await query(
-      `SELECT id, paciente_id, especialidade, sessoes_semana, valor_mensal,
+      `SELECT id, paciente_id, especialidade, sessoes_semana, valor_sessao, valor_mensal,
               TO_CHAR(data_inicio,'YYYY-MM-DD') AS data_inicio, status, observacoes,
-              criado_por_nome, created_at
+              COALESCE(horarios,'[]'::jsonb) AS horarios, criado_por_nome, created_at
          FROM terapia_planos ORDER BY created_at DESC`);
     res.json({ pacientes, planos });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -129,37 +129,93 @@ r.delete('/pacientes/:id', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Dias e horários que a criança faz aquela terapia. Chega da tela como
+// [{dia:1,hora:'14:00'}] — 0=domingo … 6=sábado. Guarda no máximo 14 (2 por dia).
+function limpaHorarios(lista) {
+  if (!Array.isArray(lista)) return [];
+  const vistos = new Set();
+  return lista
+    .map(h => ({ dia: parseInt(h?.dia), hora: String(h?.hora || '').trim() }))
+    .filter(h => Number.isInteger(h.dia) && h.dia >= 0 && h.dia <= 6 && /^\d{2}:\d{2}$/.test(h.hora))
+    .filter(h => { const k = `${h.dia}|${h.hora}`; if (vistos.has(k)) return false; vistos.add(k); return true; })
+    .sort((a, b) => a.dia - b.dia || a.hora.localeCompare(b.hora))
+    .slice(0, 14);
+}
+
+// Cria UM plano. Usado pelo registro em lote logo abaixo.
+async function criarPlano(req, b, pacienteId) {
+  const especialidade = cut((b.especialidade || '').trim(), 60);
+  if (!especialidade) return null;
+  const horarios = limpaHorarios(b.horarios);
+  const dinheiro = (v) => (v === undefined || v === '' || v === null || isNaN(parseFloat(v))
+    ? null : Math.max(0, Math.min(parseFloat(v), 100000)));
+  const dataInicio = /^\d{4}-\d{2}-\d{2}$/.test(b.data_inicio || '') ? b.data_inicio : null;
+  // Marcou 3 horários? São 3 sessões por semana — não precisa digitar de novo.
+  const sessoes = horarios.length || Math.max(0, Math.min(parseInt(b.sessoes_semana) || 1, 14));
+  const valorSessao = dinheiro(b.valor_sessao);
+  // Se a equipe informou só o valor da sessão, o mensal sai da conta:
+  // sessões por semana × 4 semanas. Continua editável na tela.
+  const valor = dinheiro(b.valor_mensal) ?? (valorSessao != null ? Math.round(valorSessao * sessoes * 4 * 100) / 100 : null);
+  const { rows: [pl] } = await query(`
+    INSERT INTO terapia_planos (paciente_id, especialidade, sessoes_semana, valor_sessao, valor_mensal, data_inicio, status, observacoes, horarios, criado_por_id, criado_por_nome)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11) RETURNING *`,
+    [pacienteId, especialidade, sessoes, valorSessao, valor, dataInicio,
+     STATUS_PLANO.includes(b.status) ? b.status : 'ativo', cut(b.observacoes, 400),
+     JSON.stringify(horarios), req.user.id, req.user.nome]);
+  return pl;
+}
+
 // ── Registrar plano terapêutico ──────────────────────────────────────────────
 r.post('/planos', auth, async (req, res) => {
   if (!guarda(req, res)) return;
   const b = req.body || {};
   const pacienteId = parseInt(b.paciente_id) || 0;
   if (!pacienteId) return res.status(400).json({ error: 'Escolha o paciente.' });
-  const especialidade = cut((b.especialidade || '').trim(), 60);
-  if (!especialidade) return res.status(400).json({ error: 'Informe a especialidade do plano.' });
-  const valor = b.valor_mensal !== undefined && b.valor_mensal !== '' && !isNaN(parseFloat(b.valor_mensal))
-    ? Math.max(0, Math.min(parseFloat(b.valor_mensal), 100000)) : null;
-  const dataInicio = /^\d{4}-\d{2}-\d{2}$/.test(b.data_inicio || '') ? b.data_inicio : null;
+  // A tela manda uma lista: cada TERAPIA marcada vira um plano, com os dias e
+  // horários dela. Assim a meta de 100 planos conta terapia por terapia.
+  const lista = Array.isArray(b.terapias) && b.terapias.length
+    ? b.terapias
+    : [{ especialidade: b.especialidade, horarios: b.horarios, sessoes_semana: b.sessoes_semana, valor_mensal: b.valor_mensal, data_inicio: b.data_inicio, observacoes: b.observacoes, status: b.status }];
+  if (!lista.some(t => String(t?.especialidade || '').trim())) {
+    return res.status(400).json({ error: 'Marque ao menos uma terapia.' });
+  }
   try {
-    const { rows: [pl] } = await query(`
-      INSERT INTO terapia_planos (paciente_id, especialidade, sessoes_semana, valor_mensal, data_inicio, status, observacoes, criado_por_id, criado_por_nome)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
-      [pacienteId, especialidade, Math.max(0, Math.min(parseInt(b.sessoes_semana) || 1, 14)), valor, dataInicio,
-       STATUS_PLANO.includes(b.status) ? b.status : 'ativo', cut(b.observacoes, 400), req.user.id, req.user.nome]);
+    const criados = [];
+    for (const t of lista.slice(0, 10)) {
+      const pl = await criarPlano(req, { ...t, data_inicio: t.data_inicio || b.data_inicio, observacoes: t.observacoes ?? b.observacoes }, pacienteId);
+      if (pl) criados.push(pl);
+    }
     // Registrar plano coloca o paciente em terapia — é o que o plano significa
     await query(`UPDATE terapia_pacientes SET status = 'em_terapia', updated_at = NOW()
                   WHERE id = $1 AND status = 'avaliacao'`, [pacienteId]).catch(() => {});
-    try { socketEmit('terapias_update', { plano: pl.id }); } catch (_) {}
-    res.json({ ok: true, plano: pl });
+    try { socketEmit('terapias_update', { paciente: pacienteId }); } catch (_) {}
+    res.json({ ok: true, criados: criados.length, planos: criados });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 r.put('/planos/:id', auth, async (req, res) => {
   if (!guarda(req, res)) return;
   const b = req.body || {};
-  if (!STATUS_PLANO.includes(b.status)) return res.status(400).json({ error: 'Situação inválida.' });
+  const sets = []; const params = []; let i = 1;
+  if (b.status !== undefined) {
+    if (!STATUS_PLANO.includes(b.status)) return res.status(400).json({ error: 'Situação inválida.' });
+    sets.push(`status = $${i++}`); params.push(b.status);
+  }
+  if (b.horarios !== undefined) {
+    const h = limpaHorarios(b.horarios);
+    sets.push(`horarios = $${i++}::jsonb`); params.push(JSON.stringify(h));
+    sets.push(`sessoes_semana = $${i++}`); params.push(h.length || 1);
+  }
+  for (const campo of ['valor_mensal', 'valor_sessao']) {
+    if (b[campo] !== undefined) {
+      sets.push(`${campo} = $${i++}`);
+      params.push(b[campo] === '' || isNaN(parseFloat(b[campo])) ? null : Math.max(0, Math.min(parseFloat(b[campo]), 100000)));
+    }
+  }
+  if (!sets.length) return res.status(400).json({ error: 'Nada para atualizar.' });
+  params.push(req.params.id);
   try {
-    await query(`UPDATE terapia_planos SET status = $1 WHERE id = $2`, [b.status, req.params.id]);
+    await query(`UPDATE terapia_planos SET ${sets.join(', ')} WHERE id = $${i}`, params);
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

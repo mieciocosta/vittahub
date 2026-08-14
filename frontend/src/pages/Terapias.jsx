@@ -13,7 +13,17 @@ const STATUS_PAC = [
   ['pausado', '⏸️ Pausado', '#a07514'],
   ['alta', '🎓 Alta', '#0a8f5b'],
 ];
-const ESPECIALIDADES = ['Terapia ABA', 'Fonoaudiologia', 'Terapia Ocupacional', 'Psicologia', 'Psicopedagogia', 'Fisioterapia', 'Musicoterapia', 'Nutrição'];
+// Lista de terapias para ASSINALAR — pedido do master. Cada uma marcada vira
+// um plano, com os dias/horários dela e quanto a família paga.
+const TERAPIAS = [
+  ['Terapia ABA', '🧩'], ['Fonoaudiologia', '🗣️'], ['Terapia Ocupacional', '🖐️'],
+  ['Psicologia', '💙'], ['Psicopedagogia', '📚'], ['Fisioterapia', '🦵'],
+  ['Musicoterapia', '🎵'], ['Nutrição', '🥗'],
+];
+const DIAS = [['1', 'Seg'], ['2', 'Ter'], ['3', 'Qua'], ['4', 'Qui'], ['5', 'Sex'], ['6', 'Sáb'], ['0', 'Dom']];
+const nomeDia = (d) => (DIAS.find(x => +x[0] === +d) || ['', '?'])[1];
+const resumoHorarios = (hs) => (Array.isArray(hs) && hs.length
+  ? hs.map(h => `${nomeDia(h.dia)} ${h.hora}`).join(' · ') : 'sem horário definido');
 const stInfo = (k) => STATUS_PAC.find(s => s[0] === k) || STATUS_PAC[0];
 const hojeISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const wa = (t, m) => `https://wa.me/55${String(t || '').replace(/\D/g, '').slice(-11)}?text=${encodeURIComponent(m)}`;
@@ -61,11 +71,49 @@ export default function Terapias() {
     } catch (e) { mostra('⚠️ ' + (e.message || 'Erro')); }
   }
 
+  // Marcar/desmarcar uma terapia no popup
+  function alternarTerapia(nome) {
+    setPlano(pl => {
+      const atuais = pl.terapias || {};
+      if (atuais[nome]) { const c = { ...atuais }; delete c[nome]; return { ...pl, terapias: c }; }
+      return { ...pl, terapias: { ...atuais, [nome]: { horarios: [{ dia: '1', hora: '14:00' }], valor_sessao: '', valor_mensal: '' } } };
+    });
+  }
+  const editaTerapia = (nome, campo, valor) =>
+    setPlano(pl => ({ ...pl, terapias: { ...pl.terapias, [nome]: { ...pl.terapias[nome], [campo]: valor } } }));
+  const editaHorario = (nome, idx, campo, valor) =>
+    setPlano(pl => ({ ...pl, terapias: { ...pl.terapias, [nome]: { ...pl.terapias[nome],
+      horarios: pl.terapias[nome].horarios.map((h, k) => k === idx ? { ...h, [campo]: valor } : h) } } }));
+  const addHorario = (nome) =>
+    setPlano(pl => ({ ...pl, terapias: { ...pl.terapias, [nome]: { ...pl.terapias[nome],
+      horarios: [...pl.terapias[nome].horarios, { dia: '1', hora: '14:00' }] } } }));
+  const tiraHorario = (nome, idx) =>
+    setPlano(pl => ({ ...pl, terapias: { ...pl.terapias, [nome]: { ...pl.terapias[nome],
+      horarios: pl.terapias[nome].horarios.filter((_, k) => k !== idx) } } }));
+
+  // Mensal sugerido = valor da sessão × sessões por semana × 4 semanas
+  const mensalSugerido = (t) => {
+    const v = parseFloat(t?.valor_sessao);
+    if (!v || !t?.horarios?.length) return null;
+    return Math.round(v * t.horarios.length * 4 * 100) / 100;
+  };
+
   async function salvarPlano() {
-    if (!plano?.especialidade) return mostra('⚠️ Escolha a especialidade');
+    const marcadas = Object.entries(plano?.terapias || {});
+    if (!marcadas.length) return mostra('⚠️ Marque ao menos uma terapia');
     try {
-      await api.post('/terapias/planos', { ...plano, paciente_id: plano.paciente_id });
-      setPlano(null); load(); mostra('✓ Plano terapêutico registrado');
+      const terapias = marcadas.map(([especialidade, t]) => ({
+        especialidade,
+        horarios: (t.horarios || []).filter(h => h.dia !== '' && h.hora),
+        valor_sessao: t.valor_sessao,
+        valor_mensal: t.valor_mensal !== '' ? t.valor_mensal : (mensalSugerido(t) ?? ''),
+      }));
+      const r = await api.post('/terapias/planos', {
+        paciente_id: plano.paciente_id, terapias,
+        data_inicio: plano.data_inicio, observacoes: plano.observacoes,
+      });
+      setPlano(null); load();
+      mostra(`✓ ${r?.criados || terapias.length} plano(s) registrado(s)`);
     } catch (e) { mostra('⚠️ ' + (e.message || 'Erro')); }
   }
 
@@ -173,7 +221,7 @@ export default function Terapias() {
                     style={{ padding: '5px 9px', borderRadius: 9, border: `1.5px solid ${cor}`, background: 'var(--card)', color: cor, fontSize: 11.5, fontWeight: 800, cursor: 'pointer' }}>
                     {STATUS_PAC.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
                   </select>
-                  <button onClick={() => setPlano({ paciente_id: p.id, paciente: p.nome, especialidade: '', sessoes_semana: 2, valor_mensal: '', data_inicio: hojeISO(), observacoes: '' })}
+                  <button onClick={() => setPlano({ paciente_id: p.id, paciente: p.nome, terapias: {}, data_inicio: hojeISO(), observacoes: '' })}
                     className="btn btn-p btn-sm" style={{ gap: 5 }}><ClipboardList size={13} /> Registrar plano</button>
                   {p.telefone
                     ? <a href={wa(p.telefone, `Olá! 💙 Aqui é da Vittalis Saúde, da equipe de terapias.`)} target="_blank" rel="noreferrer"
@@ -188,7 +236,12 @@ export default function Terapias() {
                     {meus.map(pl => (
                       <div key={pl.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', flexWrap: 'wrap', fontSize: 12.5 }}>
                         <span style={{ fontWeight: 800, minWidth: 150 }}>{pl.especialidade}</span>
-                        <span style={{ color: 'var(--muted)' }}>{pl.sessoes_semana}x/semana{pl.valor_mensal ? ` · ${fmt.brl(pl.valor_mensal)}/mês` : ''}{pl.data_inicio ? ` · desde ${pl.data_inicio.split('-').reverse().join('/')}` : ''}</span>
+                        <span style={{ color: 'var(--muted)' }}>
+                          🗓️ {resumoHorarios(pl.horarios)}
+                          {pl.valor_sessao ? ` · ${fmt.brl(pl.valor_sessao)}/sessão` : ''}
+                          {pl.valor_mensal ? ` · ${fmt.brl(pl.valor_mensal)}/mês` : ''}
+                          {pl.data_inicio ? ` · desde ${pl.data_inicio.split('-').reverse().join('/')}` : ''}
+                        </span>
                         <span style={{ marginLeft: 'auto', fontSize: 10.5, fontWeight: 800, padding: '2px 9px', borderRadius: 999,
                           background: pl.status === 'ativo' ? '#e2f8ef' : '#eef2f6', color: pl.status === 'ativo' ? '#0a8f5b' : '#5a6b7b' }}>{pl.status}</span>
                         {pl.criado_por_nome && <span style={{ fontSize: 10.5, color: 'var(--light)' }}>por {pl.criado_por_nome.split(' ')[0]}</span>}
@@ -251,25 +304,76 @@ export default function Terapias() {
               <button onClick={() => setPlano(null)} className="btn btn-s btn-sm"><X size={14} /></button>
             </div>
             <div style={{ padding: 18 }}>
-              <div className="field"><label>Especialidade *</label>
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-                  {ESPECIALIDADES.map(e => (
-                    <button key={e} type="button" onClick={() => setPlano({ ...plano, especialidade: e })}
-                      style={{ padding: '5px 11px', borderRadius: 999, fontSize: 11.5, fontWeight: 700, cursor: 'pointer',
-                        border: `1.5px solid ${plano.especialidade === e ? '#7c5cbf' : 'var(--border)'}`,
-                        background: plano.especialidade === e ? '#7c5cbf' : 'var(--card)', color: plano.especialidade === e ? '#fff' : 'var(--muted)' }}>{e}</button>
-                  ))}
-                </div>
-                <input value={plano.especialidade} onChange={e => setPlano({ ...plano, especialidade: e.target.value })} placeholder="Ou digite outra" />
+              <div style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--muted)', marginBottom: 8 }}>
+                Marque as terapias que a criança faz e diga o dia, a hora e quanto a família paga
               </div>
-              <div style={{ display: 'flex', gap: 10 }}>
-                <div className="field" style={{ flex: 1 }}><label>Sessões/semana</label><input type="number" min={0} max={14} value={plano.sessoes_semana} onChange={e => setPlano({ ...plano, sessoes_semana: e.target.value })} /></div>
-                <div className="field" style={{ flex: 1 }}><label>Valor mensal (R$)</label><input type="number" min={0} value={plano.valor_mensal} onChange={e => setPlano({ ...plano, valor_mensal: e.target.value })} placeholder="0,00" /></div>
-                <div className="field" style={{ flex: 1 }}><label>Início</label><input type="date" value={plano.data_inicio} onChange={e => setPlano({ ...plano, data_inicio: e.target.value })} /></div>
+
+              {TERAPIAS.map(([nome, ico]) => {
+                const t = plano.terapias?.[nome];
+                const marcada = !!t;
+                const sugerido = mensalSugerido(t);
+                return (
+                  <div key={nome} style={{ border: `1.5px solid ${marcada ? '#7c5cbf' : 'var(--border)'}`, borderRadius: 12, marginBottom: 8, overflow: 'hidden', background: marcada ? 'rgba(124,92,191,.06)' : 'transparent' }}>
+                    <button type="button" onClick={() => alternarTerapia(nome)}
+                      style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '11px 13px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt)', textAlign: 'left' }}>
+                      <span style={{ width: 20, height: 20, borderRadius: 6, border: `2px solid ${marcada ? '#7c5cbf' : 'var(--border)'}`, background: marcada ? '#7c5cbf' : 'transparent', color: '#fff', fontSize: 13, fontWeight: 900, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{marcada ? '✓' : ''}</span>
+                      <span style={{ fontSize: 14 }}>{ico}</span>
+                      <b style={{ fontSize: 13.5, flex: 1 }}>{nome}</b>
+                      {marcada && <span style={{ fontSize: 11, color: '#7c5cbf', fontWeight: 800 }}>{t.horarios.length}x/semana</span>}
+                    </button>
+
+                    {marcada && (
+                      <div style={{ padding: '0 13px 13px 13px' }}>
+                        {t.horarios.map((h, idx) => (
+                          <div key={idx} style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6, flexWrap: 'wrap' }}>
+                            <select value={h.dia} onChange={e => editaHorario(nome, idx, 'dia', e.target.value)}
+                              style={{ padding: '6px 9px', borderRadius: 9, border: '1.5px solid var(--border)', fontSize: 12.5, fontWeight: 700, background: 'var(--card)', color: 'var(--txt)' }}>
+                              {DIAS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                            </select>
+                            <input type="time" value={h.hora} onChange={e => editaHorario(nome, idx, 'hora', e.target.value)}
+                              style={{ padding: '6px 9px', borderRadius: 9, border: '1.5px solid var(--border)', fontSize: 12.5, fontWeight: 700, background: 'var(--card)', color: 'var(--txt)' }} />
+                            {t.horarios.length > 1 && (
+                              <button type="button" onClick={() => tiraHorario(nome, idx)} title="Tirar este horário"
+                                style={{ padding: '5px 9px', borderRadius: 9, border: '1.5px solid var(--border)', background: 'var(--card)', color: '#c0392b', cursor: 'pointer', fontSize: 12 }}>✕</button>
+                            )}
+                            {idx === t.horarios.length - 1 && (
+                              <button type="button" onClick={() => addHorario(nome)}
+                                style={{ padding: '5px 11px', borderRadius: 9, border: '1.5px dashed #7c5cbf', background: 'transparent', color: '#7c5cbf', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>+ horário</button>
+                            )}
+                          </div>
+                        ))}
+                        <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                          <div style={{ flex: '1 1 130px' }}>
+                            <label style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5 }}>Paga por sessão (R$)</label>
+                            <input type="number" min={0} value={t.valor_sessao} onChange={e => editaTerapia(nome, 'valor_sessao', e.target.value)} placeholder="0,00"
+                              style={{ width: '100%', padding: '7px 10px', borderRadius: 9, border: '1.5px solid var(--border)', fontSize: 13, background: 'var(--card)', color: 'var(--txt)' }} />
+                          </div>
+                          <div style={{ flex: '1 1 130px' }}>
+                            <label style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5 }}>Paga por mês (R$)</label>
+                            <input type="number" min={0} value={t.valor_mensal} onChange={e => editaTerapia(nome, 'valor_mensal', e.target.value)}
+                              placeholder={sugerido != null ? String(sugerido) : '0,00'}
+                              style={{ width: '100%', padding: '7px 10px', borderRadius: 9, border: '1.5px solid var(--border)', fontSize: 13, background: 'var(--card)', color: 'var(--txt)' }} />
+                          </div>
+                        </div>
+                        {sugerido != null && !t.valor_mensal && (
+                          <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 5 }}>
+                            💡 {t.horarios.length} sessão(ões) por semana × 4 semanas = <b>{fmt.brl(sugerido)}/mês</b>. Deixe em branco para usar essa conta.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
+                <div className="field" style={{ flex: 1 }}><label>Início do tratamento</label><input type="date" value={plano.data_inicio} onChange={e => setPlano({ ...plano, data_inicio: e.target.value })} /></div>
               </div>
               <div className="field"><label>Observações</label><textarea rows={2} value={plano.observacoes} onChange={e => setPlano({ ...plano, observacoes: e.target.value })} placeholder="O que foi combinado com a família…" /></div>
-              <button onClick={salvarPlano} className="btn btn-p" style={{ width: '100%' }}>Registrar plano</button>
-              <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8, textAlign: 'center' }}>Cada plano registrado conta na meta do mês.</p>
+              <button onClick={salvarPlano} className="btn btn-p" style={{ width: '100%' }}>
+                Registrar {Object.keys(plano.terapias || {}).length || ''} plano{Object.keys(plano.terapias || {}).length === 1 ? '' : 's'}
+              </button>
+              <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8, textAlign: 'center' }}>Cada terapia marcada vira um plano e conta na meta do mês.</p>
             </div>
           </div>
         </div>
