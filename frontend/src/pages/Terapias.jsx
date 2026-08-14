@@ -17,9 +17,10 @@ const STATUS_PAC = [
 // Lista de terapias para ASSINALAR — pedido do master. Cada uma marcada vira
 // um plano, com os dias/horários dela e quanto a família paga.
 const TERAPIAS = [
-  ['Terapia ABA', '🧩'], ['Fonoaudiologia', '🗣️'], ['Terapia Ocupacional', '🖐️'],
-  ['Psicologia', '💙'], ['Psicopedagogia', '📚'], ['Fisioterapia', '🦵'],
-  ['Musicoterapia', '🎵'], ['Nutrição', '🥗'],
+  ['Psicologia ABA', '🧩'], ['Fonoaudiologia', '🗣️'], ['Terapia Ocupacional', '🖐️'],
+  ['Psicologia clínica', '💙'], ['NeuroPsicologia', '🧬'], ['Fisioterapia', '🦵'],
+  ['Psicomotricidade', '🤸'], ['Musicoterapia', '🎵'], ['Neurofeedback', '📡'],
+  ['Nutrição', '🥗'],
 ];
 const DIAS = [['1', 'Seg'], ['2', 'Ter'], ['3', 'Qua'], ['4', 'Qui'], ['5', 'Sex'], ['6', 'Sáb'], ['0', 'Dom']];
 const nomeDia = (d) => (DIAS.find(x => +x[0] === +d) || ['', '?'])[1];
