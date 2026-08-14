@@ -211,13 +211,41 @@ function SecurityLock({ user }) {
       const sel = String(window.getSelection?.() || '');
       if (temTelefone(sel)) { e.preventDefault(); return false; }
     };
+    // Arrastar o texto pra fora também é cópia — fecha a porta dos fundos.
+    const filtraArrasto = (e) => {
+      const sel = String(window.getSelection?.() || '');
+      if (temTelefone(sel) || temTelefone(e.target?.innerText)) { e.preventDefault(); return false; }
+    };
     const bloqueiaTeclas = (e) => {
       const k = (e.key || '').toLowerCase();
       if ((e.ctrlKey || e.metaKey) && ['p', 's'].includes(k)) { e.preventDefault(); return false; }
     };
+
+    /* 📸 CAPTURA DE TELA — não dá pra IMPEDIR (nenhum site consegue: o print é
+       do sistema operacional, e sempre resta a foto com outro celular). O que dá
+       é REGISTRAR: PrintScreen no Windows e os atalhos do Mac ficam gravados na
+       Auditoria com quem, quando e em que tela. Vira rastro, que é o que
+       realmente segura quem pensa em levar a base embora. */
+    let ultimoAviso = 0;
+    const detectaPrint = (e) => {
+      const k = e.key || '';
+      const ehPrint = k === 'PrintScreen' || k === 'F13'
+        || (e.metaKey && e.shiftKey && ['3', '4', '5'].includes(k));    // macOS
+      if (!ehPrint) return;
+      if (Date.now() - ultimoAviso < 15000) return;                      // não repete em rajada
+      ultimoAviso = Date.now();
+      api.post('/auditoria/log', {
+        acao: 'captura_tela',
+        entidade: 'tela',
+        detalhes: { tela: window.location.pathname, atalho: k },
+      }).catch(() => {});
+    };
+
     document.addEventListener('copy', filtraCopia);
     document.addEventListener('cut', filtraCopia);
+    document.addEventListener('dragstart', filtraArrasto);
     document.addEventListener('keydown', bloqueiaTeclas);
+    document.addEventListener('keyup', detectaPrint);
 
     const style = document.createElement('style');
     style.id = 'vh-seclock';
@@ -227,14 +255,32 @@ function SecurityLock({ user }) {
     return () => {
       document.removeEventListener('copy', filtraCopia);
       document.removeEventListener('cut', filtraCopia);
+      document.removeEventListener('dragstart', filtraArrasto);
       document.removeEventListener('keydown', bloqueiaTeclas);
+      document.removeEventListener('keyup', detectaPrint);
       document.getElementById('vh-seclock')?.remove();
     };
   }, []);
 
-  // Marca d'água removida a pedido do master (atrapalhava a leitura).
-  // As demais proteções (bloqueio de copiar/imprimir/selecionar) continuam ativas.
-  return null;
+  /* 🪪 MARCA D'ÁGUA RASTREÁVEL. Já existiu aqui e foi removida porque atrapalhava
+     a leitura. Voltou bem mais leve (3% de opacidade, texto pequeno e espaçado):
+     não se enxerga lendo a tela, mas aparece em qualquer print ou foto — e nele
+     está o nome de quem estava logado. Se a base vazar, dá pra saber de quem
+     partiu. É a única proteção real contra captura de tela.
+     O master não recebe marca: os relatórios que ele imprime sairiam sujos. */
+  if (!user || user.role === 'master') return null;
+  const selo = `${user.nome} · ${new Date().toLocaleDateString('pt-BR')}`;
+  const svg = encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="420" height="220">
+       <text x="0" y="120" transform="rotate(-24 0 120)" font-family="Arial" font-size="15"
+             fill="#0E8C96" fill-opacity="0.5">${selo.replace(/[<>&]/g, '')}</text>
+     </svg>`);
+  return (
+    <div aria-hidden="true" style={{
+      position: 'fixed', inset: 0, zIndex: 2147483000, pointerEvents: 'none',
+      opacity: 0.06, backgroundImage: `url("data:image/svg+xml,${svg}")`, backgroundRepeat: 'repeat',
+    }} />
+  );
 }
 
 export default function App() {
