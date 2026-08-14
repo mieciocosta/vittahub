@@ -678,6 +678,17 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log('👋 Abertura atualizada: as três frentes da clínica');
     }
 
+    /* Meta de planos terapêuticos: 100 → 26 por mês (pedido do master, que é
+       ~1 por dia útil). Roda uma vez: se ele ajustar depois pela tela, o seed
+       não desfaz por cima. */
+    const { rows: [flagMetaTer] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_meta_terapias_26_v1'");
+    if (!flagMetaTer) {
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('metas', jsonb_build_object('planos_terapeuticos', 26))
+                   ON CONFLICT (chave) DO UPDATE SET valor = jsonb_set(COALESCE(configuracoes.valor,'{}'::jsonb), '{planos_terapeuticos}', to_jsonb(26)), updated_at = NOW()`).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_meta_terapias_26_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🧩 Meta de planos terapêuticos: 26 por mês');
+    }
+
     /* 🎯 METAS INDIVIDUAIS (definidas pelo master). Duas unidades convivendo:
        · Raylane e Stefany → R$ 100 mil no mês
        · Danielle, Suellen e Mayara → 10 consultas por dia (× 26 dias = 260/mês)

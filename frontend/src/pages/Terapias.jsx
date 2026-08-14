@@ -6,7 +6,7 @@ import TerapiasRelatorio from '../components/TerapiasRelatorio.jsx';
 
 /* ─── 🧩 ÁREA DE TERAPIAS ──────────────────────────────────────────────────────
    Pedido do master: uma aba só de terapias, onde a equipe PUXA o paciente pra
-   essa área e REGISTRA o plano terapêutico. A meta do setor é 100 planos. */
+   essa área e REGISTRA o plano terapêutico. A meta do setor é 26 planos/mês. */
 
 const STATUS_PAC = [
   ['avaliacao', '🔎 Em avaliação', '#C4973B'],

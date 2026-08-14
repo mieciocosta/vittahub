@@ -6,7 +6,7 @@ import { socketEmit } from '../socketServer.js';
 // ─── ÁREA DE TERAPIAS ────────────────────────────────────────────────────────
 // Pedido do master: uma aba só de TERAPIAS, onde a equipe puxa o paciente para
 // essa área e registra o plano terapêutico. A meta do setor deixa de ser só
-// dinheiro e passa a ser 100 PLANOS no mês.
+// dinheiro e passa a ser 26 PLANOS no mês (~1 por dia útil).
 //
 // A área é da equipe de terapias (e da gestão). Vacinas e consultas não entram.
 
@@ -27,7 +27,7 @@ const cut = (v, n) => (v == null || v === '' ? null : String(v).slice(0, n));
 const tel = (v) => cut(String(v || '').replace(/\D/g, ''), 13);
 const STATUS_PAC = ['avaliacao', 'em_terapia', 'pausado', 'alta'];
 const STATUS_PLANO = ['ativo', 'concluido', 'cancelado'];
-const META_PLANOS_PADRAO = 100; // pedido do master
+const META_PLANOS_PADRAO = 26; // pedido do master: 26 planos por mês (1 por dia útil)
 
 // Mês corrente no fuso de São Luís (UTC-3)
 const mesLocal = () => new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 7);
