@@ -125,12 +125,30 @@ export default function PastaClientes({ categoria, classificacao }) {
      ninguém faz isso todo dia, e quem atrasou ficava igual a quem está em dia. */
   const [prox, setProx] = useState({});
   const [resumoFid, setResumoFid] = useState(null);
-  useEffect(() => {
+  const [aplicando, setAplicando] = useState(null);
+  const carregarProx = useCallback(() => {
     if (!ehFidelidade) return;
     api.get('/inbox/fidelidade/resumo')
       .then(d => { setProx(Object.fromEntries((d.itens || []).map(i => [i.conversa_id, i]))); setResumoFid(d.resumo); })
       .catch(() => {});
   }, [ehFidelidade]); // eslint-disable-line
+
+  /* Confirma antes de gravar: registrar dose que NÃO foi aplicada é pior que
+     não registrar — a criança fica com o esquema falsamente em dia. */
+  const aplicou = async (c, etapa) => {
+    const nome = c.contact_name || 'este cliente';
+    if (!window.confirm(`Confirmar que ${nome} tomou hoje:\n\n${etapa.vacinas.join('\n')}\n\n(${etapa.nome})`)) return;
+    setAplicando(c.id);
+    try {
+      const r = await api.post('/inbox/fidelidade/aplicar', { conversa_id: c.id, marco: etapa.marco });
+      carregarProx(); carregarChecks();
+      if (r.proxima && window.confirm(`✅ Registrado! Próxima etapa: ${r.proxima.nome}.\n\nQuer agendar agora?`)) {
+        nav(`/inbox?conv=${c.id}`);
+      }
+    } catch (e) { window.alert('Erro: ' + e.message); }
+    setAplicando(null);
+  };
+  useEffect(carregarProx, [carregarProx]);
 
   const marcar = async (c) => {
     const jaTem = !!checks[c.id];
@@ -391,6 +409,19 @@ export default function PastaClientes({ categoria, classificacao }) {
                       );
                     })()}
                   </div>
+                  {/* ✅ APLICOU — o passo que faltava pra saber se o bebê foi
+                      mesmo vacinado. Sem ele a carteira nunca avança e o painel
+                      segue cobrando dose que já foi dada. Registra as vacinas da
+                      etapa, fecha o mês e já oferece agendar a próxima. */}
+                  {ehFidelidade && prox[c.id]?.proxima && !prox[c.id]?.agendado && (
+                    <button onClick={() => aplicou(c, prox[c.id].proxima)} disabled={aplicando === c.id}
+                      title={`Registrar que aplicou: ${prox[c.id].proxima.vacinas.join(', ')}`}
+                      style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 10px', borderRadius: 8,
+                        border: '1px solid #86efac', background: '#f0fdf4', color: '#15803d',
+                        cursor: aplicando === c.id ? 'wait' : 'pointer', fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap' }}>
+                      <Check size={13} />{aplicando === c.id ? '…' : 'aplicou'}
+                    </button>
+                  )}
                   {ehFidelidade && (
                     <button onClick={() => definirDia(c)} title="Dia do mês que costuma vacinar"
                       style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 10px', borderRadius: 8, border: `1px solid ${c.pasta_dia ? cfg.cor : 'var(--border)'}`, background: c.pasta_dia ? cfg.cor + '18' : 'var(--card)', color: c.pasta_dia ? cfg.cor : 'var(--muted)', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>

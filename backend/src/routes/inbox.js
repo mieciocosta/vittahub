@@ -5606,6 +5606,65 @@ r.get('/fidelidade/resumo', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* ✅ "APLICOU?" — fecha o ciclo do mês em um clique ──────────────────────────
+   Faltava a etapa que diz se o bebê foi mesmo VACINADO. Sem ela, a carteira
+   nunca avança: o painel segue cobrando uma dose que já foi dada, e a equipe
+   liga pra mãe cobrando o que ela já fez — o pior erro possível aqui.
+   Este endpoint registra as doses que faltavam do marco, marca o check do mês
+   e devolve qual é a PRÓXIMA etapa, pra já agendar em seguida.              */
+r.post('/fidelidade/aplicar', async (req, res) => {
+  try {
+    const convId = String(req.body?.conversa_id || '');
+    const marco = parseInt(req.body?.marco);
+    if (!convId || isNaN(marco)) return res.status(400).json({ error: 'Informe a conversa e a etapa.' });
+    const { rows: [conv] } = await query('SELECT id, lead_id FROM conversas WHERE id = $1', [convId]);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso.' });
+
+    const data = /^\d{4}-\d{2}-\d{2}$/.test(req.body?.data || '')
+      ? req.body.data : new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+    const calendario = await getCalendarioVacinal();
+    const etapa = calendario.find(c => c.mes === marco);
+    if (!etapa) return res.status(400).json({ error: 'Etapa não encontrada no calendário.' });
+
+    const vacinas = String(etapa.vacinas || '').split(',').map(v => v.trim()).filter(Boolean);
+    let registradas = 0;
+    for (const v of vacinas) {
+      // Não duplica: se a dose já estava marcada, segue em frente
+      const { rows } = await query(`
+        INSERT INTO carteira_doses (conversa_id, lead_id, marco_mes, vacina, aplicada, data_aplicacao, registrado_por)
+        SELECT $1,$2,$3,$4,true,$5,$6
+         WHERE NOT EXISTS (SELECT 1 FROM carteira_doses
+                            WHERE conversa_id = $1 AND marco_mes = $3
+                              AND LOWER(TRIM(COALESCE(vacina,''))) = LOWER($4))
+        RETURNING id`, [convId, conv.lead_id || null, marco, v, data, req.user.nome]).catch(() => ({ rows: [] }));
+      registradas += rows.length;
+    }
+
+    // Fidelidade é controle MENSAL: aplicou = o mês desse cliente está resolvido
+    const mes = data.slice(0, 7);
+    await query(`
+      INSERT INTO fidelidade_checks (conversa_id, mes, feito, observacao, feito_por_id, feito_por_nome)
+      VALUES ($1,$2,true,$3,$4,$5)
+      ON CONFLICT (conversa_id, mes) DO UPDATE SET feito = true, feito_em = NOW(),
+        observacao = EXCLUDED.observacao, feito_por_id = EXCLUDED.feito_por_id, feito_por_nome = EXCLUDED.feito_por_nome`,
+      [convId, mes, `Aplicou ${etapa.nome || marco + ' meses'}`, req.user.id, req.user.nome]).catch(() => {});
+
+    // A próxima etapa já volta na resposta: o valor do painel está em emendar
+    // "aplicou" com "agenda a próxima" sem a equipe procurar de novo.
+    const { rows: doses } = await query('SELECT marco_mes, vacina FROM carteira_doses WHERE conversa_id = $1', [convId]).catch(() => ({ rows: [] }));
+    const feitas = new Set(doses.map(d => `${d.marco_mes}|${String(d.vacina || '').trim().toLowerCase()}`));
+    let proxima = null;
+    for (const c of calendario) {
+      const falta = String(c.vacinas || '').split(',').map(v => v.trim()).filter(Boolean)
+        .filter(v => !feitas.has(`${c.mes}|${v.toLowerCase()}`));
+      if (falta.length) { proxima = { marco: c.mes, nome: c.nome || `${c.mes} meses`, vacinas: falta }; break; }
+    }
+    socketEmit('fidelidade_update', { conversa_id: convId });
+    res.json({ ok: true, registradas, etapa: etapa.nome || `${marco} meses`, proxima });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.get('/fidelidade/checks', async (req, res) => {
   try {
     const mes = /^\d{4}-\d{2}$/.test(req.query.mes || '') ? req.query.mes
