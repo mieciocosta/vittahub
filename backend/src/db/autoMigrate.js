@@ -1318,6 +1318,23 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log(`👋 Beatriz desativada (${r.rowCount || 0} cadastro)`);
     }
 
+    /* Poliana — ATENDIMENTO DE VACINAS (pedido do master). Só o setor de
+       vacinas: nada de consultas nem terapias na tela dela. Entra com as travas
+       normais da ponta — telefone mascarado nas listas e só os leads da
+       carteira dela. Setor cadastrado explicitamente (cadastro sem setor
+       ESCONDE as abas, e é isso que já custou vazamento entre setores). */
+    const { rows: [flagPoliana] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_poliana_vacinas_v1'");
+    if (!flagPoliana) {
+      const bcryptP = await import('bcryptjs');
+      const hashP = await bcryptP.default.hash('Vittalis@2026', 10);
+      await query(`INSERT INTO usuarios (id, nome, email, cpf, senha, role, cor, ativo, setor, setores)
+        VALUES (gen_random_uuid()::text, 'Poliana dos Santos de Jesus de Matos', 'poliana.matos@vittahub.local', '60844921343', $1, 'atendente', '#a855f7', true, 'vacinas', NULL)
+        ON CONFLICT (email) DO UPDATE SET senha = EXCLUDED.senha, ativo = true, setor = 'vacinas', setores = NULL`,
+        [hashP]).catch((e) => console.error('seed Poliana:', e.message));
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_poliana_vacinas_v1', '{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🌱 Poliana: atendimento de vacinas');
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);
