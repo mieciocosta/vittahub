@@ -8,7 +8,7 @@ import { fileURLToPath } from 'url';
 import authRouter    from './routes/auth.js';
 import leadsRouter   from './routes/leads.js';
 import reportsRouter from './routes/reports.js';
-import inboxRouter, { rodarFollowups, configurarWebhooksZapi, alertarLeadsSemResposta, vigiaEntradaMensagens } from './routes/inbox.js';
+import inboxRouter, { rodarFollowups, configurarWebhooksZapi, alertarLeadsSemResposta, vigiaEntradaMensagens, rodarResgateIA } from './routes/inbox.js';
 import extrasRouter, { gerarSolicitacoesDaAgenda } from './routes/extras.js';
 import auditoriaRouter from './routes/auditoria.js';
 import integracaoRouter from './routes/integracao.js';
@@ -109,6 +109,12 @@ async function start() {
       // configurada (fuso da clínica) e dispara amanhã/aniversários sozinho.
       setInterval(() => { rodarLembretesAutomaticos().catch(e => console.error('Lembretes auto tick:', e.message)); }, 60 * 1000);
       console.log('✅ Envio automático de lembretes agendado (checagem por minuto)');
+
+      // 🤖 Resgate com IA dos leads sem venda: a cada 30 min checa quem está no
+      // tempo da próxima tentativa. A cadência (3, 7 e 14 dias) mora na própria
+      // consulta — o tick só precisa ser frequente o bastante pra não atrasar.
+      setInterval(() => { rodarResgateIA().catch(e => console.error('Resgate IA tick:', e.message)); }, 30 * 60 * 1000);
+      console.log('✅ Resgate de leads sem venda agendado (30 min · opt-in em Configurações)');
 
       // 💉 Solicitação de vacinas nasce da AGENDA: a cada 5 min varre os
       // próximos 30 dias e cria o pedido de todo atendimento de vacina que

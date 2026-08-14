@@ -209,6 +209,13 @@ export default async function runMigrate() {
       autor_id TEXT, autor_nome TEXT,
       created_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS idx_notas_conv ON cliente_notas (conversa_id, created_at DESC)`).catch(() => {});
+    /* 🤖 RESGATE COM IA: lead sem venda registrada recebe tentativas em DIAS
+       diferentes, e a equipe ganha um resumo interno da conversa antes de cada
+       uma. O contador vive na conversa pra nunca repetir a mesma tentativa. */
+    await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS resgate_tentativas INT DEFAULT 0`).catch(() => {});
+    await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS resgate_ultima TIMESTAMPTZ`).catch(() => {});
+    await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS resgate_pausado BOOLEAN DEFAULT false`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS idx_conv_resgate ON conversas (resgate_tentativas, last_message_at)`).catch(() => {});
     // 💉 Carteira vacinal do paciente: dose de cada marco (0-18m) aplicada
     await query(`CREATE TABLE IF NOT EXISTS carteira_doses (
       id SERIAL PRIMARY KEY, conversa_id TEXT, lead_id TEXT, marco_mes INT NOT NULL,

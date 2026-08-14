@@ -35,6 +35,16 @@ export default function MinhaCarteira() {
     if (gestao) api.get('/auth/usuarios').then(u => setEquipe((u || []).filter(x => x.ativo !== false))).catch(() => {});
   }, [gestao]);                                    // eslint-disable-line
 
+  // Assumir um cliente órfão — some da lista de todo mundo e entra na carteira dela
+  const pegarPraMim = async (c) => {
+    try {
+      await api.patch(`/inbox/conversations/${c.conversa_id}/assign`, { responsavel_id: user.id, avisar_cliente: false });
+      setD(p => ({ ...p, sem_dono: (p.sem_dono || []).filter(x => x.conversa_id !== c.conversa_id),
+        resumo: { ...p.resumo, sem_dono: Math.max((p.resumo.sem_dono || 1) - 1, 0) } }));
+      navigate(`/inbox?conv=${c.conversa_id}`);
+    } catch (e) { window.alert('Erro: ' + e.message); }
+  };
+
   const imprimir = () => {
     if (!d) return;
     const w = window.open('', '_blank'); if (!w) return;
@@ -151,6 +161,34 @@ export default function MinhaCarteira() {
             </div>
           ))}
         </div>
+
+        {/* 🚨 Sem dono: quem não está na carteira de ninguém. Pegar = assumir. */}
+        {!!(d.sem_dono || []).length && (
+          <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: 16, border: '1.5px solid #fecaca' }}>
+            <div style={{ padding: '12px 16px', background: '#fef2f2', borderBottom: '1px solid #fecaca', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+              <b style={{ fontSize: 14, color: '#991b1b' }}>🚨 Sem dono — não estão na carteira de ninguém</b>
+              <span style={{ fontSize: 12, color: '#dc2626', fontWeight: 700 }}>{d.sem_dono.length} cliente(s)</span>
+            </div>
+            {d.sem_dono.slice(0, 15).map((c, i) => (
+              <div key={c.conversa_id} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '11px 16px', borderBottom: i < Math.min(d.sem_dono.length, 15) - 1 ? '1px solid var(--border)' : 'none' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 13.5 }}>{c.contact_name || 'Cliente'}</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>
+                    {c.setor || 'sem setor'} · parado há {c.parado_ha}d
+                  </div>
+                </div>
+                <button onClick={() => pegarPraMim(c)} className="btn btn-p btn-sm" style={{ fontSize: 11.5, fontWeight: 700 }}>
+                  Pegar pra mim
+                </button>
+              </div>
+            ))}
+            {d.sem_dono.length > 15 && (
+              <div style={{ padding: '9px 16px', fontSize: 11.5, color: 'var(--muted)' }}>
+                …e mais {d.sem_dono.length - 15}. Assuma os de cima primeiro (são os mais recentes).
+              </div>
+            )}
+          </div>
+        )}
 
         {d.resumo.a_retomar > 0 && (
           <div style={{ marginBottom: 16, padding: '12px 15px', borderRadius: 11, background: '#fff7ed', border: '1px solid #fed7aa', color: '#9a3412', fontSize: 13, fontWeight: 600, display: 'flex', gap: 9, alignItems: 'center' }}>

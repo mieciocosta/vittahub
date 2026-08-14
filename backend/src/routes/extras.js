@@ -2724,6 +2724,23 @@ r.get('/carteira/anual', async (req, res) => {
        ORDER BY c.last_message_at DESC NULLS LAST
        LIMIT 800`, [alvoId, ano]).catch(() => ({ rows: [] }));
 
+    /* 🚨 SEM DONO — os que realmente se perdem. A carteira filtra por
+       responsável, então quem entrou e nunca foi assumido não aparece na tela de
+       NINGUÉM: fica invisível até morrer. Aqui eles ficam à vista, e qualquer
+       uma pode pegar pra si. */
+    const { rows: semDono } = await query(`
+      SELECT c.id conversa_id, c.contact_name, c.setor,
+             GREATEST(0, EXTRACT(DAY FROM (NOW() - c.last_message_at))::int) parado_ha,
+             TO_CHAR(c.created_at,'YYYY-MM-DD') entrou_em
+        FROM conversas c
+       WHERE c.responsavel_id IS NULL
+         AND COALESCE(c.contact_id,'') NOT LIKE '%g.us%'
+         AND c.last_message_at > NOW() - INTERVAL '90 days'
+         AND NOT EXISTS (SELECT 1 FROM vendas v WHERE v.conversa_id = c.id
+                          AND v.status_pagamento IN ('pago','cortesia'))
+       ORDER BY c.last_message_at DESC
+       LIMIT 60`).catch(() => ({ rows: [] }));
+
     // Quem já foi retomado NESTE mês (o check da Fidelidade é a fonte da verdade)
     const { rows: checks } = await query(
       `SELECT conversa_id FROM fidelidade_checks WHERE mes = $1 AND feito = true`, [mesAtual])
@@ -2772,7 +2789,9 @@ r.get('/carteira/anual', async (req, res) => {
         // Follow-up: quem ainda não comprou nada — e quantos já esfriaram
         sem_venda: semVenda.length,
         parados_7d: semVenda.filter(v => (v.parado_ha ?? 0) >= 7).length,
+        sem_dono: semDono.length,
       },
+      sem_dono: semDono,
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
