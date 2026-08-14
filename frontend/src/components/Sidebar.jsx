@@ -715,7 +715,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                   </div>
                   <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(28px,1fr))', gap:6, marginBottom:12 }}>
                     {paletaCores.map((c, i) => (
-                      <button key={i} onClick={() => setFamilia(c.tq)} title={c.nome}
+                      <button key={i} onClick={() => { setFamilia(c.tq); onSetCorDia && onSetCorDia(c.tq); }} title={c.nome}
                         style={{ width:28, height:28, borderRadius:'50%', cursor:'pointer', padding:0, background:c.tq,
                           border: familia === c.tq ? '3px solid var(--txt,#0f172a)' : '2px solid rgba(0,0,0,.08)',
                           boxShadow: familia === c.tq ? '0 0 0 3px var(--tq3,#eef6f7)' : '0 1px 3px rgba(0,0,0,.14)',
@@ -734,7 +734,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                         : t.p < 0 ? clarear(familia, -t.p) : escurecer(familia, t.p);
                       const ativo = String(corDia).toLowerCase() === cor.toLowerCase();
                       return (
-                        <button key={t.nome} onClick={() => { onSetCorDia && onSetCorDia(cor); setPaletaAberta(false); }} title={t.nome}
+                        <button key={t.nome} onClick={() => onSetCorDia && onSetCorDia(cor)} title={t.nome}
                           style={{ flex:1, height:44, borderRadius:11, cursor:'pointer', padding:0, background:cor,
                             border: ativo ? '3px solid var(--txt,#0f172a)' : '1.5px solid rgba(0,0,0,.1)',
                             boxShadow: ativo ? '0 0 0 3px var(--tq3,#eef6f7)' : '0 1px 4px rgba(0,0,0,.16)',
@@ -751,13 +751,25 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                   <label style={{ display:'flex', alignItems:'center', gap:9, padding:'9px 11px', borderRadius:11,
                     border:'1.5px dashed var(--border,#cbd5e1)', cursor:'pointer', fontSize:12.5, fontWeight:700, color:'var(--txt,#0f172a)' }}>
                     <input type="color" value={familia}
-                      onChange={e => setFamilia(e.target.value)}
+                      onChange={e => { setFamilia(e.target.value); onSetCorDia && onSetCorDia(e.target.value); }}
                       style={{ width:28, height:28, border:'none', background:'none', padding:0, cursor:'pointer' }} />
                     Escolher qualquer cor
                   </label>
 
-                  <div style={{ fontSize:11, color:'var(--muted,#64748b)', marginTop:10, lineHeight:1.5 }}>
-                    A cor vale só pra você, neste aparelho.
+                  <div style={{ display:'flex', alignItems:'center', gap:9, marginTop:12, padding:'9px 11px',
+                    borderRadius:11, background:'var(--bg2,#f1f5f9)' }}>
+                    <span style={{ width:22, height:22, borderRadius:'50%', flexShrink:0,
+                      background: corAtual?.tq || 'conic-gradient(#00B8C0,#7c3aed,#f59e0b,#16a34a,#00B8C0)',
+                      border:'2px solid #fff', boxShadow:'0 1px 4px rgba(0,0,0,.2)' }} />
+                    <span style={{ flex:1, fontSize:11.5, fontWeight:700, color:'var(--txt,#0f172a)' }}>
+                      {corDia === 'auto' ? 'Cor do dia' : 'Aplicada agora'}
+                    </span>
+                    <button onClick={() => setPaletaAberta(false)}
+                      style={{ border:'none', borderRadius:9, padding:'6px 13px', cursor:'pointer',
+                        background:'var(--tq)', color:'#fff', fontSize:11.5, fontWeight:800 }}>Pronto</button>
+                  </div>
+                  <div style={{ fontSize:11, color:'var(--muted,#64748b)', marginTop:8, lineHeight:1.5 }}>
+                    Muda na hora enquanto você escolhe. Vale só pra você, neste aparelho.
                   </div>
                 </div>
               </>
