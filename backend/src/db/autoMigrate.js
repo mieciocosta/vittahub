@@ -7,6 +7,15 @@ export default async function runMigrate() {
     await query(`CREATE EXTENSION IF NOT EXISTS pg_trgm`);
     await query(`CREATE EXTENSION IF NOT EXISTS unaccent`).catch(() => {});
 
+    // ⚠️ configuracoes PRIMEIRO: seeds logo abaixo consultam esta tabela como
+    // flag de "já rodou". Num banco NOVO ela só nascia na linha ~275 — a
+    // consulta estourava e o migrate inteiro abortava no meio (descoberto ao
+    // subir um banco zerado em 14/08/2026). Em produção nunca doeu porque a
+    // tabela existe desde a v1. O CREATE lá de baixo continua, inofensivo.
+    await query(`CREATE TABLE IF NOT EXISTS configuracoes (
+      chave TEXT PRIMARY KEY, valor JSONB NOT NULL, updated_at TIMESTAMPTZ DEFAULT NOW()
+    )`);
+
     await query(`CREATE TABLE IF NOT EXISTS usuarios (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
       nome TEXT NOT NULL, email TEXT UNIQUE NOT NULL, senha TEXT NOT NULL,

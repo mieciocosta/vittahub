@@ -10,6 +10,7 @@ import { socketEmit, setConvGroupFn, setUserSetorFn, socketEmitToUsers } from '.
 import * as propostaGen from '../services/proposta-gen.js';
 import { enviarPush, enviarPushEquipe } from '../services/push.js';
 import { getCalendario as getCalendarioVacinal } from '../services/calendario.js';
+import { sincronizarFidelidadeVittasys, pontePronta, ultimaSincronizacaoFidelidade, setAvisarCacheConversaFidelidade } from '../services/fidelidadeVittasys.js';
 import { htmlParaPDF } from '../services/pdf.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -70,6 +71,9 @@ setTimeout(loadCache, 3000);
 function cacheUpdate(conv) {
   convoCache.set(conv.id, conv);
 }
+// A sincronização de Fidelidade (VittaSys) insere conversas por fora deste
+// arquivo — sem avisar o cache, elas só apareceriam no próximo restart.
+setAvisarCacheConversaFidelidade(cacheUpdate);
 
 /* ─── MOTOR DE IA (Claude / OpenAI) ───────────────────────────────────────────
    Adaptador único: devolve { content:[{type:'text'},{type:'tool_use',name,
@@ -5645,7 +5649,10 @@ r.get('/fidelidade/resumo', async (req, res) => {
         FROM conversas c LEFT JOIN leads l ON l.id = c.lead_id
        WHERE c.classificacao = 'fidelidade'
        LIMIT 400`).catch(() => ({ rows: [] }));
-    if (!convs.length) return res.json({ itens: [], resumo: { total: 0, atrasados: 0, agendados: 0, sem_nascimento: 0 } });
+    // Mesmo VAZIA, a pasta precisa do estado da ponte: é justamente no primeiro
+    // uso (ninguém sincronizou ainda) que a gestão precisa do botão de puxar.
+    if (!convs.length) return res.json({ itens: [], resumo: { total: 0, atrasados: 0, agendados: 0, sem_nascimento: 0,
+      vittasys: { configurado: pontePronta(), ultima: await ultimaSincronizacaoFidelidade() } } });
 
     const ids = convs.map(c => c.id);
     const [{ rows: doses }, { rows: agenda }, calendario] = await Promise.all([
@@ -5710,9 +5717,26 @@ r.get('/fidelidade/resumo', async (req, res) => {
         atrasados: itens.filter(i => i.atrasado).length,
         agendados: itens.filter(i => i.agendado).length,
         sem_nascimento: itens.filter(i => !i.nascimento).length,
+        // Estado da ponte com o VittaSys — a pasta mostra quando foi a última
+        // sincronização e a gestão ganha o botão de puxar agora.
+        vittasys: { configurado: pontePronta(), ultima: await ultimaSincronizacaoFidelidade() },
       },
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* 🔄 PUXAR AGORA os clientes fidelidade do VittaSys (gestão) ─────────────────
+   Mesmo motor da sincronização automática (boot + a cada 6h). Existe pro dia
+   em que a Poliana cadastra o cliente de manhã e a equipe precisa dele na
+   pasta à tarde — sem esperar o relógio do servidor. Idempotente: rodar duas
+   vezes não duplica nem sobrescreve nada. */
+r.post('/fidelidade/sincronizar', async (req, res) => {
+  try {
+    if (!ehGestao(req.user)) return res.status(403).json({ error: 'Só a gestão sincroniza a pasta com o VittaSys.' });
+    const r2 = await sincronizarFidelidadeVittasys(`manual · ${req.user?.nome || req.user?.id || ''}`);
+    if (r2?.ok === false && r2?.configurado === false) return res.status(400).json({ error: r2.aviso });
+    res.json(r2);
+  } catch (err) { res.status(500).json({ error: `Não consegui falar com o VittaSys. ${err.message}` }); }
 });
 
 /* ✅ "APLICOU?" — fecha o ciclo do mês em um clique ──────────────────────────

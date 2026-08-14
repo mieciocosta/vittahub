@@ -18,6 +18,7 @@ import terapiasRouter from './routes/terapias.js';
 import publicoRouter from './routes/publico.js';
 import lembretesRouter, { rodarLembretesAutomaticos } from './routes/lembretes.js';
 
+import { sincronizarFidelidadeVittasys, pontePronta } from './services/fidelidadeVittasys.js';
 import { createSocketServer, socketEmit } from './socketServer.js';
 import { startPgListener, onNotify }       from './db/pgListener.js';
 import pool from './db/pool.js';
@@ -145,6 +146,20 @@ async function start() {
       }, 5 * 60 * 1000);
       setTimeout(() => { gerarSolicitacoesDaAgenda({ dias: 30 }).catch(() => {}); }, 30000);
       console.log('✅ Solicitação de vacinas conforme a agenda (varredura de 5 min)');
+
+      // 🏅 Clientes FIDELIDADE do VittaSys entram na pasta SOZINHOS (pedido do
+      // master, 14/08/2026: "precisam aparecer no VittaHub pra agendar por lá").
+      // Boot + a cada 6h; a gestão também tem o botão "puxar agora" na pasta.
+      if (pontePronta()) {
+        const syncFid = () => sincronizarFidelidadeVittasys()
+          .then(r => { if (r?.ok && (r.criadas || r.movidas)) console.log(`🏅 Fidelidade⇄VittaSys: ${r.criadas} nova(s), ${r.movidas} movida(s) pra pasta, ${r.ja_ok} já em dia`); })
+          .catch(e => console.error('Sync fidelidade VittaSys:', e.message));
+        setTimeout(syncFid, 90 * 1000);
+        setInterval(syncFid, 6 * 60 * 60 * 1000);
+        console.log('✅ Sincronização de clientes Fidelidade com o VittaSys ligada (boot + 6h)');
+      } else {
+        console.log('🔕 Fidelidade⇄VittaSys aguardando VITTASYS_API_URL + INTEGRACAO_TOKEN');
+      }
 
       // Vigia da ENTRADA: se o WhatsApp parar de avisar o VittaHub em pleno
       // expediente, reaponta os webhooks sozinho e alerta o master (antes era

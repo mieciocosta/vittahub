@@ -126,6 +126,19 @@ export default function PastaClientes({ categoria, classificacao }) {
   const [prox, setProx] = useState({});
   const [resumoFid, setResumoFid] = useState(null);
   const [aplicando, setAplicando] = useState(null);
+  // 🔗 Puxar agora os clientes fidelidade do VittaSys (gestão). Idempotente:
+  // o backend nunca duplica conversa nem sobrescreve o que a equipe organizou.
+  const [syncFid, setSyncFid] = useState(false);
+  const [syncFidMsg, setSyncFidMsg] = useState('');
+  const puxarVittasys = async () => {
+    setSyncFid(true); setSyncFidMsg('');
+    try {
+      const r = await api.post('/inbox/fidelidade/sincronizar', {});
+      setSyncFidMsg(`✓ ${r.criadas || 0} novo(s), ${r.movidas || 0} movido(s) pra pasta, ${r.ja_ok || 0} já estavam em dia.`);
+      load(); carregarProx(); carregarChecks();
+    } catch (e) { setSyncFidMsg(`⚠️ ${e?.message || 'Não consegui puxar agora — tente de novo em instantes.'}`); }
+    setSyncFid(false);
+  };
   const carregarProx = useCallback(() => {
     if (!ehFidelidade) return;
     api.get('/inbox/fidelidade/resumo')
@@ -274,6 +287,32 @@ export default function PastaClientes({ categoria, classificacao }) {
             {equipe.map(u => <option key={u.id} value={u.id}>👤 {(u.nome || '').split(' ')[0]}</option>)}
           </select>
         )}
+        {/* 🔗 Ponte com o VittaSys: os clientes fidelidade de lá entram aqui
+            sozinhos (no boot e a cada 6h). A faixa conta quando foi a última
+            sincronização e dá à gestão o "puxar agora" — pro cadastro feito de
+            manhã na clínica aparecer à tarde, sem esperar o relógio. */}
+        {ehFidelidade && resumoFid?.vittasys && (resumoFid.vittasys.configurado || gestao) && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', width: '100%',
+            background: 'var(--card)', border: '1px dashed var(--border)', borderRadius: 12, padding: '8px 14px' }}>
+            <span style={{ fontSize: 15 }}>🔗</span>
+            <span style={{ fontSize: 12.5, color: 'var(--muted)', fontWeight: 600, flex: 1, minWidth: 220, lineHeight: 1.5 }}>
+              {resumoFid.vittasys.configurado ? (
+                resumoFid.vittasys.ultima?.em
+                  ? <>VittaSys conectado — {resumoFid.vittasys.ultima.total || 0} cliente(s) fidelidade conferido(s) em {new Date(resumoFid.vittasys.ultima.em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}. Cliente novo cadastrado lá entra aqui sozinho.</>
+                  : 'VittaSys conectado — a primeira sincronização roda em instantes.'
+              ) : 'Ponte com o VittaSys ainda não ligada (VITTASYS_API_URL + INTEGRACAO_TOKEN no Railway) — por enquanto os clientes fidelidade de lá não entram sozinhos.'}
+              {syncFidMsg && <b style={{ color: syncFidMsg.startsWith('✓') ? '#166534' : '#9a3412' }}> {syncFidMsg}</b>}
+            </span>
+            {gestao && resumoFid.vittasys.configurado && (
+              <button onClick={puxarVittasys} disabled={syncFid}
+                style={{ padding: '7px 14px', borderRadius: 10, border: 'none', background: '#C4973B', color: '#fff',
+                  fontWeight: 800, fontSize: 12.5, cursor: syncFid ? 'wait' : 'pointer', opacity: syncFid ? .6 : 1 }}>
+                {syncFid ? 'Puxando…' : '⟳ Puxar do VittaSys agora'}
+              </button>
+            )}
+          </div>
+        )}
+
         {/* 🔴 O que precisa de ação HOJE. Sem esta faixa, o painel era uma lista
             de 43 nomes iguais — e o bebê atrasado ficava indistinguível do que
             está em dia. Estes são clientes de receita mensal: cada um que
