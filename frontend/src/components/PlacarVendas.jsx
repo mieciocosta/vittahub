@@ -66,29 +66,25 @@ export default function PlacarVendas() {
             const nome = s.setor && s.setor !== 'geral' ? s.setor[0].toUpperCase() + s.setor.slice(1) : 'Geral';
             const EMOJI = { vacinas: '💉', consultas: '🩺', terapias: '🧩' };
             const CORES = { vacinas: '#a78bfa', consultas: '#22d3ee', terapias: '#fbbf24' };
-            const falta = Math.max(0, s.faltaGlobal ?? 0);
-            const ok = (s.faltaGlobal ?? 0) <= 0;
+            /* Só a meta MÍNIMA no placar (pedido do master): duas metas lado a
+               lado diluíam o alvo — a equipe olhava o número grande e desistia.
+               O percentual também passa a ser o da mínima, senão ficava "3.9%"
+               ao lado de "falta R$ 80 mil de 100 mil", que não fecha. */
             const minMeta = s.metaMinima || 100000;
             const faltaMin = Math.max(0, s.faltaMinima ?? Math.max(minMeta - (s.confirmado || 0), 0));
-            const minOk = faltaMin <= 0;
-            const p = Math.min(s.pctGlobal ?? 0, 100);
+            const ok = faltaMin <= 0;
+            const p = Math.min(s.pctMinima ?? 0, 100);
             return (
               <div key={s.setor}
-                title={`${nome}: ${fmt.brl(s.confirmado || 0)} · mínima ${fmt.brl(minMeta)} · meta ${fmt.brl(s.metaGlobal || 0)} (${p}%)`}
+                // A meta ideal saiu da faixa, mas continua aqui no "passar o
+                // mouse" — quem quiser conferir o alvo cheio ainda alcança.
+                title={`${nome}: ${fmt.brl(s.confirmado || 0)} de ${fmt.brl(minMeta)} (${p}% da mínima) · meta ideal ${fmt.brl(s.metaGlobal || 0)}`}
                 style={{ lineHeight: 1.15, transition: 'transform .3s', transform: pulse ? 'scale(1.06)' : 'scale(1)' }}>
                 <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: .6, textTransform: 'uppercase', color: 'rgba(255,255,255,.7)' }}>
                   {EMOJI[s.setor] || '🎯'} {nome} · {p}%
                 </div>
                 <div style={{ fontSize: 12.5, fontWeight: 900, color: ok ? '#6ee7b7' : (CORES[s.setor] || '#fde68a') }}>
-                  {ok
-                    ? '🏆 Meta batida!'
-                    : <span>
-                        {minOk
-                          ? <span style={{ color: '#6ee7b7' }}>✅ mínima</span>
-                          : <span>mínima: falta {fmt.brl(faltaMin)}</span>}
-                        <span style={{ opacity: .6 }}> · </span>
-                        <span>ideal: falta {fmt.brl(falta)}</span>
-                      </span>}
+                  {ok ? '🏆 Meta batida!' : <span>falta {fmt.brl(faltaMin)}</span>}
                 </div>
               </div>
             );
