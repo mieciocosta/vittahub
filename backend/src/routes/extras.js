@@ -558,6 +558,60 @@ r.get('/vendas/hoje', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* 💉 PLANO VACINAL — a aba dela (pedido do master) ───────────────────────────
+   Meta: 20 planos no mês, 1 por dia. NÃO cria tabela nova: plano fechado é uma
+   VENDA de categoria 'Plano Vacinal'. Guardar em outro lugar faria o placar, o
+   caixa e o relatório divergirem entre si — o mesmo plano contado num lugar e
+   sumido no outro. Aqui é só a lente certa sobre o dado que já existe.        */
+const META_PLANOS_MES = 20;
+r.get('/planos-vacinais', async (req, res) => {
+  try {
+    const mes = /^\d{4}-\d{2}$/.test(req.query.mes || '') ? req.query.mes
+      : new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 7);
+    // Só a gestão escolhe de quem é a lista; a atendente vê sempre a dela
+    const alvoId = (req.user.role === 'master' && req.query.usuario_id) ? String(req.query.usuario_id) : req.user.id;
+    const { rows: [u] } = await query('SELECT id, nome FROM usuarios WHERE id = $1', [alvoId]);
+
+    const { rows: planos } = await query(`
+      SELECT id, cliente_nome, paciente_nome, servico, valor::float valor, forma_pagamento,
+             status_pagamento, TO_CHAR(data_venda,'YYYY-MM-DD') data_venda, conversa_id, observacao
+        FROM vendas
+       WHERE atendente_id = $1 AND categoria = 'Plano Vacinal'
+         AND to_char(data_venda,'YYYY-MM') = $2
+         AND status_pagamento IN ('pago','cortesia','sinal','parcelado')
+       ORDER BY data_venda DESC, created_at DESC`, [alvoId, mes]);
+
+    // Um ponto por dia do mês: mostra a sequência e onde furou a meta diária
+    const porDia = {};
+    for (const p of planos) porDia[p.data_venda] = (porDia[p.data_venda] || 0) + 1;
+    const [ano, mm] = mes.split('-').map(Number);
+    const totalDias = new Date(ano, mm, 0).getDate();
+    const hojeSLZ = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+    const dias = [];
+    for (let d = 1; d <= totalDias; d++) {
+      const iso = `${mes}-${String(d).padStart(2, '0')}`;
+      const dow = new Date(iso + 'T12:00:00').getDay();
+      dias.push({
+        dia: d, data: iso, n: porDia[iso] || 0,
+        domingo: dow === 0,                       // domingo não conta na cobrança
+        passou: iso < hojeSLZ, hoje: iso === hojeSLZ,
+      });
+    }
+    const feitos = planos.length;
+    const valor = planos.reduce((s, p) => s + (p.valor || 0), 0);
+    // Dias úteis já vencidos sem nenhum plano — é onde a meta diária furou
+    const furos = dias.filter(d => d.passou && !d.domingo && d.n === 0).length;
+
+    res.json({
+      mes, usuario: { id: u?.id, nome: u?.nome },
+      meta_mes: META_PLANOS_MES, meta_dia: 1,
+      feitos, falta: Math.max(META_PLANOS_MES - feitos, 0),
+      pct: +((feitos / META_PLANOS_MES) * 100).toFixed(1),
+      valor, hoje: porDia[hojeSLZ] || 0, furos, dias, planos,
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Meta GLOBAL do setor do mês — visível pra TODA a equipe (clima de time). Cada
 // um vê a meta do seu setor; master/sem setor vê a geral (todos os setores).
 r.get('/meta-setor', async (req, res) => {
