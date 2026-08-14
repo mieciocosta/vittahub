@@ -145,7 +145,10 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
   // de um usuário pro outro sem "voltar" antes.
   const [trocaOpen, setTrocaOpen] = useState(false);
   const [trocaUsers, setTrocaUsers] = useState([]);
-  const ehDono = /mi[eé]cio/i.test(`${user?.nome || ''} ${user?.email || ''}`);
+  // Quem é o dono vem DO SERVIDOR (user.dono) — o regex no nome quebrava assim
+  // que o master renomeava a própria conta, e o botão sumia sem explicação.
+  // O regex fica só como reserva pra sessão antiga, até o próximo login.
+  const ehDono = user?.dono === true || /mi[eé]cio/i.test(`${user?.nome || ''} ${user?.email || ''}`);
   const podeTrocar = (isMaster && ehDono) || !!localStorage.getItem('vh_token_master');
   const tokenMaster = () => localStorage.getItem('vh_token_master') || localStorage.getItem('vh_token') || '';
   const abrirTroca = async () => {

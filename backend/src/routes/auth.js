@@ -63,7 +63,7 @@ r.post('/login', async (req, res) => {
     limpaFalhasLogin(ip);
     const token = jwt.sign({ id: u.id, nome: u.nome, email: u.email, role: u.role, cor: u.cor, setor: u.setor || null, setores: u.setores || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo }, SECRET, { expiresIn: u.role === 'master' ? '30d' : '16h' }); // equipe: sessão morre no mesmo dia; master mantém 30d
     logAudit(req, u.id, u.nome, 'login', { metodo: 'cpf' });
-    res.json({ token, user: { id: u.id, nome: u.nome, email: u.email, cpf: u.cpf, role: u.role, cor: u.cor, avatar: u.avatar || null, setor: u.setor || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo } });
+    res.json({ token, user: { id: u.id, nome: u.nome, email: u.email, cpf: u.cpf, role: u.role, cor: u.cor, avatar: u.avatar || null, setor: u.setor || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo, dono: ehDono(u) } });
   } catch (err) {
     console.error('Login error:', err.message); // detalhe só no log do servidor
     res.status(500).json({ error: 'Erro interno. Tente novamente.' }); // não vaza o motivo
@@ -74,7 +74,7 @@ r.get('/me', auth, async (req, res) => {
   try {
     const { rows } = await query('SELECT id,nome,email,cpf,role,cor,avatar,setor,setores,lider,ve_tudo FROM usuarios WHERE id=$1', [req.user.id]);
     if (!rows[0]) return res.status(404).json({ error: 'Não encontrado' });
-    res.json(rows[0]);
+    res.json({ ...rows[0], dono: ehDono(rows[0]) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -103,7 +103,7 @@ r.patch('/me/nome', auth, async (req, res) => {
       [nome, req.user.id]);
     if (!u) return res.status(404).json({ error: 'Usuário não encontrado.' });
     const token = jwt.sign({ id: u.id, nome: u.nome, email: u.email, role: u.role, cor: u.cor, setor: u.setor || null, setores: u.setores || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo }, SECRET, { expiresIn: u.role === 'master' ? '30d' : '16h' }); // equipe: sessão morre no mesmo dia; master mantém 30d
-    res.json({ ok: true, token, user: { id: u.id, nome: u.nome, email: u.email, cpf: u.cpf, role: u.role, cor: u.cor, avatar: u.avatar || null, setor: u.setor || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo } });
+    res.json({ ok: true, token, user: { id: u.id, nome: u.nome, email: u.email, cpf: u.cpf, role: u.role, cor: u.cor, avatar: u.avatar || null, setor: u.setor || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo, dono: ehDono(u) } });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -112,19 +112,35 @@ r.patch('/me/nome', auth, async (req, res) => {
 // O token carrega impersonadoPor pra rastreabilidade nos logs.
 // Só o DONO (Miécio) troca de usuário: master + nome/e-mail com "miecio", ou o
 // id definido em SUPER_ADMIN_ID no Railway (escape se a conta dele tiver outro nome).
-const ehDono = (u) => (process.env.SUPER_ADMIN_ID && u?.id === process.env.SUPER_ADMIN_ID)
-  || /mi[eé]cio/i.test(`${u?.nome || ''} ${u?.email || ''}`);
+/* Identidade do dono, em ordem de confiabilidade. O CPF e o e-mail vêm antes do
+   nome de propósito: o master pode renomear a própria conta a qualquer momento
+   (e renomeou), e o gate baseado só no nome simplesmente parava de reconhecê-lo
+   — sem erro, o botão só sumia. CPF não muda. */
+const CPF_DONO = '02914270305';
+const EMAIL_DONO = 'miecio@vittalissaude.com.br';
+export const ehDono = (u) => {
+  if (!u) return false;
+  if (process.env.SUPER_ADMIN_ID && u.id === process.env.SUPER_ADMIN_ID) return true;
+  if (String(u.cpf || '').replace(/\D/g, '') === CPF_DONO) return true;
+  if (String(u.email || '').toLowerCase() === EMAIL_DONO) return true;
+  return /mi[eé]cio/i.test(`${u.nome || ''} ${u.email || ''}`);
+};
 
 r.post('/impersonar/:id', auth, async (req, res) => {
   try {
-    if (req.user.role !== 'master' || !ehDono(req.user)) return res.status(403).json({ error: 'Recurso exclusivo do usuário do Dr. Miécio.' });
+    // Confere no BANCO, não no token: o token não carrega CPF e pode estar
+    // velho (nome antigo). A fonte da verdade é o cadastro.
+    const { rows: [eu] } = await query('SELECT id, nome, email, cpf, role FROM usuarios WHERE id = $1', [req.user.id]);
+    if (!eu || eu.role !== 'master' || !ehDono(eu)) {
+      return res.status(403).json({ error: 'Recurso exclusivo do usuário do Dr. Miécio.' });
+    }
     const { rows: [u] } = await query('SELECT id,nome,email,cpf,role,cor,avatar,setor,setores,lider,ve_tudo FROM usuarios WHERE id = $1', [req.params.id]);
     if (!u) return res.status(404).json({ error: 'Usuário não encontrado' });
     const token = jwt.sign(
       { id: u.id, nome: u.nome, email: u.email, role: u.role, cor: u.cor, setor: u.setor || null, setores: u.setores || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo, impersonadoPor: req.user.id },
       SECRET, { expiresIn: '12h' });
     console.log(`👤 IMPERSONAÇÃO: ${req.user.nome} entrou como ${u.nome} (${u.id})`);
-    res.json({ token, user: { id: u.id, nome: u.nome, email: u.email, cpf: u.cpf, role: u.role, cor: u.cor, avatar: u.avatar || null, setor: u.setor || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo } });
+    res.json({ token, user: { id: u.id, nome: u.nome, email: u.email, cpf: u.cpf, role: u.role, cor: u.cor, avatar: u.avatar || null, setor: u.setor || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo, dono: ehDono(u) } });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

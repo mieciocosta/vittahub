@@ -6,7 +6,7 @@ import { useApi, useAuth } from '../context/AuthContext.jsx';
 export default function Configuracoes() {
   const api = useApi();
   const { isMaster, user } = useAuth();
-  const ehDono = /mi[eé]cio/i.test(`${user?.nome || ''} ${user?.email || ''}`); // só o Miécio troca de usuário
+  const ehDono = user?.dono === true || /mi[eé]cio/i.test(`${user?.nome || ''} ${user?.email || ''}`); // servidor decide; regex é reserva
   const [qr, setQr] = useState([]);
   const [bot, setBot] = useState(null);
   const [users, setUsers] = useState([]);
