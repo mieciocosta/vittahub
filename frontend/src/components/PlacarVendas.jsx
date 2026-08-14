@@ -52,8 +52,16 @@ export default function PlacarVendas() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, transition: 'transform .3s', transform: pulse ? 'scale(1.08)' : 'scale(1)' }}>
         <span style={{ fontSize: 18 }}>🔥</span>
         <div style={{ lineHeight: 1.1 }}>
-          <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: .6, textTransform: 'uppercase', color: 'rgba(255,255,255,.7)' }}>Vendas hoje</div>
-          <div style={{ fontSize: 15, fontWeight: 900 }}>{nHoje} {nHoje === 1 ? 'fechada' : 'fechadas'}{gestao && hoje?.total != null ? ` · ${fmt.brl(hoje.total)}` : ''}</div>
+          {/* Agora é o que EU fechei hoje. O numero da casa nao movia ninguem:
+              a atendente via "12 fechadas" sem saber quantas eram dela. */}
+          <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: .6, textTransform: 'uppercase', color: 'rgba(255,255,255,.7)' }}>Minhas vendas hoje</div>
+          <div style={{ fontSize: 15, fontWeight: 900 }}>
+            {nHoje} {nHoje === 1 ? 'fechada' : 'fechadas'}
+            {hoje?.total ? ` · ${fmt.brl(hoje.total)}` : ''}
+            {gestao && hoje?.casa && (
+              <span style={{ fontSize: 11, fontWeight: 700, opacity: .72 }}> · casa: {hoje.casa.n} ({fmt.brl(hoje.casa.total)})</span>
+            )}
+          </div>
         </div>
       </div>
 

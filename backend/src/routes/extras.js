@@ -525,21 +525,36 @@ r.post('/vendas', async (req, res) => {
 r.get('/vendas/hoje', async (req, res) => {
   try {
     const podeValor = gestao(req);
+    /* "Vendas hoje" passa a ser o que a PRÓPRIA pessoa fechou (pedido do
+       master). O número da casa não movia ninguém: a atendente via "12
+       fechadas" sem saber quantas eram dela. O total da clínica continua, mas
+       só pra gestão, e como informação secundária. */
+    const hojeSLZ = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+    const { rows: [meu] } = await query(
+      `SELECT COUNT(*)::int n,
+              COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float total
+       FROM vendas WHERE data_venda = $2::date AND atendente_id = $1`, [req.user.id, hojeSLZ]);
     const { rows: [r2] } = await query(
       `SELECT COUNT(*)::int n,
               COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float total
-       FROM vendas WHERE data_venda = CURRENT_DATE`);
+       FROM vendas WHERE data_venda = $1::date`, [hojeSLZ]);
     // Campeã(o) do dia — quem mais fechou hoje. Só pra gestão (nomeia pessoas).
     let campeao = null;
     if (podeValor) {
       const { rows: [c] } = await query(
         `SELECT COALESCE(atendente_nome,'—') nome, COUNT(*)::int n,
                 COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float total
-         FROM vendas WHERE data_venda = CURRENT_DATE
-         GROUP BY atendente_nome ORDER BY n DESC, total DESC LIMIT 1`);
+         FROM vendas WHERE data_venda = $1::date
+         GROUP BY atendente_nome ORDER BY n DESC, total DESC LIMIT 1`, [hojeSLZ]);
       if (c && c.n > 0) campeao = c;
     }
-    res.json({ n: r2?.n || 0, total: podeValor ? (r2?.total || 0) : null, campeao });
+    res.json({
+      // n/total = as MINHAS de hoje (é o que o placar mostra pra todo mundo)
+      n: meu?.n || 0, total: meu?.total || 0,
+      // a casa inteira segue disponível, mas só pra gestão
+      casa: podeValor ? { n: r2?.n || 0, total: r2?.total || 0 } : null,
+      campeao,
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
