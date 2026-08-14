@@ -38,6 +38,39 @@ export default function Dashboard() {
   const [agendaHoje, setAgendaHoje] = useState([]);
   const [agMeta, setAgMeta] = useState(null);
   const [prod, setProd] = useState(null);   // 📊 produção individual (só a própria)
+
+  /* 👤 Troca de usuário a partir do cartão do topo. O token do MASTER é sempre
+     o usado: já dentro da conta de outra pessoa, o token corrente é dela e não
+     serviria nem pra listar a equipe nem pra pular pra próxima. */
+  const [trocaAberta, setTrocaAberta] = useState(false);
+  const [equipeTroca, setEquipeTroca] = useState([]);
+  const podeTrocar = user?.dono === true || !!localStorage.getItem('vh_token_master');
+  const tokenMaster = () => localStorage.getItem('vh_token_master') || localStorage.getItem('vh_token') || '';
+  useEffect(() => {
+    if (!podeTrocar || !trocaAberta || equipeTroca.length) return;
+    const BASE = import.meta.env.VITE_API_URL || '';
+    fetch(`${BASE}/api/auth/usuarios`, { headers: { Authorization: `Bearer ${tokenMaster()}` } })
+      .then(r => r.json())
+      .then(d => setEquipeTroca(Array.isArray(d) ? d.filter(u => u.ativo !== false) : []))
+      .catch(() => setEquipeTroca([]));
+  }, [trocaAberta, podeTrocar]); // eslint-disable-line
+  const entrarComoUsuario = async (id) => {
+    try {
+      const BASE = import.meta.env.VITE_API_URL || '';
+      const resp = await fetch(`${BASE}/api/auth/impersonar/${id}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenMaster()}` },
+      });
+      const r = await resp.json();
+      if (!resp.ok) throw new Error(r.error || 'Não foi possível trocar.');
+      if (!localStorage.getItem('vh_token_master')) localStorage.setItem('vh_token_master', localStorage.getItem('vh_token') || '');
+      localStorage.setItem('vh_token', r.token);
+      window.location.href = '/';
+    } catch (e) { window.alert('Erro: ' + e.message); }
+  };
+  const voltarMeuUsuario = () => {
+    const mk = localStorage.getItem('vh_token_master');
+    if (mk) { localStorage.setItem('vh_token', mk); localStorage.removeItem('vh_token_master'); window.location.href = '/'; }
+  };
   const [vendasResumo, setVendasResumo] = useState(null);
   const [atencao, setAtencao] = useState(null);
   const [metaSetor, setMetaSetor] = useState(null);
@@ -129,14 +162,58 @@ export default function Dashboard() {
             <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 3 }}>{fmt.brl(mg.confirmado)} / {fmt.brl(mg.meta)}</div>
           </div>
         )}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        {/* Cartão do usuário. Pra quem pode trocar de conta, ele vira o próprio
+            seletor: clica no nome e escolhe em quem entrar (pedido do master —
+            ele quer isso aqui em cima, não escondido na lateral). */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, position: 'relative' }}>
           {user?.avatar
             ? <img src={user.avatar} alt="" style={{ width: 40, height: 40, borderRadius: '50%', objectFit: 'cover', border: '2px solid var(--tq)' }} />
             : <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'linear-gradient(135deg,var(--tq),var(--pet))', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 800, fontSize: 14 }}>{fmt.initials(user?.nome)}</div>}
           <div>
             <div style={{ fontWeight: 800, fontSize: 13.5 }}>{nome}</div>
-            <div style={{ fontSize: 11, color: 'var(--muted)' }}>{papel}</div>
+            {podeTrocar ? (
+              <button onClick={() => setTrocaAberta(o => !o)}
+                style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 1, padding: '2px 8px', borderRadius: 7,
+                  border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--tq2)',
+                  fontSize: 10.5, fontWeight: 800, cursor: 'pointer' }}>
+                {papel} · trocar ▾
+              </button>
+            ) : <div style={{ fontSize: 11, color: 'var(--muted)' }}>{papel}</div>}
           </div>
+
+          {trocaAberta && (
+            <div style={{ position: 'absolute', top: 48, right: 0, zIndex: 300, width: 240, maxHeight: 330, overflowY: 'auto',
+              background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 13, boxShadow: 'var(--s4,0 12px 34px rgba(0,0,0,.22))', padding: 8 }}>
+              <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .6, padding: '3px 7px 7px' }}>
+                Entrar como…
+              </div>
+              {localStorage.getItem('vh_token_master') && (
+                <button onClick={voltarMeuUsuario}
+                  style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 10px', borderRadius: 9, border: 'none',
+                    cursor: 'pointer', background: '#f5f3ff', color: '#7c3aed', fontWeight: 800, fontSize: 12, marginBottom: 5 }}>
+                  ↩️ Voltar ao meu usuário
+                </button>
+              )}
+              {!equipeTroca.length && <div style={{ fontSize: 12, color: 'var(--muted)', padding: 8 }}>Carregando…</div>}
+              {equipeTroca.filter(u => u.id !== user?.id).map(u => (
+                <button key={u.id} onClick={() => entrarComoUsuario(u.id)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '7px 8px',
+                    borderRadius: 9, border: 'none', cursor: 'pointer', background: 'transparent', color: 'var(--txt)' }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'var(--tq3)'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                  <span style={{ width: 26, height: 26, borderRadius: '50%', background: u.cor || 'var(--tq)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, flexShrink: 0 }}>
+                    {(u.nome || '?').slice(0, 1)}
+                  </span>
+                  <span style={{ minWidth: 0 }}>
+                    <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.nome}</span>
+                    <span style={{ display: 'block', fontSize: 10, color: 'var(--muted)' }}>
+                      {u.role === 'master' ? 'Master' : u.role === 'supervisor' ? 'Supervisora' : 'Atendente'}{u.setor ? ` · ${u.setor}` : ''}
+                    </span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
