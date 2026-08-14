@@ -5,6 +5,7 @@ import Sidebar from './components/Sidebar.jsx';
 import PlacarVendas from './components/PlacarVendas.jsx';
 import BuscaRapida from './components/BuscaRapida.jsx';
 import CelebracaoGlobal from './components/CelebracaoGlobal.jsx';
+import TrocaUsuario from './components/TrocaUsuario.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 import Login from './pages/Login.jsx';
 import { api } from './hooks/api.js';
@@ -313,21 +314,11 @@ export default function App() {
         paletaCores={CORES_DIA}
       />
       {user && <Heartbeat userId={user.id} />}
-      {/* 👤 Barra de impersonação: master navegando como outro usuário */}
-      {localStorage.getItem('vh_token_master') && (
-        <div style={{ position:'fixed', top:0, left:'50%', transform:'translateX(-50%)', zIndex:99999,
-          background:'#7c3aed', color:'#fff', padding:'6px 16px', borderRadius:'0 0 12px 12px',
-          fontSize:12.5, fontWeight:800, display:'flex', gap:12, alignItems:'center', boxShadow:'0 4px 14px rgba(124,58,237,.45)' }}>
-          👤 Você está como <u>{user.nome}</u>
-          <button onClick={() => {
-            const mk = localStorage.getItem('vh_token_master');
-            if (mk) { localStorage.setItem('vh_token', mk); localStorage.removeItem('vh_token_master'); window.location.href = '/configuracoes'; }
-          }} style={{ background:'#fff', color:'#7c3aed', border:'none', borderRadius:8, padding:'4px 10px', fontWeight:800, fontSize:11.5, cursor:'pointer' }}>
-            ↩️ Voltar ao meu usuário
-          </button>
-        </div>
-      )}
       <main className='vh-main' style={{ marginLeft:'var(--sw)', flex:1, minHeight:'100vh', overflowX:'hidden', transition:'margin-left .2s ease' }}>
+        {/* 👤 Troca de usuário no topo de TODAS as telas. Substituiu a barra
+            roxa flutuante: ela só avisava que você estava impersonando, mas não
+            deixava trocar — pra isso era preciso caçar o botão na lateral. */}
+        <TrocaUsuario />
         <PlacarVendas />
         <ErrorBoundary>
         <Suspense fallback={<div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'70vh' }}><span className="spin" style={{ width:26, height:26, borderColor:'rgba(0,184,192,0.2)', borderTopColor:'var(--tq)' }} /></div>}>
