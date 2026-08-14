@@ -5762,10 +5762,37 @@ r.get('/conversations/:id/protocolo', async (req, res) => {
 
     const lista = passos.map(p => ({ ...p, modelo: preencher(p.modelo), feito: !!feitoDe[p.k] }));
     const faltando = lista.filter(p => !p.feito);
+    const feitos = lista.length - faltando.length;
+    const pct = Math.round((feitos / Math.max(lista.length, 1)) * 100);
+
+    /* 🎯 NOTA DO ATENDIMENTO — alerta ou parabeniza (pedido do master).
+       Uma nota parada não muda comportamento; a frase muda. Enquanto falta
+       etapa, ela aponta A PRÓXIMA (uma só — lista de pendências trava quem
+       está atendendo). Cumprido o protocolo, ela comemora: a atendente precisa
+       saber que fez certo, não só quando errou.
+       Só conta quando a conversa já começou de verdade — cobrar protocolo em
+       conversa de duas mensagens seria injusto e viraria ruído. */
+    const nossasReais = nossas.length;
+    let nota = null;
+    if (nossasReais >= 2) {
+      const proxima = faltando[0] || null;
+      nota = {
+        valor: +(pct / 10).toFixed(1),                 // 0 a 10
+        pct, feitos, total: lista.length,
+        tipo: pct >= 100 ? 'parabens' : pct >= 60 ? 'atencao' : 'alerta',
+        titulo: pct >= 100 ? '🎉 Atendimento nota 10!'
+          : pct >= 60 ? '👏 Bom caminho — falta pouco'
+          : '⚠️ Atenção ao protocolo',
+        texto: pct >= 100
+          ? 'Protocolo completo: acolheu, apresentou, mostrou valor e convidou pra agendar. É assim que fecha.'
+          : `Próximo passo: ${proxima?.titulo || proxima?.k || '—'}.`,
+        proximo: proxima ? { k: proxima.k, titulo: proxima.titulo, modelo: proxima.modelo } : null,
+      };
+    }
+
     res.json({
-      passos: lista, total: lista.length, feitos: lista.length - faltando.length,
-      faltando: faltando.map(p => p.k), paciente: nomePaciente,
-      pct: Math.round(((lista.length - faltando.length) / Math.max(lista.length, 1)) * 100),
+      passos: lista, total: lista.length, feitos,
+      faltando: faltando.map(p => p.k), paciente: nomePaciente, pct, nota,
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

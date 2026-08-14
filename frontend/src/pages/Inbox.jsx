@@ -1650,13 +1650,33 @@ export default function Inbox({ onUnreadChange }) {
                     animation: urgente ? 'pulse 1.6s infinite' : 'none' }}>⏱️ esperando {txt}</span>;
                 })()}
               </div>
-              {/* Telefone do cabeçalho da conversa: visível, mas não selecionável */}
-              {sel.phone && (
-                <div data-nocopy="1" onCopy={e => e.preventDefault()} onContextMenu={e => e.preventDefault()}
-                  style={{ fontSize:10.5, color:'var(--muted)',
-                    userSelect:'none', WebkitUserSelect:'none', MozUserSelect:'none',
-                    WebkitTouchCallout:'none', cursor:'default' }}>{fmt.phone(sel.phone)}</div>
-              )}
+              <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+                {/* Telefone do cabeçalho da conversa: visível, mas não selecionável */}
+                {sel.phone && (
+                  <div data-nocopy="1" onCopy={e => e.preventDefault()} onContextMenu={e => e.preventDefault()}
+                    style={{ fontSize:10.5, color:'var(--muted)',
+                      userSelect:'none', WebkitUserSelect:'none', MozUserSelect:'none',
+                      WebkitTouchCallout:'none', cursor:'default' }}>{fmt.phone(sel.phone)}</div>
+                )}
+                {/* 🎯 NOTA DO ATENDIMENTO — alerta enquanto falta etapa, parabeniza
+                    quando o protocolo fecha. Fica no cabeçalho, à vista o tempo
+                    todo: no rodapé só quem procurava enxergava. Clicar abre o
+                    protocolo com o texto pronto do passo que falta. */}
+                {proto?.nota && (
+                  <button onClick={() => setProtoAberto(true)}
+                    title={`${proto.nota.titulo} — ${proto.nota.texto}`}
+                    style={{ display:'inline-flex', alignItems:'center', gap:5, border:'none', cursor:'pointer',
+                      borderRadius:20, padding:'2px 9px', fontSize:10, fontWeight:800, whiteSpace:'nowrap',
+                      background: proto.nota.tipo === 'parabens' ? '#dcfce7' : proto.nota.tipo === 'atencao' ? '#fff7ed' : '#fee2e2',
+                      color: proto.nota.tipo === 'parabens' ? '#166534' : proto.nota.tipo === 'atencao' ? '#9a3412' : '#991b1b' }}>
+                    {proto.nota.tipo === 'parabens' ? '🎉' : proto.nota.tipo === 'atencao' ? '👏' : '⚠️'}
+                    Nota {String(proto.nota.valor).replace('.', ',')}
+                    <span style={{ opacity:.85, fontWeight:700 }}>
+                      · {proto.nota.tipo === 'parabens' ? 'protocolo completo' : proto.nota.proximo?.titulo || 'siga o protocolo'}
+                    </span>
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Ferramentas do atendimento — agrupadas com quebra automática (não cortam ao dar zoom) */}
