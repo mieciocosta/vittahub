@@ -11,7 +11,7 @@ import {
 import { useAuth } from '../context/AuthContext.jsx';
 import { useApi } from '../context/AuthContext.jsx';
 import { setToken } from '../hooks/api.js';
-import { fmt, clarear, escurecer } from '../hooks/utils.js';
+import { fmt, clarear, escurecer, tituloUsuario } from '../hooks/utils.js';
 import { versiculoDoDia } from '../hooks/versiculos.js';
 
 // 4 tons por família: p<0 clareia, p>0 escurece. Quatro é o ponto em que a
@@ -421,7 +421,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                   <div style={{ fontSize:10, color:'var(--muted, #9ca3af)', marginTop:7, lineHeight:1.4 }}>Muda na hora, em todo o sistema.</div>
                 </div>
               )}
-              <div style={{ color:'rgba(255,255,255,.85)', fontSize:10.5 }}>{user?.role === 'master' ? '◆ Master' : user?.role === 'supervisor' ? '◆ Supervisora' : 'Atendente'}<span style={{ marginLeft:6 }}><span style={{ display:'inline-block', width:6, height:6, borderRadius:'50%', background:'#3ef58f', marginRight:3, verticalAlign:'1px' }}/>Online</span></div>
+              <div style={{ color:'rgba(255,255,255,.85)', fontSize:10.5 }}>{user?.role === 'master' ? '◆ Master' : `${user?.role === 'supervisor' ? '◆ ' : ''}${tituloUsuario(user)}`}<span style={{ marginLeft:6 }}><span style={{ display:'inline-block', width:6, height:6, borderRadius:'50%', background:'#3ef58f', marginRight:3, verticalAlign:'1px' }}/>Online</span></div>
             </div>
             <div style={{ width:'100%', display:'flex', alignItems:'center', gap:3, justifyContent:'flex-end', marginTop:-2 }}>
             {podeTrocar && (
@@ -445,7 +445,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                     <span style={{ width:26, height:26, borderRadius:'50%', background:u2.cor||'var(--tq)', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:800, flexShrink:0 }}>{(u2.nome||'?').slice(0,1)}</span>
                     <span style={{ minWidth:0 }}>
                       <span style={{ display:'block', fontSize:12.5, fontWeight:700, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{u2.nome}</span>
-                      <span style={{ display:'block', fontSize:10, color:'var(--muted, #6b7280)' }}>{u2.role==='master'?'Master':u2.role==='supervisor'?'Supervisora':'Atendente'}{u2.setor?` · ${u2.setor}`:''}</span>
+                      <span style={{ display:'block', fontSize:10, color:'var(--muted, #6b7280)' }}>{tituloUsuario(u2)}</span>
                     </span>
                   </button>
                 ))}

@@ -92,3 +92,17 @@ const _mix = (hex, alvo, p) => {
 export const hexRGB = _hexRGB;
 export const clarear = (hex, p) => _mix(hex, [255, 255, 255], p);
 export const escurecer = (hex, p) => _mix(hex, [0, 0, 0], p);
+
+/* ─── Título do usuário ───────────────────────────────────────────────────────
+   'Supervisora' sozinha sugeria gestão da clínica inteira. Aqui o cargo é do
+   SETOR (Raylane supervisiona vacinas e atende nele; Danielle, consultas e
+   terapias), então o título carrega o setor junto — o nome do papel passa a
+   dizer o que ele realmente significa no sistema. */
+const _CAP = (t) => String(t || '').charAt(0).toUpperCase() + String(t || '').slice(1);
+export function tituloUsuario(u) {
+  const base = u?.role === 'master' ? 'Master' : u?.role === 'supervisor' ? 'Supervisora' : 'Atendente';
+  if (u?.role === 'master') return base;
+  const setores = (Array.isArray(u?.setores) && u.setores.length ? u.setores : [u?.setor]).filter(Boolean);
+  if (!setores.length) return base;
+  return `${base} · ${setores.map(_CAP).join(' e ')}`;
+}

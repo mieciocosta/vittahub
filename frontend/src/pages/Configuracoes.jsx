@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Bot, MessageSquare, Plus, Trash2, Save, Users, ExternalLink, Pencil, X, Check, UserPlus } from 'lucide-react';
-import { mask } from '../hooks/utils.js';
+import { mask, tituloUsuario } from '../hooks/utils.js';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 
 export default function Configuracoes() {
@@ -468,7 +468,7 @@ export default function Configuracoes() {
                   })()}</div>
                 </div>
                 <span style={{ fontSize:11, fontWeight:700, padding:'3px 9px', borderRadius:12, background:u.role==='master'?'var(--gold2)':'var(--tq3)', color:u.role==='master'?'var(--gold)':'var(--tq)', flexShrink:0 }}>
-                  {u.role==='master'?'Master':u.role==='supervisor'?'Supervisora':'Atendente'}
+                  {tituloUsuario(u)}
                 </span>
                 {isMaster && (
                   <button onClick={()=>{setUserErr('');setEditUser(editUser?.id===u.id?null:{ id:u.id, cpf:maskCpf(u.cpf||''), senha:'', ativo:u.ativo, setor:u.setor||'', setores:Array.isArray(u.setores)?u.setores:[], lider:!!u.lider, pode_impersonar:!!u.pode_impersonar, meta_individual:u.meta_individual||'', meta_tipo:u.meta_tipo||'valor', meta_qtd_dia:u.meta_qtd_dia||'', meta_dias_uteis:u.meta_dias_uteis||26 });}}

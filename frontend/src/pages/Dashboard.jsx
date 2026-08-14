@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { MessageSquare, HeartPulse, CalendarCheck, CircleDollarSign, Bell, ChevronRight, Plus, Syringe, UserPlus, ClipboardList, Send, Phone } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
-import { fmt } from '../hooks/utils.js';
+import { fmt, tituloUsuario } from '../hooks/utils.js';
 import { versiculoDoDia } from '../hooks/versiculos.js';
 import { useNavigate } from 'react-router-dom';
 
@@ -98,7 +98,7 @@ export default function Dashboard() {
   const [verso, ref] = versiculoDoDia();
   const motivacional = MOTIVACIONAIS[diaAno % MOTIVACIONAIS.length];
   const nome = (user?.nome || '').split(' ')[0];
-  const papel = user?.role === 'master' ? 'Master' : user?.role === 'supervisor' ? 'Supervisora' : 'Atendente';
+  const papel = tituloUsuario(user);
 
   if (!data) return <div style={{ padding: 40, color: 'var(--muted)' }}>Carregando seu dia…</div>;
 
