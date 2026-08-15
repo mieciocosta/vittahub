@@ -16,6 +16,15 @@ r.use(auth);
 
 const cut = (v, n) => (v == null ? null : String(v).slice(0, n));
 const gestao = (req) => ['master', 'supervisor'].includes(req.user.role);
+
+/* 👁️ VISÃO GERAL — quem enxerga a clínica INTEIRA (todos os setores e a linha
+   de cada colega). Regra do master, repetida por ele mais de uma vez:
+   só a GESTÃO (ele) e o MARKETING. Supervisora NÃO entra aqui — ela é
+   supervisora DO SETOR dela, e já custou vazamento tratar `supervisor` como
+   "vê tudo". A marca fica num campo próprio (`ve_geral`) em vez de ser
+   adivinhada por papel ou por `ve_tudo`: cadastro explícito não vaza por
+   acidente quando alguém muda de função. */
+const veGeral = (req) => req.user.role === 'master' || req.user.ve_geral === true;
 // Erro da IA — mostra só "IA inativa" (sem detalhe técnico)
 const erroIA = () => 'IA inativa';
 
@@ -26,7 +35,7 @@ const erroIA = () => 'IA inativa';
    significa "vê tudo": significa lista vazia, e as telas escondem as abas. */
 const SETORES_VALIDOS = ['vacinas', 'consultas', 'terapias'];
 export async function setoresDoUsuario(req) {
-  if (req.user.role === 'master') return [...SETORES_VALIDOS];
+  if (veGeral(req)) return [...SETORES_VALIDOS];   // gestão e marketing
   const { rows: [u] } = await query('SELECT setor, setores FROM usuarios WHERE id = $1', [req.user.id])
     .catch(() => ({ rows: [null] }));
   if (u && Array.isArray(u.setores) && u.setores.length) return u.setores.filter(s => SETORES_VALIDOS.includes(s));
@@ -130,7 +139,7 @@ r.get('/agenda/meta', async (req, res) => {
       /* Placar nominal da equipe é da GESTÃO (pedido do master). A atendente vê
          a meta do SETOR (que é de todas) e a SUA própria linha — nunca o número
          das colegas. Expor produção alheia vira comparação e fofoca de corredor. */
-      porAtendente: req.user.role === 'master' ? porResp.rows
+      porAtendente: veGeral(req) ? porResp.rows
         : porResp.rows.filter(x => x.nome === req.user.nome),
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -144,7 +153,8 @@ r.get('/agenda/meta', async (req, res) => {
 r.get('/minha-producao', async (req, res) => {
   try {
     // Só a gestão escolhe de quem é o painel; a atendente vê sempre o dela.
-    const alvoId = (gestao(req) && req.query.usuario_id) ? String(req.query.usuario_id) : req.user.id;
+    // Produção/carteira de OUTRA pessoa é da visão geral — supervisora vê a dela
+    const alvoId = (veGeral(req) && req.query.usuario_id) ? String(req.query.usuario_id) : req.user.id;
     const { rows: [u] } = await query(
       `SELECT id, nome, cor, COALESCE(meta_individual,0)::float meta,
               COALESCE(meta_tipo,'valor') meta_tipo, COALESCE(meta_qtd_dia,0)::int meta_qtd_dia,
@@ -659,18 +669,39 @@ r.get('/ranking', async (req, res) => {
     // do resto do sistema: dado faltando esconde, nunca libera.
     if (!meus.length) return res.json({ periodo, setores: [], aviso: 'Seu cadastro está sem setor — peça pra gestão marcar em Configurações → Usuários.' });
 
-    const { rows } = await query(
-      `SELECT COALESCE(v.setor,'vacinas') setor,
-              COALESCE(v.atendente_id,'') aid,
-              COALESCE(u.nome, v.atendente_nome, '(sem nome)') nome,
-              u.avatar, u.cor,
-              COUNT(*)::int n,
-              COUNT(*) FILTER (WHERE v.data_venda = $2::date)::int hoje
-         FROM vendas v
-         LEFT JOIN usuarios u ON u.id = v.atendente_id
-        WHERE ${filtroPeriodo} AND COALESCE(v.setor,'vacinas') = ANY($1)
-        GROUP BY 1,2,3,4,5
-        ORDER BY n DESC, nome ASC`, [meus, hojeSLZ]);
+    /* O que conta no pódio (pedido do master): AGENDAMENTO, não venda.
+       Faz sentido porque é o trabalho que a equipe controla — marcar a família.
+       A venda vem depois e nem sempre no mesmo dia; cobrar por ela punia quem
+       agendou bem e foi furada. "Vendas" continua como opção na tela. */
+    const porVenda = req.query.metrica === 'vendas';
+    const { rows } = porVenda
+      ? await query(
+        `SELECT COALESCE(v.setor,'vacinas') setor,
+                COALESCE(v.atendente_id,'') aid,
+                COALESCE(u.nome, v.atendente_nome, '(sem nome)') nome,
+                u.avatar, u.cor,
+                COUNT(*)::int n,
+                COUNT(*) FILTER (WHERE v.data_venda = $2::date)::int hoje
+           FROM vendas v
+           LEFT JOIN usuarios u ON u.id = v.atendente_id
+          WHERE ${filtroPeriodo} AND COALESCE(v.setor,'vacinas') = ANY($1)
+          GROUP BY 1,2,3,4,5
+          ORDER BY n DESC, nome ASC`, [meus, hojeSLZ])
+      : await query(
+        // Agendamento cancelado não conta: marcar e desmarcar não é trabalho feito
+        `SELECT COALESCE(a.setor,'vacinas') setor,
+                COALESCE(a.responsavel_id,'') aid,
+                COALESCE(u.nome, a.responsavel_nome, '(sem nome)') nome,
+                u.avatar, u.cor,
+                COUNT(*)::int n,
+                COUNT(*) FILTER (WHERE (a.created_at - interval '3 hours')::date = $2::date)::int hoje
+           FROM agenda_eventos a
+           LEFT JOIN usuarios u ON u.id = a.responsavel_id
+          WHERE ${filtroPeriodo.replace(/v\.data_venda/g, "(a.created_at - interval '3 hours')::date")}
+            AND LOWER(COALESCE(a.status,'')) NOT LIKE 'cancel%'
+            AND COALESCE(a.setor,'vacinas') = ANY($1)
+          GROUP BY 1,2,3,4,5
+          ORDER BY n DESC, nome ASC`, [meus, hojeSLZ]);
 
     /* Quem ainda não vendeu no período some da consulta acima — mas precisa
        aparecer no fim do pódio, senão a pessoa não se acha na lista e o
@@ -729,7 +760,7 @@ r.get('/ranking', async (req, res) => {
     const euG = itensGeral.find(x => x.voce) || null;
 
     res.json({
-      periodo, setores,
+      periodo, metrica: porVenda ? 'vendas' : 'agendamentos', setores,
       geral: {
         setor: 'equipe', itens: itensGeral,
         minhaPos: euG?.pos || null, meuTotal: euG?.n ?? null,
@@ -754,6 +785,12 @@ r.get('/meta-setor', async (req, res) => {
     const globaisCfg = cfg[0]?.valor?.globais || {};
     const premiosCfg = cfg[0]?.valor?.premios || {};
     const premiosMinCfg = cfg[0]?.valor?.premiosMin || {};
+    /* 🎁 PRÊMIO DA DIÁRIA — bater a meta do DIA vale dinheiro no mesmo dia
+       (ordem do master: consultas = R$ 100 a diária, além dos R$ 2.600 do mês).
+       Prêmio mensal move no fim do mês; a diária move HOJE — e é o dia que a
+       equipe consegue enxergar. */
+    const premiosDiaCfg = cfg[0]?.valor?.premiosDia || {};
+    const premioDiaDe = (s2) => Math.max(0, parseFloat(premiosDiaCfg[s2]) || 0);
     const metaMinimaDe = (s) => Math.max(0, parseFloat(minimasCfg[s]) || 100000);
     const metaGlobalDe = (s) => Math.max(1, parseFloat(globaisCfg[s]) || 500000);
     const premioDe     = (s) => Math.max(0, parseFloat(premiosCfg[s]) || 10000);
@@ -780,7 +817,8 @@ r.get('/meta-setor', async (req, res) => {
         metaGlobal: MG, pctGlobal: +((conf / MG) * 100).toFixed(1), faltaGlobal: Math.max(MG - conf, 0),
         metaMinima: MM, pctMinima: MM ? +((conf / MM) * 100).toFixed(1) : 100, faltaMinima: Math.max(MM - conf, 0),
         premio: premioDe(s), premioConquistado: conf >= MG,
-        premioMinimo: premioMinDe(s), premioMinimoConquistado: conf >= MM };
+        premioMinimo: premioMinDe(s), premioMinimoConquistado: conf >= MM,
+        premioDia: premioDiaDe(s) };
     };
     // Meta INDIVIDUAL do usuário (se definida no cadastro): produção própria no mês
     let individual = null;
@@ -868,7 +906,7 @@ r.get('/meta-setor', async (req, res) => {
        Agora cadastro faltando ESCONDE os blocos de setor: fica visível, alguém
        reclama e se corrige — em vez de vazar em silêncio. O marketing tem os
        três setores marcados de propósito no cadastro. */
-    const veTodosSetores = req.user.role === 'master';
+    const veTodosSetores = veGeral(req);
     const ordem = veTodosSetores
       ? [...setores, ...['vacinas', 'consultas', 'terapias'].filter(s => !setores.includes(s))]
       : setores;
@@ -888,6 +926,7 @@ r.get('/meta-setor', async (req, res) => {
     const podeValores = req.user.role === 'master' || req.user.role === 'supervisor';
     const porSetorSeguro = podeValores ? porSetor : porSetor.map(s => ({
       setor: s.setor, metaGlobal: s.metaGlobal, metaMinima: s.metaMinima,
+      premio: s.premio, premioMinimo: s.premioMinimo, premioDia: s.premioDia,
       confirmado: null, recebido: null, aReceber: null,
       faltaMinima: null, faltaGlobal: null, pctMinima: null, pctGlobal: null,
     }));
@@ -1486,7 +1525,7 @@ r.get('/vendas', async (req, res) => {
     /* Supervisora responde pelo SETOR dela, não pelo Caixa da clínica inteira:
        ela via as vendas de consultas no Caixa dela (e vice-versa). O master
        continua vendo tudo. */
-    else if (req.user.role !== 'master') {
+    else if (!veGeral(req)) {
       const meus = await setoresDoUsuario(req);
       cond.push(`COALESCE(setor,'vacinas') = ANY($${i++})`); params.push(meus);
     }
@@ -1515,7 +1554,7 @@ r.get('/vendas', async (req, res) => {
 r.get('/repasses-mes', async (req, res) => {
   try {
     // Quanto cada colega recebe é assunto do dono, não da supervisora de setor
-    if (req.user.role !== 'master') return res.status(403).json({ error: 'Apenas o master vê os repasses.' });
+    if (!veGeral(req)) return res.status(403).json({ error: 'Apenas a gestão e o marketing veem os repasses.' });
     const mes = /^\d{4}-\d{2}$/.test(req.query.mes || '') ? req.query.mes : new Date().toISOString().slice(0, 7);
     const { rows } = await query(
       `SELECT v.atendente_id, COALESCE(NULLIF(v.atendente_nome,''), u.nome, '—') AS nome,
@@ -2721,7 +2760,7 @@ r.get('/fechamento-diario', async (req, res) => {
     /* O caixa do dia é o do SETOR de quem abriu (o master vê a casa toda). A
        supervisora de vacinas estava conferindo o dinheiro de consultas — e o
        contrário também acontecia. */
-    const setoresCaixa = req.user.role === 'master' ? null : await setoresDoUsuario(req);
+    const setoresCaixa = veGeral(req) ? null : await setoresDoUsuario(req);
     const filtroSetor = setoresCaixa ? ` AND COALESCE(setor,'vacinas') = ANY($2)` : '';
     const parDia = setoresCaixa ? [dia, setoresCaixa] : [dia];
     const [vendasQ, formasQ, dosesQ, agendaQ] = await Promise.all([
@@ -2886,7 +2925,7 @@ r.get('/metas/fechamento', async (req, res) => {
     const { rows: usuarios } = await query('SELECT id, nome, meta_individual FROM usuarios').catch(() => ({ rows: [] }));
     const metaInd = Object.fromEntries(usuarios.map(u => [u.id, parseFloat(u.meta_individual) || 0]));
     const atendentes = porAtendQ.rows
-      .filter(a => req.user.role === 'master' || a.atendente_id === req.user.id)
+      .filter(a => veGeral(req) || a.atendente_id === req.user.id)
       .map(a => {
       const meta = metaInd[a.atendente_id] || 0;
       return { nome: a.nome, vendas: a.n, confirmado: a.confirmado, meta,
@@ -2898,7 +2937,7 @@ r.get('/metas/fechamento', async (req, res) => {
        setor só, o "total" é o total do setor dela — senão o número da colega
        de outro setor voltaria pela soma. */
     const t = totQ.rows[0] || { n: 0, confirmado: 0, pendente: 0 };
-    const totalVisivel = req.user.role === 'master'
+    const totalVisivel = veGeral(req)
       ? { vendas: t.n, confirmado: t.confirmado, pendente: t.pendente }
       : { vendas: setores.reduce((sm, s2) => sm + s2.vendas, 0),
           confirmado: setores.reduce((sm, s2) => sm + s2.confirmado, 0), pendente: null };
@@ -3068,7 +3107,8 @@ r.get('/carteira/anual', async (req, res) => {
   try {
     const ano = /^\d{4}$/.test(req.query.ano || '') ? req.query.ano
       : String(new Date(Date.now() - 3 * 3600 * 1000).getFullYear());
-    const alvoId = (gestao(req) && req.query.usuario_id) ? String(req.query.usuario_id) : req.user.id;
+    // Produção/carteira de OUTRA pessoa é da visão geral — supervisora vê a dela
+    const alvoId = (veGeral(req) && req.query.usuario_id) ? String(req.query.usuario_id) : req.user.id;
     const { rows: [u] } = await query('SELECT id, nome FROM usuarios WHERE id = $1', [alvoId]);
     if (!u) return res.status(404).json({ error: 'Usuário não encontrado' });
 
@@ -3545,7 +3585,7 @@ r.get('/comparativo-mes', async (req, res) => {
     /* Faturamento da CASA inteira é do dono, não da supervisora de setor
        (regra do master). A supervisora acompanha o número do setor dela no
        placar — este comparativo soma vacinas + consultas + terapias. */
-    if (req.user.role !== 'master') return res.status(403).json({ error: 'Acesso restrito ao master.' });
+    if (!veGeral(req)) return res.status(403).json({ error: 'Acesso restrito à gestão e ao marketing.' });
     const agora = new Date(Date.now() - 3 * 3600 * 1000); // São Luís
     const diaAtual = agora.getUTCDate();
     const mesAtual = agora.toISOString().slice(0, 7);
@@ -3601,7 +3641,8 @@ r.get('/comparativo-mes', async (req, res) => {
    chance de fechar. A atendente abre o CRM e sabe por onde começar. */
 r.get('/foco-hoje', async (req, res) => {
   try {
-    const ehGestao = ['master', 'supervisor'].includes(req.user.role) || req.user.ve_tudo;
+    // Só a visão geral (master e marketing) enxerga a fila da clínica inteira
+    const ehGestao = veGeral(req) || req.user.ve_tudo;
     // Atendente vê a carteira dela (ou conversas sem dono); gestão vê tudo
     const filtroDono = ehGestao ? '' : ` AND (c.responsavel_id = '${String(req.user.id).replace(/[^a-zA-Z0-9-]/g, '')}' OR c.responsavel_id IS NULL)`;
     const grupo = `COALESCE(c.contact_id,'') NOT LIKE '%g.us%'`;

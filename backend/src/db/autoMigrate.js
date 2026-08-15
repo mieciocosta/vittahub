@@ -1367,6 +1367,42 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log('⏸️ Bot desligado · follow-up e lembretes LIGADOS (pedido do master)');
     }
 
+    /* 👁️ VISÃO GERAL — campo próprio em vez de adivinhar por papel.
+       Ordem do master: só a GESTÃO (ele) e o MARKETING (José e Carlos) veem a
+       clínica inteira; supervisora vê o SETOR dela. Marcar num campo explícito
+       evita o erro que já custou vazamento: tratar `supervisor` (ou `ve_tudo`)
+       como "vê tudo". */
+    await query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS ve_geral BOOLEAN DEFAULT false`).catch(() => {});
+    const { rows: [flagVG] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_ve_geral_v1'");
+    if (!flagVG) {
+      const soDig = "regexp_replace(COALESCE(cpf,''),'\\D','','g')";
+      const rG = await query(`UPDATE usuarios SET ve_geral = true
+                               WHERE role = 'master' OR ${soDig} IN ('62075159351','07964909371')`);  // José, Carlos (Marketing)
+      // Garante que ninguém mais fique marcado por engano
+      await query(`UPDATE usuarios SET ve_geral = false
+                    WHERE role <> 'master' AND ${soDig} NOT IN ('62075159351','07964909371')`).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_ve_geral_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log(`👁️ Visão geral marcada para ${rG.rowCount || 0} usuário(s): gestão + marketing`);
+    }
+
+    /* 🎁 Prêmio do setor de CONSULTAS (ordem do master): R$ 2.600 no mês e
+       R$ 100 a diária. O mensal entra nas duas metas (mínima e global) porque
+       pra consultas o prêmio é um só — não existe "prêmio maior" separado. */
+    const { rows: [flagPrem] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_premio_consultas_v1'");
+    if (!flagPrem) {
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('metas', $1::jsonb)
+                   ON CONFLICT (chave) DO UPDATE SET valor =
+                     jsonb_set(
+                       jsonb_set(
+                         jsonb_set(COALESCE(configuracoes.valor,'{}'::jsonb), '{premios,consultas}', '2600'::jsonb, true),
+                       '{premiosMin,consultas}', '2600'::jsonb, true),
+                     '{premiosDia,consultas}', '100'::jsonb, true),
+                     updated_at = NOW()`,
+        [JSON.stringify({ premios: { consultas: 2600 }, premiosMin: { consultas: 2600 }, premiosDia: { consultas: 100 } })]).catch((e) => console.error('seed premio consultas:', e.message));
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_premio_consultas_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🎁 Consultas: prêmio R$ 2.600/mês + R$ 100 a diária');
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);

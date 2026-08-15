@@ -275,6 +275,29 @@ export default function PlacarVendas() {
         </Capsula>
       )}
 
+      {/* 4️⃣.a A DIÁRIA — bater a meta de HOJE vale dinheiro HOJE. O prêmio do
+             mês só move no fim do mês; a diária move agora, e é o dia que a
+             equipe consegue enxergar (ordem do master: consultas R$ 100/dia). */}
+      {setoresLista.filter(s => s.premioDia > 0).map(s => {
+        const foco = meta.focoDia?.[s.setor] || null;
+        const ok = foco ? foco.every(f => (f.falta ?? 1) === 0) : false;
+        return (
+          <Capsula key={`dia-${s.setor}`} destaque={ok}
+            title={`${fmt.brl(s.premioDia)} por dia em que a meta do dia é batida${foco ? ` (${foco.map(f => `${f.alvo} ${f.rotulo.toLowerCase()}`).join(' ou ')})` : ''}`}>
+            <span style={{ fontSize: 16 }}>{ok ? '🏅' : '💵'}</span>
+            <div style={{ lineHeight: 1.12 }}>
+              <Rotulo>{ok ? 'Diária conquistada' : 'Diária de hoje'}</Rotulo>
+              <div style={{ fontSize: 13.5, fontWeight: 900, color: ok ? '#6ee7b7' : '#fcd34d', textShadow: '0 1px 3px rgba(0,0,0,.45)' }}>
+                {fmt.brl(s.premioDia)}
+                <span style={{ fontSize: 11, fontWeight: 800, color: 'rgba(255,255,255,.92)', marginLeft: 6 }}>
+                  {ok ? '· é sua! 🎉' : foco ? `· falta ${foco.map(qtdTexto).join(' ou ')}` : '· batendo a meta do dia'}
+                </span>
+              </div>
+            </div>
+          </Capsula>
+        );
+      })}
+
       {/* 4️⃣ O PRÊMIO — o motivo mais concreto de fechar mais uma hoje */}
       {premio && premio.valor > 0 && (
         <Capsula destaque title={`Prêmio de ${fmt.brl(premio.valor)} ao alcançar ${fmt.brl(premio.alvo || 0)}`}>

@@ -9,12 +9,15 @@ r.get('/dashboard', async (req, res) => {
   try {
     const isMaster = req.user.role === 'master';
     const uid = String(req.user.id).replace(/[^a-zA-Z0-9-]/g, ''); // só charset de UUID (anti-injection)
-    const verTudo = isMaster || req.user.role === 'supervisor';
+    /* Visão geral = gestão + marketing. Supervisora vê o SETOR dela (ordem do
+       master); tratar `supervisor` como "vê tudo" já custou vazamento. */
+    const veGeral = isMaster || req.user.ve_geral === true;
+    const verTudo = veGeral;
     const uFilter = verTudo ? '' : `AND l.responsavel_id = '${uid}'`;
     /* Setores de quem pediu (autoridade: banco, não o token). Só o master vê os
        três — supervisora é supervisora DO SETOR dela. NULL = sem recorte. */
     const meusSetores = await (async () => {
-      if (isMaster) return null;
+      if (veGeral) return null;
       const { rows: [u] } = await query('SELECT setor, setores FROM usuarios WHERE id = $1', [req.user.id])
         .catch(() => ({ rows: [null] }));
       const vals = ['vacinas', 'consultas', 'terapias'];
@@ -43,7 +46,7 @@ r.get('/dashboard', async (req, res) => {
       query(`SELECT origem, COUNT(*) total, COUNT(*) FILTER (WHERE status IN ('Fechado','Venda Fechada')) fechados FROM leads l WHERE 1=1 ${uFilter} GROUP BY origem ORDER BY total DESC`),
       // Desempenho da equipe baseado em atividade REAL (conversas atendidas +
       // mensagens enviadas hoje + vendas do mês), não em leads vazios.
-      isMaster ? query(`SELECT u.id, u.nome, u.cor, u.avatar, u.setor,
+      veGeral ? query(`SELECT u.id, u.nome, u.cor, u.avatar, u.setor,
           (SELECT COUNT(*) FROM conversas c WHERE c.responsavel_id = u.id) leads,
           (SELECT COUNT(DISTINCT m.conversa_id) FROM mensagens m WHERE m.sender_id = u.id AND m.from_type='me' AND m.created_at::date = CURRENT_DATE) atend_hoje,
           (SELECT COUNT(*) FROM vendas v WHERE to_char(v.data_venda,'YYYY-MM')=to_char(NOW(),'YYYY-MM')
@@ -136,7 +139,7 @@ r.get('/dashboard', async (req, res) => {
       dias: days,
       porStatus: porStatus.rows,
       porOrigem: porOrigem.rows,
-      porResponsavel: isMaster ? porResp.rows : [],
+      porResponsavel: veGeral ? porResp.rows : [],
       porDia: porDia.rows,
       motivosPerda: perdas.rows,
       followups: followups.rows,

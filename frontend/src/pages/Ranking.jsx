@@ -44,13 +44,15 @@ export default function Ranking() {
   const [periodo, setPeriodo] = useState('mes');
   // Equipe toda no mesmo pódio é o padrão (pedido do master); por setor é opção
   const [visao, setVisao] = useState('equipe');
+  // Pódio por AGENDAMENTO (ordem do master) — é o trabalho que a equipe controla
+  const [metrica, setMetrica] = useState('agendamentos');
   const [dados, setDados] = useState(null);
   const [erro, setErro] = useState('');
   const [carregando, setCarregando] = useState(true);
 
   const carregar = (p = periodo) => {
     setCarregando(true); setErro('');
-    api.get(`/extras/ranking?periodo=${p}`)
+    api.get(`/extras/ranking?periodo=${p}&metrica=${metrica}`)
       .then(d => setDados(d))
       .catch(e => setErro(e.message || 'Não consegui carregar o ranking.'))
       .finally(() => setCarregando(false));
@@ -59,7 +61,7 @@ export default function Ranking() {
   useEffect(() => { carregar(periodo); /* recarrega a cada 2 min pra ficar vivo */
     const t = setInterval(() => carregar(periodo), 120000);
     return () => clearInterval(t);
-  }, [periodo]); // eslint-disable-line
+  }, [periodo, metrica]); // eslint-disable-line
 
   const rotuloPeriodo = (PERIODOS.find(p => p[0] === periodo) || [])[1];
 
@@ -75,13 +77,25 @@ export default function Ranking() {
         <div style={{ flex: 1, minWidth: 220 }}>
           <h1 style={{ fontSize: 21, fontWeight: 900, margin: 0 }}>Ranking da equipe</h1>
           <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>
-            Por <b>quantidade de vendas fechadas</b> — sem valores. {rotuloPeriodo}.
+            Por <b>quantidade de {metrica === 'vendas' ? 'vendas fechadas' : 'agendamentos'}</b> — sem valores. {rotuloPeriodo}.
           </div>
         </div>
         <button onClick={() => carregar()} className="btn btn-sm" title="Atualizar agora"
           style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <RefreshCw size={13} className={carregando ? 'spin' : ''} /> Atualizar
         </button>
+      </div>
+
+      {/* O que conta no pódio */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+        {[['agendamentos', '📅 Agendamentos'], ['vendas', '💰 Vendas fechadas']].map(([k, rot]) => (
+          <button key={k} onClick={() => setMetrica(k)}
+            style={{ padding: '6px 13px', borderRadius: 20, fontSize: 12, fontWeight: 800, cursor: 'pointer',
+              border: `1.5px solid ${metrica === k ? 'var(--tq)' : 'var(--border)'}`,
+              background: metrica === k ? 'var(--tq4,#e8f7f8)' : 'var(--card)', color: metrica === k ? 'var(--tq2,#0E8C96)' : 'var(--txt2)' }}>
+            {rot}
+          </button>
+        ))}
       </div>
 
       {/* Período */}
@@ -144,14 +158,14 @@ export default function Ranking() {
               <span style={{ fontSize: 17 }}>{info.emoji}</span>
               <span style={{ fontWeight: 900, fontSize: 16 }}>{info.rotulo}</span>
               <span style={{ fontSize: 11.5, fontWeight: 800, color: '#fff', background: info.cor, borderRadius: 20, padding: '3px 11px' }}>
-                {bloco.total} venda{bloco.total === 1 ? '' : 's'} no período
+                {bloco.total} {metrica === 'vendas' ? (bloco.total === 1 ? 'venda' : 'vendas') : (bloco.total === 1 ? 'agendamento' : 'agendamentos')} no período
               </span>
               {/* A frase que faz correr: quanto falta pra passar a líder */}
               {bloco.minhaPos && (
                 <span style={{ fontSize: 12, fontWeight: 800, color: bloco.minhaPos === 1 ? 'var(--ok,#16a34a)' : 'var(--txt2)' }}>
                   {bloco.minhaPos === 1
                     ? '👑 Você está em 1º — segura a liderança!'
-                    : `Você está em ${bloco.minhaPos}º · faltam ${bloco.paraLiderar} venda${bloco.paraLiderar === 1 ? '' : 's'} pra liderar 🔥`}
+                    : `Você está em ${bloco.minhaPos}º · faltam ${bloco.paraLiderar} ${metrica === 'vendas' ? 'venda' : 'agendamento'}${bloco.paraLiderar === 1 ? '' : 's'} pra liderar 🔥`}
                 </span>
               )}
             </div>
@@ -203,7 +217,7 @@ export default function Ranking() {
                           boxShadow: '0 -3px 14px rgba(0,0,0,.14)', color: '#3b2a00' }}>
                           <div style={{ fontSize: ouro ? 30 : lugar <= 3 ? 24 : 20, fontWeight: 900, lineHeight: 1 }}>{p.n}</div>
                           <div style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: .5 }}>
-                            venda{p.n === 1 ? '' : 's'}
+                            {metrica === 'vendas' ? `venda${p.n === 1 ? '' : 's'}` : `agend.${p.n === 1 ? '' : 's'}`}
                           </div>
                         </div>
                       </div>
@@ -254,7 +268,9 @@ export default function Ranking() {
       })}
 
       <div style={{ fontSize: 11.5, color: 'var(--muted)', textAlign: 'center', marginTop: 8 }}>
-        Conta toda venda registrada no período — inclusive sinal e parcelado. Empate divide a mesma posição.
+        {metrica === 'vendas'
+          ? 'Conta toda venda registrada no período — inclusive sinal e parcelado.'
+          : 'Conta todo agendamento marcado no período — cancelado não conta.'} Empate divide a mesma posição.
         {user?.role === 'master' && ' · Como master, você vê o pódio de todos os setores.'}
       </div>
     </div>
