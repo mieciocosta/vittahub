@@ -188,14 +188,28 @@ r.get('/usuarios', auth, async (req, res) => {
 
 // Criar usuário (master): login por CPF + senha inicial
 r.post('/usuarios', auth, async (req, res) => {
-  if (req.user.role !== 'master') return res.status(403).json({ error: 'Acesso negado' });
+  /* A supervisora monta o TIME DELA: pode cadastrar integrante, mas só como
+     atendente e só no setor dela (pedido do master — "coloca a opção de
+     cadastrar integrante" no painel de equipe). Ela não cria supervisora, não
+     cria master e não põe ninguém em outro setor: as duas linhas abaixo é que
+     garantem isso, não a tela. */
+  const ehSup = req.user.role === 'supervisor';
+  if (req.user.role !== 'master' && !ehSup) return res.status(403).json({ error: 'Acesso negado' });
   try {
     const nome = String(req.body.nome || '').trim().slice(0, 80);
     const cpf = String(req.body.cpf || '').replace(/\D/g, '');
     const senha = String(req.body.senha || '');
-    const role = ['master', 'supervisor', 'atendente'].includes(req.body.role) ? req.body.role : 'atendente';
+    let role = ['master', 'supervisor', 'atendente'].includes(req.body.role) ? req.body.role : 'atendente';
     const cor = req.body.cor || '#00B8C0';
-    const setor = ['vacinas','consultas','terapias'].includes(req.body.setor) ? req.body.setor : null;
+    let setor = ['vacinas','consultas','terapias'].includes(req.body.setor) ? req.body.setor : null;
+    if (ehSup) {
+      role = 'atendente';
+      // Setor vem do BANCO, não do corpo do pedido — token velho não vale aqui
+      const { rows: [me] } = await query('SELECT setor, setores FROM usuarios WHERE id = $1', [req.user.id]).catch(() => ({ rows: [null] }));
+      const meus = (me && Array.isArray(me.setores) && me.setores.length) ? me.setores : [me?.setor].filter(Boolean);
+      if (!meus.length) return res.status(403).json({ error: 'Seu cadastro está sem setor — peça pra gestão marcar antes de cadastrar alguém.' });
+      setor = meus.includes(setor) ? setor : meus[0];
+    }
     if (!nome) return res.status(400).json({ error: 'Informe o nome' });
     if (cpf.length !== 11) return res.status(400).json({ error: 'CPF inválido — precisa de 11 dígitos' });
     if (senha.length < 8) return res.status(400).json({ error: 'A senha precisa de pelo menos 8 caracteres' });
@@ -204,10 +218,12 @@ r.post('/usuarios', auth, async (req, res) => {
     const hash = await bcrypt.hash(senha, 10);
     const email = `${cpf}@vittahub.local`; // e-mail é NOT NULL/único no schema; login é pelo CPF
     const { rows: [u] } = await query(
-      `INSERT INTO usuarios (id, nome, email, cpf, senha, role, cor, ativo, setor)
-       VALUES (gen_random_uuid()::text, $1, $2, $3, $4, $5, $6, true, $7)
-       RETURNING id, nome, email, cpf, role, cor, ativo, setor`,
-      [nome, email, cpf, hash, role, cor, setor]);
+      `INSERT INTO usuarios (id, nome, email, cpf, senha, role, cor, ativo, setor, meta_individual)
+       VALUES (gen_random_uuid()::text, $1, $2, $3, $4, $5, $6, true, $7, $8)
+       RETURNING id, nome, email, cpf, role, cor, ativo, setor, meta_individual`,
+      // Integrante nasce com a meta do time (R$ 100 mil) — sem isso ele entrava
+      // no time sem alvo e o painel mostrava a equipe furada.
+      [nome, email, cpf, hash, role, cor, setor, Math.max(0, parseFloat(req.body.meta_individual) || 100000)]);
     res.status(201).json(u);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

@@ -771,6 +771,77 @@ r.get('/ranking', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* ═══ 👥 SUA EQUIPE — o time da supervisora e o que ELA ganha em cima ═══════
+   Pedido do master. A supervisora acumula dois papéis: vende como atendente e
+   responde pelo setor. O segundo papel não aparecia em lugar nenhum — ela via
+   a própria meta e mais nada, sem saber quanto o time dela vale no bolso dela.
+   Aqui fica explícito: cada integrante tem a meta de R$ 100 mil e um prêmio; e
+   quando o integrante ganha, ela ganha o MESMO valor EM CIMA. É o que
+   transforma "cobrar a colega" em "construir meu time".
+   O tamanho do time sai da conta do master: meta global do setor ÷ 100 mil.
+   R$ 500 mil = 5 pessoas; com 2 no time, faltam 3. */
+r.get('/minha-equipe', async (req, res) => {
+  try {
+    const meus = await setoresDoUsuario(req);
+    if (!meus.length) return res.json({ ativo: false, motivo: 'sem setor' });
+    // Time de quem responde pelo setor: supervisora e master. Atendente não tem time.
+    if (!['master', 'supervisor'].includes(req.user.role)) return res.json({ ativo: false, motivo: 'sem time' });
+
+    const { rows: cfg } = await query("SELECT valor FROM configuracoes WHERE chave = 'metas'");
+    const v = cfg[0]?.valor || {};
+    const METfilter = "status_pagamento IN ('pago','cortesia')";
+    const mesCol = "to_char(data_venda,'YYYY-MM') = to_char(NOW(),'YYYY-MM')";
+    const META_POR_PESSOA = 100000;   // combinado com o master: cada uma fica com 100 mil
+
+    const setor = meus[0];
+    const metaGlobal = Math.max(1, parseFloat(v.globais?.[setor]) || 500000);
+    const premioPessoa = Math.max(0, parseFloat(v.premiosMin?.[setor]) || 1500);
+
+    // Time = quem é do MESMO setor (a própria supervisora fica de fora da lista)
+    const { rows: pessoas } = await query(
+      `SELECT id, nome, cor, avatar, role, COALESCE(meta_individual,0)::float meta
+         FROM usuarios
+        WHERE ativo = true AND role IN ('atendente','supervisor') AND id <> $1
+          AND (setor = $2 OR $2 = ANY(COALESCE(setores, ARRAY[]::text[])))
+        ORDER BY nome`, [req.user.id, setor]).catch(() => ({ rows: [] }));
+
+    const membros = [];
+    for (const p of pessoas) {
+      const { rows: [x] } = await query(
+        `SELECT COALESCE(SUM(valor),0)::float vendido FROM vendas WHERE atendente_id = $1 AND ${mesCol}`,
+        [p.id]).catch(() => ({ rows: [{ vendido: 0 }] }));
+      const meta = p.meta > 0 ? p.meta : META_POR_PESSOA;
+      const feito = x?.vendido || 0;
+      membros.push({
+        id: p.id, nome: p.nome, cor: p.cor, avatar: p.avatar,
+        papel: p.role === 'supervisor' ? 'Supervisora' : 'Atendente',
+        meta, feito, falta: Math.max(meta - feito, 0),
+        pct: +((feito / meta) * 100).toFixed(1),
+        premio: premioPessoa,            // o que O INTEGRANTE ganha ao bater
+        ganhoLider: premioPessoa,        // o que a supervisora ganha EM CIMA dele
+        bateu: feito >= meta,
+      });
+    }
+
+    const tamanhoIdeal = Math.max(1, Math.round(metaGlobal / META_POR_PESSOA));
+    const noTime = membros.length + 1;   // + ela mesma
+    res.json({
+      ativo: true, setor,
+      meta_por_pessoa: META_POR_PESSOA, meta_global: metaGlobal,
+      premio_por_pessoa: premioPessoa,
+      membros,
+      tamanho_ideal: tamanhoIdeal, no_time: noTime,
+      vagas: Math.max(tamanhoIdeal - noTime, 0),
+      // O que ela leva se o time inteiro bater — o número que dá sentido ao painel
+      ganho_potencial: membros.reduce((a2, m) => a2 + m.ganhoLider, 0),
+      ganho_conquistado: membros.filter(m => m.bateu).reduce((a2, m) => a2 + m.ganhoLider, 0),
+      // Vaga preenchida também aumenta o teto dela
+      ganho_se_time_completo: tamanhoIdeal > noTime
+        ? (tamanhoIdeal - 1) * premioPessoa : membros.length * premioPessoa,
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Meta GLOBAL do setor do mês — visível pra TODA a equipe (clima de time). Cada
 // um vê a meta do seu setor; master/sem setor vê a geral (todos os setores).
 r.get('/meta-setor', async (req, res) => {

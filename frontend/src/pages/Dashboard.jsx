@@ -3,6 +3,7 @@ import { MessageSquare, HeartPulse, CalendarCheck, CircleDollarSign, Bell, Chevr
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt, tituloUsuario } from '../hooks/utils.js';
 import { versiculoDoDia } from '../hooks/versiculos.js';
+import MinhaEquipe from '../components/MinhaEquipe.jsx';
 import { useNavigate } from 'react-router-dom';
 
 /* ─── Dashboard Vittalis — layout aprovado pela gestão ────────────────────────
@@ -223,6 +224,12 @@ export default function Dashboard() {
       </div>
 
       <div style={{ padding: '0 28px' }}>
+
+        {/* ── 👥 SUA EQUIPE — em destaque, no topo (pedido do master): o segundo
+               papel da supervisora, que não aparecia em lugar nenhum. Vem antes
+               do foco do dia de propósito: construir o time rende mais que
+               qualquer tarefa avulsa. Some pra quem não tem time. ── */}
+        <MinhaEquipe />
 
         {/* ── 🎯 MEU FOCO DE HOJE — o que fazer AGORA, em ordem de chance de vender ── */}
         {foco && foco.itens?.length > 0 && (
