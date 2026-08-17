@@ -286,8 +286,10 @@ export default function PlacarVendas() {
             <Rotulo>Alcançado</Rotulo>
             <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 2 }}>
               <Barra pct={pctMes} cor={pctMes >= 100 ? '#6ee7b7' : 'linear-gradient(90deg,#f59e0b,#fcd34d)'} largura={76} />
+              {/* Formato do master: "2,9% de 100%" — com vírgula, como se lê
+                  em português. Batendo, vira troféu. */}
               <span style={{ fontSize: 13, fontWeight: 900, color: pctMes >= 100 ? '#6ee7b7' : '#fff' }}>
-                {pctMes >= 100 ? '🏆 100%' : `${pctMes.toFixed(1)}%`}
+                {pctMes >= 100 ? '🏆 100% de 100%' : `${pctMes.toFixed(1).replace('.', ',')}% de 100%`}
               </span>
             </div>
           </div>
