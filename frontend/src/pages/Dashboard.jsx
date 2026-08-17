@@ -78,6 +78,23 @@ export default function Dashboard() {
   const [vittaHoje, setVittaHoje] = useState(null);
   const [foco, setFoco] = useState(null);   // 🎯 fila de prioridade do dia
   const [comp, setComp] = useState(null);   // 📈 este mês x mês passado
+
+  /* ─── 🗂️ RESUMO EM ABAS (pedido do master: "essas telas estão com muitas
+     informações, fico perdido nelas") ────────────────────────────────────────
+     A tela tinha 18 blocos empilhados: dava tudo ao mesmo tempo e, por isso,
+     nada. Agora cada aba responde UMA pergunta:
+       Meu dia  → o que eu faço agora?      (foco, atenção, agenda, ações)
+       Metas    → quanto falta?             (metas, prêmio, comparativo)
+       Equipe   → como o time está?         (só quem tem time ou visão geral)
+       Clientes → de onde vem o movimento?  (funil, impacto, automações)
+     "Meu dia" é o padrão porque é o que a pessoa abre de manhã. A escolha fica
+     gravada: quem vive nas Metas cai nelas na próxima vez. */
+  const [aba, setAba] = useState(() => {
+    try { return localStorage.getItem('vh_resumo_aba') || 'dia'; } catch { return 'dia'; }
+  });
+  const irPara = (k) => { setAba(k); try { localStorage.setItem('vh_resumo_aba', k); } catch {} };
+  // A aba Equipe só faz sentido pra quem responde por um time — atendente não tem
+  const temEquipe = ['master', 'supervisor'].includes(user?.role) || user?.ve_geral === true;
   useEffect(() => {
     api.get('/reports/dashboard').then(setData).catch(() => {});
     api.get(`/extras/agenda?data=${hojeLocalISO()}`).then(d => setAgendaHoje(Array.isArray(d) ? d : [])).catch(() => {});
@@ -225,12 +242,40 @@ export default function Dashboard() {
 
       <div style={{ padding: '0 28px' }}>
 
+        {/* 🗂️ As abas. Ficam grandes e com ícone de propósito: é a bússola da
+            tela, não um detalhe. O contador ao lado mostra o que exige ação —
+            assim dá pra saber que tem coisa te esperando na aba fechada. */}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 18, borderBottom: '1.5px solid var(--border)', paddingBottom: 2 }}>
+          {[
+            ['dia', '☀️ Meu dia', (foco?.total || 0) + (atencao?.semResposta || 0)],
+            ['metas', '🎯 Metas', 0],
+            ...(temEquipe ? [['equipe', '👥 Equipe', 0]] : []),
+            ['clientes', '💬 Clientes', 0],
+          ].map(([k, rot, n]) => (
+            <button key={k} onClick={() => irPara(k)}
+              style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 16px', cursor: 'pointer',
+                border: 'none', borderBottom: `3px solid ${aba === k ? 'var(--tq)' : 'transparent'}`,
+                background: 'none', marginBottom: -3.5,
+                color: aba === k ? 'var(--tq2)' : 'var(--txt2)', fontSize: 13.5, fontWeight: aba === k ? 900 : 700 }}>
+              {rot}
+              {n > 0 && (
+                <span style={{ background: aba === k ? 'var(--tq)' : 'var(--bg2)', color: aba === k ? '#fff' : 'var(--muted)',
+                  borderRadius: 20, padding: '1px 8px', fontSize: 11, fontWeight: 800 }}>{n}</span>
+              )}
+            </button>
+          ))}
+        </div>
+
+        {aba === 'equipe' && (<>
         {/* ── 👥 SUA EQUIPE — em destaque, no topo (pedido do master): o segundo
                papel da supervisora, que não aparecia em lugar nenhum. Vem antes
                do foco do dia de propósito: construir o time rende mais que
                qualquer tarefa avulsa. Some pra quem não tem time. ── */}
         <MinhaEquipe />
 
+        </>)}
+
+        {aba === 'dia' && (<>
         {/* ── 🎯 MEU FOCO DE HOJE — o que fazer AGORA, em ordem de chance de vender ── */}
         {foco && foco.itens?.length > 0 && (
           <div className="card" style={{ padding: 0, marginBottom: 20, overflow: 'hidden', border: '1.5px solid var(--tq3)' }}>
@@ -278,6 +323,9 @@ export default function Dashboard() {
           <span style={{ flexShrink: 0, background: 'rgba(255,255,255,.22)', borderRadius: 20, padding: '5px 14px', fontSize: 12, fontWeight: 800 }}>Abrir →</span>
         </button>
 
+        </>)}
+
+        {aba === 'metas' && (<>
         {/* ── 📈 ESTE MÊS x MÊS PASSADO (gestão) — comparação até o mesmo dia ── */}
         {comp?.itens?.length > 0 && (
           <div className="card" style={{ padding: '15px 18px', marginBottom: 20 }}>
@@ -305,6 +353,9 @@ export default function Dashboard() {
           </div>
         )}
 
+        </>)}
+
+        {aba === 'dia' && (<>
         {/* ── KPIs ── */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(190px,1fr))', gap: 13, marginBottom: 20 }}>
           {kpis.map(({ Icon, label, valor, sub, go }) => (
@@ -321,6 +372,9 @@ export default function Dashboard() {
           ))}
         </div>
 
+        </>)}
+
+        {aba === 'metas' && (<>
         {/* ── Meta por SETOR (master vê todos; cada usuário vê o seu, conforme produziu) ── */}
         {metaSetor && (metaSetor.porSetor || []).length > 0 && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: 14, marginBottom: 20 }}>
@@ -361,6 +415,9 @@ export default function Dashboard() {
           </div>
         )}
 
+        </>)}
+
+        {aba === 'dia' && (<>
         {/* ── ATENÇÃO AGORA + Resumo comercial ── */}
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(300px,1.3fr) minmax(280px,1fr)', gap: 16, marginBottom: 16 }}>
           {/* Atenção agora */}
@@ -399,6 +456,9 @@ export default function Dashboard() {
           )}
         </div>
 
+        </>)}
+
+        {aba === 'clientes' && (<>
         {/* ── 🤖 Vitta trabalhando por você — automações de hoje ── */}
         {vittaHoje && ((vittaHoje.enviadas || 0) + (vittaHoje.pendentes || 0)) > 0 && (
           <div className="card" style={{ padding: '14px 18px', marginBottom: 16, borderLeft: '4px solid var(--tq)' }}>
@@ -432,9 +492,12 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* ── Linha principal: Meta grande · Funil · Agenda-Hoje ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px,1.1fr) minmax(260px,1fr) minmax(300px,1.3fr)', gap: 16, marginBottom: 16 }}>
+        </>)}
 
+        {/* ── Linha principal: Meta grande · Funil · Agenda-Hoje ── */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(300px,1fr))', gap: 16, marginBottom: 16 }}>
+
+          {aba === 'metas' && (<>
           {/* Meta do Mês — GERAL (todos os setores somados) — card turquesa — só master */}
           {isMaster && mg && (
             <div style={{ borderRadius: 18, padding: '20px 22px', color: '#fff', position: 'relative', overflow: 'hidden',
@@ -485,6 +548,8 @@ export default function Dashboard() {
             </div>
           )}
 
+          </>)}
+          {aba === 'clientes' && (<>
           {/* Funil de Atendimento — baseado nas conversas reais */}
           <div className="card" style={{ padding: '17px 19px', background: 'var(--card)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 800, fontSize: 14, marginBottom: 13 }}>
@@ -518,6 +583,8 @@ export default function Dashboard() {
             )}
           </div>
 
+          </>)}
+          {aba === 'dia' && (<>
           {/* Agenda — Hoje (retornos/follow-ups do dia) */}
           <div className="card" style={{ padding: 0, overflow: 'hidden', background: 'var(--card)', display: 'flex', flexDirection: 'column' }}>
             <div style={{ padding: '13px 17px', background: 'linear-gradient(90deg,var(--tq),#0aa6ae)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -568,10 +635,12 @@ export default function Dashboard() {
               <Plus size={13} /> Novo agendamento
             </button>
           </div>
+          </>)}
         </div>
 
+        {aba === 'equipe' && (<>
         {/* ── Segunda linha: Equipe hoje · Atividades · Mensagem ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px,1.1fr) minmax(260px,1fr) minmax(300px,1.3fr)', gap: 16, marginBottom: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(300px,1fr))', gap: 16, marginBottom: 16 }}>
 
           {/* Desempenho da Equipe — Hoje (linha de cada colega é só do master) */}
           {isMaster && (
@@ -654,6 +723,14 @@ export default function Dashboard() {
               })}
             </div>
           )}
+
+          </div>
+        </>)}
+
+        {/* Daqui pra baixo é o dia da PESSOA — a produção dela, os follow-ups
+            dela e os atalhos que ela usa. Não é assunto de equipe. */}
+        {aba === 'dia' && (<>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(300px,1fr))', gap: 16, marginBottom: 16 }}>
 
           {/* 📊 MINHA PRODUÇÃO — cada uma vê o SEU resultado, nunca o das colegas
               (pedido do master). A gestão continua com o placar completo abaixo. */}
@@ -803,6 +880,9 @@ export default function Dashboard() {
           </div>
         </div>
 
+        </>)}
+
+        {aba === 'clientes' && (<>
         {/* ── Painel de Impacto ── */}
         {impacto && (
           <div className="card" style={{ padding: '17px 22px', background: 'var(--card)' }}>
@@ -832,6 +912,8 @@ export default function Dashboard() {
             </div>
           </div>
         )}
+        </>)}
+
       </div>
     </div>
   );

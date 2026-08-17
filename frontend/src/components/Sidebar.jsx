@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, MessageSquare, Users, Kanban, BarChart2,
   LogOut, Settings, Smartphone, Sun, Moon, ChevronLeft, ChevronRight, ChevronDown,
@@ -170,6 +170,37 @@ function BellPanel({ collapsed }) {
 const initials = n => (n||'?').split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase();
 
 export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, collapsed = false, onToggleCollapse, mobileOpen = false, onCloseMobile, corDia = 'auto', onSetCorDia, paletaCores = [] }) {
+  /* ─── 📂 MENU EM SANFONA (pedido do master: "menu muito grande, cria menus e
+     submenus") ────────────────────────────────────────────────────────────────
+     Eram ~30 itens abertos de uma vez: a pessoa não LIA o menu, varria com o
+     olho e desistia. Agora cada seção abre e fecha, e só duas ficam abertas por
+     padrão: "Meu dia" (o que ela usa toda hora) e a seção da tela em que ela
+     está — assim o menu sempre mostra onde ela se encontra, sem esconder nada.
+     A escolha fica gravada no navegador: quem gosta de tudo aberto abre uma vez
+     e pronto. Menu colapsado (só ícones) ignora tudo isso. */
+  const loc = useLocation();
+  const grupoDoItem = React.useMemo(() => {
+    const mapa = {}; let atual = null;
+    for (const n of NAV) { if (n.grupo) atual = n.grupo; else if (n.to) mapa[n.to] = atual; }
+    return mapa;
+  }, []);
+  const grupoAtivo = React.useMemo(() => {
+    const rota = loc.pathname + loc.search;
+    // Casa a rota mais específica primeiro (senão "/" pega tudo)
+    const chave = Object.keys(grupoDoItem)
+      .filter(k => k === '/' ? rota === '/' : rota.startsWith(k.split('?')[0]))
+      .sort((x, y) => y.length - x.length)[0];
+    return grupoDoItem[chave] || 'Meu dia';
+  }, [loc.pathname, loc.search, grupoDoItem]);
+  const [gruposAbertos, setGruposAbertos] = useState(() => {
+    try { const g = JSON.parse(localStorage.getItem('vh_menu_grupos') || 'null'); if (Array.isArray(g)) return g; } catch {}
+    return ['Meu dia'];
+  });
+  useEffect(() => { try { localStorage.setItem('vh_menu_grupos', JSON.stringify(gruposAbertos)); } catch {} }, [gruposAbertos]);
+  const grupoAberto = (g) => gruposAbertos.includes(g) || g === grupoAtivo;
+  const alternarGrupo = (g) => setGruposAbertos(p => p.includes(g)
+    ? p.filter(x => x !== g)
+    : [...p, g]);
   const { user, setUser, logout, isMaster } = useAuth();
   // 👥 TROCA-RÁPIDA DE USUÁRIO (master): de qualquer tela, vira outro usuário.
   // Usa sempre o token do master (guardado ao impersonar) — dá pra pular direto
@@ -517,10 +548,27 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
             && (!n.lider || user?.lider || user?.role === 'master')
           ).map((n) => {
             // Título de seção: só desenha o rótulo e segue (não é link)
-            if (n.grupo) return collapsed
-              ? <div key={`g-${n.grupo}`} style={{ height:1, background:'rgba(255,255,255,.18)', margin:'7px 8px' }} />
-              : <div key={`g-${n.grupo}`} style={{ fontSize:9, fontWeight:800, letterSpacing:1.5,
-                  color:'rgba(255,255,255,.55)', padding:'11px 12px 4px', textTransform:'uppercase' }}>{n.grupo}</div>;
+            if (n.grupo) {
+              if (collapsed) return <div key={`g-${n.grupo}`} style={{ height:1, background:'rgba(255,255,255,.18)', margin:'7px 8px' }} />;
+              const on = grupoAberto(n.grupo);
+              const daTela = n.grupo === grupoAtivo;
+              return (
+                <button key={`g-${n.grupo}`} onClick={() => alternarGrupo(n.grupo)}
+                  title={on ? 'Recolher esta seção' : 'Abrir esta seção'}
+                  style={{ display:'flex', alignItems:'center', gap:6, width:'100%', cursor:'pointer',
+                    fontSize:9.5, fontWeight:800, letterSpacing:1.4, textTransform:'uppercase',
+                    color: daTela ? 'rgba(255,255,255,.92)' : 'rgba(255,255,255,.55)',
+                    padding:'11px 10px 5px', background:'none', border:'none', textAlign:'left' }}>
+                  {/* A setinha diz o estado sem precisar ler nada */}
+                  <span style={{ display:'inline-block', transition:'transform .18s', transform: on ? 'rotate(90deg)' : 'rotate(0deg)', fontSize:8, opacity:.8 }}>▶</span>
+                  <span style={{ flex:1 }}>{n.grupo}</span>
+                  {/* Ponto marca a seção da tela aberta — orientação sem texto */}
+                  {daTela && <span style={{ width:5, height:5, borderRadius:'50%', background:'var(--tq,#00B8C0)' }} />}
+                </button>
+              );
+            }
+            // Item de seção fechada não desenha (menu colapsado mostra tudo)
+            if (!collapsed && n.to && grupoDoItem[n.to] && !grupoAberto(grupoDoItem[n.to])) return null;
             const { to, icon:Icon, label, unread:showU, retornos:retBadge, equipe:eqBadge, plan:planBadge, destaque, cor } = n;
             return (
           <React.Fragment key={to}>

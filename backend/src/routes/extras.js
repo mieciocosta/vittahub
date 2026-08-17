@@ -113,9 +113,15 @@ r.get('/agenda/meta', async (req, res) => {
       query(`SELECT COALESCE(setor,'vacinas') setor, COUNT(*)::int n
               FROM agenda_eventos WHERE data >= $1 AND data < $2 AND status <> 'Cancelado'
               GROUP BY setor`, [iniStr, fim]),
-      query(`SELECT COALESCE(responsavel_nome,'(sem nome)') nome, COUNT(*)::int n
-              FROM agenda_eventos WHERE data >= $1 AND data < $2 AND status <> 'Cancelado'
-              GROUP BY responsavel_nome ORDER BY n DESC`, [iniStr, fim]),
+      /* O nome vem do CADASTRO quando existe (responsavel_id); o texto solto
+         em `responsavel_nome` é só a última saída. Sem isso o placar mostrava
+         "(sem" e "—" no pódio — lixo de agendamento antigo virando 1º lugar. */
+      query(`SELECT COALESCE(NULLIF(TRIM(u.nome),''), NULLIF(TRIM(a.responsavel_nome),''), 'Sem responsável') nome,
+                    COUNT(*)::int n
+              FROM agenda_eventos a
+              LEFT JOIN usuarios u ON u.id = a.responsavel_id
+             WHERE a.data >= $1 AND a.data < $2 AND a.status <> 'Cancelado'
+             GROUP BY 1 ORDER BY n DESC`, [iniStr, fim]),
       query("SELECT valor FROM configuracoes WHERE chave = 'metas'"),
     ]);
     const metas = cfg.rows[0]?.valor?.agendamentos || {};
