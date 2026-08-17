@@ -2555,26 +2555,35 @@ export async function sendViaMeta(phone, type, content) {
 r.use(auth);
 
 // Keep Evolution webhook for backward compat
-// ─── DEBUG: testar IA Claude (somente logado) ───────────────────────────────
-r.get('/whatsapp/test-ia', masterOnly, async (req, res) => {
-  if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
-  if (!temIA()) return res.json({ error: 'Nenhuma chave de IA configurada (ANTHROPIC_API_KEY ou OPENAI_API_KEY)' });
-  try {
-    const data = await openaiMessages({
-      model: 'gpt-4o-mini', max_tokens: 100,
-      system: 'Responda exatamente o que for pedido.',
-      messages: [{ role: 'user', content: 'Diga apenas: IA funcionando!' }],
-    });
-    res.json({
-      provedor: usaClaude() ? `Claude (${CLAUDE_MODEL_MINI()})` : 'OpenAI (gpt-4o-mini)',
-      resposta: (data.content || []).filter(b => b.type === 'text').map(b => b.text).join(' ') || null,
-      erro: data.error || null,
-      anthropic_key: !!process.env.ANTHROPIC_API_KEY,
-      openai_key: !!process.env.OPENAI_API_KEY,
-    });
-  } catch (e) { res.json({ error: e.message }); }
-});
+/* ─── 🧹 ENDPOINTS DE DIAGNÓSTICO DESATIVADOS ────────────────────────────────
+   Estas 6 rotas de debug saíram do ar (pedido do master: "veja o que não está
+   sendo usado e retira do sistema, mas deixa só comentado no código").
+   Motivo: nenhuma delas era chamada por tela nenhuma do VittaHub — eram
+   ferramentas de bancada, abertas por link com a mesma chave fixa `?k=vt24`.
+   Ficam aqui inteiras, comentadas: se um dia precisar conferir a IA ou os
+   webhooks na unha, é só descomentar o bloco.
+   O que a equipe usa de verdade continua no ar: /whatsapp/diagnostico (checa a
+   entrada de mensagens) e /whatsapp/diag-bot (checa o bot da conversa).       */
 
+// // ─── DEBUG: testar IA Claude (somente logado) ───────────────────────────────
+// r.get('/whatsapp/test-ia', masterOnly, async (req, res) => {
+//   if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
+//   if (!temIA()) return res.json({ error: 'Nenhuma chave de IA configurada (ANTHROPIC_API_KEY ou OPENAI_API_KEY)' });
+//   try {
+//     const data = await openaiMessages({
+//       model: 'gpt-4o-mini', max_tokens: 100,
+//       system: 'Responda exatamente o que for pedido.',
+//       messages: [{ role: 'user', content: 'Diga apenas: IA funcionando!' }],
+//     });
+//     res.json({
+//       provedor: usaClaude() ? `Claude (${CLAUDE_MODEL_MINI()})` : 'OpenAI (gpt-4o-mini)',
+//       resposta: (data.content || []).filter(b => b.type === 'text').map(b => b.text).join(' ') || null,
+//       erro: data.error || null,
+//       anthropic_key: !!process.env.ANTHROPIC_API_KEY,
+//       openai_key: !!process.env.OPENAI_API_KEY,
+//     });
+//   } catch (e) { res.json({ error: e.message }); }
+// });
 // ─── DIAGNÓSTICO DO BOT: por que ele (não) responde? (master) ────────────────
 // Roda todos os portões em ordem e devolve um veredito em português claro.
 // Use ?convId=<id> pra checar uma conversa específica (ex: a que está muda).
@@ -2795,56 +2804,54 @@ r.get('/whatsapp/diagnostico', masterOnly, async (req, res) => {
    entrada de mensagem não precisa disparar mensagem: /whatsapp/diagnostico já
    confere webhook, fila e resgate sem falar com nenhum cliente. */
 
-// ─── DEBUG: forçar configuração de webhooks e ver resultado (via ?k=vt24) ────
-r.get('/whatsapp/force-webhooks', masterOnly, async (req, res) => {
-  if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
-  if (!zapiOk()) return res.json({ error: 'Z-API não configurada' });
-  const webhookUrl = 'https://vittahub-backend-production.up.railway.app/api/inbox/webhook/zapi';
-  const results = {};
-  const endpoints = [
-    'update-webhook-received',
-    'update-webhook-delivery',
-    'update-webhook-received-delivery',
-    'update-webhook-message-status',
-    'update-webhook-connected',
-    'update-webhook-disconnected',
-  ];
-  for (const ep of endpoints) {
-    try {
-      const r2 = await zapiCall(`/${ep}`, 'PUT', { value: webhookUrl });
-      const txt = await r2?.text().catch(() => '');
-      results[ep] = { status: r2?.status, body: txt.slice(0, 100) };
-    } catch (e) { results[ep] = { error: e.message }; }
-  }
-  res.json({ webhookUrl, results });
-});
-
-// ─── DEBUG: ver resposta raw do Z-API (acesso via ?k=vt24) ───────────────────
-r.get('/whatsapp/debug-raw', async (req, res) => {
-  if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
-  if (!zapiOk()) return res.json({ error: 'Z-API não configurada', zapiOk: false });
-  try {
-    // Status da instância
-    const rS = await zapiCall('/status', 'GET');
-    const statusBody = await rS?.text().catch(() => '');
-
-    // Device info
-    const rD = await zapiCall('/device', 'GET');
-    const deviceBody = await rD?.text().catch(() => '');
-
-    res.json({
-      backend_url: process.env.BACKEND_URL,
-      webhook_esperado: 'https://vittahub-backend-production.up.railway.app/api/inbox/webhook/zapi',
-      zapi_status: { http: rS?.status, body: statusBody.slice(0, 300) },
-      zapi_device: { http: rD?.status, body: deviceBody.slice(0, 300) },
-      ultimo_payload_desconhecido: ultimoPayloadDesconhecido,
-      ultimo_audio_debug: ultimoAudioDebug,
-      ultimo_proposta_debug: ultimoPropostaDebug,
-      ultimos_webhooks_recebidos: lastWebhooks,
-    });
-  } catch (e) { res.json({ error: e.message }); }
-});
-
+// // ─── DEBUG: forçar configuração de webhooks e ver resultado (via ?k=vt24) ────
+// r.get('/whatsapp/force-webhooks', masterOnly, async (req, res) => {
+//   if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
+//   if (!zapiOk()) return res.json({ error: 'Z-API não configurada' });
+//   const webhookUrl = 'https://vittahub-backend-production.up.railway.app/api/inbox/webhook/zapi';
+//   const results = {};
+//   const endpoints = [
+//     'update-webhook-received',
+//     'update-webhook-delivery',
+//     'update-webhook-received-delivery',
+//     'update-webhook-message-status',
+//     'update-webhook-connected',
+//     'update-webhook-disconnected',
+//   ];
+//   for (const ep of endpoints) {
+//     try {
+//       const r2 = await zapiCall(`/${ep}`, 'PUT', { value: webhookUrl });
+//       const txt = await r2?.text().catch(() => '');
+//       results[ep] = { status: r2?.status, body: txt.slice(0, 100) };
+//     } catch (e) { results[ep] = { error: e.message }; }
+//   }
+//   res.json({ webhookUrl, results });
+// });
+// // ─── DEBUG: ver resposta raw do Z-API (acesso via ?k=vt24) ───────────────────
+// r.get('/whatsapp/debug-raw', async (req, res) => {
+//   if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
+//   if (!zapiOk()) return res.json({ error: 'Z-API não configurada', zapiOk: false });
+//   try {
+//     // Status da instância
+//     const rS = await zapiCall('/status', 'GET');
+//     const statusBody = await rS?.text().catch(() => '');
+//
+//     // Device info
+//     const rD = await zapiCall('/device', 'GET');
+//     const deviceBody = await rD?.text().catch(() => '');
+//
+//     res.json({
+//       backend_url: process.env.BACKEND_URL,
+//       webhook_esperado: 'https://vittahub-backend-production.up.railway.app/api/inbox/webhook/zapi',
+//       zapi_status: { http: rS?.status, body: statusBody.slice(0, 300) },
+//       zapi_device: { http: rD?.status, body: deviceBody.slice(0, 300) },
+//       ultimo_payload_desconhecido: ultimoPayloadDesconhecido,
+//       ultimo_audio_debug: ultimoAudioDebug,
+//       ultimo_proposta_debug: ultimoPropostaDebug,
+//       ultimos_webhooks_recebidos: lastWebhooks,
+//     });
+//   } catch (e) { res.json({ error: e.message }); }
+// });
 // ─── DEBUG: ver resposta raw do Z-API /chats (público — remover após debug) ───
 r.get('/whatsapp/debug-zapi', masterOnly, async (req, res) => {
   if (!zapiOk()) return res.json({ error: 'Z-API não configurada', zapiOk: false });
@@ -2864,67 +2871,64 @@ r.get('/whatsapp/debug-zapi', masterOnly, async (req, res) => {
   } catch (e) { res.json({ error: e.message }); }
 });
 
-// ─── DEBUG: ver resposta crua de preços do VittaSys (via ?k=vt24) ────────────
-r.get('/proposta/test-precos', async (req, res) => {
-  if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
-  try {
-    const { default: fetch } = await import('node-fetch');
-    const url = `${VITTASYS_URL()}/api/proposta/precos`;
-    const r2 = await fetch(url, {
-      headers: { 'x-vittalis-key': process.env.VITTAHUB_API_KEY || '' },
-      signal: AbortSignal.timeout(8000),
-    });
-    const body = await r2.text();
-    res.json({
-      url_chamada: url,
-      vittahub_key_configurada: !!process.env.VITTAHUB_API_KEY,
-      vittasys_url: VITTASYS_URL(),
-      http_status: r2.status,
-      resposta: body.slice(0, 600),
-    });
-  } catch (e) { res.json({ error: e.message }); }
-});
-
+// // ─── DEBUG: ver resposta crua de preços do VittaSys (via ?k=vt24) ────────────
+// r.get('/proposta/test-precos', async (req, res) => {
+//   if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
+//   try {
+//     const { default: fetch } = await import('node-fetch');
+//     const url = `${VITTASYS_URL()}/api/proposta/precos`;
+//     const r2 = await fetch(url, {
+//       headers: { 'x-vittalis-key': process.env.VITTAHUB_API_KEY || '' },
+//       signal: AbortSignal.timeout(8000),
+//     });
+//     const body = await r2.text();
+//     res.json({
+//       url_chamada: url,
+//       vittahub_key_configurada: !!process.env.VITTAHUB_API_KEY,
+//       vittasys_url: VITTASYS_URL(),
+//       http_status: r2.status,
+//       resposta: body.slice(0, 600),
+//     });
+//   } catch (e) { res.json({ error: e.message }); }
+// });
 /* O disparo de "Proposta-Teste.pdf" pelo WhatsApp foi REMOVIDO. Era um GET
    com chave fixa e telefone padrão: bastava o link ser aberto — ou pré-carregado
    pelo navegador — pra um PDF chamado "Teste" sair pra um número real.
    Conferir a geração da proposta não precisa de envio: /proposta/preview
    devolve o PDF na tela, sem falar com ninguém. */
-// ─── DEBUG: testar geração de PLANO vacinal (via ?k=vt24&plano=plano_0_a_6_meses) ──
-r.get('/proposta/test-plano', async (req, res) => {
-  if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
-  try {
-    const planoId = req.query.plano || 'plano_completo_0_a_18_meses';
-    const pdfBuf = await gerarPlanoPDF({ planoId });
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', 'inline; filename="plano.pdf"');
-    res.send(pdfBuf);
-  } catch (e) {
-    res.status(500).json({ error: e.message, stack: e.stack?.slice(0, 400) });
-  }
-});
-
-// ─── DEBUG: testar geração de PDF da proposta (via ?k=vt24) ──────────────────
-r.get('/proposta/test-pdf', async (req, res) => {
-  if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
-  try {
-    const pdfBuf = await gerarPropostaPDF({
-      nomeCliente: 'Teste Vittalis',
-      template: 'adulto',
-      pacoteNome: 'Teste',
-      vacinas: [{ nome: 'Influenza', avista: 170, credito: 180, parcelas: 1 }],
-      desconto: 0, parcelas: 1,
-    });
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', 'inline; filename="teste.pdf"');
-    res.send(pdfBuf);
-  } catch (e) {
-    res.status(500).json({ error: e.message, stack: e.stack?.slice(0, 400) });
-  }
-});
-
-// (auth já aplicado acima, antes do bloco de debug — não repetir)
-
+// // ─── DEBUG: testar geração de PLANO vacinal (via ?k=vt24&plano=plano_0_a_6_meses) ──
+// r.get('/proposta/test-plano', async (req, res) => {
+//   if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
+//   try {
+//     const planoId = req.query.plano || 'plano_completo_0_a_18_meses';
+//     const pdfBuf = await gerarPlanoPDF({ planoId });
+//     res.setHeader('Content-Type', 'application/pdf');
+//     res.setHeader('Content-Disposition', 'inline; filename="plano.pdf"');
+//     res.send(pdfBuf);
+//   } catch (e) {
+//     res.status(500).json({ error: e.message, stack: e.stack?.slice(0, 400) });
+//   }
+// });
+// // ─── DEBUG: testar geração de PDF da proposta (via ?k=vt24) ──────────────────
+// r.get('/proposta/test-pdf', async (req, res) => {
+//   if (req.query.k !== 'vt24') return res.status(403).json({ error: 'key inválida' });
+//   try {
+//     const pdfBuf = await gerarPropostaPDF({
+//       nomeCliente: 'Teste Vittalis',
+//       template: 'adulto',
+//       pacoteNome: 'Teste',
+//       vacinas: [{ nome: 'Influenza', avista: 170, credito: 180, parcelas: 1 }],
+//       desconto: 0, parcelas: 1,
+//     });
+//     res.setHeader('Content-Type', 'application/pdf');
+//     res.setHeader('Content-Disposition', 'inline; filename="teste.pdf"');
+//     res.send(pdfBuf);
+//   } catch (e) {
+//     res.status(500).json({ error: e.message, stack: e.stack?.slice(0, 400) });
+//   }
+// });
+//
+// // (auth já aplicado acima, antes do bloco de debug — não repetir)
 // ─── POLL: conversas atualizadas — servido do CACHE (zero DB query) ──────────
 r.get('/conversations/updates', async (req, res) => {
   res.set('Cache-Control', 'no-store, no-cache');

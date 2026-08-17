@@ -2,10 +2,17 @@ export const STATUS_CLS = {
   'Novo lead':'b-novo','Em atendimento':'b-atend','Orçamento enviado':'b-orca',
   'Aguardando retorno':'b-aguard','Fechado':'b-fechado','Perdido':'b-perdido'
 };
+/* 🧹 STATUS_CLR — DESATIVADO (pedido do master: tirar o que não é usado,
+   deixando comentado). Era a paleta dos status ANTIGOS de lead ("Orçamento
+   enviado", "Aguardando retorno"), de quando o funil vivia na tabela `leads`.
+   Hoje o funil real é o das CONVERSAS, com outras etapas e outras cores — esta
+   tabela não era lida por tela nenhuma e só confundia quem procurasse "a cor
+   do status".
 export const STATUS_CLR = {
   'Novo lead':'#3b82f6','Em atendimento':'#f97316','Orçamento enviado':'#8b5cf6',
   'Aguardando retorno':'#f59e0b','Fechado':'#10b981','Perdido':'#ef4444'
 };
+*/
 export const COLORS = ['#00B8C0','#0E8C96','#C4973B','#10b981','#ef4444','#8b5cf6','#f97316','#3b82f6'];
 
 export const fmt = {
