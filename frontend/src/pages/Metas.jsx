@@ -1,16 +1,23 @@
 import React, { useEffect, useState } from 'react';
-import { Target, TrendingUp, Save, CalendarCheck } from 'lucide-react';
+import { Target, TrendingUp, Save, CalendarCheck, Stethoscope } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt } from '../hooks/utils.js';
 
 /* Metas — meta de vendas por setor, com as 4 camadas (confirmado/agendado/
-   pendente/falta) e ranking por atendente e categoria. */
+   pendente/falta) e ranking por atendente e categoria.
+
+   CONSULTAS é a exceção: pedido do master, ali a meta não é valor a alcançar e
+   sim QUANTIDADE de consultas por dia. Por isso o setor sai dos cards de R$ e
+   ganha um card próprio, com quantas faltam para fechar o dia. */
 
 const SETORES = [
   ['vacinas', '💉 Vacinas', '#7c5cbf'],
   ['consultas', '🩺 Consultas', '#00B8C0'],
   ['terapias', '🧩 Terapias', '#C4973B'],
 ];
+// Setores que continuam medindo em R$ (consultas mede em consultas).
+const SETORES_RS = SETORES.filter(([k]) => k !== 'consultas');
+const DIA_SEM = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
 
 export default function Metas() {
   const api = useApi();
@@ -28,11 +35,16 @@ export default function Metas() {
   const [planos, setPlanos] = useState(null);
   const [planoMeta, setPlanoMeta] = useState('');
   const [planoSalvo, setPlanoSalvo] = useState(false);
+  // 🩺 Meta de CONSULTAS por DIA (quantidade, não R$)
+  const [cons, setCons] = useState(null);
+  const [consMeta, setConsMeta] = useState('');
+  const [consSalvo, setConsSalvo] = useState(false);
 
   const load = () => api.get('/extras/vendas/resumo').then(d => {
     setData(d);
     setMetaEdit({ vacinas: d.setores?.vacinas?.meta || '', consultas: d.setores?.consultas?.meta || '', terapias: d.setores?.terapias?.meta || '' });
   }).catch(() => {});
+  const loadCons = () => api.get('/extras/consultas/resumo').then(setCons).catch(() => {});
   const loadAg = () => Promise.all([
     api.get('/extras/agendamentos/resumo').catch(() => null),
     api.get('/extras/agendamentos/meta').catch(() => null),
@@ -41,7 +53,12 @@ export default function Metas() {
     if (meta) setAgEdit({ vacinas: meta.vacinas || '', consultas: meta.consultas || '', terapias: meta.terapias || '' });
   });
   const loadPlanos = () => api.get('/extras/terapias/meta-planos').then(setPlanos).catch(() => {});
-  useEffect(() => { load(); loadAg(); loadPlanos(); }, []); // eslint-disable-line
+  useEffect(() => { load(); loadAg(); loadPlanos(); loadCons(); }, []); // eslint-disable-line
+
+  const salvarConsMeta = async () => {
+    try { await api.put('/extras/consultas/meta', { dia: +consMeta || 0 }); setConsMeta(''); setConsSalvo(true); setTimeout(() => setConsSalvo(false), 2000); loadCons(); }
+    catch (e) { window.alert('Erro: ' + e.message); }
+  };
 
   const salvarPlanoMeta = async () => {
     try { await api.put('/terapias/meta', { meta: +planoMeta || 0 }); setPlanoMeta(''); setPlanoSalvo(true); setTimeout(() => setPlanoSalvo(false), 2000); loadPlanos(); }
@@ -81,9 +98,86 @@ export default function Metas() {
         </div>
       </div>
 
-      {/* Cards de meta por setor */}
+      {/* 🩺 CONSULTAS — meta por QUANTIDADE, não por valor.
+          Pedido do master: "retira os valores a serem alcançados e sim deixa a
+          quantidade de consultas; se são 10 por dia, veja quanto falta". É o
+          número que a equipe olha de manhã: quantas ainda cabem hoje. */}
+      {cons && (
+        <div className="card" style={{ padding: '18px 20px', marginBottom: 22, background: 'linear-gradient(135deg,#0e7c8a,#00B8C0)', color: '#fff', border: 'none' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 12 }}>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 1.4, textTransform: 'uppercase', opacity: .85, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Stethoscope size={13} /> Consultas · meta do dia
+              </div>
+              <div style={{ fontSize: 19, fontWeight: 800, marginTop: 4 }}>
+                {cons.hoje.domingo ? '😴 Domingo — a clínica não atende hoje'
+                  : cons.hoje.falta === 0 ? '🏆 Dia fechado! As ' + cons.meta_dia + ' consultas já estão na agenda.'
+                    : `Faltam ${cons.hoje.falta} consulta${cons.hoje.falta > 1 ? 's' : ''} para as ${cons.meta_dia} de hoje`}
+              </div>
+              <div style={{ fontSize: 12.5, opacity: .88, marginTop: 3 }}>
+                {cons.hoje.realizadas} já realizada{cons.hoje.realizadas === 1 ? '' : 's'} · média de {cons.mes_resumo.media_dia} por dia no mês
+              </div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: 40, fontWeight: 900, fontFamily: 'monospace', lineHeight: 1 }}>
+                {cons.hoje.agendadas}<span style={{ fontSize: 20, opacity: .7 }}>/{cons.meta_dia}</span>
+              </div>
+              <div style={{ fontSize: 11, opacity: .85, marginTop: 3 }}>consultas hoje</div>
+            </div>
+          </div>
+          <div style={{ height: 10, borderRadius: 6, background: 'rgba(255,255,255,.25)', overflow: 'hidden', marginTop: 12 }}>
+            <div style={{ width: `${Math.min(100, cons.hoje.pct || 0)}%`, height: '100%', borderRadius: 6, background: '#fff', transition: 'width .7s' }} />
+          </div>
+
+          {/* Últimos 7 dias — dá pra ver na hora se o dia de hoje está fraco.
+              Barras estreitas de propósito: largura cheia vira tabela, não gráfico. */}
+          <div style={{ display: 'flex', gap: 7, alignItems: 'flex-end', marginTop: 14 }}>
+            {cons.ultimos.map((d, i) => {
+              const alt = Math.max(5, Math.min(100, (d.n / Math.max(cons.meta_dia, 1)) * 100));
+              const hoje = i === cons.ultimos.length - 1;
+              return (
+                <div key={d.dia} style={{ width: 40, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+                  <div style={{ fontSize: 10.5, fontWeight: 800, opacity: hoje ? 1 : .78 }}>{d.n}</div>
+                  <div style={{ width: 26, height: 38, display: 'flex', alignItems: 'flex-end', background: 'rgba(255,255,255,.16)', borderRadius: 5, overflow: 'hidden' }}>
+                    <div style={{ width: '100%', height: `${alt}%`, background: d.n >= cons.meta_dia ? '#bbf7d0' : hoje ? '#fff' : 'rgba(255,255,255,.62)' }} />
+                  </div>
+                  <div style={{ fontSize: 9.5, opacity: .82, fontWeight: hoje ? 800 : 600 }}>{DIA_SEM[new Date(d.dia + 'T12:00:00Z').getUTCDay()]}</div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* O mês pela mesma régua: meta do dia × dias úteis (domingo não conta) */}
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 12, fontSize: 12 }}>
+            <div style={{ background: 'rgba(255,255,255,.15)', borderRadius: 9, padding: '7px 11px' }}>
+              <b style={{ fontSize: 14 }}>{cons.mes_resumo.feitas}</b> de {cons.mes_resumo.meta} no mês
+              <span style={{ opacity: .8 }}> ({cons.meta_dia} × {cons.mes_resumo.dias_uteis} dias úteis)</span>
+            </div>
+            <div style={{ background: 'rgba(255,255,255,.15)', borderRadius: 9, padding: '7px 11px' }}>
+              {cons.mes_resumo.falta > 0 ? <>faltam <b style={{ fontSize: 14 }}>{cons.mes_resumo.falta}</b> consultas</> : <b>🏆 meta do mês batida!</b>}
+            </div>
+            <div style={{ background: cons.mes_resumo.diferenca >= 0 ? 'rgba(187,247,208,.28)' : 'rgba(254,215,170,.3)', borderRadius: 9, padding: '7px 11px', fontWeight: 700 }}>
+              {cons.mes_resumo.diferenca >= 0
+                ? `↑ ${cons.mes_resumo.diferenca} acima do ritmo`
+                : `↓ ${Math.abs(cons.mes_resumo.diferenca)} atrás do ritmo`}
+              <span style={{ opacity: .85, fontWeight: 500 }}> (esperado {cons.mes_resumo.esperado} até hoje)</span>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+            {ehGestao && <>
+              <input type="number" min={0} value={consMeta} onChange={e => setConsMeta(e.target.value)} placeholder={String(cons.meta_dia)}
+                style={{ width: 92, padding: '7px 10px', borderRadius: 9, border: 'none', fontSize: 13, fontWeight: 700 }} />
+              <button onClick={salvarConsMeta} className="btn btn-s" style={{ fontSize: 12 }}>{consSalvo ? 'Salvo!' : 'Salvar consultas/dia'}</button>
+            </>}
+            <a href="/agenda" style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 800, color: '#fff', textDecoration: 'underline' }}>Abrir a agenda →</a>
+          </div>
+        </div>
+      )}
+
+      {/* Cards de meta por setor (em R$ — consultas tem card próprio acima) */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(300px,1fr))', gap: 16, marginBottom: 22 }}>
-        {SETORES.map(([k, rotulo, cor]) => {
+        {SETORES_RS.map(([k, rotulo, cor]) => {
           const s = data.setores?.[k] || { meta: 0, confirmado: 0, agendado: 0, pendente: 0, falta: 0, pct: null };
           const pct = Math.min(s.pct || 0, 100);
           return (
@@ -150,9 +244,10 @@ export default function Metas() {
       {/* Definir metas (gestão) */}
       {ehGestao && (
         <div className="card" style={{ padding: '18px 20px', marginBottom: 22 }}>
-          <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}><TrendingUp size={16} /> Definir meta de vendas do mês (R$)</div>
+          <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}><TrendingUp size={16} /> Definir meta de vendas do mês (R$)</div>
+          <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 12 }}>🩺 Consultas não entra aqui: a meta dela é por quantidade de consultas por dia (card no topo).</div>
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-            {SETORES.map(([k, rotulo]) => (
+            {SETORES_RS.map(([k, rotulo]) => (
               <div key={k} className="field" style={{ flex: '1 1 160px', margin: 0 }}>
                 <label>{rotulo}</label>
                 <input type="number" min={0} value={metaEdit[k]} onChange={e => setMetaEdit(p => ({ ...p, [k]: e.target.value }))} placeholder="0" />
@@ -165,9 +260,10 @@ export default function Metas() {
 
       {/* Metas de AGENDAMENTO (quantidade) por setor */}
       <div className="card" style={{ padding: '18px 20px', marginBottom: 22 }}>
-        <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}><CalendarCheck size={16} color="var(--tq2)" /> Metas de agendamento do mês (quantidade)</div>
+        <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}><CalendarCheck size={16} color="var(--tq2)" /> Metas de agendamento do mês (quantidade)</div>
+        <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 12 }}>Consultas tem régua própria (por dia) no card do topo — duas metas para o mesmo setor só confundem.</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(220px,1fr))', gap: 14, marginBottom: 16 }}>
-          {SETORES.map(([k, rotulo, cor]) => {
+          {SETORES_RS.map(([k, rotulo, cor]) => {
             const a = agResumo?.setores?.[k] || { feito: 0, meta: 0, falta: 0, pct: null };
             const pct = Math.min(a.pct || 0, 100);
             return (
@@ -187,7 +283,7 @@ export default function Metas() {
         </div>
         {ehGestao && (
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end', borderTop: '1px solid var(--border)', paddingTop: 14 }}>
-            {SETORES.map(([k, rotulo]) => (
+            {SETORES_RS.map(([k, rotulo]) => (
               <div key={k} className="field" style={{ flex: '1 1 150px', margin: 0 }}>
                 <label>{rotulo} (nº)</label>
                 <input type="number" min={0} value={agEdit[k]} onChange={e => setAgEdit(p => ({ ...p, [k]: e.target.value }))} placeholder="0" />

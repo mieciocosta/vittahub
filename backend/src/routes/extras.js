@@ -2142,6 +2142,111 @@ r.get('/agendamentos/resumo', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* ═══ META DE CONSULTAS — QUANTIDADE, NAO DINHEIRO ═══════════════════════════
+   Pedido do master: no setor de CONSULTAS a meta deixa de ser "valor a
+   alcancar" e passa a ser QUANTIDADE — 10 consultas por dia. O que a equipe
+   precisa enxergar e quantas faltam para fechar o dia de hoje; reais nao dizem
+   nada para quem esta marcando horario.
+   O mes nasce da MESMA regua: 10 x dias uteis (domingo a clinica nao atende,
+   mesma conta dos 26 planos de terapia). */
+const META_CONSULTAS_DIA = 10;
+
+// Dias uteis do mes (segunda a sabado) e quantos ja passaram ate o dia dado.
+// Meio-dia UTC de proposito: com 00h o fuso vira o dia e a conta erra por 1.
+function diasUteisDoMes(mes, ateDia) {
+  const [ano, m] = mes.split('-').map(Number);
+  const ultimo = new Date(Date.UTC(ano, m, 0)).getUTCDate();
+  let total = 0, ateHoje = 0;
+  for (let d = 1; d <= ultimo; d++) {
+    if (new Date(Date.UTC(ano, m - 1, d, 12)).getUTCDay() === 0) continue;  // domingo nao conta
+    total++;
+    if (!ateDia || d <= ateDia) ateHoje++;
+  }
+  return { total, ateHoje };
+}
+
+const metaConsultasDia = async () => {
+  const { rows } = await query("SELECT valor FROM configuracoes WHERE chave = 'metas'");
+  const v = parseInt(rows[0]?.valor?.consultas_dia);
+  return Number.isFinite(v) && v >= 0 ? v : META_CONSULTAS_DIA;
+};
+
+r.get('/consultas/meta', async (req, res) => {
+  try { res.json({ dia: await metaConsultasDia(), padrao: META_CONSULTAS_DIA }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.put('/consultas/meta', async (req, res) => {
+  try {
+    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestao define metas.' });
+    const dia = Math.max(0, Math.min(parseInt(req.body?.dia) || 0, 200));
+    await query(`INSERT INTO configuracoes (chave, valor) VALUES ('metas', jsonb_build_object('consultas_dia', $1::int))
+                 ON CONFLICT (chave) DO UPDATE SET valor = jsonb_set(COALESCE(configuracoes.valor,'{}'::jsonb), '{consultas_dia}', to_jsonb($1::int)), updated_at = NOW()`, [dia]);
+    res.json({ ok: true, dia });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Resumo de CONSULTAS: o dia de hoje (quantas faltam para a meta) e o mes pela
+// mesma regua. Mesmo publico do resumo de agendamentos — e numero de setor.
+r.get('/consultas/resumo', async (req, res) => {
+  try {
+    if (!(gestao(req) || req.user.lider)) return res.status(403).json({ error: 'Acesso restrito.' });
+    // Hoje no fuso de Sao Luis (UTC-3): depois das 21h o toISOString() puro
+    // pularia para amanha e a meta do dia zeraria antes da hora.
+    const hoje = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+    const mes = /^\d{4}-\d{2}$/.test(req.query.mes || '') ? req.query.mes : hoje.slice(0, 7);
+    const ATIVOS = "status IN ('Agendado','Confirmado','Realizado','Reagendado')";
+    const DO_SETOR = "COALESCE(setor,'vacinas') = 'consultas'";
+
+    const [meta, hojeQ, mesQ, serieQ] = await Promise.all([
+      metaConsultasDia(),
+      query(`SELECT COUNT(*)::int n, COUNT(*) FILTER (WHERE status = 'Realizado')::int realizadas
+               FROM agenda_eventos WHERE data = $1::date AND ${DO_SETOR} AND ${ATIVOS}`, [hoje]),
+      query(`SELECT COUNT(*)::int n FROM agenda_eventos
+              WHERE to_char(data,'YYYY-MM') = $1 AND ${DO_SETOR} AND ${ATIVOS}`, [mes]),
+      query(`SELECT to_char(data,'YYYY-MM-DD') dia, COUNT(*)::int n FROM agenda_eventos
+              WHERE data BETWEEN $1::date - INTERVAL '6 days' AND $1::date AND ${DO_SETOR} AND ${ATIVOS}
+              GROUP BY 1`, [hoje]),
+    ]);
+
+    const feitasHoje = hojeQ.rows[0]?.n || 0;
+    const noMes = mesQ.rows[0]?.n || 0;
+    const mesCorrente = mes === hoje.slice(0, 7);
+    const du = diasUteisDoMes(mes, mesCorrente ? +hoje.slice(8, 10) : null);
+    const metaMes = meta * du.total;
+    const esperado = meta * du.ateHoje;   // onde a equipe deveria estar hoje
+
+    // Ultimos 7 dias com os buracos preenchidos — grafiquinho do card.
+    const porDia = Object.fromEntries(serieQ.rows.map(x => [x.dia, x.n]));
+    const ultimos = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(hoje + 'T12:00:00Z');
+      d.setUTCDate(d.getUTCDate() - i);
+      const iso = d.toISOString().slice(0, 10);
+      ultimos.push({ dia: iso, n: porDia[iso] || 0, domingo: d.getUTCDay() === 0 });
+    }
+
+    res.json({
+      data: hoje, mes, meta_dia: meta,
+      hoje: {
+        agendadas: feitasHoje,
+        realizadas: hojeQ.rows[0]?.realizadas || 0,
+        falta: Math.max(meta - feitasHoje, 0),
+        pct: meta ? Math.round((feitasHoje / meta) * 100) : null,
+        domingo: new Date(hoje + 'T12:00:00Z').getUTCDay() === 0,
+      },
+      mes_resumo: {
+        feitas: noMes, meta: metaMes, falta: Math.max(metaMes - noMes, 0),
+        pct: metaMes ? +((noMes / metaMes) * 100).toFixed(1) : null,
+        dias_uteis: du.total, dias_corridos: du.ateHoje,
+        esperado, diferenca: noMes - esperado,
+        media_dia: du.ateHoje ? +(noMes / du.ateHoje).toFixed(1) : 0,
+      },
+      ultimos,
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Editar/excluir venda (gestão)
 r.put('/vendas/:id', async (req, res) => {
   try {
