@@ -136,7 +136,9 @@ export default function Dashboard() {
 
   const kpis = [
     { Icon: MessageSquare, label: 'Conversas não lidas', valor: resumo.totalUnread || 0, sub: 'Precisam de atenção', go: '/inbox' },
-    { Icon: MessageSquare, label: 'Aguardando resposta', valor: data.conversas?.aguardando || 0, sub: 'Cliente falou por último', go: '/inbox' },
+    /* 🧹 Auditoria: "Aguardando resposta" saiu — eram TRÊS rótulos de espera na
+       mesma tela (este, o "Aguardando" do funil e o "Sem resposta +10min" do
+       Atenção agora). Ficou o acionável: o +10min, que é o que cobra ação. */
     { Icon: CalendarCheck, label: 'Agendamentos hoje', valor: data.agenda?.hoje ?? agendaHoje.length, sub: 'Na agenda de hoje', go: '/agenda' },
     { Icon: CalendarCheck, label: 'Próximos agendamentos', valor: data.agenda?.proximos || 0, sub: 'A confirmar / realizar', go: '/agenda' },
     { Icon: CalendarCheck, label: 'Agendados no mês 🎯', valor: agMeta ? (agMeta.alvo ? `${agMeta.feitos}/${agMeta.alvo}` : agMeta.feitos) : '—', sub: agMeta?.alvo ? `Meta: ${agMeta.pct ?? 0}% alcançada` : 'Defina o alvo nas Configurações', go: '/agenda' },
@@ -166,25 +168,14 @@ export default function Dashboard() {
           <div style={{ fontWeight: 800, fontSize: 21 }}>{saud}, {nome}! {hora < 12 ? '☀️' : hora < 18 ? '🌤️' : '🌙'}</div>
           <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Que seu dia seja abençoado e produtivo!</div>
         </div>
-        <div style={{ flex: 1, minWidth: 260, display: 'flex', alignItems: 'center', gap: 10,
-          padding: '10px 16px', borderRadius: 13, background: 'var(--tq4)', border: '1px solid var(--tq3)' }}>
-          <span style={{ fontSize: 17, color: 'var(--tq)', fontWeight: 900, lineHeight: 1 }}>“</span>
-          <div style={{ fontSize: 12.5, color: 'var(--txt2)' }}>
-            {verso} <b style={{ color: 'var(--tq2)' }}>{ref}</b>
-          </div>
-        </div>
-        {isMaster && mg && (
-          <div style={{ minWidth: 190 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, fontWeight: 700, marginBottom: 4 }}>
-              <span style={{ color: 'var(--muted)' }}>Meta do mês — Geral</span>
-              <span style={{ color: 'var(--tq2)', fontSize: 14 }}>{Math.round(mg.pct || 0)}%</span>
-            </div>
-            <div style={{ height: 7, borderRadius: 6, background: 'var(--tq4)', overflow: 'hidden' }}>
-              <div style={{ width: `${Math.min(mg.pct || 0, 100)}%`, height: '100%', background: 'linear-gradient(90deg,var(--tq),var(--pet))', borderRadius: 6 }} />
-            </div>
-            <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 3 }}>{fmt.brl(mg.confirmado)} / {fmt.brl(mg.meta)}</div>
-          </div>
-        )}
+        {/* 🧹 O versículo saiu daqui: ele já mora na barra lateral, visível em
+            TODAS as telas — aparecer duas vezes na mesma dobra era ruído. */}
+        <div style={{ flex: 1 }} />
+        {/* 🧹 Auditoria: a mini-barra "Meta do mês — Geral" saiu daqui. Ela
+            dividia pelo alvo de configurações.vendas (R$ 759 mil) enquanto a
+            faixa sticky, 40 px acima, dividia pela mínima — o dono viu 3% e
+            8,4% pro MESMO dinheiro, na mesma dobra de tela. Um número, um
+            lugar: a faixa é o placar; o detalhe vive na aba Metas. */}
         {/* Cartão do usuário. Pra quem pode trocar de conta, ele vira o próprio
             seletor: clica no nome e escolhe em quem entrar (pedido do master —
             ele quer isso aqui em cima, não escondido na lateral). */}
@@ -446,10 +437,14 @@ export default function Dashboard() {
             <div className="card" style={{ padding: '16px 18px' }}>
               <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>💰 Vendas do mês</div>
               <div style={{ fontSize: 30, fontWeight: 800, color: 'var(--ok,#16a34a)' }}>{fmt.brl(vendasResumo.total?.confirmado)}</div>
-              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>confirmado{vendasResumo.total?.meta > 0 && ` de ${fmt.brl(vendasResumo.total.meta)} (${vendasResumo.total.pct ?? 0}%)`}</div>
+              {/* Régua única (auditoria): vendido é o número; recebido/a receber
+                  é a decomposição. A meta aqui é a MÍNIMA — a mesma da faixa. */}
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
+                vendido{vendasResumo.total?.meta > 0 && ` de ${fmt.brl(vendasResumo.total.meta)} da meta mínima (${vendasResumo.total.pct ?? 0}%)`}
+              </div>
               <div style={{ display: 'flex', gap: 8, fontSize: 11.5 }}>
-                <div style={{ flex: 1, background: 'var(--bg2)', borderRadius: 8, padding: '7px 9px' }}><div style={{ color: 'var(--muted)' }}>Agendado</div><div style={{ fontWeight: 800, color: '#2563eb' }}>{fmt.brl(vendasResumo.total?.agendado)}</div></div>
-                <div style={{ flex: 1, background: 'var(--bg2)', borderRadius: 8, padding: '7px 9px' }}><div style={{ color: 'var(--muted)' }}>Pendente</div><div style={{ fontWeight: 800, color: '#d97706' }}>{fmt.brl(vendasResumo.total?.pendente)}</div></div>
+                <div style={{ flex: 1, background: 'var(--bg2)', borderRadius: 8, padding: '7px 9px' }}><div style={{ color: 'var(--muted)' }}>Recebido</div><div style={{ fontWeight: 800, color: 'var(--ok,#16a34a)' }}>{fmt.brl(vendasResumo.total?.recebido)}</div></div>
+                <div style={{ flex: 1, background: 'var(--bg2)', borderRadius: 8, padding: '7px 9px' }}><div style={{ color: 'var(--muted)' }}>A receber</div><div style={{ fontWeight: 800, color: '#d97706' }}>{fmt.brl(vendasResumo.total?.pendente)}</div></div>
               </div>
               <button onClick={() => nav('/metas')} className="btn btn-sm" style={{ width: '100%', marginTop: 12 }}>Ver metas →</button>
             </div>
@@ -504,7 +499,7 @@ export default function Dashboard() {
               background: 'linear-gradient(135deg, #00B8C0 0%, #0E8C96 100%)', boxShadow: '0 8px 28px rgba(0,184,192,.3)' }}>
               <div style={{ position: 'absolute', right: -30, top: -30, width: 140, height: 140, borderRadius: '50%', background: 'rgba(255,255,255,.08)' }} />
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 800, fontSize: 14, marginBottom: 12 }}>
-                <span style={{ fontSize: 18 }}>🏆</span> Meta do Mês — Geral
+                <span style={{ fontSize: 18 }}>🏆</span> Meta do Mês — mínima da casa
               </div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
                 <div>
@@ -807,8 +802,11 @@ export default function Dashboard() {
               <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 12 }}>
                 {agMeta.feitos} no total{agMeta.alvo ? ` · meta ${agMeta.alvo} (${agMeta.pct ?? 0}%)` : ''}
               </div>
-              {(agMeta.porAtendente || []).slice(0, 6).map((u2, i) => {
-                const max = Math.max(...agMeta.porAtendente.map(x => x.n), 1);
+              {/* Lixo de agendamento sem dono não sobe no pódio (auditoria: o
+                  1º lugar do master era "(sem" com 12) — vira a linha cinza
+                  informativa depois da lista. */}
+              {(agMeta.porAtendente || []).filter(x => x.nome !== 'Sem responsável').slice(0, 6).map((u2, i) => {
+                const max = Math.max(...agMeta.porAtendente.filter(x => x.nome !== 'Sem responsável').map(x => x.n), 1);
                 const pct = Math.min((u2.n / max) * 100, 100);
                 return (
                   <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderBottom: i < Math.min(agMeta.porAtendente.length, 6) - 1 ? '1px solid var(--border)' : 'none' }}>
@@ -825,6 +823,11 @@ export default function Dashboard() {
                   </div>
                 );
               })}
+              {(agMeta.porAtendente || []).some(x => x.nome === 'Sem responsável') && (
+                <div style={{ fontSize: 11, color: 'var(--muted)', paddingTop: 7 }}>
+                  🏷️ Sem responsável: {(agMeta.porAtendente || []).find(x => x.nome === 'Sem responsável')?.n} — atribua na Agenda pra contarem no pódio
+                </div>
+              )}
             </div>
           )}
 
@@ -856,13 +859,9 @@ export default function Dashboard() {
 
           {/* Mensagem da Tarde / Ações rápidas empilhadas */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div className="card" style={{ padding: '16px 19px', background: 'var(--card)', border: '1.5px solid var(--tq3)', display: 'flex', gap: 13, alignItems: 'center' }}>
-              <div style={{ fontSize: 36, flexShrink: 0 }}>{hora < 12 ? '🌅' : '💙'}</div>
-              <div>
-                <div style={{ fontWeight: 800, fontSize: 13.5, marginBottom: 3 }}>{hora < 12 ? 'Mensagem da Manhã' : 'Mensagem da Tarde'}</div>
-                <div style={{ fontSize: 12.5, color: 'var(--txt2)', lineHeight: 1.5 }}>{motivacional}</div>
-              </div>
-            </div>
+            {/* 🧹 Auditoria: o card "Mensagem da Manhã/Tarde" saiu — a faixa do topo
+                já carrega o grito de guerra, e dois motivacionais na mesma tela
+                viram papel de parede. O versículo segue na lateral. */}
             <div className="card" style={{ padding: '15px 19px', background: 'var(--card)' }}>
               <div style={{ fontWeight: 800, fontSize: 13.5, marginBottom: 11 }}>⚡ Ações rápidas</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 8 }}>
@@ -887,7 +886,7 @@ export default function Dashboard() {
         {impacto && (
           <div className="card" style={{ padding: '17px 22px', background: 'var(--card)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 13 }}>
-              <div style={{ fontWeight: 800, fontSize: 14 }}>💙 Painel de Impacto — Este Mês</div>
+              <div style={{ fontWeight: 800, fontSize: 14 }}>💙 Painel de Impacto — Geral</div>
               {isMaster && (
                 <button onClick={() => nav('/relatorios')} style={{ padding: '6px 14px', borderRadius: 9, background: 'var(--tq4)', border: '1px solid var(--tq3)', color: 'var(--tq2)', fontSize: 11.5, fontWeight: 800, cursor: 'pointer' }}>
                   Ver relatório completo
@@ -896,11 +895,15 @@ export default function Dashboard() {
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 12 }}>
               {/* O servidor manda null no setor que não é da pessoa — some da lista */}
-              {[['👨‍👩‍👧', impacto.familias, 'Famílias atendidas'],
-                ['💉', impacto.convVacinas, 'Conversas — Vacinas'],
-                ['🩺', impacto.convConsultas, 'Conversas — Consultas'],
-                ['🧩', impacto.convTerapias, 'Conversas — Terapias'],
-                ['💬', resumo.totalUnread || 0, 'Não lidas agora']].filter(([, v]) => v != null).map(([ic, v, l]) => (
+              {/* Auditoria: "Famílias atendidas" era o total bruto de conversas —
+                  rótulo prometia mais do que o dado é. E o sem-triagem agora é
+                  linha própria, fechando com o funil (antes somava em vacinas
+                  e as duas listas divergiam na mesma tela). */}
+              {[['💬', impacto.familias, 'Conversas no total'],
+                ['💉', impacto.convVacinas, 'Vacinas'],
+                ['🩺', impacto.convConsultas, 'Consultas'],
+                ['🧩', impacto.convTerapias, 'Terapias'],
+                ['🏷️', impacto.convSemSetor, 'Sem triagem — classificar']].filter(([, v]) => v != null).map(([ic, v, l]) => (
                 <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <span style={{ fontSize: 26 }}>{ic}</span>
                   <div>

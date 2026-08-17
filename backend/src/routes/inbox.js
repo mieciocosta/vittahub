@@ -3829,7 +3829,7 @@ r.get('/setor-resumo', async (req, res) => {
       emAtendimento++;
       if (c.last_from === 'contact') esperando++;
     }
-    const mes = new Date().toISOString().slice(0, 7);
+    const mes = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 7);   // mês de São Luís (auditoria)
     const cat = CLS_CATEGORIA[cls], setor = CLS_SETOR[cls];
     const [vendas, perdas, ag] = await Promise.all([
       query(`SELECT COUNT(*)::int n, COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float confirmado FROM vendas WHERE to_char(data_venda,'YYYY-MM')=$1 AND categoria=$2`, [mes, cat]).catch(() => ({ rows: [{ n: 0, confirmado: 0 }] })),
@@ -3862,7 +3862,7 @@ r.get('/atencao-agora', async (req, res) => {
         if (c.lead_score === 'quente') quentes++;
       }
     }
-    const hoje = new Date().toISOString().slice(0, 10);
+    const hoje = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10); // dia de São Luís (auditoria)
     const mes = hoje.slice(0, 7);
     const soMinhasVenda = req.user.role === 'master' || req.user.role === 'supervisor' ? '' : ` AND atendente_id = '${String(req.user.id).replace(/[^a-zA-Z0-9-]/g, '')}'`;
     const [ag, vp] = await Promise.all([

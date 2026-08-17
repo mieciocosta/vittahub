@@ -80,7 +80,9 @@ export default function MinhaEquipe() {
               </div>
               {/* A frase inteira do master, escrita sem rodeio */}
               <div style={{ fontSize: 11.5, color: 'var(--txt2)', lineHeight: 1.5 }}>
-                Meta <b>{fmt.brl(m.meta)}</b> · ela ganha <b style={{ color: 'var(--ok,#16a34a)' }}>{fmt.brl(m.premio)}</b> ·
+                {/* Sem "ela/ele" fixo: o nome resolve o gênero sozinho (auditoria
+                    — José e Carlos apareciam como "ela ganha") */}
+                Meta <b>{fmt.brl(m.meta)}</b> · {(m.nome || '').split(' ')[0]} ganha <b style={{ color: 'var(--ok,#16a34a)' }}>{fmt.brl(m.premio)}</b> ·
                 {' '}você ganha <b style={{ color: 'var(--ok,#16a34a)' }}>{fmt.brl(m.ganhoLider)}</b> em cima
               </div>
               <div style={{ height: 6, borderRadius: 5, background: 'var(--bg2)', overflow: 'hidden', marginTop: 5 }}>
@@ -136,7 +138,7 @@ export default function MinhaEquipe() {
             </div>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.5 }}>
               Entra como atendente de <b style={{ textTransform: 'capitalize' }}>{eq.setor}</b>, com meta de {fmt.brl(eq.meta_por_pessoa)}.
-              Quando ela bater, você ganha {fmt.brl(eq.premio_por_pessoa)} em cima.
+              Quando essa pessoa bater a meta, você ganha {fmt.brl(eq.premio_por_pessoa)} em cima.
             </div>
             {[['nome', 'Nome completo', 'Ex.: Ana Carolina de Sousa'], ['cpf', 'CPF (é o login dela)', 'Só números']].map(([k, rot, ph]) => (
               <div key={k} style={{ marginBottom: 11 }}>

@@ -64,15 +64,17 @@ const NAV = [
   { to:'/lembretes',  icon:BellRing,        label:'Lembretes', cor:'#facc15' },
 
   { grupo:'Fim do dia' },
+  /* 🧹 Auditoria: "Meu Relatório" saiu do menu — era a MESMA página do
+     Relatório do Dia com um parâmetro; dois itens pro mesmo destino só
+     engordavam a lista. O individual é uma aba dentro da página. */
   { to:'/agenda?aba=relatorio', icon:ClipboardList, label:'Relatório do Dia', cor:'#0ea5e9', destaque:true },
-  { to:'/agenda?aba=relatorio&individual=1', icon:FileSignature, label:'Meu Relatório', cor:'#f59e0b', destaque:true },
   { to:'/caixa',      icon:Wallet,          label:'Caixa', cor:'#34d399' },
   { to:'/metas',      icon:Target,          label:'Metas', gestao:true, cor:'#e879f9' },
 
   { grupo:'Operação' },
   { to:'/vacinas-solicitacao', icon:Syringe, label:'Solicitar Vacinas', vacinas:true, cor:'#8b5cf6' },
   { to:'/profissionais', icon:Stethoscope,  label:'Profissionais', consultas:true, cor:'#22d3ee' },
-  { to:'/funil',      icon:Kanban,          label:'Organização', cor:'#2dd4bf' },
+  { to:'/funil',      icon:Kanban,          label:'Funil', cor:'#2dd4bf' },
   { to:'/relatorios', icon:BarChart2,       label:'Relatórios', cor:'#60a5fa' },
   { to:'/banco-dados',icon:Database,        label:'Banco de Dados', cor:'#94a3b8' },
 
@@ -309,10 +311,9 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
     } catch (e) { window.alert(e.message || 'Não foi possível mudar o nome.'); }
     setSalvandoNome(false);
   };
-  const [metaMini, setMetaMini] = useState(null);
-  useEffect(() => {
-    api.get('/extras/meta-setor').then(setMetaMini).catch(() => {});
-  }, []); // eslint-disable-line
+  /* 🧹 Auditoria: fetch morto — o widget de meta da lateral já tinha saído,
+     mas a chamada ao /extras/meta-setor ficou rodando a cada montagem sem
+     ninguém ler o resultado. Custo de rede por tela, zero pixel. */
 
   const VERS_DIA = versiculoDoDia();
   const saudDia = (() => { const h = new Date().getHours(); return h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite'; })();

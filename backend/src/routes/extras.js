@@ -107,8 +107,11 @@ r.get('/agenda/conversa/:convId', async (req, res) => {
 const SETORES_META = ['vacinas', 'consultas', 'terapias'];
 r.get('/agenda/meta', async (req, res) => {
   try {
-    const ini = new Date(); ini.setDate(1); const iniStr = ini.toISOString().slice(0, 10);
-    const fim = new Date(ini.getFullYear(), ini.getMonth() + 1, 1).toISOString().slice(0, 10);
+    // Janela do mês em São Luís — new Date() é UTC e virava o mês às 21h
+    const agoraSLZ = new Date(Date.now() - 3 * 3600 * 1000);
+    const iniStr = `${agoraSLZ.getUTCFullYear()}-${String(agoraSLZ.getUTCMonth() + 1).padStart(2, '0')}-01`;
+    const fimD = new Date(Date.UTC(agoraSLZ.getUTCFullYear(), agoraSLZ.getUTCMonth() + 1, 1));
+    const fim = fimD.toISOString().slice(0, 10);
     const [porSetor, porResp, cfg] = await Promise.all([
       query(`SELECT COALESCE(setor,'vacinas') setor, COUNT(*)::int n
               FROM agenda_eventos WHERE data >= $1 AND data < $2 AND status <> 'Cancelado'
@@ -466,7 +469,7 @@ r.post('/vendas', async (req, res) => {
     }
     const { rows: [v] } = await query(`
       INSERT INTO vendas (conversa_id, lead_id, atendente_id, atendente_nome, setor, categoria, cliente_nome, paciente_nome, servico, valor, desconto, forma_pagamento, status_pagamento, data_venda, data_atendimento, origem, observacao, ligou)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,COALESCE($14,CURRENT_DATE),$15,$16,$17,$18) RETURNING *`,
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,COALESCE($14,(NOW() - interval '3 hours')::date),$15,$16,$17,$18) RETURNING *`,
       [cut(b.conversa_id, 40), b.lead_id || null, atendenteId, atendenteNome, setor, categoria,
        cut(b.cliente_nome, 80), cut(b.paciente_nome, 80), cut(b.servico, 120), valor, desconto,
        FORMAS_PG.includes(b.forma_pagamento) ? b.forma_pagamento : null,
@@ -567,13 +570,14 @@ r.get('/vendas/hoje', async (req, res) => {
        fechadas" sem saber quantas eram dela. O total da clínica continua, mas
        só pra gestão, e como informação secundária. */
     const hojeSLZ = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+    /* Régua única: a contagem sempre foi de TODA venda; o valor filtrava só o
+       PAGO — "2 fechadas · R$ 0,00" quando as duas eram parceladas. Agora os
+       dois andam juntos. */
     const { rows: [meu] } = await query(
-      `SELECT COUNT(*)::int n,
-              COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float total
+      `SELECT COUNT(*)::int n, COALESCE(SUM(valor),0)::float total
        FROM vendas WHERE data_venda = $2::date AND atendente_id = $1`, [req.user.id, hojeSLZ]);
     const { rows: [r2] } = await query(
-      `SELECT COUNT(*)::int n,
-              COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float total
+      `SELECT COUNT(*)::int n, COALESCE(SUM(valor),0)::float total
        FROM vendas WHERE data_venda = $1::date`, [hojeSLZ]);
     // Campeã(o) do dia — quem mais fechou hoje. Só pra gestão (nomeia pessoas).
     let campeao = null;
@@ -796,7 +800,7 @@ r.get('/minha-equipe', async (req, res) => {
     const { rows: cfg } = await query("SELECT valor FROM configuracoes WHERE chave = 'metas'");
     const v = cfg[0]?.valor || {};
     const METfilter = "status_pagamento IN ('pago','cortesia')";
-    const mesCol = "to_char(data_venda,'YYYY-MM') = to_char(NOW(),'YYYY-MM')";
+    const mesCol = "to_char(data_venda,'YYYY-MM') = to_char(NOW() - interval '3 hours','YYYY-MM')";
     const META_POR_PESSOA = 100000;   // combinado com o master: cada uma fica com 100 mil
 
     const setor = meus[0];
@@ -804,10 +808,14 @@ r.get('/minha-equipe', async (req, res) => {
     const premioPessoa = Math.max(0, parseFloat(v.premiosMin?.[setor]) || 1500);
 
     // Time = quem é do MESMO setor (a própria supervisora fica de fora da lista)
+    /* Marketing (ve_geral) fica FORA do time: eles enxergam tudo mas não
+       vendem — apareciam no card com meta de R$ 100 mil que nunca vão bater,
+       inflando as "vagas" e o ganho potencial da supervisora (auditoria). */
     const { rows: pessoas } = await query(
       `SELECT id, nome, cor, avatar, role, COALESCE(meta_individual,0)::float meta
          FROM usuarios
         WHERE ativo = true AND role IN ('atendente','supervisor') AND id <> $1
+          AND COALESCE(ve_geral, false) = false
           AND (setor = $2 OR $2 = ANY(COALESCE(setores, ARRAY[]::text[])))
         ORDER BY nome`, [req.user.id, setor]).catch(() => ({ rows: [] }));
 
@@ -820,7 +828,7 @@ r.get('/minha-equipe', async (req, res) => {
       const feito = x?.vendido || 0;
       membros.push({
         id: p.id, nome: p.nome, cor: p.cor, avatar: p.avatar,
-        papel: p.role === 'supervisor' ? 'Supervisora' : 'Atendente',
+        papel: p.role === 'supervisor' ? 'Supervisão' : 'Atendimento',
         meta, feito, falta: Math.max(meta - feito, 0),
         pct: +((feito / meta) * 100).toFixed(1),
         premio: premioPessoa,            // o que O INTEGRANTE ganha ao bater
@@ -854,7 +862,7 @@ r.get('/meta-setor', async (req, res) => {
   try {
     const { rows: cfg } = await query("SELECT valor FROM configuracoes WHERE chave = 'metas'");
     const metaV = cfg[0]?.valor?.vendas || {};
-    const mesCol = "to_char(data_venda,'YYYY-MM') = to_char(NOW(),'YYYY-MM')";
+    const mesCol = "to_char(data_venda,'YYYY-MM') = to_char(NOW() - interval '3 hours','YYYY-MM')";
     const METfilter = "status_pagamento IN ('pago','cortesia')";
     // Metas POR SETOR (configuráveis em Configurações): mínima e global.
     // Padrões: mínima R$ 100 mil, global R$ 500 mil.
@@ -921,10 +929,11 @@ r.get('/meta-setor', async (req, res) => {
        Onde existe foco do dia, o placar mostra ele NO LUGAR do valor em R$. */
     const hojeSLZ = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
     const contaVenda = async (categoria, setorV) => {
+      // Fechou é fechou: plano parcelado conta na meta do dia (régua única)
       const { rows: [x] } = await query(
         `SELECT COUNT(*)::int n FROM vendas
           WHERE atendente_id = $1 AND data_venda = $2::date AND categoria = $3
-            AND COALESCE(setor,'vacinas') = $4 AND ${METfilter}`,
+            AND COALESCE(setor,'vacinas') = $4`,
         [req.user.id, hojeSLZ, categoria, setorV]).catch(() => ({ rows: [{ n: 0 }] }));
       return x?.n || 0;
     };
@@ -939,7 +948,7 @@ r.get('/meta-setor', async (req, res) => {
       const { rows: [pm] } = await query(
         `SELECT COUNT(*)::int n FROM vendas
           WHERE atendente_id = $1 AND ${mesCol}
-            AND categoria = 'Plano Vacinal' AND COALESCE(setor,'vacinas') = 'vacinas' AND ${METfilter}`,
+            AND categoria = 'Plano Vacinal' AND COALESCE(setor,'vacinas') = 'vacinas'`,
         [req.user.id]).catch(() => ({ rows: [{ n: 0 }] }));
       const feitosMes = pm?.n || 0;
       focoMes.vacinas = { rotulo: 'Planos', alvo: 20, feitos: feitosMes, falta: Math.max(20 - feitosMes, 0) };
@@ -1021,7 +1030,7 @@ r.get('/planejamento', async (req, res) => {
     const setor = ['vacinas', 'consultas', 'terapias'].includes(req.user.setor) ? req.user.setor : 'vacinas';
     const { rows: [r2] } = await query(
       `SELECT COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float confirmado
-       FROM vendas WHERE COALESCE(setor,'vacinas') = $1 AND to_char(data_venda,'YYYY-MM') = to_char(NOW(),'YYYY-MM')`, [setor]);
+       FROM vendas WHERE COALESCE(setor,'vacinas') = $1 AND to_char(data_venda,'YYYY-MM') = to_char(NOW() - interval '3 hours','YYYY-MM')`, [setor]);
     const meta = 500000, conf = r2?.confirmado || 0;
     res.json({ setor, confirmado: conf, meta, pct: +((conf / meta) * 100).toFixed(1), falta: Math.max(meta - conf, 0) });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -1207,12 +1216,12 @@ r.get('/planejamento/liderados', async (req, res) => {
     const mes = new Date().toISOString().slice(0, 7);
     const [vHoje, vMes, msgs, acoes, pres] = await Promise.all([
       query(`SELECT atendente_id, COUNT(*)::int n, COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float v
-             FROM vendas WHERE atendente_id = ANY($1) AND data_venda = CURRENT_DATE GROUP BY atendente_id`, [ids]),
+             FROM vendas WHERE atendente_id = ANY($1) AND data_venda = (NOW() - interval '3 hours')::date GROUP BY atendente_id`, [ids]),
       query(`SELECT atendente_id, COUNT(*)::int n, COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float v
              FROM vendas WHERE atendente_id = ANY($1) AND to_char(data_venda,'YYYY-MM') = $2 GROUP BY atendente_id`, [ids, mes]),
       query(`SELECT sender_id, COUNT(*)::int n, COUNT(DISTINCT conversa_id)::int convs
-             FROM mensagens WHERE sender_id = ANY($1) AND from_type = 'me' AND created_at::date = CURRENT_DATE GROUP BY sender_id`, [ids]),
-      query(`SELECT usuario_id, COUNT(*)::int n FROM audit_logs WHERE usuario_id = ANY($1) AND created_at::date = CURRENT_DATE GROUP BY usuario_id`, [ids]),
+             FROM mensagens WHERE sender_id = ANY($1) AND from_type = 'me' AND created_at >= (NOW() - interval '3 hours')::date + interval '3 hours' GROUP BY sender_id`, [ids]),
+      query(`SELECT usuario_id, COUNT(*)::int n FROM audit_logs WHERE usuario_id = ANY($1) AND created_at >= (NOW() - interval '3 hours')::date + interval '3 hours' GROUP BY usuario_id`, [ids]),
       query(`SELECT usuario_id, ultimo_heartbeat, pagina FROM presenca WHERE usuario_id = ANY($1)`, [ids]),
     ]);
     const map = (rows, key = 'atendente_id') => Object.fromEntries(rows.map(r2 => [r2[key], r2]));
@@ -1827,7 +1836,7 @@ r.post('/despesas', async (req, res) => {
     const data = /^\d{4}-\d{2}-\d{2}$/.test(b.data || '') ? b.data : null;
     const { rows: [d] } = await query(
       `INSERT INTO despesas (descricao, categoria, valor, setor, forma_pagamento, data, criado_por)
-       VALUES ($1,$2,$3,$4,$5,COALESCE($6,CURRENT_DATE),$7) RETURNING *`,
+       VALUES ($1,$2,$3,$4,$5,COALESCE($6,(NOW() - interval '3 hours')::date),$7) RETURNING *`,
       [cut(b.descricao, 160), categoria, valor, setor, FORMAS_PG.includes(b.forma_pagamento) ? b.forma_pagamento : null, data, req.user.nome]);
     res.status(201).json(d);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -1960,24 +1969,39 @@ r.get('/vendas/resumo', async (req, res) => {
   try {
     // Painel comercial agregado (faturamento, metas, ranking) — só o master vê.
     if (req.user.role !== 'master') return res.status(403).json({ error: 'Apenas o master vê o painel comercial.' });
-    const mes = /^\d{4}-\d{2}$/.test(req.query.mes || '') ? req.query.mes : new Date().toISOString().slice(0, 7);
+    /* ⚖️ RÉGUA ÚNICA (auditoria de 16/08): este endpoint contava só o PAGO
+       enquanto o placar (/meta-setor) conta VENDIDO — o mesmo "faturamento do
+       mês" dava dois valores conforme a tela. Agora: confirmado = TODA venda
+       fechada; recebido/pendente é a decomposição (pendente = vendido -
+       recebido, sem lista de status que esquece um). Mês em fuso de São Luís
+       (toISOString é UTC: virava o mês às 21h do último dia). E setor com
+       COALESCE: venda sem setor aparecia no placar e SUMIA daqui. */
+    const mes = /^\d{4}-\d{2}$/.test(req.query.mes || '') ? req.query.mes
+      : new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 7);
     const soMinhas = !gestao(req) ? `AND atendente_id = '${String(req.user.id).replace(/[^a-zA-Z0-9-]/g, '')}'` : '';
     const [vendasSetor, porAtendente, porCategoria, agSetor, cfg] = await Promise.all([
-      query(`SELECT setor,
-          COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float confirmado,
-          COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('sinal','aguardando','parcelado','pendente')),0)::float pendente,
+      query(`SELECT COALESCE(setor,'vacinas') setor,
+          COALESCE(SUM(valor),0)::float confirmado,
+          COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float recebido,
+          COALESCE(SUM(valor) FILTER (WHERE status_pagamento NOT IN ('pago','cortesia')),0)::float pendente,
           COALESCE(SUM(desconto),0)::float desconto,
           COUNT(*)::int n
-        FROM vendas WHERE to_char(data_venda,'YYYY-MM') = $1 ${soMinhas} GROUP BY setor`, [mes]),
-      query(`SELECT COALESCE(atendente_nome,'(sem nome)') nome, COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float confirmado, COUNT(*)::int n
-              FROM vendas WHERE to_char(data_venda,'YYYY-MM') = $1 ${soMinhas} GROUP BY atendente_nome ORDER BY confirmado DESC`, [mes]),
-      query(`SELECT categoria, COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float confirmado, COUNT(*)::int n
+        FROM vendas WHERE to_char(data_venda,'YYYY-MM') = $1 ${soMinhas} GROUP BY 1`, [mes]),
+      query(`SELECT COALESCE(NULLIF(TRIM(u.nome),''), NULLIF(TRIM(v.atendente_nome),''), 'Sem responsável') nome,
+              COALESCE(SUM(v.valor),0)::float confirmado, COUNT(*)::int n
+              FROM vendas v LEFT JOIN usuarios u ON u.id = v.atendente_id
+              WHERE to_char(v.data_venda,'YYYY-MM') = $1 ${soMinhas.replace('atendente_id', 'v.atendente_id')} GROUP BY 1 ORDER BY confirmado DESC`, [mes]),
+      query(`SELECT categoria, COALESCE(SUM(valor),0)::float confirmado, COUNT(*)::int n
               FROM vendas WHERE to_char(data_venda,'YYYY-MM') = $1 ${soMinhas} GROUP BY categoria ORDER BY confirmado DESC`, [mes]),
       query(`SELECT COALESCE(setor,'vacinas') setor, COALESCE(SUM(valor),0)::float agendado FROM agenda_eventos
               WHERE to_char(data,'YYYY-MM') = $1 AND status IN ('Agendado','Confirmado','Reagendado') AND valor IS NOT NULL GROUP BY setor`, [mes]),
       query("SELECT valor FROM configuracoes WHERE chave = 'metas'"),
     ]);
-    const metaV = cfg.rows[0]?.valor?.vendas || {};
+    /* Meta exibida = MÍNIMA do setor (ordem do master: a mínima é a régua na
+       frente da equipe). Era daqui que saía o "R$ 759.000" do card Geral
+       enquanto a faixa dividia por R$ 300.000 — 3% e 8,4% pro MESMO dinheiro. */
+    const minimasR = cfg.rows[0]?.valor?.minimas || {};
+    const metaV = Object.fromEntries(SET3.map(s2 => [s2, Math.max(0, parseFloat(minimasR[s2]) || 100000)]));
     const vMap = Object.fromEntries(vendasSetor.rows.map(r2 => [r2.setor, r2]));
     const aMap = Object.fromEntries(agSetor.rows.map(r2 => [r2.setor, r2.agendado]));
     const setores = {}; let totConf = 0, totPend = 0, totAg = 0, totMeta = 0, totDesc = 0;
@@ -3671,8 +3695,9 @@ r.get('/comparativo-mes', async (req, res) => {
     const PAGO = "status_pagamento IN ('pago','cortesia')";
 
     const [vend, leadsQ, vendasN, agend] = await Promise.all([
-      // Faturamento confirmado até o mesmo dia do mês
-      query(`SELECT to_char(data_venda,'YYYY-MM') m, COALESCE(SUM(valor) FILTER (WHERE ${PAGO}),0)::float v
+      // Faturamento até o mesmo dia do mês — régua única: VENDIDO (fechou é
+      // fechou), igual ao placar. Antes filtrava PAGO e divergia do resto.
+      query(`SELECT to_char(data_venda,'YYYY-MM') m, COALESCE(SUM(valor),0)::float v
                FROM vendas WHERE to_char(data_venda,'YYYY-MM') = ANY($1) AND EXTRACT(DAY FROM data_venda) <= $2
               GROUP BY 1`, [[mesAtual, mesAnterior], diaAtual]),
       // Leads novos (conversas criadas)
@@ -3858,9 +3883,9 @@ async function relatorioSemanal() {
 
     const [vendasQ, topQ, leadsQ, vittaQ, perdasQ, respQ] = await Promise.all([
       query(`SELECT COALESCE(setor,'vacinas') s, COUNT(*)::int n, COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float v
-             FROM vendas WHERE data_venda >= CURRENT_DATE - 7 GROUP BY 1`),
+             FROM vendas WHERE data_venda >= (NOW() - interval '3 hours')::date - 7 GROUP BY 1`),
       query(`SELECT COALESCE(atendente_nome,'—') nome, COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float v
-             FROM vendas WHERE data_venda >= CURRENT_DATE - 7 GROUP BY 1 ORDER BY v DESC LIMIT 1`),
+             FROM vendas WHERE data_venda >= (NOW() - interval '3 hours')::date - 7 GROUP BY 1 ORDER BY v DESC LIMIT 1`),
       query(`SELECT COUNT(*)::int n FROM conversas WHERE created_at >= NOW() - interval '7 days'`),
       query(`SELECT COUNT(*)::int n FROM mensagens WHERE from_type = 'bot' AND created_at >= NOW() - interval '7 days'`),
       query(`SELECT motivo, COUNT(*)::int n, COALESCE(SUM(valor_potencial),0)::float v FROM perdas

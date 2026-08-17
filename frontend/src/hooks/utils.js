@@ -33,7 +33,7 @@ export function openWA(phone, name) {
 
 // Data LOCAL (São Luís) — toISOString() é UTC e virava "amanhã" depois das 21h,
 // marcando retorno de "Hoje" no dia errado à noite.
-const hojeLocalISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+export const hojeLocalISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 export function isToday(dateStr) { return dateStr === hojeLocalISO(); }
 export function isPast(dateStr) { return dateStr && dateStr < hojeLocalISO(); }
 

@@ -7,6 +7,15 @@ r.use(auth);
 
 r.get('/dashboard', async (req, res) => {
   try {
+    /* ⏰ RÉGUA ÚNICA DE TEMPO — auditoria de 16/08 (pedido do master: "as
+       informações devem bater com dados reais"). O servidor roda em UTC e este
+       painel usava CURRENT_DATE: às 21h de São Luís o "hoje" virava amanhã e
+       TODOS os contadores diários zeravam — foi exatamente o print das 23h04
+       ("0 hoje" pra equipe inteira). Daqui pra baixo, todo "hoje" e "mês" usa
+       estas constantes; nenhuma query compara com CURRENT_DATE/NOW() cru. */
+    const HOJE = "(NOW() - interval '3 hours')::date";                 // colunas DATE
+    const DIA_TS = "(NOW() - interval '3 hours')::date + interval '3 hours'"; // início do dia SLZ p/ timestamps (sargável)
+    const MES = "to_char(NOW() - interval '3 hours','YYYY-MM')";
     const isMaster = req.user.role === 'master';
     const uid = String(req.user.id).replace(/[^a-zA-Z0-9-]/g, ''); // só charset de UUID (anti-injection)
     /* Visão geral = gestão + marketing. Supervisora vê o SETOR dela (ordem do
@@ -31,14 +40,14 @@ r.get('/dashboard', async (req, res) => {
     const [totals, porStatus, porOrigem, porResp, porDia, unread, retornos, perdas, followups, metaVac, consHoje, cfgMetas, impacto, agenda, conversas, funilConv, porSetorConv] = await Promise.all([
       query(`SELECT
         COUNT(*) total,
-        COUNT(*) FILTER (WHERE data_entrada = CURRENT_DATE) hoje,
+        COUNT(*) FILTER (WHERE data_entrada = ${HOJE}) hoje,
         COUNT(*) FILTER (WHERE status IN ('Fechado','Venda Fechada')) fechados,
         COUNT(*) FILTER (WHERE status = 'Perdido') perdidos,
         COUNT(*) FILTER (WHERE status = 'Em atendimento') em_atendimento,
         ${isMaster ? 'SUM(CASE WHEN status IN (\'Fechado\',\'Venda Fechada\') THEN valor_proposta ELSE 0 END) total_vendido,' : ''}
         ${isMaster ? 'AVG(CASE WHEN status=\'Fechado\' THEN valor_proposta END) ticket_medio,' : ''}
-        COUNT(*) FILTER (WHERE data_retorno = CURRENT_DATE) retornos_hoje,
-        COUNT(*) FILTER (WHERE data_retorno < CURRENT_DATE AND status NOT IN ('Fechado','Venda Fechada','Perdido')) retornos_vencidos,
+        COUNT(*) FILTER (WHERE data_retorno = ${HOJE}) retornos_hoje,
+        COUNT(*) FILTER (WHERE data_retorno < ${HOJE} AND status NOT IN ('Fechado','Venda Fechada','Perdido')) retornos_vencidos,
         ${isMaster ? "SUM(CASE WHEN status NOT IN ('Fechado','Venda Fechada','Perdido') THEN valor_proposta ELSE 0 END) pipeline," : ''}
         COUNT(*) FILTER (WHERE status NOT IN ('Fechado','Venda Fechada','Perdido')) abertos
         FROM leads l WHERE 1=1 ${uFilter}`),
@@ -48,15 +57,18 @@ r.get('/dashboard', async (req, res) => {
       // mensagens enviadas hoje + vendas do mês), não em leads vazios.
       veGeral ? query(`SELECT u.id, u.nome, u.cor, u.avatar, u.setor,
           (SELECT COUNT(*) FROM conversas c WHERE c.responsavel_id = u.id) leads,
-          (SELECT COUNT(DISTINCT m.conversa_id) FROM mensagens m WHERE m.sender_id = u.id AND m.from_type='me' AND m.created_at::date = CURRENT_DATE) atend_hoje,
-          (SELECT COUNT(*) FROM vendas v WHERE to_char(v.data_venda,'YYYY-MM')=to_char(NOW(),'YYYY-MM')
+          (SELECT COUNT(DISTINCT m.conversa_id) FROM mensagens m WHERE m.sender_id = u.id AND m.from_type='me' AND m.created_at >= ${DIA_TS}) atend_hoje,
+          (SELECT COUNT(*) FROM vendas v WHERE to_char(v.data_venda,'YYYY-MM')=${MES}
               AND (v.atendente_id = u.id OR v.conversa_id IN (SELECT c2.id FROM conversas c2 WHERE c2.responsavel_id = u.id))) fechados,
-          (SELECT COALESCE(SUM(v.valor),0) FROM vendas v WHERE v.status_pagamento IN ('pago','cortesia') AND to_char(v.data_venda,'YYYY-MM')=to_char(NOW(),'YYYY-MM')
+          /* Régua única (auditoria): "fechou é fechou" — o valor acompanha a
+             contagem de fechados logo acima. Antes esta linha filtrava só o
+             PAGO enquanto fechados contava tudo: duas réguas na mesma linha. */
+          (SELECT COALESCE(SUM(v.valor),0) FROM vendas v WHERE to_char(v.data_venda,'YYYY-MM')=${MES}
               AND (v.atendente_id = u.id OR v.conversa_id IN (SELECT c2.id FROM conversas c2 WHERE c2.responsavel_id = u.id))) valor
         FROM usuarios u WHERE u.role IN ('atendente','supervisor') AND u.ativo = true ORDER BY valor DESC, atend_hoje DESC`).catch(() => ({ rows: [] })) : Promise.resolve({ rows: [] }),
-      query(`SELECT data_entrada::text data, COUNT(*) leads, COUNT(*) FILTER (WHERE status IN ('Fechado','Venda Fechada')) fechados FROM leads l WHERE data_entrada >= CURRENT_DATE - INTERVAL '${days} days' ${uFilter} GROUP BY data_entrada ORDER BY data_entrada`),
+      query(`SELECT data_entrada::text data, COUNT(*) leads, COUNT(*) FILTER (WHERE status IN ('Fechado','Venda Fechada')) fechados FROM leads l WHERE data_entrada >= ${HOJE} - INTERVAL '${days} days' ${uFilter} GROUP BY data_entrada ORDER BY data_entrada`),
       query('SELECT SUM(unread) unread FROM conversas'),
-      query(`SELECT COUNT(*) n FROM leads WHERE data_retorno = CURRENT_DATE ${uFilter.replace('l.', '')}`),
+      query(`SELECT COUNT(*) n FROM leads WHERE data_retorno = ${HOJE} ${uFilter.replace('l.', '')}`),
       query(`SELECT motivo_perda, COUNT(*) n FROM leads WHERE status = 'Perdido' AND motivo_perda IS NOT NULL ${uFilter} GROUP BY motivo_perda ORDER BY n DESC`),
       // Follow-ups: vencidos e de hoje (alimenta Agenda-Hoje e Atividades)
       query(`SELECT l.id, l.nome, l.status, l.servico, l.data_retorno::text, l.setor,
@@ -64,41 +76,47 @@ r.get('/dashboard', async (req, res) => {
              FROM leads l
              LEFT JOIN usuarios u ON u.id = l.responsavel_id
              LEFT JOIN conversas c ON c.lead_id = l.id
-             WHERE l.data_retorno <= CURRENT_DATE
+             WHERE l.data_retorno <= ${HOJE}
                AND l.status NOT IN ('Fechado','Venda Fechada','Perdido','Finalizado')
                ${uFilter}
              ORDER BY l.data_retorno ASC LIMIT 8`),
       // Metas: vendido no mês (vacinas) — lê da tabela REAL de vendas (Registrar
       // Venda), igual ao card "Vendas do mês" e à página de Metas. Antes lia de
       // leads.valor_proposta (fluxo antigo) e por isso vinha sempre zerado.
+      // vendido = TODA venda fechada (régua única); recebido/pendente é a decomposição
       query(`SELECT
-               COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float vendido,
-               COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('sinal','aguardando','parcelado','pendente')),0)::float pendente
+               COALESCE(SUM(valor),0)::float vendido,
+               COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float recebido,
+               COALESCE(SUM(valor) FILTER (WHERE status_pagamento NOT IN ('pago','cortesia')),0)::float pendente
              FROM vendas WHERE COALESCE(setor,'vacinas')='vacinas'
-               AND to_char(data_venda,'YYYY-MM') = to_char(NOW(),'YYYY-MM')`).catch(() => ({ rows: [{ vendido: 0, pendente: 0 }] })),
+               AND to_char(data_venda,'YYYY-MM') = ${MES}`).catch(() => ({ rows: [{ vendido: 0, recebido: 0, pendente: 0 }] })),
       query(`SELECT COUNT(*) n FROM leads
              WHERE status = 'Consulta Confirmada' AND COALESCE(setor,'vacinas')='consultas'
-               AND status_changed_at::date = CURRENT_DATE`),
+               AND status_changed_at >= ${DIA_TS}`),
       query("SELECT valor FROM configuracoes WHERE chave = 'metas'"),
       // Painel de impacto (números do propósito, não só faturamento)
       // Impacto baseado nas CONVERSAS reais (os status de lead ficam vazios) —
       // volume de famílias atendidas por setor, que é o dado que de fato existe.
+      /* Auditoria: o Impacto somava os sem-setor em vacinas (COALESCE) enquanto
+         o funil os separava — 2347 vs 1566+781 na MESMA tela. Agora as duas
+         listas usam a mesma régua e o sem-triagem aparece como linha própria. */
       query(`SELECT
         (SELECT COUNT(*) FROM conversas) familias,
-        (SELECT COUNT(*) FROM conversas WHERE COALESCE(setor,'vacinas')='vacinas') conv_vacinas,
+        (SELECT COUNT(*) FROM conversas WHERE setor='vacinas') conv_vacinas,
         (SELECT COUNT(*) FROM conversas WHERE setor='consultas') conv_consultas,
-        (SELECT COUNT(*) FROM conversas WHERE setor='terapias') conv_terapias`),
+        (SELECT COUNT(*) FROM conversas WHERE setor='terapias') conv_terapias,
+        (SELECT COUNT(*) FROM conversas WHERE setor IS NULL OR setor NOT IN ('vacinas','consultas','terapias')) conv_sem_setor`),
       // Agenda REAL (agenda_eventos) — o que de fato está marcado, não status de lead
       query(`SELECT
-        COUNT(*) FILTER (WHERE data = CURRENT_DATE AND status <> 'Cancelado') hoje,
-        COUNT(*) FILTER (WHERE data >= CURRENT_DATE AND status IN ('Agendado','Confirmado','Reagendado')) proximos,
-        COUNT(*) FILTER (WHERE data >= CURRENT_DATE AND status = 'Agendado') a_confirmar
+        COUNT(*) FILTER (WHERE data = ${HOJE} AND status <> 'Cancelado') hoje,
+        COUNT(*) FILTER (WHERE data >= ${HOJE} AND status IN ('Agendado','Confirmado','Reagendado')) proximos,
+        COUNT(*) FILTER (WHERE data >= ${HOJE} AND status = 'Agendado') a_confirmar
         FROM agenda_eventos WHERE ($1::text IS NULL OR responsavel_id = $1)`, [verTudo ? null : uid]),
       // Atividade real das conversas (WhatsApp/Instagram)
       query(`SELECT
         COUNT(*) total,
         COUNT(*) FILTER (WHERE last_from = 'contact') aguardando,
-        COUNT(*) FILTER (WHERE last_message_at::date = CURRENT_DATE) hoje
+        COUNT(*) FILTER (WHERE last_message_at >= ${DIA_TS}) hoje
         FROM conversas`),
       // Funil REAL de atendimento — baseado nas CONVERSAS (os leads ficam vazios).
       // Master/supervisão vê todos os setores; atendente vê o seu.
@@ -150,12 +168,15 @@ r.get('/dashboard', async (req, res) => {
         const metaMes = parseFloat(cfgVal.vendas?.vacinas) || parseFloat(cfgVal.vacinas_mensal) || 200000;
         const metaDiaCons = parseInt(cfgVal.consultas_dia) || 10;
         const vendido = parseFloat(metaVac.rows[0]?.vendido) || 0;
+        const recebido = parseFloat(metaVac.rows[0]?.recebido) || 0;
         const pendente = parseFloat(metaVac.rows[0]?.pendente) || 0;
-        const hojeN = new Date().getDate();
-        const diasMes = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
+        // dia/mês de São Luís, não do servidor (projeção virava o mês às 21h)
+        const agoraSLZ = new Date(Date.now() - 3 * 3600 * 1000);
+        const hojeN = agoraSLZ.getUTCDate();
+        const diasMes = new Date(Date.UTC(agoraSLZ.getUTCFullYear(), agoraSLZ.getUTCMonth() + 1, 0)).getUTCDate();
         return {
           vacinas: {
-            meta: metaMes, vendido, pendente,
+            meta: metaMes, vendido, recebido, pendente,
             pct: metaMes > 0 ? +((vendido / metaMes) * 100).toFixed(1) : 0,
             falta: Math.max(metaMes - vendido, 0),
             projecao: hojeN > 0 ? +((vendido / hojeN) * diasMes).toFixed(0) : 0,
@@ -198,6 +219,8 @@ r.get('/dashboard', async (req, res) => {
           convVacinas: meu('vacinas') ? parseInt(impacto.rows[0]?.conv_vacinas) || 0 : null,
           convConsultas: meu('consultas') ? parseInt(impacto.rows[0]?.conv_consultas) || 0 : null,
           convTerapias: meu('terapias') ? parseInt(impacto.rows[0]?.conv_terapias) || 0 : null,
+          // Sem triagem é trabalho pendente de TODO mundo — sempre visível
+          convSemSetor: parseInt(impacto.rows[0]?.conv_sem_setor) || 0,
         };
       })(),
     });

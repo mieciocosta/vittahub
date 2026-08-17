@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Wallet, Paperclip, FileText, X, Check, Download, Eye, Search, Filter, Image as ImageIcon, CheckCircle2, Circle, FileSpreadsheet, Printer, Sparkles, AlertTriangle, Pencil, HandCoins, TrendingDown, TrendingUp, Plus, Trash2, CalendarCheck, Gift } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
-import { fmt } from '../hooks/utils.js';
+import { fmt, hojeLocalISO } from '../hooks/utils.js';
 
 const fileToDataUrl = (file) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file); });
 
@@ -334,7 +334,7 @@ export default function Caixa() {
   const abrirNovaVenda = () => setNovaVenda({
     cliente_nome: '', paciente_nome: '', categoria: 'Vacinação Geral', setor: 'vacinas', ligou: false,
     servico: '', valor: '', desconto: '', forma_pagamento: 'Pix', status_pagamento: 'pago',
-    data_venda: new Date().toISOString().slice(0, 10), origem: 'Balcão', observacao: '',
+    data_venda: hojeLocalISO(), origem: 'Balcão', observacao: '',
   });
   const [novaVendaSaving, setNovaVendaSaving] = useState(false);
   const salvarNovaVenda = async () => {
@@ -469,7 +469,7 @@ export default function Caixa() {
   const bonus = baseBonus * 0.01;
   const semComprovante = filtrada.filter(v => !(v.n_comprovantes || 0)).length;
   // Caixa do DIA: vendas de hoje (dentro do filtro atual)
-  const hojeISO = new Date().toISOString().slice(0, 10);
+  const hojeISO = hojeLocalISO();
   const vendasHoje = filtrada.filter(v => String(v.data_venda || '').slice(0, 10) === hojeISO);
 
   // Filtro rápido afeta só a LISTA exibida — os totais do fechamento continuam do mês inteiro
@@ -721,7 +721,7 @@ export default function Caixa() {
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
             <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--txt)' }}>Saídas de {mes} · <span style={{ color: '#dc2626' }}>{fmt.brl(despTotal)}</span></div>
-            <button onClick={() => { setErro(''); setModalDesp({ descricao: '', categoria: 'Outros', valor: '', setor: '', forma_pagamento: '', data: new Date().toISOString().slice(0, 10) }); }} className="btn btn-p btn-sm" style={{ gap: 6 }}><Plus size={14} /> Lançar saída</button>
+            <button onClick={() => { setErro(''); setModalDesp({ descricao: '', categoria: 'Outros', valor: '', setor: '', forma_pagamento: '', data: hojeLocalISO() }); }} className="btn btn-p btn-sm" style={{ gap: 6 }}><Plus size={14} /> Lançar saída</button>
           </div>
           {despesas.length === 0 ? (
             <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}>

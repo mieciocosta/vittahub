@@ -198,7 +198,8 @@ export default function PlacarVendas() {
       <span style={{ position: 'absolute', inset: 0, background: 'linear-gradient(90deg,transparent,rgba(255,255,255,.13),transparent)', transform: 'translateX(-100%)', animation: 'vh-placar-shine 5s ease-in-out infinite', pointerEvents: 'none' }} />
 
       {/* 1️⃣ O QUE EU FIZ HOJE */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '5px 13px 5px 10px', borderRadius: 13,
+      <div title={gestao && hoje?.casa ? `Casa inteira hoje: ${hoje.casa.n} venda(s) · ${fmt.brl(hoje.casa.total)}` : undefined}
+        style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '5px 13px 5px 10px', borderRadius: 13,
         background: nHoje > 0 ? 'rgba(16,185,129,.2)' : 'rgba(255,255,255,.09)',
         border: `1px solid ${nHoje > 0 ? 'rgba(110,231,183,.5)' : 'rgba(255,255,255,.16)'}`,
         transition: 'transform .35s cubic-bezier(.2,.9,.3,1.4)', transform: pulse ? 'scale(1.1)' : 'scale(1)' }}>
@@ -210,9 +211,8 @@ export default function PlacarVendas() {
           <div style={{ fontSize: 15.5, fontWeight: 900, letterSpacing: .2 }}>
             {nHoje} {nHoje === 1 ? 'fechada' : 'fechadas'}
             {hoje?.total ? <span style={{ color: '#6ee7b7' }}> · {fmt.brl(hoje.total)}</span> : ''}
-            {gestao && hoje?.casa && (
-              <span style={{ fontSize: 11, fontWeight: 700, opacity: .7 }}> · casa: {hoje.casa.n} ({fmt.brl(hoje.casa.total)})</span>
-            )}
+            {/* 🧹 Auditoria: "casa:" saiu do texto e virou tooltip — a primeira
+                cápsula é o número DELA; o da casa é consulta, não placar. */}
           </div>
         </div>
       </div>
@@ -252,6 +252,12 @@ export default function PlacarVendas() {
                   </span>
                 </div>
               )}
+              {/* 💵 A diária mora aqui: bater a meta de HOJE vale dinheiro HOJE */}
+              {s.premioDia > 0 && (
+                <div style={{ fontSize: 10, fontWeight: 900, marginTop: 3, color: focoOk ? '#6ee7b7' : '#fcd34d' }}>
+                  {focoOk ? `🏅 diária de ${fmt.brl(s.premioDia)} é sua!` : `💵 diária: ${fmt.brl(s.premioDia)} batendo a meta de hoje`}
+                </div>
+              )}
             </div>
           </Capsula>
         );
@@ -275,28 +281,9 @@ export default function PlacarVendas() {
         </Capsula>
       )}
 
-      {/* 4️⃣.a A DIÁRIA — bater a meta de HOJE vale dinheiro HOJE. O prêmio do
-             mês só move no fim do mês; a diária move agora, e é o dia que a
-             equipe consegue enxergar (ordem do master: consultas R$ 100/dia). */}
-      {setoresLista.filter(s => s.premioDia > 0).map(s => {
-        const foco = meta.focoDia?.[s.setor] || null;
-        const ok = foco ? foco.every(f => (f.falta ?? 1) === 0) : false;
-        return (
-          <Capsula key={`dia-${s.setor}`} destaque={ok}
-            title={`${fmt.brl(s.premioDia)} por dia em que a meta do dia é batida${foco ? ` (${foco.map(f => `${f.alvo} ${f.rotulo.toLowerCase()}`).join(' ou ')})` : ''}`}>
-            <span style={{ fontSize: 16 }}>{ok ? '🏅' : '💵'}</span>
-            <div style={{ lineHeight: 1.12 }}>
-              <Rotulo>{ok ? 'Diária conquistada' : 'Diária de hoje'}</Rotulo>
-              <div style={{ fontSize: 13.5, fontWeight: 900, color: ok ? '#6ee7b7' : '#fcd34d', textShadow: '0 1px 3px rgba(0,0,0,.45)' }}>
-                {fmt.brl(s.premioDia)}
-                <span style={{ fontSize: 11, fontWeight: 800, color: 'rgba(255,255,255,.92)', marginLeft: 6 }}>
-                  {ok ? '· é sua! 🎉' : foco ? `· falta ${foco.map(qtdTexto).join(' ou ')}` : '· batendo a meta do dia'}
-                </span>
-              </div>
-            </div>
-          </Capsula>
-        );
-      })}
+      {/* 🧹 Auditoria: a diária deixou de ser cápsula própria (o master via
+          12+ elementos na faixa) — ela vira um selo DENTRO da cápsula do setor,
+          logo abaixo da meta de hoje, onde o olho já está. */}
 
       {/* 4️⃣ O PRÊMIO — o motivo mais concreto de fechar mais uma hoje */}
       {premio && premio.valor > 0 && (
@@ -335,13 +322,6 @@ export default function PlacarVendas() {
       )}
 
       <div style={{ flex: 1, minWidth: 8 }} />
-
-      {/* ⏳ Quanto ainda dá pra fazer hoje — urgência só no expediente */}
-      {restaHoje && !batida && (
-        <span style={{ fontSize: 11, fontWeight: 800, color: 'rgba(255,255,255,.8)', whiteSpace: 'nowrap' }}>
-          ⏳ {restaHoje} de expediente
-        </span>
-      )}
 
       {/* ⏸️ Chaves do automático (só o master) */}
       {user?.role === 'master' && pausa?.ligado && (
@@ -409,9 +389,9 @@ export default function PlacarVendas() {
         💰 Registrar venda
       </button>
 
-      {/* Grito de guerra */}
+      {/* Grito de guerra + expediente numa linha só (auditoria: eram dois) */}
       <div style={{ fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-        {grito}
+        {grito}{restaHoje && !batida ? ` · ⏳ ${restaHoje}` : ''}
       </div>
 
       {/* Pausado precisa GRITAR: esquecer o freio puxado é pior que o problema
