@@ -998,6 +998,32 @@ r.get('/meta-setor', async (req, res) => {
       : setores;
     const porSetor = [];
     for (const s of ordem) porSetor.push(await confDe(s));
+
+    /* 💵 DIÁRIAS CONQUISTADAS — o prêmio de consultas não é "bateu a mínima,
+       ganhou R$ X": é R$ 100 POR DIA em que a meta do dia foi batida, até 26
+       dias úteis = R$ 2.600 no mês (regra do master, cobrada por ele quando o
+       placar mostrou R$ 1.500). Aqui contamos, dia a dia do mês, em quantos a
+       pessoa marcou as 10 consultas — e o placar mostra o acumulado. */
+    for (const ps of porSetor) {
+      if (!(ps.premioDia > 0)) continue;
+      const alvoDia = ps.setor === 'consultas' ? 10 : 1;
+      const { rows: [dq] } = await query(
+        `SELECT COUNT(*)::int dias FROM (
+           SELECT (created_at - interval '3 hours')::date d, COUNT(*) n
+             FROM agenda_eventos
+            WHERE responsavel_id = $1 AND COALESCE(setor,'vacinas') = $2
+              AND to_char(created_at - interval '3 hours','YYYY-MM') = to_char(NOW() - interval '3 hours','YYYY-MM')
+              AND LOWER(COALESCE(status,'')) NOT LIKE 'cancel%'
+            GROUP BY 1 HAVING COUNT(*) >= $3) t`,
+        [req.user.id, ps.setor, alvoDia]).catch(() => ({ rows: [{ dias: 0 }] }));
+      const dias = dq?.dias || 0;
+      ps.diarias = {
+        conquistadas: dias,
+        valor: +(dias * ps.premioDia).toFixed(2),
+        teto_dias: 26,
+        teto: +(26 * ps.premioDia).toFixed(2),
+      };
+    }
     // Topo = primeiro setor (compat com quem lê os campos direto); porSetor separa cada um.
     /* 🔒 Colega não vê o número da colega — nem por subtração (pedido do
        master). Raylane e Stefany dividem o setor de vacinas: se as duas veem o
@@ -1013,6 +1039,7 @@ r.get('/meta-setor', async (req, res) => {
     const porSetorSeguro = podeValores ? porSetor : porSetor.map(s => ({
       setor: s.setor, metaGlobal: s.metaGlobal, metaMinima: s.metaMinima,
       premio: s.premio, premioMinimo: s.premioMinimo, premioDia: s.premioDia,
+      diarias: s.diarias || null,   // diária é o dinheiro DELA — sempre passa
       confirmado: null, recebido: null, aReceber: null,
       faltaMinima: null, faltaGlobal: null, pctMinima: null, pctGlobal: null,
     }));

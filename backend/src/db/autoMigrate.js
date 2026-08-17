@@ -1403,6 +1403,26 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log('🎁 Consultas: prêmio R$ 2.600/mês + R$ 100 a diária');
     }
 
+    /* 🎁 Prêmio de consultas — SEGUNDA passada (v2). A v1 usou jsonb_set com
+       caminho '{premios,consultas}': quando a chave-pai não existe no JSON
+       salvo, o Postgres IGNORA em silêncio — o R$ 2.600 nunca chegou ao banco
+       e o placar caiu no padrão de R$ 1.500 (o master viu e cobrou). Aqui o
+       merge é com ||, que cria os pais que faltarem. Regra dele: R$ 100 por
+       dia batido × 26 dias úteis = R$ 2.600 no mês. */
+    const { rows: [flagPrem2] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_premio_consultas_v2'");
+    if (!flagPrem2) {
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('metas', $1::jsonb)
+                   ON CONFLICT (chave) DO UPDATE SET valor =
+                     COALESCE(configuracoes.valor,'{}'::jsonb)
+                     || jsonb_build_object('premios',    COALESCE(configuracoes.valor->'premios','{}'::jsonb)    || '{"consultas":2600}'::jsonb)
+                     || jsonb_build_object('premiosMin', COALESCE(configuracoes.valor->'premiosMin','{}'::jsonb) || '{"consultas":2600}'::jsonb)
+                     || jsonb_build_object('premiosDia', COALESCE(configuracoes.valor->'premiosDia','{}'::jsonb) || '{"consultas":100}'::jsonb),
+                     updated_at = NOW()`,
+        [JSON.stringify({ premios: { consultas: 2600 }, premiosMin: { consultas: 2600 }, premiosDia: { consultas: 100 } })]).catch((e) => console.error('seed premio consultas v2:', e.message));
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_premio_consultas_v2','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🎁 Consultas (v2): prêmio R$ 100/diária × 26 = R$ 2.600/mês gravado de verdade');
+    }
+
     /* 🕰️ CORREÇÃO RETROATIVA DO FUSO (autorizada pelo master: "corrija").
        Até 16/08 o INSERT de venda usava CURRENT_DATE (UTC): venda registrada
        entre 21h e 23h59 de São Luís caía no DIA SEGUINTE (e na virada, até no

@@ -164,10 +164,17 @@ export default function PlacarVendas() {
   const batida = verValores ? (alvoMes > 0 && faltaMes <= 0) : focoTudoOk;
 
   /* 🎁 O PRÊMIO é o argumento mais forte da faixa: não é "a meta da clínica",
-     é dinheiro no bolso dela. Mostra sempre o prêmio mais PERTO de ser ganho —
-     bateu a mínima, a faixa já aponta pro próximo. */
+     é dinheiro no bolso dela.
+     Dois modelos, e a diferença importa (o master cobrou quando misturamos):
+       · setor COM diária (consultas): o prêmio é ACUMULADO — R$ 100 por dia
+         batido, até 26 dias = R$ 2.600 no mês. Mostra o que já juntou.
+       · setor SEM diária (vacinas): prêmio de meta — bateu a mínima, ganhou. */
   const s0 = setoresLista[0] || {};
-  const premio = !verValores ? null
+  const diarias = s0.premioDia > 0 ? s0.diarias : null;
+  const premio = diarias
+    ? { modelo: 'diaria', valor: diarias.teto, ganho: diarias.valor >= diarias.teto,
+        acumulado: diarias.valor, dias: diarias.conquistadas, tetoDias: diarias.teto_dias, porDiaVale: s0.premioDia }
+    : !verValores ? null
     : (s0.premioMinimo > 0 && !s0.premioMinimoConquistado)
       ? { valor: s0.premioMinimo, falta: Math.max(s0.faltaMinima ?? 0, 0), pct: Math.min(s0.pctMinima ?? 0, 100), alvo: s0.metaMinima }
       : (s0.premio > 0 && !s0.premioConquistado)
@@ -286,7 +293,21 @@ export default function PlacarVendas() {
           logo abaixo da meta de hoje, onde o olho já está. */}
 
       {/* 4️⃣ O PRÊMIO — o motivo mais concreto de fechar mais uma hoje */}
-      {premio && premio.valor > 0 && (
+      {premio && premio.modelo === 'diaria' && (
+        <Capsula destaque title={`${fmt.brl(premio.porDiaVale)} por dia em que a meta do dia é batida · até ${premio.tetoDias} dias = ${fmt.brl(premio.valor)} no mês`}>
+          <span style={{ fontSize: 16 }}>{premio.ganho ? '🏆' : '💰'}</span>
+          <div style={{ lineHeight: 1.12 }}>
+            <Rotulo>Suas diárias · {premio.dias} de {premio.tetoDias} dias</Rotulo>
+            <div style={{ fontSize: 13.5, fontWeight: 900, color: premio.acumulado > 0 ? '#6ee7b7' : '#fcd34d', textShadow: '0 1px 3px rgba(0,0,0,.45)' }}>
+              {fmt.brl(premio.acumulado)}
+              <span style={{ fontSize: 11, fontWeight: 800, color: 'rgba(255,255,255,.92)', marginLeft: 6 }}>
+                de {fmt.brl(premio.valor)} · {fmt.brl(premio.porDiaVale)}/dia batido
+              </span>
+            </div>
+          </div>
+        </Capsula>
+      )}
+      {premio && premio.modelo !== 'diaria' && premio.valor > 0 && (
         <Capsula destaque title={`Prêmio de ${fmt.brl(premio.valor)} ao alcançar ${fmt.brl(premio.alvo || 0)}`}>
           <span style={{ fontSize: 16 }}>{premio.ganho ? '🏆' : '🎁'}</span>
           <div style={{ lineHeight: 1.12 }}>
