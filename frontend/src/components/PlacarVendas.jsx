@@ -282,7 +282,8 @@ export default function PlacarVendas() {
               R$, o ritmo por dia e os dias restantes vivem no passar do mouse
               (título da cápsula, logo acima). */}
           <div style={{ lineHeight: 1.12 }}>
-            <Rotulo>{ind ? 'Minha meta do mês' : 'Meta do setor'}</Rotulo>
+            {/* "Alcançado" — título que o master escolheu pra esta cápsula */}
+            <Rotulo>Alcançado</Rotulo>
             <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 2 }}>
               <Barra pct={pctMes} cor={pctMes >= 100 ? '#6ee7b7' : 'linear-gradient(90deg,#f59e0b,#fcd34d)'} largura={76} />
               <span style={{ fontSize: 13, fontWeight: 900, color: pctMes >= 100 ? '#6ee7b7' : '#fff' }}>
