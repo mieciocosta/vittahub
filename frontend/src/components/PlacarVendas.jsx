@@ -259,10 +259,12 @@ export default function PlacarVendas() {
                   </span>
                 </div>
               )}
-              {/* 💵 A diária mora aqui: bater a meta de HOJE vale dinheiro HOJE */}
-              {s.premioDia > 0 && (
-                <div style={{ fontSize: 10, fontWeight: 900, marginTop: 3, color: focoOk ? '#6ee7b7' : '#fcd34d' }}>
-                  {focoOk ? `🏅 diária de ${fmt.brl(s.premioDia)} é sua!` : `💵 diária: ${fmt.brl(s.premioDia)} batendo a meta de hoje`}
+              {/* 💵 O "R$ 100/dia" agora mora na cápsula do prêmio (recorte do
+                  master) — aqui só comemora quando a diária do dia é ganha,
+                  sem repetir o valor em dois lugares. */}
+              {s.premioDia > 0 && focoOk && (
+                <div style={{ fontSize: 10, fontWeight: 900, marginTop: 3, color: '#6ee7b7' }}>
+                  🏅 diária de hoje garantida!
                 </div>
               )}
             </div>
@@ -274,14 +276,17 @@ export default function PlacarVendas() {
       {verValores && alvoMes > 0 && (
         <Capsula title={`${ind ? 'Sua produção' : 'Setor'} no mês: ${fmt.brl(feitoMes)} vendidos de ${fmt.brl(alvoMes)}`
           + (aReceber > 0 ? ` · ${fmt.brl(aReceber)} ainda a receber` : '')
-          + ` · ${dias} dia(s) de trabalho até o fim do mês`}>
+          + ` · ritmo pra fechar: ${fmt.brl(porDia)}/dia em ${dias} dia(s) úteis`}>
           <span style={{ fontSize: 15 }}>📈</span>
+          {/* Pedido do master: aqui SÓ a porcentagem alcançada. Os valores em
+              R$, o ritmo por dia e os dias restantes vivem no passar do mouse
+              (título da cápsula, logo acima). */}
           <div style={{ lineHeight: 1.12 }}>
-            <Rotulo>{ind ? 'Minha meta do mês' : 'Meta do setor'} · {fmt.brl(feitoMes)} de {fmt.brl(alvoMes)} · {pctMes.toFixed(1)}%</Rotulo>
+            <Rotulo>{ind ? 'Minha meta do mês' : 'Meta do setor'}</Rotulo>
             <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 2 }}>
               <Barra pct={pctMes} cor={pctMes >= 100 ? '#6ee7b7' : 'linear-gradient(90deg,#f59e0b,#fcd34d)'} largura={76} />
-              <span style={{ fontSize: 11.5, fontWeight: 900, color: faltaMes <= 0 ? '#6ee7b7' : '#fff' }}>
-                {faltaMes <= 0 ? '🏆 completo!' : `${fmt.brl(porDia)}/dia · ${dias}d`}
+              <span style={{ fontSize: 13, fontWeight: 900, color: pctMes >= 100 ? '#6ee7b7' : '#fff' }}>
+                {pctMes >= 100 ? '🏆 100%' : `${pctMes.toFixed(1)}%`}
               </span>
             </div>
           </div>
@@ -293,15 +298,21 @@ export default function PlacarVendas() {
           logo abaixo da meta de hoje, onde o olho já está. */}
 
       {/* 4️⃣ O PRÊMIO — o motivo mais concreto de fechar mais uma hoje */}
+      {/* Pedido do master: nesta cápsula, SÓ o prêmio total. A conta toda
+          (11 de 26 dias, R$ 100/dia) continua viva no passar do mouse —
+          informação demais na faixa era exatamente a reclamação dele. */}
       {premio && premio.modelo === 'diaria' && (
-        <Capsula destaque title={`${fmt.brl(premio.porDiaVale)} por dia em que a meta do dia é batida · até ${premio.tetoDias} dias = ${fmt.brl(premio.valor)} no mês`}>
-          <span style={{ fontSize: 16 }}>{premio.ganho ? '🏆' : '💰'}</span>
+        <Capsula destaque title={`${fmt.brl(premio.porDiaVale)} por dia batido · ${premio.dias} de ${premio.tetoDias} dias já conquistados · já garantiu ${fmt.brl(premio.acumulado)}`}>
+          <span style={{ fontSize: 16 }}>{premio.ganho ? '🏆' : '🎁'}</span>
           <div style={{ lineHeight: 1.12 }}>
-            <Rotulo>Suas diárias · {premio.dias} de {premio.tetoDias} dias</Rotulo>
-            <div style={{ fontSize: 13.5, fontWeight: 900, color: premio.acumulado > 0 ? '#6ee7b7' : '#fcd34d', textShadow: '0 1px 3px rgba(0,0,0,.45)' }}>
-              {fmt.brl(premio.acumulado)}
+            <Rotulo>Seu prêmio do mês</Rotulo>
+            {/* O master mandou o recorte exato do que quer ver aqui:
+                "R$ 2.600,00 · R$ 100,00/dia batido" — e só. O acumulado e a
+                contagem de dias vivem no passar do mouse. */}
+            <div style={{ fontSize: 13.5, fontWeight: 900, color: '#fcd34d', textShadow: '0 1px 3px rgba(0,0,0,.45)' }}>
+              {fmt.brl(premio.valor)}
               <span style={{ fontSize: 11, fontWeight: 800, color: 'rgba(255,255,255,.92)', marginLeft: 6 }}>
-                de {fmt.brl(premio.valor)} · {fmt.brl(premio.porDiaVale)}/dia batido
+                · {fmt.brl(premio.porDiaVale)}/dia batido
               </span>
             </div>
           </div>
