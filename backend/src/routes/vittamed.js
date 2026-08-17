@@ -93,4 +93,42 @@ r.get('/agenda', auth, async (req, res) => {
   }
 });
 
+/* Teste da ponte — o master valida na hora em que cadastrar as variáveis,
+   sem esperar a equipe reclamar. Diz exatamente o que está errado: variável
+   faltando, endereço fora do ar, token recusado ou endpoint inexistente. */
+r.get('/status', auth, async (req, res) => {
+  if (req.user?.role !== 'master') return res.status(403).json({ error: 'Só o master testa a ponte.' });
+  if (!configurado()) {
+    return res.json({ ok: false, configurado: false,
+      falta: [
+        !process.env.VITTAMED_URL ? 'VITTAMED_URL (endereço da API do VittaMed)' : null,
+        (!process.env.INTEGRACAO_TOKEN || process.env.INTEGRACAO_TOKEN.length < 16)
+          ? 'INTEGRACAO_TOKEN (chave compartilhada, 16+ caracteres, IGUAL nos dois sistemas)' : null,
+      ].filter(Boolean) });
+  }
+  try {
+    const { default: fetch } = await import('node-fetch');
+    const base = String(process.env.VITTAMED_URL).replace(/\/+$/, '');
+    const vr = await fetch(`${base}/api/integracao/agenda?data=${hojeLocal()}`, {
+      headers: { 'x-integracao-token': process.env.INTEGRACAO_TOKEN },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (vr.ok) {
+      const d = await vr.json().catch(() => ({}));
+      return res.json({ ok: true, configurado: true,
+        mensagem: `Ponte respondendo! O VittaMed devolveu ${Array.isArray(d?.itens) ? d.itens.length : (Array.isArray(d) ? d.length : 0)} agendamento(s) pra hoje.` });
+    }
+    const corpo = await vr.text().catch(() => '');
+    const motivo = vr.status === 401 || vr.status === 403
+      ? 'O VittaMed recusou a chave — o INTEGRACAO_TOKEN precisa ser IGUAL nos dois sistemas.'
+      : vr.status === 404
+        ? 'O endereço respondeu, mas não existe /api/integracao/agenda lá — o VittaMed ainda não tem o endpoint da ponte.'
+        : `O VittaMed respondeu ${vr.status}.`;
+    return res.json({ ok: false, configurado: true, erro: motivo, detalhe: corpo.slice(0, 150) });
+  } catch (err) {
+    return res.json({ ok: false, configurado: true,
+      erro: `Não consegui alcançar o VittaMed nesse endereço (${err.message}). Confira o VITTAMED_URL.` });
+  }
+});
+
 export default r;

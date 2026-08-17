@@ -431,6 +431,7 @@ function baixarPDF(eventos, dataISO, rotuloDia) {
    que está marcado no VittaMed sem trocar de sistema — e sem poder mexer:
    agendar continua no sistema de origem, para não existirem duas verdades. */
 function AgendaVittaMed({ vmed, setor, setSetor, rotuloDia, onRecarregar, ehMaster }) {
+  const api = useApi();   // o botão "Testar ponte" (master) chama o /status daqui
   const SET = { vacinas: ['💉 Vacinas', '#7c5cbf'], consultas: ['🩺 Consultas', '#00B8C0'], terapias: ['🧩 Terapias', '#C4973B'] };
   const ST = { finalizado: ['#e2f8ef', '#0a8f5b'], confirmado: ['#e2f8ef', '#0a8f5b'], agendado: ['#e8f4fd', '#1d6fb8'], aguardando: ['#fdf3e2', '#a07514'], em_atendimento: ['#e8f4fd', '#1d6fb8'], faltou: ['#fdf0e8', '#c2410c'], cancelado: ['#fdecec', '#c0392b'] };
 
@@ -452,7 +453,23 @@ function AgendaVittaMed({ vmed, setor, setSetor, rotuloDia, onRecarregar, ehMast
           </ul>
         </div>
       )}
-      <button onClick={onRecarregar} className="btn btn-s" style={{ marginTop: 14 }}>Tentar de novo</button>
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 14, flexWrap: 'wrap' }}>
+        <button onClick={onRecarregar} className="btn btn-s">Tentar de novo</button>
+        {/* O master valida a ponte na hora em que cadastrar as variáveis —
+            o teste diz exatamente o que está errado (variável, endereço,
+            token recusado ou endpoint que não existe no VittaMed). */}
+        {ehMaster && (
+          <button className="btn btn-p btn-s" onClick={async () => {
+            try {
+              const st = await api.get('/extras/vittamed/status');
+              window.alert(st.ok ? `✅ ${st.mensagem}`
+                : st.falta?.length ? `⚙️ Falta no Railway → Variables:\n\n• ${st.falta.join('\n• ')}`
+                : `❌ ${st.erro}${st.detalhe ? `\n\n${st.detalhe}` : ''}`);
+              if (st.ok) onRecarregar();
+            } catch (e) { window.alert('Erro no teste: ' + e.message); }
+          }}>🔌 Testar ponte agora</button>
+        )}
+      </div>
     </div>
   );
 
