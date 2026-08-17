@@ -196,13 +196,17 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
       .sort((x, y) => y.length - x.length)[0];
     return grupoDoItem[chave] || 'Meu dia';
   }, [loc.pathname, loc.search, grupoDoItem]);
-  const [gruposAbertos, setGruposAbertos] = useState(() => {
-    try { const g = JSON.parse(localStorage.getItem('vh_menu_grupos') || 'null'); if (Array.isArray(g)) return g; } catch {}
-    return ['Meu dia'];
+  /* O master testou a sanfona e mandou ao contrário: TUDO ABERTO por padrão
+     ("quero que deixe aberto todos"). O clique continua funcionando pra quem
+     quiser recolher uma seção — mas agora o que fica guardado é a lista de
+     FECHADAS, e ela nasce vazia. A seção da tela atual nunca fecha. */
+  const [gruposFechados, setGruposFechados] = useState(() => {
+    try { const g = JSON.parse(localStorage.getItem('vh_menu_fechados') || 'null'); if (Array.isArray(g)) return g; } catch {}
+    return [];
   });
-  useEffect(() => { try { localStorage.setItem('vh_menu_grupos', JSON.stringify(gruposAbertos)); } catch {} }, [gruposAbertos]);
-  const grupoAberto = (g) => gruposAbertos.includes(g) || g === grupoAtivo;
-  const alternarGrupo = (g) => setGruposAbertos(p => p.includes(g)
+  useEffect(() => { try { localStorage.setItem('vh_menu_fechados', JSON.stringify(gruposFechados)); } catch {} }, [gruposFechados]);
+  const grupoAberto = (g) => !gruposFechados.includes(g) || g === grupoAtivo;
+  const alternarGrupo = (g) => setGruposFechados(p => p.includes(g)
     ? p.filter(x => x !== g)
     : [...p, g]);
   const { user, setUser, logout, isMaster } = useAuth();
