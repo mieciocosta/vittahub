@@ -67,11 +67,19 @@ export default function Profissionais() {
   const setDispDia = (dia, campo, valor) => setModal(m => ({
     ...m, disponibilidade: { ...m.disponibilidade, [dia]: { ...(m.disponibilidade?.[dia] || {}), [campo]: valor } },
   }));
-  const resumoDisp = (disp) => {
-    const ds = DIAS.filter(([k]) => disp?.[k]?.inicio && disp?.[k]?.fim);
-    if (!ds.length) return 'Sem horário definido';
-    return ds.map(([k, lbl]) => `${lbl} ${disp[k].inicio}-${disp[k].fim}`).join(' · ');
+  /* Carga horária "conosco" em números: soma as janelas da semana. É o dado
+     que o master quer enxergar de cara — quanto desse profissional a clínica
+     tem por semana. */
+  const horasDia = (d) => {
+    if (!d?.inicio || !d?.fim) return 0;
+    const [hi, mi] = d.inicio.split(':').map(Number);
+    const [hf, mf] = d.fim.split(':').map(Number);
+    return Math.max(0, (hf * 60 + mf) - (hi * 60 + mi)) / 60;
   };
+  const horasSemana = (disp) => DIAS.reduce((a2, [k]) => a2 + horasDia(disp?.[k]), 0);
+  const fmtH = (h) => h % 1 === 0 ? `${h}h` : `${Math.floor(h)}h${String(Math.round((h % 1) * 60)).padStart(2, '0')}`;
+  // dia da semana de HOJE no formato das chaves (seg..dom)
+  const hojeK = ['dom','seg','ter','qua','qui','sex','sab'][new Date().getDay()];
 
   if (!podeVer) return <div style={{ padding:40, color:'var(--muted)' }}>🔒 O Painel de Profissionais é do setor de Consultas.</div>;
 
@@ -89,6 +97,23 @@ export default function Profissionais() {
         </div>
         {ehGestao && <button onClick={()=>{setErro('');setModal({...vazio});}} className="btn btn-p" style={{ gap:6 }}><Plus size={15}/> Novo profissional</button>}
       </div>
+
+      {/* 👨‍⚕️ QUEM ATENDE HOJE — o painel que a recepção olha antes de agendar */}
+      {lista.some(p => p.ativo && p.disponibilidade?.[hojeK]?.inicio) && (
+        <div className="card" style={{ padding:'13px 17px', marginBottom:14, display:'flex', alignItems:'center', gap:12, flexWrap:'wrap' }}>
+          <span style={{ fontSize:12, fontWeight:800, color:'var(--muted)', textTransform:'uppercase', letterSpacing:.5 }}>Atendem hoje</span>
+          {lista.filter(p => p.ativo && p.disponibilidade?.[hojeK]?.inicio && p.disponibilidade?.[hojeK]?.fim).map(p => (
+            <span key={p.id} style={{ display:'flex', alignItems:'center', gap:7, background:`${p.cor || 'var(--tq)'}14`,
+              border:`1px solid ${p.cor || 'var(--tq)'}55`, borderRadius:20, padding:'4px 12px 4px 5px' }}>
+              {p.foto
+                ? <img src={p.foto} alt="" style={{ width:22, height:22, borderRadius:'50%', objectFit:'cover' }}/>
+                : <span style={{ width:22, height:22, borderRadius:'50%', background:p.cor || 'var(--tq)', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:9, fontWeight:900 }}>{fmt.initials(p.nome)}</span>}
+              <span style={{ fontSize:12, fontWeight:800 }}>{(p.nome || '').split(' ').slice(0, 2).join(' ')}</span>
+              <span style={{ fontSize:11, fontWeight:700, color:'var(--muted)' }}>{p.disponibilidade[hojeK].inicio}–{p.disponibilidade[hojeK].fim}</span>
+            </span>
+          ))}
+        </div>
+      )}
 
       {lista.length === 0 ? (
         <div className="card" style={{ padding:40, textAlign:'center', color:'var(--muted)' }}>
@@ -117,9 +142,39 @@ export default function Profissionais() {
                 )}
               </div>
               {p.telefone && <div style={{ fontSize:12, color:'var(--muted)', marginTop:10, display:'flex', alignItems:'center', gap:6 }}><Phone size={12}/> {fmt.phone(p.telefone)}</div>}
-              <div style={{ fontSize:11.5, color:'var(--txt2,var(--muted))', marginTop:8, display:'flex', alignItems:'flex-start', gap:6, lineHeight:1.5 }}>
-                <Clock size={12} style={{ marginTop:2, flexShrink:0 }}/>
-                <span>{resumoDisp(p.disponibilidade)}</span>
+              {/* 🕐 CARGA HORÁRIA CONOSCO — painel semanal (pedido do master:
+                  "como um painel", não uma linha de texto). Dia com atendimento
+                  fica aceso na cor do profissional; hoje ganha contorno. */}
+              <div style={{ marginTop: 10 }}>
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:5 }}>
+                  <span style={{ fontSize:10, fontWeight:800, letterSpacing:.5, textTransform:'uppercase', color:'var(--muted)', display:'flex', alignItems:'center', gap:5 }}>
+                    <Clock size={11}/> Carga horária conosco
+                  </span>
+                  <span style={{ fontSize:11, fontWeight:900, color: horasSemana(p.disponibilidade) > 0 ? 'var(--tq2)' : 'var(--muted)' }}>
+                    {horasSemana(p.disponibilidade) > 0 ? `${fmtH(horasSemana(p.disponibilidade))}/semana` : 'sem horário definido'}
+                  </span>
+                </div>
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', gap:4 }}>
+                  {DIAS.map(([k, lbl]) => {
+                    const d = p.disponibilidade?.[k];
+                    const on = !!(d?.inicio && d?.fim);
+                    const cor = p.cor || 'var(--tq)';
+                    return (
+                      <div key={k} title={on ? `${lbl}: ${d.inicio} às ${d.fim} (${fmtH(horasDia(d))})` : `${lbl}: não atende`}
+                        style={{ borderRadius:8, padding:'5px 2px', textAlign:'center', lineHeight:1.25,
+                          background: on ? `${cor}1c` : 'var(--bg2)',
+                          border: k === hojeK ? `1.5px solid ${on ? cor : 'var(--border)'}` : '1.5px solid transparent' }}>
+                        <div style={{ fontSize:9, fontWeight:800, textTransform:'uppercase', color: on ? cor : 'var(--muted)' }}>{lbl}</div>
+                        <div style={{ fontSize:8.5, fontWeight:700, color: on ? 'var(--txt2)' : 'var(--border)' }}>
+                          {on ? `${d.inicio}` : '—'}
+                        </div>
+                        <div style={{ fontSize:8.5, fontWeight:700, color: on ? 'var(--txt2)' : 'var(--border)' }}>
+                          {on ? `${d.fim}` : ''}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
               {Array.isArray(p.documentos) && p.documentos.length > 0 && (
                 <div style={{ marginTop:9, paddingTop:9, borderTop:'1px solid var(--border)', display:'flex', flexWrap:'wrap', gap:6 }}>

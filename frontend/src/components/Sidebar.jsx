@@ -49,6 +49,9 @@ const NAV = [
   { grupo:'Meu dia' },
   { to:'/',           icon:LayoutDashboard, label:'Resumo', cor:'#38bdf8' },
   { to:'/inbox',      icon:MessageSquare,   label:'Chat',     unread:true, cor:'#25D366' },
+  // Logo abaixo do Chat (pedido do master) — quem agenda consulta vive
+  // alternando entre a conversa e a grade dos profissionais.
+  { to:'/profissionais', icon:Stethoscope,  label:'Profissionais', consultas:true, cor:'#22d3ee' },
   { to:'/agenda',     icon:CalendarDays,    label:'Agenda', cor:'#f59e0b' },
 
   { grupo:'Vender' },
@@ -73,7 +76,6 @@ const NAV = [
 
   { grupo:'Operação' },
   { to:'/vacinas-solicitacao', icon:Syringe, label:'Solicitar Vacinas', vacinas:true, cor:'#8b5cf6' },
-  { to:'/profissionais', icon:Stethoscope,  label:'Profissionais', consultas:true, cor:'#22d3ee' },
   { to:'/funil',      icon:Kanban,          label:'Funil', cor:'#2dd4bf' },
   { to:'/relatorios', icon:BarChart2,       label:'Relatórios', cor:'#60a5fa' },
   { to:'/banco-dados',icon:Database,        label:'Banco de Dados', cor:'#94a3b8' },
