@@ -1403,6 +1403,66 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log('🎁 Consultas: prêmio R$ 2.600/mês + R$ 100 a diária');
     }
 
+    /* 🕰️ CORREÇÃO RETROATIVA DO FUSO (autorizada pelo master: "corrija").
+       Até 16/08 o INSERT de venda usava CURRENT_DATE (UTC): venda registrada
+       entre 21h e 23h59 de São Luís caía no DIA SEGUINTE (e na virada, até no
+       mês seguinte). O código novo já grava certo; isto conserta o histórico.
+
+       A regra é cirúrgica — só mexe onde dá pra PROVAR que a data veio do
+       relógio errado, nunca em data escolhida à mão no Caixa:
+         · data_venda == dia UTC do momento do registro (bate com o default), E
+         · o registro aconteceu entre 00h e 02h59 UTC — a única janela em que
+           UTC e São Luís divergem.
+       Nessa interseção a data certa é exatamente 1 dia antes. Tudo que muda
+       fica guardado em fuso_correcao_backup, com a data antiga — reversível. */
+    const { rows: [flagFuso] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'correcao_fuso_datas_v1'");
+    if (!flagFuso) {
+      await query(`CREATE TABLE IF NOT EXISTS fuso_correcao_backup (
+        id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+        tabela TEXT, registro_id TEXT, data_antiga DATE, data_nova DATE,
+        created_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
+
+      // O default das colunas também muda pra data de São Luís — cinto de
+      // segurança pra qualquer INSERT que não passe pelas rotas corrigidas.
+      await query(`ALTER TABLE vendas ALTER COLUMN data_venda SET DEFAULT ((NOW() - interval '3 hours')::date)`).catch(() => {});
+      await query(`ALTER TABLE despesas ALTER COLUMN data SET DEFAULT ((NOW() - interval '3 hours')::date)`).catch(() => {});
+
+      let nVendas = 0, nDesp = 0;
+      try {
+        const r1 = await query(`
+          WITH corrigidas AS (
+            UPDATE vendas
+               SET data_venda = ((created_at AT TIME ZONE 'UTC') - interval '3 hours')::date,
+                   updated_at = NOW()
+             WHERE created_at IS NOT NULL
+               AND data_venda = (created_at AT TIME ZONE 'UTC')::date
+               AND EXTRACT(HOUR FROM created_at AT TIME ZONE 'UTC') < 3
+            RETURNING id, data_venda)
+          INSERT INTO fuso_correcao_backup (tabela, registro_id, data_nova, data_antiga)
+          SELECT 'vendas', id, data_venda, data_venda + 1 FROM corrigidas`);
+        nVendas = r1.rowCount || 0;
+      } catch (e) { console.error('correção fuso vendas:', e.message); }
+      try {
+        const r2 = await query(`
+          WITH corrigidas AS (
+            UPDATE despesas
+               SET data = ((created_at AT TIME ZONE 'UTC') - interval '3 hours')::date
+             WHERE created_at IS NOT NULL
+               AND data = (created_at AT TIME ZONE 'UTC')::date
+               AND EXTRACT(HOUR FROM created_at AT TIME ZONE 'UTC') < 3
+            RETURNING id, data)
+          INSERT INTO fuso_correcao_backup (tabela, registro_id, data_nova, data_antiga)
+          SELECT 'despesas', id, data, data + 1 FROM corrigidas`);
+        nDesp = r2.rowCount || 0;
+      } catch (e) { console.error('correção fuso despesas:', e.message); }
+
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('alerta', $1, $2, true)`,
+        ['🕰️ Datas corrigidas pro fuso de São Luís',
+         `${nVendas} venda(s) e ${nDesp} despesa(s) registradas depois das 21h estavam gravadas no dia seguinte e voltaram pro dia certo. A lista completa (com a data antiga) está guardada — nada foi perdido.`]).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('correcao_fuso_datas_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log(`🕰️ Fuso corrigido no histórico: ${nVendas} venda(s), ${nDesp} despesa(s)`);
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);
