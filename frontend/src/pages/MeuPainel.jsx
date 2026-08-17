@@ -1,12 +1,47 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { LayoutGrid, StickyNote, CheckSquare, Square, Paperclip, FileText, Download, Trash2, Plus, X, Check, Pencil, UserPlus, Search, MessageSquare } from 'lucide-react';
+import { LayoutGrid, StickyNote, CheckSquare, Square, Paperclip, FileText, Download, Trash2, Plus, X, Check, Pencil, UserPlus, Search, MessageSquare, Flame, Send, Copy, RefreshCw } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 
-/* MEU PAINEL — mural pessoal: notas, tarefas (o que eu fiz) e documentos.
-   Cada um monta o seu, do jeito que quiser. Privado. */
+/* MEU PAINEL — o painel de trabalho da atendente.
+   Em cima, as OPORTUNIDADES do dia (pedido do master: painel que ajude a
+   vender mais consultas e terapias) — quem já é cliente da casa e tem o
+   próximo passo esperando. Embaixo, o mural pessoal: notas, tarefas e
+   documentos. Cada um monta o seu. Privado. */
 
 const fileToDataUrl = (file) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file); });
+
+// Hoje no fuso de São Luís (UTC-3) — depois das 21h o ISO puro vira amanhã.
+const hojeSLZ = () => new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+const primeiroNome = (n) => String(n || '').trim().split(/\s+/)[0] || '';
+
+/* Frases prontas por tipo de oportunidade. Não são disparadas por robô: a
+   mensagem chega ESCRITA na caixa da conversa e quem lê, ajusta e envia é a
+   atendente. Tom da casa: calorosa, curta, sempre terminando em convite. */
+const FRASES = {
+  consulta: (nome, pac, eu) =>
+`Oi, ${nome || 'tudo bem'}! Aqui é a ${eu} da Vittalis Saúde 💙
+
+${pac ? `Vi que o(a) ${pac} já` : 'Vi que vocês já'} veio vacinar com a gente — obrigada pela confiança!
+
+Vocês já fazem o acompanhamento com a nossa pediatra? Na consulta a gente olha crescimento, sono e alimentação, e ainda deixa o calendário de vacinas redondinho.
+
+Tenho horário essa semana — quer que eu separe um pra vocês? 😊`,
+  terapia: (nome, pac, eu) =>
+`Oi, ${nome || 'tudo bem'}! Aqui é a ${eu} da Vittalis Saúde 💙
+
+Depois da consulta${pac ? ` do(a) ${pac}` : ''}, muitas famílias seguem com uma avaliação nas nossas terapias — fonoaudiologia, terapia ocupacional e psicologia (ABA), entre outras.
+
+É uma avaliação tranquila, feita brincando, e ela mostra certinho o que ajuda a criança a evoluir mais rápido.
+
+Posso reservar um horário pra essa avaliação? 😊`,
+  retomar: (nome, pac, eu) =>
+`Oi, ${nome || 'tudo bem'}! Aqui é a ${eu} da Vittalis Saúde 💙
+
+Senti falta ${pac ? `do(a) ${pac}` : 'de vocês'} por aqui! Nessa fase cada semana de terapia conta muito, e retomar agora faz diferença de verdade no resultado.
+
+Consegui abrir horário na agenda dessa semana. Quer que eu reserve pra vocês? 😊`,
+};
 
 export default function MeuPainel() {
   const api = useApi();
@@ -88,10 +123,14 @@ export default function MeuPainel() {
         <div style={{ position: 'absolute', right: -25, top: -25, width: 140, height: 140, borderRadius: '50%', background: 'rgba(255,255,255,.08)' }} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 23, fontWeight: 800 }}><LayoutGrid size={24} /> Meu Painel</div>
         <div style={{ fontSize: 13.5, opacity: .95, marginTop: 6, maxWidth: 620, lineHeight: 1.5 }}>
-          Seu mural, {primeiro}. Organize suas anotações, o que você fez e seus documentos — tudo num lugar só, do seu jeito. 🗂️
+          Seu painel, {primeiro}. Em cima, quem está pronto pra dar o próximo passo com a gente; embaixo, suas notas, tarefas e documentos. 🗂️
         </div>
       </div>
       {erro && <div style={{ fontSize: 13, color: 'var(--err)', fontWeight: 600, marginBottom: 12 }}>{erro}</div>}
+
+      {/* 🔥 OPORTUNIDADES — o coração do painel: para quem falar HOJE */}
+      <Oportunidades />
+
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(300px,1fr))', gap: 16, alignItems: 'start' }}>
 
@@ -247,6 +286,129 @@ export default function MeuPainel() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ═══ OPORTUNIDADES DO DIA ══════════════════════════════════════════════════
+   Pedido do master: painel que faça a atendente VENDER MAIS consultas e
+   terapias. Ninguém vende mais olhando para um mural vazio — vende olhando
+   para uma LISTA DE GENTE com o próximo passo evidente. O backend cruza as
+   vendas da carteira dela com o que a família ainda não fez:
+     · vacinou e nunca consultou     → consulta
+     · consultou e não faz terapia   → avaliação
+     · terapia parada                → retomar
+   Um clique abre a conversa com a frase já escrita (ela lê, ajusta e envia). */
+function Oportunidades() {
+  const api = useApi();
+  const nav = useNavigate();
+  const { user } = useAuth();
+  const eu = primeiroNome(user?.nome) || 'equipe';
+  const [d, setD] = useState(null);
+  const [carregando, setCarregando] = useState(true);
+  const [copiado, setCopiado] = useState('');
+  const CHAVE = 'vh_oport_' + hojeSLZ();
+  // "Já falei com esse" vale só pelo dia — amanhã a lista nasce limpa.
+  const [feitos, setFeitos] = useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem(CHAVE) || '[]')); } catch { return new Set(); }
+  });
+  const marcar = (k) => setFeitos(p => {
+    const n = new Set(p); n.add(k);
+    try { localStorage.setItem(CHAVE, JSON.stringify([...n])); } catch { /* modo privado */ }
+    return n;
+  });
+
+  const load = () => {
+    setCarregando(true);
+    api.get('/extras/oportunidades').then(setD).catch(() => setD(null)).finally(() => setCarregando(false));
+  };
+  useEffect(() => { load(); }, []); // eslint-disable-line
+
+  const frase = (g, it) => (FRASES[g.chave] || FRASES.consulta)(primeiroNome(it.nome), primeiroNome(it.paciente), eu);
+
+  // Abre a conversa JÁ com a mensagem escrita na caixa (mesmo caminho da
+  // pasta Fidelidade: sessionStorage + ?conv=). Enviar continua sendo dela.
+  const falar = (g, it) => {
+    if (!it.conversa_id) { window.alert('Esse cliente ainda não tem conversa no WhatsApp por aqui.'); return; }
+    try { sessionStorage.setItem('vh_rascunho_' + it.conversa_id, frase(g, it)); } catch { /* ok */ }
+    marcar(g.chave + it.conversa_id);
+    nav(`/inbox?conv=${it.conversa_id}`);
+  };
+  const copiar = async (g, it) => {
+    try { await navigator.clipboard.writeText(frase(g, it)); setCopiado(g.chave + it.conversa_id); setTimeout(() => setCopiado(''), 1600); }
+    catch { window.alert('Não consegui copiar aqui. Use o botão "Falar" que a frase já vai escrita.'); }
+  };
+
+  if (carregando) return <div className="card" style={{ padding: 18, marginBottom: 20, fontSize: 13, color: 'var(--muted)' }}>Procurando oportunidades…</div>;
+  if (!d) return null;
+
+  const m = d.minhas || {};
+  const grupos = (d.grupos || []).map(g => ({ ...g, itens: (g.itens || []).filter(i => !feitos.has(g.chave + i.conversa_id)) }));
+  const restam = grupos.reduce((a, g) => a + g.itens.length, 0);
+
+  return (
+    <div style={{ marginBottom: 22 }}>
+      {/* Faixa: o que ela já vendeu + quantas pessoas esperam contato */}
+      <div style={{ borderRadius: 16, padding: '16px 20px', color: '#fff', marginBottom: 14,
+        background: 'linear-gradient(135deg,#b45309,#f59e0b 60%,#fbbf24)', boxShadow: '0 8px 22px rgba(245,158,11,.25)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 16.5, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Flame size={19} /> {restam > 0 ? `${restam} ${restam === 1 ? 'pessoa esperando' : 'pessoas esperando'} seu contato` : 'Lista do dia zerada — que orgulho! 🏆'}
+            </div>
+            <div style={{ fontSize: 12.5, opacity: .95, marginTop: 3 }}>
+              {restam > 0 ? 'São famílias que já confiam na clínica. Falta só o convite.' : 'Você falou com todo mundo da lista de hoje. Amanhã tem mais.'}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <div style={{ background: 'rgba(255,255,255,.2)', borderRadius: 11, padding: '7px 13px', textAlign: 'center' }}>
+              <div style={{ fontSize: 19, fontWeight: 900, lineHeight: 1 }}>{m.consultas_hoje || 0}</div>
+              <div style={{ fontSize: 10, opacity: .9, marginTop: 2 }}>consultas hoje</div>
+            </div>
+            <div style={{ background: 'rgba(255,255,255,.2)', borderRadius: 11, padding: '7px 13px', textAlign: 'center' }}>
+              <div style={{ fontSize: 19, fontWeight: 900, lineHeight: 1 }}>{m.terapias_hoje || 0}</div>
+              <div style={{ fontSize: 10, opacity: .9, marginTop: 2 }}>terapias hoje</div>
+            </div>
+            <div style={{ background: 'rgba(255,255,255,.14)', borderRadius: 11, padding: '7px 13px', textAlign: 'center' }}>
+              <div style={{ fontSize: 19, fontWeight: 900, lineHeight: 1 }}>{(m.consultas_mes || 0) + (m.terapias_mes || 0)}</div>
+              <div style={{ fontSize: 10, opacity: .9, marginTop: 2 }}>no mês</div>
+            </div>
+            <button onClick={load} title="Atualizar a lista" style={{ background: 'rgba(255,255,255,.2)', border: 'none', borderRadius: 10, padding: 9, cursor: 'pointer', color: '#fff', display: 'flex' }}><RefreshCw size={15} /></button>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(300px,1fr))', gap: 14, alignItems: 'start' }}>
+        {grupos.map(g => (
+          <div key={g.chave} className="card" style={{ padding: '15px 17px', borderTop: `3px solid ${g.cor}` }}>
+            <div style={{ fontWeight: 800, fontSize: 14.5, display: 'flex', alignItems: 'center', gap: 7 }}>
+              <span>{g.emoji}</span> {g.titulo}
+              <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 800, color: g.cor }}>{g.itens.length}</span>
+            </div>
+            <div style={{ fontSize: 11.5, color: 'var(--muted)', margin: '4px 0 10px', lineHeight: 1.4 }}>{g.porque}</div>
+            {g.itens.length === 0 && <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Nada pendente por aqui hoje. 👏</div>}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+              {g.itens.map(it => (
+                <div key={g.chave + it.conversa_id} style={{ background: 'var(--bg2)', borderRadius: 10, padding: '9px 11px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.nome || it.paciente || 'Sem nome'}</div>
+                      <div style={{ fontSize: 11, color: 'var(--muted)' }} data-nocopy>
+                        {it.telefone || '—'}{it.dias != null && ` · há ${it.dias} dia${it.dias === 1 ? '' : 's'}`}
+                      </div>
+                    </div>
+                    <button onClick={() => copiar(g, it)} title="Copiar a frase" style={{ background: 'none', border: 'none', cursor: 'pointer', color: copiado === g.chave + it.conversa_id ? 'var(--ok,#16a34a)' : 'var(--muted)', display: 'flex' }}>
+                      {copiado === g.chave + it.conversa_id ? <Check size={15} /> : <Copy size={14} />}
+                    </button>
+                    <button onClick={() => marcar(g.chave + it.conversa_id)} title="Já falei com essa família" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={15} /></button>
+                    <button onClick={() => falar(g, it)} className="btn btn-p btn-sm" style={{ gap: 5, padding: '5px 10px' }}><Send size={12} /> Falar</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

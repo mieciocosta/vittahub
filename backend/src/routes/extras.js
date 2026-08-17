@@ -6,6 +6,7 @@ import { htmlParaPDF } from '../services/pdf.js';
 import { versoDoDia } from '../versiculos.js';
 import { getVapid, enviarPush } from '../services/push.js';
 import { temIA, usaClaude, openaiMessages, anthropicClient, CLAUDE_MODEL_MINI } from './inbox.js';
+import { mascararLista } from '../middleware/privacidade.js';
 
 /* ─── FERRAMENTAS VITTAHUB ────────────────────────────────────────────────────
    Agenda · Programa de Indicações · Biblioteca de Experiências (fotos, vídeos,
@@ -2243,6 +2244,95 @@ r.get('/consultas/resumo', async (req, res) => {
         media_dia: du.ateHoje ? +(noMes / du.ateHoje).toFixed(1) : 0,
       },
       ultimos,
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* ═══ OPORTUNIDADES DE VENDA — O PAINEL DA ATENDENTE ═════════════════════════
+   Pedido do master: melhorar o painel da atendente para ela vender MAIS
+   consultas e terapias. O que trava a venda quase nunca e falta de vontade — e
+   nao saber PARA QUEM falar hoje. Entao o sistema monta a lista de quem ja e
+   cliente da casa e tem o proximo passo obvio esperando:
+
+     1. vacinou aqui e nunca consultou   → consulta pediatrica
+     2. consultou e nao faz terapia      → avaliacao / terapia
+     3. terapia parada (pausado ou sem plano ativo) → retomar
+
+   Cada linha vem com o motivo (ha quantos dias) e abre a conversa com a frase
+   ja escrita — quem le, ajusta e envia e a atendente, nunca o robo.
+
+   Carteira: atendente ve as vendas QUE ELA fez; gestao ve a casa. Telefone sai
+   mascarado pela mesma regra das outras listas (anti-furto de base). */
+const ATIVOS_AG = "status IN ('Agendado','Confirmado','Reagendado')";
+
+r.get('/oportunidades', async (req, res) => {
+  try {
+    const ehG = gestao(req);
+    const meuId = String(req.user.id);
+    const setores = Array.isArray(req.user?.setores) && req.user.setores.length ? req.user.setores : [req.user?.setor];
+    const daTerapia = ehG || setores.includes('terapias');
+    // Atendente enxerga a propria carteira; gestao enxerga tudo.
+    const filtroV = ehG ? '' : ' AND v.atendente_id = $1';
+    const pV = ehG ? [] : [meuId];
+    const hoje = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+
+    const [vacSemConsulta, consSemTerapia, terapiaParada, minhas] = await Promise.all([
+      // 1) Vacinou e nunca consultou — e nao tem consulta marcada pra frente
+      query(`SELECT v.conversa_id, c.contact_name AS nome, c.phone AS telefone,
+                    MAX(v.paciente_nome) AS paciente,
+                    (CURRENT_DATE - MAX(v.data_venda))::int AS dias
+               FROM vendas v JOIN conversas c ON c.id = v.conversa_id
+              WHERE v.setor = 'vacinas' AND v.data_venda >= CURRENT_DATE - INTERVAL '180 days'${filtroV}
+                AND NOT EXISTS (SELECT 1 FROM vendas x WHERE x.conversa_id = v.conversa_id AND x.categoria = 'Consulta')
+                AND NOT EXISTS (SELECT 1 FROM agenda_eventos a WHERE a.conversa_id = v.conversa_id
+                                  AND COALESCE(a.setor,'vacinas') = 'consultas' AND a.data >= CURRENT_DATE AND a.${ATIVOS_AG})
+              GROUP BY v.conversa_id, c.contact_name, c.phone
+              ORDER BY MAX(v.data_venda) DESC LIMIT 12`, pV),
+      // 2) Consultou e ainda nao faz terapia (nem esta na area de Terapias)
+      query(`SELECT v.conversa_id, c.contact_name AS nome, c.phone AS telefone,
+                    MAX(v.paciente_nome) AS paciente,
+                    (CURRENT_DATE - MAX(v.data_venda))::int AS dias
+               FROM vendas v JOIN conversas c ON c.id = v.conversa_id
+              WHERE v.categoria = 'Consulta' AND v.data_venda >= CURRENT_DATE - INTERVAL '180 days'${filtroV}
+                AND NOT EXISTS (SELECT 1 FROM vendas x WHERE x.conversa_id = v.conversa_id AND x.categoria = 'Terapia')
+                AND NOT EXISTS (SELECT 1 FROM terapia_pacientes t WHERE t.conversa_id = v.conversa_id)
+              GROUP BY v.conversa_id, c.contact_name, c.phone
+              ORDER BY MAX(v.data_venda) DESC LIMIT 12`, pV),
+      // 3) Terapia parada: avaliado ou pausado, sem nenhum plano ativo
+      daTerapia
+        ? query(`SELECT t.conversa_id, t.nome, t.telefone, t.nome AS paciente, t.status,
+                        (CURRENT_DATE - t.updated_at::date)::int AS dias
+                   FROM terapia_pacientes t
+                  WHERE t.status IN ('avaliacao','pausado')
+                    AND NOT EXISTS (SELECT 1 FROM terapia_planos p WHERE p.paciente_id = t.id AND p.status = 'ativo')
+                  ORDER BY t.updated_at DESC LIMIT 12`)
+        : Promise.resolve({ rows: [] }),
+      // Placar pessoal do dia/mes — so o numero DELA, nunca o da colega
+      query(`SELECT COUNT(*) FILTER (WHERE categoria = 'Consulta' AND data_venda = $2::date)::int consultas_hoje,
+                    COUNT(*) FILTER (WHERE categoria = 'Terapia'  AND data_venda = $2::date)::int terapias_hoje,
+                    COUNT(*) FILTER (WHERE categoria = 'Consulta')::int consultas_mes,
+                    COUNT(*) FILTER (WHERE categoria = 'Terapia')::int terapias_mes
+               FROM vendas
+              WHERE atendente_id = $1 AND to_char(data_venda,'YYYY-MM') = to_char($2::date,'YYYY-MM')`, [meuId, hoje]),
+    ]);
+
+    const grupos = [
+      { chave: 'consulta', titulo: 'Vacinou e ainda não consultou', emoji: '🩺', cor: '#00B8C0',
+        porque: 'Já confia na casa: falta oferecer o acompanhamento com a pediatra.',
+        itens: mascararLista(vacSemConsulta.rows, req.user) },
+      { chave: 'terapia', titulo: 'Consultou e ainda não faz terapia', emoji: '🧩', cor: '#a855f7',
+        porque: 'Consulta feita é a porta natural da avaliação (fono, ABA, T.O.).',
+        itens: mascararLista(consSemTerapia.rows, req.user) },
+      { chave: 'retomar', titulo: 'Terapia parada — dá pra retomar', emoji: '🔁', cor: '#f59e0b',
+        porque: 'Avaliado ou pausado, sem plano ativo. Um contato costuma trazer de volta.',
+        itens: mascararLista(terapiaParada.rows, req.user) },
+    ];
+
+    res.json({
+      data: hoje,
+      minhas: minhas.rows[0] || { consultas_hoje: 0, terapias_hoje: 0, consultas_mes: 0, terapias_mes: 0 },
+      grupos,
+      total: grupos.reduce((a, g) => a + g.itens.length, 0),
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

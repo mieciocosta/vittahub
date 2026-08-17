@@ -78,6 +78,7 @@ export default function Dashboard() {
   const [vittaHoje, setVittaHoje] = useState(null);
   const [foco, setFoco] = useState(null);   // 🎯 fila de prioridade do dia
   const [comp, setComp] = useState(null);   // 📈 este mês x mês passado
+  const [oport, setOport] = useState(null); // 💰 quem já é cliente e falta o próximo passo
 
   /* ─── 🗂️ RESUMO EM ABAS (pedido do master: "essas telas estão com muitas
      informações, fico perdido nelas") ────────────────────────────────────────
@@ -102,6 +103,7 @@ export default function Dashboard() {
     api.get('/extras/meta-setor').then(setMetaSetor).catch(() => {});
     api.get('/extras/vitta-hoje').then(setVittaHoje).catch(() => {});
     api.get('/extras/foco-hoje').then(setFoco).catch(() => {});
+    api.get('/extras/oportunidades').then(setOport).catch(() => {});
     api.get('/extras/minha-producao').then(setProd).catch(() => {});
     // Comparativo soma a clínica inteira → só o dono (a supervisora vê o setor dela no placar)
     if (isMaster) api.get('/extras/comparativo-mes').then(setComp).catch(() => {});
@@ -267,6 +269,25 @@ export default function Dashboard() {
         </>)}
 
         {aba === 'dia' && (<>
+        {/* ── 💰 OPORTUNIDADES — quem JÁ é cliente e falta dar o próximo passo.
+             O foco do dia cuida de quem chamou; esta faixa cuida de quem não vai
+             chamar sozinho: vacinou e não consultou, consultou e não faz terapia.
+             É onde nasce consulta e terapia nova. A lista completa é no Meu Painel. ── */}
+        {oport && oport.total > 0 && (
+          <div onClick={() => nav('/meu-painel')} className="card"
+            style={{ padding: '13px 18px', marginBottom: 20, cursor: 'pointer', border: 'none', color: '#fff',
+              background: 'linear-gradient(90deg,#b45309,#f59e0b 70%,#fbbf24)', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 19 }}>💰</span>
+            <div style={{ flex: 1, minWidth: 180 }}>
+              <div style={{ fontWeight: 800, fontSize: 14.5 }}>{oport.total} {oport.total === 1 ? 'família pronta' : 'famílias prontas'} pra consulta ou terapia</div>
+              <div style={{ fontSize: 11.5, opacity: .95 }}>
+                {(oport.grupos || []).filter(g => g.itens?.length).map(g => `${g.emoji} ${g.itens.length}`).join('   ·   ')} — já confiam na clínica, falta o convite
+              </div>
+            </div>
+            <span style={{ background: 'rgba(255,255,255,.24)', borderRadius: 20, padding: '5px 13px', fontSize: 11.5, fontWeight: 800 }}>Abrir no Meu Painel →</span>
+          </div>
+        )}
+
         {/* ── 🎯 MEU FOCO DE HOJE — o que fazer AGORA, em ordem de chance de vender ── */}
         {foco && foco.itens?.length > 0 && (
           <div className="card" style={{ padding: 0, marginBottom: 20, overflow: 'hidden', border: '1.5px solid var(--tq3)' }}>
