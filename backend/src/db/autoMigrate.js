@@ -1487,6 +1487,38 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log(`🕰️ Fuso corrigido no histórico: ${nVendas} venda(s), ${nDesp} despesa(s)`);
     }
 
+    /* 👋 Beatriz e Steicy REMOVIDAS de vez (ordem do master: "retira o usuário").
+       Antes era só desativar; agora o cadastro sai da lista. O histórico fica
+       intacto: vendas guardam atendente_nome em texto e os vínculos de
+       leads/conversas são ON DELETE SET NULL. Uma cópia do cadastro vai pra
+       configuracoes (backup_usuarios_removidos) — se o master mudar de ideia,
+       dá pra recriar. Nunca toca em master. */
+    const { rows: [flagRemove] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_remove_beatriz_steicy_v1'");
+    if (!flagRemove) {
+      try {
+        const { rows: alvos } = await query(`
+          SELECT id, nome, email, cpf, role, setor, setores, ativo FROM usuarios
+           WHERE role <> 'master'
+             AND (regexp_replace(COALESCE(cpf,''),'\\D','','g') IN ('17210177710','62339059313')
+                  OR nome ILIKE 'Beatriz dos Santos%' OR nome ILIKE 'Steicy%')`);
+        if (alvos.length) {
+          const ids = alvos.map(a => a.id);
+          await query(`INSERT INTO configuracoes (chave, valor) VALUES ('backup_usuarios_removidos', $1::jsonb)
+                       ON CONFLICT (chave) DO UPDATE SET valor = configuracoes.valor || $1::jsonb, updated_at = NOW()`,
+            [JSON.stringify(alvos)]);
+          // Garante o nome em texto nas vendas antigas antes de apagar o cadastro
+          await query(`UPDATE vendas SET atendente_nome = u.nome FROM usuarios u
+                        WHERE vendas.atendente_id = u.id AND u.id = ANY($1)
+                          AND COALESCE(TRIM(vendas.atendente_nome),'') = ''`, [ids]).catch(() => {});
+          await query(`DELETE FROM usuarios WHERE id = ANY($1)`, [ids]);
+          console.log(`👋 Removidas de vez: ${alvos.map(a => a.nome).join(', ')}`);
+        } else {
+          console.log('👋 Beatriz/Steicy: nenhum cadastro encontrado (já removidas?)');
+        }
+      } catch (e) { console.error('remove Beatriz/Steicy:', e.message); }
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_remove_beatriz_steicy_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);

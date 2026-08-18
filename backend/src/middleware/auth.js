@@ -12,10 +12,15 @@ export const SECRET = process.env.JWT_SECRET;
 // token ainda válido. Mantemos em memória o conjunto de IDs inativos, atualizado
 // a cada 15s (e na inicialização) — checagem por requisição é O(1), sem ir ao banco.
 let inativos = new Set();
+// Usuário APAGADO do banco também perde o acesso: guardamos o conjunto dos ids
+// existentes — token válido de um id que não existe mais é recusado (pedido do
+// master de "retirar" usuários; sem isso o token velho viveria até expirar).
+let existentes = null; // null = ainda não carregado (não bloqueia ninguém)
 async function carregarInativos() {
   try {
-    const { rows } = await query("SELECT id FROM usuarios WHERE ativo = false");
-    inativos = new Set(rows.map(r => r.id));
+    const { rows } = await query("SELECT id, ativo FROM usuarios");
+    inativos = new Set(rows.filter(r => r.ativo === false).map(r => r.id));
+    existentes = new Set(rows.map(r => String(r.id)));
   } catch { /* banco ainda não pronto — tenta de novo no próximo tick */ }
 }
 carregarInativos();
@@ -31,6 +36,9 @@ export function auth(req, res, next) {
     req.user = jwt.verify(token, SECRET);
     if (req.user?.id && inativos.has(String(req.user.id))) {
       return res.status(401).json({ error: 'Acesso revogado — usuário desativado' });
+    }
+    if (req.user?.id && existentes && !existentes.has(String(req.user.id))) {
+      return res.status(401).json({ error: 'Acesso revogado — usuário removido' });
     }
     next();
   } catch {
