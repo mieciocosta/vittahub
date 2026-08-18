@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Stethoscope, Plus, Pencil, Trash2, X, Check, Phone, Clock, Camera, Paperclip, FileText, Download } from 'lucide-react';
+import { Stethoscope, Plus, Pencil, Trash2, X, Check, Phone, Clock, Camera, Paperclip, FileText, Download, CalendarPlus } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt } from '../hooks/utils.js';
 
@@ -22,6 +22,8 @@ export default function Profissionais() {
   const docRef = useRef(null);
   const [lista, setLista] = useState([]);
   const [modal, setModal] = useState(null);
+  const [ag, setAg] = useState(null);          // 📅 agendar com o profissional
+  const [ocupados, setOcupados] = useState([]); // horários já tomados na data
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState('');
 
@@ -79,7 +81,71 @@ export default function Profissionais() {
   const horasSemana = (disp) => DIAS.reduce((a2, [k]) => a2 + horasDia(disp?.[k]), 0);
   const fmtH = (h) => h % 1 === 0 ? `${h}h` : `${Math.floor(h)}h${String(Math.round((h % 1) * 60)).padStart(2, '0')}`;
   // dia da semana de HOJE no formato das chaves (seg..dom)
-  const hojeK = ['dom','seg','ter','qua','qui','sex','sab'][new Date().getDay()];
+  const CHAVES_DIA = ['dom','seg','ter','qua','qui','sex','sab'];
+  const hojeK = CHAVES_DIA[new Date().getDay()];
+
+  /* 📅 AGENDAR RESPEITANDO A DISPONIBILIDADE (pedido do master): o modal só
+     oferece os DIAS em que o profissional atende e os HORÁRIOS dentro da
+     janela dele — meia em meia hora. O que já está tomado na agenda aparece
+     riscado. Salvou → cai direto na Agenda (mesma tabela que a aba lê). */
+  const proximasDatas = (disp) => {
+    const out = [];
+    const d = new Date();
+    for (let i = 0; i < 28 && out.length < 10; i++) {
+      const k = CHAVES_DIA[d.getDay()];
+      if (disp?.[k]?.inicio && disp?.[k]?.fim) {
+        out.push({
+          iso: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
+          rotulo: i === 0 ? 'Hoje' : i === 1 ? 'Amanhã'
+            : d.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' }),
+          k,
+        });
+      }
+      d.setDate(d.getDate() + 1);
+    }
+    return out;
+  };
+  const slotsDoDia = (disp, k) => {
+    const j = disp?.[k]; if (!j?.inicio || !j?.fim) return [];
+    const [hi, mi] = j.inicio.split(':').map(Number);
+    const [hf, mf] = j.fim.split(':').map(Number);
+    const out = [];
+    for (let t = hi * 60 + mi; t + 30 <= hf * 60 + mf; t += 30) {
+      out.push(`${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`);
+    }
+    return out;
+  };
+  const abrirAgendar = (p) => {
+    const datas = proximasDatas(p.disponibilidade);
+    if (!datas.length) { window.alert(`${p.nome} está sem horário definido — edite o cadastro e preencha a disponibilidade primeiro.`); return; }
+    setOcupados([]);
+    setAg({ prof: p, datas, data: datas[0], hora: '', paciente: '', telefone: '', servico: p.especialidade || '', salvando: false, erro: '' });
+    carregarOcupados(p, datas[0].iso);
+  };
+  const carregarOcupados = (p, iso) => {
+    api.get(`/extras/agenda?data=${iso}`)
+      .then(d => setOcupados((Array.isArray(d) ? d : [])
+        .filter(e => e.profissional === p.nome && String(e.status || '') !== 'Cancelado')
+        .map(e => e.hora)))
+      .catch(() => setOcupados([]));
+  };
+  const salvarAgendamento = async () => {
+    if (!ag.paciente.trim()) return setAg(m => ({ ...m, erro: 'Escreva o nome do paciente.' }));
+    if (!ag.hora) return setAg(m => ({ ...m, erro: 'Escolha um horário.' }));
+    setAg(m => ({ ...m, salvando: true, erro: '' }));
+    try {
+      await api.post('/extras/agenda', {
+        paciente: ag.paciente.trim(), telefone: ag.telefone,
+        data: ag.data.iso, hora: ag.hora,
+        servico: ag.servico || ag.prof.especialidade || 'Consulta',
+        setor: ag.prof.setor || 'consultas',
+        profissional: ag.prof.nome,
+      });
+      const quando = `${ag.data.rotulo === 'Hoje' || ag.data.rotulo === 'Amanhã' ? ag.data.rotulo : ag.data.iso.split('-').reverse().join('/')} às ${ag.hora}`;
+      setAg(null);
+      window.alert(`✅ Agendado com ${ag.prof.nome}: ${quando}.\n\nJá está na Agenda.`);
+    } catch (e) { setAg(m => ({ ...m, salvando: false, erro: e.message })); }
+  };
 
   if (!podeVer) return <div style={{ padding:40, color:'var(--muted)' }}>🔒 O Painel de Profissionais é do setor de Consultas.</div>;
 
@@ -176,6 +242,15 @@ export default function Profissionais() {
                   })}
                 </div>
               </div>
+              {/* 📅 do painel direto pro horário — só dias/horas que ele atende */}
+              {p.ativo && (
+                <button onClick={() => abrirAgendar(p)}
+                  style={{ width:'100%', marginTop:10, padding:'8px 0', borderRadius:10, cursor:'pointer',
+                    border:'none', background:`linear-gradient(90deg, ${p.cor || 'var(--tq)'}, ${p.cor || 'var(--tq)'}cc)`,
+                    color:'#fff', fontSize:12.5, fontWeight:900, display:'flex', alignItems:'center', justifyContent:'center', gap:6 }}>
+                  <CalendarPlus size={14}/> Agendar com {(p.nome || '').split(' ')[0]}
+                </button>
+              )}
               {Array.isArray(p.documentos) && p.documentos.length > 0 && (
                 <div style={{ marginTop:9, paddingTop:9, borderTop:'1px solid var(--border)', display:'flex', flexWrap:'wrap', gap:6 }}>
                   {p.documentos.map((d, i) => (
@@ -190,6 +265,72 @@ export default function Profissionais() {
               )}
             </div>
           ))}
+        </div>
+      )}
+
+      {/* 📅 Modal: agendar dentro da disponibilidade do profissional */}
+      {ag && (
+        <div onClick={()=>setAg(null)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.5)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000, padding:16 }}>
+          <div onClick={e=>e.stopPropagation()} className="card" style={{ width:470, maxWidth:'100%', maxHeight:'88vh', overflowY:'auto', padding:22 }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
+              <h3 style={{ fontSize:16, fontWeight:800 }}>📅 Agendar com {ag.prof.nome}</h3>
+              <button onClick={()=>setAg(null)} style={{ padding:4, background:'none', border:'none', cursor:'pointer', color:'var(--muted)' }}><X size={16}/></button>
+            </div>
+            <div style={{ fontSize:12, color:'var(--muted)', marginBottom:13 }}>
+              Só aparecem os dias e horários em que {(ag.prof.nome || '').split(' ')[0]} atende conosco. Salvou, já está na Agenda.
+            </div>
+
+            <label style={{ fontSize:10.5, fontWeight:800, color:'var(--muted)', textTransform:'uppercase' }}>Dia</label>
+            <div style={{ display:'flex', gap:6, flexWrap:'wrap', margin:'5px 0 13px' }}>
+              {ag.datas.map(d => (
+                <button key={d.iso} onClick={() => { setAg(m => ({ ...m, data:d, hora:'' })); carregarOcupados(ag.prof, d.iso); }}
+                  style={{ padding:'6px 11px', borderRadius:10, fontSize:12, fontWeight:800, cursor:'pointer',
+                    border:`1.5px solid ${ag.data.iso === d.iso ? (ag.prof.cor || 'var(--tq)') : 'var(--border)'}`,
+                    background: ag.data.iso === d.iso ? `${ag.prof.cor || 'var(--tq)'}1c` : 'var(--card)',
+                    color: ag.data.iso === d.iso ? 'var(--txt)' : 'var(--muted)', textTransform:'capitalize' }}>
+                  {d.rotulo}
+                </button>
+              ))}
+            </div>
+
+            <label style={{ fontSize:10.5, fontWeight:800, color:'var(--muted)', textTransform:'uppercase' }}>
+              Horário ({ag.prof.disponibilidade?.[ag.data.k]?.inicio}–{ag.prof.disponibilidade?.[ag.data.k]?.fim})
+            </label>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(64px,1fr))', gap:6, margin:'5px 0 13px' }}>
+              {slotsDoDia(ag.prof.disponibilidade, ag.data.k).map(h => {
+                const tomado = ocupados.includes(h);
+                return (
+                  <button key={h} disabled={tomado} onClick={() => setAg(m => ({ ...m, hora:h }))}
+                    title={tomado ? 'Horário já agendado' : ''}
+                    style={{ padding:'7px 0', borderRadius:9, fontSize:12.5, fontWeight:800,
+                      cursor: tomado ? 'not-allowed' : 'pointer',
+                      textDecoration: tomado ? 'line-through' : 'none', opacity: tomado ? .45 : 1,
+                      border:`1.5px solid ${ag.hora === h ? (ag.prof.cor || 'var(--tq)') : 'var(--border)'}`,
+                      background: ag.hora === h ? (ag.prof.cor || 'var(--tq)') : 'var(--card)',
+                      color: ag.hora === h ? '#fff' : 'var(--txt2)' }}>
+                    {h}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="field" style={{ margin:'0 0 10px' }}><label>Paciente *</label>
+              <input value={ag.paciente} onChange={e=>setAg(m=>({ ...m, paciente:e.target.value }))} placeholder="Nome do paciente" autoFocus/></div>
+            <div style={{ display:'flex', gap:10 }}>
+              <div className="field" style={{ flex:1, margin:0 }}><label>Telefone</label>
+                <input value={ag.telefone} onChange={e=>setAg(m=>({ ...m, telefone:e.target.value }))} placeholder="(98) 9…"/></div>
+              <div className="field" style={{ flex:1, margin:0 }}><label>Serviço</label>
+                <input value={ag.servico} onChange={e=>setAg(m=>({ ...m, servico:e.target.value }))} placeholder="Consulta"/></div>
+            </div>
+
+            {ag.erro && <div style={{ fontSize:12, color:'var(--err)', fontWeight:700, marginTop:10 }}>{ag.erro}</div>}
+            <div style={{ display:'flex', gap:8, marginTop:14 }}>
+              <button onClick={salvarAgendamento} disabled={ag.salvando} className="btn btn-p" style={{ flex:1, gap:6 }}>
+                <CalendarPlus size={14}/> {ag.salvando ? 'Agendando…' : ag.hora ? `Agendar ${ag.data.rotulo} às ${ag.hora}` : 'Agendar'}
+              </button>
+              <button onClick={()=>setAg(null)} className="btn">Cancelar</button>
+            </div>
+          </div>
         </div>
       )}
 
