@@ -430,6 +430,44 @@ function baixarPDF(eventos, dataISO, rotuloDia) {
    Pedido do master: cada setor tem sua agenda. Aqui a equipe do Hub enxerga o
    que está marcado no VittaMed sem trocar de sistema — e sem poder mexer:
    agendar continua no sistema de origem, para não existirem duas verdades. */
+/* 🔌 Formulário da ponte (só master): endereço da API + chave, com salvar e
+   testar na sequência. Sem Railway no caminho — era o que travava a equipe de
+   consultas de ver a agenda do VittaMed. */
+function PonteVittaMedForm({ onLigou }) {
+  const api = useApi();
+  const [f, setF] = React.useState({ api_url: '', token: '' });
+  const [salvando, setSalvando] = React.useState(false);
+  const [msg, setMsg] = React.useState('');
+  const salvarETestar = async () => {
+    setSalvando(true); setMsg('');
+    try {
+      await api.put('/extras/vittamed/ponte', f);
+      const st = await api.get('/extras/vittamed/status');
+      if (st.ok) { setMsg(`✅ ${st.mensagem}`); onLigou?.(); }
+      else setMsg(`❌ ${st.erro || (st.falta || []).join(' · ')}${st.detalhe ? ` — ${st.detalhe}` : ''}`);
+    } catch (e) { setMsg('❌ ' + e.message); }
+    setSalvando(false);
+  };
+  return (
+    <div style={{ maxWidth: 520, margin: '13px auto 0', padding: '13px 15px', borderRadius: 12,
+      background: 'var(--bg2)', textAlign: 'left' }}>
+      <div style={{ fontSize: 12, fontWeight: 800, marginBottom: 8 }}>🔌 Ligar a ponte agora (só você vê isto)</div>
+      <label style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>Endereço da API do VittaMed</label>
+      <input value={f.api_url} onChange={e => setF(v => ({ ...v, api_url: e.target.value }))}
+        placeholder="https://vittamed.vittalissaude.com.br"
+        style={{ width: '100%', padding: '9px 11px', borderRadius: 10, border: '1.5px solid var(--border)', fontSize: 13, background: 'var(--card)', color: 'var(--txt)', boxSizing: 'border-box', margin: '3px 0 10px' }} />
+      <label style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>Chave de integração (a MESMA no VittaMed)</label>
+      <input value={f.token} onChange={e => setF(v => ({ ...v, token: e.target.value }))}
+        placeholder="16+ caracteres — você inventa e cadastra igual lá"
+        style={{ width: '100%', padding: '9px 11px', borderRadius: 10, border: '1.5px solid var(--border)', fontSize: 13, background: 'var(--card)', color: 'var(--txt)', boxSizing: 'border-box', margin: '3px 0 12px' }} />
+      <button onClick={salvarETestar} disabled={salvando} className="btn btn-p btn-s" style={{ width: '100%', fontWeight: 900 }}>
+        {salvando ? 'Salvando e testando…' : '🔌 Salvar e testar a ponte'}
+      </button>
+      {msg && <div style={{ fontSize: 12, fontWeight: 700, marginTop: 9, lineHeight: 1.5 }}>{msg}</div>}
+    </div>
+  );
+}
+
 function AgendaVittaMed({ vmed, setor, setSetor, rotuloDia, onRecarregar, ehMaster }) {
   const api = useApi();   // o botão "Testar ponte" (master) chama o /status daqui
   const SET = { vacinas: ['💉 Vacinas', '#7c5cbf'], consultas: ['🩺 Consultas', '#00B8C0'], terapias: ['🧩 Terapias', '#C4973B'] };
@@ -443,15 +481,11 @@ function AgendaVittaMed({ vmed, setor, setSetor, rotuloDia, onRecarregar, ehMast
       <div style={{ fontSize: 34, marginBottom: 8, opacity: .5 }}>🏥</div>
       <div style={{ fontWeight: 800, fontSize: 14.5, marginBottom: 6 }}>Agenda do VittaMed indisponível</div>
       <p style={{ color: 'var(--muted)', fontSize: 13, maxWidth: 520, margin: '0 auto', lineHeight: 1.6 }}>{aviso}</p>
-      {/* Só o master precisa da parte técnica — pra equipe isso seria ruído */}
-      {ehMaster && !!(vmed.falta || []).length && (
-        <div style={{ maxWidth: 520, margin: '13px auto 0', padding: '11px 14px', borderRadius: 11,
-          background: 'var(--bg2)', textAlign: 'left', fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
-          <b style={{ color: 'var(--txt)' }}>Pra ligar (Railway → Variables):</b>
-          <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
-            {vmed.falta.map(f => <li key={f}>{f}</li>)}
-          </ul>
-        </div>
+      {/* 🔌 O master liga a ponte AQUI MESMO (pedido dele — nada de Railway):
+          cola o endereço da API e a chave, salva e testa. O token nunca volta
+          pro navegador depois de salvo. */}
+      {ehMaster && (
+        <PonteVittaMedForm onLigou={onRecarregar} />
       )}
       <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 14, flexWrap: 'wrap' }}>
         <button onClick={onRecarregar} className="btn btn-s">Tentar de novo</button>
