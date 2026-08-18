@@ -17,17 +17,22 @@ const SETOR_INFO = {
   consultas: { rotulo: 'Consultas', emoji: '🩺', cor: '#00B8C0' },
   terapias: { rotulo: 'Terapias', emoji: '🧩', cor: '#C4973B' },
 };
-const MEDALHA = { 1: '🥇', 2: '🥈', 3: '🥉', 4: '4º', 5: '5º' };
-// Alturas do pódio: o 1º lugar precisa ser visivelmente mais alto
-const DEGRAU = { 1: 100, 2: 76, 3: 58, 4: 44, 5: 34 };
-// Pódio de 5 (pedido do master): o ouro no meio e os degraus caindo pros lados
-const ORDEM_PODIO = [4, 2, 1, 3, 5];
-const COR_DEGRAU = {
-  1: 'linear-gradient(180deg,#fcd34d,#f59e0b)',
-  2: 'linear-gradient(180deg,#e5e7eb,#9ca3af)',
-  3: 'linear-gradient(180deg,#f3c99b,#b45309)',
-  4: 'linear-gradient(180deg,#dbeafe,#93c5fd)',
-  5: 'linear-gradient(180deg,#ede9fe,#c4b5fd)',
+const MEDALHA = { 1: '🥇', 2: '🥈', 3: '🥉' };
+/* Pódio pra TODO MUNDO (pedido do master: "coloca todos no ranking,
+   independente da quantidade"). O ouro fica no meio e os degraus caem pros
+   dois lados, quantos forem — quem está zerado também sobe no palco: ver o
+   próprio degrau baixinho é o que faz correr atrás. */
+const alturaDegrau = (lugar) => Math.max(104 - (lugar - 1) * 14, 30);
+const corDegrau = (lugar) => lugar === 1 ? 'linear-gradient(180deg,#fcd34d,#f59e0b)'
+  : lugar === 2 ? 'linear-gradient(180deg,#e5e7eb,#9ca3af)'
+  : lugar === 3 ? 'linear-gradient(180deg,#f3c99b,#b45309)'
+  : ['linear-gradient(180deg,#dbeafe,#93c5fd)', 'linear-gradient(180deg,#ede9fe,#c4b5fd)',
+     'linear-gradient(180deg,#dcfce7,#86efac)', 'linear-gradient(180deg,#ffe4e6,#fda4af)'][(lugar - 4) % 4];
+// Centro pra fora: [..., 4º, 2º, 1º, 3º, 5º, ...] — vale pra qualquer tamanho
+const ordemPodio = (n) => {
+  const esq = [], dir = [];
+  for (let i = 2; i <= n; i++) (i % 2 === 0 ? esq : dir).push(i);
+  return [...esq.reverse(), 1, ...dir];
 };
 
 const Avatar = ({ p, tam }) => (
@@ -147,7 +152,7 @@ export default function Ranking() {
 
       {((visao === 'equipe' && dados?.geral) ? [dados.geral] : (dados?.setores || [])).map((bloco) => {
         const info = SETOR_INFO[bloco.setor] || { rotulo: bloco.setor, emoji: '🎯', cor: '#0E8C96' };
-        const podio = bloco.itens.slice(0, 5);
+        const podio = bloco.itens;   // TODO MUNDO no palco
         const ninguemVendeu = bloco.total === 0;
 
         return (
@@ -183,15 +188,15 @@ export default function Ranking() {
                 <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'center', gap: 10, flexWrap: 'wrap',
                   padding: '26px 16px 12px',
                   background: 'linear-gradient(180deg, rgba(245,158,11,.14), rgba(245,158,11,0))' }}>
-                  {ORDEM_PODIO.map((lugar) => {
+                  {ordemPodio(podio.length).map((lugar) => {
                     /* Posição na LISTA, não no campo `pos`: com empate duas
                        pessoas dividem o 2º e ninguém ocuparia o 3º degrau. */
                     const p = podio[lugar - 1];
                     if (!p) return null;
                     const ouro = lugar === 1;
-                    const corDeg = COR_DEGRAU[lugar];
+                    const corDeg = corDegrau(lugar);
                     return (
-                      <div key={lugar} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: lugar <= 3 ? 122 : 100 }}>
+                      <div key={lugar} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: podio.length > 6 ? (lugar <= 3 ? 104 : 88) : (lugar <= 3 ? 122 : 100) }}>
                         {ouro && <div style={{ fontSize: 22, marginBottom: -4 }}>👑</div>}
                         <div style={{ position: 'relative', marginBottom: 7 }}>
                           <Avatar p={p} tam={ouro ? 66 : lugar <= 3 ? 52 : 42} />
@@ -212,7 +217,7 @@ export default function Ranking() {
                           {p.hoje > 0 ? `${p.hoje} hoje` : 'nada hoje'}
                         </div>
                         {/* O degrau */}
-                        <div style={{ width: '100%', height: DEGRAU[lugar], borderRadius: '12px 12px 4px 4px', background: corDeg,
+                        <div style={{ width: '100%', height: alturaDegrau(lugar), borderRadius: '12px 12px 4px 4px', background: corDeg,
                           display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                           boxShadow: '0 -3px 14px rgba(0,0,0,.14)', color: '#3b2a00' }}>
                           <div style={{ fontSize: ouro ? 30 : lugar <= 3 ? 24 : 20, fontWeight: 900, lineHeight: 1 }}>{p.n}</div>
