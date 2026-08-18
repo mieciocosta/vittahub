@@ -355,6 +355,144 @@ tbody td{padding:3.2mm 3mm;border-bottom:1px solid #EEF2F6;vertical-align:top;}
 </body></html>`;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   TEMPLATE — ORÇAMENTO DE SERVIÇOS (Tabela de Preços)
+   Orçamento genérico montado pela atendente na Tabela de Preços (consultas,
+   exames, terapias…). Mesma identidade premium da proposta de vacinas: navy +
+   turquesa, hero com o total e cartão de parcelas. "Papel timbrado fecha mais
+   que texto solto" — pedido do master de vender muito por essa tela.
+   ═══════════════════════════════════════════════════════════════════════════ */
+function gerarHtmlOrcamentoServicos({ itens = [], nomeCliente = '', subtotal = 0, desconto = 0, total = 0, parcelas = 1, validadeDias = 7, atendente = '' }) {
+  const NAVY = '#0E2A47';
+  const ACC = '#00B8C0';
+  const ACC_SOFT = '#F0FBFC';
+  const dataHoje = new Date(Date.now() - 3 * 3600 * 1000); // São Luís (UTC-3)
+  const dataValidade = new Date(dataHoje.getTime() + validadeDias * 86400000);
+  const fmtData = d => d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const logoUrl = imgDataUri('logos/logo-vertical-color.png');
+  const temDesconto = desconto > 0 && subtotal > 0;
+  const pct = temDesconto ? Math.round(desconto / subtotal * 100) : 0;
+
+  const linhas = itens.map(i => {
+    const q = Math.max(1, Number(i.qtd) || 1);
+    return `<tr>
+      <td class="td-nome">
+        <div class="v-nome">${esc(i.nome)}${q > 1 ? ` <span style="color:#8a97a6;font-weight:600;">(${q}x)</span>` : ''}</div>
+        ${i.obs ? `<div class="v-desc">${esc(i.obs)}</div>` : ''}
+      </td>
+      <td class="td-preco">${_brlOrc(Number(i.valor) * q)}</td>
+    </tr>`;
+  }).join('');
+
+  const precoHero = temDesconto ? `
+      <div class="hero-de">de <s>${_brlOrc(subtotal)}</s> por</div>
+      <div class="hero-valor">${_brlOrc(total)}</div>
+      <div class="hero-tag">você economiza ${_brlOrc(desconto)}${pct > 0 ? ` (${pct}%)` : ''}</div>`
+    : `
+      <div class="hero-de">investimento</div>
+      <div class="hero-valor">${_brlOrc(total)}</div>
+      <div class="hero-tag">à vista</div>`;
+  const parcLabel = parcelas > 1 ? `${parcelas}x de ${_brlOrc(Math.ceil(total / parcelas))}` : _brlOrc(total);
+
+  const beneficios = [
+    { icon: 'doctor', t: 'Equipe especializada', d: 'Profissionais dedicados à sua família' },
+    { icon: 'shield', t: 'Estrutura completa', d: 'Atendimento acolhedor e humanizado' },
+    { icon: 'idcard', t: 'Acompanhamento', d: 'Cuidado que continua depois da consulta' },
+    { icon: 'hand',   t: 'Facilidade', d: 'Pix, débito e crédito parcelado' },
+  ];
+  const cardsHtml = beneficios.map(c => `
+    <div class="bcard">
+      <div class="bicon">${svgIcon(c.icon, ACC, 18)}</div>
+      <div><div class="bt">${c.t}</div><div class="bd">${c.d}</div></div>
+    </div>`).join('');
+
+  return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
+<title>Orçamento — Vittalis Saúde</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+@page{size:A4;margin:0}
+body{font-family:'Segoe UI',Arial,Helvetica,sans-serif;background:#fff;color:${NAVY};-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.page{width:210mm;min-height:297mm;margin:0 auto;background:#fff;position:relative;padding-bottom:24mm;}
+.accent-bar{height:2.5mm;background:linear-gradient(90deg,${NAVY} 0%,${NAVY} 55%,${ACC} 55%,${ACC} 100%);}
+.header{padding:9mm 14mm 7mm;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #E8EDF2;}
+.logo-img{height:17mm;object-fit:contain;display:block;}
+.h-right{text-align:right;}
+.h-kicker{font-size:.62rem;font-weight:700;letter-spacing:2.2px;color:${ACC};text-transform:uppercase;margin-bottom:1.5mm;}
+.h-titulo{font-size:1.55rem;font-weight:800;color:${NAVY};letter-spacing:-.3px;line-height:1.1;}
+.h-data{font-size:.66rem;color:#8a97a6;margin-top:1.6mm;}
+.para{margin:6mm 14mm 0;display:flex;align-items:baseline;gap:8px;padding-bottom:4mm;border-bottom:1px solid #E8EDF2;}
+.para-label{font-size:.64rem;font-weight:700;letter-spacing:1.6px;color:#8a97a6;text-transform:uppercase;}
+.para-nome{font-size:1.02rem;font-weight:700;color:${NAVY};}
+.tabela{margin:5mm 14mm 0;}
+table{width:100%;border-collapse:collapse;}
+thead th{text-align:left;font-size:.6rem;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;color:#8a97a6;padding:0 3mm 2.2mm;border-bottom:2px solid ${NAVY};}
+thead th.cR{text-align:right;}
+tbody td{padding:3.2mm 3mm;border-bottom:1px solid #EEF2F6;vertical-align:top;}
+.v-nome{font-size:.9rem;font-weight:700;color:${NAVY};}
+.v-desc{font-size:.66rem;color:#8a97a6;line-height:1.45;margin-top:.8mm;max-width:130mm;}
+.td-preco{text-align:right;font-size:.9rem;font-weight:700;color:${NAVY};white-space:nowrap;width:30mm;}
+.valores{margin:7mm 14mm 0;display:grid;grid-template-columns:1.35fr 1fr;gap:5mm;align-items:stretch;}
+.hero{background:${NAVY};border-radius:4mm;padding:6mm 8mm;color:#fff;position:relative;overflow:hidden;}
+.hero::after{content:'';position:absolute;right:-14mm;top:-14mm;width:38mm;height:38mm;border-radius:50%;background:rgba(255,255,255,.06);}
+.hero-de{font-size:.72rem;opacity:.75;}
+.hero-de s{opacity:.85;}
+.hero-valor{font-size:2.15rem;font-weight:800;letter-spacing:-.5px;line-height:1.15;margin:.6mm 0;}
+.hero-tag{display:inline-block;background:${ACC};color:#fff;font-size:.64rem;font-weight:700;border-radius:6mm;padding:1.1mm 3.6mm;}
+.cartao{background:${ACC_SOFT};border:1px solid ${ACC}33;border-radius:4mm;padding:6mm 7mm;display:flex;flex-direction:column;justify-content:center;}
+.cartao .c-label{font-size:.62rem;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;color:#8a97a6;}
+.cartao .c-valor{font-size:1.25rem;font-weight:800;color:${NAVY};margin-top:1.2mm;}
+.cartao .c-obs{font-size:.66rem;color:#8a97a6;margin-top:.8mm;}
+.validade{margin:4mm 14mm 0;font-size:.68rem;color:#8a97a6;}
+.validade b{color:${NAVY};}
+.benef-sec{margin:7mm 14mm 0;}
+.benef-titulo{font-size:.64rem;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:${ACC};padding-bottom:2.4mm;margin-bottom:3.6mm;border-bottom:1px solid #E8EDF2;}
+.benef-grid{display:grid;grid-template-columns:1fr 1fr;gap:3mm 6mm;}
+.bcard{display:flex;gap:3mm;align-items:flex-start;}
+.bicon{width:8.6mm;height:8.6mm;border-radius:2.6mm;background:${ACC_SOFT};display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.bt{font-size:.74rem;font-weight:700;color:${NAVY};}
+.bd{font-size:.64rem;color:#8a97a6;line-height:1.4;}
+.rodape{position:absolute;left:0;right:0;bottom:0;background:${NAVY};color:#fff;padding:5mm 14mm;display:flex;justify-content:space-between;align-items:center;font-size:.64rem;line-height:1.65;}
+.rodape .re strong{font-size:.76rem;letter-spacing:.4px;}
+.rodape .rd{text-align:right;opacity:.9;}
+</style></head><body>
+<div class="page">
+  <div class="accent-bar"></div>
+  <div class="header">
+    ${logoUrl ? `<img src="${logoUrl}" class="logo-img" alt="Vittalis Saúde">` : `<div style="font-size:1.4rem;font-weight:800;color:${NAVY};">Vittalis Saúde</div>`}
+    <div class="h-right">
+      <div class="h-kicker">Proposta de investimento em saúde</div>
+      <div class="h-titulo">Orçamento</div>
+      <div class="h-data">Emitido em ${fmtData(dataHoje)}${atendente ? ` · por ${esc(atendente)}` : ''}</div>
+    </div>
+  </div>
+  <div class="para"><span class="para-label">Preparado para</span><span class="para-nome">${esc(nomeCliente) || '—'}</span></div>
+  <div class="tabela">
+    <table>
+      <thead><tr><th>Serviço</th><th class="cR">Valor</th></tr></thead>
+      <tbody>${linhas}</tbody>
+    </table>
+  </div>
+  <div class="valores">
+    <div class="hero">${precoHero}</div>
+    <div class="cartao">
+      <div class="c-label">No cartão</div>
+      <div class="c-valor">${parcLabel}</div>
+      <div class="c-obs">${parcelas > 1 ? 'sem juros' : 'em 1x no crédito'}</div>
+    </div>
+  </div>
+  <div class="validade">Condições válidas por <b>${validadeDias} dias</b> — até <b>${fmtData(dataValidade)}</b>.</div>
+  <div class="benef-sec">
+    <div class="benef-titulo">Por que cuidar com a Vittalis</div>
+    <div class="benef-grid">${cardsHtml}</div>
+  </div>
+  <div class="rodape">
+    <div class="re"><strong>Vittalis Saúde</strong><br>Ed. Business Center — Renascença · Av. Cel. Colares Moreira, 3A, Térreo — São Luís/MA</div>
+    <div class="rd">(98) 98422-1002<br>www.vittalissaude.com.br · @vittalissaudeslz</div>
+  </div>
+</div>
+</body></html>`;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // TEMPLATE 2 — PLANO VACINAL COMPLETO (capa + cronograma + benefícios em imagem)
 // ═══════════════════════════════════════════════════════════════════════════
@@ -472,9 +610,9 @@ function acharVacina(nome) {
 
 export {
   PLANOS, PRECOS_PLANO, VACINAS, PACOTES, PRECO,
-  gerarHtmlOrcamento, gerarHtmlPlano, acharVacina, montarPacote,
+  gerarHtmlOrcamento, gerarHtmlOrcamentoServicos, gerarHtmlPlano, acharVacina, montarPacote,
 };
 export default {
   PLANOS, PRECOS_PLANO, VACINAS, PACOTES, PRECO,
-  gerarHtmlOrcamento, gerarHtmlPlano, acharVacina, montarPacote,
+  gerarHtmlOrcamento, gerarHtmlOrcamentoServicos, gerarHtmlPlano, acharVacina, montarPacote,
 };

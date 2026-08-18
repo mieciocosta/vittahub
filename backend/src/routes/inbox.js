@@ -4216,6 +4216,52 @@ r.post('/conversations/:id/send', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* 📄 ORÇAMENTO EM PDF NA CONVERSA (Tabela de Preços) ──────────────────────────
+   A atendente monta o orçamento na Tabela de Preços e envia daqui o PDF com o
+   papel timbrado da clínica direto no WhatsApp do cliente — proposta com marca
+   fecha mais que texto solto (pedido do master: "quero que vendam muito"). */
+r.post('/conversations/:id/orcamento-pdf', async (req, res) => {
+  try {
+    const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
+    if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso: esta conversa é de outro setor.' });
+    if (!zapiOk()) return res.status(400).json({ error: 'WhatsApp (Z-API) não configurado.' });
+    const b = req.body || {};
+    const itens = (Array.isArray(b.itens) ? b.itens : []).slice(0, 60).map(i => ({
+      nome: String(i.nome || '').slice(0, 120), obs: i.obs ? String(i.obs).slice(0, 160) : null,
+      valor: parseFloat(i.valor) || 0, qtd: Math.max(1, parseInt(i.qtd) || 1),
+    })).filter(i => i.nome);
+    if (!itens.length) return res.status(400).json({ error: 'Orçamento sem itens.' });
+    const nomeGravar = usuariosNome.get(String(req.user.id)) || req.user.nome || '';
+    const html = propostaGen.gerarHtmlOrcamentoServicos({
+      itens, nomeCliente: String(b.cliente_nome || conv.contact_name || '').slice(0, 80),
+      subtotal: Math.max(0, parseFloat(b.subtotal) || 0), desconto: Math.max(0, parseFloat(b.desconto) || 0),
+      total: Math.max(0, parseFloat(b.total) || 0), parcelas: Math.max(1, Math.min(parseInt(b.parcelas) || 1, 12)),
+      atendente: nomeGravar.split(' ')[0],
+    });
+    const pdfBuf = await htmlParaPDF(html);
+    const fileName = 'Orcamento-Vittalis.pdf';
+    const waNumber = conv.contact_id ? conv.contact_id.replace('@s.whatsapp.net', '') : `55${conv.phone}`;
+    const phone55 = waNumber.startsWith('55') ? waNumber : `55${waNumber}`;
+    const zr = await enviarPDFZapi(phone55, pdfBuf.toString('base64'), fileName);
+    if (!zr?.ok) return res.status(502).json({ error: 'O WhatsApp não aceitou o envio — tente de novo.' });
+    const { rows: [msg] } = await query(
+      `INSERT INTO mensagens (conversa_id, from_type, type, content, filename, sender_id, sender_nome, status)
+       VALUES ($1,'me','document',$2,$3,$4,$5,'sent') RETURNING *`,
+      [req.params.id, '📎 Orçamento Vittalis (PDF)', fileName, req.user.id, nomeGravar]);
+    // Atendente agiu → humano no comando (mesma regra do envio de mensagem)
+    const { rows: [convUpd] } = await query(
+      "UPDATE conversas SET last_message = '📎 Orçamento Vittalis (PDF)', last_from = 'me', last_message_at = NOW(), bot_ativo = false WHERE id = $1 RETURNING *",
+      [req.params.id]);
+    if (convUpd) cacheUpdate(convUpd);
+    socketEmit('new_message', { convId: req.params.id, message: msg, conv: convUpd || conv });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('orcamento-pdf:', err.message);
+    res.status(500).json({ error: 'Não consegui gerar/enviar o PDF agora — tente de novo.' });
+  }
+});
+
 /* ─── MENSAGENS AGENDADAS: dispara texto pro cliente em data/hora marcada ──────── */
 // Envia um texto pela conversa (usado pelo agendador) e registra no histórico.
 async function enviarTextoConversa(conv, texto, senderNome) {
@@ -6541,6 +6587,76 @@ r.post('/cases-sucesso/gerar-padrao', async (req, res) => {
                  ON CONFLICT (chave) DO UPDATE SET valor = jsonb_set(COALESCE(configuracoes.valor,'{}'::jsonb), ARRAY[$1::text], $2::jsonb), updated_at = NOW()`,
       [chave, JSON.stringify(registro)]);
     res.json({ ...registro, setor: chave });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* 🎓 AULA DE VENDAS DO CASE (pedido do master: "faça o case ser uma verdadeira
+   aula que faça elas venderem mais"). A IA assiste à conversa que virou venda
+   e devolve a aula: o que fez fechar, as frases de ouro, onde quase perdeu e
+   como replicar amanhã. Gerada uma vez e guardada — todo o setor estuda. */
+async function caseVisivel(user, convId) {
+  // Mesma régua da vitrine: o setor do case é o da VENDA (autoridade: banco).
+  const { rows: [cs] } = await query(`
+    SELECT COALESCE(v.setor, c.setor, 'vacinas') setor, v.servico, v.valor,
+           v.atendente_nome, v.data_venda, c.contact_name
+      FROM vendas v JOIN conversas c ON c.id = v.conversa_id
+     WHERE v.conversa_id = $1 AND v.status_pagamento IN ('pago','cortesia')
+     ORDER BY v.data_venda DESC, v.created_at DESC LIMIT 1`, [convId]);
+  if (!cs) return null;
+  if (user.role === 'master' || user.ve_geral === true) return cs;
+  const { rows: [u] } = await query('SELECT setor, setores, ve_geral FROM usuarios WHERE id = $1', [user.id]).catch(() => ({ rows: [null] }));
+  if (u?.ve_geral) return cs;
+  const meus = (Array.isArray(u?.setores) && u.setores.length) ? u.setores : [u?.setor].filter(Boolean);
+  return meus.includes(cs.setor) ? cs : false;
+}
+r.get('/cases-sucesso/:convId/aula', async (req, res) => {
+  try {
+    const cs = await caseVisivel(req.user, req.params.convId);
+    if (cs === null) return res.status(404).json({ error: 'Case não encontrado.' });
+    if (cs === false) return res.status(403).json({ error: 'Este case é de outro setor.' });
+    const { rows: [a] } = await query('SELECT texto, por, created_at FROM cases_aulas WHERE conversa_id = $1', [req.params.convId]);
+    res.json(a || { texto: null });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+r.post('/cases-sucesso/:convId/aula', async (req, res) => {
+  try {
+    if (!temIA()) return res.status(400).json({ error: 'IA não configurada.' });
+    const cs = await caseVisivel(req.user, req.params.convId);
+    if (cs === null) return res.status(404).json({ error: 'Case não encontrado.' });
+    if (cs === false) return res.status(403).json({ error: 'Este case é de outro setor.' });
+    // Já tem aula? Devolve a pronta (refazer é decisão de liderança, não custo repetido)
+    const { rows: [pronta] } = await query('SELECT texto, por, created_at FROM cases_aulas WHERE conversa_id = $1', [req.params.convId]);
+    const ehLider = ['master', 'supervisor'].includes(req.user.role) || req.user.lider;
+    if (pronta?.texto && !(req.body?.refazer && ehLider)) return res.json(pronta);
+    const t = await montarTranscriptConversa(req.params.convId, 80);
+    if (!t?.transcript) return res.status(400).json({ error: 'Não consegui ler a conversa deste case.' });
+    const sys = `Você é a professora de vendas da Vittalis Saúde (clínica de pediatria e vacinação em São Luís-MA). Seu papel: transformar um atendimento REAL que virou venda numa aula prática que faça a equipe vender mais. Tom caloroso e direto, em português do Brasil, elogiando pelo nome quem atendeu. Baseie TUDO na conversa real — cite trechos entre aspas; nunca invente falas.`;
+    const user = `Esta conversa virou VENDA: ${cs.servico || 'serviço'} — R$ ${Number(cs.valor || 0).toFixed(2)} — atendida por ${cs.atendente_nome || 'a equipe'} (cliente: ${cs.contact_name || 'cliente'}).
+
+Monte a AULA desta venda em markdown, exatamente nesta estrutura:
+## 🎬 O filme da venda
+(3-4 linhas: como o cliente chegou, o que travava, como fechou)
+## 💡 O que fez fechar
+(3 a 5 técnicas identificadas NA conversa; para cada uma: nome da técnica em negrito + o trecho real entre aspas + por que funcionou, em 1 frase)
+## 🗣️ Frases de ouro
+(as melhores frases da atendente, prontas pra equipe copiar e adaptar)
+## ⚠️ Onde quase perdeu
+(1-2 momentos de risco na conversa e o que salvou — ou o que faria ainda melhor; sem crueldade, é treino)
+## 🎯 Replique amanhã
+(passo a passo de 3-4 passos que qualquer colega aplica no próximo atendimento)
+## 🏋️ Desafio da semana
+(1 exercício prático e específico, começando com um verbo)
+
+CONVERSA REAL:
+${t.transcript.slice(0, 9000)}`;
+    const data = await openaiMessages({ model: 'gpt-4o', max_tokens: 1800, system: sys, messages: [{ role: 'user', content: user }] });
+    if (data.error) return res.status(400).json({ error: erroIAamigavel(data.error) });
+    const texto = (data.content?.find(c => c.type === 'text')?.text || '').trim();
+    if (!texto) return res.status(400).json({ error: 'A IA não retornou a aula. Tente de novo.' });
+    await query(`INSERT INTO cases_aulas (conversa_id, texto, por) VALUES ($1,$2,$3)
+                 ON CONFLICT (conversa_id) DO UPDATE SET texto = $2, por = $3, created_at = NOW()`,
+      [req.params.convId, texto, req.user.nome]);
+    res.json({ texto, por: req.user.nome, created_at: new Date().toISOString() });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

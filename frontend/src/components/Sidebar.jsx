@@ -52,6 +52,9 @@ const NAV = [
   // 💲 Logo abaixo do Chat e visivel PRA TODOS (pedido do master) —
   // qualquer atendente consulta valores e monta orçamento sem sair da conversa.
   { to:'/tabela-precos', icon:FileText,     label:'Tabela de Preços', cor:'#0ea5e9' },
+  // 🏆 Coladinho na Tabela de Preços (pedido do master): orçou → estuda quem
+  // fechou. Cada case agora vira uma aula de vendas gerada pela IA.
+  { to:'/cases-sucesso', icon:Trophy,       label:'Cases de Sucesso', cor:'#eab308' },
   // Quem agenda consulta vive alternando entre a conversa e a grade dos profissionais.
   { to:'/profissionais', icon:Stethoscope,  label:'Profissionais', consultas:true, cor:'#22d3ee' },
   { to:'/agenda',     icon:CalendarDays,    label:'Agenda', cor:'#f59e0b' },
@@ -88,7 +91,7 @@ const NAV = [
   { to:'/amigo',      icon:BookOpen,        label:'Meu Devocional', cor:'#fbbf24' },
   { to:'/planejamento', icon:Rocket,        label:'Planejamento', lider:true, plan:true, cor:'#fb923c' },
   { to:'/quiz',       icon:Gamepad2,        label:'Quiz de Vendas', cor:'#f472b6' },
-  { to:'/cases-sucesso', icon:Trophy,       label:'Cases de Sucesso', cor:'#eab308' },
+  // Estudos fica na Equipe; os Cases subiram pra perto da Tabela de Preços.
   { to:'/estudos',       icon:FileSearch,   label:'Estudos', cor:'#C4973B' },
   { to:'/cursos',     icon:GraduationCap,   label:'Cursos', cor:'#818cf8' },
   { to:'/indicacoes', icon:Gift,            label:'Indicações', cor:'#f43f5e' },

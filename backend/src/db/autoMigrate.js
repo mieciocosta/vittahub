@@ -880,6 +880,13 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       total NUMERIC(10,2) DEFAULT 0, parcelas INT DEFAULT 1,
       created_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS idx_orcamentos_data ON orcamentos (created_at)`).catch(() => {});
+    // "Virou venda": fecha o ciclo orçamento → venda sem redigitar
+    await query(`ALTER TABLE orcamentos ADD COLUMN IF NOT EXISTS fechado BOOLEAN DEFAULT false`).catch(() => {});
+    await query(`ALTER TABLE orcamentos ADD COLUMN IF NOT EXISTS venda_id TEXT`).catch(() => {});
+    // 🎓 Aula de vendas gerada pela IA a partir de cada case de sucesso
+    await query(`CREATE TABLE IF NOT EXISTS cases_aulas (
+      conversa_id TEXT PRIMARY KEY, texto TEXT, por TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
     await query(`CREATE TABLE IF NOT EXISTS vendas_excluidas (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
       venda_id TEXT, dados JSONB,

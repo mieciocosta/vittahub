@@ -5,7 +5,8 @@ import { socketEmit } from '../socketServer.js';
 import { htmlParaPDF } from '../services/pdf.js';
 import { versoDoDia } from '../versiculos.js';
 import { getVapid, enviarPush } from '../services/push.js';
-import { temIA, usaClaude, openaiMessages, anthropicClient, CLAUDE_MODEL_MINI, podeVerSetor } from './inbox.js';
+import { temIA, usaClaude, openaiMessages, anthropicClient, CLAUDE_MODEL, CLAUDE_MODEL_MINI, podeVerSetor } from './inbox.js';
+import propostaGen from '../services/proposta-gen.js';
 import { mascararLista } from '../middleware/privacidade.js';
 
 /* ─── FERRAMENTAS VITTAHUB ────────────────────────────────────────────────────
@@ -1708,11 +1709,98 @@ r.get('/orcamentos', async (req, res) => {
     // Cada uma vê os SEUS orçamentos; a gestão vê os da casa toda.
     const souGestao = gestao(req);
     const { rows } = await query(`
-      SELECT id, criado_por_nome, cliente_nome, conversa_id, itens, subtotal, desconto, total, parcelas, created_at
+      SELECT id, criado_por, criado_por_nome, cliente_nome, conversa_id, itens, subtotal, desconto, total, parcelas, fechado, venda_id, created_at
         FROM orcamentos ${souGestao ? '' : 'WHERE criado_por = $1'}
        ORDER BY created_at DESC LIMIT 30`, souGestao ? [] : [req.user.id]);
     res.json({ itens: rows, gestao: souGestao });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+// Sanitização única dos itens de orçamento (POST /orcamentos e PDF usam a mesma)
+const itensOrcamento = (b) => (Array.isArray(b?.itens) ? b.itens : []).slice(0, 60).map(i => ({
+  nome: cut(String(i.nome || '').trim(), 120), obs: i.obs ? cut(String(i.obs), 160) : null,
+  valor: parseFloat(i.valor) || 0, qtd: Math.max(1, parseInt(i.qtd) || 1),
+})).filter(i => i.nome);
+/* 📄 Orçamento em PDF (baixar) — papel timbrado da Vittalis. O envio direto na
+   conversa mora no inbox (/conversations/:id/orcamento-pdf), que conhece o
+   WhatsApp; aqui é só gerar pra baixar/imprimir. */
+r.post('/orcamentos/pdf', async (req, res) => {
+  try {
+    const b = req.body || {};
+    const itens = itensOrcamento(b);
+    if (!itens.length) return res.status(400).json({ error: 'Orçamento sem itens.' });
+    const html = propostaGen.gerarHtmlOrcamentoServicos({
+      itens, nomeCliente: cut(String(b.cliente_nome || '').trim(), 80) || '',
+      subtotal: Math.max(0, parseFloat(b.subtotal) || 0), desconto: Math.max(0, parseFloat(b.desconto) || 0),
+      total: Math.max(0, parseFloat(b.total) || 0), parcelas: Math.max(1, Math.min(parseInt(b.parcelas) || 1, 12)),
+      atendente: String(req.user.nome || '').split(' ')[0],
+    });
+    const pdf = await htmlParaPDF(html);
+    res.json({ pdf: pdf.toString('base64'), filename: 'Orcamento-Vittalis.pdf' });
+  } catch (err) { console.error('PDF orçamento:', err.message); res.status(500).json({ error: 'Não consegui gerar o PDF agora — tente de novo.' }); }
+});
+/* 💰 Orçamento VIROU VENDA — fecha o ciclo sem redigitar: registra a venda no
+   Caixa com os itens e o total do orçamento. A venda nasce no nome de QUEM
+   MONTOU o orçamento (é dela a meta), no setor dela. */
+r.post('/orcamentos/:id/virou-venda', async (req, res) => {
+  try {
+    const { rows: [o] } = await query('SELECT * FROM orcamentos WHERE id = $1', [req.params.id]);
+    if (!o) return res.status(404).json({ error: 'Orçamento não encontrado.' });
+    if (!gestao(req) && String(o.criado_por) !== String(req.user.id)) return res.status(403).json({ error: 'Só quem montou o orçamento (ou a gestão) fecha a venda.' });
+    if (o.fechado) return res.json({ ok: true, ja_fechado: true, venda_id: o.venda_id });
+    const { rows: [u] } = await query('SELECT setor, setores FROM usuarios WHERE id = $1', [o.criado_por]).catch(() => ({ rows: [null] }));
+    const setor = u?.setor || (Array.isArray(u?.setores) && u.setores[0]) || 'consultas';
+    const itens = Array.isArray(o.itens) ? o.itens : [];
+    const servico = cut(itens.map(i => (i.qtd > 1 ? `${i.nome} (${i.qtd}x)` : i.nome)).join(' + '), 200) || 'Orçamento fechado';
+    const forma = cut(String(req.body?.forma_pagamento || '').trim(), 40) || null;
+    const { rows: [v] } = await query(`
+      INSERT INTO vendas (conversa_id, atendente_id, atendente_nome, setor, cliente_nome, servico, valor, forma_pagamento, status_pagamento, data_venda, origem, observacao)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'pago',(NOW() - interval '3 hours')::date,'orcamento',$9)
+      RETURNING id`,
+      [o.conversa_id, o.criado_por, o.criado_por_nome, setor, o.cliente_nome, servico,
+       parseFloat(o.total) || 0, forma, `Fechada a partir do orçamento (por ${req.user.nome})`]);
+    await query('UPDATE orcamentos SET fechado = true, venda_id = $1 WHERE id = $2', [v.id, req.params.id]);
+    res.json({ ok: true, venda_id: v.id });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+/* 🤖 IA LÊ A TABELA ANEXADA e devolve os itens prontos pro editor (gestão
+   revisa e salva — a IA nunca grava direto no banco). Mata o retrabalho de
+   anexar o PDF e depois digitar item por item. */
+r.post('/tabela-precos/ler-anexo', async (req, res) => {
+  try {
+    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão importa a tabela.' });
+    if (!temIA() || !usaClaude()) return res.status(400).json({ error: 'IA não configurada.' });
+    const { rows: [a] } = await query(`SELECT nome, mimetype, arquivo FROM pasta_arquivos WHERE id = $1 AND chave = 'tabela_precos_consultas'`, [String(req.body?.id || '')]);
+    if (!a) return res.status(404).json({ error: 'Anexo não encontrado.' });
+    const m = String(a.arquivo || '').match(/^data:([^;]+);base64,(.+)$/s);
+    if (!m) return res.status(400).json({ error: 'Arquivo em formato inesperado.' });
+    const mime = m[1]; const data = m[2].replace(/\s/g, '');
+    if (data.length > 28_000_000) return res.status(400).json({ error: 'Arquivo grande demais pra IA ler — anexe uma versão menor (ou foto por página).' });
+    let bloco = null;
+    if (mime.startsWith('image/')) bloco = { type: 'image', source: { type: 'base64', media_type: mime, data } };
+    else if (mime === 'application/pdf') bloco = { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data } };
+    else return res.status(400).json({ error: 'A IA lê PDF ou foto — planilhas ainda não. Exporte em PDF e anexe.' });
+    const client = await anthropicClient();
+    const resp = await client.messages.create({
+      model: CLAUDE_MODEL(), max_tokens: 8000,
+      system: 'Você extrai tabelas de preços de uma clínica de saúde (Vittalis Saúde, São Luís-MA). Responda SOMENTE um JSON válido, sem markdown e sem texto extra.',
+      messages: [{ role: 'user', content: [bloco, { type: 'text', text:
+        `Extraia TODOS os serviços com preço deste arquivo e devolva exatamente neste formato:
+{"itens":[{"nome":"Consulta Pediátrica","valor":350,"categoria":"Consultas","obs":"com a Dra. Ana ou null"}]}
+Regras: valor em número (sem "R$"); categoria curta agrupando serviços parecidos (ex.: Consultas, Exames, Terapias, Pacotes); obs só se houver detalhe relevante (profissional, validade, condição), senão null. Não invente serviço nem preço que não estejam no arquivo.` }] }],
+    });
+    const txt = (resp.content || []).filter(bl => bl.type === 'text').map(bl => bl.text).join('')
+      .replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+    let p = null; try { p = JSON.parse(txt || '{}'); } catch {}
+    const itens = (Array.isArray(p?.itens) ? p.itens : []).slice(0, 200).map(i => ({
+      id: Math.random().toString(36).slice(2, 10),
+      nome: cut(String(i.nome || '').trim(), 120),
+      valor: Math.max(0, Math.min(parseFloat(String(i.valor).replace(',', '.')) || 0, 100000)),
+      categoria: cut(String(i.categoria || '').trim(), 60) || null,
+      obs: i.obs ? cut(String(i.obs).trim(), 160) : null,
+    })).filter(i => i.nome && i.valor > 0);
+    if (!itens.length) return res.status(400).json({ error: 'Não achei serviços com preço nesse arquivo — confira se é mesmo a tabela.' });
+    res.json({ itens, arquivo: a.nome });
+  } catch (err) { console.error('ler-anexo tabela:', err.message); res.status(500).json({ error: 'A IA não conseguiu ler agora — tente de novo em instantes.' }); }
 });
 r.get('/pasta-arquivos', async (req, res) => {
   try {

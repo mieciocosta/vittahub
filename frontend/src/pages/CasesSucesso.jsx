@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Trophy, MessageSquare, Search, Sparkles, Wand2, RefreshCw, X } from 'lucide-react';
+import { Trophy, MessageSquare, Search, Sparkles, Wand2, RefreshCw, X, GraduationCap } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt } from '../hooks/utils.js';
 
@@ -44,6 +44,25 @@ export default function CasesSucesso() {
   const [gerando, setGerando] = useState(false);
   const [erroPadrao, setErroPadrao] = useState('');
   const [verPadrao, setVerPadrao] = useState(false);
+  // 🎓 Aula de vendas do case (pedido do master: cada case é uma aula de verdade)
+  const [aulaCase, setAulaCase] = useState(null);   // case aberto no modal da aula
+  const [aula, setAula] = useState(null);           // {texto, por, created_at}
+  const [aulaErro, setAulaErro] = useState('');
+  const [aulaGerando, setAulaGerando] = useState(false);
+
+  const abrirAula = async (c, refazer = false) => {
+    setAulaCase(c); setAula(null); setAulaErro(''); setAulaGerando(true);
+    try {
+      // Já existe? Abre na hora. Senão, a "professora" monta agora (IA lê a conversa).
+      if (!refazer) {
+        const pronta = await api.get(`/inbox/cases-sucesso/${c.id}/aula`).catch(() => null);
+        if (pronta?.texto) { setAula(pronta); setAulaGerando(false); return; }
+      }
+      const d = await api.post(`/inbox/cases-sucesso/${c.id}/aula`, refazer ? { refazer: true } : {});
+      setAula(d);
+    } catch (e) { setAulaErro(e.message || 'Não consegui montar a aula agora.'); }
+    setAulaGerando(false);
+  };
 
   useEffect(() => {
     api.get('/inbox/cases-sucesso')
@@ -154,8 +173,12 @@ export default function CasesSucesso() {
               {gestao && c.valor != null && (
                 <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--ok,#16a34a)' }}>{fmt.brl(c.valor)}</div>
               )}
-              <button onClick={() => nav(`/inbox?conv=${c.id}`)} className="btn btn-p" style={{ gap: 7, marginTop: 2 }}>
-                <MessageSquare size={14} /> Estudar a conversa
+              <button onClick={() => abrirAula(c)} className="btn" style={{ gap: 7, marginTop: 2, fontWeight: 800, color: '#fff',
+                background: 'linear-gradient(135deg,#C4973B,#b45309)', border: 'none' }}>
+                <GraduationCap size={15} /> Aula desta venda
+              </button>
+              <button onClick={() => nav(`/inbox?conv=${c.id}`)} className="btn btn-s btn-sm" style={{ gap: 7 }}>
+                <MessageSquare size={13} /> Ver a conversa
               </button>
             </div>
           ))}
@@ -166,6 +189,46 @@ export default function CasesSucesso() {
         <Sparkles size={18} color="var(--tq2)" style={{ flexShrink: 0 }} />
         <span>Dica: abra os cases, veja como a atendente <b>abordou, tirou dúvidas e conduziu ao fechamento</b>, e transforme isso no <b>passo a passo dos funis</b> pra padronizar o atendimento da equipe.</span>
       </div>
+
+      {/* 🎓 Modal da aula do case */}
+      {aulaCase && (
+        <div onClick={() => setAulaCase(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
+          <div onClick={e => e.stopPropagation()} className="card" style={{ width: 700, maxWidth: '100%', maxHeight: '88vh', padding: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{ padding: '16px 20px', color: '#fff', background: 'linear-gradient(135deg,#C4973B,#b45309)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 9, fontWeight: 800, fontSize: 16 }}>
+                  <GraduationCap size={19} /> Aula desta venda
+                </div>
+                <div style={{ fontSize: 12, opacity: .92, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {aulaCase.contact_name || fmt.phone(aulaCase.phone)} · {(aulaCase.atendente_nome || '—').split(' ')[0]}{aulaCase.servico ? ` · ${aulaCase.servico}` : ''}
+                </div>
+              </div>
+              <button onClick={() => setAulaCase(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fff', flexShrink: 0 }}><X size={18} /></button>
+            </div>
+            <div style={{ padding: '18px 22px', overflow: 'auto' }}>
+              {aulaGerando ? (
+                <div style={{ padding: 26, textAlign: 'center', color: 'var(--muted)' }}>
+                  <RefreshCw size={22} className="spin" style={{ marginBottom: 10 }} />
+                  <div style={{ fontWeight: 700 }}>A professora está assistindo à conversa…</div>
+                  <div style={{ fontSize: 12.5, marginTop: 4 }}>Ela identifica o que fez fechar e monta a aula. Uns segundinhos. ✨</div>
+                </div>
+              ) : aulaErro ? (
+                <div style={{ fontSize: 13, color: 'var(--err)', fontWeight: 600 }}>{aulaErro}</div>
+              ) : aula?.texto ? (
+                <>
+                  <Markdown texto={aula.texto} />
+                  <div style={{ marginTop: 16, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <button onClick={() => { navigator.clipboard?.writeText(aula.texto || ''); }} className="btn btn-s btn-sm">📋 Copiar aula</button>
+                    <button onClick={() => { setAulaCase(null); nav(`/inbox?conv=${aulaCase.id}`); }} className="btn btn-s btn-sm" style={{ gap: 6 }}><MessageSquare size={13} /> Ver a conversa</button>
+                    {podeGerar && <button onClick={() => abrirAula(aulaCase, true)} className="btn btn-p btn-sm" style={{ gap: 6 }}><RefreshCw size={13} /> Refazer aula</button>}
+                  </div>
+                  {aula.created_at && <div style={{ marginTop: 10, fontSize: 11, color: 'var(--light)' }}>Aula gerada em {new Date(aula.created_at).toLocaleDateString('pt-BR')}{aula.por ? ` · pedida por ${String(aula.por).split(' ')[0]}` : ''}.</div>}
+                </>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      )}
 
       {verPadrao && padrao && (
         <div onClick={() => setVerPadrao(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>

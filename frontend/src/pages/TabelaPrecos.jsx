@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { FileText, Paperclip, Download, Trash2, Plus, X, Copy, Check, Pencil, Calculator, Eye, Search, Send } from 'lucide-react';
+import { FileText, Paperclip, Download, Trash2, Plus, X, Copy, Check, Pencil, Calculator, Eye, Search, Send, Sparkles, RotateCcw } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt } from '../hooks/utils.js';
@@ -63,6 +63,21 @@ export default function TabelaPrecos() {
     setArqs(p => p.filter(x => x.id !== a.id));
     try { await api.del(`/extras/pasta-arquivos/${a.id}`); } catch { loadArqs(); }
   };
+  // 🤖 IA lê a tabela anexada e preenche o editor (gestão revisa e salva)
+  const [lendoIA, setLendoIA] = useState(null);
+  const lerAnexo = async (a) => {
+    setLendoIA(a.id);
+    try {
+      const d = await api.post('/extras/tabela-precos/ler-anexo', { id: a.id });
+      const lidos = d.itens || [];
+      const jaTem = new Set(itens.map(i => semAcento(i.nome)));
+      const novos = lidos.filter(i => !jaTem.has(semAcento(i.nome)));
+      setRascunho([...itens.map(i => ({ ...i })), ...novos]);
+      setEditando(true);
+      Toast.show(`A IA leu ${lidos.length} serviço(s)${novos.length < lidos.length ? ` (${lidos.length - novos.length} já estavam na tabela)` : ''} — revise os valores e salve! 🤖`, 'success');
+    } catch (e) { Toast.show(e.message, 'error'); }
+    setLendoIA(null);
+  };
 
   // ── itens de preço + orçamento ─────────────────────────────────────────────
   const [itens, setItens] = useState([]);
@@ -72,6 +87,7 @@ export default function TabelaPrecos() {
   const [sel, setSel] = useState({});             // id → quantidade
   const [busca, setBusca] = useState('');
   const [desconto, setDesconto] = useState('');
+  const [tipoDesc, setTipoDesc] = useState('rs'); // 'rs' | 'pct'
   const [parcelas, setParcelas] = useState(1);
   const [clienteNome, setClienteNome] = useState('');
   const [copiado, setCopiado] = useState(false);
@@ -110,7 +126,9 @@ export default function TabelaPrecos() {
 
   const marcados = itens.filter(i => (sel[i.id] || 0) > 0);
   const subtotal = marcados.reduce((a, i) => a + i.valor * (sel[i.id] || 0), 0);
-  const descPedido = Math.min(Math.max(parseFloat(String(desconto).replace(',', '.')) || 0, 0), subtotal);
+  // Desconto em R$ OU em % (a equipe pensa "dou 5%", não "dou R$ 41,50")
+  const dNum = Math.max(parseFloat(String(desconto).replace(',', '.')) || 0, 0);
+  const descPedido = Math.min(tipoDesc === 'pct' ? subtotal * Math.min(dNum, 100) / 100 : dNum, subtotal);
   // Trava de desconto: atendente vai até 10%; acima disso só gestão (protege a margem)
   const descTeto = ehGestao ? subtotal : subtotal * DESCONTO_MAX_ATENDENTE;
   const desc = Math.min(descPedido, descTeto);
@@ -157,6 +175,57 @@ export default function TabelaPrecos() {
     registrar(ultimaConv.id);
     navigate(`/inbox?conv=${ultimaConv.id}`);
   };
+  // 📄 PDF com o papel timbrado da Vittalis — proposta com marca fecha mais
+  const payloadOrc = () => ({
+    cliente_nome: clienteNome.trim() || ultimaConv?.nome || '',
+    itens: marcados.map(i => ({ nome: i.nome, obs: i.obs, valor: i.valor, qtd: sel[i.id] || 1 })),
+    subtotal, desconto: desc, total, parcelas,
+  });
+  const [pdfConfirm, setPdfConfirm] = useState(false);
+  const [pdfEnviando, setPdfEnviando] = useState(false);
+  const [pdfBaixando, setPdfBaixando] = useState(false);
+  const enviarPdfConversa = async () => {
+    setPdfConfirm(false); setPdfEnviando(true);
+    try {
+      await api.post(`/inbox/conversations/${ultimaConv.id}/orcamento-pdf`, payloadOrc());
+      registrar(ultimaConv.id);
+      Toast.show(`Orçamento em PDF enviado pra ${String(ultimaConv.nome || 'a conversa').split(' ')[0]}! 📄💙`, 'success');
+    } catch (e) { Toast.show(e.message, 'error'); }
+    setPdfEnviando(false);
+  };
+  const baixarPdf = async () => {
+    setPdfBaixando(true);
+    try {
+      const d = await api.post('/extras/orcamentos/pdf', payloadOrc());
+      const el = document.createElement('a');
+      el.href = 'data:application/pdf;base64,' + d.pdf; el.download = d.filename || 'Orcamento-Vittalis.pdf'; el.click();
+      registrar(null);
+    } catch (e) { Toast.show(e.message, 'error'); }
+    setPdfBaixando(false);
+  };
+  // 💰 Orçamento virou venda → registra no Caixa sem redigitar
+  const [confirmVenda, setConfirmVenda] = useState(null);
+  const virouVenda = async (o) => {
+    setConfirmVenda(null);
+    try {
+      await api.post(`/extras/orcamentos/${o.id}/virou-venda`, {});
+      Toast.show('Venda registrada no Caixa! 🎉', 'success');
+      loadOrcs();
+    } catch (e) { Toast.show(e.message, 'error'); }
+  };
+  // ↻ Reaproveitar um orçamento antigo (itens repreçados pela tabela ATUAL)
+  const reusar = (o) => {
+    const os = Array.isArray(o.itens) ? o.itens : [];
+    const novoSel = {}; const faltam = [];
+    os.forEach(oi => {
+      const alvo = itens.find(i => semAcento(i.nome) === semAcento(oi.nome));
+      if (alvo) novoSel[alvo.id] = Math.max(1, parseInt(oi.qtd) || 1); else faltam.push(oi.nome);
+    });
+    setSel(novoSel); setClienteNome(o.cliente_nome || ''); setParcelas(o.parcelas || 1);
+    setTipoDesc('rs'); setDesconto(parseFloat(o.desconto) > 0 ? String(o.desconto).replace('.', ',') : '');
+    Toast.show(faltam.length ? `Reaproveitei — mas ${faltam.length} item(ns) saíram da tabela: ${faltam.join(', ')}` : 'Orçamento reaproveitado — ajuste e envie! ↻', faltam.length ? 'info' : 'success');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   const atualizadaTxt = meta.em ? `Atualizada em ${new Date(meta.em).toLocaleDateString('pt-BR')}${meta.por ? ` por ${String(meta.por).split(' ')[0]}` : ''}` : null;
 
@@ -193,6 +262,13 @@ export default function TabelaPrecos() {
               <span style={{ fontSize: 12.5, fontWeight: 700, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.nome}</span>
               <button onClick={() => visualizar(a)} title="Ver na tela" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--tq2)', padding: 2 }}><Eye size={14} /></button>
               <button onClick={() => baixar(a)} title="Baixar" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--tq2)', padding: 2 }}><Download size={13} /></button>
+              {ehGestao && (
+                <button onClick={() => lerAnexo(a)} disabled={lendoIA === a.id} title="A IA lê esta tabela e preenche os itens pra você revisar"
+                  style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'var(--tq4)', border: '1px solid var(--tq3)', borderRadius: 7,
+                    cursor: 'pointer', color: 'var(--tq2)', padding: '3px 8px', fontSize: 11, fontWeight: 800 }}>
+                  <Sparkles size={11} /> {lendoIA === a.id ? 'Lendo…' : 'Ler com IA'}
+                </button>
+              )}
               {ehGestao && (confirmDel === a.id
                 ? <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11.5, fontWeight: 800, color: 'var(--err)' }}>
                     Remover?
@@ -311,9 +387,16 @@ export default function TabelaPrecos() {
                 </div>
               ))}
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '10px 0 6px', flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>Desconto R$</span>
-                <input value={desconto} onChange={e => setDesconto(e.target.value)} inputMode="decimal" placeholder="0,00"
-                  style={{ ...inputStyle, width: 90, padding: '6px 9px', fontSize: 12.5 }} />
+                <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>Desconto</span>
+                <span style={{ display: 'flex', borderRadius: 8, overflow: 'hidden', border: '1.5px solid var(--border)' }}>
+                  {[['rs', 'R$'], ['pct', '%']].map(([k, l]) => (
+                    <button key={k} onClick={() => setTipoDesc(k)}
+                      style={{ padding: '5px 10px', fontSize: 11.5, fontWeight: 800, border: 'none', cursor: 'pointer',
+                        background: tipoDesc === k ? 'var(--tq)' : 'var(--card)', color: tipoDesc === k ? '#fff' : 'var(--muted)' }}>{l}</button>
+                  ))}
+                </span>
+                <input value={desconto} onChange={e => setDesconto(e.target.value)} inputMode="decimal" placeholder={tipoDesc === 'pct' ? '0' : '0,00'}
+                  style={{ ...inputStyle, width: 74, padding: '6px 9px', fontSize: 12.5 }} />
                 <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700, marginLeft: 4 }}>Parcelas</span>
                 <select value={parcelas} onChange={e => setParcelas(parseInt(e.target.value))} style={{ ...inputStyle, padding: '6px 9px' }}>
                   {[1, 2, 3, 4, 5, 6].map(n => <option key={n} value={n}>{n === 1 ? 'à vista' : `${n}x`}</option>)}
@@ -336,6 +419,23 @@ export default function TabelaPrecos() {
               <button onClick={copiar} className={ultimaConv?.id ? 'btn' : 'btn btn-p'} style={{ width: '100%', gap: 6, fontWeight: 800, marginTop: 6, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 {copiado ? <Check size={14} /> : <Copy size={14} />} {copiado ? 'Copiado!' : 'Copiar orçamento'}
               </button>
+              {/* 📄 PDF timbrado — o envio é imediato (arquivo não passa pela caixa), por isso confirma antes */}
+              <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                {ultimaConv?.id && (pdfConfirm ? (
+                  <span style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: 12, fontWeight: 800, color: 'var(--err)' }}>
+                    Enviar o PDF agora?
+                    <button onClick={enviarPdfConversa} className="btn btn-p btn-sm">Sim</button>
+                    <button onClick={() => setPdfConfirm(false)} className="btn btn-sm">Não</button>
+                  </span>
+                ) : (
+                  <button onClick={() => setPdfConfirm(true)} disabled={pdfEnviando} className="btn btn-sm" style={{ flex: 1, gap: 5, fontWeight: 800 }}>
+                    <FileText size={13} /> {pdfEnviando ? 'Enviando PDF…' : 'PDF na conversa'}
+                  </button>
+                ))}
+                <button onClick={baixarPdf} disabled={pdfBaixando} className="btn btn-sm" style={{ flex: 1, gap: 5, fontWeight: 800 }}>
+                  <Download size={13} /> {pdfBaixando ? 'Gerando…' : 'Baixar PDF'}
+                </button>
+              </div>
               <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 7, lineHeight: 1.5 }}>
                 Sai formatado pro WhatsApp (negrito e emoji), com validade de 7 dias (até {validadeTxt}).
                 {ultimaConv?.id ? ' O "Enviar" deixa o texto escrito na caixa do Chat — você revisa e aperta enviar.' : ''}
@@ -349,17 +449,39 @@ export default function TabelaPrecos() {
       {orcs.itens.length > 0 && (
         <div className="card" style={{ padding: '15px 18px', marginTop: 16 }}>
           <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 8 }}>
-            📚 Últimos orçamentos {orcs.gestao && <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>(da casa toda — você é gestão)</span>}
+            📚 Últimos orçamentos {orcs.gestao && <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>
+              (da casa toda · {orcs.itens.filter(o => o.fechado).length} de {orcs.itens.length} viraram venda)</span>}
           </div>
           {orcs.itens.map(o => (
-            <div key={o.id} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5, padding: '6px 0', borderBottom: '1px dashed var(--border)' }}>
+            <div key={o.id} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5, padding: '6px 0', borderBottom: '1px dashed var(--border)', flexWrap: 'wrap' }}>
               <span style={{ color: 'var(--muted)', fontWeight: 600, width: 78, flexShrink: 0 }}>{new Date(o.created_at).toLocaleDateString('pt-BR')}</span>
-              <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <span style={{ flex: 1, minWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 <b>{o.cliente_nome || 'Cliente sem nome'}</b>
                 <span style={{ color: 'var(--muted)' }}> · {(Array.isArray(o.itens) ? o.itens : []).map(i => i.nome).join(', ')}</span>
               </span>
               {orcs.gestao && <span style={{ color: 'var(--muted)', fontWeight: 600, flexShrink: 0 }}>{String(o.criado_por_nome || '').split(' ')[0]}</span>}
               <b style={{ color: 'var(--tq2)', flexShrink: 0 }}>{fmt.brl(o.total)}</b>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+                <button onClick={() => reusar(o)} title="Reaproveitar este orçamento" className="btn btn-sm" style={{ padding: '3px 8px', gap: 4 }}>
+                  <RotateCcw size={11} /> Reusar
+                </button>
+                {o.fechado ? (
+                  <span style={{ fontSize: 11.5, fontWeight: 800, color: 'var(--ok,#16a34a)', background: 'rgba(22,163,74,.1)', borderRadius: 7, padding: '3px 8px' }}>✅ Venda</span>
+                ) : (orcs.gestao || String(o.criado_por) === String(user?.id)) && (
+                  confirmVenda === o.id ? (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11.5, fontWeight: 800 }}>
+                      Registrar {fmt.brl(o.total)} no Caixa?
+                      <button onClick={() => virouVenda(o)} className="btn btn-p btn-sm" style={{ padding: '3px 8px' }}>Sim</button>
+                      <button onClick={() => setConfirmVenda(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 2 }}><X size={12} /></button>
+                    </span>
+                  ) : (
+                    <button onClick={() => setConfirmVenda(o.id)} title="Cliente fechou! Registra a venda no Caixa com estes itens" className="btn btn-sm"
+                      style={{ padding: '3px 8px', gap: 4, fontWeight: 800, color: 'var(--ok,#16a34a)', borderColor: 'var(--ok,#16a34a)' }}>
+                      💰 Virou venda
+                    </button>
+                  )
+                )}
+              </span>
             </div>
           ))}
         </div>
