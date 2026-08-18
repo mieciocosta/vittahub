@@ -764,6 +764,18 @@ r.get('/ranking', async (req, res) => {
         else juntas.set(k, { ...it });
       }
     }
+    /* TODO colaborador ativo entra no pódio da equipe, mesmo com o cadastro
+       sem setor (cobrança do master: "coloca todos, falta ainda"). Era a
+       brecha que sumia com gente: quem perdia o setor no cadastro não entrava
+       em bloco nenhum — e ficava invisível no ranking, sem ninguém notar. */
+    for (const u of equipe) {
+      if (u.role === 'master') continue;
+      const k = u.id || u.nome;
+      if (!juntas.has(k)) juntas.set(k, {
+        pos: 0, id: u.id, nome: u.nome, avatar: u.avatar || null, cor: u.cor || null,
+        n: 0, hoje: 0, voce: u.id === req.user.id,
+      });
+    }
     const lista = [...juntas.values()].sort((a, b2) => b2.n - a.n || b2.hoje - a.hoje || String(a.nome).localeCompare(String(b2.nome)));
     let posG = 0, ultG = null;
     const itensGeral = lista.map((x, i) => { if (x.n !== ultG) { posG = i + 1; ultG = x.n; } return { ...x, pos: posG }; });
