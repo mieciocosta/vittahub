@@ -18,8 +18,7 @@ const fileToDataUrl = (file) => new Promise((res, rej) => { const r = new FileRe
 export default function TabelaPrecos() {
   const api = useApi();
   const { user } = useAuth();
-  const meusSetores = (Array.isArray(user?.setores) && user.setores.length) ? user.setores : [user?.setor].filter(Boolean);
-  const podeVer = user?.role === 'master' || user?.ve_geral === true || meusSetores.includes('consultas');
+  // Visivel pra TODOS (pedido do master) — só a edição continua com a gestão.
   const ehGestao = ['master', 'supervisor'].includes(user?.role);
 
   // ── tabelas anexadas (mesma infra das pastas) ──────────────────────────────
@@ -56,7 +55,7 @@ export default function TabelaPrecos() {
   const [desconto, setDesconto] = useState('');
   const [copiado, setCopiado] = useState(false);
   const loadItens = () => api.get('/extras/tabela-precos').then(d => setItens(d.itens || [])).catch(() => {});
-  useEffect(() => { if (podeVer) { loadArqs(); loadItens(); } }, []); // eslint-disable-line
+  useEffect(() => { loadArqs(); loadItens(); }, []); // eslint-disable-line
 
   const salvarItens = async () => {
     try {
@@ -93,8 +92,6 @@ export default function TabelaPrecos() {
     Toast.show('Orçamento copiado — é só colar na conversa! 📋', 'success');
   };
 
-  if (!podeVer) return <div style={{ padding: 40, color: 'var(--muted)' }}>🔒 A Tabela de Preços é do setor de Consultas.</div>;
-
   return (
     <div style={{ padding: 28, maxWidth: 1000, margin: '0 auto' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
@@ -102,7 +99,7 @@ export default function TabelaPrecos() {
           <Calculator size={21} color="var(--tq2)" />
         </div>
         <div style={{ flex: 1 }}>
-          <h1 style={{ fontSize: 24, fontWeight: 800 }}>Tabela de Preços — Consultas</h1>
+          <h1 style={{ fontSize: 24, fontWeight: 800 }}>Tabela de Preços</h1>
           <p style={{ color: 'var(--muted)', fontSize: 13 }}>As tabelas oficiais anexadas + o orçamento montado em cliques, sem preço de cabeça.</p>
         </div>
       </div>
