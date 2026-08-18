@@ -317,9 +317,14 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
     } catch (e) { window.alert(e.message || 'Não foi possível mudar o nome.'); }
     setSalvandoNome(false);
   };
-  /* 🧹 Auditoria: fetch morto — o widget de meta da lateral já tinha saído,
-     mas a chamada ao /extras/meta-setor ficou rodando a cada montagem sem
-     ninguém ler o resultado. Custo de rede por tela, zero pixel. */
+  /* 🎯 Mini-placar do perfil (pedido do master: "acrescenta as metas
+     embaixo"). Mesmas regras do placar grande: meta individual quando existe;
+     vacinas fala em VALORES, consultas em porcentagem; quem não vê valores do
+     setor só vê o que é DELA. */
+  const [metaMini, setMetaMini] = useState(null);
+  useEffect(() => {
+    api.get('/extras/meta-setor').then(setMetaMini).catch(() => {});
+  }, []); // eslint-disable-line
 
   const VERS_DIA = versiculoDoDia();
   const saudDia = (() => { const h = new Date().getHours(); return h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite'; })();
@@ -601,6 +606,44 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                   🔥 {fraseVenda}
                 </div>
               </div>
+              {/* 🎯 As metas, logo abaixo (pedido do master) */}
+              {(() => {
+                if (!metaMini?.metaGlobal) return null;
+                const lista = (metaMini.porSetor && metaMini.porSetor.length) ? metaMini.porSetor : [metaMini];
+                const ind = (metaMini.individual && metaMini.individual.meta > 0) ? metaMini.individual : null;
+                const verVal = metaMini.mostra_valores !== false;
+                const alvo = ind ? ind.meta : lista.reduce((a3, x) => a3 + (x.metaMinima || 0), 0);
+                const feito = ind ? (ind.confirmado || 0) : lista.reduce((a3, x) => a3 + (x.confirmado || 0), 0);
+                const falta = Math.max(alvo - feito, 0);
+                const pct = alvo ? Math.min((feito / alvo) * 100, 100) : 0;
+                const brl = (v) => (v == null ? '—' : v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }));
+                const foco = metaMini.focoDia?.[lista[0]?.setor] || null;
+                const focoTxt = foco ? foco.map(f => (f.falta ?? 0) > 0 ? `falta ${f.falta} ${f.rotulo}` : `✅ ${f.rotulo}`).join(' ou ') : null;
+                const ehConsultas = lista[0]?.setor === 'consultas';
+                if (!ind && !verVal && !focoTxt) return null;
+                return (
+                  <div style={{ marginTop:7, padding:'7px 9px', borderRadius:9, background:'rgba(255,255,255,.13)', border:'1px solid rgba(255,255,255,.22)' }}>
+                    {focoTxt && (
+                      <div style={{ fontSize:10, fontWeight:800, color:'#fff', marginBottom:(ind || verVal) ? 4 : 0 }}>
+                        🎯 Meta do dia: {focoTxt}
+                      </div>
+                    )}
+                    {(ind || verVal) && alvo > 0 && (
+                      <>
+                        <div style={{ fontSize:10, fontWeight:800, color:'rgba(255,255,255,.92)' }}>
+                          {ehConsultas
+                            ? <>📈 Mês: {pct.toFixed(1).replace('.', ',')}% de 100%</>
+                            : <>💰 Mês: {brl(feito)} · faltam {brl(falta)}</>}
+                        </div>
+                        <div style={{ height:5, borderRadius:4, background:'rgba(0,0,0,.25)', overflow:'hidden', marginTop:3 }}>
+                          <div style={{ width:`${Math.max(pct, 2)}%`, height:'100%', borderRadius:4,
+                            background: pct >= 100 ? '#6ee7b7' : 'linear-gradient(90deg,#f59e0b,#fcd34d)' }} />
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
             <div style={{ width:'100%', display:'flex', alignItems:'center', gap:3, justifyContent:'flex-end', marginTop:-2 }}>
             {podeTrocar && (
