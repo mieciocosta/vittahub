@@ -323,6 +323,33 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
 
   const VERS_DIA = versiculoDoDia();
   const saudDia = (() => { const h = new Date().getHours(); return h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite'; })();
+  /* 🔥 Frase de VENDAS do dia (pedido do master: em destaque, abaixo do
+     versículo). Gira pelo dia do ano — nunca repete em dias seguidos. Curtas de
+     propósito: frase de guerra se lê num relance, não se estuda. */
+  const FRASES_VENDA = [
+    'Quem pergunta mais, vende mais.',
+    'A primeira venda do dia puxa as outras.',
+    'Cliente respondido rápido é venda quase fechada.',
+    'Não venda a vacina — venda a tranquilidade da mãe.',
+    'Follow-up de hoje é o fechamento de amanhã.',
+    'Todo "tá caro" é um pedido de mais explicação.',
+    'Sorriso se ouve até por mensagem.',
+    'Quem agenda, vende. Quem adia, perde.',
+    'O não você já tem — vá buscar o sim.',
+    'Cada conversa aberta é dinheiro na mesa.',
+    'Venda é serviço: você resolve a vida da família.',
+    'Constância vence talento: um plano por dia.',
+    'A meta se bate de manhã, não às 17h.',
+    'Escute o dobro do que fala e feche o dobro.',
+    'Cliente fidelizado vale por dez novos.',
+    'Sua energia de hoje é o faturamento do mês.',
+    'Proposta enviada não é venda — ligue de volta.',
+    'Trate cada lead como o único do dia.',
+    'O melhor horário pra vender é agora.',
+    'Recorde de ontem é o mínimo de hoje.',
+  ];
+  const diaAno = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0)) / 86400000);
+  const fraseVenda = FRASES_VENDA[diaAno % FRASES_VENDA.length];
 
   const UserAvatar = ({ size }) => user?.avatar
     ? <img src={user.avatar} alt="" style={{ width:size, height:size, borderRadius:'50%', objectFit:'cover', flexShrink:0, display:'block' }} />
@@ -486,6 +513,14 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                   bloco antigo do rodapé saiu pra não dizer bom-dia duas vezes */}
               <div style={{ fontSize:10, color:'rgba(255,255,255,.88)', lineHeight:1.45, fontStyle:'italic', marginTop:3 }}>“{VERS_DIA[0]}”</div>
               <div style={{ fontSize:9.5, color:'rgba(255,255,255,.62)', marginTop:1, fontWeight:800 }}>{VERS_DIA[1]}</div>
+              {/* 🔥 A frase de vendas do dia, em DESTAQUE (faixa dourada) */}
+              <div style={{ marginTop:7, padding:'6px 9px', borderRadius:9,
+                background:'linear-gradient(90deg, rgba(252,211,77,.28), rgba(245,158,11,.18))',
+                border:'1px solid rgba(252,211,77,.45)' }}>
+                <div style={{ fontSize:10.5, fontWeight:900, color:'#fff', lineHeight:1.4 }}>
+                  🔥 {fraseVenda}
+                </div>
+              </div>
             </div>
             <div style={{ width:'100%', display:'flex', alignItems:'center', gap:3, justifyContent:'flex-end', marginTop:-2 }}>
             {podeTrocar && (
