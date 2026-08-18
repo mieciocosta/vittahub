@@ -373,7 +373,11 @@ function cacheGetList({ channel, search, unread_only, waiting, minhas, responsav
   // Terapias), que devem listar todos daquela classificação, mesmo se tiverem pasta.
   const clsEspecifica = classificacao && classificacao !== 'all' && classificacao !== 'sem';
   if (categoria) list = list.filter(c => c.categoria === categoria);
-  else if (!clsEspecifica) list = list.filter(c => !c.categoria);
+  /* 🔍 BUSCANDO, as pastas entram na procura (cobrança do master: "coloco na
+     lupa e não acha"). A lista normal esconde quem foi movido pra Fidelidade/
+     Banco de Dados — mas quem DIGITA um nome quer achar a pessoa onde ela
+     estiver; a pasta é organização, não esconderijo. */
+  else if (!clsEspecifica && !search) list = list.filter(c => !c.categoria);
   // Filtro de setor: chips da gestão (?setor=) ou trava da atendente (vê só o dela)
   if (setor && setor !== 'all') list = list.filter(c => c.setor === setor);
   // Filtro por classificação fina (atalhos coloridos do menu). 'sem' = ainda não
@@ -398,9 +402,13 @@ function cacheGetList({ channel, search, unread_only, waiting, minhas, responsav
   if (grupos === 'true') list = list.filter(c => ehGrupo(c));
   if (search) {
     const s = search.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    // Telefone digitado COM máscara ("(98) 98822…") não batia com o número
+    // guardado só em dígitos — compara dígito com dígito.
+    const soDig = s.replace(/\D/g, '');
     list = list.filter(c =>
       (c.contact_name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').includes(s) ||
       (c.phone || '').includes(s) ||
+      (soDig.length >= 4 && String(c.phone || '').replace(/\D/g, '').includes(soDig)) ||
       (extraIds && extraIds.has(c.id))   // bateu no CONTEÚDO/documento de alguma mensagem
     );
   }
