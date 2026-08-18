@@ -1473,7 +1473,9 @@ const CHAVES_PASTA = ['fidelidade', 'banco_dados', 'planos_vacinais', 'vacinacao
 r.get('/tabela-precos', async (req, res) => {
   try {
     const { rows: [c] } = await query("SELECT valor FROM configuracoes WHERE chave = 'tabela_precos_consultas'").catch(() => ({ rows: [] }));
-    res.json({ itens: Array.isArray(c?.valor?.itens) ? c.valor.itens : [] });
+    // "por/em" mostram na tela quem publicou e quando — a equipe confia mais
+    // num preço que ela sabe que está fresco.
+    res.json({ itens: Array.isArray(c?.valor?.itens) ? c.valor.itens : [], por: c?.valor?.por || null, em: c?.valor?.em || null });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 r.put('/tabela-precos', async (req, res) => {
@@ -1483,8 +1485,9 @@ r.put('/tabela-precos', async (req, res) => {
       .map(i => ({
         id: String(i.id || Math.random().toString(36).slice(2, 10)),
         nome: cut(String(i.nome || '').trim(), 120),
-        valor: Math.max(0, Math.min(parseFloat(i.valor) || 0, 100000)),
+        valor: Math.max(0, Math.min(parseFloat(String(i.valor).replace(',', '.')) || 0, 100000)),
         obs: cut(String(i.obs || '').trim(), 160) || null,
+        categoria: cut(String(i.categoria || '').trim(), 60) || null,
       }))
       .filter(i => i.nome)
       .slice(0, 200);
@@ -1492,6 +1495,37 @@ r.put('/tabela-precos', async (req, res) => {
                  ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`,
       [JSON.stringify({ itens, por: req.user.nome, em: new Date().toISOString() })]);
     res.json({ ok: true, itens });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+/* 🧾 ORÇAMENTOS ENVIADOS — cada orçamento copiado/enviado fica registrado.
+   É a memória da proposta: a gestão enxerga quantos saíram e por quem, e a
+   atendente reencontra o que mandou ontem sem remontar do zero. */
+r.post('/orcamentos', async (req, res) => {
+  try {
+    const b = req.body || {};
+    const itens = (Array.isArray(b.itens) ? b.itens : []).slice(0, 60).map(i => ({
+      nome: cut(String(i.nome || ''), 120), valor: parseFloat(i.valor) || 0, qtd: Math.max(1, parseInt(i.qtd) || 1),
+    })).filter(i => i.nome);
+    if (!itens.length) return res.status(400).json({ error: 'Orçamento sem itens.' });
+    const { rows: [o] } = await query(`
+      INSERT INTO orcamentos (criado_por, criado_por_nome, cliente_nome, conversa_id, itens, subtotal, desconto, total, parcelas)
+      VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9) RETURNING id, created_at`,
+      [req.user.id, req.user.nome || '', cut(String(b.cliente_nome || '').trim(), 80) || null,
+       b.conversa_id ? String(b.conversa_id) : null, JSON.stringify(itens),
+       Math.max(0, parseFloat(b.subtotal) || 0), Math.max(0, parseFloat(b.desconto) || 0),
+       Math.max(0, parseFloat(b.total) || 0), Math.max(1, Math.min(parseInt(b.parcelas) || 1, 12))]);
+    res.json({ ok: true, id: o.id });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+r.get('/orcamentos', async (req, res) => {
+  try {
+    // Cada uma vê os SEUS orçamentos; a gestão vê os da casa toda.
+    const souGestao = gestao(req);
+    const { rows } = await query(`
+      SELECT id, criado_por_nome, cliente_nome, conversa_id, itens, subtotal, desconto, total, parcelas, created_at
+        FROM orcamentos ${souGestao ? '' : 'WHERE criado_por = $1'}
+       ORDER BY created_at DESC LIMIT 30`, souGestao ? [] : [req.user.id]);
+    res.json({ itens: rows, gestao: souGestao });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 r.get('/pasta-arquivos', async (req, res) => {

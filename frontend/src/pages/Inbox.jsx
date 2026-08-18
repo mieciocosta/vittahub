@@ -1031,6 +1031,9 @@ export default function Inbox({ onUnreadChange }) {
 
   const openConvo = async (c) => {
     window.__auditLog?.('abrir_conversa', 'conversa', c.id, { nome: c.contact_name, telefone: c.phone });
+    /* Última conversa aberta: a Tabela de Preços usa isso pro botão "Enviar pra
+       conversa" voltar direto pra cá com o orçamento já escrito na caixa. */
+    try { sessionStorage.setItem('vh_ultima_conversa', JSON.stringify({ id: c.id, nome: c.contact_name || '' })); } catch { /* ok */ }
     setSel(c); setMsgs([]); setMsgsHasMore(false); setMsgsTotal(0);
     // ✅ Protocolo: carrega sozinho ao abrir a conversa e já destaca o que faltou
     setProto(null); setProtoAberto(true);

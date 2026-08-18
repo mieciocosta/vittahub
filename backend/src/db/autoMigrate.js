@@ -871,6 +871,15 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS idx_vcomp_venda ON venda_comprovantes (venda_id)`).catch(() => {});
     // CAIXA: arquivo de vendas excluídas — guarda um snapshot completo antes de
     // remover das contas, para nada se perder (rastreável e recuperável).
+    // 🧾 Orçamentos montados na Tabela de Preços — memória da proposta enviada
+    await query(`CREATE TABLE IF NOT EXISTS orcamentos (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      criado_por TEXT, criado_por_nome TEXT,
+      cliente_nome TEXT, conversa_id TEXT,
+      itens JSONB, subtotal NUMERIC(10,2) DEFAULT 0, desconto NUMERIC(10,2) DEFAULT 0,
+      total NUMERIC(10,2) DEFAULT 0, parcelas INT DEFAULT 1,
+      created_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS idx_orcamentos_data ON orcamentos (created_at)`).catch(() => {});
     await query(`CREATE TABLE IF NOT EXISTS vendas_excluidas (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
       venda_id TEXT, dados JSONB,
