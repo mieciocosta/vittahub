@@ -52,6 +52,8 @@ const NAV = [
   // Logo abaixo do Chat (pedido do master) — quem agenda consulta vive
   // alternando entre a conversa e a grade dos profissionais.
   { to:'/profissionais', icon:Stethoscope,  label:'Profissionais', consultas:true, cor:'#22d3ee' },
+  // 💲 Tabelas oficiais + orçamento em cliques (pedido do master, setor consultas)
+  { to:'/tabela-precos', icon:FileText,     label:'Tabela de Preços', consultas:true, cor:'#0ea5e9' },
   { to:'/agenda',     icon:CalendarDays,    label:'Agenda', cor:'#f59e0b' },
 
   { grupo:'Vender' },

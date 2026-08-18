@@ -1463,7 +1463,37 @@ r.delete('/painel/:id', async (req, res) => {
 });
 
 /* ─── ARQUIVOS DAS ABAS (PDF/Word/imagem dentro de cada pasta) ─────────────────── */
-const CHAVES_PASTA = ['fidelidade', 'banco_dados', 'planos_vacinais', 'vacinacao', 'consultas', 'terapias'];
+const CHAVES_PASTA = ['fidelidade', 'banco_dados', 'planos_vacinais', 'vacinacao', 'consultas', 'terapias', 'tabela_precos_consultas'];
+
+/* ═══ 💲 TABELA DE PREÇOS — CONSULTAS (pedido do master) ═══════════════════════
+   A equipe de consultas anexa as tabelas oficiais (PDF/planilha, via
+   pasta-arquivos com a chave tabela_precos_consultas) e mantém aqui a lista de
+   itens digitada — é dela que o orçamento é montado na tela. Gestão edita;
+   a equipe do setor consulta e monta orçamento. */
+r.get('/tabela-precos', async (req, res) => {
+  try {
+    const { rows: [c] } = await query("SELECT valor FROM configuracoes WHERE chave = 'tabela_precos_consultas'").catch(() => ({ rows: [] }));
+    res.json({ itens: Array.isArray(c?.valor?.itens) ? c.valor.itens : [] });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+r.put('/tabela-precos', async (req, res) => {
+  try {
+    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão edita a tabela de preços.' });
+    const itens = (Array.isArray(req.body?.itens) ? req.body.itens : [])
+      .map(i => ({
+        id: String(i.id || Math.random().toString(36).slice(2, 10)),
+        nome: cut(String(i.nome || '').trim(), 120),
+        valor: Math.max(0, Math.min(parseFloat(i.valor) || 0, 100000)),
+        obs: cut(String(i.obs || '').trim(), 160) || null,
+      }))
+      .filter(i => i.nome)
+      .slice(0, 200);
+    await query(`INSERT INTO configuracoes (chave, valor) VALUES ('tabela_precos_consultas', $1::jsonb)
+                 ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`,
+      [JSON.stringify({ itens, por: req.user.nome, em: new Date().toISOString() })]);
+    res.json({ ok: true, itens });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 r.get('/pasta-arquivos', async (req, res) => {
   try {
     const chave = String(req.query.chave || '');
