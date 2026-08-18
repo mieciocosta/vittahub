@@ -1009,16 +1009,10 @@ export default function Inbox({ onUnreadChange }) {
   // Vindo de outra tela com ?phone= (ex.: botão Conversa da Agenda): acha a
   // conversa desse telefone e abre AQUI no CRM, sem sair pro WhatsApp.
   useEffect(() => {
-    // ?conv=<id> (vindo do "Meu foco de hoje"): abre a conversa direto
-    const cid = searchParams.get('conv');
-    if (cid) {
-      (async () => {
-        try { const c = await api.get(`/inbox/conversations/${cid}`); if (c?.id) openConvo(c); } catch {}
-        searchParams.delete('conv');
-        setSearchParams(searchParams, { replace: true });
-      })();
-      return;
-    }
+    /* 🧹 O tratamento do ?conv= saiu daqui: existiam DOIS efeitos abrindo a
+       mesma conversa em corrida (este apagava o parâmetro da URL no meio do
+       caminho do outro). Ficou só o efeito dedicado logo abaixo — que também
+       carrega o rascunho da pasta Fidelidade e MOSTRA o erro se não abrir. */
     const ph = (searchParams.get('phone') || '').replace(/\D/g, '');
     if (!ph) return;
     (async () => {
@@ -1094,7 +1088,14 @@ export default function Inbox({ onUnreadChange }) {
           if (rascunho) { setInput(rascunho); sessionStorage.removeItem('vh_rascunho_' + c.id); }
         } catch { /* sessionStorage bloqueado: só não pré-preenche */ }
       })
-      .catch(() => {});
+      .catch((e) => {
+        /* Falha SILENCIOSA era o pior dos mundos: a atendente clicava na pasta
+           Fidelidade, caía aqui e "nada acontecia" (cobrança do master: "as
+           conversas não estão abrindo"). Agora o motivo aparece na tela — sem
+           acesso, limite de aberturas, conversa apagada — e dá pra agir. */
+        Toast.show('Não consegui abrir esta conversa: ' + (e.message || 'erro desconhecido'), 'error');
+        convAbertaRef.current = null;   // deixa tentar de novo
+      });
   }, [convDeepLink]); // eslint-disable-line
 
   // ── Carregar mensagens mais antigas ───────────────────────────────────────

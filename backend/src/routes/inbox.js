@@ -3424,8 +3424,12 @@ r.get('/conversations/:id', async (req, res) => {
 
     let lead = null;
     if (conv.lead_id) {
-      const { rows: [l] } = await query('SELECT * FROM leads WHERE id = $1', [conv.lead_id]);
-      lead = l;
+      /* Lead com id fora do padrão (dado antigo/sincronizado) não pode DERRUBAR
+         a abertura da conversa inteira — era 500 silencioso e a tela "não
+         abria" sem dizer por quê. Sem lead, a conversa abre do mesmo jeito. */
+      const { rows: [l] } = await query('SELECT * FROM leads WHERE id = $1', [conv.lead_id])
+        .catch(() => ({ rows: [null] }));
+      lead = l || null;
     }
 
     res.json({ ...conv, messages, has_more: messages.length === MSG_LIMIT, lead });
