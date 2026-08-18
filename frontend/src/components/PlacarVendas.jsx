@@ -272,8 +272,11 @@ export default function PlacarVendas() {
         );
       })}
 
-      {/* 3️⃣ RITMO DO MÊS — a barra enchendo e quanto falta POR DIA */}
-      {verValores && alvoMes > 0 && (
+      {/* 3️⃣ ALCANÇADO — regra do master: VACINAS (e terapias) mostra VALORES,
+          quanto fez e quanto falta; SÓ CONSULTAS mostra porcentagem. Quem tem
+          meta individual vê a própria cápsula mesmo sem ver valores do setor —
+          o número é dela. */}
+      {((verValores && alvoMes > 0) || ind) && (
         <Capsula title={`${ind ? 'Sua produção' : 'Setor'} no mês: ${fmt.brl(feitoMes)} vendidos de ${fmt.brl(alvoMes)}`
           + (aReceber > 0 ? ` · ${fmt.brl(aReceber)} ainda a receber` : '')
           + ` · ritmo pra fechar: ${fmt.brl(porDia)}/dia em ${dias} dia(s) úteis`}>
@@ -286,11 +289,20 @@ export default function PlacarVendas() {
             <Rotulo>Alcançado</Rotulo>
             <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 2 }}>
               <Barra pct={pctMes} cor={pctMes >= 100 ? '#6ee7b7' : 'linear-gradient(90deg,#f59e0b,#fcd34d)'} largura={76} />
-              {/* Formato do master: "2,9% de 100%" — com vírgula, como se lê
-                  em português. Batendo, vira troféu. */}
-              <span style={{ fontSize: 13, fontWeight: 900, color: pctMes >= 100 ? '#6ee7b7' : '#fff' }}>
-                {pctMes >= 100 ? '🏆 100% de 100%' : `${pctMes.toFixed(1).replace('.', ',')}% de 100%`}
-              </span>
+              {/* Regra do master: consultas fala em PORCENTAGEM ("20,3% de
+                  100%"); vacinas e terapias falam em DINHEIRO — quanto fez e
+                  quanto falta. Vírgula, como se lê em português. */}
+              {setoresLista[0]?.setor === 'consultas' ? (
+                <span style={{ fontSize: 13, fontWeight: 900, color: pctMes >= 100 ? '#6ee7b7' : '#fff' }}>
+                  {pctMes >= 100 ? '🏆 100% de 100%' : `${pctMes.toFixed(1).replace('.', ',')}% de 100%`}
+                </span>
+              ) : (
+                <span style={{ fontSize: 12.5, fontWeight: 900, color: faltaMes <= 0 ? '#6ee7b7' : '#fff', whiteSpace: 'nowrap' }}>
+                  {faltaMes <= 0
+                    ? `🏆 ${fmt.brl(feitoMes)} — meta batida!`
+                    : <>{fmt.brl(feitoMes)}<span style={{ fontWeight: 800, color: 'rgba(255,255,255,.85)' }}> · faltam {fmt.brl(faltaMes)}</span></>}
+                </span>
+              )}
             </div>
           </div>
         </Capsula>
