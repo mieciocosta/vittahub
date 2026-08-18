@@ -475,11 +475,17 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
             </div>
             {/* ☀️ Saudação do dia logo abaixo (pedido do master) — o "bom dia"
                 acompanha a pessoa em toda tela, não só no Resumo */}
-            <div style={{ width:'100%', fontSize:12.5, fontWeight:800, color:'#fff', marginTop:2 }}>
-              {(() => { const h = new Date().getHours();
-                return h < 12 ? `☀️ Bom dia, ${(user?.nome || '').split(' ')[0]}!`
-                  : h < 18 ? `🌤️ Boa tarde, ${(user?.nome || '').split(' ')[0]}!`
-                  : `🌙 Boa noite, ${(user?.nome || '').split(' ')[0]}!`; })()}
+            <div style={{ width:'100%', marginTop:2 }}>
+              <div style={{ fontSize:12.5, fontWeight:800, color:'#fff' }}>
+                {(() => { const h = new Date().getHours();
+                  return h < 12 ? `☀️ Bom dia, ${(user?.nome || '').split(' ')[0]}!`
+                    : h < 18 ? `🌤️ Boa tarde, ${(user?.nome || '').split(' ')[0]}!`
+                    : `🌙 Boa noite, ${(user?.nome || '').split(' ')[0]}!`; })()}
+              </div>
+              {/* O versículo mora JUNTO da saudação (pedido do master) — o
+                  bloco antigo do rodapé saiu pra não dizer bom-dia duas vezes */}
+              <div style={{ fontSize:10, color:'rgba(255,255,255,.88)', lineHeight:1.45, fontStyle:'italic', marginTop:3 }}>“{VERS_DIA[0]}”</div>
+              <div style={{ fontSize:9.5, color:'rgba(255,255,255,.62)', marginTop:1, fontWeight:800 }}>{VERS_DIA[1]}</div>
             </div>
             <div style={{ width:'100%', display:'flex', alignItems:'center', gap:3, justifyContent:'flex-end', marginTop:-2 }}>
             {podeTrocar && (
@@ -859,13 +865,9 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
       </div>
       {/* Meta agora fica só no Placar do topo (por setor). Removida daqui pra dar
          destaque ao menu e não duplicar a informação. */}
-      {!collapsed && (
-        <div style={{ margin:'0 12px 10px', padding:'10px 13px', borderRadius:13, background:'rgba(255,255,255,.14)', border:'1px solid rgba(255,255,255,.22)' }}>
-          <div style={{ fontSize:11.5, fontWeight:800, color:'#fff', marginBottom:3 }}>{saudDia}, {(user?.nome||'').split(' ')[0]}! ☀️</div>
-          <div style={{ fontSize:9.5, color:'rgba(255,255,255,.85)', lineHeight:1.45, fontStyle:'italic' }}>“{VERS_DIA[0]}”</div>
-          <div style={{ fontSize:9, color:'rgba(255,255,255,.6)', marginTop:2, fontWeight:700 }}>{VERS_DIA[1]}</div>
-        </div>
-      )}
+      {/* 🧹 O cartãozinho de saudação+versículo do rodapé subiu pro perfil,
+          logo abaixo da foto (pedido do master) — dois bom-dias na mesma
+          coluna era repetição. */}
       <style>{`
         .vh-nav { will-change: transform; }
         .vh-nav:not(.ativo):hover { background: rgba(255,255,255,.13) !important; transform: translateX(4px); }
