@@ -33,6 +33,7 @@ const Classificar = lazy(() => import('./pages/Classificar.jsx'));
 const CasesSucesso = lazy(() => import('./pages/CasesSucesso.jsx'));
 const Cursos = lazy(() => import('./pages/Cursos.jsx'));
 const Planejamento = lazy(() => import('./pages/Planejamento.jsx'));
+const Estudos = lazy(() => import('./pages/Estudos.jsx'));
 const Profissionais = lazy(() => import('./pages/Profissionais.jsx'));
 const Metas = lazy(() => import('./pages/Metas.jsx'));
 const Terapias = lazy(() => import('./pages/Terapias.jsx'));
@@ -426,6 +427,7 @@ export default function App() {
           <Route path="/equipe" element={<Equipe />} />
           <Route path="/classificar" element={<Classificar />} />
           <Route path="/cases-sucesso" element={<CasesSucesso />} />
+          <Route path="/estudos" element={<Estudos />} />
           <Route path="/cursos" element={<Cursos />} />
           <Route path="/planejamento" element={(user.lider || user.role === 'master') ? <Planejamento /> : <Navigate to="/" />} />
           <Route path="/fidelidade" element={<PastaClientes categoria="fidelidade" key="fidelidade" />} />

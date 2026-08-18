@@ -604,6 +604,8 @@ export default function Inbox({ onUnreadChange }) {
   const [protoAberto, setProtoAberto] = useState(true);
   const [protoBusy, setProtoBusy] = useState('');
   const [resumoLoad, setResumoLoad] = useState(false);
+  const [estudoBusy, setEstudoBusy] = useState(false);
+  const [estudoAviso, setEstudoAviso] = useState(null);
   const [, setTick] = useState(0); // re-render a cada 30s: relógio de espera do cliente
   useEffect(() => { const t = setInterval(() => setTick(x => x + 1), 30000); return () => clearInterval(t); }, []);
   const [intentOff, setIntentOff] = useState(null); // id da msg cujo radar foi dispensado
@@ -1338,6 +1340,22 @@ export default function Inbox({ onUnreadChange }) {
     } catch (e) { Toast.show(e.message || 'Não foi possível alterar o bot', 'error'); }
   };
 
+  /* Manda a conversa para Estudos. Um clique só, sem perguntar o motivo aqui:
+     window.prompt não funciona no webview do celular, e o motivo se escreve
+     melhor na tela de Estudos, com a conversa aberta do lado. */
+  const estudarConversa = async () => {
+    if (!sel || estudoBusy) return;
+    setEstudoBusy(true);
+    try {
+      await api.post('/extras/estudos', { conversa_id: sel.id, titulo: sel.contact_name || 'Conversa' });
+      setEstudoAviso({ ok: true, texto: 'Guardada em Estudos. Abra a aba Estudos para anotar o que quer olhar e pedir a leitura da Vitta.' });
+    } catch (e) {
+      setEstudoAviso({ ok: false, texto: e.message || 'Não consegui guardar em Estudos.' });
+    }
+    setEstudoBusy(false);
+    setTimeout(() => setEstudoAviso(null), 6000);
+  };
+
   const excluirConversa = async () => {
     if (!sel) return;
     if (!window.confirm(`Excluir a conversa de "${sel.contact_name || 'cliente'}"? Isso apaga a conversa e todas as mensagens do CRM e não pode ser desfeito.`)) return;
@@ -1803,10 +1821,21 @@ export default function Inbox({ onUnreadChange }) {
                   <Trash2 size={10}/> Excluir
                 </button>
               )}
+              <button onClick={estudarConversa} disabled={estudoBusy} title="Guardar esta conversa em Estudos — pra equipe aprender com ela depois (serve tanto a que deu certo quanto a que travou)"
+                className="btn btn-sm" style={{ background:'#422006', color:'#fcd34d', border:'1.5px solid #C4973B', fontSize:11, padding:'4px 9px', fontWeight:700 }}>
+                {estudoBusy ? <span className="spin" style={{width:10,height:10}}/> : '📚'} Estudar
+              </button>
               <button onClick={abrirVenda} title="Registrar uma venda deste atendimento (entra na meta)"
                 className="btn btn-sm" style={{ background:'#14432a', color:'#7ee0a8', border:'1.5px solid #16a34a', fontSize:11, padding:'4px 9px', fontWeight:700 }}>
                 💰 Venda
               </button>
+              {estudoAviso && (
+                <div style={{ flexBasis:'100%', marginTop:6, fontSize:11.5, fontWeight:600, padding:'6px 9px', borderRadius:8,
+                  background: estudoAviso.ok ? '#14432a' : 'var(--err2,#fdecec)',
+                  color: estudoAviso.ok ? '#7ee0a8' : 'var(--err,#dc2626)' }}>
+                  {estudoAviso.ok ? '📚 ' : '⚠ '}{estudoAviso.texto}
+                </div>
+              )}
               <button onClick={()=>{setShowAI(p=>!p);setShowInfo(false);}} className="btn btn-sm" style={{ background:showAI?'#032B30':'var(--bg2)', color:showAI?'#00B8C0':'var(--muted)', border:`1.5px solid ${showAI?'rgba(0,184,192,.4)':'var(--border)'}`, fontSize:11, padding:'4px 9px' }}>
                 <Sparkles size={10}/> IA
               </button>

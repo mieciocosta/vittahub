@@ -5,7 +5,7 @@ import { socketEmit } from '../socketServer.js';
 import { htmlParaPDF } from '../services/pdf.js';
 import { versoDoDia } from '../versiculos.js';
 import { getVapid, enviarPush } from '../services/push.js';
-import { temIA, usaClaude, openaiMessages, anthropicClient, CLAUDE_MODEL_MINI } from './inbox.js';
+import { temIA, usaClaude, openaiMessages, anthropicClient, CLAUDE_MODEL_MINI, podeVerSetor } from './inbox.js';
 import { mascararLista } from '../middleware/privacidade.js';
 
 /* ─── FERRAMENTAS VITTAHUB ────────────────────────────────────────────────────
@@ -1073,6 +1073,192 @@ r.get('/planejamento', async (req, res) => {
        FROM vendas WHERE COALESCE(setor,'vacinas') = $1 AND to_char(data_venda,'YYYY-MM') = to_char(NOW() - interval '3 hours','YYYY-MM')`, [setor]);
     const meta = 500000, conf = r2?.confirmado || 0;
     res.json({ setor, confirmado: conf, meta, pct: +((conf / meta) * 100).toFixed(1), falta: Math.max(meta - conf, 0) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+
+/* ─── ESTUDOS: conversas que a equipe escolheu estudar ────────────────────────
+   Irmão dos Cases de Sucesso, e de propósito diferente dele: Cases é AUTOMÁTICO
+   (toda conversa que virou venda entra sozinha). Aqui é CURADORIA — alguém
+   olhou, achou que ensina alguma coisa e trouxe. Por isso cabe a venda perdida,
+   a objeção que travou, o atendimento que a gente não quer repetir. O que mais
+   ensina raramente é o que deu certo.
+
+   As mensagens NÃO são copiadas: o estudo aponta para a conversa e lê ao vivo.
+   Duplicar conversa de paciente por causa de estudo seria criar uma segunda
+   cópia de dado clínico sem ninguém cuidando dela.
+
+   Quem enxerga a conversa pode estudá-la (mesma regra de setor do Inbox, via
+   podeVerSetor). Apagar estudo é gestão. */
+const ESTUDO_STATUS = ['aberto', 'estudado', 'arquivado'];
+const ESTUDO_TAGS = ['ganhou', 'perdeu', 'objecao', 'modelo', 'erro', 'duvida'];
+const limparTags = (v) => (Array.isArray(v) ? v : []).filter(t => ESTUDO_TAGS.includes(t)).slice(0, 6);
+
+// Conversa que este usuário pode ver — usada tanto para criar quanto para ler.
+async function conversaVisivel(req, conversaId) {
+  const { rows } = await query(
+    `SELECT id, contact_name, phone, setor, responsavel_id, classificacao FROM conversas WHERE id = $1`, [conversaId]);
+  const c = rows[0];
+  if (!c) return null;
+  return podeVerSetor(req.user, c) ? c : false;
+}
+
+r.get('/estudos', async (req, res) => {
+  try {
+    const { status, tag, busca } = req.query;
+    const cond = [], params = [];
+    if (ESTUDO_STATUS.includes(status)) { params.push(status); cond.push(`e.status = $${params.length}`); }
+    if (ESTUDO_TAGS.includes(tag)) { params.push(tag); cond.push(`$${params.length} = ANY(e.tags)`); }
+    if (String(busca || '').trim()) {
+      params.push(`%${String(busca).trim()}%`);
+      cond.push(`(e.titulo ILIKE $${params.length} OR e.motivo ILIKE $${params.length} OR e.contact_nome ILIKE $${params.length} OR e.aprendizado ILIKE $${params.length})`);
+    }
+    const { rows } = await query(
+      `SELECT e.*, c.setor AS conv_setor, c.responsavel_id, c.last_message_at,
+              (e.conversa_id IS NULL) AS conversa_sumiu
+         FROM estudos e LEFT JOIN conversas c ON c.id = e.conversa_id
+        ${cond.length ? 'WHERE ' + cond.join(' AND ') : ''}
+        ORDER BY e.status = 'arquivado', e.created_at DESC
+        LIMIT 300`, params);
+    // O filtro de setor é aplicado DEPOIS, na linha: estudo cuja conversa já
+    // sumiu não tem setor para conferir e fica visível para a gestão.
+    const out = rows.filter(x => x.conversa_sumiu ? gestao(req) : podeVerSetor(req.user, { setor: x.conv_setor, responsavel_id: x.responsavel_id }));
+    res.json(out);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.post('/estudos', async (req, res) => {
+  try {
+    const b = req.body || {};
+    const conversaId = String(b.conversa_id || '').trim();
+    if (!conversaId) return res.status(400).json({ error: 'Informe a conversa.' });
+    const conv = await conversaVisivel(req, conversaId);
+    if (conv === null) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (conv === false) return res.status(403).json({ error: 'Essa conversa não é do seu setor.' });
+
+    // Mover duas vezes a mesma conversa não cria duas fichas — atualiza o motivo.
+    const { rows: [e] } = await query(
+      `INSERT INTO estudos (conversa_id, contact_nome, setor, titulo, motivo, tags, criado_por, criado_por_nome)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       ON CONFLICT (conversa_id) DO UPDATE
+         SET motivo = COALESCE(NULLIF(EXCLUDED.motivo, ''), estudos.motivo),
+             titulo = COALESCE(NULLIF(EXCLUDED.titulo, ''), estudos.titulo),
+             tags = CASE WHEN cardinality(EXCLUDED.tags) > 0 THEN EXCLUDED.tags ELSE estudos.tags END,
+             status = CASE WHEN estudos.status = 'arquivado' THEN 'aberto' ELSE estudos.status END,
+             updated_at = NOW()
+       RETURNING *`,
+      [conversaId, cut(conv.contact_name, 120), conv.setor || null,
+       cut(b.titulo, 160) || cut(conv.contact_name, 120), cut(b.motivo, 2000),
+       limparTags(b.tags), req.user.id, cut(req.user.nome, 120)]);
+    res.status(201).json(e);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Estudo aberto: a ficha + a conversa lida AO VIVO.
+r.get('/estudos/:id', async (req, res) => {
+  try {
+    const { rows: [e] } = await query('SELECT * FROM estudos WHERE id = $1', [req.params.id]);
+    if (!e) return res.status(404).json({ error: 'Estudo não encontrado.' });
+
+    let mensagens = [], conversa = null, aviso = null;
+    if (e.conversa_id) {
+      const conv = await conversaVisivel(req, e.conversa_id);
+      if (conv === false) return res.status(403).json({ error: 'Essa conversa não é do seu setor.' });
+      conversa = conv;
+      const { rows } = await query(
+        `SELECT from_type, type, content, sender_nome, created_at
+           FROM mensagens WHERE conversa_id = $1 ORDER BY created_at ASC LIMIT 400`, [e.conversa_id]);
+      mensagens = rows;
+    } else {
+      aviso = 'A conversa original foi excluída. O que a equipe aprendeu continua aqui.';
+    }
+    res.json({ estudo: e, conversa, mensagens, aviso });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.put('/estudos/:id', async (req, res) => {
+  try {
+    const b = req.body || {};
+    const sets = [], params = []; let i = 1;
+    const set = (c, v) => { sets.push(`${c} = $${i++}`); params.push(v); };
+    if (b.titulo !== undefined) set('titulo', cut(b.titulo, 160));
+    if (b.motivo !== undefined) set('motivo', cut(b.motivo, 2000));
+    if (b.aprendizado !== undefined) set('aprendizado', cut(b.aprendizado, 6000));
+    if (b.tags !== undefined) set('tags', limparTags(b.tags));
+    if (b.status !== undefined && ESTUDO_STATUS.includes(b.status)) set('status', b.status);
+    if (!sets.length) return res.status(400).json({ error: 'Nada para atualizar.' });
+    params.push(req.params.id);
+    const { rows: [e] } = await query(
+      `UPDATE estudos SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${i} RETURNING *`, params);
+    if (!e) return res.status(404).json({ error: 'Estudo não encontrado.' });
+    res.json(e);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.delete('/estudos/:id', async (req, res) => {
+  try {
+    if (!gestao(req) && !req.user.lider) return res.status(403).json({ error: 'Só a gestão apaga estudo.' });
+    await query('DELETE FROM estudos WHERE id = $1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* A Vitta lê a conversa e diz o que viu. O prompt pede uma coisa incomum de
+   propósito: APONTAR O QUE FALTOU, mesmo quando a venda aconteceu. Análise que
+   só elogia não ensina ninguém — e a equipe para de ler na segunda vez. */
+r.post('/estudos/:id/analisar', async (req, res) => {
+  try {
+    if (!temIA()) return res.status(503).json({ error: 'A Vitta está sem chave de IA configurada.' });
+    const { rows: [e] } = await query('SELECT * FROM estudos WHERE id = $1', [req.params.id]);
+    if (!e) return res.status(404).json({ error: 'Estudo não encontrado.' });
+    if (!e.conversa_id) return res.status(410).json({ error: 'A conversa original foi excluída — não há o que ler.' });
+
+    const conv = await conversaVisivel(req, e.conversa_id);
+    if (conv === false) return res.status(403).json({ error: 'Essa conversa não é do seu setor.' });
+
+    const { rows: msgs } = await query(
+      `SELECT from_type, type, content, sender_nome, created_at
+         FROM mensagens WHERE conversa_id = $1 ORDER BY created_at ASC LIMIT 250`, [e.conversa_id]);
+    if (!msgs.length) return res.status(400).json({ error: 'Essa conversa não tem mensagens para analisar.' });
+
+    const transcricao = msgs.map(m => {
+      const quem = m.from_type === 'contact' ? 'CLIENTE' : (m.sender_nome || 'ATENDENTE');
+      const texto = m.type === 'text' ? (m.content || '') : `[${m.type}]${m.content ? ' ' + m.content : ''}`;
+      const dia = new Date(m.created_at).toISOString().slice(0, 10);
+      return `[${dia}] ${quem}: ${String(texto).slice(0, 600)}`;
+    }).join('\n').slice(0, 24000);
+
+    const sys = `Você é a Vitta, assistente da Vittalis Saúde (clínica de pediatria e vacinação em São Luís-MA).
+Analise o atendimento abaixo para a EQUIPE APRENDER com ele. Escreva em português do Brasil, direto, sem enrolação.
+
+Regras da análise:
+- Seja específico: cite a fala exata que fez diferença, não generalidades como "foi atencioso".
+- APONTE O QUE FALTOU mesmo quando a venda aconteceu. Análise que só elogia não ensina ninguém.
+- Se a família ficou sem resposta ou o atendimento demorou, diga com todas as letras.
+- Não invente contexto que não está na conversa. Se faltou informação, diga que faltou.
+
+Formato (markdown, títulos com ##):
+## O que aconteceu — 2 a 3 linhas
+## O que funcionou — no máximo 3 itens, com a fala citada
+## O que faltou — no máximo 3 itens, com o momento em que faltou
+## O que repetir da próxima vez — 1 a 3 frases prontas para a equipe usar`;
+
+    const contexto = [
+      e.motivo ? `Motivo pelo qual essa conversa foi trazida para estudo: ${e.motivo}` : null,
+      e.tags?.length ? `Marcada como: ${e.tags.join(', ')}` : null,
+    ].filter(Boolean).join('\n');
+
+    const d = await openaiMessages({
+      model: 'gpt-4o', max_tokens: 1600, system: sys,
+      messages: [{ role: 'user', content: `${contexto ? contexto + '\n\n' : ''}CONVERSA:\n${transcricao}` }],
+    });
+    const analise = d?.choices?.[0]?.message?.content || d?.content || '';
+    if (!analise) return res.status(502).json({ error: 'A Vitta não conseguiu responder agora.' });
+
+    const { rows: [atualizado] } = await query(
+      'UPDATE estudos SET analise = $1, analise_em = NOW(), updated_at = NOW() WHERE id = $2 RETURNING *',
+      [cut(analise, 12000), e.id]);
+    res.json(atualizado);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

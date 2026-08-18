@@ -5,7 +5,7 @@ import {
   LogOut, Settings, Smartphone, Sun, Moon, ChevronLeft, ChevronRight, ChevronDown,
   CalendarClock, CalendarDays, Bell, CheckCheck, UserPlus, Shield,
   Gift, Bot, Image, FileText, Smile, Phone, Star, Database, Stethoscope, Target, Puzzle,
-  Trophy, GraduationCap, Rocket, Wallet, Palette, Gamepad2, BookOpen, LayoutGrid, Pencil, Flame,
+  Trophy, GraduationCap, Rocket, Wallet, Palette, Gamepad2, BookOpen, LayoutGrid, Pencil, Flame, FileSearch,
   BellRing, Syringe, ExternalLink, ClipboardList, FileSignature,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -89,6 +89,7 @@ const NAV = [
   { to:'/planejamento', icon:Rocket,        label:'Planejamento', lider:true, plan:true, cor:'#fb923c' },
   { to:'/quiz',       icon:Gamepad2,        label:'Quiz de Vendas', cor:'#f472b6' },
   { to:'/cases-sucesso', icon:Trophy,       label:'Cases de Sucesso', cor:'#eab308' },
+  { to:'/estudos',       icon:FileSearch,   label:'Estudos', cor:'#C4973B' },
   { to:'/cursos',     icon:GraduationCap,   label:'Cursos', cor:'#818cf8' },
   { to:'/indicacoes', icon:Gift,            label:'Indicações', cor:'#f43f5e' },
   { to:'/ia',         icon:Bot,             label:'IA Assistente', cor:'#10b981' },

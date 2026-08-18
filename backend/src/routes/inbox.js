@@ -346,7 +346,7 @@ function setorEfetivo(conv) {
   const respSetor = conv.responsavel_id ? usuariosSetor.get(String(conv.responsavel_id)) : null;
   return conv.setor || respSetor || null;
 }
-function podeVerSetor(viewer, conv) {
+export function podeVerSetor(viewer, conv) {
   if (!viewer || viewer.role === 'master') return true;
   /* 🏠 HOME OFFICE POR PRODUÇÃO (pedido do master): quem tem so_carteira só
      enxerga o que foi TRANSFERIDO pra ela — nem o pool sem dono. Vem antes de

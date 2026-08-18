@@ -958,6 +958,38 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS idx_plannotas_user ON planejamento_notas (usuario_id)`).catch(() => {});
+    /* ESTUDOS: conversa que alguém escolheu estudar.
+       Diferente de Cases de Sucesso, que é automático (conversa que virou venda):
+       aqui é curadoria humana — cabe a venda perdida, a objeção que travou, o
+       atendimento que a gente não quer repetir. O que mais ensina raramente é
+       o que deu certo.
+       As MENSAGENS não são copiadas para cá: o estudo aponta para a conversa e
+       lê ao vivo. Duplicar conversa de paciente por causa de estudo seria criar
+       uma segunda cópia de dado clínico sem ninguém cuidando dela. */
+    await query(`CREATE TABLE IF NOT EXISTS estudos (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      conversa_id TEXT UNIQUE,
+      contact_nome TEXT,
+      setor TEXT,
+      titulo TEXT,
+      motivo TEXT,
+      tags TEXT[] DEFAULT '{}',
+      status TEXT DEFAULT 'aberto',
+      aprendizado TEXT,
+      analise TEXT,
+      analise_em TIMESTAMPTZ,
+      criado_por TEXT,
+      criado_por_nome TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS idx_estudos_status ON estudos (status, created_at DESC)`).catch(() => {});
+    // Conversa excluída não pode levar o aprendizado junto: o vínculo cai, o
+    // que a equipe aprendeu fica.
+    await query(`ALTER TABLE estudos DROP CONSTRAINT IF EXISTS estudos_conversa_fk`).catch(() => {});
+    await query(`ALTER TABLE estudos ADD CONSTRAINT estudos_conversa_fk
+      FOREIGN KEY (conversa_id) REFERENCES conversas(id) ON DELETE SET NULL`).catch(() => {});
+
     // ANEXOS do planejamento (documentos da líder) — arquivo guardado em base64 (data URL).
     await query(`CREATE TABLE IF NOT EXISTS planejamento_anexos (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,

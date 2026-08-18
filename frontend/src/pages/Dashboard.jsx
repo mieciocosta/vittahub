@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { MessageSquare, HeartPulse, CalendarCheck, CircleDollarSign, Bell, ChevronRight, Plus, Syringe, UserPlus, ClipboardList, Send, Phone } from 'lucide-react';
+import { MessageSquare, HeartPulse, CalendarCheck, CircleDollarSign, Bell, ChevronRight, Plus, Syringe, UserPlus, ClipboardList, Send, Phone, Trophy, FileSearch } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt, tituloUsuario } from '../hooks/utils.js';
 import { versiculoDoDia } from '../hooks/versiculos.js';
@@ -230,6 +230,43 @@ export default function Dashboard() {
               ))}
             </div>
           )}
+        </div>
+      </div>
+
+      {/* ── Aprender com o atendimento ────────────────────────────────────
+          Cases de Sucesso existia e ninguém via: ficava a nove itens de menu
+          de distância. O que a equipe aprende com o próprio atendimento não
+          pode morar num canto — sobe pro Dashboard, que é a tela que todo
+          mundo abre de manhã.                                              */}
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', padding: '0 28px', marginBottom: 22 }}>
+        <div onClick={() => nav('/cases-sucesso')} className="card"
+          style={{ flex: '1 1 300px', cursor: 'pointer', padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 13,
+            borderLeft: '3px solid #eab308' }}>
+          <div style={{ width: 38, height: 38, borderRadius: 10, background: '#eab30820', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <Trophy size={19} color="#eab308" />
+          </div>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontWeight: 800, fontSize: 14 }}>Cases de Sucesso</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.45 }}>
+              O atendimento que virou venda, do oi ao fechamento. É o roteiro que já funcionou aqui dentro.
+            </div>
+          </div>
+          <ChevronRight size={16} color="var(--light)" />
+        </div>
+
+        <div onClick={() => nav('/estudos')} className="card"
+          style={{ flex: '1 1 300px', cursor: 'pointer', padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 13,
+            borderLeft: '3px solid #C4973B' }}>
+          <div style={{ width: 38, height: 38, borderRadius: 10, background: '#C4973B20', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <FileSearch size={19} color="#C4973B" />
+          </div>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontWeight: 800, fontSize: 14 }}>Estudos</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.45 }}>
+              Conversas que a equipe trouxe pra olhar com calma — inclusive as que travaram.
+            </div>
+          </div>
+          <ChevronRight size={16} color="var(--light)" />
         </div>
       </div>
 
