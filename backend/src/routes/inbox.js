@@ -3010,12 +3010,35 @@ r.get('/conversations', async (req, res) => {
   const termo = String(req.query.search || '').trim();
   if (termo.length >= 3) {
     try {
-      const { rows } = await query(
-        `SELECT DISTINCT conversa_id FROM mensagens
-         WHERE (type = 'text' AND content ILIKE $1 AND length(content) < 2000)
-            OR (filename IS NOT NULL AND filename ILIKE $1)
-         LIMIT 60`, [`%${termo}%`]);
-      extraIds = new Set(rows.map(r2 => r2.conversa_id));
+      /* 🔍 A lupa procura onde o NOME DE VERDADE mora (cobrança do master:
+         "coimbra" não achava). O nome do WhatsApp costuma ser só o primeiro
+         nome ou um apelido — o sobrenome vive no CADASTRO (lead), na memória
+         do paciente e na agenda. E tudo sem acento: "joão" acha "Joao".
+         O translate cobre os acentos do português; unaccent exigiria extensão. */
+      const SEM_ACENTO = "'áàâãäéèêëíìîïóòôõöúùûüçÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇ','aaaaaeeeeiiiiooooouuuucAAAAAEEEEIIIIOOOOOUUUUC'";
+      const termoNorm = termo.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const [porMsg, porNome] = await Promise.all([
+        query(
+          `SELECT DISTINCT conversa_id FROM mensagens
+           WHERE (type = 'text' AND content ILIKE $1 AND length(content) < 2000)
+              OR (filename IS NOT NULL AND filename ILIKE $1)
+           LIMIT 60`, [`%${termo}%`]),
+        query(
+          `SELECT DISTINCT c.id AS conversa_id
+             FROM conversas c
+             LEFT JOIN leads l ON l.id = c.lead_id
+            WHERE lower(translate(COALESCE(l.nome,''), ${SEM_ACENTO})) LIKE $1
+               OR lower(translate(COALESCE(c.memoria->>'paciente',''), ${SEM_ACENTO})) LIKE $1
+               OR lower(translate(COALESCE(c.memoria->>'responsavel',''), ${SEM_ACENTO})) LIKE $1
+           LIMIT 60`, [`%${termoNorm}%`]).catch(() => ({ rows: [] })),
+      ]);
+      const { rows: porAgenda } = await query(
+        `SELECT DISTINCT conversa_id FROM agenda_eventos
+          WHERE conversa_id IS NOT NULL
+            AND lower(translate(COALESCE(paciente,''), ${SEM_ACENTO})) LIKE $1
+          LIMIT 60`, [`%${termoNorm}%`]).catch(() => ({ rows: [] }));
+      extraIds = new Set([...porMsg.rows, ...porNome.rows, ...porAgenda]
+        .map(r2 => r2.conversa_id).filter(Boolean));
     } catch { extraIds = null; }
   }
   if (!cacheReady) {

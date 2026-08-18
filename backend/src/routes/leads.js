@@ -59,8 +59,11 @@ r.get('/', async (req, res) => {
     if (origem)         { conditions.push(`l.origem = $${pi++}`);            params.push(origem); }
     if (tag)            { conditions.push(`$${pi++} = ANY(l.tags)`);         params.push(tag); }
     if (search) {
-      conditions.push(`(l.nome ILIKE $${pi} OR l.telefone ILIKE $${pi} OR l.email ILIKE $${pi})`);
-      params.push(`%${search}%`); pi++;
+      // Busca sem acento nos dois lados: "joão" acha "Joao" e vice-versa
+      const SEM_ACENTO = "'áàâãäéèêëíìîïóòôõöúùûüçÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇ','aaaaaeeeeiiiiooooouuuucAAAAAEEEEIIIIOOOOOUUUUC'";
+      const buscaNorm = String(search).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      conditions.push(`(lower(translate(COALESCE(l.nome,''), ${SEM_ACENTO})) LIKE $${pi} OR l.telefone ILIKE $${pi} OR l.email ILIKE $${pi})`);
+      params.push(`%${buscaNorm}%`); pi++;
     }
     // Acesso por SETOR: master vê tudo. Multi-setor (ex.: Danielle) vê os setores
     // exatos da lista dela. Senão, regra macro (vacinas x não-vacinas).
