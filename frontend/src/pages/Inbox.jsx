@@ -2069,6 +2069,40 @@ export default function Inbox({ onUnreadChange }) {
           )}
 
           {/* ✅ PROTOCOLO DE ATENDIMENTO — abre sozinho e destaca o que faltou */}
+          {/* 🗺️ FUNIL DE VENDA — o protocolo de 7 etapas do master, vivo: o
+              sistema detecta a etapa pela conversa/venda/agenda e mostra o
+              GATILHO que destrava o avanço. Prospecção → Pós-venda. */}
+          {proto?.funil && (
+            <div style={{ flexShrink:0, borderTop:'1px solid var(--border)', background:'var(--card)', padding:'7px 14px 6px' }}>
+              <div style={{ display:'flex', alignItems:'center', gap:5, overflowX:'auto', paddingBottom:2 }}>
+                {proto.funil.etapas.map((e, i) => {
+                  const atual = e.n === proto.funil.etapa_atual && !proto.funil.completo;
+                  return (
+                    <React.Fragment key={e.n}>
+                      {i > 0 && <span style={{ width:12, height:2, flexShrink:0, background: e.feito || atual ? 'var(--tq)' : 'var(--border)' }} />}
+                      <span title={`${e.nome} — ${e.objetivo}. Avança quando: ${e.gatilho}`}
+                        style={{ flexShrink:0, display:'flex', alignItems:'center', gap:4, padding:'2px 8px', borderRadius:20,
+                          fontSize:10, fontWeight:800, whiteSpace:'nowrap', cursor:'default',
+                          background: e.feito ? 'var(--tq)' : atual ? '#fef3c7' : 'var(--bg2)',
+                          color: e.feito ? '#fff' : atual ? '#92400e' : 'var(--muted)',
+                          border: atual ? '1.5px solid #f59e0b' : '1.5px solid transparent' }}>
+                        {e.feito ? '✓' : e.n}º {e.nome}
+                      </span>
+                    </React.Fragment>
+                  );
+                })}
+              </div>
+              {!proto.funil.completo && proto.funil.proximo_gatilho && (
+                <div style={{ fontSize:10.5, color:'var(--muted)', marginTop:3 }}>
+                  🎯 <b style={{ color:'var(--txt2)' }}>Pra avançar:</b> {proto.funil.proximo_gatilho}
+                </div>
+              )}
+              {proto.funil.completo && (
+                <div style={{ fontSize:10.5, color:'#15803d', fontWeight:800, marginTop:3 }}>🏆 Funil completo — cliente fechado e acompanhado!</div>
+              )}
+            </div>
+          )}
+
           {proto && proto.passos && (
             <div style={{ flexShrink:0, borderTop:'1px solid var(--border)', background: proto.faltando.length ? '#fff8ed' : '#f0fdf4' }}>
               <button onClick={() => setProtoAberto(a => !a)}

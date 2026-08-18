@@ -6198,9 +6198,56 @@ r.get('/conversations/:id/protocolo', async (req, res) => {
       };
     }
 
+    /* 🗺️ FUNIL DE VENDA — o protocolo de 7 etapas que o master desenhou
+       (Prospecção → Qualificação → Apresentação → Proposta → Negociação →
+       Fechamento → Pós-venda), formado a partir do que a conversa JÁ mostra:
+       nada de marcar etapa na mão — o sistema lê os sinais reais (mensagens,
+       orçamento, venda registrada, agenda) e diz onde o cliente está e qual é
+       o GATILHO pra avançar. A tabela dele virou trilho vivo. */
+    const [{ rows: [vFun] }, { rows: [agFun] }] = await Promise.all([
+      query(`SELECT COUNT(*)::int n, COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float pago
+               FROM vendas WHERE conversa_id = $1`, [req.params.id]).catch(() => ({ rows: [{ n: 0, pago: 0 }] })),
+      query(`SELECT COUNT(*)::int futuros FROM agenda_eventos
+              WHERE conversa_id = $1 AND data >= (NOW() - interval '3 hours')::date
+                AND LOWER(COALESCE(status,'')) NOT LIKE 'cancel%'`, [req.params.id]).catch(() => ({ rows: [{ futuros: 0 }] })),
+    ]);
+    const doCliente = msgs.filter(m => m.from_type === 'contact');
+    const respondeuAposPreco = feitoDe.preco && doCliente.length > 0 &&
+      msgs.length > 0 && msgs[msgs.length - 1].from_type === 'contact';
+    const vendeu = (vFun?.n || 0) > 0;
+    const posVenda = vendeu && ((agFun?.futuros || 0) > 0 || conv.categoria === 'fidelidade' ||
+      /p[oó]s[- ]?venda|como (foi|est[aá]) (o|a)|tudo (certo|bem) (com|ap[oó]s)|alguma rea[cç][aã]o/.test(txtNossas));
+
+    const ETAPAS_FUNIL = [
+      { n: 1, nome: 'Prospecção',   objetivo: 'Identificar o potencial cliente',        gatilho: 'Cliente chegou e foi acolhido',
+        feito: msgs.length > 0 && (nossas.length > 0 || !!conv.setor) },
+      { n: 2, nome: 'Qualificação', objetivo: 'Entender a demanda e o perfil',          gatilho: 'Setor triado e necessidade identificada',
+        feito: !!conv.setor || !!conv.classificacao },
+      { n: 3, nome: 'Apresentação', objetivo: 'Mostrar valor de forma personalizada',   gatilho: 'Material/explicação conectada à dor da família',
+        feito: feitoDe.material || feitoDe.prova_social },
+      { n: 4, nome: 'Proposta',     objetivo: 'Formalizar valores e condições',         gatilho: 'Preço/orçamento enviado com combinado de retorno',
+        feito: feitoDe.preco },
+      { n: 5, nome: 'Negociação',   objetivo: 'Alinhar expectativas e responder objeções', gatilho: 'Cliente respondeu à proposta — objeções em tratamento',
+        feito: respondeuAposPreco || vendeu },
+      { n: 6, nome: 'Fechamento',   objetivo: 'Converter em venda/agendamento',         gatilho: 'Venda registrada ou horário confirmado',
+        feito: vendeu },
+      { n: 7, nome: 'Pós-venda',    objetivo: 'Garantir satisfação e fidelizar',        gatilho: 'Retorno agendado ou acompanhamento feito',
+        feito: posVenda },
+    ];
+    // Etapa atual = a primeira não cumprida (as anteriores contam a história)
+    const atualIdx = ETAPAS_FUNIL.findIndex(e => !e.feito);
+    const funil = {
+      etapas: ETAPAS_FUNIL,
+      etapa_atual: atualIdx === -1 ? 7 : ETAPAS_FUNIL[atualIdx].n,
+      completo: atualIdx === -1,
+      // O gatilho da etapa atual é a instrução de trabalho — é ele que a
+      // atendente precisa ler pra saber o que destrava o avanço
+      proximo_gatilho: atualIdx === -1 ? null : ETAPAS_FUNIL[atualIdx].gatilho,
+    };
+
     res.json({
       passos: lista, total: lista.length, feitos,
-      faltando: faltando.map(p => p.k), paciente: nomePaciente, pct, nota,
+      faltando: faltando.map(p => p.k), paciente: nomePaciente, pct, nota, funil,
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
