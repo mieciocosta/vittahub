@@ -442,10 +442,11 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
           </div>
         ) : (
           <div style={{ display:'flex', flexWrap:'wrap', alignItems:'center', gap:9, padding:'10px 10px', borderRadius:12, background:'rgba(255,255,255,.14)', border:'1px solid rgba(255,255,255,.2)' }}>
+            {/* Foto maior (pedido do master) — é o rosto da pessoa no sistema */}
             <button onClick={()=>setShowAvatarBuilder(true)} title="Foto de perfil (foto própria ou avatar)"
               style={{ background:'none', border:'none', cursor:'pointer', padding:0, borderRadius:'50%', lineHeight:0,
-                boxShadow:'0 0 0 2px rgba(255,255,255,.55)' }}>
-              <UserAvatar size={56} />
+                boxShadow:'0 0 0 3px rgba(255,255,255,.6), 0 4px 14px rgba(0,0,0,.25)' }}>
+              <UserAvatar size={76} />
             </button>
             <div style={{ flex:1, minWidth:0 }}>
               {/* Nome COMPLETO, sem corte: quebra em até 2 linhas se precisar */}
@@ -471,6 +472,14 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                 </div>
               )}
               <div style={{ color:'rgba(255,255,255,.85)', fontSize:10.5 }}>{user?.role === 'master' ? '◆ Master' : `${user?.role === 'supervisor' ? '◆ ' : ''}${tituloUsuario(user)}`}<span style={{ marginLeft:6 }}><span style={{ display:'inline-block', width:6, height:6, borderRadius:'50%', background:'#3ef58f', marginRight:3, verticalAlign:'1px' }}/>Online</span></div>
+            </div>
+            {/* ☀️ Saudação do dia logo abaixo (pedido do master) — o "bom dia"
+                acompanha a pessoa em toda tela, não só no Resumo */}
+            <div style={{ width:'100%', fontSize:12.5, fontWeight:800, color:'#fff', marginTop:2 }}>
+              {(() => { const h = new Date().getHours();
+                return h < 12 ? `☀️ Bom dia, ${(user?.nome || '').split(' ')[0]}!`
+                  : h < 18 ? `🌤️ Boa tarde, ${(user?.nome || '').split(' ')[0]}!`
+                  : `🌙 Boa noite, ${(user?.nome || '').split(' ')[0]}!`; })()}
             </div>
             <div style={{ width:'100%', display:'flex', alignItems:'center', gap:3, justifyContent:'flex-end', marginTop:-2 }}>
             {podeTrocar && (
