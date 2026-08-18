@@ -27,6 +27,10 @@ export default async function runMigrate() {
     // Acesso multi-setor: lista de setores exatos que o usuário pode ver, além da
     // regra macro (ex.: Danielle vê vacinas E consultas). Vazio = regra normal.
     await query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS setores TEXT[]`).catch(() => {});
+    /* 🏠 HOME OFFICE POR PRODUÇÃO (pedido do master): quem tem so_carteira=true
+       enxerga APENAS as conversas/leads TRANSFERIDOS pra ela — nem o pool de
+       leads novos sem dono ela vê. A gestão passa o lead; ela trabalha. */
+    await query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS so_carteira BOOLEAN DEFAULT false`).catch(() => {});
     // Líder de equipe: ganha a tela de Planejamento (plano de crescimento/bônus).
     await query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS lider BOOLEAN DEFAULT false`).catch(() => {});
     // Vínculo de liderança: quem é o líder deste usuário (Planejamento → liderados).

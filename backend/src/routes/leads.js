@@ -68,7 +68,10 @@ r.get('/', async (req, res) => {
     // Acesso por SETOR: master vê tudo. Multi-setor (ex.: Danielle) vê os setores
     // exatos da lista dela. Senão, regra macro (vacinas x não-vacinas).
     // ve_tudo (ex.: Danielle) vê TODOS os leads, sem trava de setor nem carteira.
-    if (req.user.role !== 'master' && !req.user.ve_tudo) {
+    // 🏠 Home office por produção: só os leads transferidos pra ela
+    if (req.user.so_carteira === true) {
+      conditions.push(`l.responsavel_id = $${pi++}`); params.push(String(req.user.id));
+    } else if (req.user.role !== 'master' && !req.user.ve_tudo) {
       if (Array.isArray(req.user.setores) && req.user.setores.length) {
         conditions.push(`COALESCE(l.setor,'vacinas') = ANY($${pi++})`); params.push(req.user.setores);
       } else if (req.user.setor) {

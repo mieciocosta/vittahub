@@ -306,14 +306,16 @@ const ehGrupo = (c) => String(c.contact_id || '').includes('g.us') || String(c.p
 let usuariosSetor = new Map();
 let usuariosSetores = new Map(); // id → setores extras (acesso multi-setor, ex.: Danielle)
 let usuariosNome = new Map();    // id → nome ATUAL (assinatura sempre com o nome vigente)
+let usuariosSoCarteira = new Set(); // 🏠 home office por produção: só vê o que foi transferido
 async function carregarUsuariosSetor() {
   try {
     let rows;
-    try { ({ rows } = await query('SELECT id, setor, setores, nome FROM usuarios')); }
-    catch { ({ rows } = await query('SELECT id, setor, nome FROM usuarios')); } // coluna 'setores' ainda não existe
+    try { ({ rows } = await query('SELECT id, setor, setores, nome, so_carteira FROM usuarios')); }
+    catch { ({ rows } = await query('SELECT id, setor, nome FROM usuarios')); } // colunas novas ainda não existem
     usuariosSetor = new Map(rows.map(u => [String(u.id), u.setor || null]));
     usuariosSetores = new Map(rows.filter(u => Array.isArray(u.setores) && u.setores.length).map(u => [String(u.id), u.setores]));
     usuariosNome = new Map(rows.map(u => [String(u.id), u.nome || null]));
+    usuariosSoCarteira = new Set(rows.filter(u => u.so_carteira === true).map(u => String(u.id)));
   } catch { /* banco ainda não pronto — tenta de novo no próximo tick */ }
 }
 carregarUsuariosSetor();
@@ -345,7 +347,15 @@ function setorEfetivo(conv) {
   return conv.setor || respSetor || null;
 }
 function podeVerSetor(viewer, conv) {
-  if (!viewer || viewer.role === 'master' || viewer.ve_tudo) return true;
+  if (!viewer || viewer.role === 'master') return true;
+  /* 🏠 HOME OFFICE POR PRODUÇÃO (pedido do master): quem tem so_carteira só
+     enxerga o que foi TRANSFERIDO pra ela — nem o pool sem dono. Vem antes de
+     qualquer outra regra (inclusive ve_tudo): é o contrato desse perfil.
+     O flag vale pelo token OU pelo cache (token antigo não fura a regra). */
+  if (viewer.so_carteira === true || usuariosSoCarteira.has(String(viewer.id))) {
+    return String(conv.responsavel_id || '') === String(viewer.id);
+  }
+  if (viewer.ve_tudo) return true;
   // Acesso MULTI-SETOR (ex.: Danielle vê vacinas E consultas). Lista vinda do
   // token ou do cache (id → setores). Vê o setor exato da lista, ou indefinido.
   const extras = (Array.isArray(viewer.setores) && viewer.setores.length ? viewer.setores : usuariosSetores.get(String(viewer.id))) || null;

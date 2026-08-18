@@ -3979,8 +3979,11 @@ r.get('/foco-hoje', async (req, res) => {
   try {
     // Só a visão geral (master e marketing) enxerga a fila da clínica inteira
     const ehGestao = veGeral(req) || req.user.ve_tudo;
-    // Atendente vê a carteira dela (ou conversas sem dono); gestão vê tudo
-    const filtroDono = ehGestao ? '' : ` AND (c.responsavel_id = '${String(req.user.id).replace(/[^a-zA-Z0-9-]/g, '')}' OR c.responsavel_id IS NULL)`;
+    const idSeguro = String(req.user.id).replace(/[^a-zA-Z0-9-]/g, '');
+    // 🏠 Home office (so_carteira): SÓ o que foi transferido — sem o pool sem dono
+    const filtroDono = req.user.so_carteira === true
+      ? ` AND c.responsavel_id = '${idSeguro}'`
+      : ehGestao ? '' : ` AND (c.responsavel_id = '${idSeguro}' OR c.responsavel_id IS NULL)`;
     const grupo = `COALESCE(c.contact_id,'') NOT LIKE '%g.us%'`;
 
     const [esperando, quentes, orcamentos, faltosos, silencio] = await Promise.all([
