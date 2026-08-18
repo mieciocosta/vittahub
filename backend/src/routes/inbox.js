@@ -6373,21 +6373,37 @@ r.post('/conversations/:id/sugerir-agenda', async (req, res) => {
 });
 
 // CASES DE SUCESSO: conversas que viraram VENDA (padrão de atendimento vencedor)
-// pra equipe estudar e replicar. Respeita o acesso por setor.
+// pra equipe estudar e replicar.
 r.get('/cases-sucesso', async (req, res) => {
   try {
+    /* 🔒 Cada um no seu quadrado (cobrança do master: a Danielle via as vitórias
+       de vacinas). O filtro do Chat (podeVerSetor) não serve aqui: ele deixa o
+       ve_tudo passar — e a Danielle TEM ve_tudo, de propósito, pra enxergar as
+       conversas. Case de sucesso é vitrine de estudo do SETOR: vale o setor do
+       cadastro (autoridade: banco, não o token), e a visão geral (master e
+       marketing) vê tudo. O setor do case é o da VENDA — venda de vacina numa
+       conversa sem triagem continua sendo case de vacinas. */
+    let meus = null;   // null = vê todos
+    if (req.user.role !== 'master' && req.user.ve_geral !== true) {
+      const { rows: [u] } = await query('SELECT setor, setores, ve_geral FROM usuarios WHERE id = $1', [req.user.id])
+        .catch(() => ({ rows: [null] }));
+      if (!u?.ve_geral) {
+        const vals = ['vacinas', 'consultas', 'terapias'];
+        meus = (Array.isArray(u?.setores) && u.setores.length) ? u.setores.filter(x => vals.includes(x))
+          : vals.includes(u?.setor) ? [u.setor] : [];
+      }
+    }
     const { rows } = await query(`
       SELECT DISTINCT ON (v.conversa_id)
-             v.conversa_id id, c.contact_name, c.phone, c.setor, c.classificacao, c.responsavel_id,
+             v.conversa_id id, c.contact_name, c.phone,
+             COALESCE(v.setor, c.setor, 'vacinas') setor, c.classificacao, c.responsavel_id,
              v.categoria, v.servico, v.valor, v.atendente_nome, v.data_venda
       FROM vendas v JOIN conversas c ON c.id = v.conversa_id
       WHERE v.status_pagamento IN ('pago','cortesia') AND v.conversa_id IS NOT NULL
+        AND ($1::text[] IS NULL OR COALESCE(v.setor, c.setor, 'vacinas') = ANY($1))
       ORDER BY v.conversa_id, v.data_venda DESC, v.created_at DESC
-      LIMIT 400`);
-    const out = rows
-      .filter(r2 => podeVerSetor(req.user, r2))
-      .sort((a, b) => new Date(b.data_venda) - new Date(a.data_venda));
-    res.json(out);
+      LIMIT 400`, [meus]);
+    res.json(rows.sort((a, b) => new Date(b.data_venda) - new Date(a.data_venda)));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
