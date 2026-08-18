@@ -585,28 +585,39 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
               )}
               <div style={{ color:'rgba(255,255,255,.85)', fontSize:10.5 }}>{user?.role === 'master' ? '◆ Master' : `${user?.role === 'supervisor' ? '◆ ' : ''}${tituloUsuario(user)}`}<span style={{ marginLeft:6 }}><span style={{ display:'inline-block', width:6, height:6, borderRadius:'50%', background:'#3ef58f', marginRight:3, verticalAlign:'1px' }}/>Online</span></div>
             </div>
-            {/* ☀️ Saudação do dia logo abaixo (pedido do master) — o "bom dia"
-                acompanha a pessoa em toda tela, não só no Resumo */}
-            <div style={{ width:'100%', marginTop:2 }}>
-              <div style={{ fontSize:12.5, fontWeight:800, color:'#fff' }}>
-                {(() => { const h = new Date().getHours();
-                  return h < 12 ? `☀️ Bom dia, ${(user?.nome || '').split(' ')[0]}!`
-                    : h < 18 ? `🌤️ Boa tarde, ${(user?.nome || '').split(' ')[0]}!`
-                    : `🌙 Boa noite, ${(user?.nome || '').split(' ')[0]}!`; })()}
-              </div>
-              {/* O versículo mora JUNTO da saudação (pedido do master) — o
-                  bloco antigo do rodapé saiu pra não dizer bom-dia duas vezes */}
-              <div style={{ fontSize:10, color:'rgba(255,255,255,.88)', lineHeight:1.45, fontStyle:'italic', marginTop:3 }}>“{VERS_DIA[0]}”</div>
-              <div style={{ fontSize:9.5, color:'rgba(255,255,255,.62)', marginTop:1, fontWeight:800 }}>{VERS_DIA[1]}</div>
-              {/* 🔥 A frase de vendas do dia, em DESTAQUE (faixa dourada) */}
-              <div style={{ marginTop:7, padding:'6px 9px', borderRadius:9,
-                background:'linear-gradient(90deg, rgba(252,211,77,.28), rgba(245,158,11,.18))',
-                border:'1px solid rgba(252,211,77,.45)' }}>
-                <div style={{ fontSize:10.5, fontWeight:900, color:'#fff', lineHeight:1.4 }}>
-                  🔥 {fraseVenda}
+            {/* ☀️ O bloco pessoal do dia — redesenhado (pedido do master:
+                "melhore a visualização"). O que mudou: caixas dentro de caixas
+                viraram UM bloco com fios separadores; o versículo ficou curto e
+                elegante (2 linhas no máximo, referência na mesma linha); a
+                frase dourada é a única com cor própria (é o destaque); e as
+                metas são duas linhas varridas num olhar, com a barra por
+                último. Menos moldura, mais leitura. */}
+            <div style={{ width:'100%', marginTop:4, borderRadius:11, overflow:'hidden',
+              background:'rgba(0,0,0,.14)', border:'1px solid rgba(255,255,255,.16)' }}>
+
+              {/* Saudação + versículo */}
+              <div style={{ padding:'8px 11px 7px' }}>
+                <div style={{ fontSize:13, fontWeight:900, color:'#fff', letterSpacing:.2 }}>
+                  {(() => { const h = new Date().getHours();
+                    return h < 12 ? `☀️ Bom dia, ${(user?.nome || '').split(' ')[0]}!`
+                      : h < 18 ? `🌤️ Boa tarde, ${(user?.nome || '').split(' ')[0]}!`
+                      : `🌙 Boa noite, ${(user?.nome || '').split(' ')[0]}!`; })()}
                 </div>
+                <div title={`“${VERS_DIA[0]}” — ${VERS_DIA[1]}`}
+                  style={{ fontSize:10, color:'rgba(255,255,255,.85)', lineHeight:1.45, fontStyle:'italic', marginTop:3,
+                    display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden' }}>
+                  “{VERS_DIA[0]}”
+                </div>
+                <div style={{ fontSize:9, color:'rgba(255,255,255,.55)', fontWeight:800, marginTop:1, textAlign:'right' }}>— {VERS_DIA[1]}</div>
               </div>
-              {/* 🎯 As metas, logo abaixo (pedido do master) */}
+
+              {/* 🔥 A frase do dia — o ÚNICO destaque colorido do bloco */}
+              <div style={{ padding:'7px 11px', borderTop:'1px solid rgba(255,255,255,.12)',
+                background:'linear-gradient(90deg, rgba(252,211,77,.30), rgba(245,158,11,.14))' }}>
+                <div style={{ fontSize:10.5, fontWeight:900, color:'#fff', lineHeight:1.4 }}>🔥 {fraseVenda}</div>
+              </div>
+
+              {/* 🎯 Metas — duas linhas varridas num olhar */}
               {(() => {
                 if (!metaMini?.metaGlobal) return null;
                 const lista = (metaMini.porSetor && metaMini.porSetor.length) ? metaMini.porSetor : [metaMini];
@@ -618,24 +629,33 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                 const pct = alvo ? Math.min((feito / alvo) * 100, 100) : 0;
                 const brl = (v) => (v == null ? '—' : v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }));
                 const foco = metaMini.focoDia?.[lista[0]?.setor] || null;
-                const focoTxt = foco ? foco.map(f => (f.falta ?? 0) > 0 ? `falta ${f.falta} ${f.rotulo}` : `✅ ${f.rotulo}`).join(' ou ') : null;
+                const focoOk = foco ? foco.every(f => (f.falta ?? 0) === 0) : false;
+                const focoTxt = foco ? foco.map(f => (f.falta ?? 0) > 0 ? `falta ${f.falta} ${f.rotulo}` : f.rotulo).join(' ou ') : null;
                 const ehConsultas = lista[0]?.setor === 'consultas';
                 if (!ind && !verVal && !focoTxt) return null;
+                const Linha = ({ icone, rotulo, valor, cor }) => (
+                  <div style={{ display:'flex', alignItems:'baseline', gap:6, fontSize:10 }}>
+                    <span style={{ flexShrink:0 }}>{icone}</span>
+                    <span style={{ color:'rgba(255,255,255,.65)', fontWeight:800, flexShrink:0 }}>{rotulo}</span>
+                    {/* Quebra em 2 linhas em vez de cortar com "…" — número
+                        cortado é pior que linha dupla */}
+                    <span style={{ color: cor || '#fff', fontWeight:900, minWidth:0, lineHeight:1.35 }}>{valor}</span>
+                  </div>
+                );
                 return (
-                  <div style={{ marginTop:7, padding:'7px 9px', borderRadius:9, background:'rgba(255,255,255,.13)', border:'1px solid rgba(255,255,255,.22)' }}>
+                  <div style={{ padding:'7px 11px 9px', borderTop:'1px solid rgba(255,255,255,.12)', display:'flex', flexDirection:'column', gap:4 }}>
                     {focoTxt && (
-                      <div style={{ fontSize:10, fontWeight:800, color:'#fff', marginBottom:(ind || verVal) ? 4 : 0 }}>
-                        🎯 Meta do dia: {focoTxt}
-                      </div>
+                      <Linha icone="🎯" rotulo="Hoje" cor={focoOk ? '#6ee7b7' : '#fff'}
+                        valor={focoOk ? `✅ ${focoTxt}` : focoTxt} />
                     )}
                     {(ind || verVal) && alvo > 0 && (
                       <>
-                        <div style={{ fontSize:10, fontWeight:800, color:'rgba(255,255,255,.92)' }}>
-                          {ehConsultas
-                            ? <>📈 Mês: {pct.toFixed(1).replace('.', ',')}% de 100%</>
-                            : <>💰 Mês: {brl(feito)} · faltam {brl(falta)}</>}
-                        </div>
-                        <div style={{ height:5, borderRadius:4, background:'rgba(0,0,0,.25)', overflow:'hidden', marginTop:3 }}>
+                        <Linha icone={ehConsultas ? '📈' : '💰'} rotulo="Mês"
+                          cor={pct >= 100 ? '#6ee7b7' : '#fcd34d'}
+                          valor={ehConsultas
+                            ? `${pct.toFixed(1).replace('.', ',')}% de 100%`
+                            : `${brl(feito)} · falta ${brl(falta)}`} />
+                        <div style={{ height:5, borderRadius:4, background:'rgba(0,0,0,.3)', overflow:'hidden', marginTop:1 }}>
                           <div style={{ width:`${Math.max(pct, 2)}%`, height:'100%', borderRadius:4,
                             background: pct >= 100 ? '#6ee7b7' : 'linear-gradient(90deg,#f59e0b,#fcd34d)' }} />
                         </div>
