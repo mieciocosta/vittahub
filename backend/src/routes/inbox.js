@@ -6776,8 +6776,16 @@ r.post('/vitta-base/gerar', async (req, res) => {
     const fontes = convsVenda.concat(convsAgd.filter(x => !vistos.has(String(x.id))))
       .sort((a, b) => new Date(b.dt) - new Date(a.dt)).slice(0, 12);
     const transcripts = [];
+    // Conversas que a gestão marcou À MÃO como exemplo (ex.: Domingas e Felipe
+    // Coimbra, indicadas pelo master) entram PRIMEIRO — são material nobre.
+    const { rows: exemplos } = await query(`
+      SELECT titulo, conteudo FROM exemplos_conversa
+       WHERE setor IN ('consultas','terapias') ORDER BY created_at DESC LIMIT 4`).catch(() => ({ rows: [] }));
+    for (const ex of exemplos) {
+      transcripts.push(`### Atendimento que DEU CERTO (escolhido pela gestão${ex.titulo ? `: ${ex.titulo}` : ''}):\n${String(ex.conteudo || '').slice(0, 2200)}`);
+    }
     for (const cv of fontes) {
-      if (transcripts.length >= 8) break;
+      if (transcripts.length >= 10) break;
       const t = await montarTranscriptConversa(cv.id, 60).catch(() => null);
       if (t?.transcript) transcripts.push(`### Atendimento que DEU CERTO:\n${t.transcript.slice(0, 2200)}`);
     }

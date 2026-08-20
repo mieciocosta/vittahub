@@ -1601,6 +1601,65 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log('🤖 IA de CONSULTAS ligada (bot geral de vacinas segue desligado)');
     }
 
+    /* 🔎 DOMINGAS (neuropediatria) e FELIPE COIMBRA (pediatria) — o master
+       indicou estes dois atendimentos que deram certo pra Vitta estudar.
+       Este seed roda EM PRODUÇÃO (daqui do sandbox não se alcança o banco):
+       procura as conversas por nome (sem acento; cai pro cadastro/lead se o
+       contato do WhatsApp tiver outro nome), grava o diálogo como
+       conversa-exemplo do setor de consultas (o prompt da Vitta lê os 3 mais
+       recentes) e conta o resultado ao master pelo sino. */
+    const { rows: [flagExDf] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_exemplos_domingas_felipe_v1'");
+    if (!flagExDf) {
+      const semAcentoSql = (col) => `lower(translate(COALESCE(${col},''), 'áàâãäéèêëíìîïóòôõöúùûüçÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇ', 'aaaaaeeeeiiiiooooouuuucAAAAAEEEEIIIIOOOOOUUUUC'))`;
+      const acharConversa = async (busca) => {
+        const like = `%${busca}%`;
+        const { rows: [c1] } = await query(`
+          SELECT id, contact_name FROM conversas
+           WHERE ${semAcentoSql('contact_name')} LIKE $1
+           ORDER BY last_message_at DESC NULLS LAST LIMIT 1`, [like]).catch(() => ({ rows: [] }));
+        if (c1) return c1;
+        const { rows: [c2] } = await query(`
+          SELECT c.id, c.contact_name FROM leads l
+          JOIN conversas c ON length(regexp_replace(COALESCE(l.telefone,''),'\\D','','g')) >= 8
+           AND regexp_replace(COALESCE(c.phone,''),'\\D','','g') LIKE '%' || right(regexp_replace(COALESCE(l.telefone,''),'\\D','','g'), 8)
+          WHERE ${semAcentoSql('l.nome')} LIKE $1
+          ORDER BY c.last_message_at DESC NULLS LAST LIMIT 1`, [like]).catch(() => ({ rows: [] }));
+        return c2 || null;
+      };
+      const gravarExemplo = async (conv, titulo) => {
+        const { rows: msgs } = await query(`
+          SELECT from_type, content FROM mensagens
+           WHERE conversa_id = $1 AND type = 'text' AND from_type IN ('contact','me','bot')
+           ORDER BY created_at ASC LIMIT 120`, [conv.id]).catch(() => ({ rows: [] }));
+        if (msgs.length < 4) return false;   // conversa curta demais não ensina nada
+        const linhas = msgs.map(m => `${m.from_type === 'contact' ? 'Cliente' : 'Atendente'}: ${String(m.content || '').slice(0, 400)}`);
+        const conteudo = linhas.join('\n').slice(0, 6000);
+        await query(`INSERT INTO exemplos_conversa (titulo, setor, conteudo, criado_por)
+                     VALUES ($1, 'consultas', $2, 'Vitta · pedido do master')`, [titulo, conteudo]);
+        return true;
+      };
+      const resultados = [];
+      for (const alvo of [
+        { busca: 'domingas', titulo: 'Domingas — Neuropediatria (agendou)' },
+        { busca: 'felipe coimbra', busca2: 'coimbra', titulo: 'Felipe Coimbra — Pediatria (agendou)' },
+      ]) {
+        try {
+          let conv = await acharConversa(alvo.busca);
+          if (!conv && alvo.busca2) conv = await acharConversa(alvo.busca2);
+          if (!conv) { resultados.push(`❌ ${alvo.titulo.split(' — ')[0]}: não achei conversa com esse nome (nem no contato, nem no cadastro).`); continue; }
+          const ok = await gravarExemplo(conv, alvo.titulo);
+          resultados.push(ok
+            ? `✅ ${alvo.titulo.split(' — ')[0]}: achei a conversa de "${conv.contact_name || 'sem nome'}" e gravei como exemplo da Vitta.`
+            : `⚠️ ${alvo.titulo.split(' — ')[0]}: achei "${conv.contact_name || 'sem nome'}", mas a conversa tem menos de 4 mensagens de texto — curta demais pra ensinar.`);
+        } catch (e) { resultados.push(`⚠️ ${alvo.titulo.split(' — ')[0]}: erro na busca (${e.message}).`); }
+      }
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+        ['🔎 Busca das conversas Domingas e Felipe Coimbra',
+         `${resultados.join('\n')}\n\nAs que foram gravadas já entram no estudo da Vitta (conversas-exemplo de consultas). Depois clique em Gerar/Atualizar a base no Placar → Automático → Cérebro de consultas pra ela absorver tudo.`]).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_exemplos_domingas_felipe_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log(`🔎 Exemplos Domingas/Felipe: ${resultados.join(' | ')}`);
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);
