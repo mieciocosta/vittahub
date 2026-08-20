@@ -4141,7 +4141,13 @@ r.patch('/conversations/:id/status', async (req, res) => {
 // ─── BOT TOGGLE ────────────────────────────────────────────────────────────────
 r.patch('/conversations/:id/bot', async (req, res) => {
   try {
-    if (req.user?.role !== 'master') return res.status(403).json({ error: 'Apenas o master pode ligar ou desligar o bot.' });
+    /* Quem liga/desliga a IA na conversa: o master e SOMENTE as usuárias com
+       o botão da Mary (ia_consultas) — regra do master: "não quero que todas
+       possam". O resto da equipe nem vê a faixa, e aqui também é barrado. */
+    if (req.user?.role !== 'master') {
+      const { rows: [euIA] } = await query('SELECT ia_consultas FROM usuarios WHERE id = $1', [req.user.id]).catch(() => ({ rows: [null] }));
+      if (euIA?.ia_consultas !== true) return res.status(403).json({ error: 'Só quem tem o botão da Mary (liberado pelo master) liga ou desliga a IA.' });
+    }
     const { rows: [c] } = await query('UPDATE conversas SET bot_ativo = $1 WHERE id = $2 RETURNING bot_ativo', [req.body.ativo, req.params.id]);
     if (c) { const cached = convoCache.get(req.params.id); if (cached) cacheUpdate({ ...cached, bot_ativo: c.bot_ativo }); }
     socketEmit('bot_status', { convId: req.params.id, bot_ativo: c?.bot_ativo });
@@ -4483,8 +4489,20 @@ async function processarAgendadas() {
     const { rows } = await query(`SELECT * FROM mensagens_agendadas WHERE status = 'pendente' AND enviar_em <= NOW() ORDER BY enviar_em LIMIT 20`).catch(() => ({ rows: [] }));
     for (const ag of rows) {
       try {
+        /* Claim atômico: durante o deploy, o container velho e o novo rodam
+           JUNTOS por um instante — sem isso os dois pegam a mesma linha e o
+           cliente recebe em dobro (aconteceu: pós-venda duplicado à 01:39). */
+        const { rowCount: peguei } = await query(`UPDATE mensagens_agendadas SET status='enviando' WHERE id=$1 AND status='pendente'`, [ag.id]);
+        if (!peguei) continue;
         const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [ag.conversa_id]);
         if (!conv) { await query(`UPDATE mensagens_agendadas SET status='erro', erro='conversa não encontrada' WHERE id=$1`, [ag.id]); continue; }
+        // Rede de segurança: texto IDÊNTICO já enviado nesta conversa há pouco = duplicata
+        const { rows: [jaFoi] } = await query(`SELECT 1 FROM mensagens WHERE conversa_id=$1 AND from_type IN ('me','bot')
+          AND content=$2 AND created_at > NOW() - interval '12 hours' LIMIT 1`, [ag.conversa_id, ag.texto]).catch(() => ({ rows: [] }));
+        if (jaFoi) {
+          await query(`UPDATE mensagens_agendadas SET status='cancelada', erro='duplicada — mensagem igual já enviada' WHERE id=$1`, [ag.id]).catch(() => {});
+          continue;
+        }
         if (pareceMensagemDeTeste(ag.texto)) {
           await query(`UPDATE mensagens_agendadas SET status='cancelada', erro=$2 WHERE id=$1`,
             [ag.id, 'Bloqueada: parecia mensagem de teste']).catch(() => {});

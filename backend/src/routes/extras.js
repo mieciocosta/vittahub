@@ -505,7 +505,9 @@ r.post('/vendas', async (req, res) => {
             const texto = `Oi! 💙 Aqui é da Vittalis. ${bebe ? `O(a) ${bebe} já` : 'Seu bebê já'} está chegando na fase das *vacinas de ${prox} meses* — as próximas do calendário de proteção. Quer garantir seu horário? Atendemos também no conforto da sua casa 🏠😊`;
             await query(
               `INSERT INTO mensagens_agendadas (conversa_id, texto, enviar_em, criado_por)
-               VALUES ($1, $2, $3, 'Vitta · Próxima dose')`,
+               SELECT $1, $2, $3, 'Vitta · Próxima dose'
+                WHERE NOT EXISTS (SELECT 1 FROM mensagens_agendadas WHERE conversa_id = $1
+                                    AND criado_por = 'Vitta · Próxima dose' AND status = 'pendente')`,
               [v.conversa_id, texto, quando.toISOString()]);
             console.log(`PRÓXIMA DOSE agendada: conv=${v.conversa_id} ${atual}m→${prox}m em ${quando.toISOString().slice(0, 10)}`);
           }
@@ -521,7 +523,12 @@ r.post('/vendas', async (req, res) => {
         qd.setHours(17, 0, 0, 0); // 14h em São Luís (UTC-3)
         const nomeCli = cut(b.cliente_nome, 40);
         const txt = `Oi${nomeCli ? `, ${String(nomeCli).split(' ')[0]}` : ''}! 💙 Passando pra saber como foi a experiência de vocês com a gente — sua opinião vale ouro pra nossa equipe! E se você conhecer outra mamãe que cuida do calendário de proteção do bebê, indica a Vittalis 😊 Temos mimos especiais no nosso programa de indicações!`;
-        await query(`INSERT INTO mensagens_agendadas (conversa_id, texto, enviar_em, criado_por) VALUES ($1, $2, $3, 'Vitta · Pós-venda')`,
+        // Segunda venda na mesma conversa NÃO agenda outro pós-venda igual
+        // (foi assim que o cliente recebeu em dobro)
+        await query(`INSERT INTO mensagens_agendadas (conversa_id, texto, enviar_em, criado_por)
+                     SELECT $1, $2, $3, 'Vitta · Pós-venda'
+                      WHERE NOT EXISTS (SELECT 1 FROM mensagens_agendadas WHERE conversa_id = $1
+                                          AND criado_por = 'Vitta · Pós-venda' AND status = 'pendente')`,
           [v.conversa_id, txt, qd.toISOString()]);
 
         // ── ⭐ AVALIAÇÃO NO GOOGLE: 4 dias depois da venda, pede a avaliação com
