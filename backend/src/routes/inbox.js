@@ -1608,7 +1608,7 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
       const atual = feitos.findIndex(f => !f) + 1 || 7;
       const ETAPAS = [
         ['Prospecção', 'acolha com carinho de gente e se apresente — primeira impressão é tudo'],
-        ['Qualificação', 'descubra PRA QUEM é e O QUE a família precisa (nome e idade da criança, o que preocupa) — uma pergunta por vez'],
+        ['Qualificação', 'descubra PRA QUEM é e O QUE a família precisa usando as PERGUNTAS OFICIAIS DA CASA (uma por mensagem, adaptando ao que a família já contou — nunca em bloco): "O que sua criança tem apresentado, mãe/pai?" · "Ela já estuda? Como é na escola?" · "Como ela interage na família?" · "Como é a interação com colegas da mesma faixa etária?" · "Já tem algum diagnóstico ou encaminhamento?" · "Tem pediatra ou neuropediatra?" · "O que espera que a Clínica Vittalis ajude?"'],
         ['Apresentação', 'mostre o VALOR antes do preço: conecte o serviço/profissional à dor que a mãe contou'],
         ['Proposta', 'apresente o valor da tabela com naturalidade e JÁ emende o próximo passo ("quer que eu veja um horário pra vocês?")'],
         ['Negociação', 'acolha a objeção sem brigar com ela (preço, "vou ver com o marido", medo) e responda como nos atendimentos que deram certo'],

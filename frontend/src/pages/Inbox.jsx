@@ -13,6 +13,18 @@ import { Toast } from '../hooks/toast.js';
 // Mesma lista do cadastro de lead (LeadModal) — duas listas divergentes fariam
 // a mesma base ser classificada de dois jeitos.
 const INTERESSES_FAIXA = ['Vacina','Plano Vacinal','Consulta','Terapia','Plano Infantil','Gestante','Outro'];
+/* 🩺 Perguntas oficiais da qualificação de consultas/terapias — a lista é do
+   master, palavra por palavra. Uma por mensagem, nunca em bloco. */
+const PERGUNTAS_QUALIFICACAO = [
+  'Olá! Como vai? 😊',
+  'O que sua criança tem apresentado, mãe/pai?',
+  'Ela já estuda? Como é na escola?',
+  'Como ela interage na família?',
+  'Como é a interação dela com colegas da mesma faixa etária?',
+  'Já tem algum diagnóstico ou encaminhamento?',
+  'Tem pediatra ou neuropediatra?',
+  'O que espera que a Clínica Vittalis ajude? 💙',
+];
 import PropostaModal from '../components/PropostaModal.jsx';
 import CarteiraVacinal from '../components/CarteiraVacinal.jsx';
 import TerapiaOrcamentoModal from '../components/TerapiaOrcamentoModal.jsx';
@@ -485,6 +497,8 @@ export default function Inbox({ onUnreadChange }) {
   const [msgsHasMore, setMsgsHasMore]     = useState(false);
   const [loadingOlderMsgs, setLoadingOlderMsgs] = useState(false);
   const [input, setInput]     = useState('');
+  // 🩺 Anamnese de ouro (lista do master) — painel "Confira as perguntas a realizar"
+  const [perguntasOpen, setPerguntasOpen] = useState(false);
   const [sending, setSending] = useState(false); // guard: evita envios duplos
   const [recording, setRecording] = useState(false);
   const [recorder, setRecorder]   = useState(null);
@@ -2138,6 +2152,33 @@ export default function Inbox({ onUnreadChange }) {
               )}
               {proto.funil.completo && (
                 <div style={{ fontSize:10.5, color:'#15803d', fontWeight:800, marginTop:3 }}>🏆 Funil completo — cliente fechado e acompanhado!</div>
+              )}
+            </div>
+          )}
+
+          {/* 🩺 PERGUNTAS A REALIZAR (lista do master) — a anamnese de ouro da
+              qualificação de consultas/terapias. Clicou na pergunta, ela já
+              cai escrita na caixa: é só ajustar e enviar. */}
+          {sel && sel.setor !== 'vacinas' && (
+            <div style={{ flexShrink:0, borderTop:'1px solid var(--border)', background:'var(--card)' }}>
+              <button onClick={() => setPerguntasOpen(a => !a)}
+                style={{ width:'100%', display:'flex', alignItems:'center', gap:8, padding:'6px 14px', border:'none', cursor:'pointer', background:'transparent', textAlign:'left' }}>
+                <span style={{ fontSize:13 }}>🩺</span>
+                <span style={{ flex:1, fontSize:11.5, fontWeight:800, color:'var(--txt2)' }}>Confira as perguntas a realizar</span>
+                <span style={{ fontSize:9, color:'var(--muted)', transition:'transform .18s', transform: perguntasOpen ? 'rotate(90deg)' : 'none' }}>▶</span>
+              </button>
+              {perguntasOpen && (
+                <div style={{ padding:'2px 14px 9px' }}>
+                  {PERGUNTAS_QUALIFICACAO.map((q, i) => (
+                    <div key={i} style={{ display:'flex', alignItems:'center', gap:8, padding:'4px 0', borderBottom: i < PERGUNTAS_QUALIFICACAO.length - 1 ? '1px dashed var(--border)' : 'none' }}>
+                      <span style={{ fontSize:10.5, fontWeight:800, color:'var(--tq2)', width:14, flexShrink:0 }}>{i + 1}.</span>
+                      <span style={{ flex:1, minWidth:0, fontSize:12, color:'var(--txt2)' }}>{q}</span>
+                      <button onClick={() => { setInput(q); textRef.current?.focus(); }} title="Escrever esta pergunta na caixa"
+                        style={{ flexShrink:0, padding:'3px 9px', borderRadius:8, border:'1px solid var(--tq3)', cursor:'pointer',
+                          background:'var(--tq4)', color:'var(--tq2)', fontSize:10, fontWeight:800 }}>✍️ Usar</button>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
           )}
