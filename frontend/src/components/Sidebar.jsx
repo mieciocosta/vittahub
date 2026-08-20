@@ -47,11 +47,12 @@ const SETORES_MENU = [
    `grupo` desenha o título da seção; não muda permissão nem rota. */
 const NAV = [
   { grupo:'Meu dia' },
-  { to:'/',           icon:LayoutDashboard, label:'Resumo', cor:'#38bdf8' },
   { to:'/inbox',      icon:MessageSquare,   label:'Chat',     unread:true, cor:'#25D366' },
   // 💲 Logo abaixo do Chat e visivel PRA TODOS (pedido do master) —
   // qualquer atendente consulta valores e monta orçamento sem sair da conversa.
   { to:'/tabela-precos', icon:FileText,     label:'Tabela de Preços', cor:'#0ea5e9' },
+  // 🤖 Painel da Mary — só pra quem tem o botão da IA (e o master)
+  { to:'/mary', icon:Bot, label:'Mary (IA)', iaBotao:true, cor:'#a855f7' },
   // 🏆 Coladinho na Tabela de Preços (pedido do master): orçou → estuda quem
   // fechou. Cada case agora vira uma aula de vendas gerada pela IA.
   { to:'/cases-sucesso', icon:Trophy,       label:'Cases de Sucesso', cor:'#eab308' },
@@ -96,6 +97,8 @@ const NAV = [
   { to:'/cursos',     icon:GraduationCap,   label:'Cursos', cor:'#818cf8' },
   { to:'/indicacoes', icon:Gift,            label:'Indicações', cor:'#f43f5e' },
   { to:'/ia',         icon:Bot,             label:'IA Assistente', cor:'#10b981' },
+  // Resumo desceu pro fim do menu (pedido do master)
+  { to:'/',           icon:LayoutDashboard, label:'Resumo', cor:'#38bdf8' },
 ];
 
 const NAV_FERRAMENTAS = [
@@ -767,6 +770,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
             && (!n.terapias || podeSetor('terapias'))
             && (!n.vacinas || podeSetor('vacinas'))
             && (!n.lider || user?.lider || user?.role === 'master')
+            && (!n.iaBotao || user?.ia_consultas === true || user?.role === 'master')
             && (n.grupo ? !buscaAtiva : bateBusca(n.label))
           ).map((n) => {
             // Título de seção: só desenha o rótulo e segue (não é link)

@@ -1,0 +1,144 @@
+import React, { useEffect, useState } from 'react';
+import { Bot, Zap, Users } from 'lucide-react';
+import { useApi, useAuth } from '../context/AuthContext.jsx';
+import { Toast } from '../hooks/toast.js';
+
+/* 🤖 MARY (IA) — a central de controle pedida pelo master:
+   · chave GERAL (só ele): desliga a Mary pra clínica inteira de uma vez;
+   · chave PESSOAL: cada usuária liga/desliga a Mary NAS PRÓPRIAS conversas,
+     sem afetar as colegas ("não quero que isso crie conflito");
+   · lista da equipe (só master): o estado de cada uma, com o toggle.
+   O botão POR CONVERSA continua no Chat (faixa roxa) — aqui é o painel. */
+
+const Chave = ({ on, onClick, tamanho = 46 }) => (
+  <span onClick={onClick} style={{ width: tamanho, height: tamanho * 0.56, borderRadius: 20, flexShrink: 0, position: 'relative', cursor: 'pointer',
+    background: on ? '#7c3aed' : 'var(--border)', transition: 'background .2s', display: 'inline-block' }}>
+    <span style={{ position: 'absolute', top: 3, left: on ? tamanho - tamanho * 0.56 + 3 : 3, width: tamanho * 0.56 - 6, height: tamanho * 0.56 - 6,
+      borderRadius: '50%', background: '#fff', transition: 'left .2s', boxShadow: '0 1px 4px rgba(0,0,0,.3)' }} />
+  </span>
+);
+
+export default function MaryIA() {
+  const api = useApi();
+  const { user } = useAuth();
+  const master = user?.role === 'master';
+  const podeVer = master || user?.ia_consultas === true;
+  const [me, setMe] = useState(null);
+  const [pausa, setPausa] = useState(null);
+  const [equipe, setEquipe] = useState([]);
+  useEffect(() => {
+    if (!podeVer) return;
+    api.get('/auth/me').then(setMe).catch(() => {});
+    api.get('/inbox/automacao/pausa').then(setPausa).catch(() => {});
+    if (master) api.get('/auth/ia-equipe').then(d => setEquipe(Array.isArray(d) ? d : [])).catch(() => {});
+  }, []); // eslint-disable-line
+
+  if (!podeVer) return <div style={{ padding: 40, color: 'var(--muted)' }}>🔒 O painel da Mary é de quem tem o botão da IA.</div>;
+
+  const geralOn = pausa?.ligado?.bot !== false;
+  const minhaOn = me ? me.ia_ligada !== false : true;
+  const trocarGeral = async () => {
+    try {
+      const d = await api.post('/inbox/automacao/pausa', { area: 'bot', ligado: !geralOn });
+      setPausa(d);
+      Toast.show(!geralOn ? 'Mary ligada pra clínica inteira! 🤖' : 'Mary DESLIGADA pra todo mundo — nada responde sozinho.', 'success');
+    } catch (e) { Toast.show(e.message, 'error'); }
+  };
+  const trocarMinha = async () => {
+    try {
+      const d = await api.patch('/auth/me/ia', { ligada: !minhaOn });
+      setMe(m => ({ ...m, ia_ligada: d.ia_ligada }));
+      Toast.show(d.ia_ligada ? 'Mary ligada nas SUAS conversas! 💜' : 'Mary desligada só pra você — as colegas seguem normais.', 'success');
+    } catch (e) { Toast.show(e.message, 'error'); }
+  };
+  const trocarDe = async (u2) => {
+    try {
+      const d = await api.put(`/auth/usuarios/${u2.id}`, { ia_ligada: !(u2.ia_ligada !== false) });
+      setEquipe(p => p.map(x => x.id === u2.id ? { ...x, ia_ligada: d.ia_ligada } : x));
+    } catch (e) { Toast.show(e.message, 'error'); }
+  };
+
+  return (
+    <div style={{ padding: 28, maxWidth: 760, margin: '0 auto' }}>
+      <div style={{ borderRadius: 18, padding: '22px 26px', marginBottom: 20, color: '#fff', position: 'relative', overflow: 'hidden',
+        background: 'linear-gradient(135deg,#4c1d95,#7c3aed 60%,#a855f7)', boxShadow: '0 10px 30px rgba(124,58,237,.35)' }}>
+        <div style={{ position: 'absolute', right: -25, top: -25, width: 130, height: 130, borderRadius: '50%', background: 'rgba(255,255,255,.10)' }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 23, fontWeight: 800 }}><Bot size={26} /> Mary — a IA que atende</div>
+        <div style={{ fontSize: 13.5, opacity: .95, marginTop: 6, maxWidth: 560, lineHeight: 1.5 }}>
+          Treinada nos atendimentos que fecharam, ela conversa com o cliente <b>assinando o nome da atendente responsável</b> e conduz pelo protocolo das 7 etapas até o agendamento.
+        </div>
+      </div>
+
+      {/* Chave pessoal — de cada usuária, sem conflito */}
+      <div className="card" style={{ padding: '17px 20px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 14 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 800, fontSize: 15 }}>💜 Mary nas MINHAS conversas</div>
+          <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5, marginTop: 3 }}>
+            Desligou aqui, a Mary silencia só nas conversas que são suas — <b>as das colegas continuam normais</b>.
+            E em qualquer conversa você ainda liga/desliga pela faixa roxa do Chat.
+          </div>
+        </div>
+        <div style={{ textAlign: 'center' }}>
+          <Chave on={minhaOn} onClick={trocarMinha} />
+          <div style={{ fontSize: 10.5, fontWeight: 900, marginTop: 3, color: minhaOn ? '#7c3aed' : 'var(--err,#dc2626)' }}>{minhaOn ? 'LIGADA' : 'DESLIGADA'}</div>
+        </div>
+      </div>
+
+      {/* Chave geral — só o master */}
+      {master && (
+        <div className="card" style={{ padding: '17px 20px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 14, borderLeft: '4px solid #7c3aed' }}>
+          <Zap size={20} color="#7c3aed" style={{ flexShrink: 0 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 800, fontSize: 15 }}>⚡ Chave GERAL (só você vê)</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5, marginTop: 3 }}>
+              Desliga a Mary pra <b>clínica inteira</b> de uma vez — nenhuma resposta automática sai, nem nas conversas ligadas na mão. As chaves pessoais ficam guardadas pra quando religar.
+            </div>
+          </div>
+          <div style={{ textAlign: 'center' }}>
+            <Chave on={geralOn} onClick={trocarGeral} />
+            <div style={{ fontSize: 10.5, fontWeight: 900, marginTop: 3, color: geralOn ? '#7c3aed' : 'var(--err,#dc2626)' }}>{geralOn ? 'LIGADA' : 'DESLIGADA'}</div>
+          </div>
+        </div>
+      )}
+
+      {/* Equipe da Mary — só o master */}
+      {master && (
+        <div className="card" style={{ padding: '17px 20px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 800, fontSize: 14, marginBottom: 4 }}>
+            <Users size={16} color="#7c3aed" /> Quem tem o botão da Mary
+          </div>
+          <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 10 }}>
+            Cada chave abaixo é INDEPENDENTE — desligar uma não mexe nas outras. Pra dar ou tirar o botão de alguém: Configurações → Usuários.
+          </div>
+          {equipe.length === 0 && <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Ninguém com o botão ainda.</div>}
+          {equipe.map(u2 => {
+            const on = u2.ia_ligada !== false;
+            return (
+              <div key={u2.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px dashed var(--border)' }}>
+                <span style={{ width: 34, height: 34, borderRadius: '50%', background: 'linear-gradient(135deg,#7c3aed,#a855f7)', color: '#fff',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 13, flexShrink: 0 }}>
+                  {String(u2.nome || '?').trim()[0]?.toUpperCase()}
+                </span>
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ display: 'block', fontWeight: 800, fontSize: 13.5 }}>{u2.nome}</span>
+                  <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                    {(Array.isArray(u2.setores) && u2.setores.length ? u2.setores : [u2.setor]).filter(Boolean).join(' + ') || 'sem setor'} · a Mary assina "{String(u2.nome || '').split(' ')[0]}" nas conversas dela
+                  </span>
+                </span>
+                <div style={{ textAlign: 'center' }}>
+                  <Chave on={on} onClick={() => trocarDe(u2)} tamanho={40} />
+                  <div style={{ fontSize: 9.5, fontWeight: 900, marginTop: 2, color: on ? '#7c3aed' : 'var(--err,#dc2626)' }}>{on ? 'LIGADA' : 'DESLIGADA'}</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div style={{ marginTop: 18, padding: '13px 16px', borderRadius: 12, background: 'var(--tq4)', border: '1px solid var(--tq3)', fontSize: 12, color: 'var(--txt2)', lineHeight: 1.6 }}>
+        💡 <b>Como a Mary decide responder:</b> chave geral ligada → chave pessoal da responsável ligada → botão da conversa ligado. Os três de acordo, ela trabalha.
+        Se a atendente escrever na conversa, a Mary sai de cena ali na hora — sempre.
+      </div>
+    </div>
+  );
+}

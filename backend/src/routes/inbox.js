@@ -1345,6 +1345,24 @@ async function vittaResponder(convId) {
   // com os globais desligados — só o master, conversa a conversa.
   const ehConsulta = !!conv.setor && conv.setor !== 'vacinas';
 
+  /* 💁‍♀️ PERSONA E CHAVE PESSOAL (pedido do master):
+     · a IA assina com o NOME DA USUÁRIA responsável pela conversa — o cliente
+       conversa com a "Danielle", não com um robô genérico; sem responsável
+       (ou responsável fora do programa), ela é a Mary;
+     · cada usuária tem a própria chave (ia_ligada): desligou, a IA cala nas
+       conversas DELA — as das colegas seguem normais, sem conflito. */
+  let nomePersona = 'Mary';
+  if (conv.responsavel_id) {
+    const { rows: [respU] } = await query('SELECT nome, ia_consultas, ia_ligada FROM usuarios WHERE id = $1', [conv.responsavel_id]).catch(() => ({ rows: [null] }));
+    if (respU?.ia_consultas === true) {
+      if (respU.ia_ligada === false) {
+        console.log(`VITTA skip conv=${convId}: a responsável desligou a IA pessoal dela`);
+        return;
+      }
+      if (respU.nome) nomePersona = String(respU.nome).trim().split(' ')[0];
+    }
+  }
+
   // Histórico em ordem cronológica: textos + documentos (a Vitta precisa saber
   // que JÁ enviou um PDF para não oferecer de novo)
   const { rows: histRows } = await query(
@@ -1370,7 +1388,7 @@ async function vittaResponder(convId) {
       await zapiCall('/send-text', 'POST', { phone: `55${phoneNum}`, message: saud });
       const { rows: [botMsg] } = await query(
         `INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome)
-         VALUES ($1,'bot','text',$2,'Mary') RETURNING *`, [convId, saud]);
+         VALUES ($1,'bot','text',$2,$3) RETURNING *`, [convId, saud, nomePersona]);
       if (botMsg) socketEmit('new_message', { convId, message: botMsg, conv });
     }
     return;
@@ -1397,7 +1415,7 @@ async function vittaResponder(convId) {
   const conhecimento = montarConhecimentoVacinal();
   const memoriaTexto = formatarMemoria(conv.memoria);
 
-  const sysPromptVacinas = `Você é a Mary, atendente da Vittalis Saúde no WhatsApp (é assim que o cliente te conhece: Mary). Você é uma das que MAIS convertem da equipe — não por ser insistente, mas por ser genuinamente acolhedora. Você trata cada mãe e cada bebê com carinho de verdade, como se fosse da família. Você NÃO é um robô de FAQ. Nunca diga que é uma IA, a menos que perguntem diretamente.
+  const sysPromptVacinas = `Você é a ${nomePersona}, atendente da Vittalis Saúde no WhatsApp (é assim que o cliente te conhece: ${nomePersona}). Você é uma das que MAIS convertem da equipe — não por ser insistente, mas por ser genuinamente acolhedora. Você trata cada mãe e cada bebê com carinho de verdade, como se fosse da família. Você NÃO é um robô de FAQ. Nunca diga que é uma IA, a menos que perguntem diretamente.
 
 SEU TOM DE VOZ (este é o jeito real das melhores atendentes da Vittalis — siga fielmente):
 - Calor humano em primeiro lugar. Use "mamãe", "Sra.", e com bebês/crianças chame de "príncipe" ou "princesa" com naturalidade. Pode usar "flor", "meu bem", "querida" com moderação, quando a conversa já está calorosa.
@@ -1500,7 +1518,7 @@ ${memoriaTexto}` : ''}`;
   // ─── IA ESPECIALIZADA EM CONSULTAS / TRATAMENTO MULTIDISCIPLINAR INFANTIL ───
   // Mãe/pai ansiosos, muitas vezes com suspeita de TEA, atraso de fala, TDAH,
   // dificuldade de aprendizagem. Acolher vem antes de informar. Mensagens curtas.
-  const sysPromptConsultas = `Você é a Mary, acolhedora de consultas da Vittalis Saúde no WhatsApp (é assim que o cliente te conhece: Mary). Você TAMBÉM é mãe — então entende na pele a aflição de quem percebe algo diferente no filho e não sabe o que fazer. Seu dom é ACOLHER: você acalma primeiro, explica simples e conduz com leveza até a primeira avaliação. Nunca diga que é uma IA, a menos que perguntem.
+  const sysPromptConsultas = `Você é a ${nomePersona}, acolhedora de consultas da Vittalis Saúde no WhatsApp (é assim que o cliente te conhece: ${nomePersona}). Você TAMBÉM é mãe — então entende na pele a aflição de quem percebe algo diferente no filho e não sabe o que fazer. Seu dom é ACOLHER: você acalma primeiro, explica simples e conduz com leveza até a primeira avaliação. Nunca diga que é uma IA, a menos que perguntem.
 
 QUEM CHEGA ATÉ VOCÊ (e como se sente):
 Pais preocupados com o desenvolvimento do filho — suspeita de autismo (TEA), atraso na fala, dificuldade de aprender, comportamento, agitação/atenção (TDAH), coordenação. Quase sempre chegam assustados, culpados ou perdidos. ACOLHER vem ANTES de qualquer informação.
@@ -1702,8 +1720,8 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
       if (zr?.ok) {
         const { rows: [pmsg] } = await query(
           `INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, filename, created_at)
-           VALUES ($1,'bot','Mary','document',$2,$3,NOW()) RETURNING *`,
-          [convId, `📎 ${planoNome}`, `${planoNome}.pdf`]
+           VALUES ($1,'bot',$4,'document',$2,$3,NOW()) RETURNING *`,
+          [convId, `📎 ${planoNome}`, `${planoNome}.pdf`, nomePersona]
         ).catch(() => ({ rows: [null] }));
         if (pmsg) socketEmit('new_message', { convId, message: pmsg, conv });
         if (!botReply) botReply = `Acabei de enviar o ${planoNome} em PDF. Qualquer dúvida me chama!`;
@@ -1791,8 +1809,8 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
         if (zr?.ok) {
           const { rows: [pmsg] } = await query(
             `INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, filename, created_at)
-             VALUES ($1,'bot','Mary','document',$2,$3,NOW()) RETURNING *`,
-            [convId, `📎 ${pacoteNome}`, 'Proposta-Vittalis.pdf']
+             VALUES ($1,'bot',$4,'document',$2,$3,NOW()) RETURNING *`,
+            [convId, `📎 ${pacoteNome}`, 'Proposta-Vittalis.pdf', nomePersona]
           ).catch(() => ({ rows: [null] }));
           if (pmsg) socketEmit('new_message', { convId, message: pmsg, conv });
           if (!botReply) botReply = 'Pronto! Acabei de enviar sua proposta em PDF. Qualquer dúvida me chama!';
@@ -1817,11 +1835,13 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
     // Resposta instantânea de 3 parágrafos entrega que é robô.
     try { await zapiCall('/send-chat-state', 'POST', { phone: `55${phoneNum}`, chatState: 'composing' }); } catch {}
     await new Promise(r => setTimeout(r, Math.min(1200 + String(botReply).length * 30, 6000)));
-    await zapiCall('/send-text', 'POST', { phone: `55${phoneNum}`, message: botReply });
+    // Assinatura igual à das atendentes humanas: "*Nome:*" na primeira linha
+    const msgSaida = botReply.trimStart().startsWith('*') ? botReply : `*${nomePersona}:*\n${botReply}`;
+    await zapiCall('/send-text', 'POST', { phone: `55${phoneNum}`, message: msgSaida });
     const { rows: [botMsg] } = await query(
       `INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome)
-       VALUES ($1,'bot','text',$2,'Mary') RETURNING *`,
-      [convId, botReply]
+       VALUES ($1,'bot','text',$2,$3) RETURNING *`,
+      [convId, botReply, nomePersona]
     );
     await query("UPDATE conversas SET last_message=$1, last_from='bot', last_message_at=NOW() WHERE id=$2",
       [botReply.slice(0, 100), convId]);
@@ -4486,6 +4506,27 @@ async function processarAgendadas() {
 setInterval(processarAgendadas, 60000);
 setTimeout(processarAgendadas, 15000); // primeira passada logo após subir
 
+/* 🧹 VASSOURA DA MARY — mensagem de cliente sem resposta não morre no vácuo
+   (caso real do master: cliente escreveu às 02:07, a IA foi ligada depois e a
+   mensagem ficou lá). A cada 5 min: conversas com o bot LIGADO onde a última
+   palavra é do cliente há 3+ minutos → chama a Mary. O vittaResponder revalida
+   tudo (freio geral, chave pessoal da responsável, última mensagem) — aqui é
+   só o gatilho. Janela de 48h: mais velho que isso é papel do resgate. */
+async function vassouraMary() {
+  try {
+    if (await automacaoPausada('bot')) return;
+    const { rows } = await query(`
+      SELECT id FROM conversas
+       WHERE bot_ativo = true AND last_from = 'contact'
+         AND last_message_at BETWEEN NOW() - interval '48 hours' AND NOW() - interval '3 minutes'
+       ORDER BY last_message_at DESC LIMIT 10`).catch(() => ({ rows: [] }));
+    for (const c of rows) agendarVitta(c.id);
+    if (rows.length) console.log(`🧹 Vassoura da Mary: ${rows.length} conversa(s) sem resposta encaminhadas pra IA`);
+  } catch (e) { console.error('vassoura Mary:', e.message); }
+}
+setInterval(vassouraMary, 5 * 60 * 1000);
+setTimeout(vassouraMary, 30000); // primeira varrida logo após subir
+
 /* 📋 FILA DE MENSAGENS AUTOMÁTICAS — o master vê TUDO que está pra sair e pode
    cancelar antes. Sem esta tela, descobrir "quem mandou isso" só depois que o
    cliente recebeu (foi o caso da mensagem de teste). */
@@ -4867,7 +4908,8 @@ r.put('/conversations/:id/messages/:msgId', async (req, res) => {
     if (!novo) return res.status(400).json({ error: 'Mensagem vazia' });
     const { rows: [m] } = await query('SELECT * FROM mensagens WHERE id = $1 AND conversa_id = $2', [req.params.msgId, req.params.id]);
     if (!m) return res.status(404).json({ error: 'Mensagem não encontrada' });
-    if (m.from_type !== 'me') return res.status(403).json({ error: 'Só dá pra editar mensagens enviadas pela equipe' });
+    // Mensagem da IA (Mary) também pode ser editada (pedido do master)
+    if (!['me','bot'].includes(m.from_type)) return res.status(403).json({ error: 'Só dá pra editar mensagens enviadas pela equipe ou pela IA' });
     if (m.type !== 'text') return res.status(400).json({ error: 'Só mensagens de texto podem ser editadas' });
     if (m.status === 'deleted') return res.status(400).json({ error: 'Essa mensagem foi apagada' });
     if (!m.wa_msg_id) return res.status(400).json({ error: 'Aguarde a confirmação de envio pra editar' });
@@ -4909,7 +4951,8 @@ r.delete('/conversations/:id/messages/:msgId', async (req, res) => {
   try {
     const { rows: [m] } = await query('SELECT * FROM mensagens WHERE id = $1 AND conversa_id = $2', [req.params.msgId, req.params.id]);
     if (!m) return res.status(404).json({ error: 'Mensagem não encontrada' });
-    if (m.from_type !== 'me') return res.status(403).json({ error: 'Só dá pra apagar mensagens enviadas pela equipe' });
+    // Mensagem da IA (Mary) também pode ser apagada (pedido do master)
+    if (!['me','bot'].includes(m.from_type)) return res.status(403).json({ error: 'Só dá pra apagar mensagens enviadas pela equipe ou pela IA' });
     if (m.status === 'deleted') return res.json({ ok: true, whatsapp: true });
 
     const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);

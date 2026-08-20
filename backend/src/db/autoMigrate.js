@@ -1777,6 +1777,9 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
        estão convertendo — a Vitta entra como reforço DELAS. A flag por usuária
        controla quem vê o convite/botão da IA no Chat (o master sempre vê). */
     await query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS ia_consultas BOOLEAN DEFAULT false`).catch(() => {});
+    // Chave PESSOAL da IA: cada usuária liga/desliga a Mary nas conversas DELA,
+    // sem afetar as colegas (pedido do master: "não quero que isso crie conflito")
+    await query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS ia_ligada BOOLEAN DEFAULT true`).catch(() => {});
     const { rows: [flagTrioIA] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_ia_consultas_trio_v1'");
     if (!flagTrioIA) {
       const rTrio = await query(`UPDATE usuarios SET ia_consultas = true, updated_at = NOW()
@@ -2066,6 +2069,23 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
          `Agora têm o botão da Mary: ${comIA2.map(u => u.nome.split(' ')[0]).join(', ') || '(ninguém — confira os nomes)'}. Nas conversas de vacinas ela só entra quando a atendente LIGAR na conversa — o automático de vacinas continua desligado. Em consultas/terapias segue como estava: ligada de início.`]).catch(() => {});
       await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_ia_botao_raylane_stefany_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
       console.log('🤖 Botão da IA liberado pra Raylane e Stefany');
+    }
+
+    /* 🤖 Garantia final das chaves da IA (master avisou que o botão "sumiu"
+       pra Danielle e Stefany): reafirma as CINCO de uma vez e confirma no
+       sino. Rodar de novo não faz mal — só liga quem deveria estar ligada. */
+    const { rows: [flagCinco] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_ia_flags_cinco_v1'");
+    if (!flagCinco) {
+      await query(`UPDATE usuarios SET ia_consultas = true, updated_at = NOW()
+                    WHERE ativo = true AND role <> 'master'
+                      AND (nome ILIKE 'danielle%' OR nome ILIKE 'suellen%' OR nome ILIKE 'suelen%'
+                        OR nome ILIKE 'mayara%' OR nome ILIKE 'raylane%' OR nome ILIKE 'stefany%' OR nome ILIKE 'stephanie%')`).catch(() => {});
+      const { rows: cinco } = await query(`SELECT nome, ia_ligada FROM usuarios WHERE ativo = true AND ia_consultas = true ORDER BY nome`).catch(() => ({ rows: [] }));
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+        ['🤖 Botão da Mary — confirmação',
+         `Com o botão agora: ${cinco.map(u => `${u.nome.split(' ')[0]}${u.ia_ligada === false ? ' (chave pessoal desligada)' : ''}`).join(', ') || 'ninguém — me avise!'}. O botão aparece em TODA conversa (mesmo sem setor classificado). Painel geral: menu → Mary (IA).`]).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_ia_flags_cinco_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log(`🤖 Chaves da IA reafirmadas pras cinco (${cinco.length} com o botão)`);
     }
 
     console.log('✅ Auto-migrate complete');
