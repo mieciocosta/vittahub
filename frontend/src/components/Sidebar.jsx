@@ -52,7 +52,7 @@ const NAV = [
   // qualquer atendente consulta valores e monta orçamento sem sair da conversa.
   { to:'/tabela-precos', icon:FileText,     label:'Tabela de Preços', cor:'#0ea5e9' },
   // 🤖 Painel da Mary — só pra quem tem o botão da IA (e o master)
-  { to:'/mary', icon:Bot, label:'Mary (IA)', iaBotao:true, cor:'#a855f7' },
+  { to:'/mary', icon:Bot, label:'Assistente IA', iaBotao:true, cor:'#a855f7' },
   // 🏆 Coladinho na Tabela de Preços (pedido do master): orçou → estuda quem
   // fechou. Cada case agora vira uma aula de vendas gerada pela IA.
   { to:'/cases-sucesso', icon:Trophy,       label:'Cases de Sucesso', cor:'#eab308' },
