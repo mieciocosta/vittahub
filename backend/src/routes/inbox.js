@@ -3733,6 +3733,17 @@ r.patch('/conversations/:id/classificar', async (req, res) => {
     if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
     cacheUpdate(conv);
     socketEmit('conv_setor', { convId: conv.id, setor: mapa.setor, classificacao: cls, categoria: mapa.categoria });
+    /* 🤖 "De início, quem está ligada é a IA" (master): classificou pra
+       consultas/terapias → a Vitta já entra em campo nesta conversa. A regra
+       de sempre segue valendo: a atendente respondeu, a Vitta sai de cena —
+       e o botão na conversa desliga quando quiserem. */
+    if (['consultas', 'terapias'].includes(mapa.setor) && !conv.bot_ativo && !(await automacaoPausada('bot'))) {
+      const { rows: [cfgB] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'").catch(() => ({ rows: [{}] }));
+      if ((cfgB?.valor?.consultaIA) !== false) {
+        const { rows: [cB] } = await query('UPDATE conversas SET bot_ativo = true WHERE id = $1 RETURNING *', [conv.id]).catch(() => ({ rows: [] }));
+        if (cB) { cacheUpdate(cB); socketEmit('bot_status', { convId: conv.id, bot_ativo: true }); conv.bot_ativo = true; }
+      }
+    }
     // O lead vinculado herda o setor (pra lista de Leads bater com o acesso)
     await query('UPDATE leads SET setor = $1 WHERE id = (SELECT lead_id FROM conversas WHERE id = $2 AND lead_id IS NOT NULL)', [mapa.setor, conv.id]).catch(() => {});
 

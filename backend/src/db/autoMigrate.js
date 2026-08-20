@@ -1848,6 +1848,31 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log('🤖 Vitta liberada pra Suellen (lista completa no sino do master)');
     }
 
+    /* 🤖 ORDEM FINAL DO MASTER ("não esqueça: somente elas"): a chave da Vitta
+       fica SÓ com Danielle, Suellen e Mayara — quem mais estiver com ela perde
+       (Stefany/Dra saem se estavam). E "de início quem está ligada é a IA":
+       liga a Vitta nas conversas de consultas/terapias que não têm atendente
+       falando nas últimas 24h (atendimento em curso ninguém atropela). */
+    const { rows: [flagSoTrio] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_ia_somente_trio_v1'");
+    if (!flagSoTrio) {
+      const ehTrio = "(nome ILIKE 'danielle%' OR nome ILIKE 'suellen%' OR nome ILIKE 'suelen%' OR nome ILIKE 'mayara%')";
+      await query(`UPDATE usuarios SET ia_consultas = false, updated_at = NOW() WHERE ia_consultas = true AND NOT ${ehTrio}`).catch(() => {});
+      await query(`UPDATE usuarios SET ia_consultas = true, updated_at = NOW() WHERE ativo = true AND role <> 'master' AND ${ehTrio}`).catch(() => {});
+      const { rows: comIA } = await query(`SELECT nome FROM usuarios WHERE ativo = true AND ia_consultas = true ORDER BY nome`).catch(() => ({ rows: [] }));
+      const rLiga = await query(`
+        UPDATE conversas c SET bot_ativo = true
+         WHERE setor IN ('consultas','terapias') AND COALESCE(bot_ativo, false) = false
+           AND NOT EXISTS (SELECT 1 FROM mensagens m WHERE m.conversa_id = c.id
+                             AND m.from_type = 'me' AND m.created_at > NOW() - interval '24 hours')`).catch(() => ({ rowCount: 0 }));
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+        ['🤖 Vitta — do jeito que o senhor mandou',
+         `Chave da Vitta SOMENTE com: ${comIA.map(u => u.nome.split(' ')[0]).join(', ') || 'ninguém (confira os nomes)'}.\n` +
+         `A IA já entrou LIGADA em ${rLiga.rowCount || 0} conversa(s) de consultas/terapias (as com atendente falando nas últimas 24h ficaram de fora).\n` +
+         `Elas ligam e desligam pelo botão na própria conversa — e classificar uma conversa pra consultas já liga a Vitta sozinha.`]).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_ia_somente_trio_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log(`🤖 Vitta somente com o trio; ligada em ${rLiga.rowCount || 0} conversa(s)`);
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);

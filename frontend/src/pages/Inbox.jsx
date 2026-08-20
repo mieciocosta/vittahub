@@ -2246,7 +2246,13 @@ export default function Inbox({ onUnreadChange }) {
           {sel && sel.setor && sel.setor !== 'vacinas' && sel.bot_ativo && (user?.ia_consultas === true || user?.role === 'master') && (
             <div style={{ display:'flex', alignItems:'center', gap:8, padding:'5px 12px', flexShrink:0, fontSize:11, fontWeight:800,
               background:'rgba(124,58,237,.08)', borderTop:'1px solid rgba(124,58,237,.25)', color:'#7c3aed' }}>
-              🤖 Vitta trabalhando nesta conversa — se você responder, ela sai de cena na hora.
+              <span style={{ flex:1, minWidth:0 }}>🤖 Vitta trabalhando nesta conversa — se você responder, ela sai de cena na hora.</span>
+              {/* Liga e desliga no MESMO lugar (pedido do master): um botão na conversa */}
+              <button onClick={toggleBot}
+                style={{ flexShrink:0, padding:'4px 11px', borderRadius:8, border:'1.5px solid #c4b5fd', cursor:'pointer',
+                  background:'#fff', color:'#6d28d9', fontWeight:900, fontSize:10.5 }}>
+                ⏸️ Desligar a Vitta
+              </button>
             </div>
           )}
 
