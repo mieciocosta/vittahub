@@ -2052,6 +2052,22 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log(`💁‍♀️ Mary: ${rM.rowCount || 0} bom-dia(s) pendentes atualizados`);
     }
 
+    /* 🤖 Raylane e Stefany também ganham o BOTÃO da IA (pedido do master:
+       "cada usuário pode ligar e desligar"). Nas conversas delas (vacinas) a
+       Mary só entra quando ELAS ligarem, conversa a conversa — nada muda no
+       automático de vacinas, que segue desligado. */
+    const { rows: [flagVacIA] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_ia_botao_raylane_stefany_v1'");
+    if (!flagVacIA) {
+      await query(`UPDATE usuarios SET ia_consultas = true, updated_at = NOW()
+                    WHERE ativo = true AND role <> 'master' AND (nome ILIKE 'raylane%' OR nome ILIKE 'stefany%' OR nome ILIKE 'stephanie%')`).catch(() => {});
+      const { rows: comIA2 } = await query(`SELECT nome FROM usuarios WHERE ativo = true AND ia_consultas = true ORDER BY nome`).catch(() => ({ rows: [] }));
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+        ['🤖 Botão da IA — lista atualizada',
+         `Agora têm o botão da Mary: ${comIA2.map(u => u.nome.split(' ')[0]).join(', ') || '(ninguém — confira os nomes)'}. Nas conversas de vacinas ela só entra quando a atendente LIGAR na conversa — o automático de vacinas continua desligado. Em consultas/terapias segue como estava: ligada de início.`]).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_ia_botao_raylane_stefany_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🤖 Botão da IA liberado pra Raylane e Stefany');
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);
