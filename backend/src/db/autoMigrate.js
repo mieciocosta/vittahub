@@ -887,6 +887,13 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
     await query(`CREATE TABLE IF NOT EXISTS cases_aulas (
       conversa_id TEXT PRIMARY KEY, texto TEXT, por TEXT,
       created_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
+    /* 🩺 Pacientes do VittaMed espelhados aqui (cache local da ponte).
+       Quem está cadastrado lá JÁ CONSULTOU — a Vitta usa isso pra tratar o
+       contato como paciente da casa, não como desconhecido. Telefone guardado
+       só em dígitos, sem o 55. */
+    await query(`CREATE TABLE IF NOT EXISTS vittamed_pacientes (
+      telefone TEXT PRIMARY KEY, nome TEXT, dados JSONB DEFAULT '{}'::jsonb,
+      visto_em TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
     await query(`CREATE TABLE IF NOT EXISTS vendas_excluidas (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
       venda_id TEXT, dados JSONB,
@@ -1565,6 +1572,33 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
         }
       } catch (e) { console.error('remove Beatriz/Steicy:', e.message); }
       await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_remove_beatriz_steicy_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+    }
+
+    /* 🤖 IA DE CONSULTAS LIGADA (ordem do master: "a partir de agora eu quero
+       que a IA responda" os atendimentos de consulta). Duas chaves, de propósito:
+       · área 'bot' da automação religada — sem ela NADA responde sozinho;
+       · config 'bot': consultaIA=true e ativo=false — a Vitta assume SÓ as
+         conversas de consultas/terapias; o fluxo automático de vacinas (menu/
+         reabertura geral) continua desligado como o master deixou.
+       Merge com || (jsonb_set não cria pai ausente e falha calado — já caímos
+       nessa). Flag única: se o master desligar depois pelo painel, o próximo
+       deploy NÃO religa sozinho. */
+    const { rows: [flagIACons] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_ia_consultas_ligada_v1'");
+    if (!flagIACons) {
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('automacao_pausada', $1::jsonb)
+                   ON CONFLICT (chave) DO UPDATE SET
+                     valor = COALESCE(configuracoes.valor, '{}'::jsonb) ||
+                             jsonb_build_object('ligado',
+                               COALESCE(configuracoes.valor->'ligado', '{}'::jsonb) || '{"bot":true}'::jsonb,
+                               'por', 'Dr Miécio (IA de consultas)', 'em', to_char(NOW(),'YYYY-MM-DD"T"HH24:MI:SSZ')),
+                     updated_at = NOW()`,
+        [JSON.stringify({ ligado: { bot: true, followup: true, lembretes: true, agendadas: false }, por: 'Dr Miécio (IA de consultas)' })]).catch((e) => console.error('seed IA consultas (area):', e.message));
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('bot', '{"ativo":false,"consultaIA":true}'::jsonb)
+                   ON CONFLICT (chave) DO UPDATE SET
+                     valor = COALESCE(configuracoes.valor, '{}'::jsonb) || '{"ativo":false,"consultaIA":true}'::jsonb,
+                     updated_at = NOW()`).catch((e) => console.error('seed IA consultas (bot):', e.message));
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_ia_consultas_ligada_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🤖 IA de CONSULTAS ligada (bot geral de vacinas segue desligado)');
     }
 
     console.log('✅ Auto-migrate complete');

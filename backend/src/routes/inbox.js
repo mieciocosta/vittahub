@@ -13,6 +13,7 @@ import { getCalendario as getCalendarioVacinal } from '../services/calendario.js
 import { sincronizarFidelidadeVittasys, pontePronta, ultimaSincronizacaoFidelidade, setAvisarCacheConversaFidelidade } from '../services/fidelidadeVittasys.js';
 import { htmlParaPDF } from '../services/pdf.js';
 import { pareceMensagemDeTeste, pareceArquivoDeTeste, avisarTesteBloqueado } from '../services/freio.js';
+import { pacienteVittaMedLocal } from './vittamed.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const r = express.Router();
@@ -108,6 +109,18 @@ export const usaClaude = () => !!process.env.ANTHROPIC_API_KEY;
 // baratas: score, follow-up, resumo) → Claude Haiku 4.5. Ajustável por env.
 export const CLAUDE_MODEL      = () => process.env.ANTHROPIC_MODEL      || 'claude-opus-5';
 export const CLAUDE_MODEL_MINI = () => process.env.ANTHROPIC_MODEL_MINI || 'claude-haiku-4-5';
+
+/* 🧠 Manual da casa (consultas) — texto gerado pela IA a partir das conversas
+   que AGENDARAM, injetado no prompt da Vitta. Cache de 5min: é lido a cada
+   resposta do bot. */
+let _baseConsCache = { texto: null, em: 0 };
+export function invalidarBaseConsultas() { _baseConsCache = { texto: null, em: 0 }; }
+async function baseConsultas() {
+  if (Date.now() - _baseConsCache.em < 300000) return _baseConsCache.texto;
+  const { rows: [c] } = await query("SELECT valor FROM configuracoes WHERE chave = 'vitta_base_consultas'").catch(() => ({ rows: [] }));
+  _baseConsCache = { texto: c?.valor?.texto || null, em: Date.now() };
+  return _baseConsCache.texto;
+}
 
 let _anthropic = null;
 export async function anthropicClient() {
@@ -1560,6 +1573,23 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
     sysPrompt += `\n\nESTUDE ESTES EXEMPLOS REAIS DE ATENDIMENTOS QUE CONVERTERAM. Copie o JEITO (tom, ritmo, como acolhe, como conduz pro agendamento) — mas NUNCA copie dados específicos (nomes, valores, datas) deles; use sempre os dados reais do cliente de agora:\n\n${exemplos}`;
   }
 
+  /* 🧠 MANUAL DA CASA (consultas) — a base forte pedida pelo master: gerado das
+     conversas reais que AGENDARAM + tabela de preços oficial + profissionais.
+     É o que faz a Vitta conduzir qualquer atendimento de consulta com os dados
+     verdadeiros da casa em vez de improvisar. */
+  if (ehConsulta) {
+    const manual = await baseConsultas();
+    if (manual) {
+      sysPrompt += `\n\nMANUAL DA CASA — CONSULTAS (aprendido dos atendimentos reais que agendaram + tabela oficial de preços; para VALORES e dados da clínica, vale o que está AQUI; o que não estiver aqui, a equipe confirma — NUNCA invente):\n${manual}`;
+    }
+    // 🩺 Quem está no VittaMed JÁ CONSULTOU na casa — é paciente voltando
+    const pac = await pacienteVittaMedLocal(conv.phone).catch(() => null);
+    if (pac) {
+      const extras = Object.entries(pac.dados || {}).map(([k, v]) => `${k.replace(/_/g, ' ')}: ${v}`).join(' · ');
+      sysPrompt += `\n\nESTE CONTATO JÁ É PACIENTE DA CASA (cadastro no VittaMed${pac.nome ? ` — ${pac.nome}` : ''}${extras ? ` · ${extras}` : ''}). Trate como quem VOLTA: acolha como conhecida da família Vittalis, não apresente a clínica do zero e conduza direto pro que a pessoa precisa (retorno, nova avaliação ou dúvida).`;
+    }
+  }
+
   const tools = [{
     name: 'enviar_proposta',
     description: 'Gera e envia em PDF a proposta de vacinas via WhatsApp. Use pacoteId quando o cliente quer as vacinas de um mês específico do calendário (preço fechado com desconto). Use a lista vacinas apenas para pedidos avulsos que não correspondem a um pacote mensal.',
@@ -2145,7 +2175,11 @@ r.post('/webhook/zapi', async (req, res) => {
       .catch(() => ({ rows: [{ valor: { ativo: false, consultaIA: false } }] }));
     const botGeralOn = (cfgIns?.valor?.ativo) !== false;
     const iaConsultasOn = (cfgIns?.valor?.consultaIA) !== false;
-    const novoBotAtivo = !isMe && !isGroupMsg && (botGeralOn || iaConsultasOn);
+    /* Conversa NOVA (ainda sem setor) só nasce com o bot ligado se o bot GERAL
+       estiver ligado. A IA de consultas sozinha não liga conversa nova: ela
+       assume depois que a conversa É de consultas — senão o menu/fluxo de
+       vacinas voltaria pelo interruptor errado. */
+    const novoBotAtivo = !isMe && !isGroupMsg && botGeralOn;
 
     const { rows: [conv] } = await query(`
       INSERT INTO conversas (channel, contact_name, contact_id, phone, unread, last_message, last_message_at, profile_pic, chat_lid, bot_ativo)
@@ -2322,10 +2356,12 @@ r.post('/webhook/zapi', async (req, res) => {
       return;
     }
 
-    // Auto-reabertura: vale quando o bot geral está ligado OU quando só a IA de
-    // Consultas está ligada (aí a IA reassume a conversa sozinha após 24h paradas).
-    // iaConsultasOn já foi calculado lá em cima no upsert da conversa.
-    const precisaReabrir = (botGlobalAtivo || iaConsultasOn) && textoParaIA &&
+    // Auto-reabertura: bot geral ligado reabre qualquer conversa; a IA de
+    // Consultas sozinha reassume SÓ conversa que JÁ É de consultas/terapias —
+    // nunca religa vacinas (a IA de vacinas foi desligada pela gestão) nem
+    // conversa sem setor (essa é triagem, trabalho do bot geral).
+    const ehConvConsultas = !!conv.setor && conv.setor !== 'vacinas';
+    const precisaReabrir = (botGlobalAtivo || (iaConsultasOnD && ehConvConsultas)) && textoParaIA &&
       (!conv.triagem_ts || (Date.now() - new Date(conv.triagem_ts).getTime()) >= 24 * 3600 * 1000);
     console.log(`TRIAGEM conv=${conv.id} reabrir=${!!precisaReabrir} triagem_ts=${conv.triagem_ts || 'null'} bot=${conv.bot_ativo} setor=${conv.setor || '-'} menu_enviado=${conv.menu_enviado}`);
     if (precisaReabrir) {
@@ -6701,6 +6737,96 @@ ${t.transcript.slice(0, 9000)}`;
                  ON CONFLICT (conversa_id) DO UPDATE SET texto = $2, por = $3, created_at = NOW()`,
       [req.params.convId, texto, req.user.nome]);
     res.json({ texto, por: req.user.nome, created_at: new Date().toISOString() });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* 🧠 BASE DE CONSULTAS DA VITTA (pedido do master: "uma base muito forte pra
+   ela saber conduzir todo e qualquer tipo de atendimento de consulta, porque
+   a partir de agora eu quero que a IA responda").
+   O gerador junta TRÊS fontes reais e destila o manual da casa:
+   1. as conversas de consultas que DERAM CERTO (agendaram ou venderam);
+   2. a tabela de preços oficial (a IA nunca inventa valor);
+   3. os profissionais cadastrados e seus dias.
+   O manual é salvo e injetado no prompt da Vitta em TODA conversa de consulta. */
+r.get('/vitta-base', async (req, res) => {
+  try {
+    if (!['master', 'supervisor'].includes(req.user.role)) return res.status(403).json({ error: 'Acesso restrito à gestão.' });
+    const { rows: [c] } = await query("SELECT valor FROM configuracoes WHERE chave = 'vitta_base_consultas'").catch(() => ({ rows: [] }));
+    res.json(c?.valor || { texto: null });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+r.post('/vitta-base/gerar', async (req, res) => {
+  try {
+    if (!['master', 'supervisor'].includes(req.user.role)) return res.status(403).json({ error: 'Acesso restrito à gestão.' });
+    if (!temIA()) return res.status(400).json({ error: 'IA não configurada.' });
+    // 1) Conversas de consultas que deram certo: vendas + agendamentos
+    const { rows: convsVenda } = await query(`
+      SELECT DISTINCT ON (v.conversa_id) v.conversa_id id, v.data_venda dt
+      FROM vendas v JOIN conversas c ON c.id = v.conversa_id
+      WHERE v.status_pagamento IN ('pago','cortesia') AND v.conversa_id IS NOT NULL
+        AND COALESCE(v.setor, c.setor) IN ('consultas','terapias')
+      ORDER BY v.conversa_id, v.data_venda DESC LIMIT 40`).catch(() => ({ rows: [] }));
+    const { rows: convsAgd } = await query(`
+      SELECT DISTINCT ON (a.conversa_id) a.conversa_id id, a.data dt
+      FROM agenda_eventos a JOIN conversas c ON c.id = a.conversa_id
+      WHERE a.conversa_id IS NOT NULL AND COALESCE(a.status,'') NOT ILIKE 'cancel%'
+        AND COALESCE(a.setor, c.setor) IN ('consultas','terapias')
+      ORDER BY a.conversa_id, a.data DESC LIMIT 40`).catch(() => ({ rows: [] }));
+    const vistos = new Set(convsVenda.map(x => String(x.id)));
+    const fontes = convsVenda.concat(convsAgd.filter(x => !vistos.has(String(x.id))))
+      .sort((a, b) => new Date(b.dt) - new Date(a.dt)).slice(0, 12);
+    const transcripts = [];
+    for (const cv of fontes) {
+      if (transcripts.length >= 8) break;
+      const t = await montarTranscriptConversa(cv.id, 60).catch(() => null);
+      if (t?.transcript) transcripts.push(`### Atendimento que DEU CERTO:\n${t.transcript.slice(0, 2200)}`);
+    }
+    // 2) Tabela de preços oficial
+    const { rows: [tp] } = await query("SELECT valor FROM configuracoes WHERE chave = 'tabela_precos_consultas'").catch(() => ({ rows: [] }));
+    const precosTxt = (Array.isArray(tp?.valor?.itens) ? tp.valor.itens : [])
+      .map(i => `• ${i.nome}${i.categoria ? ` [${i.categoria}]` : ''} — R$ ${Number(i.valor).toFixed(2)}${i.obs ? ` (${i.obs})` : ''}`).join('\n');
+    // 3) Profissionais e dias
+    const { rows: profs } = await query(`SELECT nome, especialidade, setor, disponibilidade FROM profissionais
+      WHERE ativo = true AND COALESCE(setor,'consultas') IN ('consultas','terapias') ORDER BY nome LIMIT 40`).catch(() => ({ rows: [] }));
+    const profsTxt = profs.map(p => {
+      const dias = Object.keys(p.disponibilidade || {}).filter(d => p.disponibilidade[d]).join(', ');
+      return `• ${p.nome}${p.especialidade ? ` — ${p.especialidade}` : ''}${dias ? ` (atende: ${dias})` : ''}`;
+    }).join('\n');
+    if (!transcripts.length && !precosTxt && !profsTxt) {
+      return res.status(400).json({ error: 'Ainda não há matéria-prima: nenhuma conversa de consulta que agendou/vendeu, tabela de preços vazia e nenhum profissional cadastrado.' });
+    }
+    const sys = 'Você escreve o manual interno que a atendente virtual (Vitta) da Vittalis Saúde usa pra conduzir atendimentos de CONSULTAS no WhatsApp. Você destila conversas reais que deram certo em instruções acionáveis. Português do Brasil, direto, sem enrolação.';
+    const user = `Com o material abaixo, escreva o MANUAL DA CASA — CONSULTAS em markdown, com EXATAMENTE estas seções:
+## O caminho que agenda (do oi ao horário marcado)
+(passo a passo numerado observado nas conversas reais; em cada passo, 1 frase-modelo pronta tirada/adaptada delas)
+## Objeções reais e respostas que funcionaram
+(as objeções que apareceram nas conversas — preço, "vou ver com o marido", medo, distância — e a resposta que destravou, citando/adaptando a frase real)
+## Respostas oficiais da casa
+(perguntas frequentes com resposta pronta; VALORES somente os da tabela oficial abaixo — item sem valor na tabela responde "a equipe confirma o valor certinho")
+## Profissionais e dias de atendimento
+(liste do jeito que a Vitta pode falar com o cliente)
+## O que perde o agendamento
+(erros vistos ou quase-erros nas conversas: demora, textão, preço seco sem próximo passo…)
+
+REGRAS: use SOMENTE o material fornecido — nada inventado (nem valor, nem profissional, nem horário); onde faltar dado, escreva "a equipe confirma". Máximo ~700 palavras. Escreva as instruções falando COM a Vitta ("faça", "responda", "ofereça").
+
+TABELA OFICIAL DE PREÇOS:
+${precosTxt || '(vazia — nenhum valor pode ser citado)'}
+
+PROFISSIONAIS CADASTRADOS:
+${profsTxt || '(nenhum cadastrado — não cite nomes)'}
+
+CONVERSAS REAIS QUE DERAM CERTO (${transcripts.length}):
+${transcripts.join('\n\n') || '(nenhuma ainda)'}`;
+    const data = await openaiMessages({ model: 'gpt-4o', max_tokens: 2200, system: sys, messages: [{ role: 'user', content: user }] });
+    if (data.error) return res.status(400).json({ error: erroIAamigavel(data.error) });
+    const texto = (data.content?.find(c => c.type === 'text')?.text || '').trim();
+    if (!texto) return res.status(400).json({ error: 'A IA não retornou o manual. Tente de novo.' });
+    const registro = { texto, conversas: transcripts.length, itens_tabela: (tp?.valor?.itens || []).length, profissionais: profs.length, por: req.user.nome, em: new Date().toISOString() };
+    await query(`INSERT INTO configuracoes (chave, valor) VALUES ('vitta_base_consultas', $1::jsonb)
+                 ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`, [JSON.stringify(registro)]);
+    invalidarBaseConsultas();
+    res.json(registro);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

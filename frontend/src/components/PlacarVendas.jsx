@@ -83,6 +83,20 @@ export default function PlacarVendas() {
   const [festa, setFesta] = useState(false);   // comemoração de venda ao vivo
   const [pausa, setPausa] = useState(null);    // ⏸️ chaves do automático
   const [painel, setPainel] = useState(false); // painel de chaves (master)
+  // 🧠 Base de consultas da Vitta (manual gerado das conversas que agendaram)
+  const [base, setBase] = useState(null);
+  const [gerandoBase, setGerandoBase] = useState(false);
+  useEffect(() => {
+    if (painel) api.get('/inbox/vitta-base').then(setBase).catch(() => {});
+  }, [painel]); // eslint-disable-line
+  const gerarBase = async () => {
+    setGerandoBase(true);
+    try {
+      const d = await api.post('/inbox/vitta-base/gerar', {});
+      setBase(d);
+    } catch (e) { setBase(b => ({ ...(b || {}), erro: e.message })); }
+    setGerandoBase(false);
+  };
   const sockRef = useRef(null);
 
   const carregar = () => {
@@ -409,6 +423,19 @@ export default function PlacarVendas() {
                     </div>
                   );
                 })}
+                {/* 🧠 Cérebro de consultas — o manual que a Vitta usa pra conduzir */}
+                <div style={{ marginTop: 10, padding: '9px 11px', borderRadius: 10, background: 'var(--tq4)', border: '1px solid var(--tq3)' }}>
+                  <div style={{ fontWeight: 900, fontSize: 12 }}>🧠 Cérebro de consultas da Vitta</div>
+                  <div style={{ fontSize: 10.5, color: 'var(--muted)', lineHeight: 1.4, margin: '3px 0 7px' }}>
+                    {base?.texto
+                      ? <>Base gerada {base.em ? `em ${new Date(base.em).toLocaleDateString('pt-BR')}` : ''} com <b>{base.conversas || 0}</b> conversa(s) que agendaram, <b>{base.itens_tabela || 0}</b> preço(s) e <b>{base.profissionais || 0}</b> profissional(is).</>
+                      : 'Ainda sem base — gere pra Vitta aprender com as conversas que agendaram + tabela de preços + profissionais.'}
+                    {base?.erro && <span style={{ color: 'var(--err)', fontWeight: 700 }}> {base.erro}</span>}
+                  </div>
+                  <button onClick={gerarBase} disabled={gerandoBase} className="btn btn-p btn-sm" style={{ width: '100%', fontWeight: 800 }}>
+                    {gerandoBase ? '🧠 Estudando as conversas…' : (base?.texto ? '↻ Atualizar a base' : '🧠 Gerar a base agora')}
+                  </button>
+                </div>
                 <button onClick={pararTudo} className="btn btn-s" style={{ width: '100%', marginTop: 10, color: 'var(--err,#dc2626)', fontWeight: 800 }}>
                   ⏸️ Parar tudo de uma vez
                 </button>

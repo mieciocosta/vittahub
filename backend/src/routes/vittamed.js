@@ -164,4 +164,115 @@ r.get('/status', auth, async (req, res) => {
   }
 });
 
+/* ─── 🩺 PACIENTES DO VITTAMED ─────────────────────────────────────────────────
+   "Os pacientes de lá estão cadastrados é porque houveram consultas" (master).
+   Espelhamos os pacientes num cache local: a Vitta reconhece o telefone e trata
+   quem já consultou como paciente da casa. A busca ao vivo alimenta o cache; a
+   sincronização puxa a lista inteira de uma vez. */
+const soDigitos = (t) => {
+  let d = String(t || '').replace(/\D/g, '');
+  if (d.startsWith('55') && d.length >= 12) d = d.slice(2);
+  return d;
+};
+
+// Consulta usada pelo BOT (sem HTTP interno): só o cache local, rápido e barato.
+export async function pacienteVittaMedLocal(telefone) {
+  const d = soDigitos(telefone);
+  if (!d) return null;
+  try {
+    const { query } = await import('../db/pool.js');
+    const { rows: [p] } = await query('SELECT nome, dados, visto_em FROM vittamed_pacientes WHERE telefone = $1', [d]);
+    return p || null;
+  } catch { return null; }
+}
+
+async function upsertPaciente(query, p) {
+  const d = soDigitos(p.telefone || p.phone || p.celular);
+  if (!d) return false;
+  const nome = String(p.nome || p.paciente || '').slice(0, 120) || null;
+  const dados = {};
+  for (const k of ['nascimento', 'responsavel', 'ultima_consulta', 'ultimo_atendimento', 'convenio', 'profissional']) {
+    if (p[k] != null && String(p[k]).trim() !== '') dados[k] = String(p[k]).slice(0, 160);
+  }
+  await query(`INSERT INTO vittamed_pacientes (telefone, nome, dados, visto_em)
+               VALUES ($1,$2,$3::jsonb,NOW())
+               ON CONFLICT (telefone) DO UPDATE SET nome = COALESCE($2, vittamed_pacientes.nome),
+                 dados = vittamed_pacientes.dados || $3::jsonb, visto_em = NOW()`,
+    [d, nome, JSON.stringify(dados)]);
+  return true;
+}
+
+// GET /paciente?telefone= — equipe de consultas/gestão. Cache primeiro; se a
+// ponte estiver de pé, confirma lá e atualiza o cache.
+r.get('/paciente', auth, async (req, res) => {
+  if (!podeVerVittaMed(req.user)) return res.status(403).json({ error: 'Os pacientes do VittaMed são da equipe de consultas.' });
+  const d = soDigitos(req.query.telefone);
+  if (!d) return res.status(400).json({ error: 'Informe o telefone.' });
+  try {
+    const local = await pacienteVittaMedLocal(d);
+    const ponte = await ponteConfig();
+    if (!ponte) return res.json({ encontrado: !!local, origem: local ? 'cache' : null, paciente: local });
+    try {
+      const { default: fetch } = await import('node-fetch');
+      const base = String(ponte.api_url).replace(/\/+$/, '');
+      const vr = await fetch(`${base}/api/integracao/paciente?telefone=${d}`, {
+        headers: { 'x-integracao-token': ponte.token }, signal: AbortSignal.timeout(8000),
+      });
+      if (vr.ok) {
+        const j = await vr.json().catch(() => null);
+        const p = j?.paciente || j;
+        if (p && (p.nome || p.paciente)) {
+          const { query } = await import('../db/pool.js');
+          await upsertPaciente(query, { ...p, telefone: d }).catch(() => {});
+          return res.json({ encontrado: true, origem: 'vittamed', paciente: { nome: p.nome || p.paciente, dados: p } });
+        }
+        return res.json({ encontrado: !!local, origem: local ? 'cache' : null, paciente: local });
+      }
+    } catch { /* ponte fora do ar: cai pro cache */ }
+    res.json({ encontrado: !!local, origem: local ? 'cache' : null, paciente: local });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /pacientes/sincronizar — master puxa a lista inteira do VittaMed pro cache.
+r.post('/pacientes/sincronizar', auth, async (req, res) => {
+  if (req.user?.role !== 'master') return res.status(403).json({ error: 'Só o master sincroniza os pacientes.' });
+  const ponte = await ponteConfig();
+  if (!ponte) {
+    return res.status(400).json({ ok: false, error: 'A ponte com o VittaMed ainda não foi ligada — cadastre o endereço da API e a chave na aba VittaMed da Agenda.' });
+  }
+  try {
+    const { default: fetch } = await import('node-fetch');
+    const base = String(ponte.api_url).replace(/\/+$/, '');
+    const vr = await fetch(`${base}/api/integracao/pacientes`, {
+      headers: { 'x-integracao-token': ponte.token }, signal: AbortSignal.timeout(30000),
+    });
+    if (vr.status === 404) {
+      return res.status(502).json({ ok: false, error: 'O VittaMed respondeu, mas ainda não existe /api/integracao/pacientes lá — é o lado de lá que precisa expor a lista (mesma chave x-integracao-token).' });
+    }
+    if (vr.status === 401 || vr.status === 403) {
+      return res.status(502).json({ ok: false, error: 'O VittaMed recusou a chave — o token precisa ser IGUAL nos dois sistemas.' });
+    }
+    if (!vr.ok) return res.status(502).json({ ok: false, error: `O VittaMed respondeu ${vr.status}.` });
+    const j = await vr.json().catch(() => null);
+    const lista = Array.isArray(j) ? j : (Array.isArray(j?.itens) ? j.itens : (Array.isArray(j?.pacientes) ? j.pacientes : []));
+    if (!lista.length) return res.json({ ok: true, total: 0, aviso: 'O VittaMed respondeu, mas a lista veio vazia.' });
+    const { query } = await import('../db/pool.js');
+    let n = 0;
+    for (const p of lista.slice(0, 20000)) { if (await upsertPaciente(query, p).catch(() => false)) n++; }
+    res.json({ ok: true, total: n });
+  } catch (err) {
+    res.status(502).json({ ok: false, error: `Não consegui falar com o VittaMed (${err.message}).` });
+  }
+});
+
+// Contagem do cache — mostra na tela se a base de pacientes está viva
+r.get('/pacientes/status', auth, async (req, res) => {
+  if (!podeVerVittaMed(req.user)) return res.status(403).json({ error: 'Acesso restrito.' });
+  try {
+    const { query } = await import('../db/pool.js');
+    const { rows: [c] } = await query('SELECT COUNT(*)::int n, MAX(visto_em) ultimo FROM vittamed_pacientes').catch(() => ({ rows: [{ n: 0, ultimo: null }] }));
+    res.json({ total: c?.n || 0, ultimo: c?.ultimo || null });
+  } catch { res.json({ total: 0, ultimo: null }); }
+});
+
 export default r;

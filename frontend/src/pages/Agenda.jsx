@@ -448,6 +448,17 @@ function PonteVittaMedForm({ onLigou }) {
     } catch (e) { setMsg('❌ ' + e.message); }
     setSalvando(false);
   };
+  const [sincronizando, setSincronizando] = React.useState(false);
+  const sincronizarPacientes = async () => {
+    setSincronizando(true); setMsg('');
+    try {
+      const d = await api.post('/extras/vittamed/pacientes/sincronizar', {});
+      setMsg(d.total > 0
+        ? `✅ ${d.total} paciente(s) do VittaMed sincronizado(s) — a Vitta agora reconhece esses telefones. 💙`
+        : `⚠️ ${d.aviso || 'A lista veio vazia.'}`);
+    } catch (e) { setMsg('❌ ' + e.message); }
+    setSincronizando(false);
+  };
   return (
     <div style={{ maxWidth: 520, margin: '13px auto 0', padding: '13px 15px', borderRadius: 12,
       background: 'var(--bg2)', textAlign: 'left' }}>
@@ -462,6 +473,11 @@ function PonteVittaMedForm({ onLigou }) {
         style={{ width: '100%', padding: '9px 11px', borderRadius: 10, border: '1.5px solid var(--border)', fontSize: 13, background: 'var(--card)', color: 'var(--txt)', boxSizing: 'border-box', margin: '3px 0 12px' }} />
       <button onClick={salvarETestar} disabled={salvando} className="btn btn-p btn-s" style={{ width: '100%', fontWeight: 900 }}>
         {salvando ? 'Salvando e testando…' : '🔌 Salvar e testar a ponte'}
+      </button>
+      {/* 🩺 Com a ponte de pé, puxa os pacientes de lá — quem está cadastrado no
+          VittaMed já consultou, e a Vitta passa a reconhecer esses telefones. */}
+      <button onClick={sincronizarPacientes} disabled={sincronizando} className="btn btn-s" style={{ width: '100%', fontWeight: 800, marginTop: 8 }}>
+        {sincronizando ? 'Puxando pacientes…' : '🩺 Sincronizar pacientes do VittaMed'}
       </button>
       {msg && <div style={{ fontSize: 12, fontWeight: 700, marginTop: 9, lineHeight: 1.5 }}>{msg}</div>}
     </div>
