@@ -1830,6 +1830,24 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       }, 45000);
     }
 
+    /* 🤖 Suellen também com a Vitta (ordem do master: "Danielle, Suelen e
+       Mayara"). Stefany fica ligada — foi pedida antes e não houve ordem de
+       tirar; a chave na tela de Usuários resolve em 1 clique se ele quiser.
+       O sino confirma a lista completa de quem está com a IA. */
+    const { rows: [flagSuellenIA] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_ia_consultas_suellen_v1'");
+    if (!flagSuellenIA) {
+      await query(`UPDATE usuarios SET ia_consultas = true, updated_at = NOW()
+                    WHERE ativo = true AND role <> 'master' AND (nome ILIKE 'suellen%' OR nome ILIKE 'suelen%')`).catch(() => {});
+      const { rows: comIA } = await query(`SELECT nome FROM usuarios WHERE ativo = true AND ia_consultas = true ORDER BY nome`).catch(() => ({ rows: [] }));
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+        ['🤖 Vitta ativada — lista atualizada',
+         comIA.length
+           ? `A Vitta está ativa pra: ${comIA.map(u => u.nome.split(' ')[0]).join(', ')}. Elas veem o convite roxo nas conversas de consultas/terapias — um toque e a Vitta assume rumo ao agendamento. Pra ligar/desligar alguém: Configurações → Usuários → chave 🤖.`
+           : 'Não achei nenhuma usuária com a chave ligada — confira em Configurações → Usuários.']).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_ia_consultas_suellen_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🤖 Vitta liberada pra Suellen (lista completa no sino do master)');
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);
