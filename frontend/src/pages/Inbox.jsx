@@ -2256,13 +2256,6 @@ export default function Inbox({ onUnreadChange }) {
           {/* Input bar */}
           <div className="chat-input-bar" style={{ background:'var(--card,#fff)', padding:'9px 12px', borderTop:'1px solid var(--border)', flexShrink:0 }}>
             <div style={{ display:'flex', gap:6, alignItems:'flex-end' }}>
-              {/* AÇÃO PRINCIPAL — é o que mais se usa, então é a única com peso de botão cheio */}
-              <button onClick={sugerirResposta} disabled={!sel || sugerindo} title="Lê a conversa e escreve uma resposta humanizada, no seu tom"
-                className="tb-ico-color tb-largo tb-primaria" style={{ gap:7,
-                  cursor: sel?'pointer':'not-allowed', fontSize:13, fontWeight:800, whiteSpace:'nowrap', opacity:!sel?.5:1 }}>
-                {sugerindo ? <Loader2 size={18} className="spin"/> : <MessageCircle size={18}/>} {sugerindo ? 'Escrevendo…' : 'IA responde'}
-              </button>
-
               {/* Cápsula única com as ferramentas — lado a lado, mas lidas como
                   UM objeto. A divisória separa o que é conteúdo (mensagens,
                   figurinhas, mídia) do que é anexo do momento (clipe e emoji),
@@ -2291,6 +2284,17 @@ export default function Inbox({ onUnreadChange }) {
                 <button onClick={()=>{setShowEmoji(p=>!p);setShowQR(false);}} title="Emojis"
                   className={`tb-ico-color${showEmoji?' tb-on':''}`} style={{ '--ic':'#f59e0b' }}><Smile size={18} strokeWidth={2.3}/></button>
               </div>
+
+              {/* 🤖 IA RESPONDE — reposicionado e repintado a pedido do master:
+                  à direita da cápsula, logo depois do emoji, no roxo da Vitta
+                  (mesma identidade do convite). Escreve o rascunho na caixa —
+                  quem envia é a atendente. */}
+              <button onClick={sugerirResposta} disabled={!sel || sugerindo} title="Lê a conversa e escreve uma resposta humanizada, no seu tom — você revisa e envia"
+                style={{ display:'flex', alignItems:'center', gap:6, padding:'9px 14px', borderRadius:12, border:'none', flexShrink:0,
+                  cursor: sel?'pointer':'not-allowed', fontSize:12.5, fontWeight:800, whiteSpace:'nowrap', opacity:!sel?.5:1,
+                  background:'linear-gradient(135deg,#7c3aed,#a855f7)', color:'#fff', boxShadow:'0 2px 10px rgba(124,58,237,.35)' }}>
+                {sugerindo ? <Loader2 size={16} className="spin"/> : <Sparkles size={16}/>} {sugerindo ? 'Escrevendo…' : 'IA responde'}
+              </button>
               <input ref={fileRef} type="file" accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.gif" style={{ display:'none' }} onChange={handleFile}/>
               <textarea ref={textRef} onPaste={handlePaste} spellCheck lang="pt-BR" value={input} onChange={e=>setInput(e.target.value)}
                 onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}}}
