@@ -1921,6 +1921,88 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log(`🧵 Costura dos cases: ${nAgd} agendamentos + ${nVen} vendas vinculados`);
     }
 
+    /* 🧵 v2 — "não trouxe todos do caixa" (master). A v1 só casava pelo nome
+       EXATO do cliente; muita venda do Caixa tem o nome do PACIENTE, nome
+       incompleto, ou só o cadastro (lead) ligado. Quatro camadas agora, da
+       mais firme pra mais flexível — e o que sobrar sem par vai LISTADO no
+       sino, porque "não deu" tem que ser visível, não silencioso. */
+    const { rows: [flagCostura2] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_vincula_cases_v2'");
+    if (!flagCostura2) {
+      const norm2 = (col) => `lower(translate(COALESCE(${col},''), 'áàâãäéèêëíìîïóòôõöúùûüçÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇ', 'aaaaaeeeeiiiiooooouuuucAAAAAEEEEIIIIOOOOOUUUUC'))`;
+      const dig = (col) => `regexp_replace(COALESCE(${col},''),'\\D','','g')`;
+      let liga = { lead: 0, telLead: 0, nome: 0, nomeLead: 0 };
+      // a) venda e conversa apontam pro MESMO cadastro (lead)
+      try {
+        const r = await query(`
+          WITH cand AS (
+            SELECT DISTINCT ON (v.id) v.id vid, c.id cid
+            FROM vendas v JOIN conversas c ON c.lead_id IS NOT NULL AND c.lead_id::text = v.lead_id::text
+            WHERE v.conversa_id IS NULL AND v.lead_id IS NOT NULL
+            ORDER BY v.id, c.last_message_at DESC NULLS LAST)
+          UPDATE vendas v SET conversa_id = cand.cid FROM cand WHERE v.id = cand.vid`);
+        liga.lead = r.rowCount || 0;
+      } catch (e) { console.error('costura v2 lead:', e.message); }
+      // b) telefone do cadastro da venda → conversa
+      try {
+        const r = await query(`
+          WITH cand AS (
+            SELECT DISTINCT ON (v.id) v.id vid, c.id cid
+            FROM vendas v
+            JOIN leads l ON l.id::text = v.lead_id::text
+            JOIN conversas c ON length(${dig('l.telefone')}) >= 8
+              AND right(${dig('c.phone')}, 8) = right(${dig('l.telefone')}, 8)
+            WHERE v.conversa_id IS NULL AND v.lead_id IS NOT NULL
+            ORDER BY v.id, c.last_message_at DESC NULLS LAST)
+          UPDATE vendas v SET conversa_id = cand.cid FROM cand WHERE v.id = cand.vid`);
+        liga.telLead = r.rowCount || 0;
+      } catch (e) { console.error('costura v2 tel-lead:', e.message); }
+      // c) nome flexível: cliente OU paciente, um começa com o outro, par ÚNICO
+      try {
+        const r = await query(`
+          WITH v AS (
+            SELECT id, ${norm2('cliente_nome')} n1, ${norm2('paciente_nome')} n2 FROM vendas WHERE conversa_id IS NULL),
+          c AS (
+            SELECT id, ${norm2('contact_name')} nome FROM conversas WHERE length(TRIM(COALESCE(contact_name,''))) >= 5),
+          m AS (
+            SELECT v.id vid, c.id cid FROM v JOIN c ON
+                 (length(v.n1) >= 5 AND (c.nome LIKE v.n1 || '%' OR v.n1 LIKE c.nome || '%'))
+              OR (length(v.n2) >= 5 AND (c.nome LIKE v.n2 || '%' OR v.n2 LIKE c.nome || '%'))),
+          unicos AS (SELECT vid, MIN(cid) cid FROM m GROUP BY vid HAVING COUNT(DISTINCT cid) = 1)
+          UPDATE vendas v SET conversa_id = unicos.cid FROM unicos WHERE v.id = unicos.vid`);
+        liga.nome = r.rowCount || 0;
+      } catch (e) { console.error('costura v2 nome:', e.message); }
+      // d) nome da venda → cadastro (lead) → telefone → conversa, par ÚNICO
+      try {
+        const r = await query(`
+          WITH v AS (
+            SELECT id, ${norm2('cliente_nome')} n1, ${norm2('paciente_nome')} n2 FROM vendas WHERE conversa_id IS NULL),
+          m AS (
+            SELECT v.id vid, c.id cid
+            FROM v
+            JOIN leads l ON (length(v.n1) >= 5 AND (${norm2('l.nome')} LIKE v.n1 || '%' OR v.n1 LIKE ${norm2('l.nome')} || '%'))
+                         OR (length(v.n2) >= 5 AND (${norm2('l.nome')} LIKE v.n2 || '%' OR v.n2 LIKE ${norm2('l.nome')} || '%'))
+            JOIN conversas c ON length(${dig('l.telefone')}) >= 8
+              AND right(${dig('c.phone')}, 8) = right(${dig('l.telefone')}, 8)),
+          unicos AS (SELECT vid, MIN(cid) cid FROM m GROUP BY vid HAVING COUNT(DISTINCT cid) = 1)
+          UPDATE vendas v SET conversa_id = unicos.cid FROM unicos WHERE v.id = unicos.vid`);
+        liga.nomeLead = r.rowCount || 0;
+      } catch (e) { console.error('costura v2 nome-lead:', e.message); }
+      // Relatório honesto: o que AINDA ficou órfão, com nome e data
+      const { rows: orfas } = await query(`
+        SELECT COALESCE(NULLIF(TRIM(cliente_nome),''), NULLIF(TRIM(paciente_nome),''), '(sem nome)') nome, data_venda, valor
+          FROM vendas WHERE conversa_id IS NULL ORDER BY data_venda DESC LIMIT 15`).catch(() => ({ rows: [] }));
+      const { rows: [{ n: totalOrfas }] } = await query('SELECT COUNT(*)::int n FROM vendas WHERE conversa_id IS NULL').catch(() => ({ rows: [{ n: 0 }] }));
+      const total2 = liga.lead + liga.telLead + liga.nome + liga.nomeLead;
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+        ['🧵 Caixa → Cases: segunda costura',
+         `Mais ${total2} venda(s) do Caixa ganharam a conversa (${liga.lead} pelo cadastro, ${liga.telLead} pelo telefone do cadastro, ${liga.nome} pelo nome, ${liga.nomeLead} pelo nome via cadastro).\n\n` +
+         (totalOrfas > 0
+           ? `Ficaram ${totalOrfas} venda(s) sem par — sem telefone e sem nome que exista no Chat. As mais recentes: ${orfas.map(o => `${o.nome} (${o.data_venda ? String(o.data_venda).slice(0, 10) : 's/ data'})`).join(', ')}. Essas não têm como virar case: a conversa delas não está no sistema.`
+           : 'Nenhuma venda ficou órfã — o Caixa inteiro está ligado às conversas. 🎉')]).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_vincula_cases_v2','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log(`🧵 Costura v2: +${total2} vendas ligadas; ${totalOrfas} órfãs`);
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);
