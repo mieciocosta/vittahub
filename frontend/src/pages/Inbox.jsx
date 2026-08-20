@@ -2150,10 +2150,14 @@ export default function Inbox({ onUnreadChange }) {
                     proposta parada se resolve com LIGAÇÃO, e áudio converte
                     mais que texto. Não é etapa — é o jeito de atravessar todas. */}
                 <span style={{ width:12, height:2, flexShrink:0, background:'var(--border)' }} />
+                {/* Regra de ouro em DESTAQUE (pedido do master: "deixa mais visível") */}
+                <style>{`@keyframes vhPulseOuro{0%,100%{box-shadow:0 0 0 0 rgba(196,151,59,.55)}50%{box-shadow:0 0 0 7px rgba(196,151,59,0)}}`}</style>
                 <span title="Regra de ouro da casa: em toda proposta parada, LIGUE (avisando antes no WhatsApp) — e prefira áudio ao textão. Voz converte."
-                  style={{ flexShrink:0, display:'flex', alignItems:'center', gap:4, padding:'2px 8px', borderRadius:20,
-                    fontSize:10, fontWeight:900, whiteSpace:'nowrap', cursor:'default',
-                    background:'linear-gradient(135deg,#C4973B,#b45309)', color:'#fff', border:'1.5px solid transparent' }}>
+                  style={{ flexShrink:0, display:'flex', alignItems:'center', gap:5, padding:'4px 12px', borderRadius:20,
+                    fontSize:11.5, fontWeight:900, whiteSpace:'nowrap', cursor:'default', letterSpacing:.2,
+                    background:'linear-gradient(135deg,#f59e0b,#C4973B 55%,#b45309)', color:'#fff',
+                    border:'1.5px solid #fcd34d', textShadow:'0 1px 2px rgba(0,0,0,.35)',
+                    animation:'vhPulseOuro 1.8s ease-in-out infinite' }}>
                   📞 Ligação e áudio convertem
                 </span>
               </div>
