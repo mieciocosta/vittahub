@@ -2022,7 +2022,7 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
         INSERT INTO mensagens_agendadas (conversa_id, texto, enviar_em, criado_por)
         SELECT c.id,
                'Bom dia' || CASE WHEN TRIM(COALESCE(c.contact_name,'')) <> '' THEN ', ' || split_part(TRIM(c.contact_name), ' ', 1) ELSE '' END ||
-               '! 💙 Aqui é a Vitta, da Vittalis Saúde. Passei pra saber como vocês estão por aí 😊 Se estiver precisando de consulta ou de uma avaliação pro seu pequeno, me conta que eu já vejo um horário certinho pra vocês!',
+               '! 💙 Aqui é a Mary, da Vittalis Saúde. Passei pra saber como vocês estão por aí 😊 Se estiver precisando de consulta ou de uma avaliação pro seu pequeno, me conta que eu já vejo um horário certinho pra vocês!',
                '2026-08-21T11:00:00Z', 'Vitta · Bom dia consultas'
           FROM conversas c
          WHERE c.setor IN ('consultas','terapias') AND c.bot_ativo = true
@@ -2039,6 +2039,17 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
          `${rBom.rowCount || 0} mensagem(ns) de bom-dia programadas pras conversas de consultas/terapias em que a Vitta está de plantão (as 8:00 de hoje 20/08 já tinham passado quando o pedido chegou — foi pra próxima manhã). Cada uma sai com o nome do cliente, e a Vitta continua acordada pra responder quem responder. Pra revisar ou cancelar qualquer uma antes da hora: fila de mensagens automáticas (Vitta trabalhando). A fila agendada foi religada pra esse envio.`]).catch(() => {});
       await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_bomdia_vitta_21ago_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
       console.log(`📨 Bom-dia da Vitta: ${rBom.rowCount || 0} mensagens programadas pra 21/08 8:00 SLZ`);
+    }
+
+    /* 💁‍♀️ A IA agora se chama MARY pro cliente (pedido do master; os botões
+       do sistema continuam "Vitta"). Corrige os bons-dias JÁ agendados que
+       ainda diziam "Aqui é a Vitta". */
+    const { rows: [flagMary] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_mary_bomdia_v1'");
+    if (!flagMary) {
+      const rM = await query(`UPDATE mensagens_agendadas SET texto = replace(texto, 'Aqui é a Vitta', 'Aqui é a Mary')
+                               WHERE status = 'pendente' AND texto LIKE '%Aqui é a Vitta%'`).catch(() => ({ rowCount: 0 }));
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_mary_bomdia_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log(`💁‍♀️ Mary: ${rM.rowCount || 0} bom-dia(s) pendentes atualizados`);
     }
 
     console.log('✅ Auto-migrate complete');

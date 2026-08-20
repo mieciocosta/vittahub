@@ -268,7 +268,7 @@ async function processarRespostaConfirmacao(conv, texto, phoneDigits) {
         const ack = 'Perfeito! 💙 Está tudo organizado com muito amor e carinho pra receber vocês. Estamos te esperando! 🥰';
         await zapiCall('/send-text', 'POST', { phone: `55${ph}`, message: ack }).catch(() => {});
         const { rows: [bm] } = await query(`INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome)
-          VALUES ($1,'bot','text',$2,'Vitta') RETURNING *`, [conv.id, ack]).catch(() => ({ rows: [null] }));
+          VALUES ($1,'bot','text',$2,'Mary') RETURNING *`, [conv.id, ack]).catch(() => ({ rows: [null] }));
         if (bm) socketEmit('new_message', { convId: conv.id, message: bm, conv });
       }
     }
@@ -1037,7 +1037,7 @@ async function capturaDados(conv, texto, phoneNum) {
     if (zapiOk()) await zapiCall('/send-text', 'POST', { phone: `55${phoneNum}`, message: msg });
     const { rows: [m] } = await query(
       `INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, created_at)
-       VALUES ($1,'bot','Vitta','text',$2,NOW()) RETURNING *`, [conv.id, msg]).catch(() => ({ rows: [null] }));
+       VALUES ($1,'bot','Mary','text',$2,NOW()) RETURNING *`, [conv.id, msg]).catch(() => ({ rows: [null] }));
     if (m) socketEmit('new_message', { convId: conv.id, message: m, conv });
   };
 
@@ -1189,7 +1189,7 @@ async function triagemSetor(conv, texto, phoneNum) {
     const registrado = await enviarMenuTriagem(phoneNum);
     const { rows: [m] } = await query(
       `INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, created_at)
-       VALUES ($1,'bot','Vitta','text',$2,NOW()) RETURNING *`, [conv.id, registrado]).catch(() => ({ rows: [null] }));
+       VALUES ($1,'bot','Mary','text',$2,NOW()) RETURNING *`, [conv.id, registrado]).catch(() => ({ rows: [null] }));
     if (m) socketEmit('new_message', { convId: conv.id, message: m, conv });
     return true;
   }
@@ -1240,7 +1240,7 @@ async function triagemSetor(conv, texto, phoneNum) {
     if (cachedO) cacheUpdate({ ...cachedO, bot_ativo: false });
     const { rows: [mo] } = await query(
       `INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, created_at)
-       VALUES ($1,'bot','Vitta','text',$2,NOW()) RETURNING *`, [conv.id, confOutros]).catch(() => ({ rows: [null] }));
+       VALUES ($1,'bot','Mary','text',$2,NOW()) RETURNING *`, [conv.id, confOutros]).catch(() => ({ rows: [null] }));
     if (mo) socketEmit('new_message', { convId: conv.id, message: mo, conv });
     socketEmit('bot_status', { convId: conv.id, bot_ativo: false });
     await query(
@@ -1261,7 +1261,7 @@ async function triagemSetor(conv, texto, phoneNum) {
   if (zapiOk()) await zapiCall('/send-text', 'POST', { phone: `55${phoneNum}`, message: confirmaCurta });
   const { rows: [mc] } = await query(
     `INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, created_at)
-     VALUES ($1,'bot','Vitta','text',$2,NOW()) RETURNING *`, [conv.id, confirmaCurta]).catch(() => ({ rows: [null] }));
+     VALUES ($1,'bot','Mary','text',$2,NOW()) RETURNING *`, [conv.id, confirmaCurta]).catch(() => ({ rows: [null] }));
   if (mc) socketEmit('new_message', { convId: conv.id, message: mc, conv });
 
   // Saudação por turno + apresentação da atendente sorteada (espec da gestão)
@@ -1277,7 +1277,7 @@ async function triagemSetor(conv, texto, phoneNum) {
     [conv.id, 'bot', confirma.slice(0, 100)]).catch(() => {});
   const { rows: [m2] } = await query(
     `INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, created_at)
-     VALUES ($1,'bot','Vitta','text',$2,NOW()) RETURNING *`, [conv.id, confirma]).catch(() => ({ rows: [null] }));
+     VALUES ($1,'bot','Mary','text',$2,NOW()) RETURNING *`, [conv.id, confirma]).catch(() => ({ rows: [null] }));
   if (m2) socketEmit('new_message', { convId: conv.id, message: m2, conv });
   socketEmit('bot_status', { convId: conv.id, bot_ativo: false });
   await query(
@@ -1370,7 +1370,7 @@ async function vittaResponder(convId) {
       await zapiCall('/send-text', 'POST', { phone: `55${phoneNum}`, message: saud });
       const { rows: [botMsg] } = await query(
         `INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome)
-         VALUES ($1,'bot','text',$2,'Vitta') RETURNING *`, [convId, saud]);
+         VALUES ($1,'bot','text',$2,'Mary') RETURNING *`, [convId, saud]);
       if (botMsg) socketEmit('new_message', { convId, message: botMsg, conv });
     }
     return;
@@ -1397,7 +1397,7 @@ async function vittaResponder(convId) {
   const conhecimento = montarConhecimentoVacinal();
   const memoriaTexto = formatarMemoria(conv.memoria);
 
-  const sysPromptVacinas = `Você é a Vitta, atendente da Vittalis Saúde no WhatsApp. Você é uma das que MAIS convertem da equipe — não por ser insistente, mas por ser genuinamente acolhedora. Você trata cada mãe e cada bebê com carinho de verdade, como se fosse da família. Você NÃO é um robô de FAQ. Nunca diga que é uma IA, a menos que perguntem diretamente.
+  const sysPromptVacinas = `Você é a Mary, atendente da Vittalis Saúde no WhatsApp (é assim que o cliente te conhece: Mary). Você é uma das que MAIS convertem da equipe — não por ser insistente, mas por ser genuinamente acolhedora. Você trata cada mãe e cada bebê com carinho de verdade, como se fosse da família. Você NÃO é um robô de FAQ. Nunca diga que é uma IA, a menos que perguntem diretamente.
 
 SEU TOM DE VOZ (este é o jeito real das melhores atendentes da Vittalis — siga fielmente):
 - Calor humano em primeiro lugar. Use "mamãe", "Sra.", e com bebês/crianças chame de "príncipe" ou "princesa" com naturalidade. Pode usar "flor", "meu bem", "querida" com moderação, quando a conversa já está calorosa.
@@ -1500,7 +1500,7 @@ ${memoriaTexto}` : ''}`;
   // ─── IA ESPECIALIZADA EM CONSULTAS / TRATAMENTO MULTIDISCIPLINAR INFANTIL ───
   // Mãe/pai ansiosos, muitas vezes com suspeita de TEA, atraso de fala, TDAH,
   // dificuldade de aprendizagem. Acolher vem antes de informar. Mensagens curtas.
-  const sysPromptConsultas = `Você é a Vitta, acolhedora de consultas da Vittalis Saúde no WhatsApp. Você TAMBÉM é mãe — então entende na pele a aflição de quem percebe algo diferente no filho e não sabe o que fazer. Seu dom é ACOLHER: você acalma primeiro, explica simples e conduz com leveza até a primeira avaliação. Nunca diga que é uma IA, a menos que perguntem.
+  const sysPromptConsultas = `Você é a Mary, acolhedora de consultas da Vittalis Saúde no WhatsApp (é assim que o cliente te conhece: Mary). Você TAMBÉM é mãe — então entende na pele a aflição de quem percebe algo diferente no filho e não sabe o que fazer. Seu dom é ACOLHER: você acalma primeiro, explica simples e conduz com leveza até a primeira avaliação. Nunca diga que é uma IA, a menos que perguntem.
 
 QUEM CHEGA ATÉ VOCÊ (e como se sente):
 Pais preocupados com o desenvolvimento do filho — suspeita de autismo (TEA), atraso na fala, dificuldade de aprender, comportamento, agitação/atenção (TDAH), coordenação. Quase sempre chegam assustados, culpados ou perdidos. ACOLHER vem ANTES de qualquer informação.
@@ -1702,7 +1702,7 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
       if (zr?.ok) {
         const { rows: [pmsg] } = await query(
           `INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, filename, created_at)
-           VALUES ($1,'bot','Vitta','document',$2,$3,NOW()) RETURNING *`,
+           VALUES ($1,'bot','Mary','document',$2,$3,NOW()) RETURNING *`,
           [convId, `📎 ${planoNome}`, `${planoNome}.pdf`]
         ).catch(() => ({ rows: [null] }));
         if (pmsg) socketEmit('new_message', { convId, message: pmsg, conv });
@@ -1791,7 +1791,7 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
         if (zr?.ok) {
           const { rows: [pmsg] } = await query(
             `INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, filename, created_at)
-             VALUES ($1,'bot','Vitta','document',$2,$3,NOW()) RETURNING *`,
+             VALUES ($1,'bot','Mary','document',$2,$3,NOW()) RETURNING *`,
             [convId, `📎 ${pacoteNome}`, 'Proposta-Vittalis.pdf']
           ).catch(() => ({ rows: [null] }));
           if (pmsg) socketEmit('new_message', { convId, message: pmsg, conv });
@@ -1820,7 +1820,7 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
     await zapiCall('/send-text', 'POST', { phone: `55${phoneNum}`, message: botReply });
     const { rows: [botMsg] } = await query(
       `INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome)
-       VALUES ($1,'bot','text',$2,'Vitta') RETURNING *`,
+       VALUES ($1,'bot','text',$2,'Mary') RETURNING *`,
       [convId, botReply]
     );
     await query("UPDATE conversas SET last_message=$1, last_from='bot', last_message_at=NOW() WHERE id=$2",
@@ -4354,7 +4354,9 @@ async function enviarTextoConversa(conv, texto, senderNome, opts = {}) {
      (padrão) continua desligando, como sempre. */
   const { rows: [msg] } = await query(
     `INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome, status) VALUES ($1,$2,'text',$3,$4,'sent') RETURNING *`,
-    [conv.id, opts.deBot ? 'bot' : 'me', texto, senderNome || (opts.deBot ? 'Vitta' : 'Agendada')]);
+    // Na conversa a IA assina "Mary" (nome que o cliente conhece); o criado_por
+    // técnico ('Vitta · …') fica só na fila, pro agrupamento do Dashboard.
+    [conv.id, opts.deBot ? 'bot' : 'me', texto, opts.deBot ? 'Mary' : (senderNome || 'Agendada')]);
   const { rows: [convUpd] } = await query(
     `UPDATE conversas SET last_message=$1, last_from='me', last_message_at=NOW()${opts.deBot ? '' : ', bot_ativo=false'} WHERE id=$2 RETURNING *`,
     [texto.slice(0, 100), conv.id]);
@@ -5350,7 +5352,7 @@ r.post('/ai-assist', async (req, res) => {
 
     const transcript = hist.map(m => {
       const quem = m.from_type === 'contact' ? (conv.contact_name || 'Cliente')
-        : m.from_type === 'bot' ? 'Vitta (IA)'
+        : m.from_type === 'bot' ? 'Mary (IA)'
         : `Atendente${m.sender_nome ? ` (${m.sender_nome})` : ''}`;
       const txt = m.type === 'document' ? `[enviou PDF: ${m.filename || m.content || 'documento'}]` : String(m.content || '').slice(0, 500);
       const hora = new Date(m.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
@@ -5448,7 +5450,7 @@ async function montarTranscriptConversa(convId, limite = 40) {
   const hist = histRows.reverse();
   const transcript = hist.map(m => {
     const quem = m.from_type === 'contact' ? (conv.contact_name || 'Cliente')
-      : m.from_type === 'bot' ? 'Vitta (IA)'
+      : m.from_type === 'bot' ? 'Mary (IA)'
       : `Atendente${m.sender_nome ? ` (${m.sender_nome})` : ''}`;
     const txt = m.type === 'document' ? `[enviou PDF: ${m.filename || 'documento'}]`
       : m.type === 'audio' ? (String(m.transcricao || '').trim() ? `[áudio] ${String(m.transcricao).trim().slice(0, 400)}` : '[mandou um áudio sem transcrição]')
@@ -8014,7 +8016,7 @@ async function gerarMensagemFollowup(conv, count) {
       return `${quem}: ${txt}`;
     }).join('\n');
 
-    const sys = `Você é a Vitta, atendente carinhosa da Vittalis Saúde no WhatsApp. O cliente parou de responder e você quer reativar a conversa com delicadeza. Escreva UMA única mensagem curta (1 a 2 frases), calorosa e humana, no tom da Vittalis: trate por "${trato}", use 1 emoji de afeto (💙🥰😊✨), e convide gentilmente para o próximo passo (tirar dúvida ou agendar). NÃO repita literalmente o que já foi dito. NÃO seja insistente nem cobre. Esta é a tentativa de retomada número ${count + 1} de ${FOLLOWUP_MAX} — quanto maior o número, mais leve e sem pressão. Responda APENAS a mensagem, sem aspas.`;
+    const sys = `Você é a Mary, atendente carinhosa da Vittalis Saúde no WhatsApp. O cliente parou de responder e você quer reativar a conversa com delicadeza. Escreva UMA única mensagem curta (1 a 2 frases), calorosa e humana, no tom da Vittalis: trate por "${trato}", use 1 emoji de afeto (💙🥰😊✨), e convide gentilmente para o próximo passo (tirar dúvida ou agendar). NÃO repita literalmente o que já foi dito. NÃO seja insistente nem cobre. Esta é a tentativa de retomada número ${count + 1} de ${FOLLOWUP_MAX} — quanto maior o número, mais leve e sem pressão. Responda APENAS a mensagem, sem aspas.`;
 
     const aiData = await openaiMessages({
       model: 'gpt-4o-mini', max_tokens: 150, system: sys,
@@ -8071,7 +8073,7 @@ export async function rodarFollowups() {
 
         const { rows: [botMsg] } = await query(
           `INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome)
-           VALUES ($1,'bot','text',$2,'Vitta') RETURNING *`, [conv.id, msg]
+           VALUES ($1,'bot','text',$2,'Mary') RETURNING *`, [conv.id, msg]
         ).catch(() => ({ rows: [null] }));
 
         await query(
@@ -8146,7 +8148,7 @@ async function mensagemResgate(conv, tentativa, hist) {
     const linhas = hist.map(m => `${m.from_type === 'contact' ? 'Cliente' : 'Vitta'}: ${String(m.content || '').slice(0, 180)}`).join('\n');
     const d = await openaiMessages({
       model: 'gpt-4o-mini', max_tokens: 260,
-      system: `Você é a Vitta, atendente da Vittalis Saúde (pediatria e vacinação, São Luís-MA), escrevendo no WhatsApp para um cliente que conversou e NÃO fechou.
+      system: `Você é a Mary, atendente da Vittalis Saúde (pediatria e vacinação, São Luís-MA), escrevendo no WhatsApp para um cliente que conversou e NÃO fechou.
 Esta é a tentativa ${tentativa + 1} de 3. ${ANGULOS[i]}
 Regras: português do Brasil, caloroso e humano, 2 a 4 linhas, no máximo 2 emojis, trate por "${trato}". Use o que a pessoa realmente disse na conversa. NUNCA invente preço, data ou informação que não esteja no histórico. Não diga que é uma IA. Responda SOMENTE com o texto da mensagem.`,
       messages: [{ role: 'user', content: linhas.slice(0, 5000) }],
@@ -8220,7 +8222,7 @@ export async function rodarResgateIA() {
 
         const { rows: [botMsg] } = await query(
           `INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome)
-           VALUES ($1,'bot','text',$2,'Vitta') RETURNING *`, [conv.id, msg]
+           VALUES ($1,'bot','text',$2,'Mary') RETURNING *`, [conv.id, msg]
         ).catch(() => ({ rows: [null] }));
 
         const { rows: [novo] } = await query(
