@@ -409,9 +409,10 @@ const MsgItem = React.memo(function MsgItem({ m, prevMsg, contactName, channel, 
             boxShadow: m.type==='sticker' ? 'none' : '0 1px 2px rgba(0,0,0,.05)' }}>
             {(isBot||showSender) && (
               <div className="bub-tag" style={{ fontSize:10, fontWeight:700, marginBottom:3 }}>
-                {/* Rótulo da bolha da IA: o nome que ela assinou (Mary ou o da
-                    responsável) + o selo IA — "Vitta · IA" fixo escondia a persona */}
-                {isBot ? `${m.sender_nome?.split(' ')[0] || 'Mary'} · IA` : m.sender_nome?.split(' ')[0]}
+                {/* Rótulo da bolha: só o nome assinado (Mary ou o da responsável).
+                    SEM selo "IA" — ordem do master; quem diz que a IA está na
+                    conversa é o letreiro roxo, não a bolha. */}
+                {isBot ? (m.sender_nome?.split(' ')[0] || 'Mary') : m.sender_nome?.split(' ')[0]}
               </div>
             )}
             {isLazy && <LazyMedia msgId={lazyId} type={m.type} filename={m.filename} token={token} onLightbox={onLightbox}/>}
