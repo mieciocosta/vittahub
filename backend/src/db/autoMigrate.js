@@ -1729,6 +1729,49 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log(`🎙️ Exemplos v2: ${resultados2.join(' | ')}`);
     }
 
+    /* 🔎 v3 — agora com os DOIS telefones exatos (prints do master):
+       Domingas (98) 9103-8750 e Felipe Coimbra (98) 8431-6076. Telefone não
+       erra homônimo. Transcreve os áudios e regrava os exemplos por cima. */
+    const { rows: [flagExDf3] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_exemplos_domingas_felipe_v3'");
+    if (!flagExDf3) {
+      const resultados3 = [];
+      try {
+        const { transcreverAudiosDaConversa } = await import('../routes/inbox.js');
+        for (const alvo of [
+          { tel: '91038750', titulo: 'Domingas — Neuropediatria (agendou)', rotulo: 'Domingas' },
+          { tel: '84316076', titulo: 'Felipe Coimbra — Pediatria (agendou)', rotulo: 'Felipe Coimbra' },
+        ]) {
+          const { rows: [conv] } = await query(`
+            SELECT id, contact_name FROM conversas
+             WHERE regexp_replace(COALESCE(phone,''),'\\D','','g') LIKE '%' || $1
+             ORDER BY last_message_at DESC NULLS LAST LIMIT 1`, [alvo.tel]).catch(() => ({ rows: [] }));
+          if (!conv) { resultados3.push(`❌ ${alvo.rotulo}: nenhuma conversa com final ${alvo.tel}.`); continue; }
+          const audios = await transcreverAudiosDaConversa(conv.id, 40).catch(() => ({ transcritos: 0, falhas: 0 }));
+          const { rows: msgs } = await query(`
+            SELECT from_type, type, content, transcricao FROM mensagens
+             WHERE conversa_id = $1 AND type IN ('text','audio') AND from_type IN ('contact','me','bot')
+             ORDER BY created_at ASC LIMIT 150`, [conv.id]).catch(() => ({ rows: [] }));
+          const linhas = msgs.map(m => {
+            const quem = m.from_type === 'contact' ? 'Cliente' : 'Atendente';
+            const txt = m.type === 'audio'
+              ? (String(m.transcricao || '').trim() ? `[áudio] ${String(m.transcricao).trim().slice(0, 400)}` : null)
+              : String(m.content || '').slice(0, 400);
+            return txt ? `${quem}: ${txt}` : null;
+          }).filter(Boolean);
+          if (linhas.length < 4) { resultados3.push(`⚠️ ${alvo.rotulo}: achei "${conv.contact_name || 'sem nome'}", mas a conversa ficou curta demais mesmo com os áudios.`); continue; }
+          await query('DELETE FROM exemplos_conversa WHERE titulo = $1', [alvo.titulo]).catch(() => {});
+          await query(`INSERT INTO exemplos_conversa (titulo, setor, conteudo, criado_por)
+                       VALUES ($1, 'consultas', $2, 'Vitta · pedido do master')`, [alvo.titulo, linhas.join('\n').slice(0, 6000)]);
+          resultados3.push(`✅ ${alvo.rotulo}: "${conv.contact_name || 'sem nome'}" gravada como treinamento — ${audios.transcritos || 0} áudio(s) transcritos${audios.falhas ? ` (${audios.falhas} não deram)` : ''}.`);
+        }
+      } catch (e) { resultados3.push(`⚠️ Erro na passada: ${e.message}`); }
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+        ['🎓 Treinamento da Vitta: Domingas e Felipe (pelos telefones)',
+         `${resultados3.join('\n')}\n\nEssas conversas agora são estudadas pela Vitta em TODA resposta de consultas. Falta 1 clique seu: Placar → ⚙️ Automático → 🧠 Cérebro de consultas → Atualizar a base — aí ela absorve tudo no manual de fechamento.`]).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_exemplos_domingas_felipe_v3','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log(`🎓 Exemplos v3: ${resultados3.join(' | ')}`);
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);
