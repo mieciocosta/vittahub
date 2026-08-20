@@ -1660,6 +1660,75 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log(`🔎 Exemplos Domingas/Felipe: ${resultados.join(' | ')}`);
     }
 
+    /* 🔎 v2 — Domingas e Felipe Coimbra COM OS ÁUDIOS. O master mandou o print:
+       a Domingas certa é a do telefone (98) 9103-8750, e a conversa tem áudios.
+       Esta passada acha pelo TELEFONE (nome falha se o contato do WhatsApp for
+       outro), transcreve os áudios pendentes com Whisper e regrava o exemplo
+       inteiro (texto + voz). Roda por cima do v1. */
+    const { rows: [flagExDf2] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_exemplos_domingas_felipe_v2'");
+    if (!flagExDf2) {
+      const semAc2 = (col) => `lower(translate(COALESCE(${col},''), 'áàâãäéèêëíìîïóòôõöúùûüçÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇ', 'aaaaaeeeeiiiiooooouuuucAAAAAEEEEIIIIOOOOOUUUUC'))`;
+      const resultados2 = [];
+      try {
+        // Import dinâmico: o módulo das rotas já carrega no boot de qualquer jeito
+        const { transcreverAudiosDaConversa } = await import('../routes/inbox.js');
+        const gravar2 = async (conv, titulo) => {
+          const audios = await transcreverAudiosDaConversa(conv.id, 40).catch(() => ({ transcritos: 0 }));
+          const { rows: msgs } = await query(`
+            SELECT from_type, type, content, transcricao FROM mensagens
+             WHERE conversa_id = $1 AND type IN ('text','audio') AND from_type IN ('contact','me','bot')
+             ORDER BY created_at ASC LIMIT 150`, [conv.id]).catch(() => ({ rows: [] }));
+          const linhas = msgs.map(m => {
+            const quem = m.from_type === 'contact' ? 'Cliente' : 'Atendente';
+            const txt = m.type === 'audio'
+              ? (String(m.transcricao || '').trim() ? `[áudio] ${String(m.transcricao).trim().slice(0, 400)}` : null)
+              : String(m.content || '').slice(0, 400);
+            return txt ? `${quem}: ${txt}` : null;
+          }).filter(Boolean);
+          if (linhas.length < 4) return { ok: false, audios };
+          await query('DELETE FROM exemplos_conversa WHERE titulo = $1', [titulo]).catch(() => {});
+          await query(`INSERT INTO exemplos_conversa (titulo, setor, conteudo, criado_por)
+                       VALUES ($1, 'consultas', $2, 'Vitta · pedido do master')`, [titulo, linhas.join('\n').slice(0, 6000)]);
+          return { ok: true, audios };
+        };
+        // Domingas: pelo telefone do print do master
+        const { rows: [convD] } = await query(`
+          SELECT id, contact_name FROM conversas
+           WHERE regexp_replace(COALESCE(phone,''),'\\D','','g') LIKE '%91038750%'
+           ORDER BY last_message_at DESC NULLS LAST LIMIT 1`).catch(() => ({ rows: [] }));
+        if (convD) {
+          const r2 = await gravar2(convD, 'Domingas — Neuropediatria (agendou)');
+          resultados2.push(r2.ok
+            ? `✅ Domingas: conversa de "${convD.contact_name || 'sem nome'}" gravada como exemplo — ${r2.audios.transcritos || 0} áudio(s) transcritos${r2.audios.falhas ? ` (${r2.audios.falhas} áudio(s) não deram)` : ''}.`
+            : `⚠️ Domingas: achei a conversa, mas ficou curta demais mesmo com os áudios.`);
+        } else resultados2.push('❌ Domingas: não achei conversa com o telefone 9103-8750.');
+        // Felipe Coimbra: por nome (contato ou cadastro)
+        let convF = null;
+        ({ rows: [convF] } = await query(`
+          SELECT id, contact_name FROM conversas WHERE ${semAc2('contact_name')} LIKE '%coimbra%'
+          ORDER BY last_message_at DESC NULLS LAST LIMIT 1`).catch(() => ({ rows: [] })));
+        if (!convF) {
+          ({ rows: [convF] } = await query(`
+            SELECT c.id, c.contact_name FROM leads l
+            JOIN conversas c ON length(regexp_replace(COALESCE(l.telefone,''),'\\D','','g')) >= 8
+             AND regexp_replace(COALESCE(c.phone,''),'\\D','','g') LIKE '%' || right(regexp_replace(COALESCE(l.telefone,''),'\\D','','g'), 8)
+            WHERE ${semAc2('l.nome')} LIKE '%coimbra%'
+            ORDER BY c.last_message_at DESC NULLS LAST LIMIT 1`).catch(() => ({ rows: [] })));
+        }
+        if (convF) {
+          const r3 = await gravar2(convF, 'Felipe Coimbra — Pediatria (agendou)');
+          resultados2.push(r3.ok
+            ? `✅ Felipe Coimbra: conversa de "${convF.contact_name || 'sem nome'}" gravada como exemplo — ${r3.audios.transcritos || 0} áudio(s) transcritos${r3.audios.falhas ? ` (${r3.audios.falhas} não deram)` : ''}.`
+            : `⚠️ Felipe Coimbra: achei a conversa, mas ficou curta demais mesmo com os áudios.`);
+        } else resultados2.push('❌ Felipe Coimbra: não achei conversa com "Coimbra" (nem no contato, nem no cadastro).');
+      } catch (e) { resultados2.push(`⚠️ Erro na passada: ${e.message}`); }
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+        ['🎙️ Domingas e Felipe — agora com os áudios',
+         `${resultados2.join('\n')}\n\nOs áudios transcritos aparecem embaixo de cada player na conversa. Agora clique em Atualizar a base (Placar → Automático → 🧠 Cérebro de consultas) pra Vitta absorver tudo — inclusive o que foi falado por voz.`]).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_exemplos_domingas_felipe_v2','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log(`🎙️ Exemplos v2: ${resultados2.join(' | ')}`);
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);

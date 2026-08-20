@@ -5395,20 +5395,62 @@ ${cfgMode.schema}`;
 async function montarTranscriptConversa(convId, limite = 40) {
   const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [convId]);
   if (!conv) return null;
+  /* ÁUDIO ENTRA no transcript (pedido do master ao estudar a Domingas): muita
+     venda acontece por voz — sem a transcrição, a aula/base estudava uma
+     conversa muda. Áudio sem transcrição aparece sinalizado, não some. */
   const { rows: histRows } = await query(
-    `SELECT from_type, type, content, filename, sender_nome, created_at FROM mensagens
-     WHERE conversa_id = $1 AND type IN ('text','document') AND from_type NOT IN ('system','interno')
+    `SELECT from_type, type, content, filename, transcricao, sender_nome, created_at FROM mensagens
+     WHERE conversa_id = $1 AND type IN ('text','document','audio') AND from_type NOT IN ('system','interno')
      ORDER BY created_at DESC LIMIT $2`, [convId, limite]);
   const hist = histRows.reverse();
   const transcript = hist.map(m => {
     const quem = m.from_type === 'contact' ? (conv.contact_name || 'Cliente')
       : m.from_type === 'bot' ? 'Vitta (IA)'
       : `Atendente${m.sender_nome ? ` (${m.sender_nome})` : ''}`;
-    const txt = m.type === 'document' ? `[enviou PDF: ${m.filename || 'documento'}]` : String(m.content || '').slice(0, 400);
+    const txt = m.type === 'document' ? `[enviou PDF: ${m.filename || 'documento'}]`
+      : m.type === 'audio' ? (String(m.transcricao || '').trim() ? `[áudio] ${String(m.transcricao).trim().slice(0, 400)}` : '[mandou um áudio sem transcrição]')
+      : String(m.content || '').slice(0, 400);
     const hora = new Date(m.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
     return `[${hora}] ${quem}: ${txt}`;
   }).join('\n');
   return { conv, hist, transcript };
+}
+
+/* Transcreve RETROATIVAMENTE os áudios de uma conversa que ficaram sem texto
+   (áudio antigo de antes do Whisper, ou falha na hora). Sem isso, conversa
+   conduzida por voz é conversa muda pro estudo da Vitta. */
+export async function transcreverAudiosDaConversa(convId, limite = 40) {
+  if (!process.env.OPENAI_API_KEY) return { transcritos: 0, falhas: 0, total: 0, erro: 'Whisper não configurado' };
+  const { rows: audios } = await query(`
+    SELECT id, content FROM mensagens
+     WHERE conversa_id = $1 AND type = 'audio'
+       AND COALESCE(TRIM(transcricao),'') = '' AND COALESCE(content,'') <> ''
+     ORDER BY created_at ASC LIMIT $2`, [convId, limite]).catch(() => ({ rows: [] }));
+  let ok = 0, falhas = 0;
+  const { default: fetch } = await import('node-fetch');
+  for (const a of audios) {
+    try {
+      let b64, mime = 'audio/ogg';
+      const c = String(a.content);
+      if (c.startsWith('data:')) {
+        const m = c.match(/^data:([^;]+);base64,(.+)$/s);
+        if (!m) { falhas++; continue; }
+        mime = m[1]; b64 = m[2].replace(/\s/g, '');
+      } else if (/^https?:/.test(c)) {
+        const r2 = await fetch(c, { signal: AbortSignal.timeout(20000) });
+        if (!r2.ok) { falhas++; continue; }
+        b64 = Buffer.from(await r2.arrayBuffer()).toString('base64');
+      } else { falhas++; continue; }
+      const texto = await transcreverAudio(b64, mime);
+      if (texto && texto.trim().length > 1) {
+        await query('UPDATE mensagens SET transcricao = $1 WHERE id = $2', [texto.trim(), a.id]);
+        // No boot o socket pode nem existir ainda — a transcrição já está salva
+        try { socketEmit('message_updated', { convId, messageId: a.id, transcricao: texto.trim() }); } catch { /* ok */ }
+        ok++;
+      } else falhas++;
+    } catch (e) { falhas++; console.error('transcrição retroativa:', e.message); }
+  }
+  return { transcritos: ok, falhas, total: audios.length };
 }
 
 async function resolverAtendente(conv, hist) {
@@ -6705,6 +6747,8 @@ r.post('/cases-sucesso/:convId/aula', async (req, res) => {
     const { rows: [pronta] } = await query('SELECT texto, por, created_at FROM cases_aulas WHERE conversa_id = $1', [req.params.convId]);
     const ehLider = ['master', 'supervisor'].includes(req.user.role) || req.user.lider;
     if (pronta?.texto && !(req.body?.refazer && ehLider)) return res.json(pronta);
+    // Venda por voz também ensina: destrava os áudios antes de montar a aula
+    await transcreverAudiosDaConversa(req.params.convId, 30).catch(() => {});
     const t = await montarTranscriptConversa(req.params.convId, 80);
     if (!t?.transcript) return res.status(400).json({ error: 'Não consegui ler a conversa deste case.' });
     const sys = `Você é a professora de vendas da Vittalis Saúde (clínica de pediatria e vacinação em São Luís-MA). Seu papel: transformar um atendimento REAL que virou venda numa aula prática que faça a equipe vender mais. Tom caloroso e direto, em português do Brasil, elogiando pelo nome quem atendeu. Baseie TUDO na conversa real — cite trechos entre aspas; nunca invente falas.`;
@@ -6737,6 +6781,19 @@ ${t.transcript.slice(0, 9000)}`;
                  ON CONFLICT (conversa_id) DO UPDATE SET texto = $2, por = $3, created_at = NOW()`,
       [req.params.convId, texto, req.user.nome]);
     res.json({ texto, por: req.user.nome, created_at: new Date().toISOString() });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* 🎙️ Transcrever os áudios de UMA conversa sob demanda (gestão/líder) — pra
+   destravar o estudo de atendimentos antigos conduzidos por voz. */
+r.post('/conversations/:id/transcrever-audios', async (req, res) => {
+  try {
+    if (!(['master', 'supervisor'].includes(req.user.role) || req.user.lider)) return res.status(403).json({ error: 'Acesso restrito à liderança.' });
+    const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
+    if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso: esta conversa é de outro setor.' });
+    const out = await transcreverAudiosDaConversa(req.params.id, 40);
+    res.json(out);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -6786,6 +6843,7 @@ r.post('/vitta-base/gerar', async (req, res) => {
     }
     for (const cv of fontes) {
       if (transcripts.length >= 10) break;
+      await transcreverAudiosDaConversa(cv.id, 10).catch(() => {});   // voz também ensina
       const t = await montarTranscriptConversa(cv.id, 60).catch(() => null);
       if (t?.transcript) transcripts.push(`### Atendimento que DEU CERTO:\n${t.transcript.slice(0, 2200)}`);
     }
