@@ -390,18 +390,26 @@ const MsgItem = React.memo(function MsgItem({ m, prevMsg, contactName, channel, 
       ) : (
         <div className="msg-row" style={{ display:'flex', alignItems:'center', gap:5, justifyContent:isMe||isBot?'flex-end':'flex-start', marginBottom:2 }}>
           {/* Mensagem da IA (Mary) também pode ser editada/apagada — pedido do master */}
-          {(isMe || isBot) && m.status !== 'deleted' && (onEditar || onApagar) && (
-            <span className="msg-acoes" style={{ display:'flex', gap:3, opacity:0, transition:'opacity .15s' }}>
-              {onEditar && m.type === 'text' && (Date.now() - new Date(m.created_at).getTime()) <= 15*60*1000 && (
-                <button onClick={() => onEditar(m)} title="Editar (até 15 min)"
-                  style={{ width:24, height:24, borderRadius:8, border:'1px solid var(--border)', background:'var(--card,#fff)', color:'var(--muted)', cursor:'pointer', fontSize:11, display:'flex', alignItems:'center', justifyContent:'center' }}>✏️</button>
+          {(isMe || isBot) && m.status !== 'deleted' && (onEditar || onApagar) && (() => {
+            /* Ações SEMPRE meio visíveis (antes era só no hover — no celular
+               nunca apareciam, e o master achou que editar a IA não existia).
+               Lápis após os 15 min do WhatsApp: aparece apagadinho e explica. */
+            const podeEditar = m.type === 'text' && (Date.now() - new Date(m.created_at).getTime()) <= 15*60*1000;
+            return (
+            <span className="msg-acoes" style={{ display:'flex', gap:3, opacity:.5, transition:'opacity .15s' }}>
+              {onEditar && m.type === 'text' && (
+                <button onClick={() => podeEditar ? onEditar(m) : Toast.show('O WhatsApp só permite editar até 15 minutos após o envio — depois disso, apague e mande de novo.', 'info')}
+                  title={podeEditar ? 'Editar (até 15 min)' : 'O WhatsApp só permite editar até 15 min após o envio'}
+                  style={{ width:24, height:24, borderRadius:8, border:'1px solid var(--border)', background:'var(--card,#fff)',
+                    color:'var(--muted)', cursor:'pointer', fontSize:11, display:'flex', alignItems:'center', justifyContent:'center', opacity: podeEditar ? 1 : .4 }}>✏️</button>
               )}
               {onApagar && (
                 <button onClick={() => onApagar(m)} title="Apagar pra todos"
                   style={{ width:24, height:24, borderRadius:8, border:'1px solid var(--border)', background:'var(--card,#fff)', color:'var(--err)', cursor:'pointer', fontSize:11, display:'flex', alignItems:'center', justifyContent:'center' }}>🗑</button>
               )}
             </span>
-          )}
+            );
+          })()}
           <div className={m.type==='sticker' ? '' : bubClass} style={{ maxWidth:'72%',
             borderRadius:isMe||isBot?'16px 16px 4px 16px':'16px 16px 16px 4px',
             padding: m.type==='sticker' ? '2px' : '8px 11px',
