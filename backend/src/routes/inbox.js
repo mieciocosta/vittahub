@@ -1588,6 +1588,36 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
       const extras = Object.entries(pac.dados || {}).map(([k, v]) => `${k.replace(/_/g, ' ')}: ${v}`).join(' · ');
       sysPrompt += `\n\nESTE CONTATO JÁ É PACIENTE DA CASA (cadastro no VittaMed${pac.nome ? ` — ${pac.nome}` : ''}${extras ? ` · ${extras}` : ''}). Trate como quem VOLTA: acolha como conhecida da família Vittalis, não apresente a clínica do zero e conduza direto pro que a pessoa precisa (retorno, nova avaliação ou dúvida).`;
     }
+
+    /* 🗺️ PROTOCOLO VITTALIS EM 7 ETAPAS no prompt (pedido do master): a Vitta
+       recebe o trilho de venda E onde esta conversa está agora — versão leve
+       dos mesmos sinais que o painel do protocolo usa (venda registrada,
+       agendamento, preço enviado, resposta do cliente). */
+    try {
+      const [{ rows: [vF] }, { rows: [aF] }] = await Promise.all([
+        query(`SELECT COUNT(*)::int n FROM vendas WHERE conversa_id = $1 AND status_pagamento IN ('pago','cortesia')`, [convId]).catch(() => ({ rows: [{ n: 0 }] })),
+        query(`SELECT COUNT(*)::int n FROM agenda_eventos WHERE conversa_id = $1 AND LOWER(COALESCE(status,'')) NOT LIKE 'cancel%'`, [convId]).catch(() => ({ rows: [{ n: 0 }] })),
+      ]);
+      const nossas = hist.filter(m => m.from_type !== 'contact');
+      const nossasTxt = nossas.map(m => String(m.content || '')).join(' ');
+      const precoEnviado = /r\$\s?\d/i.test(nossasTxt) || nossas.some(m => m.type === 'document');
+      const apresentou = nossas.some(m => m.type === 'document' || String(m.content || '').length > 180);
+      const fechou = (vF?.n || 0) > 0 || (aF?.n || 0) > 0;
+      const negociando = precoEnviado && hist[hist.length - 1].from_type === 'contact';
+      const feitos = [true, !!conv.setor, apresentou, precoEnviado, negociando || fechou, fechou, false];
+      const atual = feitos.findIndex(f => !f) + 1 || 7;
+      const ETAPAS = [
+        ['Prospecção', 'acolha com carinho de gente e se apresente — primeira impressão é tudo'],
+        ['Qualificação', 'descubra PRA QUEM é e O QUE a família precisa (nome e idade da criança, o que preocupa) — uma pergunta por vez'],
+        ['Apresentação', 'mostre o VALOR antes do preço: conecte o serviço/profissional à dor que a mãe contou'],
+        ['Proposta', 'apresente o valor da tabela com naturalidade e JÁ emende o próximo passo ("quer que eu veja um horário pra vocês?")'],
+        ['Negociação', 'acolha a objeção sem brigar com ela (preço, "vou ver com o marido", medo) e responda como nos atendimentos que deram certo'],
+        ['Fechamento', 'ofereça DOIS horários concretos em vez de perguntar "quer agendar?" — e acione a equipe pra confirmar'],
+        ['Pós-venda', 'agradeça com carinho, confirme o combinado e deixe a porta aberta pro retorno'],
+      ];
+      const mapa = ETAPAS.map((e, i) => `${i + 1}. ${e[0]}${feitos[i] && i < atual - 1 ? ' ✓' : ''} — ${e[1]}`).join('\n');
+      sysPrompt += `\n\nSEU TRILHO DE VENDA — PROTOCOLO VITTALIS (7 etapas, siga na ordem, sem pular e sem correr; uma etapa por resposta, com naturalidade de conversa — nunca soe roteiro):\n${mapa}\n\n➡️ ESTA CONVERSA ESTÁ NA ETAPA ${atual} (${ETAPAS[atual - 1][0]}). Sua missão nas próximas mensagens: ${ETAPAS[atual - 1][1]}.`;
+    } catch (e) { console.error('funil no prompt:', e.message); }
   }
 
   const tools = [{
