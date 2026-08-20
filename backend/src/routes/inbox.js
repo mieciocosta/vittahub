@@ -6535,13 +6535,33 @@ r.get('/cases-sucesso', async (req, res) => {
       SELECT DISTINCT ON (v.conversa_id)
              v.conversa_id id, c.contact_name, c.phone,
              COALESCE(v.setor, c.setor, 'vacinas') setor, c.classificacao, c.responsavel_id,
-             v.categoria, v.servico, v.valor, v.atendente_nome, v.data_venda
+             v.categoria, v.servico, v.valor, v.atendente_nome, v.data_venda, 'venda' tipo
       FROM vendas v JOIN conversas c ON c.id = v.conversa_id
       WHERE v.status_pagamento IN ('pago','cortesia') AND v.conversa_id IS NOT NULL
         AND ($1::text[] IS NULL OR COALESCE(v.setor, c.setor, 'vacinas') = ANY($1))
       ORDER BY v.conversa_id, v.data_venda DESC, v.created_at DESC
       LIMIT 400`, [meus]);
-    res.json(rows.sort((a, b) => new Date(b.data_venda) - new Date(a.data_venda)));
+    /* 📅 Pesquisa pedida pelo master: "as conversas de consultas que deram certo,
+       que houveram agendamentos". Em consultas o "deu certo" muitas vezes é o
+       AGENDAMENTO marcado, não uma venda registrada — então a conversa que gerou
+       agendamento também é case de estudo. A venda continua mandando: se a mesma
+       conversa tem venda E agendamento, entra como venda (sinal mais forte). */
+    const { rows: agds } = await query(`
+      SELECT DISTINCT ON (a.conversa_id)
+             a.conversa_id id, c.contact_name, c.phone,
+             COALESCE(a.setor, c.setor, 'consultas') setor, c.classificacao, c.responsavel_id,
+             'Agendamento' categoria, a.servico, NULL::numeric valor,
+             COALESCE(u.nome, a.responsavel_nome) atendente_nome, a.data data_venda, 'agendamento' tipo
+      FROM agenda_eventos a
+      JOIN conversas c ON c.id = a.conversa_id
+      LEFT JOIN usuarios u ON u.id = a.responsavel_id
+      WHERE a.conversa_id IS NOT NULL AND COALESCE(a.status,'') NOT ILIKE 'cancel%'
+        AND ($1::text[] IS NULL OR COALESCE(a.setor, c.setor, 'consultas') = ANY($1))
+      ORDER BY a.conversa_id, a.data DESC, a.created_at DESC
+      LIMIT 400`, [meus]).catch(() => ({ rows: [] }));
+    const jaTem = new Set(rows.map(r2 => String(r2.id)));
+    const todos = rows.concat(agds.filter(a => !jaTem.has(String(a.id))));
+    res.json(todos.sort((a, b) => new Date(b.data_venda) - new Date(a.data_venda)));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -6567,7 +6587,16 @@ r.post('/cases-sucesso/gerar-padrao', async (req, res) => {
       FROM vendas v JOIN conversas c ON c.id = v.conversa_id
       WHERE v.status_pagamento IN ('pago','cortesia') AND v.conversa_id IS NOT NULL ${setor ? 'AND c.setor = $1' : ''}
       ORDER BY v.conversa_id, v.data_venda DESC, v.created_at DESC LIMIT 60`, setor ? [setor] : []);
-    const visiveis = rows.filter(r2 => podeVerSetor(req.user, r2)).slice(0, 6);
+    // Consultas fecham em AGENDAMENTO (nem sempre há venda registrada) — o
+    // padrão do setor também aprende com as conversas que agendaram.
+    const { rows: rowsAgd } = await query(`
+      SELECT DISTINCT ON (a.conversa_id) a.conversa_id id, c.setor, c.classificacao, c.responsavel_id, c.contact_name, a.data data_venda
+      FROM agenda_eventos a JOIN conversas c ON c.id = a.conversa_id
+      WHERE a.conversa_id IS NOT NULL AND COALESCE(a.status,'') NOT ILIKE 'cancel%' ${setor ? 'AND COALESCE(a.setor, c.setor) = $1' : ''}
+      ORDER BY a.conversa_id, a.data DESC, a.created_at DESC LIMIT 60`, setor ? [setor] : []).catch(() => ({ rows: [] }));
+    const idsVenda = new Set(rows.map(r2 => String(r2.id)));
+    const base = rows.concat(rowsAgd.filter(a => !idsVenda.has(String(a.id))));
+    const visiveis = base.filter(r2 => podeVerSetor(req.user, r2)).slice(0, 6);
     if (!visiveis.length) return res.status(400).json({ error: 'Ainda não há cases de sucesso suficientes para gerar o padrão.' });
     const transcripts = [];
     for (const cv of visiveis) {
@@ -6596,12 +6625,24 @@ r.post('/cases-sucesso/gerar-padrao', async (req, res) => {
    como replicar amanhã. Gerada uma vez e guardada — todo o setor estuda. */
 async function caseVisivel(user, convId) {
   // Mesma régua da vitrine: o setor do case é o da VENDA (autoridade: banco).
-  const { rows: [cs] } = await query(`
+  let { rows: [cs] } = await query(`
     SELECT COALESCE(v.setor, c.setor, 'vacinas') setor, v.servico, v.valor,
-           v.atendente_nome, v.data_venda, c.contact_name
+           v.atendente_nome, v.data_venda, c.contact_name, 'venda' tipo
       FROM vendas v JOIN conversas c ON c.id = v.conversa_id
      WHERE v.conversa_id = $1 AND v.status_pagamento IN ('pago','cortesia')
      ORDER BY v.data_venda DESC, v.created_at DESC LIMIT 1`, [convId]);
+  if (!cs) {
+    // Sem venda? Vale o AGENDAMENTO (pedido do master: consultas que deram certo)
+    ({ rows: [cs] } = await query(`
+      SELECT COALESCE(a.setor, c.setor, 'consultas') setor, a.servico, NULL::numeric valor,
+             COALESCE(u.nome, a.responsavel_nome) atendente_nome, a.data data_venda,
+             c.contact_name, 'agendamento' tipo
+        FROM agenda_eventos a
+        JOIN conversas c ON c.id = a.conversa_id
+        LEFT JOIN usuarios u ON u.id = a.responsavel_id
+       WHERE a.conversa_id = $1 AND COALESCE(a.status,'') NOT ILIKE 'cancel%'
+       ORDER BY a.data DESC, a.created_at DESC LIMIT 1`, [convId]).catch(() => ({ rows: [null] })));
+  }
   if (!cs) return null;
   if (user.role === 'master' || user.ve_geral === true) return cs;
   const { rows: [u] } = await query('SELECT setor, setores, ve_geral FROM usuarios WHERE id = $1', [user.id]).catch(() => ({ rows: [null] }));
@@ -6631,7 +6672,10 @@ r.post('/cases-sucesso/:convId/aula', async (req, res) => {
     const t = await montarTranscriptConversa(req.params.convId, 80);
     if (!t?.transcript) return res.status(400).json({ error: 'Não consegui ler a conversa deste case.' });
     const sys = `Você é a professora de vendas da Vittalis Saúde (clínica de pediatria e vacinação em São Luís-MA). Seu papel: transformar um atendimento REAL que virou venda numa aula prática que faça a equipe vender mais. Tom caloroso e direto, em português do Brasil, elogiando pelo nome quem atendeu. Baseie TUDO na conversa real — cite trechos entre aspas; nunca invente falas.`;
-    const user = `Esta conversa virou VENDA: ${cs.servico || 'serviço'} — R$ ${Number(cs.valor || 0).toFixed(2)} — atendida por ${cs.atendente_nome || 'a equipe'} (cliente: ${cs.contact_name || 'cliente'}).
+    const resultado = cs.tipo === 'agendamento'
+      ? `virou AGENDAMENTO marcado: ${cs.servico || 'consulta'} (em consultas, agendar É fechar)`
+      : `virou VENDA: ${cs.servico || 'serviço'} — R$ ${Number(cs.valor || 0).toFixed(2)}`;
+    const user = `Esta conversa ${resultado} — atendida por ${cs.atendente_nome || 'a equipe'} (cliente: ${cs.contact_name || 'cliente'}).
 
 Monte a AULA desta venda em markdown, exatamente nesta estrutura:
 ## 🎬 O filme da venda

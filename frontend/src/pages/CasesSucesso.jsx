@@ -85,7 +85,10 @@ export default function CasesSucesso() {
     setGerando(false);
   };
 
+  // 📅 Filtro por tipo (pedido do master): venda fechada × agendamento marcado
+  const [tipoFiltro, setTipoFiltro] = useState('');
   const filtrada = lista.filter(c => {
+    if (tipoFiltro && (c.tipo || 'venda') !== tipoFiltro) return false;
     const s = busca.toLowerCase().trim();
     if (!s) return true;
     return (c.contact_name || '').toLowerCase().includes(s) || (c.servico || '').toLowerCase().includes(s) || (c.categoria || '').toLowerCase().includes(s) || (c.atendente_nome || '').toLowerCase().includes(s);
@@ -99,7 +102,7 @@ export default function CasesSucesso() {
         <div style={{ position: 'absolute', right: -25, top: -25, width: 130, height: 130, borderRadius: '50%', background: 'rgba(255,255,255,.10)' }} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 23, fontWeight: 800 }}><Trophy size={24} /> Cases de Sucesso</div>
         <div style={{ fontSize: 13.5, opacity: .95, marginTop: 6, maxWidth: 620, lineHeight: 1.5 }}>
-          Conversas que <b>viraram venda</b>. Estude o padrão de atendimento vencedor — o jeito de abordar, conduzir e fechar — e replique na equipe. 🏆
+          Conversas que <b>viraram venda ou agendamento</b>. Estude o padrão vencedor — o jeito de abordar, conduzir e fechar — e replique na equipe. 🏆
         </div>
       </div>
 
@@ -140,6 +143,13 @@ export default function CasesSucesso() {
           <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar por cliente, serviço, atendente…"
             style={{ width: '100%', padding: '9px 12px 9px 34px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--card)' }} />
         </div>
+        <span style={{ display: 'flex', borderRadius: 9, overflow: 'hidden', border: '1.5px solid var(--border)' }}>
+          {[['', 'Todos'], ['venda', '💰 Vendas'], ['agendamento', '📅 Agendamentos']].map(([k, l]) => (
+            <button key={k} onClick={() => setTipoFiltro(k)}
+              style={{ padding: '7px 12px', fontSize: 12, fontWeight: 800, border: 'none', cursor: 'pointer',
+                background: tipoFiltro === k ? 'var(--tq)' : 'var(--card)', color: tipoFiltro === k ? '#fff' : 'var(--muted)' }}>{l}</button>
+          ))}
+        </span>
         <span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 700 }}>{filtrada.length} case(s)</span>
       </div>
 
@@ -165,7 +175,14 @@ export default function CasesSucesso() {
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 12, color: 'var(--muted)' }}>
-                <span>👤 {(c.atendente_nome || '—').split(' ')[0]}</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  👤 {(c.atendente_nome || '—').split(' ')[0]}
+                  <span style={{ fontSize: 10.5, fontWeight: 800, borderRadius: 6, padding: '2px 7px',
+                    background: (c.tipo || 'venda') === 'agendamento' ? 'rgba(14,165,233,.12)' : 'rgba(22,163,74,.12)',
+                    color: (c.tipo || 'venda') === 'agendamento' ? '#0ea5e9' : 'var(--ok,#16a34a)' }}>
+                    {(c.tipo || 'venda') === 'agendamento' ? '📅 Agendou' : '💰 Vendeu'}
+                  </span>
+                </span>
                 {/* T12:00 no meio do dia — sem isso "2026-08-12" é lido como meia-noite
                     UTC e o nosso fuso (-3) mostra o dia ANTERIOR na tela. */}
                 <span>{c.data_venda ? new Date(String(c.data_venda).slice(0, 10) + 'T12:00:00').toLocaleDateString('pt-BR') : ''}</span>
