@@ -2003,6 +2003,44 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log(`🧵 Costura v2: +${total2} vendas ligadas; ${totalOrfas} órfãs`);
     }
 
+    /* 📨 BOM-DIA DA VITTA (pedido do master: "programa a IA mandar mensagem
+       para os clientes às 8:00"). As 8:00 de 20/08 já tinham passado quando o
+       pedido chegou → agendado pra PRÓXIMA 8:00 da manhã: 21/08 às 8:00 de
+       São Luís (11:00 UTC). Alvo: as conversas de consultas/terapias em que a
+       Vitta está de plantão (bot ligado), sem mensagem nossa nas últimas 24h.
+       Tudo fica VISÍVEL na fila de mensagens automáticas — dá pra cancelar
+       qualquer uma antes das 8h. A fila agendada é religada aqui (o pedido é
+       exatamente um envio programado). */
+    const { rows: [flagBomDia] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_bomdia_vitta_21ago_v1'");
+    if (!flagBomDia) {
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('automacao_pausada', '{"ligado":{"agendadas":true}}'::jsonb)
+                   ON CONFLICT (chave) DO UPDATE SET
+                     valor = COALESCE(configuracoes.valor, '{}'::jsonb) ||
+                             jsonb_build_object('ligado', COALESCE(configuracoes.valor->'ligado', '{}'::jsonb) || '{"agendadas":true}'::jsonb),
+                     updated_at = NOW()`).catch((e) => console.error('religa agendadas:', e.message));
+      const rBom = await query(`
+        INSERT INTO mensagens_agendadas (conversa_id, texto, enviar_em, criado_por)
+        SELECT c.id,
+               'Bom dia' || CASE WHEN TRIM(COALESCE(c.contact_name,'')) <> '' THEN ', ' || split_part(TRIM(c.contact_name), ' ', 1) ELSE '' END ||
+               '! 💙 Aqui é a Vitta, da Vittalis Saúde. Passei pra saber como vocês estão por aí 😊 Se estiver precisando de consulta ou de uma avaliação pro seu pequeno, me conta que eu já vejo um horário certinho pra vocês!',
+               '2026-08-21T11:00:00Z', 'Vitta · Bom dia consultas'
+          FROM conversas c
+         WHERE c.setor IN ('consultas','terapias') AND c.bot_ativo = true
+           /* Somente as carteiras das usuárias que o master sinalizou
+              (Danielle, Suellen, Mayara) — a própria chave da Vitta filtra */
+           AND c.responsavel_id IN (SELECT id FROM usuarios WHERE ia_consultas = true AND ativo = true)
+           AND length(regexp_replace(COALESCE(c.phone,''),'\\D','','g')) >= 8
+           AND NOT EXISTS (SELECT 1 FROM mensagens m WHERE m.conversa_id = c.id
+                             AND m.from_type IN ('me','bot') AND m.created_at > NOW() - interval '24 hours')
+           AND NOT EXISTS (SELECT 1 FROM mensagens_agendadas ma WHERE ma.conversa_id = c.id AND ma.status = 'pendente' AND ma.criado_por = 'Vitta · Bom dia consultas')
+         LIMIT 300`).catch((e) => { console.error('bom-dia insert:', e.message); return { rowCount: 0 }; });
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+        ['📨 Bom-dia da Vitta programado — 21/08 às 8:00',
+         `${rBom.rowCount || 0} mensagem(ns) de bom-dia programadas pras conversas de consultas/terapias em que a Vitta está de plantão (as 8:00 de hoje 20/08 já tinham passado quando o pedido chegou — foi pra próxima manhã). Cada uma sai com o nome do cliente, e a Vitta continua acordada pra responder quem responder. Pra revisar ou cancelar qualquer uma antes da hora: fila de mensagens automáticas (Vitta trabalhando). A fila agendada foi religada pra esse envio.`]).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_bomdia_vitta_21ago_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log(`📨 Bom-dia da Vitta: ${rBom.rowCount || 0} mensagens programadas pra 21/08 8:00 SLZ`);
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);

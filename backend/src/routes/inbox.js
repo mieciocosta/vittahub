@@ -4341,17 +4341,23 @@ r.post('/conversations/:id/orcamento-pdf', async (req, res) => {
 
 /* ─── MENSAGENS AGENDADAS: dispara texto pro cliente em data/hora marcada ──────── */
 // Envia um texto pela conversa (usado pelo agendador) e registra no histórico.
-async function enviarTextoConversa(conv, texto, senderNome) {
+async function enviarTextoConversa(conv, texto, senderNome, opts = {}) {
   /* Bloqueia ANTES de gravar: se a tranca barrar depois, o histórico mostra a
      mensagem como enviada e ninguém entende por que o cliente não respondeu. */
   if (pareceMensagemDeTeste(texto)) {
     await avisarTesteBloqueado(query, { texto, destino: conv.contact_name || conv.phone, origem: 'fila automática' });
     throw new Error('Mensagem de teste bloqueada — não sai para o cliente.');
   }
+  /* opts.deBot: a mensagem é da VITTA (ex.: bom-dia programado pelo master).
+     Sai como 'bot' e NÃO desliga o bot da conversa — desligar aqui calaria a
+     própria Vitta no momento em que o cliente responde. Mensagem de atendente
+     (padrão) continua desligando, como sempre. */
   const { rows: [msg] } = await query(
-    `INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome, status) VALUES ($1,'me','text',$2,$3,'sent') RETURNING *`,
-    [conv.id, texto, senderNome || 'Agendada']);
-  const { rows: [convUpd] } = await query("UPDATE conversas SET last_message=$1, last_from='me', last_message_at=NOW(), bot_ativo=false WHERE id=$2 RETURNING *", [texto.slice(0, 100), conv.id]);
+    `INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome, status) VALUES ($1,$2,'text',$3,$4,'sent') RETURNING *`,
+    [conv.id, opts.deBot ? 'bot' : 'me', texto, senderNome || (opts.deBot ? 'Vitta' : 'Agendada')]);
+  const { rows: [convUpd] } = await query(
+    `UPDATE conversas SET last_message=$1, last_from='me', last_message_at=NOW()${opts.deBot ? '' : ', bot_ativo=false'} WHERE id=$2 RETURNING *`,
+    [texto.slice(0, 100), conv.id]);
   if (convUpd) cacheUpdate(convUpd);
   socketEmit('new_message', { convId: conv.id, message: msg, conv: convUpd || conv });
   if (conv.channel === 'whatsapp' && zapiOk()) {
@@ -4466,7 +4472,8 @@ async function processarAgendadas() {
           console.warn('🚨 Mensagem de teste bloqueada na fila:', ag.id, JSON.stringify(String(ag.texto).slice(0, 60)));
           continue;
         }
-        await enviarTextoConversa(conv, ag.texto, ag.criado_por);
+        // Mensagem programada DA VITTA sai como bot e mantém a Vitta acordada
+        await enviarTextoConversa(conv, ag.texto, ag.criado_por, { deBot: /^vitta/i.test(String(ag.criado_por || '')) });
         await query(`UPDATE mensagens_agendadas SET status='enviada', enviada_em=NOW() WHERE id=$1`, [ag.id]);
       } catch (e) {
         await query(`UPDATE mensagens_agendadas SET status='erro', erro=$2 WHERE id=$1`, [ag.id, String(e.message).slice(0, 200)]).catch(() => {});
