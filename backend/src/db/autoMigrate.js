@@ -2096,6 +2096,21 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log(`💁‍♀️ Mary retroativa: ${rMr.rowCount || 0} mensagens antigas renomeadas`);
     }
 
+    /* 🧽 FICHA LIMPA: a captura já gravou nome de GRUPO/EMPRESA como paciente
+       ("Terapias Vittalis", "Logística Vittalis" — prints do master). Limpa
+       retroativamente na memória das conversas; daqui pra frente o
+       mergeMemoria rejeita esses nomes na entrada. */
+    const { rows: [flagFicha] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_ficha_limpa_v1'");
+    if (!flagFicha) {
+      const RE_CORP = 'vittalis|log[ií]stic|cl[ií]nica|consult[óo]rio|ltda|cnpj|-group|grupo|equipe|suporte|atendimento';
+      const r1 = await query(`UPDATE conversas SET memoria = memoria - 'paciente'
+                               WHERE memoria ? 'paciente' AND memoria->>'paciente' ~* $1`, [RE_CORP]).catch(() => ({ rowCount: 0 }));
+      const r2 = await query(`UPDATE conversas SET memoria = memoria - 'responsavel'
+                               WHERE memoria ? 'responsavel' AND memoria->>'responsavel' ~* $1`, [RE_CORP]).catch(() => ({ rowCount: 0 }));
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_ficha_limpa_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log(`🧽 Ficha limpa: ${r1.rowCount || 0} paciente(s) e ${r2.rowCount || 0} responsável(is) corporativos removidos da memória`);
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);

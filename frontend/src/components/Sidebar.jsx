@@ -568,17 +568,19 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
             </button>
           </div>
         ) : (
-          <div style={{ display:'flex', flexWrap:'wrap', alignItems:'center', gap:9, padding:'10px 10px', borderRadius:12, background:'rgba(255,255,255,.14)', border:'1px solid rgba(255,255,255,.2)' }}>
+          <div style={{ display:'flex', flexWrap:'wrap', alignItems:'center', gap:9, padding:'12px 11px', borderRadius:16,
+            background:'linear-gradient(160deg, rgba(255,255,255,.20), rgba(255,255,255,.07))',
+            border:'1px solid rgba(255,255,255,.24)', boxShadow:'0 8px 24px rgba(0,0,0,.22), inset 0 1px 0 rgba(255,255,255,.18)' }}>
             {/* Foto maior (pedido do master) — é o rosto da pessoa no sistema */}
             <button onClick={()=>setShowAvatarBuilder(true)} title="Foto de perfil (foto própria ou avatar)"
               style={{ background:'none', border:'none', cursor:'pointer', padding:0, borderRadius:'50%', lineHeight:0,
-                boxShadow:'0 0 0 3px rgba(255,255,255,.6), 0 4px 14px rgba(0,0,0,.25)' }}>
+                boxShadow:'0 0 0 2px rgba(255,255,255,.9), 0 0 0 5px rgba(212,175,55,.45), 0 6px 18px rgba(0,0,0,.35)' }}>
               <UserAvatar size={76} />
             </button>
             <div style={{ flex:1, minWidth:0 }}>
               {/* Nome COMPLETO, sem corte: quebra em até 2 linhas se precisar */}
               <button onClick={editarNome} title="Editar meu nome" style={{ background:'none', border:'none', padding:0, cursor:'pointer', display:'flex', alignItems:'flex-start', gap:4, maxWidth:'100%', textAlign:'left' }}>
-                <span style={{ color:'#fff', fontSize:13, fontWeight:700, lineHeight:1.3 }}>{user?.nome}</span>
+                <span style={{ color:'#fff', fontSize:14.5, fontWeight:800, lineHeight:1.25, letterSpacing:.2, textShadow:'0 1px 4px rgba(0,0,0,.3)' }}>{user?.nome}</span>
                 <Pencil size={10} color="rgba(255,255,255,.55)" style={{ flexShrink:0, marginTop:3 }} />
               </button>
               {nomeOpen && (
@@ -598,7 +600,14 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                   <div style={{ fontSize:10, color:'var(--muted, #9ca3af)', marginTop:7, lineHeight:1.4 }}>Muda na hora, em todo o sistema.</div>
                 </div>
               )}
-              <div style={{ color:'rgba(255,255,255,.85)', fontSize:10.5 }}>{user?.role === 'master' ? '◆ Master' : `${user?.role === 'supervisor' ? '◆ ' : ''}${tituloUsuario(user)}`}<span style={{ marginLeft:6 }}><span style={{ display:'inline-block', width:6, height:6, borderRadius:'50%', background:'#3ef58f', marginRight:3, verticalAlign:'1px' }}/>Online</span></div>
+              <div style={{ display:'flex', flexWrap:'wrap', gap:4, marginTop:4, alignItems:'center' }}>
+                <span style={{ fontSize:9.5, fontWeight:800, color:'#ffe9b0', background:'rgba(212,175,55,.22)', border:'1px solid rgba(212,175,55,.4)', borderRadius:20, padding:'2px 8px', letterSpacing:.3 }}>
+                  {user?.role === 'master' ? '◆ Master' : `${user?.role === 'supervisor' ? '◆ ' : ''}${tituloUsuario(user)}`}
+                </span>
+                <span style={{ fontSize:9.5, fontWeight:800, color:'#a7f3d0', background:'rgba(62,245,143,.14)', border:'1px solid rgba(62,245,143,.35)', borderRadius:20, padding:'2px 8px' }}>
+                  <span style={{ display:'inline-block', width:5, height:5, borderRadius:'50%', background:'#3ef58f', marginRight:4, verticalAlign:'1px', boxShadow:'0 0 6px rgba(62,245,143,.9)' }}/>Online
+                </span>
+              </div>
             </div>
             {/* ☀️ O bloco pessoal do dia — redesenhado (pedido do master:
                 "melhore a visualização"). O que mudou: caixas dentro de caixas
@@ -607,8 +616,8 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                 frase dourada é a única com cor própria (é o destaque); e as
                 metas são duas linhas varridas num olhar, com a barra por
                 último. Menos moldura, mais leitura. */}
-            <div style={{ width:'100%', marginTop:4, borderRadius:11, overflow:'hidden',
-              background:'rgba(0,0,0,.14)', border:'1px solid rgba(255,255,255,.16)' }}>
+            <div style={{ width:'100%', marginTop:6, borderRadius:13, overflow:'hidden',
+              background:'linear-gradient(180deg, rgba(0,0,0,.20), rgba(0,0,0,.10))', border:'1px solid rgba(255,255,255,.18)', boxShadow:'inset 0 1px 0 rgba(255,255,255,.08)' }}>
 
               {/* Saudação + versículo */}
               <div style={{ padding:'8px 11px 7px' }}>
@@ -627,8 +636,8 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
               </div>
 
               {/* 🔥 A frase do dia — o ÚNICO destaque colorido do bloco */}
-              <div style={{ padding:'7px 11px', borderTop:'1px solid rgba(255,255,255,.12)',
-                background:'linear-gradient(90deg, rgba(252,211,77,.30), rgba(245,158,11,.14))' }}>
+              <div style={{ padding:'8px 11px', borderTop:'1px solid rgba(255,255,255,.12)', borderLeft:'3px solid #fcd34d',
+                background:'linear-gradient(90deg, rgba(252,211,77,.32), rgba(245,158,11,.10))' }}>
                 <div style={{ fontSize:10.5, fontWeight:900, color:'#fff', lineHeight:1.4 }}>🔥 {fraseVenda}</div>
               </div>
 
@@ -670,9 +679,9 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                           valor={ehConsultas
                             ? `${pct.toFixed(1).replace('.', ',')}% de 100%`
                             : `${brl(feito)} · falta ${brl(falta)}`} />
-                        <div style={{ height:5, borderRadius:4, background:'rgba(0,0,0,.3)', overflow:'hidden', marginTop:1 }}>
-                          <div style={{ width:`${Math.max(pct, 2)}%`, height:'100%', borderRadius:4,
-                            background: pct >= 100 ? '#6ee7b7' : 'linear-gradient(90deg,#f59e0b,#fcd34d)' }} />
+                        <div style={{ height:6, borderRadius:6, background:'rgba(0,0,0,.35)', overflow:'hidden', marginTop:2, boxShadow:'inset 0 1px 2px rgba(0,0,0,.4)' }}>
+                          <div style={{ width:`${Math.max(pct, 2)}%`, height:'100%', borderRadius:6,
+                            background: pct >= 100 ? 'linear-gradient(90deg,#34d399,#6ee7b7)' : 'linear-gradient(90deg,#f59e0b,#fcd34d)', boxShadow:'0 0 8px rgba(252,211,77,.5)' }} />
                         </div>
                       </>
                     )}

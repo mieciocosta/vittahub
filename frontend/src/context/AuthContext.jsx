@@ -22,7 +22,12 @@ export function AuthProvider({ children }) {
     setUser(u);
   };
 
-  const logout = () => { clearToken(); setUser(null); };
+  const logout = () => {
+    clearToken(); setUser(null);
+    // Sair limpa TAMBÉM o token de master guardado pelo "Entrar como" — sem
+    // isso, num aparelho compartilhado o botão (e o poder) ficavam pra trás.
+    try { localStorage.removeItem('vh_token_master'); } catch { /* ok */ }
+  };
 
   return (
     <Ctx.Provider value={{ user, setUser, login, logout, isMaster: user?.role === 'master', loading }}>

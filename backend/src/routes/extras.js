@@ -683,10 +683,12 @@ r.get('/ranking', async (req, res) => {
         ? `v.data_venda >= '${hojeSLZ}'::date - INTERVAL '6 days' AND v.data_venda <= '${hojeSLZ}'::date`
         : `to_char(v.data_venda,'YYYY-MM') = to_char('${hojeSLZ}'::date,'YYYY-MM')`;
 
-    const meus = await setoresDoUsuario(req);
-    // Sem setor cadastrado não abre o ranking da clínica inteira — mesma regra
-    // do resto do sistema: dado faltando esconde, nunca libera.
-    if (!meus.length) return res.json({ periodo, setores: [], aviso: 'Seu cadastro está sem setor — peça pra gestão marcar em Configurações → Usuários.' });
+    /* Ranking é da CLÍNICA INTEIRA pra TODO MUNDO (pedido do master: "o
+       ranking quero que apareça para todos") — é quantidade, sem um centavo na
+       tela, então não fere a regra dos valores nominais. O recorte por setor
+       do cadastro zerava a tela da Danielle, Stefany e Mayara: agendamento sem
+       setor caía em 'vacinas' e sumia pra quem é de consultas. */
+    const meus = ['vacinas', 'consultas', 'terapias'];
 
     /* O que conta no pódio (pedido do master): AGENDAMENTO, não venda.
        Faz sentido porque é o trabalho que a equipe controla — marcar a família.

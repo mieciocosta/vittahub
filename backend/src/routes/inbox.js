@@ -1877,11 +1877,17 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
    Perfil persistente do cliente (paciente, idade, responsável, o que já cotou…)
    pra Vitta não tratar quem volta como se fosse a primeira vez. Acumula fatos:
    nunca apaga um dado conhecido por causa de um null vindo da nova extração.  */
+/* Nome com cara de EMPRESA/GRUPO não é gente: a captura já gravou
+   "Terapias Vittalis" e "Logística Vittalis" como paciente (print do master). */
+export function pareceNomeCorporativo(t) {
+  return /vittalis|log[ií]stic|cl[ií]nica|consult[óo]rio|terapias\b|vacinas\b|ltda|\bcnpj\b|-group|\bgrupo\b|equipe|suporte|atendimento/i.test(String(t || ''));
+}
 function mergeMemoria(antiga = {}, nova = {}) {
   const out = { ...(antiga || {}) };
   for (const k of Object.keys(nova || {})) {
     const v = nova[k];
     if (v === null || v === undefined || v === '' || v === 'null') continue;
+    if (['paciente', 'responsavel'].includes(k) && pareceNomeCorporativo(v)) continue;
     if (Array.isArray(v)) {
       const base = Array.isArray(out[k]) ? out[k] : [];
       out[k] = Array.from(new Set([...base, ...v.map(x => String(x).trim()).filter(Boolean)])).slice(0, 12);
