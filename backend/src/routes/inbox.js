@@ -1351,10 +1351,17 @@ async function vittaResponder(convId) {
        (ou responsável fora do programa), ela é a Mary;
      · cada usuária tem a própria chave (ia_ligada): desligou, a IA cala nas
        conversas DELA — as das colegas seguem normais, sem conflito. */
-  let nomePersona = 'Mary';
+  let nomePersona = 'Mary';   // último recurso — a regra é assinar com gente real
+  if (!conv.responsavel_id && conv.setor) {
+    /* Ordem do master: a IA NÃO responde como Mary — responde com o nome da
+       usuária. Conversa sem dona ganha uma AGORA pelo rodízio do setor (de
+       quebra, a venda que a IA fizer já conta pra alguém de verdade). */
+    const dist = await distribuirSetor(convId, conv.setor).catch(() => null);
+    if (dist?.id) { conv.responsavel_id = dist.id; }
+  }
   if (conv.responsavel_id) {
     const { rows: [respU] } = await query('SELECT nome, ia_consultas, ia_ligada FROM usuarios WHERE id = $1', [conv.responsavel_id]).catch(() => ({ rows: [null] }));
-    if (respU?.ia_consultas === true) {
+    if (respU) {
       if (respU.ia_ligada === false) {
         console.log(`VITTA skip conv=${convId}: a responsável desligou a IA pessoal dela`);
         return;
