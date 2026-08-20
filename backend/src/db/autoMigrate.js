@@ -2088,6 +2088,14 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log(`🤖 Chaves da IA reafirmadas pras cinco (${cinco.length} com o botão)`);
     }
 
+    // 💁‍♀️ Mensagens antigas da IA ainda assinavam "Vitta" — viram "Mary"
+    const { rows: [flagMary2] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_mary_retroativo_v1'");
+    if (!flagMary2) {
+      const rMr = await query(`UPDATE mensagens SET sender_nome = 'Mary' WHERE from_type = 'bot' AND sender_nome = 'Vitta'`).catch(() => ({ rowCount: 0 }));
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_mary_retroativo_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log(`💁‍♀️ Mary retroativa: ${rMr.rowCount || 0} mensagens antigas renomeadas`);
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);
