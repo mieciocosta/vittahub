@@ -48,14 +48,14 @@ const SETORES_MENU = [
 const NAV = [
   { grupo:'Meu dia' },
   { to:'/inbox',      icon:MessageSquare,   label:'Chat',     unread:true, cor:'#25D366' },
-  // 💲 Logo abaixo do Chat e visivel PRA TODOS (pedido do master) —
-  // qualquer atendente consulta valores e monta orçamento sem sair da conversa.
+  // 🏆 Logo abaixo do Chat (pedido do master): cada case vira uma aula de
+  // vendas gerada pela IA — estudar quem fechou fica a um clique da conversa.
+  { to:'/cases-sucesso', icon:Trophy,       label:'Cases de Sucesso', cor:'#eab308' },
+  // 💲 Visível PRA TODOS (pedido do master) — qualquer atendente consulta
+  // valores e monta orçamento sem sair da conversa.
   { to:'/tabela-precos', icon:FileText,     label:'Tabela de Preços', cor:'#0ea5e9' },
   // 🤖 Painel da Mary — só pra quem tem o botão da IA (e o master)
   { to:'/mary', icon:Bot, label:'Assistente IA', iaBotao:true, cor:'#a855f7' },
-  // 🏆 Coladinho na Tabela de Preços (pedido do master): orçou → estuda quem
-  // fechou. Cada case agora vira uma aula de vendas gerada pela IA.
-  { to:'/cases-sucesso', icon:Trophy,       label:'Cases de Sucesso', cor:'#eab308' },
   // Quem agenda consulta vive alternando entre a conversa e a grade dos profissionais.
   { to:'/profissionais', icon:Stethoscope,  label:'Profissionais', consultas:true, cor:'#22d3ee' },
   { to:'/agenda',     icon:CalendarDays,    label:'Agenda', cor:'#f59e0b' },
