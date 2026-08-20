@@ -1616,7 +1616,7 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
         ['Pós-venda', 'agradeça com carinho, confirme o combinado e deixe a porta aberta pro retorno'],
       ];
       const mapa = ETAPAS.map((e, i) => `${i + 1}. ${e[0]}${feitos[i] && i < atual - 1 ? ' ✓' : ''} — ${e[1]}`).join('\n');
-      sysPrompt += `\n\nSEU TRILHO DE VENDA — PROTOCOLO VITTALIS (7 etapas, siga na ordem, sem pular e sem correr; uma etapa por resposta, com naturalidade de conversa — nunca soe roteiro):\n${mapa}\n\n➡️ ESTA CONVERSA ESTÁ NA ETAPA ${atual} (${ETAPAS[atual - 1][0]}). Sua missão nas próximas mensagens: ${ETAPAS[atual - 1][1]}.`;
+      sysPrompt += `\n\nSEU TRILHO DE VENDA — PROTOCOLO VITTALIS (7 etapas, siga na ordem, sem pular e sem correr; uma etapa por resposta, com naturalidade de conversa — nunca soe roteiro):\n${mapa}\n\n➡️ ESTA CONVERSA ESTÁ NA ETAPA ${atual} (${ETAPAS[atual - 1][0]}). Sua missão nas próximas mensagens: ${ETAPAS[atual - 1][1]}.\n\n📞 REGRA DE OURO DA CASA (vale em todas as etapas): LIGAÇÃO E ÁUDIO CONVERTEM. Se a proposta empacou ou o cliente sumiu depois do preço, ofereça a ligação — "posso pedir pra nossa equipe te ligar rapidinho pra fechar os detalhes?" — e, se aceitar, acione passar_para_equipe pedindo a ligação. Você não liga nem manda áudio; quem faz isso é a equipe, e seu papel é preparar o terreno.`;
     } catch (e) { console.error('funil no prompt:', e.message); }
   }
 

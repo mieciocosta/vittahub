@@ -2120,6 +2120,16 @@ export default function Inbox({ onUnreadChange }) {
                     </React.Fragment>
                   );
                 })}
+                {/* 📞 Lembrete de ouro do master, cravado no fim do trilho:
+                    proposta parada se resolve com LIGAÇÃO, e áudio converte
+                    mais que texto. Não é etapa — é o jeito de atravessar todas. */}
+                <span style={{ width:12, height:2, flexShrink:0, background:'var(--border)' }} />
+                <span title="Regra de ouro da casa: em toda proposta parada, LIGUE (avisando antes no WhatsApp) — e prefira áudio ao textão. Voz converte."
+                  style={{ flexShrink:0, display:'flex', alignItems:'center', gap:4, padding:'2px 8px', borderRadius:20,
+                    fontSize:10, fontWeight:900, whiteSpace:'nowrap', cursor:'default',
+                    background:'linear-gradient(135deg,#C4973B,#b45309)', color:'#fff', border:'1.5px solid transparent' }}>
+                  📞 Ligação e áudio convertem
+                </span>
               </div>
               {!proto.funil.completo && proto.funil.proximo_gatilho && (
                 <div style={{ fontSize:10.5, color:'var(--muted)', marginTop:3 }}>
