@@ -2240,15 +2240,23 @@ export default function Inbox({ onUnreadChange }) {
               </button>
             </div>
           )}
+          {/* 🟣 LETREIRO "VITTA AO VIVO" (pedido do master: bem atraente e
+              visível quando a IA está respondendo) — gradiente roxo, ponto
+              verde pulsando de transmissão e o desligar ali mesmo. */}
           {sel && sel.setor && sel.setor !== 'vacinas' && sel.bot_ativo && (user?.ia_consultas === true || user?.role === 'master') && (
-            <div style={{ display:'flex', alignItems:'center', gap:8, padding:'5px 12px', flexShrink:0, fontSize:11, fontWeight:800,
-              background:'rgba(124,58,237,.08)', borderTop:'1px solid rgba(124,58,237,.25)', color:'#7c3aed' }}>
-              <span style={{ flex:1, minWidth:0 }}>🤖 Vitta trabalhando nesta conversa — se você responder, ela sai de cena na hora.</span>
-              {/* Liga e desliga no MESMO lugar (pedido do master): um botão na conversa */}
+            <div style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px', flexShrink:0, color:'#fff',
+              background:'linear-gradient(100deg,#4c1d95,#7c3aed 55%,#a855f7)', borderTop:'1px solid #7c3aed' }}>
+              <style>{`@keyframes vhVivoIA{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.7)}}`}</style>
+              <span style={{ width:10, height:10, borderRadius:'50%', flexShrink:0, background:'#4ade80',
+                boxShadow:'0 0 8px rgba(74,222,128,.9)', animation:'vhVivoIA 1.1s ease-in-out infinite' }} />
+              <span style={{ flex:1, minWidth:0, lineHeight:1.3 }}>
+                <b style={{ fontSize:13, display:'block' }}>🤖 Vitta respondendo AO VIVO nesta conversa</b>
+                <span style={{ fontSize:10.5, opacity:.88 }}>Treinada nos atendimentos que fecharam — se você escrever, ela sai de cena na hora.</span>
+              </span>
               <button onClick={toggleBot}
-                style={{ flexShrink:0, padding:'4px 11px', borderRadius:8, border:'1.5px solid #c4b5fd', cursor:'pointer',
-                  background:'#fff', color:'#6d28d9', fontWeight:900, fontSize:10.5 }}>
-                ⏸️ Desligar a Vitta
+                style={{ flexShrink:0, padding:'7px 14px', borderRadius:10, border:'none', cursor:'pointer',
+                  background:'#fff', color:'#6d28d9', fontWeight:900, fontSize:11.5 }}>
+                ⏸️ Desligar
               </button>
             </div>
           )}
@@ -2285,16 +2293,9 @@ export default function Inbox({ onUnreadChange }) {
                   className={`tb-ico-color${showEmoji?' tb-on':''}`} style={{ '--ic':'#f59e0b' }}><Smile size={18} strokeWidth={2.3}/></button>
               </div>
 
-              {/* 🤖 IA RESPONDE — reposicionado e repintado a pedido do master:
-                  à direita da cápsula, logo depois do emoji, no roxo da Vitta
-                  (mesma identidade do convite). Escreve o rascunho na caixa —
-                  quem envia é a atendente. */}
-              <button onClick={sugerirResposta} disabled={!sel || sugerindo} title="Lê a conversa e escreve uma resposta humanizada, no seu tom — você revisa e envia"
-                style={{ display:'flex', alignItems:'center', gap:6, padding:'9px 14px', borderRadius:12, border:'none', flexShrink:0,
-                  cursor: sel?'pointer':'not-allowed', fontSize:12.5, fontWeight:800, whiteSpace:'nowrap', opacity:!sel?.5:1,
-                  background:'linear-gradient(135deg,#7c3aed,#a855f7)', color:'#fff', boxShadow:'0 2px 10px rgba(124,58,237,.35)' }}>
-                {sugerindo ? <Loader2 size={16} className="spin"/> : <Sparkles size={16}/>} {sugerindo ? 'Escrevendo…' : 'IA responde'}
-              </button>
+              {/* Botão "IA responde" RETIRADO a pedido do master — a Vitta agora
+                  responde sozinha (faixa roxa), e o rascunho sob demanda segue
+                  disponível pelo Radar de intenção. */}
               <input ref={fileRef} type="file" accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.gif" style={{ display:'none' }} onChange={handleFile}/>
               <textarea ref={textRef} onPaste={handlePaste} spellCheck lang="pt-BR" value={input} onChange={e=>setInput(e.target.value)}
                 onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}}}
