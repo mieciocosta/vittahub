@@ -1815,12 +1815,9 @@ export default function Inbox({ onUnreadChange }) {
                 className="btn btn-sm" style={{ background:'#0f766e', color:'#ccfbf1', border:'1.5px solid #14b8a6', fontSize:11, padding:'4px 9px', fontWeight:700 }}>
                 {resumoLoad ? <span className="spin" style={{width:10,height:10}}/> : '📋'} Resumo
               </button>
-              {['master','supervisor'].includes(user?.role) && (
-                <button onClick={excluirConversa} title="Excluir esta conversa do CRM (apaga tudo, não pode desfazer)"
-                  className="btn btn-sm" style={{ background:'var(--err2,#fdecec)', color:'var(--err,#dc2626)', border:'1.5px solid var(--err,#dc2626)', fontSize:11, padding:'4px 9px', fontWeight:700 }}>
-                  <Trash2 size={10}/> Excluir
-                </button>
-              )}
+              {/* 🔒 Botão Excluir REMOVIDO por ordem do master ("ninguém pode
+                  excluir conversa") — o histórico do cliente é permanente.
+                  O endpoint no backend também foi trancado. */}
               <button onClick={estudarConversa} disabled={estudoBusy} title="Guardar esta conversa em Estudos — pra equipe aprender com ela depois (serve tanto a que deu certo quanto a que travou)"
                 className="btn btn-sm" style={{ background:'#422006', color:'#fcd34d', border:'1.5px solid #C4973B', fontSize:11, padding:'4px 9px', fontWeight:700 }}>
                 {estudoBusy ? <span className="spin" style={{width:10,height:10}}/> : '📚'} Estudar
