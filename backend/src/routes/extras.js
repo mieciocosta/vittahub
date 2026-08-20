@@ -5,7 +5,7 @@ import { socketEmit } from '../socketServer.js';
 import { htmlParaPDF } from '../services/pdf.js';
 import { versoDoDia } from '../versiculos.js';
 import { getVapid, enviarPush } from '../services/push.js';
-import { temIA, usaClaude, openaiMessages, anthropicClient, CLAUDE_MODEL, CLAUDE_MODEL_MINI, podeVerSetor } from './inbox.js';
+import { temIA, usaClaude, openaiMessages, anthropicClient, CLAUDE_MODEL, CLAUDE_MODEL_MINI, podeVerSetor, gerarBaseConsultas } from './inbox.js';
 import propostaGen from '../services/proposta-gen.js';
 import { mascararLista } from '../middleware/privacidade.js';
 
@@ -1682,6 +1682,10 @@ r.put('/tabela-precos', async (req, res) => {
                  ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`,
       [JSON.stringify({ itens, por: req.user.nome, em: new Date().toISOString() })]);
     res.json({ ok: true, itens });
+    /* 🧠 Preço mudou → a Vitta RE-TREINA sozinha em segundo plano (o manual
+       dela cita valores; manual velho venderia com preço errado). Nunca atrasa
+       nem derruba o salvamento da tabela. */
+    if (temIA()) setImmediate(() => gerarBaseConsultas(`Vitta · tabela atualizada por ${req.user.nome}`).catch(e => console.error('re-treino pós-tabela:', e.message)));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 /* 🧾 ORÇAMENTOS ENVIADOS — cada orçamento copiado/enviado fica registrado.

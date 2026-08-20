@@ -6812,10 +6812,11 @@ r.get('/vitta-base', async (req, res) => {
     res.json(c?.valor || { texto: null });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
-r.post('/vitta-base/gerar', async (req, res) => {
-  try {
-    if (!['master', 'supervisor'].includes(req.user.role)) return res.status(403).json({ error: 'Acesso restrito à gestão.' });
-    if (!temIA()) return res.status(400).json({ error: 'IA não configurada.' });
+/* Motor do treinamento — chamável pelo botão da gestão, pelo boot (primeiro
+   treino automático) e pelo re-treino quando a tabela de preços muda. */
+export async function gerarBaseConsultas(por = 'Vitta (automático)') {
+  {
+    if (!temIA()) return { error: 'IA não configurada.' };
     // 1) Conversas de consultas que deram certo: vendas + agendamentos
     const { rows: convsVenda } = await query(`
       SELECT DISTINCT ON (v.conversa_id) v.conversa_id id, v.data_venda dt
@@ -6859,7 +6860,7 @@ r.post('/vitta-base/gerar', async (req, res) => {
       return `• ${p.nome}${p.especialidade ? ` — ${p.especialidade}` : ''}${dias ? ` (atende: ${dias})` : ''}`;
     }).join('\n');
     if (!transcripts.length && !precosTxt && !profsTxt) {
-      return res.status(400).json({ error: 'Ainda não há matéria-prima: nenhuma conversa de consulta que agendou/vendeu, tabela de preços vazia e nenhum profissional cadastrado.' });
+      return { error: 'Ainda não há matéria-prima: nenhuma conversa de consulta que agendou/vendeu, tabela de preços vazia e nenhum profissional cadastrado.' };
     }
     const sys = 'Você escreve o manual interno que a atendente virtual (Vitta) da Vittalis Saúde usa pra conduzir atendimentos de CONSULTAS no WhatsApp. Você destila conversas reais que deram certo em instruções acionáveis. Português do Brasil, direto, sem enrolação.';
     const user = `Com o material abaixo, escreva o MANUAL DA CASA — CONSULTAS em markdown, com EXATAMENTE estas seções:
@@ -6885,14 +6886,22 @@ ${profsTxt || '(nenhum cadastrado — não cite nomes)'}
 CONVERSAS REAIS QUE DERAM CERTO (${transcripts.length}):
 ${transcripts.join('\n\n') || '(nenhuma ainda)'}`;
     const data = await openaiMessages({ model: 'gpt-4o', max_tokens: 2200, system: sys, messages: [{ role: 'user', content: user }] });
-    if (data.error) return res.status(400).json({ error: erroIAamigavel(data.error) });
+    if (data.error) return { error: erroIAamigavel(data.error) };
     const texto = (data.content?.find(c => c.type === 'text')?.text || '').trim();
-    if (!texto) return res.status(400).json({ error: 'A IA não retornou o manual. Tente de novo.' });
-    const registro = { texto, conversas: transcripts.length, itens_tabela: (tp?.valor?.itens || []).length, profissionais: profs.length, por: req.user.nome, em: new Date().toISOString() };
+    if (!texto) return { error: 'A IA não retornou o manual. Tente de novo.' };
+    const registro = { texto, conversas: transcripts.length, itens_tabela: (tp?.valor?.itens || []).length, profissionais: profs.length, por, em: new Date().toISOString() };
     await query(`INSERT INTO configuracoes (chave, valor) VALUES ('vitta_base_consultas', $1::jsonb)
                  ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`, [JSON.stringify(registro)]);
     invalidarBaseConsultas();
-    res.json(registro);
+    return registro;
+  }
+}
+r.post('/vitta-base/gerar', async (req, res) => {
+  try {
+    if (!['master', 'supervisor'].includes(req.user.role)) return res.status(403).json({ error: 'Acesso restrito à gestão.' });
+    const out = await gerarBaseConsultas(req.user.nome);
+    if (out.error) return res.status(400).json({ error: out.error });
+    res.json(out);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

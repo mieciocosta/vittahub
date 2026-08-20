@@ -1806,6 +1806,30 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log(`🤖 Vitta pra Dra: ${dras.length ? dras.map(d => d.nome).join(', ') : 'ninguém com Dra no nome — master marca pela tela'}`);
     }
 
+    /* 🧠 PRIMEIRO TREINO AUTOMÁTICO (pergunta do master: "consegue treinar o
+       chatbot de forma excelente?"). Sem esperar clique: 45s depois do boot —
+       com o servidor de pé e os seeds dos exemplos já gravados — a Vitta gera
+       o manual sozinha e conta o resultado no sino. Só roda se ainda não
+       existe base (nunca sobrescreve uma que a gestão gerou). */
+    const { rows: [flagAutoBase] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_base_consultas_auto_v1'");
+    if (!flagAutoBase) {
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_base_consultas_auto_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      setTimeout(async () => {
+        try {
+          const { rows: [jaTem] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'vitta_base_consultas' AND COALESCE(valor->>'texto','') <> ''");
+          if (jaTem) return;
+          const { gerarBaseConsultas } = await import('../routes/inbox.js');
+          const out = await gerarBaseConsultas('Vitta (primeiro treino automático)');
+          await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+            ['🧠 Vitta treinada — primeiro treino automático',
+             out.error
+               ? `Tentei gerar a base de consultas sozinha, mas: ${out.error}`
+               : `A base de consultas foi gerada sozinha com ${out.conversas} conversa(s) que deram certo, ${out.itens_tabela} preço(s) da tabela e ${out.profissionais} profissional(is). A Vitta já responde com esse manual. Pra re-treinar quando quiser: Placar → ⚙️ Automático → 🧠 Atualizar a base.`]).catch(() => {});
+          console.log('🧠 Primeiro treino automático:', out.error || `ok (${out.conversas} conversas)`);
+        } catch (e) { console.error('primeiro treino automático:', e.message); }
+      }, 45000);
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);
