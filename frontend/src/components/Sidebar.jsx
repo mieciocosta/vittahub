@@ -6,7 +6,7 @@ import {
   CalendarClock, CalendarDays, Bell, CheckCheck, UserPlus, Shield,
   Gift, Bot, Image, FileText, Smile, Phone, Star, Database, Stethoscope, Target, Puzzle,
   Trophy, GraduationCap, Rocket, Wallet, Palette, Gamepad2, BookOpen, LayoutGrid, Pencil, Flame, FileSearch,
-  BellRing, Syringe, ExternalLink, ClipboardList, FileSignature,
+  BellRing, Syringe, ExternalLink, ClipboardList, FileSignature, Search, X,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useApi } from '../context/AuthContext.jsx';
@@ -211,6 +211,12 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
     return [];
   });
   useEffect(() => { try { localStorage.setItem('vh_menu_fechados', JSON.stringify(gruposFechados)); } catch {} }, [gruposFechados]);
+  /* 🔎 Lupa do menu (pedido do master): digitou, o menu vira só o que bate —
+     sem acento, sem caixa, atravessando grupos fechados. */
+  const [buscaMenu, setBuscaMenu] = useState('');
+  const semAcentoMenu = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const buscaAtiva = buscaMenu.trim().length > 0;
+  const bateBusca = (label) => !buscaAtiva || semAcentoMenu(label).includes(semAcentoMenu(buscaMenu));
   const grupoAberto = (g) => !gruposFechados.includes(g) || g === grupoAtivo;
   const alternarGrupo = (g) => setGruposFechados(p => p.includes(g)
     ? p.filter(x => x !== g)
@@ -738,6 +744,15 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
       {/* Nav */}
       <nav onClick={() => onCloseMobile?.()} style={{ flex:1, padding: collapsed ? '14px 6px' : '14px 10px', display:'flex', flexDirection:'column', gap:3, overflowY:'auto', overflowX:'hidden' }}>
         {!collapsed && <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:1.6, color:'rgba(255,255,255,.62)', padding:'0 12px 6px', textTransform:'uppercase' }}>Menu</div>}
+        {!collapsed && (
+          <div onClick={e => e.stopPropagation()} style={{ display:'flex', alignItems:'center', gap:6, margin:'0 4px 8px', padding:'6px 10px',
+            borderRadius:10, background:'rgba(255,255,255,.12)', border:'1px solid rgba(255,255,255,.2)' }}>
+            <Search size={13} color="rgba(255,255,255,.75)" style={{ flexShrink:0 }} />
+            <input value={buscaMenu} onChange={e => setBuscaMenu(e.target.value)} placeholder="Buscar no menu…"
+              style={{ flex:1, minWidth:0, border:'none', outline:'none', background:'transparent', color:'#fff', fontSize:12.5, fontWeight:600 }} />
+            {buscaAtiva && <button onClick={() => setBuscaMenu('')} style={{ background:'none', border:'none', cursor:'pointer', color:'rgba(255,255,255,.8)', padding:0, display:'flex' }}><X size={13} /></button>}
+          </div>
+        )}
         {NAV.filter(n => (!n.masterOnly || user?.role === 'master')
             && (!n.gestao || ['master','supervisor'].includes(user?.role))
             && (!n.consultas || podeSetor('consultas'))
@@ -752,6 +767,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
             && (!n.terapias || podeSetor('terapias'))
             && (!n.vacinas || podeSetor('vacinas'))
             && (!n.lider || user?.lider || user?.role === 'master')
+            && (n.grupo ? !buscaAtiva : bateBusca(n.label))
           ).map((n) => {
             // Título de seção: só desenha o rótulo e segue (não é link)
             if (n.grupo) {
@@ -774,7 +790,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
               );
             }
             // Item de seção fechada não desenha (menu colapsado mostra tudo)
-            if (!collapsed && n.to && grupoDoItem[n.to] && !grupoAberto(grupoDoItem[n.to])) return null;
+            if (!collapsed && !buscaAtiva && n.to && grupoDoItem[n.to] && !grupoAberto(grupoDoItem[n.to])) return null;
             const { to, icon:Icon, label, unread:showU, retornos:retBadge, equipe:eqBadge, plan:planBadge, destaque, cor } = n;
             return (
           <React.Fragment key={to}>
@@ -839,7 +855,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
           <>
             {!collapsed && <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:1.6, color:'rgba(255,255,255,.62)', padding:'12px 12px 6px', textTransform:'uppercase', borderTop:'1px solid rgba(255,255,255,.16)', marginTop:10 }}>Administração</div>}
             {collapsed && <div style={{ borderTop:'1px solid rgba(255,255,255,.16)', margin:'10px 8px' }} />}
-            {NAV_ADMIN.map(({ to, icon:Icon, label, cor }) => (
+            {NAV_ADMIN.filter(x => bateBusca(x.label)).map(({ to, icon:Icon, label, cor }) => (
               <NavLink key={to} to={to} title={collapsed ? label : ''} className={({ isActive }) => `vh-nav${isActive ? ' ativo' : ''}`} style={({ isActive }) => ({
                 display:'flex', alignItems:'center', gap: collapsed ? 0 : 10,
                 padding: collapsed ? '10px 0' : '8px 12px',
@@ -861,7 +877,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
         {/* ── Ferramentas ── */}
         {!collapsed && <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:1.6, color:'rgba(255,255,255,.62)', padding:'12px 12px 6px', textTransform:'uppercase', borderTop:'1px solid rgba(255,255,255,.16)', marginTop:10 }}>Ferramentas</div>}
         {collapsed && <div style={{ borderTop:'1px solid rgba(255,255,255,.16)', margin:'10px 8px' }} />}
-        {NAV_FERRAMENTAS.map(({ to, icon:Icon, label, cor }) => (
+        {NAV_FERRAMENTAS.filter(x => bateBusca(x.label)).map(({ to, icon:Icon, label, cor }) => (
           <NavLink key={to} to={to} title={collapsed ? label : ''} className={({ isActive }) => `vh-nav${isActive ? ' ativo' : ''}`} style={({ isActive }) => ({
             display:'flex', alignItems:'center', gap: collapsed ? 0 : 10,
             padding: collapsed ? '10px 0' : '8px 12px',
