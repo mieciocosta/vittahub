@@ -2222,6 +2222,34 @@ export default function Inbox({ onUnreadChange }) {
             );
           })()}
 
+          {/* 💜 CONVITE DA VITTA (pedido do master): só pra Danielle, Stefany e
+              Mayara (flag ia_consultas) + o master. Nas conversas de consultas/
+              terapias com o bot desligado, um convite impossível de ignorar:
+              um toque e a Vitta — treinada nas conversas que agendaram — assume
+              e conduz pro fechamento. */}
+          {sel && sel.setor && sel.setor !== 'vacinas' && !sel.bot_ativo && (user?.ia_consultas === true || user?.role === 'master') && (
+            <div style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px', flexShrink:0,
+              background:'linear-gradient(100deg,#4c1d95,#7c3aed 45%,#a855f7)', borderTop:'1px solid #7c3aed' }}>
+              <style>{`@keyframes vhPulseIA{0%,100%{box-shadow:0 0 0 0 rgba(255,255,255,.55)}50%{box-shadow:0 0 0 9px rgba(255,255,255,0)}}`}</style>
+              <span style={{ fontSize:20 }}>✨</span>
+              <span style={{ flex:1, minWidth:0, color:'#fff', lineHeight:1.35 }}>
+                <b style={{ fontSize:12.5, display:'block' }}>Deixa a Vitta fechar com você!</b>
+                <span style={{ fontSize:11, opacity:.9 }}>Ela estudou os atendimentos que agendaram — um toque e ela assume esta conversa rumo ao agendamento.</span>
+              </span>
+              <button onClick={toggleBot}
+                style={{ flexShrink:0, display:'flex', alignItems:'center', gap:6, padding:'9px 16px', borderRadius:12, border:'none', cursor:'pointer',
+                  background:'#fff', color:'#6d28d9', fontWeight:900, fontSize:12.5, animation:'vhPulseIA 1.6s ease-in-out infinite' }}>
+                🤖 Ativar a Vitta
+              </button>
+            </div>
+          )}
+          {sel && sel.setor && sel.setor !== 'vacinas' && sel.bot_ativo && (user?.ia_consultas === true || user?.role === 'master') && (
+            <div style={{ display:'flex', alignItems:'center', gap:8, padding:'5px 12px', flexShrink:0, fontSize:11, fontWeight:800,
+              background:'rgba(124,58,237,.08)', borderTop:'1px solid rgba(124,58,237,.25)', color:'#7c3aed' }}>
+              🤖 Vitta trabalhando nesta conversa — se você responder, ela sai de cena na hora.
+            </div>
+          )}
+
           {/* Input bar */}
           <div className="chat-input-bar" style={{ background:'var(--card,#fff)', padding:'9px 12px', borderTop:'1px solid var(--border)', flexShrink:0 }}>
             <div style={{ display:'flex', gap:6, alignItems:'flex-end' }}>

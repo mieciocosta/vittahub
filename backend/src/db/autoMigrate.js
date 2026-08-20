@@ -1772,6 +1772,21 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log(`🎓 Exemplos v3: ${resultados3.join(' | ')}`);
     }
 
+    /* 🤖 IA DE CONSULTAS — SÓ PRA QUEM É DE CONSULTAS (ordem do master):
+       Danielle, Stefany e Mayara são as três que trabalham consultas e não
+       estão convertendo — a Vitta entra como reforço DELAS. A flag por usuária
+       controla quem vê o convite/botão da IA no Chat (o master sempre vê). */
+    await query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS ia_consultas BOOLEAN DEFAULT false`).catch(() => {});
+    const { rows: [flagTrioIA] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_ia_consultas_trio_v1'");
+    if (!flagTrioIA) {
+      const rTrio = await query(`UPDATE usuarios SET ia_consultas = true, updated_at = NOW()
+                                  WHERE ativo = true AND role <> 'master'
+                                    AND (nome ILIKE 'danielle%' OR nome ILIKE 'stefany%' OR nome ILIKE 'stephanie%' OR nome ILIKE 'mayara%')`)
+        .catch(() => ({ rowCount: 0 }));
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_ia_consultas_trio_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log(`🤖 IA de consultas liberada pra ${rTrio.rowCount || 0} usuária(s): Danielle, Stefany e Mayara`);
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);

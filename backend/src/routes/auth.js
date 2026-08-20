@@ -72,7 +72,7 @@ r.post('/login', async (req, res) => {
 
 r.get('/me', auth, async (req, res) => {
   try {
-    const { rows } = await query('SELECT id,nome,email,cpf,role,cor,avatar,setor,setores,lider,ve_tudo,ve_geral,so_carteira,pode_impersonar FROM usuarios WHERE id=$1', [req.user.id]);
+    const { rows } = await query('SELECT id,nome,email,cpf,role,cor,avatar,setor,setores,lider,ve_tudo,ve_geral,so_carteira,ia_consultas,pode_impersonar FROM usuarios WHERE id=$1', [req.user.id]);
     if (!rows[0]) return res.status(404).json({ error: 'Não encontrado' });
     res.json({ ...rows[0], dono: ehDono(rows[0]) || rows[0].pode_impersonar === true });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -181,7 +181,7 @@ r.post('/impersonar/:id', auth, async (req, res) => {
 r.get('/usuarios', auth, async (req, res) => {
   if (req.user.role !== 'master') return res.status(403).json({ error: 'Acesso negado' });
   try {
-    const { rows } = await query("SELECT id,nome,email,cpf,role,cor,ativo,avatar,setor,setores,lider,ve_tudo,ve_geral,so_carteira,meta_individual,meta_tipo,meta_qtd_dia,meta_dias_uteis,pode_impersonar FROM usuarios WHERE role!='bot' ORDER BY nome");
+    const { rows } = await query("SELECT id,nome,email,cpf,role,cor,ativo,avatar,setor,setores,lider,ve_tudo,ve_geral,so_carteira,ia_consultas,meta_individual,meta_tipo,meta_qtd_dia,meta_dias_uteis,pode_impersonar FROM usuarios WHERE role!='bot' ORDER BY nome");
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -259,6 +259,8 @@ r.put('/usuarios/:id', auth, async (req, res) => {
     if (req.body.meta_qtd_dia !== undefined) set('meta_qtd_dia', Math.max(0, Math.min(parseInt(req.body.meta_qtd_dia) || 0, 500)));
     if (req.body.meta_dias_uteis !== undefined) set('meta_dias_uteis', Math.max(1, Math.min(parseInt(req.body.meta_dias_uteis) || 26, 31)));
     set('ativo', ativo);
+    // IA de consultas por usuária (pedido do master: só Danielle, Stefany e Mayara)
+    if (req.body.ia_consultas !== undefined) set('ia_consultas', req.body.ia_consultas === true);
     if (senha) {
       if (String(senha).length < 8) return res.status(400).json({ error: 'A senha precisa de pelo menos 8 caracteres' });
       const hash = await bcrypt.hash(String(senha), 10);
@@ -267,7 +269,7 @@ r.put('/usuarios/:id', auth, async (req, res) => {
     if (!updates.length) return res.status(400).json({ error: 'Nada para atualizar' });
     params.push(req.params.id);
     const { rows } = await query(
-      `UPDATE usuarios SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${pi} RETURNING id,nome,email,cpf,role,cor,ativo,setor,setores,lider,ve_tudo,ve_geral,so_carteira,meta_individual,meta_tipo,meta_qtd_dia,meta_dias_uteis,pode_impersonar`,
+      `UPDATE usuarios SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${pi} RETURNING id,nome,email,cpf,role,cor,ativo,setor,setores,lider,ve_tudo,ve_geral,so_carteira,ia_consultas,meta_individual,meta_tipo,meta_qtd_dia,meta_dias_uteis,pode_impersonar`,
       params
     );
     if (!rows[0]) return res.status(404).json({ error: 'Usuário não encontrado' });
