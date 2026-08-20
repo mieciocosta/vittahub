@@ -85,6 +85,7 @@ export default function Configuracoes() {
       const payload = { cpf: cpfDig, ativo: editUser.ativo, setor: editUser.setor || null, setores: (editUser.setores || []).length ? editUser.setores : null, lider: !!editUser.lider,
         pode_impersonar: !!editUser.pode_impersonar,
         so_carteira: !!editUser.so_carteira,
+        ia_consultas: !!editUser.ia_consultas,
         meta_individual: parseFloat(editUser.meta_individual) || 0,
         meta_tipo: editUser.meta_tipo || 'valor',
         meta_qtd_dia: parseInt(editUser.meta_qtd_dia) || 0,
@@ -472,7 +473,7 @@ export default function Configuracoes() {
                   {tituloUsuario(u)}
                 </span>
                 {isMaster && (
-                  <button onClick={()=>{setUserErr('');setEditUser(editUser?.id===u.id?null:{ id:u.id, cpf:maskCpf(u.cpf||''), senha:'', ativo:u.ativo, setor:u.setor||'', setores:Array.isArray(u.setores)?u.setores:[], lider:!!u.lider, pode_impersonar:!!u.pode_impersonar, so_carteira:!!u.so_carteira, meta_individual:u.meta_individual||'', meta_tipo:u.meta_tipo||'valor', meta_qtd_dia:u.meta_qtd_dia||'', meta_dias_uteis:u.meta_dias_uteis||26 });}}
+                  <button onClick={()=>{setUserErr('');setEditUser(editUser?.id===u.id?null:{ id:u.id, cpf:maskCpf(u.cpf||''), senha:'', ativo:u.ativo, setor:u.setor||'', setores:Array.isArray(u.setores)?u.setores:[], lider:!!u.lider, pode_impersonar:!!u.pode_impersonar, so_carteira:!!u.so_carteira, ia_consultas:!!u.ia_consultas, meta_individual:u.meta_individual||'', meta_tipo:u.meta_tipo||'valor', meta_qtd_dia:u.meta_qtd_dia||'', meta_dias_uteis:u.meta_dias_uteis||26 });}}
                     style={{ width:26, height:26, borderRadius:8, border:'1.5px solid var(--border)', background:'var(--card)', color:'var(--muted)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
                     {editUser?.id===u.id?<X size={12}/>:<Pencil size={12}/>}
                   </button>
@@ -567,6 +568,18 @@ export default function Configuracoes() {
                       <span style={{ fontSize:11, color:'var(--muted)', fontWeight:500 }}>
                         Vê e opera o sistema pelos olhos de qualquer pessoa da equipe. Toda visita fica registrada na Auditoria.
                         Entrar na conta de um <b>master</b> continua sendo só do dono.
+                      </span>
+                    </span>
+                  </label>
+                  {/* 🤖 Vitta nas consultas (pedido do master): quem tem esta
+                      chave vê o convite roxo no Chat e solta a IA na conversa. */}
+                  <label style={{ display:'flex', alignItems:'flex-start', gap:7, fontSize:12.5, fontWeight:600, color:'var(--txt2)', cursor:'pointer', background:'#f5f3ff', border:'1px solid #c4b5fd', padding:'9px 11px', borderRadius:10 }}>
+                    <input type="checkbox" checked={!!editUser.ia_consultas} onChange={e=>setEditUser({...editUser, ia_consultas:e.target.checked})} style={{ width:15, height:15, accentColor:'#7c3aed', marginTop:1 }} />
+                    <span>
+                      <span style={{ display:'block' }}>🤖 Vitta nas consultas — IA que conduz e fecha</span>
+                      <span style={{ fontSize:11, color:'var(--muted)', fontWeight:500 }}>
+                        Vê o convite da Vitta nas conversas de consultas/terapias e ativa a IA com um toque.
+                        Hoje: Danielle, Stefany e Mayara.
                       </span>
                     </span>
                   </label>

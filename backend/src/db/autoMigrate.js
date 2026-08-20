@@ -1787,6 +1787,25 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log(`🤖 IA de consultas liberada pra ${rTrio.rowCount || 0} usuária(s): Danielle, Stefany e Mayara`);
     }
 
+    /* 🤖 "e pra dra tbm" (master): libera a Vitta também pra quem tem "Dra"/
+       "Doutora" no começo do nome. Regex ancorada no INÍCIO de propósito —
+       '%dra%' pegaria Sandra e Alessandra. Se não achar ninguém, o sino avisa
+       e o master marca pela tela (Configurações → Usuários → chave 🤖). */
+    const { rows: [flagDraIA] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_ia_consultas_dra_v1'");
+    if (!flagDraIA) {
+      const { rows: dras } = await query(`UPDATE usuarios SET ia_consultas = true, updated_at = NOW()
+                                           WHERE ativo = true AND role <> 'master'
+                                             AND nome ~* '^(dra\\.?|doutora)\\s'
+                                           RETURNING nome`).catch(() => ({ rows: [] }));
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+        ['🤖 Vitta liberada pra Dra',
+         dras.length
+           ? `Chave da Vitta ligada pra: ${dras.map(d => d.nome).join(', ')}. Ela(s) já vê(em) o convite roxo nas conversas de consultas.`
+           : 'Procurei uma usuária com "Dra"/"Doutora" no começo do nome e não achei. Liga pela tela: Configurações → Usuários → editar a pessoa → chave "🤖 Vitta nas consultas" — ou me diz o nome exato que eu ligo.']).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_ia_consultas_dra_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log(`🤖 Vitta pra Dra: ${dras.length ? dras.map(d => d.nome).join(', ') : 'ninguém com Dra no nome — master marca pela tela'}`);
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);
