@@ -1873,6 +1873,54 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log(`🤖 Vitta somente com o trio; ligada em ${rLiga.rowCount || 0} conversa(s)`);
     }
 
+    /* 🧵 COSTURA RETROATIVA DOS CASES (master: "você não trouxe todos os
+       agendamentos... tenta puxar do caixa"). Agendamento e venda antigos
+       foram gravados SEM o vínculo com a conversa — e case sem conversa não
+       existe. Dois casamentos, do mais seguro pro mais cauteloso:
+       · agendamentos ↔ conversas pelo TELEFONE (últimos 8 dígitos);
+       · vendas do Caixa ↔ conversas pelo NOME COMPLETO sem acento, e SÓ
+         quando bate com exatamente UMA conversa (homônimo fica de fora —
+         vincular errado seria pôr a conversa de um cliente no case de outro). */
+    const { rows: [flagCostura] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_vincula_cases_v1'");
+    if (!flagCostura) {
+      let nAgd = 0, nVen = 0;
+      try {
+        const r1 = await query(`
+          WITH cand AS (
+            SELECT DISTINCT ON (a.id) a.id aid, c.id cid
+            FROM agenda_eventos a
+            JOIN conversas c
+              ON right(regexp_replace(COALESCE(c.phone,''),'\\D','','g'), 8)
+               = right(regexp_replace(COALESCE(a.telefone,''),'\\D','','g'), 8)
+            WHERE a.conversa_id IS NULL
+              AND length(regexp_replace(COALESCE(a.telefone,''),'\\D','','g')) >= 8
+              AND length(regexp_replace(COALESCE(c.phone,''),'\\D','','g')) >= 8
+            ORDER BY a.id, c.last_message_at DESC NULLS LAST)
+          UPDATE agenda_eventos a SET conversa_id = cand.cid FROM cand WHERE a.id = cand.aid`);
+        nAgd = r1.rowCount || 0;
+      } catch (e) { console.error('costura agendamentos:', e.message); }
+      try {
+        const norm = (col) => `lower(translate(COALESCE(${col},''), 'áàâãäéèêëíìîïóòôõöúùûüçÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇ', 'aaaaaeeeeiiiiooooouuuucAAAAAEEEEIIIIOOOOOUUUUC'))`;
+        const r2 = await query(`
+          WITH v AS (
+            SELECT id, ${norm('cliente_nome')} nome FROM vendas
+             WHERE conversa_id IS NULL AND length(TRIM(COALESCE(cliente_nome,''))) >= 5),
+          c AS (
+            SELECT id, ${norm('contact_name')} nome FROM conversas
+             WHERE length(TRIM(COALESCE(contact_name,''))) >= 5),
+          unicos AS (
+            SELECT v.id vid, MIN(c.id) cid FROM v JOIN c ON c.nome = v.nome
+            GROUP BY v.id HAVING COUNT(DISTINCT c.id) = 1)
+          UPDATE vendas SET conversa_id = unicos.cid FROM unicos WHERE vendas.id = unicos.vid`);
+        nVen = r2.rowCount || 0;
+      } catch (e) { console.error('costura vendas:', e.message); }
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+        ['🧵 Cases costurados com o histórico',
+         `${nAgd} agendamento(s) antigos ganharam o vínculo com a conversa (casados pelo telefone) e ${nVen} venda(s) do Caixa foram casadas pelo nome do cliente (só quando batia com UMA conversa — homônimo ficou de fora, por segurança).\n\nOs Cases de Sucesso agora mostram esse histórico todo — e o treinamento da Vitta (Atualizar a base) passa a beber dele também. Vendas/agendamentos que ficaram de fora são os digitados sem telefone/nome que exista no Chat.`]).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_vincula_cases_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log(`🧵 Costura dos cases: ${nAgd} agendamentos + ${nVen} vendas vinculados`);
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);
