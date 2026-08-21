@@ -269,9 +269,33 @@ function SecurityLock({ user }) {
       const alvo = e.target?.closest?.('[data-nocopy]');
       if (alvo || dentroDeProtegido()) { e.preventDefault(); return false; }
     };
+    /* 🚫 ALERTA DE PRINT (pedido do master): quem captura a tela vê na hora o
+       aviso "Proibido exportar dados do cliente." — em cima do registro na
+       Auditoria que já existia. E um truque a mais: o print do PrintScreen vai
+       pra área de transferência — a gente a SOBRESCREVE com o aviso, então o
+       Ctrl+V cola o texto da proibição em vez da imagem. */
+    const mostraAlertaPrint = () => {
+      if (document.getElementById('vh-alerta-print')) return;
+      const ov = document.createElement('div');
+      ov.id = 'vh-alerta-print';
+      ov.style.cssText = 'position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.55);backdrop-filter:blur(3px)';
+      ov.innerHTML = `<div style="background:#dc2626;color:#fff;border-radius:18px;padding:26px 34px;max-width:420px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.5);font-family:inherit">
+        <div style="font-size:40px;line-height:1">🚫</div>
+        <div style="font-size:19px;font-weight:900;margin-top:10px">Proibido exportar dados do cliente.</div>
+        <div style="font-size:12.5px;opacity:.92;margin-top:8px;line-height:1.5">Esta tentativa foi registrada na auditoria com seu nome, data e tela.</div>
+      </div>`;
+      ov.addEventListener('click', () => ov.remove());
+      document.body.appendChild(ov);
+      setTimeout(() => ov.remove(), 4000);
+    };
     const bloqueiaTeclas = (e) => {
       const k = (e.key || '').toLowerCase();
-      if ((e.ctrlKey || e.metaKey) && ['p', 's'].includes(k)) { e.preventDefault(); return false; }
+      if ((e.ctrlKey || e.metaKey) && ['p', 's'].includes(k)) {
+        e.preventDefault();
+        mostraAlertaPrint();
+        registra('captura_tela', { atalho: `ctrl+${k}` });
+        return false;
+      }
     };
 
     /* 📸 CAPTURA DE TELA — não dá pra IMPEDIR (nenhum site consegue: o print é
@@ -285,7 +309,10 @@ function SecurityLock({ user }) {
       const ehPrint = k === 'PrintScreen' || k === 'F13'
         || (e.metaKey && e.shiftKey && ['3', '4', '5'].includes(k));    // macOS
       if (!ehPrint) return;
-      if (Date.now() - ultimoAviso < 15000) return;                      // não repete em rajada
+      mostraAlertaPrint();                                               // o aviso aparece SEMPRE
+      // Sabota o print colável: sobrescreve a área de transferência com o aviso
+      setTimeout(() => { try { navigator.clipboard?.writeText('🚫 Proibido exportar dados do cliente — Vittalis Saúde'); } catch { /* ok */ } }, 250);
+      if (Date.now() - ultimoAviso < 15000) return;                      // registro não repete em rajada
       ultimoAviso = Date.now();
       registra('captura_tela', { atalho: k });
     };
