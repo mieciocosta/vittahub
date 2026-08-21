@@ -6979,6 +6979,7 @@ export async function gerarBaseConsultas(por = 'Vitta (automático)') {
     // 2) Tabela de preços oficial
     const { rows: [tp] } = await query("SELECT valor FROM configuracoes WHERE chave = 'tabela_precos_consultas'").catch(() => ({ rows: [] }));
     const precosTxt = (Array.isArray(tp?.valor?.itens) ? tp.valor.itens : [])
+      .filter(i => (i.setor || 'consultas') !== 'vacinas')   // vacinas tem catalogo proprio
       .map(i => `• ${i.nome}${i.categoria ? ` [${i.categoria}]` : ''} — R$ ${Number(i.valor).toFixed(2)}${i.obs ? ` (${i.obs})` : ''}`).join('\n');
     // 3) Profissionais e dias
     const { rows: profs } = await query(`SELECT nome, especialidade, setor, disponibilidade FROM profissionais

@@ -32,7 +32,10 @@ export default function TabelaPrecos() {
   const [ultimaConv] = useState(() => { try { return JSON.parse(sessionStorage.getItem('vh_ultima_conversa') || 'null'); } catch { return null; } });
 
   // ── tabelas anexadas (mesma infra das pastas) ──────────────────────────────
-  const CHAVE = 'tabela_precos_consultas';
+  /* Abas por setor (pedido do master: repartido igual Profissionais) —
+     itens E anexos de cada setor vivem na sua aba. */
+  const [aba, setAba] = useState('consultas');
+  const CHAVE = 'tabela_precos_' + aba;
   const fileRef = useRef(null);
   const [arqs, setArqs] = useState([]);
   const [enviando, setEnviando] = useState(false);
@@ -70,9 +73,10 @@ export default function TabelaPrecos() {
     try {
       const d = await api.post('/extras/tabela-precos/ler-anexo', { id: a.id });
       const lidos = d.itens || [];
-      const jaTem = new Set(itens.map(i => semAcento(i.nome)));
-      const novos = lidos.filter(i => !jaTem.has(semAcento(i.nome)));
-      setRascunho([...itens.map(i => ({ ...i })), ...novos]);
+      const daAba = itens.filter(i => (i.setor || 'consultas') === aba);
+      const jaTem = new Set(daAba.map(i => semAcento(i.nome)));
+      const novos = lidos.filter(i => !jaTem.has(semAcento(i.nome))).map(i => ({ ...i, setor: aba }));
+      setRascunho([...daAba.map(i => ({ ...i })), ...novos]);
       setEditando(true);
       Toast.show(`A IA leu ${lidos.length} serviço(s)${novos.length < lidos.length ? ` (${lidos.length - novos.length} já estavam na tabela)` : ''} — revise os valores e salve! 🤖`, 'success');
     } catch (e) { Toast.show(e.message, 'error'); }
@@ -95,10 +99,13 @@ export default function TabelaPrecos() {
   const loadItens = () => api.get('/extras/tabela-precos').then(d => { setItens(d.itens || []); setMeta({ por: d.por, em: d.em }); }).catch(() => {});
   const loadOrcs = () => api.get('/extras/orcamentos').then(d => setOrcs({ itens: d.itens || [], gestao: !!d.gestao })).catch(() => {});
   useEffect(() => { loadArqs(); loadItens(); loadOrcs(); }, []); // eslint-disable-line
+  useEffect(() => { loadArqs(); setEditando(false); setBusca(''); }, [aba]); // eslint-disable-line — cada aba tem seus anexos
 
   const salvarItens = async () => {
     try {
-      const d = await api.put('/extras/tabela-precos', { itens: rascunho });
+      // O rascunho e SO da aba atual — os itens das outras abas vao intactos
+      const outros = itens.filter(i => (i.setor || 'consultas') !== aba);
+      const d = await api.put('/extras/tabela-precos', { itens: [...outros, ...rascunho.map(i => ({ ...i, setor: aba }))] });
       setItens(d.itens || []); setEditando(false); loadItens();
       Toast.show('Tabela salva! 💙', 'success');
     } catch (e) { Toast.show(e.message, 'error'); }
@@ -107,8 +114,9 @@ export default function TabelaPrecos() {
   // Busca + agrupamento por categoria (categorias na ordem em que aparecem)
   const filtrados = useMemo(() => {
     const q = semAcento(busca.trim());
-    return q ? itens.filter(i => semAcento(`${i.nome} ${i.obs || ''} ${i.categoria || ''}`).includes(q)) : itens;
-  }, [itens, busca]);
+    const daAba = itens.filter(i => (i.setor || 'consultas') === aba);
+    return q ? daAba.filter(i => semAcento(`${i.nome} ${i.obs || ''} ${i.categoria || ''}`).includes(q)) : daAba;
+  }, [itens, busca, aba]);
   const grupos = useMemo(() => {
     const temCat = filtrados.some(i => i.categoria);
     if (!temCat) return [{ cat: null, itens: filtrados }];
@@ -244,7 +252,20 @@ export default function TabelaPrecos() {
         </div>
       </div>
 
-      {/* 📎 Tabelas anexadas */}
+      {/* 🗂️ ABAS POR SETOR (pedido do master: repartido igual Profissionais) */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
+        {[['vacinas', '💉 Vacinas', '#7c5cbf'], ['consultas', '🩺 Consultas', '#00B8C0'], ['terapias', '🧩 Terapias', '#C4973B']].map(([k, rot, cor]) => (
+          <button key={k} onClick={() => setAba(k)}
+            style={{ padding: '8px 18px', borderRadius: 12, cursor: 'pointer', fontSize: 13, fontWeight: 900,
+              border: `1.5px solid ${aba === k ? cor : 'var(--border)'}`,
+              background: aba === k ? cor : 'var(--card)', color: aba === k ? '#fff' : 'var(--muted)',
+              boxShadow: aba === k ? `0 4px 14px ${cor}55` : 'none', transition: 'all .15s' }}>
+            {rot}
+          </button>
+        ))}
+      </div>
+
+      {/* 📎 Tabelas anexadas (da aba escolhida) */}
       <div className="card" style={{ padding: '15px 18px', marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: arqs.length ? 10 : 0 }}>
           <Paperclip size={15} color="var(--tq2)" />
@@ -287,7 +308,7 @@ export default function TabelaPrecos() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
             <span style={{ fontWeight: 800, fontSize: 14, flex: 1 }}>💲 Itens e valores</span>
             {ehGestao && !editando && (
-              <button onClick={() => { setRascunho(itens.map(i => ({ ...i }))); setEditando(true); }} className="btn btn-s btn-sm" style={{ gap: 5 }}>
+              <button onClick={() => { setRascunho(itens.filter(i => (i.setor || 'consultas') === aba).map(i => ({ ...i }))); setEditando(true); }} className="btn btn-s btn-sm" style={{ gap: 5 }}>
                 <Pencil size={12} /> Editar
               </button>
             )}

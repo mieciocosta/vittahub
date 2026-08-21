@@ -1659,7 +1659,7 @@ r.delete('/painel/:id', async (req, res) => {
 });
 
 /* ─── ARQUIVOS DAS ABAS (PDF/Word/imagem dentro de cada pasta) ─────────────────── */
-const CHAVES_PASTA = ['fidelidade', 'banco_dados', 'planos_vacinais', 'vacinacao', 'consultas', 'terapias', 'tabela_precos_consultas'];
+const CHAVES_PASTA = ['fidelidade', 'banco_dados', 'planos_vacinais', 'vacinacao', 'consultas', 'terapias', 'tabela_precos_consultas', 'tabela_precos_vacinas', 'tabela_precos_terapias'];
 
 /* ═══ 💲 TABELA DE PREÇOS — CONSULTAS (pedido do master) ═══════════════════════
    A equipe de consultas anexa as tabelas oficiais (PDF/planilha, via
@@ -1684,6 +1684,8 @@ r.put('/tabela-precos', async (req, res) => {
         valor: Math.max(0, Math.min(parseFloat(String(i.valor).replace(',', '.')) || 0, 100000)),
         obs: cut(String(i.obs || '').trim(), 160) || null,
         categoria: cut(String(i.categoria || '').trim(), 60) || null,
+        // Aba do item (pedido do master: tabela repartida igual Profissionais)
+        setor: ['vacinas', 'consultas', 'terapias'].includes(i.setor) ? i.setor : 'consultas',
       }))
       .filter(i => i.nome)
       .slice(0, 200);
@@ -1782,7 +1784,7 @@ r.post('/tabela-precos/ler-anexo', async (req, res) => {
   try {
     if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão importa a tabela.' });
     if (!temIA() || !usaClaude()) return res.status(400).json({ error: 'IA não configurada.' });
-    const { rows: [a] } = await query(`SELECT nome, mimetype, arquivo FROM pasta_arquivos WHERE id = $1 AND chave = 'tabela_precos_consultas'`, [String(req.body?.id || '')]);
+    const { rows: [a] } = await query(`SELECT nome, mimetype, arquivo FROM pasta_arquivos WHERE id = $1 AND chave LIKE 'tabela_precos_%'`, [String(req.body?.id || '')]);
     if (!a) return res.status(404).json({ error: 'Anexo não encontrado.' });
     const m = String(a.arquivo || '').match(/^data:([^;]+);base64,(.+)$/s);
     if (!m) return res.status(400).json({ error: 'Arquivo em formato inesperado.' });
