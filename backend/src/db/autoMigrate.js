@@ -1161,6 +1161,43 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS terapia_planos_pac_idx ON terapia_planos(paciente_id)`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS terapia_planos_criado_idx ON terapia_planos(created_at)`).catch(() => {});
 
+    /* Pacote de sessões + acompanhamento (pedido do master: "número de sessões,
+       acompanhamento e observação sobre cada um", imitando os sistemas de ABA).
+       O pacote fica no PACIENTE porque é o que a família contrata; a sessão é
+       registrada uma a uma, com presença — é isso que vira o acompanhamento. */
+    await query(`ALTER TABLE terapia_pacientes ADD COLUMN IF NOT EXISTS sessoes_contratadas INT`).catch(() => {});
+    await query(`ALTER TABLE terapia_pacientes ADD COLUMN IF NOT EXISTS acompanhamento TEXT`).catch(() => {});
+    await query(`CREATE TABLE IF NOT EXISTS terapia_sessoes (
+      id SERIAL PRIMARY KEY,
+      paciente_id INT NOT NULL REFERENCES terapia_pacientes(id) ON DELETE CASCADE,
+      especialidade TEXT,
+      data DATE NOT NULL,
+      hora TEXT,
+      presenca TEXT DEFAULT 'presente',
+      observacao TEXT,
+      profissional TEXT,
+      criado_por_id TEXT, criado_por_nome TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS terapia_sessoes_pac_idx ON terapia_sessoes(paciente_id, data DESC)`).catch(() => {});
+
+    /* Fotos ao longo das terapias, para virar ÁLBUM da criança (pedido do
+       master). Tabela própria e DUAS versões de cada foto: a miniatura é o que
+       a galeria carrega (dezenas de fotos numa tela só) e a grande só desce
+       quando alguém abre — senão o álbum de uma criança de 1 ano de terapia
+       travaria o celular da equipe. */
+    await query(`CREATE TABLE IF NOT EXISTS terapia_fotos (
+      id SERIAL PRIMARY KEY,
+      paciente_id INT NOT NULL REFERENCES terapia_pacientes(id) ON DELETE CASCADE,
+      sessao_id INT REFERENCES terapia_sessoes(id) ON DELETE SET NULL,
+      data DATE NOT NULL,
+      legenda TEXT,
+      arquivo TEXT NOT NULL,
+      miniatura TEXT,
+      mimetype TEXT,
+      criado_por_id TEXT, criado_por_nome TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS terapia_fotos_pac_idx ON terapia_fotos(paciente_id, data DESC)`).catch(() => {});
+
     // Controle dos lembretes enviados para a agenda do VittaMed. Sem isto o
     // paciente do outro sistema receberia a mensagem de novo a cada rodada.
     await query(`CREATE TABLE IF NOT EXISTS lembretes_vittamed (

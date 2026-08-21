@@ -36,14 +36,26 @@ const mesLocal = () => new Date(Date.now() - 3 * 3600 * 1000).toISOString().slic
 r.get('/', auth, async (req, res) => {
   if (!guarda(req, res)) return;
   try {
+    /* O andamento das sessões vem junto na MESMA consulta: a tela mostra
+       "12 de 40" em cada paciente, e buscar isso um a um seria N+1. */
     const { rows: pacientes } = await query(`
       SELECT p.*,
-             COUNT(pl.id)::int AS planos,
+             COUNT(DISTINCT pl.id)::int AS planos,
              MAX(pl.created_at) AS ultimo_plano,
-             COALESCE(SUM(CASE WHEN pl.status = 'ativo' THEN pl.valor_mensal ELSE 0 END), 0)::float AS valor_ativo
+             COALESCE(SUM(DISTINCT CASE WHEN pl.status = 'ativo' THEN pl.valor_mensal ELSE 0 END), 0)::float AS valor_ativo,
+             COALESCE(s.feitas, 0)::int AS sessoes_feitas,
+             COALESCE(s.faltas, 0)::int AS sessoes_faltas,
+             TO_CHAR(s.ultima, 'YYYY-MM-DD') AS ultima_sessao
         FROM terapia_pacientes p
         LEFT JOIN terapia_planos pl ON pl.paciente_id = p.id
-       GROUP BY p.id
+        LEFT JOIN (
+          SELECT paciente_id,
+                 COUNT(*) FILTER (WHERE presenca IN ('presente','reposicao'))::int AS feitas,
+                 COUNT(*) FILTER (WHERE presenca = 'falta')::int AS faltas,
+                 MAX(data) AS ultima
+            FROM terapia_sessoes GROUP BY paciente_id
+        ) s ON s.paciente_id = p.id
+       GROUP BY p.id, s.feitas, s.faltas, s.ultima
        ORDER BY (p.status = 'alta'), p.created_at DESC`);
     const { rows: planos } = await query(
       `SELECT id, paciente_id, especialidade, sessoes_semana, valor_sessao, valor_mensal,
@@ -97,6 +109,10 @@ r.post('/pacientes', auth, async (req, res) => {
       [nome, telefone, cut(b.responsavel, 90), cut(b.conversa_id, 40), cut(b.lead_id, 40),
        cut(b.origem, 20) || 'manual', STATUS_PAC.includes(b.status) ? b.status : 'avaliacao',
        cut(b.observacoes, 400), req.user.id, req.user.nome]);
+    if (b.sessoes_contratadas) {
+      const n = parseInt(b.sessoes_contratadas);
+      if (Number.isFinite(n) && n > 0) await query(`UPDATE terapia_pacientes SET sessoes_contratadas = $1 WHERE id = $2`, [Math.min(n, 999), p.id]).catch(() => {});
+    }
     try { socketEmit('terapias_update', { id: p.id }); } catch (_) {}
     res.json({ ok: true, paciente: p });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -111,6 +127,13 @@ r.put('/pacientes/:id', auth, async (req, res) => {
   if (b.telefone !== undefined) set('telefone', tel(b.telefone));
   if (b.responsavel !== undefined) set('responsavel', cut(b.responsavel, 90));
   if (b.observacoes !== undefined) set('observacoes', cut(b.observacoes, 400));
+  // Pacote contratado e acompanhamento — pedido do master (nº de sessões,
+  // acompanhamento e observação de cada paciente).
+  if (b.sessoes_contratadas !== undefined) {
+    const n = parseInt(b.sessoes_contratadas);
+    set('sessoes_contratadas', Number.isFinite(n) && n > 0 ? Math.min(n, 999) : null);
+  }
+  if (b.acompanhamento !== undefined) set('acompanhamento', cut(b.acompanhamento, 2000));
   if (b.status !== undefined && STATUS_PAC.includes(b.status)) set('status', b.status);
   if (!sets.length) return res.status(400).json({ error: 'Nada para atualizar.' });
   params.push(req.params.id);
@@ -126,6 +149,198 @@ r.delete('/pacientes/:id', auth, async (req, res) => {
   if (!guarda(req, res)) return;
   try {
     await query(`DELETE FROM terapia_pacientes WHERE id = $1`, [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* ═══ TRAZER TODO MUNDO DE UMA VEZ ══════════════════════════════════════════
+   Pedido do master: "poder levar TODOS os pacientes" para a área. Puxar um a
+   um pela busca serve pra encaixar alguém no meio do dia; pra montar a área do
+   zero, a equipe precisa ver a lista inteira e marcar. Candidato é quem já
+   apareceu na casa e ainda não está aqui — a agenda de terapias vem primeiro,
+   que é a fonte mais confiável de quem faz terapia mesmo. */
+r.get('/candidatos', auth, async (req, res) => {
+  if (!guarda(req, res)) return;
+  try {
+    const [ag, conv, leads, jaTem] = await Promise.all([
+      query(`SELECT DISTINCT ON (paciente) paciente AS nome, telefone, 'agenda' AS origem, MAX(data) OVER (PARTITION BY paciente) AS quando
+               FROM agenda_eventos
+              WHERE COALESCE(setor,'vacinas') = 'terapias' AND paciente IS NOT NULL AND paciente <> ''
+              ORDER BY paciente, data DESC`).catch(() => ({ rows: [] })),
+      query(`SELECT COALESCE(nome, phone) AS nome, phone AS telefone, id::text AS ref, 'conversa' AS origem, last_message_at AS quando
+               FROM conversas
+              WHERE COALESCE(contact_id,'') NOT LIKE '%g.us%'
+                AND (categoria = 'terapias' OR tags && ARRAY['terapia','terapias'])
+              ORDER BY last_message_at DESC LIMIT 200`).catch(() => ({ rows: [] })),
+      query(`SELECT nome, telefone, id::text AS ref, 'lead' AS origem, created_at AS quando
+               FROM leads WHERE setor = 'terapias' ORDER BY created_at DESC LIMIT 200`).catch(() => ({ rows: [] })),
+      query(`SELECT telefone, nome FROM terapia_pacientes`),
+    ]);
+
+    // Quem já está na área sai da lista — por telefone e, sem telefone, por nome.
+    const tel11 = (t) => String(t || '').replace(/\D/g, '').slice(-11);
+    const dentroTel = new Set(jaTem.rows.map(x => tel11(x.telefone)).filter(Boolean));
+    const dentroNome = new Set(jaTem.rows.map(x => String(x.nome || '').trim().toLowerCase()));
+
+    const vistos = new Set();
+    const lista = [];
+    for (const x of [...ag.rows, ...conv.rows, ...leads.rows]) {
+      const t = tel11(x.telefone);
+      const n = String(x.nome || '').trim();
+      if (!n) continue;
+      if (t && dentroTel.has(t)) continue;
+      if (!t && dentroNome.has(n.toLowerCase())) continue;
+      const chave = t || n.toLowerCase();           // o mesmo cliente em 3 fontes entra 1 vez
+      if (vistos.has(chave)) continue;
+      vistos.add(chave);
+      lista.push({ nome: n, telefone: x.telefone || null, origem: x.origem, ref: x.ref || null });
+    }
+    res.json({ candidatos: lista.slice(0, 300), total: lista.length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Cadastrar vários de uma vez (o que foi marcado na lista de candidatos).
+r.post('/pacientes/lote', auth, async (req, res) => {
+  if (!guarda(req, res)) return;
+  const lista = Array.isArray(req.body?.pacientes) ? req.body.pacientes.slice(0, 300) : [];
+  if (!lista.length) return res.status(400).json({ error: 'Marque ao menos um paciente.' });
+  let criados = 0, repetidos = 0;
+  try {
+    for (const b of lista) {
+      const nome = cut(String(b?.nome || '').trim(), 90);
+      if (!nome) continue;
+      const telefone = tel(b?.telefone);
+      if (telefone) {
+        const { rows: dup } = await query(`SELECT id FROM terapia_pacientes WHERE telefone = $1 LIMIT 1`, [telefone]);
+        if (dup.length) { repetidos++; continue; }
+      }
+      await query(`
+        INSERT INTO terapia_pacientes (nome, telefone, conversa_id, lead_id, origem, status, criado_por_id, criado_por_nome)
+        VALUES ($1,$2,$3,$4,$5,'avaliacao',$6,$7)`,
+        [nome, telefone, b?.origem === 'conversa' ? cut(b.ref, 40) : null,
+         b?.origem === 'lead' ? cut(b.ref, 40) : null, cut(b?.origem, 20) || 'lote',
+         req.user.id, req.user.nome]);
+      criados++;
+    }
+    try { socketEmit('terapias_update', { lote: criados }); } catch (_) {}
+    res.json({ ok: true, criados, repetidos });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* ═══ SESSÕES — O ACOMPANHAMENTO ════════════════════════════════════════════
+   É aqui que a área deixa de ser cadastro e vira acompanhamento, do jeito que
+   os sistemas de ABA fazem: cada sessão é uma linha, com presença e o que
+   aconteceu. Do somatório sai "12 de 40 sessões" e a lista de faltas — que é o
+   que trava a evolução da criança e precisa de conversa com a família. */
+const PRESENCAS = ['presente', 'falta', 'reposicao', 'cancelada'];
+
+r.get('/pacientes/:id/sessoes', auth, async (req, res) => {
+  if (!guarda(req, res)) return;
+  try {
+    const { rows } = await query(
+      `SELECT id, especialidade, TO_CHAR(data,'YYYY-MM-DD') AS data, hora, presenca, observacao,
+              profissional, criado_por_nome, created_at
+         FROM terapia_sessoes WHERE paciente_id = $1 ORDER BY data DESC, id DESC LIMIT 200`,
+      [req.params.id]);
+    res.json({ sessoes: rows });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.post('/pacientes/:id/sessoes', auth, async (req, res) => {
+  if (!guarda(req, res)) return;
+  const b = req.body || {};
+  // Data em São Luís: sem isso, sessão lançada de noite cai no dia seguinte.
+  const hoje = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+  const data = /^\d{4}-\d{2}-\d{2}$/.test(b.data || '') ? b.data : hoje;
+  try {
+    const { rows: [s] } = await query(`
+      INSERT INTO terapia_sessoes (paciente_id, especialidade, data, hora, presenca, observacao, profissional, criado_por_id, criado_por_nome)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+      [req.params.id, cut(b.especialidade, 60), data, cut(b.hora, 5),
+       PRESENCAS.includes(b.presenca) ? b.presenca : 'presente',
+       cut(b.observacao, 1000), cut(b.profissional, 90), req.user.id, req.user.nome]);
+    // Fotos tiradas na sessão entram já ligadas a ela (viram o álbum depois).
+    const fotos = await guardarFotos(+req.params.id, s.id, b.fotos, req.user);
+    try { socketEmit('terapias_update', { paciente_id: +req.params.id }); } catch (_) {}
+    res.json({ ok: true, id: s.id, fotos });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* ═══ ÁLBUM DA CRIANÇA ══════════════════════════════════════════════════════
+   Pedido do master: anexar fotos ao longo das sessões pra depois montar um
+   álbum. É o registro que a família mais valoriza — dá pra ver a evolução.
+
+   Cada foto chega em DUAS versões (a tela reduz antes de mandar): a miniatura
+   alimenta a galeria e a grande só desce quando alguém abre a foto. A galeria
+   NUNCA devolve a foto grande, senão o álbum de um ano de terapia derruba o
+   celular da equipe. */
+const MAX_FOTOS_PACIENTE = 300;
+const ehImagem = (v) => typeof v === 'string' && /^data:image\/(jpeg|png|webp|jpg);base64,/.test(v) && v.length < 8_000_000;
+
+async function guardarFotos(pacienteId, sessaoId, fotos, user) {
+  const lista = (Array.isArray(fotos) ? fotos : []).filter(f => ehImagem(f?.arquivo)).slice(0, 20);
+  if (!lista.length) return 0;
+  const { rows: [c] } = await query(`SELECT COUNT(*)::int n FROM terapia_fotos WHERE paciente_id = $1`, [pacienteId]);
+  const cabem = Math.max(0, MAX_FOTOS_PACIENTE - (c?.n || 0));
+  const hoje = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+  let n = 0;
+  for (const f of lista.slice(0, cabem)) {
+    await query(`INSERT INTO terapia_fotos (paciente_id, sessao_id, data, legenda, arquivo, miniatura, mimetype, criado_por_id, criado_por_nome)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [pacienteId, sessaoId, /^\d{4}-\d{2}-\d{2}$/.test(f.data || '') ? f.data : hoje,
+       cut(f.legenda, 200), f.arquivo, ehImagem(f.miniatura) ? f.miniatura : f.arquivo,
+       cut(f.mimetype, 40), user.id, user.nome]);
+    n++;
+  }
+  return n;
+}
+
+// Galeria: metadados + miniatura (a foto grande fica de fora de propósito)
+r.get('/pacientes/:id/fotos', auth, async (req, res) => {
+  if (!guarda(req, res)) return;
+  try {
+    const { rows } = await query(
+      `SELECT id, sessao_id, TO_CHAR(data,'YYYY-MM-DD') AS data, legenda, mimetype,
+              miniatura, criado_por_nome, created_at
+         FROM terapia_fotos WHERE paciente_id = $1 ORDER BY data DESC, id DESC LIMIT 200`,
+      [req.params.id]);
+    res.json({ fotos: rows, max: MAX_FOTOS_PACIENTE });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Foto grande, uma de cada vez (abrir no álbum ou baixar)
+r.get('/fotos/:id', auth, async (req, res) => {
+  if (!guarda(req, res)) return;
+  try {
+    const { rows: [f] } = await query(
+      `SELECT id, TO_CHAR(data,'YYYY-MM-DD') AS data, legenda, arquivo, mimetype, criado_por_nome
+         FROM terapia_fotos WHERE id = $1`, [req.params.id]);
+    if (!f) return res.status(404).json({ error: 'Foto não encontrada.' });
+    res.json(f);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.post('/pacientes/:id/fotos', auth, async (req, res) => {
+  if (!guarda(req, res)) return;
+  try {
+    const n = await guardarFotos(+req.params.id, req.body?.sessao_id ? +req.body.sessao_id : null, req.body?.fotos, req.user);
+    if (!n) return res.status(400).json({ error: 'Nenhuma foto válida (JPG/PNG/WebP até ~6MB) — ou o álbum já chegou no limite.' });
+    res.json({ ok: true, adicionadas: n });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.delete('/fotos/:id', auth, async (req, res) => {
+  if (!guarda(req, res)) return;
+  try {
+    await query(`DELETE FROM terapia_fotos WHERE id = $1`, [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.delete('/sessoes/:id', auth, async (req, res) => {
+  if (!guarda(req, res)) return;
+  try {
+    await query(`DELETE FROM terapia_sessoes WHERE id = $1`, [req.params.id]);
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Plus, Search, MessageCircle, Trash2, X, ClipboardList, Target } from 'lucide-react';
+import { Plus, Search, MessageCircle, Trash2, X, ClipboardList, Target, Users, CalendarCheck, Camera, Download } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt } from '../hooks/utils.js';
 import TerapiasRelatorio from '../components/TerapiasRelatorio.jsx';
@@ -30,6 +30,53 @@ const stInfo = (k) => STATUS_PAC.find(s => s[0] === k) || STATUS_PAC[0];
 const hojeISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const wa = (t, m) => `https://wa.me/55${String(t || '').replace(/\D/g, '').slice(-11)}?text=${encodeURIComponent(m)}`;
 
+// Presenças do registro de sessão — é daqui que sai o acompanhamento.
+const PRESENCAS = [
+  ['presente', '✅ Presente', '#0a8f5b'],
+  ['falta', '❌ Faltou', '#c0392b'],
+  ['reposicao', '🔁 Reposição', '#7c5cbf'],
+  ['cancelada', '⛔ Cancelada', '#5a6b7b'],
+];
+const presInfo = (k) => PRESENCAS.find(x => x[0] === k) || PRESENCAS[0];
+
+/* Reduz a foto ANTES de subir. Foto de celular tem 4-8MB; o álbum de uma
+   criança em 1 ano de terapia teria centenas delas. Guardamos duas versões:
+   a grande (1600px) pra ver e a miniatura (360px) que a galeria carrega. */
+function reduzirFoto(file, max, qualidade) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        let w = img.width, h = img.height;
+        if (w > max || h > max) {
+          if (w >= h) { h = Math.round((h * max) / w); w = max; }
+          else { w = Math.round((w * max) / h); h = max; }
+        }
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        c.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve(c.toDataURL('image/jpeg', qualidade));
+      };
+      img.onerror = reject;
+      img.src = fr.result;
+    };
+    fr.onerror = reject;
+    fr.readAsDataURL(file);
+  });
+}
+async function prepararFotos(files) {
+  const out = [];
+  for (const f of Array.from(files || []).slice(0, 20)) {
+    if (!/^image\//.test(f.type)) continue;
+    try {
+      const [arquivo, miniatura] = await Promise.all([reduzirFoto(f, 1600, 0.75), reduzirFoto(f, 360, 0.6)]);
+      out.push({ arquivo, miniatura, mimetype: 'image/jpeg', legenda: '' });
+    } catch (_) { /* foto quebrada: ignora e segue */ }
+  }
+  return out;
+}
+
 export default function Terapias() {
   const api = useApi();
   const { user } = useAuth();
@@ -47,6 +94,8 @@ export default function Terapias() {
   const [aba, setAba] = useState('pacientes');   // pacientes | grade
   const [grade, setGrade] = useState(null);
   const [cobrancas, setCobrancas] = useState(null);
+  const [lote, setLote] = useState(null);        // popup de trazer todos
+  const [painel, setPainel] = useState(null);    // paciente em acompanhamento
   const mostra = (m) => { setToast(m); setTimeout(() => setToast(null), 3000); };
   const ehGestao = ['master', 'supervisor'].includes(user?.role);
 
@@ -80,6 +129,28 @@ export default function Terapias() {
     try {
       await api.post('/terapias/pacientes', p);
       setPuxar(null); setAchados([]); load(); mostra(`✓ ${p.nome} entrou na área de terapias`);
+    } catch (e) { mostra('⚠️ ' + (e.message || 'Erro')); }
+  }
+
+  /* Trazer TODOS: o master pediu pra conseguir levar a base inteira pra área,
+     sem catar um por um. Abre a lista de quem já apareceu na casa e ainda não
+     está aqui, com tudo marcado — a equipe desmarca o que não é. */
+  async function abrirLote() {
+    setLote({ carregando: true, candidatos: [], marcados: {} });
+    try {
+      const d = await api.get('/terapias/candidatos');
+      const marcados = {};
+      (d.candidatos || []).forEach((c, i) => { marcados[i] = true; });
+      setLote({ carregando: false, candidatos: d.candidatos || [], marcados });
+    } catch (e) { setLote(null); mostra('⚠️ ' + (e.message || 'Erro')); }
+  }
+  async function salvarLote() {
+    const escolhidos = (lote.candidatos || []).filter((_, i) => lote.marcados[i]);
+    if (!escolhidos.length) return mostra('⚠️ Marque ao menos um');
+    try {
+      const r = await api.post('/terapias/pacientes/lote', { pacientes: escolhidos });
+      setLote(null); load();
+      mostra(`✓ ${r.criados} paciente(s) na área${r.repetidos ? ` · ${r.repetidos} já estavam` : ''}`);
     } catch (e) { mostra('⚠️ ' + (e.message || 'Erro')); }
   }
 
@@ -154,9 +225,14 @@ export default function Terapias() {
           <h1 style={{ fontSize: 27, fontWeight: 800 }}>🧩 Terapias</h1>
           <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 2 }}>Traga o paciente para a área e registre o plano terapêutico.</p>
         </div>
-        <button onClick={() => setPuxar({ q: '' })} className="btn btn-p" style={{ gap: 6 }}>
-          <Plus size={14} /> Puxar paciente
-        </button>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button onClick={abrirLote} className="btn btn-s" style={{ gap: 6 }}>
+            <Users size={14} /> Trazer todos
+          </button>
+          <button onClick={() => setPuxar({ q: '' })} className="btn btn-p" style={{ gap: 6 }}>
+            <Plus size={14} /> Puxar paciente
+          </button>
+        </div>
       </div>
 
       {/* Meta de planos do mês */}
@@ -274,6 +350,21 @@ export default function Terapias() {
                         p.valor_ativo > 0 && `${fmt.brl(p.valor_ativo)}/mês`, p.origem !== 'manual' && `veio de ${p.origem}`]
                         .filter(Boolean).join(' · ')}
                     </div>
+                    {/* Pacote de sessões: é o que a família contratou e o que já
+                        foi feito. Sem contratadas, mostra só o que andou. */}
+                    {(p.sessoes_contratadas > 0 || p.sessoes_feitas > 0) && (
+                      <div style={{ marginTop: 6, maxWidth: 300 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>
+                          <span>{p.sessoes_feitas || 0}{p.sessoes_contratadas > 0 ? ` de ${p.sessoes_contratadas}` : ''} sessões{p.sessoes_faltas > 0 ? ` · ${p.sessoes_faltas} falta(s)` : ''}</span>
+                          {p.sessoes_contratadas > 0 && <span>{Math.min(100, Math.round(((p.sessoes_feitas || 0) / p.sessoes_contratadas) * 100))}%</span>}
+                        </div>
+                        {p.sessoes_contratadas > 0 && (
+                          <div style={{ height: 6, borderRadius: 4, background: 'var(--bg2)', overflow: 'hidden', marginTop: 3 }}>
+                            <div style={{ width: `${Math.min(100, ((p.sessoes_feitas || 0) / p.sessoes_contratadas) * 100)}%`, height: '100%', background: '#7c5cbf' }} />
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                   <select value={p.status} onChange={e => mudarStatus(p, e.target.value)}
                     style={{ padding: '5px 9px', borderRadius: 9, border: `1.5px solid ${cor}`, background: 'var(--card)', color: cor, fontSize: 11.5, fontWeight: 800, cursor: 'pointer' }}>
@@ -285,9 +376,16 @@ export default function Terapias() {
                     ? <a href={wa(p.telefone, `Olá! 💙 Aqui é da Vittalis Saúde, da equipe de terapias.`)} target="_blank" rel="noreferrer"
                         className="btn btn-sm" style={{ gap: 5, background: '#25D366', color: '#fff', border: 'none', fontWeight: 800 }}><MessageCircle size={13} /> WhatsApp</a>
                     : <span style={{ fontSize: 11, color: 'var(--light)' }}>sem telefone</span>}
+                  <button onClick={() => setPainel(painel?.id === p.id ? null : p)} className="btn btn-s btn-sm" style={{ gap: 5, fontSize: 12, borderColor: '#7c5cbf', color: '#7c5cbf' }}>
+                    <CalendarCheck size={13} /> Acompanhar
+                  </button>
                   {meus.length > 0 && <button onClick={() => setAberto(expandido ? null : p.id)} className="btn btn-s btn-sm" style={{ fontSize: 12 }}>{expandido ? 'Ocultar' : 'Ver planos'}</button>}
                   <button onClick={() => tirarDaArea(p)} className="btn btn-s btn-sm" style={{ color: '#c0392b' }} title="Tirar da área"><Trash2 size={13} /></button>
                 </div>
+
+                {painel?.id === p.id && (
+                  <PainelAcompanhamento paciente={p} api={api} mostra={mostra} onMudou={load} />
+                )}
 
                 {expandido && (
                   <div style={{ marginTop: 12, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
@@ -314,6 +412,57 @@ export default function Terapias() {
         })}
 
       </>)}
+
+      {/* ── Popup: trazer TODOS de uma vez ── */}
+      {lote && (
+        <div onClick={() => setLote(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.42)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 90, padding: 20, overflowY: 'auto' }}>
+          <div onClick={e => e.stopPropagation()} className="card" style={{ width: '100%', maxWidth: 620, marginTop: 30, padding: 0 }}>
+            <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <b style={{ fontSize: 15 }}>👥 Trazer pacientes para terapias</b>
+              <button onClick={() => setLote(null)} className="btn btn-s btn-sm"><X size={14} /></button>
+            </div>
+            <div style={{ padding: 18 }}>
+              {lote.carregando ? <div style={{ color: 'var(--muted)', fontSize: 13, padding: 20, textAlign: 'center' }}>Procurando quem já passou pela casa…</div>
+              : (lote.candidatos || []).length === 0 ? (
+                <div style={{ color: 'var(--muted)', fontSize: 13, padding: 20, textAlign: 'center' }}>
+                  Ninguém de fora da área foi encontrado. Quem faz terapia aqui já está todo cadastrado 👏
+                </div>
+              ) : (<>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+                  <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>
+                    {lote.candidatos.length} pessoa(s) da agenda de terapias, do chat e dos clientes.
+                    <b style={{ color: 'var(--txt)' }}> {Object.values(lote.marcados).filter(Boolean).length} marcada(s)</b>
+                  </span>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button onClick={() => setLote(l => ({ ...l, marcados: Object.fromEntries(l.candidatos.map((_, i) => [i, true])) }))} className="btn btn-s btn-sm" style={{ fontSize: 11.5 }}>Marcar todos</button>
+                    <button onClick={() => setLote(l => ({ ...l, marcados: {} }))} className="btn btn-s btn-sm" style={{ fontSize: 11.5 }}>Limpar</button>
+                  </div>
+                </div>
+                <div style={{ maxHeight: 320, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 12 }}>
+                  {lote.candidatos.map((c, i) => (
+                    <label key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={!!lote.marcados[i]}
+                        onChange={e => setLote(l => ({ ...l, marcados: { ...l.marcados, [i]: e.target.checked } }))}
+                        style={{ width: 16, height: 16, accentColor: '#7c5cbf' }} />
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <b style={{ fontSize: 13.5 }}>{c.nome}</b>
+                        <span style={{ fontSize: 11.5, color: 'var(--muted)', marginLeft: 8 }} data-nocopy>{c.telefone || 'sem telefone'}</span>
+                      </span>
+                      <span style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', background: 'var(--bg2)', borderRadius: 999, padding: '2px 9px' }}>{c.origem}</span>
+                    </label>
+                  ))}
+                </div>
+                <button onClick={salvarLote} className="btn btn-p" style={{ width: '100%', marginTop: 14 }}>
+                  Trazer {Object.values(lote.marcados).filter(Boolean).length} paciente(s) para a área
+                </button>
+                <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8, textAlign: 'center' }}>
+                  Entram como <b>Em avaliação</b>. Depois é só registrar o plano e o número de sessões de cada um.
+                </p>
+              </>)}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Popup: puxar paciente ── */}
       {puxar && (
@@ -456,6 +605,234 @@ export default function Terapias() {
       )}
 
       {toast && <div style={{ position: 'fixed', bottom: 24, right: 24, background: '#111827', color: '#fff', padding: '12px 20px', borderRadius: 14, fontSize: 13, fontWeight: 600, zIndex: 99 }}>{toast}</div>}
+    </div>
+  );
+}
+
+/* ─── 📋 ACOMPANHAMENTO DO PACIENTE ────────────────────────────────────────────
+   Pedido do master: número de sessões, acompanhamento e observação de cada um,
+   "imitando mais o sistema de ABA". Nos sistemas da área o que sustenta o
+   tratamento é o REGISTRO DE SESSÃO: uma linha por atendimento, com presença e
+   o que aconteceu. Daí saem sozinhos o "12 de 40", as faltas e o álbum. */
+function PainelAcompanhamento({ paciente, api, mostra, onMudou }) {
+  const [aba, setAba] = useState('sessoes');
+  const [sessoes, setSessoes] = useState(null);
+  const [fotos, setFotos] = useState(null);
+  const [salvando, setSalvando] = useState(false);
+  const [verFoto, setVerFoto] = useState(null);
+  const [ficha, setFicha] = useState({
+    sessoes_contratadas: paciente.sessoes_contratadas ?? '',
+    acompanhamento: paciente.acompanhamento || '',
+    observacoes: paciente.observacoes || '',
+  });
+  const hoje = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+  const [nova, setNova] = useState({ data: hoje, presenca: 'presente', especialidade: '', observacao: '', fotos: [] });
+
+  // ⚠️ `api` fora das deps de propósito (useApi devolve objeto novo por render)
+  const carregar = useCallback(() => {
+    api.get(`/terapias/pacientes/${paciente.id}/sessoes`).then(d => setSessoes(d.sessoes || [])).catch(() => setSessoes([]));
+    api.get(`/terapias/pacientes/${paciente.id}/fotos`).then(d => setFotos(d.fotos || [])).catch(() => setFotos([]));
+  }, [paciente.id]); // eslint-disable-line
+  useEffect(() => { carregar(); }, [carregar]);
+
+  async function salvarFicha() {
+    setSalvando(true);
+    try {
+      await api.put(`/terapias/pacientes/${paciente.id}`, ficha);
+      mostra('✓ Acompanhamento salvo'); onMudou();
+    } catch (e) { mostra('⚠️ ' + (e.message || 'Erro')); }
+    setSalvando(false);
+  }
+  async function escolherFotos(e) {
+    const files = e.target.files; e.target.value = '';
+    if (!files?.length) return;
+    mostra('📷 Preparando as fotos…');
+    const prontas = await prepararFotos(files);
+    if (!prontas.length) return mostra('⚠️ Nenhuma imagem válida');
+    setNova(n => ({ ...n, fotos: [...n.fotos, ...prontas].slice(0, 20) }));
+    mostra(`${prontas.length} foto(s) prontas para subir`);
+  }
+  async function registrarSessao() {
+    setSalvando(true);
+    try {
+      const r = await api.post(`/terapias/pacientes/${paciente.id}/sessoes`, nova);
+      setNova({ data: hoje, presenca: 'presente', especialidade: '', observacao: '', fotos: [] });
+      carregar(); onMudou();
+      mostra(`✓ Sessão registrada${r?.fotos ? ` com ${r.fotos} foto(s)` : ''}`);
+    } catch (e) { mostra('⚠️ ' + (e.message || 'Erro')); }
+    setSalvando(false);
+  }
+  async function apagarSessao(id) {
+    if (!window.confirm('Apagar esta sessão do acompanhamento?')) return;
+    try { await api.delete(`/terapias/sessoes/${id}`); carregar(); onMudou(); } catch (e) { mostra('⚠️ ' + e.message); }
+  }
+  async function abrirFoto(f) {
+    try { const d = await api.get(`/terapias/fotos/${f.id}`); setVerFoto(d); }
+    catch (e) { mostra('⚠️ Não consegui abrir a foto'); }
+  }
+  async function apagarFoto(id) {
+    if (!window.confirm('Apagar esta foto do álbum?')) return;
+    try { await api.delete(`/terapias/fotos/${id}`); setVerFoto(null); carregar(); } catch (e) { mostra('⚠️ ' + e.message); }
+  }
+
+  /* Régua única: quem conta sessão feita é o servidor (a lista aqui traz no
+     máximo 200 e daria outro número). Só cai no cálculo local se o back ainda
+     não mandou o campo. */
+  const feitas = paciente.sessoes_feitas ?? (sessoes || []).filter(s => ['presente', 'reposicao'].includes(s.presenca)).length;
+  const contratadas = +ficha.sessoes_contratadas || 0;
+
+  return (
+    <div style={{ marginTop: 12, borderTop: '2px solid #7c5cbf', paddingTop: 12 }}>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+        {[['sessoes', `📋 Sessões${sessoes ? ` (${sessoes.length})` : ''}`], ['album', `📷 Álbum${fotos ? ` (${fotos.length})` : ''}`], ['ficha', '📝 Ficha']].map(([k, l]) => (
+          <button key={k} onClick={() => setAba(k)}
+            style={{ padding: '5px 12px', borderRadius: 9, fontSize: 12, fontWeight: 800, cursor: 'pointer',
+              border: `1.5px solid ${aba === k ? '#7c5cbf' : 'var(--border)'}`,
+              background: aba === k ? '#7c5cbf' : 'var(--card)', color: aba === k ? '#fff' : 'var(--muted)' }}>{l}</button>
+        ))}
+        {contratadas > 0 && (
+          <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 800, color: feitas >= contratadas ? '#0a8f5b' : '#7c5cbf' }}>
+            {feitas >= contratadas ? '🏆 pacote concluído' : `faltam ${contratadas - feitas} de ${contratadas}`}
+          </span>
+        )}
+      </div>
+
+      {aba === 'ficha' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 620 }}>
+          <div className="field" style={{ margin: 0 }}>
+            <label>Número de sessões contratadas</label>
+            <input type="number" min={0} max={999} value={ficha.sessoes_contratadas}
+              onChange={e => setFicha(f => ({ ...f, sessoes_contratadas: e.target.value }))} placeholder="Ex: 40" style={{ width: 140 }} />
+          </div>
+          <div className="field" style={{ margin: 0 }}>
+            <label>Acompanhamento (evolução, combinados com a família)</label>
+            <textarea rows={3} value={ficha.acompanhamento} onChange={e => setFicha(f => ({ ...f, acompanhamento: e.target.value }))}
+              placeholder="Como a criança está evoluindo, o que mudou em casa, próximos passos…" />
+          </div>
+          <div className="field" style={{ margin: 0 }}>
+            <label>Observações do paciente</label>
+            <textarea rows={2} value={ficha.observacoes} onChange={e => setFicha(f => ({ ...f, observacoes: e.target.value }))}
+              placeholder="Alergias, preferências, o que acalma, quem traz…" />
+          </div>
+          <button onClick={salvarFicha} disabled={salvando} className="btn btn-p" style={{ alignSelf: 'flex-start' }}>
+            {salvando ? 'Salvando…' : 'Salvar acompanhamento'}
+          </button>
+        </div>
+      )}
+
+      {aba === 'sessoes' && (<>
+        {/* Registrar a sessão do dia — com as fotos dela */}
+        <div style={{ background: 'var(--bg2)', borderRadius: 12, padding: 12, marginBottom: 12 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <div style={{ flex: '0 0 150px' }}>
+              <label style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>Dia</label>
+              <input type="date" value={nova.data} onChange={e => setNova({ ...nova, data: e.target.value })}
+                style={{ width: '100%', padding: '7px 10px', borderRadius: 9, border: '1.5px solid var(--border)', fontSize: 13, background: 'var(--card)', color: 'var(--txt)' }} />
+            </div>
+            <div style={{ flex: '0 0 160px' }}>
+              <label style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>Presença</label>
+              <select value={nova.presenca} onChange={e => setNova({ ...nova, presenca: e.target.value })}
+                style={{ width: '100%', padding: '7px 10px', borderRadius: 9, border: '1.5px solid var(--border)', fontSize: 13, background: 'var(--card)', color: 'var(--txt)' }}>
+                {PRESENCAS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+              </select>
+            </div>
+            <div style={{ flex: '1 1 170px' }}>
+              <label style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>Terapia</label>
+              <select value={nova.especialidade} onChange={e => setNova({ ...nova, especialidade: e.target.value })}
+                style={{ width: '100%', padding: '7px 10px', borderRadius: 9, border: '1.5px solid var(--border)', fontSize: 13, background: 'var(--card)', color: 'var(--txt)' }}>
+                <option value="">(não especificar)</option>
+                {TERAPIAS.map(([n, i]) => <option key={n} value={n}>{i} {n}</option>)}
+              </select>
+            </div>
+          </div>
+          <textarea rows={2} value={nova.observacao} onChange={e => setNova({ ...nova, observacao: e.target.value })}
+            placeholder="O que aconteceu na sessão: o que a criança conseguiu, o que travou, o que mandar de casa…"
+            style={{ width: '100%', marginTop: 8, padding: '9px 11px', borderRadius: 10, border: '1.5px solid var(--border)', fontSize: 13, background: 'var(--card)', color: 'var(--txt)', resize: 'vertical', fontFamily: 'inherit' }} />
+          <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <label className="btn btn-s btn-sm" style={{ gap: 6, cursor: 'pointer', margin: 0 }}>
+              <Camera size={13} /> Fotos da sessão
+              <input type="file" accept="image/*" multiple capture="environment" style={{ display: 'none' }} onChange={escolherFotos} />
+            </label>
+            {nova.fotos.length > 0 && (
+              <span style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap' }}>
+                {nova.fotos.map((f, i) => (
+                  <span key={i} style={{ position: 'relative', display: 'inline-block' }}>
+                    <img src={f.miniatura} alt="" style={{ width: 38, height: 38, objectFit: 'cover', borderRadius: 8, border: '1.5px solid var(--border)' }} />
+                    <button onClick={() => setNova(n => ({ ...n, fotos: n.fotos.filter((_, k) => k !== i) }))}
+                      style={{ position: 'absolute', top: -6, right: -6, width: 18, height: 18, borderRadius: '50%', border: 'none', background: '#c0392b', color: '#fff', fontSize: 10, cursor: 'pointer', lineHeight: 1 }}>✕</button>
+                  </span>
+                ))}
+              </span>
+            )}
+            <button onClick={registrarSessao} disabled={salvando} className="btn btn-p btn-sm" style={{ marginLeft: 'auto' }}>
+              {salvando ? 'Salvando…' : 'Registrar sessão'}
+            </button>
+          </div>
+        </div>
+
+        {sessoes === null ? <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Carregando…</div>
+          : sessoes.length === 0 ? <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Nenhuma sessão registrada ainda. A primeira já começa o acompanhamento 💜</div>
+          : sessoes.map(sx => {
+            const [, rot, cor] = presInfo(sx.presenca);
+            return (
+              <div key={sx.id} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '8px 0', borderBottom: '1px solid var(--border)', fontSize: 12.5, flexWrap: 'wrap' }}>
+                <b style={{ fontFamily: 'monospace', minWidth: 82 }}>{sx.data.split('-').reverse().slice(0, 2).join('/')}</b>
+                <span style={{ fontWeight: 800, color: cor, minWidth: 96 }}>{rot}</span>
+                <span style={{ flex: 1, minWidth: 180, color: 'var(--muted)' }}>
+                  {sx.especialidade ? <b style={{ color: 'var(--txt)' }}>{sx.especialidade}: </b> : null}
+                  {sx.observacao || '—'}
+                </span>
+                {sx.criado_por_nome && <span style={{ fontSize: 10.5, color: 'var(--light)' }}>{sx.criado_por_nome.split(' ').slice(0, 2).join(' ')}</span>}
+                <button onClick={() => apagarSessao(sx.id)} title="Apagar" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><Trash2 size={12} /></button>
+              </div>
+            );
+          })}
+      </>)}
+
+      {aba === 'album' && (<>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
+          <label className="btn btn-p btn-sm" style={{ gap: 6, cursor: 'pointer', margin: 0 }}>
+            <Camera size={13} /> Adicionar fotos ao álbum
+            <input type="file" accept="image/*" multiple capture="environment" style={{ display: 'none' }}
+              onChange={async e => {
+                const files = e.target.files; e.target.value = '';
+                if (!files?.length) return;
+                mostra('📷 Preparando as fotos…');
+                const prontas = await prepararFotos(files);
+                if (!prontas.length) return mostra('⚠️ Nenhuma imagem válida');
+                try { const r = await api.post(`/terapias/pacientes/${paciente.id}/fotos`, { fotos: prontas }); mostra(`✓ ${r.adicionadas} foto(s) no álbum`); carregar(); }
+                catch (er) { mostra('⚠️ ' + (er.message || 'Erro')); }
+              }} />
+          </label>
+          <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>As fotos ficam guardadas por data — é o álbum da evolução da criança.</span>
+        </div>
+        {fotos === null ? <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Carregando…</div>
+          : fotos.length === 0 ? <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Nenhuma foto ainda. Registre uma sessão com foto ou adicione aqui 📷</div>
+          : (<div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(104px,1fr))', gap: 8 }}>
+              {fotos.map(f => (
+                <button key={f.id} onClick={() => abrirFoto(f)} title={`${f.data.split('-').reverse().join('/')}${f.legenda ? ' · ' + f.legenda : ''}`}
+                  style={{ padding: 0, border: '1.5px solid var(--border)', borderRadius: 10, overflow: 'hidden', cursor: 'pointer', background: 'var(--bg2)' }}>
+                  <img src={f.miniatura} alt="" style={{ width: '100%', height: 96, objectFit: 'cover', display: 'block' }} />
+                  <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', padding: '3px 0' }}>{f.data.split('-').reverse().slice(0, 2).join('/')}</div>
+                </button>
+              ))}
+            </div>)}
+      </>)}
+
+      {/* Foto aberta */}
+      {verFoto && (
+        <div onClick={() => setVerFoto(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.82)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ maxWidth: 900, width: '100%', textAlign: 'center' }}>
+            <img src={verFoto.arquivo} alt="" style={{ maxWidth: '100%', maxHeight: '76vh', borderRadius: 14, objectFit: 'contain' }} />
+            <div style={{ color: '#fff', fontSize: 13, marginTop: 10, display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap' }}>
+              <span>{verFoto.data.split('-').reverse().join('/')}{verFoto.criado_por_nome ? ` · ${verFoto.criado_por_nome}` : ''}</span>
+              <a href={verFoto.arquivo} download={`terapia-${verFoto.data}.jpg`} className="btn btn-s btn-sm" style={{ gap: 5 }}><Download size={12} /> Baixar</a>
+              <button onClick={() => apagarFoto(verFoto.id)} className="btn btn-s btn-sm" style={{ color: '#c0392b' }}>Apagar</button>
+              <button onClick={() => setVerFoto(null)} className="btn btn-s btn-sm">Fechar</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
