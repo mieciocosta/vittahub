@@ -2748,10 +2748,13 @@ r.get('/perdas/resumo', async (req, res) => {
 // Painel de Profissionais é do setor de CONSULTAS (e da gestão).
 const podeGerirProf = (req) => gestao(req) || req.user?.setor === 'consultas';
 // Sanitiza a foto (data URL de imagem, até ~2,5MB) e os documentos anexados.
+// Pedido do master: até 20 anexos por profissional (diploma, conselho,
+// contrato, certificados — a pasta do profissional cabe inteira aqui).
+const MAX_DOCS_PROF = 20;
 const limparFoto = (f) => (f && /^data:image\/(jpeg|png|webp);base64,/.test(f) && f.length < 2_500_000) ? f : null;
 const limparDocs = (arr) => (Array.isArray(arr) ? arr : [])
   .filter(d => d && d.arquivo && /^data:[\w/+.\-]+;base64,/.test(d.arquivo) && d.arquivo.length < 11_000_000)
-  .slice(0, 10)
+  .slice(0, MAX_DOCS_PROF)
   .map(d => ({ nome: String(d.nome || 'documento').slice(0, 120), arquivo: d.arquivo, mimetype: String(d.mimetype || '').slice(0, 100) }));
 // Cadastro de médicos/especialistas + disponibilidade semanal.
 r.get('/profissionais', async (req, res) => {

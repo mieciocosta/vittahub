@@ -9,6 +9,7 @@ import { fmt } from '../hooks/utils.js';
 const DIAS = [['seg','Seg'],['ter','Ter'],['qua','Qua'],['qui','Qui'],['sex','Sex'],['sab','Sáb'],['dom','Dom']];
 const SETORES = [['vacinas','Vacinas'],['consultas','Consultas'],['terapias','Terapias']];
 const CORES = ['#00B8C0','#7c5cbf','#C4973B','#0fb07a','#e8671a','#3b82f6','#ec4899','#0E8C96'];
+const MAX_DOCS = 20;   // anexos por profissional (pedido do master)
 const vazio = { nome:'', especialidade:'', setor:'consultas', cor:'#00B8C0', telefone:'', ativo:true, disponibilidade:{}, observacoes:'', foto:null, documentos:[] };
 const fileToDataUrl = (file) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file); });
 
@@ -62,7 +63,12 @@ export default function Profissionais() {
       if (url.length > 11_000_000) { setErro(`"${f.name}" é muito grande (máx. ~8MB).`); continue; }
       novos.push({ nome: f.name, arquivo: url, mimetype: f.type });
     }
-    if (novos.length) setModal(m => ({ ...m, documentos: [...(m.documentos || []), ...novos].slice(0, 10) }));
+    // Pedido do master: até 20 anexos por profissional.
+    if (novos.length) setModal(m => {
+      const juntos = [...(m.documentos || []), ...novos];
+      if (juntos.length > MAX_DOCS) setErro(`Cabem ${MAX_DOCS} anexos por profissional — os últimos ficaram de fora.`);
+      return { ...m, documentos: juntos.slice(0, MAX_DOCS) };
+    });
   };
   const removerDoc = (idx) => setModal(m => ({ ...m, documentos: (m.documentos || []).filter((_, i) => i !== idx) }));
 
@@ -387,9 +393,10 @@ export default function Profissionais() {
 
               {/* Documentos complementares (diploma, registro, etc.) */}
               <div className="field" style={{ margin:0 }}>
-                <label>Documentos complementares (diploma, registro…)</label>
+                <label>Documentos complementares (diploma, registro…) — até {MAX_DOCS} anexos</label>
                 <input ref={docRef} type="file" multiple accept="image/*,application/pdf,.doc,.docx" style={{ display:'none' }} onChange={anexarDocs}/>
                 <button type="button" onClick={()=>docRef.current?.click()} className="btn btn-s btn-sm" style={{ gap:6 }}><Paperclip size={14}/> Anexar documento</button>
+                <span style={{ marginLeft:8, fontSize:12, color:'var(--muted)' }}>{(modal.documentos || []).length}/{MAX_DOCS}</span>
                 {(modal.documentos || []).length > 0 && (
                   <div style={{ display:'flex', flexDirection:'column', gap:6, marginTop:8 }}>
                     {(modal.documentos || []).map((d, i) => (
