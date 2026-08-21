@@ -57,7 +57,8 @@ const NAV = [
   // 🤖 Painel da Mary — só pra quem tem o botão da IA (e o master)
   { to:'/mary', icon:Bot, label:'Assistente IA', iaBotao:true, cor:'#a855f7' },
   // Quem agenda consulta vive alternando entre a conversa e a grade dos profissionais.
-  { to:'/profissionais', icon:Stethoscope,  label:'Profissionais', consultas:true, cor:'#22d3ee' },
+  // Aberto pra clínica toda: virou o quadro de 3 colunas (vacinas/consultas/terapias)
+  { to:'/profissionais', icon:Stethoscope,  label:'Profissionais', cor:'#22d3ee' },
   { to:'/agenda',     icon:CalendarDays,    label:'Agenda', cor:'#f59e0b' },
 
   { grupo:'Vender' },

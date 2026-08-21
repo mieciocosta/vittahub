@@ -16,8 +16,9 @@ const fileToDataUrl = (file) => new Promise((res, rej) => { const r = new FileRe
 export default function Profissionais() {
   const api = useApi();
   const { user } = useAuth();
-  // Painel é do setor de Consultas (e da gestão). Os demais setores não veem.
-  const podeVer = ['master','supervisor'].includes(user?.role) || user?.setor === 'consultas';
+  // Painel da CLÍNICA INTEIRA (pedido do master: 3 colunas — vacinas,
+  // consultas e terapias). Todo mundo consulta; só a gestão edita.
+  const podeVer = true;
   const ehGestao = podeVer;
   const fotoRef = useRef(null);
   const docRef = useRef(null);
@@ -187,15 +188,32 @@ export default function Profissionais() {
         </div>
       )}
 
-      {lista.length === 0 ? (
-        <div className="card" style={{ padding:40, textAlign:'center', color:'var(--muted)' }}>
-          <Stethoscope size={34} color="var(--border)" style={{ marginBottom:10 }}/>
-          <div style={{ fontWeight:700, marginBottom:4 }}>Nenhum profissional cadastrado ainda.</div>
-          {ehGestao && <div style={{ fontSize:12.5 }}>Clique em “Novo profissional” pra começar.</div>}
-        </div>
-      ) : (
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))', gap:14 }}>
-          {lista.map(p => (
+      {/* 🗂️ TRÊS COLUNAS POR SETOR (pedido do master): Vacinas | Consultas |
+          Terapias — cada profissional cadastrado e organizado na sua coluna,
+          com dados e documentos no mesmo cartão. O "+ Novo" de cada coluna já
+          abre o cadastro com o setor certo marcado. */}
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(310px,1fr))', gap:14, alignItems:'start' }}>
+        {[['vacinas','💉 Vacinas','#7c5cbf'],['consultas','🩺 Consultas','#00B8C0'],['terapias','🧩 Terapias','#C4973B']].map(([sk, srot, scor]) => {
+          const doSetor = lista.filter(p2 => (p2.setor || 'consultas') === sk);
+          return (
+        <div key={sk} style={{ borderRadius:16, background:'var(--bg2)', border:`1.5px solid ${scor}44`, padding:'10px 10px 12px', display:'flex', flexDirection:'column', gap:10 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8, padding:'2px 4px' }}>
+            <span style={{ fontSize:13.5, fontWeight:900, color:scor }}>{srot}</span>
+            <span style={{ fontSize:10.5, fontWeight:800, color:'var(--muted)', background:'var(--card)', borderRadius:10, padding:'1px 8px' }}>{doSetor.length}</span>
+            <span style={{ flex:1 }} />
+            {ehGestao && (
+              <button onClick={()=>{setErro('');setModal({ ...vazio, setor: sk, cor: scor });}} title={`Cadastrar profissional em ${srot}`}
+                style={{ display:'flex', alignItems:'center', gap:4, padding:'4px 10px', borderRadius:9, border:'none', cursor:'pointer', background:scor, color:'#fff', fontSize:11, fontWeight:900 }}>
+                <Plus size={12}/> Novo
+              </button>
+            )}
+          </div>
+          {doSetor.length === 0 && (
+            <div style={{ padding:'18px 10px', textAlign:'center', color:'var(--muted)', fontSize:12, border:'1.5px dashed var(--border)', borderRadius:12 }}>
+              Nenhum profissional aqui ainda.{ehGestao ? ' Use o + Novo da coluna.' : ''}
+            </div>
+          )}
+          {doSetor.map(p => (
             <div key={p.id} className="card" style={{ padding:'16px 18px', opacity:p.ativo?1:.55 }}>
               <div style={{ display:'flex', alignItems:'flex-start', gap:11 }}>
                 {p.foto
@@ -204,7 +222,6 @@ export default function Profissionais() {
                 <div style={{ flex:1, minWidth:0 }}>
                   <div style={{ fontWeight:800, fontSize:15 }}>{p.nome}{!p.ativo && <span style={{ fontSize:10, color:'var(--err)', fontWeight:800, marginLeft:6 }}>INATIVO</span>}</div>
                   <div style={{ fontSize:12.5, color:'var(--muted)' }}>{p.especialidade || '—'}</div>
-                  <div style={{ fontSize:11, color:'var(--tq2)', fontWeight:700, marginTop:2, textTransform:'capitalize' }}>{p.setor}</div>
                 </div>
                 {ehGestao && (
                   <div style={{ display:'flex', gap:5 }}>
@@ -272,7 +289,9 @@ export default function Profissionais() {
             </div>
           ))}
         </div>
-      )}
+          );
+        })}
+      </div>
 
       {/* 📅 Modal: agendar dentro da disponibilidade do profissional */}
       {ag && (
