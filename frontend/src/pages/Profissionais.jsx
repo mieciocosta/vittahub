@@ -158,17 +158,25 @@ export default function Profissionais() {
 
   return (
     <div style={{ padding:'28px' }}>
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:12, marginBottom:18 }}>
-        <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-          <div style={{ width:42, height:42, borderRadius:12, background:'var(--tq3)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-            <Stethoscope size={22} color="var(--tq)"/>
-          </div>
-          <div>
-            <h1 style={{ fontSize:27, fontWeight:800 }}>Painel de Profissionais</h1>
-            <p style={{ color:'var(--muted)', fontSize:13 }}>Cadastro de médicos e especialistas + disponibilidade semanal.</p>
+      {/* Cabeçalho premium — mesma identidade dos Cases (pedido do master:
+          "melhora ainda mais") */}
+      <div style={{ borderRadius:18, padding:'22px 26px', marginBottom:18, color:'#fff', position:'relative', overflow:'hidden',
+        background:'linear-gradient(135deg,#0e7490,#00B8C0 60%,#22d3ee)', boxShadow:'0 10px 30px rgba(0,184,192,.30)',
+        display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:12 }}>
+        <div style={{ position:'absolute', right:-25, top:-25, width:130, height:130, borderRadius:'50%', background:'rgba(255,255,255,.10)' }} />
+        <div>
+          <div style={{ display:'flex', alignItems:'center', gap:10, fontSize:23, fontWeight:800 }}><Stethoscope size={24}/> Painel de Profissionais</div>
+          <div style={{ fontSize:13.5, opacity:.95, marginTop:6, maxWidth:560, lineHeight:1.5 }}>
+            Os especialistas da casa, repartidos por setor — <b>cadastro, documentos e a semana de cada um</b> no mesmo cartão.
           </div>
         </div>
-        {ehGestao && <button onClick={()=>{setErro('');setModal({...vazio});}} className="btn btn-p" style={{ gap:6 }}><Plus size={15}/> Novo profissional</button>}
+        {ehGestao && (
+          <button onClick={()=>{setErro('');setModal({...vazio});}}
+            style={{ position:'relative', display:'flex', alignItems:'center', gap:6, padding:'10px 18px', borderRadius:12, border:'none', cursor:'pointer',
+              background:'#fff', color:'#0e7490', fontWeight:900, fontSize:13, boxShadow:'0 4px 14px rgba(0,0,0,.2)' }}>
+            <Plus size={15}/> Novo profissional
+          </button>
+        )}
       </div>
 
       {/* 👨‍⚕️ QUEM ATENDE HOJE — o painel que a recepção olha antes de agendar */}
@@ -196,10 +204,11 @@ export default function Profissionais() {
         {[['vacinas','💉 Vacinas','#7c5cbf'],['consultas','🩺 Consultas','#00B8C0'],['terapias','🧩 Terapias','#C4973B']].map(([sk, srot, scor]) => {
           const doSetor = lista.filter(p2 => (p2.setor || 'consultas') === sk);
           return (
-        <div key={sk} style={{ borderRadius:16, background:'var(--bg2)', border:`1.5px solid ${scor}44`, padding:'10px 10px 12px', display:'flex', flexDirection:'column', gap:10 }}>
-          <div style={{ display:'flex', alignItems:'center', gap:8, padding:'2px 4px' }}>
-            <span style={{ fontSize:13.5, fontWeight:900, color:scor }}>{srot}</span>
-            <span style={{ fontSize:10.5, fontWeight:800, color:'var(--muted)', background:'var(--card)', borderRadius:10, padding:'1px 8px' }}>{doSetor.length}</span>
+        <div key={sk} style={{ borderRadius:16, background:'var(--bg2)', border:`1.5px solid ${scor}44`, borderTop:`4px solid ${scor}`, padding:'0 10px 12px', display:'flex', flexDirection:'column', gap:10, boxShadow:'0 6px 20px rgba(0,0,0,.06)' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8, padding:'11px 6px 9px', margin:'0 -10px 0', borderRadius:'12px 12px 0 0',
+            background:`linear-gradient(180deg, ${scor}22, transparent)`, paddingLeft:14, paddingRight:12 }}>
+            <span style={{ fontSize:14.5, fontWeight:900, color:scor, textShadow:'0 1px 2px rgba(0,0,0,.08)' }}>{srot}</span>
+            <span style={{ fontSize:10.5, fontWeight:900, color:'#fff', background:scor, borderRadius:10, padding:'1px 8px', boxShadow:`0 2px 8px ${scor}66` }}>{doSetor.length}</span>
             <span style={{ flex:1 }} />
             {ehGestao && (
               <button onClick={()=>{setErro('');setModal({ ...vazio, setor: sk, cor: scor });}} title={`Cadastrar profissional em ${srot}`}

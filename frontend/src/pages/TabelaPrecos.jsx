@@ -239,30 +239,33 @@ export default function TabelaPrecos() {
 
   return (
     <div style={{ padding: 28, maxWidth: 1000, margin: '0 auto' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
-        <div style={{ width: 42, height: 42, borderRadius: 12, background: 'var(--tq4)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <Calculator size={21} color="var(--tq2)" />
-        </div>
-        <div style={{ flex: 1 }}>
-          <h1 style={{ fontSize: 24, fontWeight: 800 }}>Tabela de Preços</h1>
-          <p style={{ color: 'var(--muted)', fontSize: 13 }}>
-            As tabelas oficiais anexadas + o orçamento montado em cliques, sem preço de cabeça.
-            {atualizadaTxt && <span style={{ marginLeft: 6, fontWeight: 700, color: 'var(--tq2)' }}>· {atualizadaTxt}</span>}
-          </p>
+      {/* Cabeçalho premium — mesma identidade dos Cases (pedido do master) */}
+      <div style={{ borderRadius: 18, padding: '22px 26px', marginBottom: 18, color: '#fff', position: 'relative', overflow: 'hidden',
+        background: 'linear-gradient(135deg,#0369a1,#0ea5e9 60%,#38bdf8)', boxShadow: '0 10px 30px rgba(14,165,233,.30)' }}>
+        <div style={{ position: 'absolute', right: -25, top: -25, width: 130, height: 130, borderRadius: '50%', background: 'rgba(255,255,255,.10)' }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 23, fontWeight: 800 }}><Calculator size={24} /> Tabela de Preços</div>
+        <div style={{ fontSize: 13.5, opacity: .95, marginTop: 6, maxWidth: 620, lineHeight: 1.5 }}>
+          As tabelas oficiais de cada setor + o <b>orçamento montado em cliques</b>, sem preço de cabeça.
+          {atualizadaTxt && <span style={{ display: 'inline-block', marginLeft: 8, fontWeight: 800, background: 'rgba(255,255,255,.18)', borderRadius: 20, padding: '1px 10px', fontSize: 11.5 }}>{atualizadaTxt}</span>}
         </div>
       </div>
 
       {/* 🗂️ ABAS POR SETOR (pedido do master: repartido igual Profissionais) */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
-        {[['vacinas', '💉 Vacinas', '#7c5cbf'], ['consultas', '🩺 Consultas', '#00B8C0'], ['terapias', '🧩 Terapias', '#C4973B']].map(([k, rot, cor]) => (
+        {[['vacinas', '💉 Vacinas', '#7c5cbf'], ['consultas', '🩺 Consultas', '#00B8C0'], ['terapias', '🧩 Terapias', '#C4973B']].map(([k, rot, cor]) => {
+          const nAba = itens.filter(i => (i.setor || 'consultas') === k).length;
+          return (
           <button key={k} onClick={() => setAba(k)}
-            style={{ padding: '8px 18px', borderRadius: 12, cursor: 'pointer', fontSize: 13, fontWeight: 900,
-              border: `1.5px solid ${aba === k ? cor : 'var(--border)'}`,
+            style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 18px', borderRadius: 12, cursor: 'pointer', fontSize: 13, fontWeight: 900,
+              border: `1.5px solid ${aba === k ? cor : 'var(--border)'}`, borderBottom: aba === k ? `3px solid ${cor}` : '1.5px solid var(--border)',
               background: aba === k ? cor : 'var(--card)', color: aba === k ? '#fff' : 'var(--muted)',
               boxShadow: aba === k ? `0 4px 14px ${cor}55` : 'none', transition: 'all .15s' }}>
             {rot}
+            <span style={{ fontSize: 10, fontWeight: 900, borderRadius: 10, padding: '1px 7px',
+              background: aba === k ? 'rgba(255,255,255,.25)' : 'var(--bg2)', color: aba === k ? '#fff' : 'var(--muted)' }}>{nAba}</span>
           </button>
-        ))}
+          );
+        })}
       </div>
 
       {/* 📎 Tabelas anexadas (da aba escolhida) */}
