@@ -631,7 +631,30 @@ function RelatorioDia({ rel, data, rotuloDia, onLider }) {
       <table><thead><tr><th class="c">Hora</th><th>Paciente</th><th>Serviço</th><th>Responsável</th><th>Profissional</th><th class="c">Status</th><th class="r">Valor</th></tr></thead>
       <tbody>${linhasEv || '<tr><td colspan="7">Nenhum agendamento.</td></tr>'}</tbody></table>
       <div class="rod">Emitido em ${new Date().toLocaleString('pt-BR')} · VittaHub CRM</div>
-      <script>window.onload=()=>window.print()</script></body></html>`);
+      <div class="acoes" style="position:fixed;bottom:14px;right:14px;display:flex;gap:8px;align-items:center;background:#0E8C96;border-radius:14px;padding:10px 12px;box-shadow:0 8px 30px rgba(0,0,0,.35)">
+        <button onclick="window.print()" style="border:none;border-radius:9px;padding:9px 14px;cursor:pointer;background:#fff;color:#0E8C96;font-weight:800;font-size:13px">🖨️ Imprimir / Salvar PDF</button>
+        <input id="zapfone" placeholder="DDD + número" style="border:none;border-radius:9px;padding:9px 10px;font-size:13px;width:130px">
+        <button id="zapbtn" style="border:none;border-radius:9px;padding:9px 14px;cursor:pointer;background:#25D366;color:#fff;font-weight:800;font-size:13px">📲 Enviar no WhatsApp</button>
+      </div>
+      <style>@media print{.acoes{display:none!important}}</style>
+      <script>
+        document.getElementById('zapbtn').onclick = async () => {
+          const btn = document.getElementById('zapbtn');
+          const fone = document.getElementById('zapfone').value.replace(/\\D/g,'');
+          if (fone.length < 10) { btn.textContent = '⚠️ Número com DDD'; setTimeout(()=>btn.textContent='📲 Enviar no WhatsApp', 2200); return; }
+          btn.textContent = 'Enviando…'; btn.disabled = true;
+          try {
+            const html = '<html>' + document.documentElement.innerHTML.replace(/<div class="acoes"[\\s\\S]*?<\\/script>/, '') + '</html>';
+            const resp = await fetch('${(import.meta.env.VITE_API_URL||'')}/api/extras/relatorio-pdf-whats', {
+              method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (localStorage.getItem('vh_token')||'') },
+              body: JSON.stringify({ html, phone: fone }) });
+            const d = await resp.json().catch(()=>({}));
+            btn.textContent = resp.ok ? '✅ Enviado!' : ('⚠️ ' + (d.error || 'Falhou'));
+          } catch { btn.textContent = '⚠️ Sem conexão'; }
+          btn.disabled = false;
+          setTimeout(()=>btn.textContent='📲 Enviar no WhatsApp', 3500);
+        };
+      </script></body></html>`);
     w.document.close();
   };
 
@@ -662,7 +685,8 @@ function RelatorioDia({ rel, data, rotuloDia, onLider }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 18px', background: 'linear-gradient(90deg,#0E8C96,#00B8C0)', color: '#fff' }}>
           <span style={{ fontWeight: 800, fontSize: 14, flex: 1 }}>🏆 Produtividade da equipe</span>
           {onLider && <button onClick={onLider} style={{ background: 'rgba(255,255,255,.2)', border: 'none', color: '#fff', borderRadius: 8, padding: '5px 12px', cursor: 'pointer', fontSize: 11.5, fontWeight: 800 }}>📄 Relatório individual</button>}
-          <button onClick={imprimir} style={{ background: 'rgba(255,255,255,.2)', border: 'none', color: '#fff', borderRadius: 8, padding: '5px 12px', cursor: 'pointer', fontSize: 11.5, fontWeight: 800 }}>🖨️ Imprimir</button>
+          <button onClick={imprimir} title="Abre o relatório pronto — lá dentro tem Imprimir/Salvar e Enviar no WhatsApp"
+            style={{ background: 'rgba(255,255,255,.2)', border: 'none', color: '#fff', borderRadius: 8, padding: '5px 12px', cursor: 'pointer', fontSize: 11.5, fontWeight: 800 }}>📄 Emitir PDF</button>
         </div>
         {(rel.produtividade || []).length === 0 ? (
           <div style={{ padding: 26, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>Nenhum atendimento neste dia.</div>

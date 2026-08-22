@@ -5,7 +5,7 @@ import { socketEmit } from '../socketServer.js';
 import { htmlParaPDF } from '../services/pdf.js';
 import { versoDoDia } from '../versiculos.js';
 import { getVapid, enviarPush } from '../services/push.js';
-import { temIA, usaClaude, openaiMessages, anthropicClient, CLAUDE_MODEL, CLAUDE_MODEL_MINI, podeVerSetor, gerarBaseConsultas } from './inbox.js';
+import { temIA, usaClaude, openaiMessages, anthropicClient, CLAUDE_MODEL, CLAUDE_MODEL_MINI, podeVerSetor, gerarBaseConsultas, zapiCall } from './inbox.js';
 import propostaGen from '../services/proposta-gen.js';
 import { mascararLista } from '../middleware/privacidade.js';
 
@@ -1666,6 +1666,26 @@ const CHAVES_PASTA = ['fidelidade', 'banco_dados', 'planos_vacinais', 'vacinacao
    pasta-arquivos com a chave tabela_precos_consultas) e mantém aqui a lista de
    itens digitada — é dela que o orçamento é montado na tela. Gestão edita;
    a equipe do setor consulta e monta orçamento. */
+/* 📲 RELATÓRIO EM PDF → WHATSAPP (pedido do master): o relatório emitido na
+   tela tem o botão de enviar — o HTML chega aqui, vira PDF no servidor e sai
+   pelo Z-API pro número escolhido. Gestão apenas. */
+r.post('/relatorio-pdf-whats', async (req, res) => {
+  try {
+    if (!gestao(req)) return res.status(403).json({ error: 'Só a gestão envia relatórios.' });
+    const html = String(req.body?.html || '');
+    const phone = String(req.body?.phone || '').replace(/\D/g, '');
+    if (html.length < 100 || html.length > 900_000) return res.status(400).json({ error: 'Relatório inválido.' });
+    if (phone.length < 10) return res.status(400).json({ error: 'Informe o número com DDD (ex.: 98 91234-5678).' });
+    const pdf = await htmlParaPDF(html, { formato: 'A4' });
+    const ph55 = phone.startsWith('55') ? phone : `55${phone}`;
+    const nomeArq = `Relatorio-Vittalis-${new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10)}.pdf`;
+    const zr = await zapiCall('/send-document/pdf', 'POST', {
+      phone: ph55, document: `data:application/pdf;base64,${pdf.toString('base64')}`, fileName: nomeArq });
+    if (!zr?.ok) return res.status(502).json({ error: 'O WhatsApp não aceitou o envio — confira o número.' });
+    res.json({ ok: true });
+  } catch (err) { console.error('relatorio-pdf-whats:', err.message); res.status(500).json({ error: 'Não consegui gerar/enviar agora.' }); }
+});
+
 /* 💡 CAMINHO DA META — dica estratégica por usuária (pedido do master, a
    primeira foi pra Raylane). Fica no cartão de perfil, visível todo dia.
    Editar: configuracoes.dicas_meta = { "primeironome": "frase" }. */

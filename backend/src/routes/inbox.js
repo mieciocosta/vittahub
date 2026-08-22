@@ -762,7 +762,7 @@ const ZAPI_CTOKEN = () => process.env.ZAPI_CLIENT_TOKEN || '';
 const zapiOk = () => process.env.ZAPI_INSTANCE && process.env.ZAPI_TOKEN;
 
 // Helper: call Z-API
-async function zapiCall(path, method = 'GET', body = null) {
+export async function zapiCall(path, method = 'GET', body = null) {
   const { default: fetch } = await import('node-fetch');
   /* 🚨 TRANCA ÚNICA: nenhuma mensagem de teste chega no WhatsApp do cliente,
      não importa por qual caminho ela veio (Vitta, menu, follow-up, resgate,
