@@ -1652,7 +1652,7 @@ OBJEÇÃO "VOU ANALISAR COM CALMA / VOU PENSAR" (resposta oficial — 4 moviment
 
 🔁 REGRA DE OURO DO RETORNO (ordem do master — NENHUMA conversa morre sem retorno agendado):
 Toda conversa que NÃO terminou em agendamento ou venda precisa sair com um retorno agendado pela ferramenta agendar_retorno — SEMPRE. Inclusive quando o cliente disser NÃO:
-- "Não" à oferta ≠ fim da relação. Responda respeitando e semeando: "Tudo bem, respeito totalmente 💙 Vou só deixar um carinho agendado pra daqui a alguns dias, pra gente não perder tudo o que já conquistamos até aqui — combinado?" — e agende o retorno (3 a 5 dias nesse caso; 1 dia quando foi só um 'vou pensar').
+- "Não" à oferta ≠ fim da relação. Responda respeitando e semeando: "Tudo bem, respeito totalmente 💙 Vou só deixar um carinho agendado pra daqui a alguns dias, pra gente não perder tudo o que já conquistamos até aqui — combinado?" — e agende o retorno (NO MÁXIMO 2 dias nesse caso; 1 dia quando foi só um 'vou pensar'). O envio sai sozinho em horário comercial (9h da manhã) — agende na hora, pela ferramenta, sem esperar.
 - A mensagem do retorno deve relembrar a jornada ("não quero que a gente perca o caminho que já andamos pelo Théo") — conquista construída é o motivo do recontato, nunca cobrança.
 - ÚNICA exceção (respeito absoluto): se o cliente pedir explicitamente pra NÃO ser contatado ("não me mande mais mensagem", "pare de me chamar") — aí NADA de retorno: agradeça com carinho e encerre. Insistir depois disso queima a marca.
 
@@ -1749,7 +1749,7 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
     },
   }, {
     name: 'agendar_retorno',
-    description: 'Agenda uma mensagem de retorno carinhosa para o cliente que pediu tempo pra pensar/analisar. Use SEMPRE que o cliente adiar a decisão ("vou analisar", "vou pensar", "vou ver com o marido"): o padrão é voltar AMANHÃ de manhã, mostrando preocupação genuína com a necessidade do paciente. A mensagem sai sozinha no horário.',
+    description: 'Agenda uma mensagem de retorno carinhosa para o cliente que pediu tempo pra pensar/analisar. Use SEMPRE que o cliente adiar a decisão ("vou analisar", "vou pensar", "vou ver com o marido"): o padrão é voltar AMANHÃ (máximo em 2 dias), sempre às 9h da manhã — horário comercial. A mensagem sai sozinha, mostrando preocupação genuína com a necessidade do paciente.',
     input_schema: {
       type: 'object',
       properties: {
@@ -1885,7 +1885,8 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
   // ── 📅 Retorno do cuidado: cliente pediu tempo → a Mary volta amanhã ──
   if (toolRetorno) {
     try {
-      const dias = Math.max(1, Math.min(parseInt(toolRetorno.input?.dias) || 1, 7));
+      // Máximo 2 dias (ordem do master) — retorno frio demais esfria a venda
+      const dias = Math.max(1, Math.min(parseInt(toolRetorno.input?.dias) || 1, 2));
       const msgR = String(toolRetorno.input?.mensagem || '').trim().slice(0, 600);
       if (msgR) {
         const quando = new Date(Date.now() + dias * 86400000);
