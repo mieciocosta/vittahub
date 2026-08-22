@@ -34,6 +34,42 @@ r.post('/log', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* 📸 BANCO DE PRINTS (pedido do master): no instante da captura, o navegador
+   manda uma RECONSTITUIÇÃO da tela — imagem gerada pelo próprio sistema (não é
+   o arquivo do print da pessoa, é o que a tela mostrava). Fica 30 dias e o
+   master vê na aba Segurança da Auditoria. */
+const ultimoPrintPor = new Map();   // userId -> ts (1 a cada 3s por pessoa)
+r.post('/print-tela', async (req, res) => {
+  try {
+    const img = String(req.body?.imagem || '');
+    if (!img.startsWith('data:image/')) return res.status(400).json({ error: 'Imagem inválida.' });
+    if (img.length > 1_200_000) return res.status(400).json({ error: 'Imagem grande demais.' });
+    const agora = Date.now();
+    if (agora - (ultimoPrintPor.get(req.user.id) || 0) < 3000) return res.json({ ok: true, ignorado: true });
+    ultimoPrintPor.set(req.user.id, agora);
+    await query(`INSERT INTO capturas_print (usuario_id, usuario_nome, tela, conversa, conv_id, imagem)
+                 VALUES ($1,$2,$3,$4,$5,$6)`,
+      [req.user.id, req.user.nome, String(req.body?.tela || '').slice(0, 80),
+       String(req.body?.conversa || '').slice(0, 80) || null,
+       String(req.body?.conv_id || '').slice(0, 60) || null, img]);
+    query(`DELETE FROM capturas_print WHERE created_at < NOW() - interval '30 days'`).catch(() => {});
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+r.get('/prints', onlyMaster, async (req, res) => {
+  try {
+    const { rows } = await query(`SELECT id, usuario_nome, tela, conversa, created_at FROM capturas_print ORDER BY created_at DESC LIMIT 100`);
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+r.get('/prints/:id/imagem', onlyMaster, async (req, res) => {
+  try {
+    const { rows: [c] } = await query(`SELECT imagem FROM capturas_print WHERE id = $1`, [req.params.id]);
+    if (!c) return res.status(404).json({ error: 'Print não encontrado.' });
+    res.json({ imagem: c.imagem });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── HEARTBEAT: atualiza presença (chamado a cada 30s pelo frontend) ──────────
 r.post('/heartbeat', async (req, res) => {
   try {

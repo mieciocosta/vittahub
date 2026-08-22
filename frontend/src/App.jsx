@@ -293,6 +293,22 @@ function SecurityLock({ user }) {
       } catch { /* contexto é bônus — nunca pode travar o registro */ }
       return ctx;
     };
+    /* 📷 Reconstituição: o próprio sistema fotografa o que a tela mostrava e
+       manda pro banco de prints da Auditoria (html2canvas carrega sob demanda
+       — zero peso no dia a dia; se falhar, fica o registro em texto). */
+    const capturaReconstituicao = async (ctx) => {
+      try {
+        const { default: html2canvas } = await import('html2canvas');
+        const canvas = await html2canvas(document.body, {
+          scale: Math.min(1, 1280 / Math.max(window.innerWidth, 1)),
+          useCORS: true, logging: false,
+          ignoreElements: (el) => el.id === 'vh-alerta-print',
+        });
+        const img = canvas.toDataURL('image/jpeg', 0.55);
+        if (img.length > 1_100_000) return;
+        api.post('/auditoria/print-tela', { imagem: img, ...ctx }).catch(() => {});
+      } catch { /* reconstituição é bônus — o registro em texto já foi */ }
+    };
     const mostraAlertaPrint = () => {
       if (document.getElementById('vh-alerta-print')) return;
       const ov = document.createElement('div');
@@ -312,7 +328,9 @@ function SecurityLock({ user }) {
       if ((e.ctrlKey || e.metaKey) && ['p', 's'].includes(k)) {
         e.preventDefault();
         mostraAlertaPrint();
-        registra('captura_tela', { atalho: `ctrl+${k}`, ...contextoPrint() });
+        const ctxC = contextoPrint();
+        registra('captura_tela', { atalho: `ctrl+${k}`, ...ctxC });
+        capturaReconstituicao(ctxC);
         return false;
       }
     };
@@ -333,7 +351,9 @@ function SecurityLock({ user }) {
       setTimeout(() => { try { navigator.clipboard?.writeText('🚫 Proibido exportar dados do cliente — Vittalis Saúde'); } catch { /* ok */ } }, 250);
       if (Date.now() - ultimoAviso < 3000) return;                       // só desduplica rajada do mesmo apertar
       ultimoAviso = Date.now();
-      registra('captura_tela', { atalho: k, ...contextoPrint() });
+      const ctxK = contextoPrint();
+      registra('captura_tela', { atalho: k, ...ctxK });
+      capturaReconstituicao(ctxK);
     };
 
     document.addEventListener('copy', filtraCopia);

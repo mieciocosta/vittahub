@@ -36,6 +36,18 @@ export default function Auditoria() {
     setSeg(null);
     api.get('/auditoria/seguranca?dias=30').then(setSeg).catch(e => setSeg({ erro: e.message }));
   }, [nivel]); // eslint-disable-line
+  // 📸 Banco de prints: a reconstituição da tela de cada captura (30 dias)
+  const [prints, setPrints] = useState([]);
+  const [printImg, setPrintImg] = useState(null);   // {info, imagem|null=carregando}
+  useEffect(() => {
+    if (nivel !== 'seguranca') return;
+    api.get('/auditoria/prints').then(d => setPrints(Array.isArray(d) ? d : [])).catch(() => {});
+  }, [nivel]); // eslint-disable-line
+  const verPrint = async (pr) => {
+    setPrintImg({ info: pr, imagem: null });
+    try { const d = await api.get(`/auditoria/prints/${pr.id}/imagem`); setPrintImg({ info: pr, imagem: d.imagem }); }
+    catch { setPrintImg(null); }
+  };
   const [timeline, setTimeline] = useState(null);
   const [search, setSearch] = useState('');
 
@@ -127,6 +139,41 @@ export default function Auditoria() {
               <StatCard label="Pessoas envolvidas" valor={seg.resumo.pessoas} cor="var(--tq)" />
               <StatCard label="Período" valor={`${seg.dias}d`} cor="var(--muted)" />
             </div>
+
+            {/* 📸 O banco de prints — a tela como estava no momento da captura */}
+            {prints.length > 0 && (
+              <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: 16 }}>
+                <div style={{ padding: '12px 16px', background: 'var(--bg)', borderBottom: '1px solid var(--border)', fontWeight: 800, fontSize: 14 }}>
+                  📸 Prints com imagem <span style={{ fontWeight: 600, color: 'var(--muted)', fontSize: 11.5 }}>(reconstituição da tela · guardados 30 dias)</span>
+                </div>
+                <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+                  {prints.map(pr => (
+                    <div key={pr.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 16px', borderBottom: '1px solid var(--border)', fontSize: 12.5 }}>
+                      <span style={{ fontSize: 15 }}>🖼️</span>
+                      <b style={{ minWidth: 110 }}>{String(pr.usuario_nome || '—').split(' ')[0]}</b>
+                      <span style={{ flex: 1, minWidth: 0, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {pr.tela || ''}{pr.conversa ? ` · conversa: ${pr.conversa}` : ''}
+                      </span>
+                      <span style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{new Date(pr.created_at).toLocaleString('pt-BR')}</span>
+                      <button onClick={() => verPrint(pr)} className="btn btn-p btn-sm" style={{ fontSize: 11, fontWeight: 800 }}>Ver imagem</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {printImg && (
+              <div onClick={() => setPrintImg(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.75)', zIndex: 2000, display: 'flex', flexDirection: 'column', padding: 18 }}>
+                <div style={{ color: '#fff', fontWeight: 800, fontSize: 13.5, marginBottom: 10 }}>
+                  📸 {printImg.info.usuario_nome} · {new Date(printImg.info.created_at).toLocaleString('pt-BR')}{printImg.info.conversa ? ` · ${printImg.info.conversa}` : ''}
+                  <span style={{ float: 'right', cursor: 'pointer' }}>✕ fechar</span>
+                </div>
+                <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {printImg.imagem
+                    ? <img src={printImg.imagem} alt="print" style={{ maxWidth: '100%', maxHeight: '100%', borderRadius: 10, boxShadow: '0 10px 40px rgba(0,0,0,.5)' }} />
+                    : <span style={{ color: '#fff', fontWeight: 700 }}>Carregando a imagem…</span>}
+                </div>
+              </div>
+            )}
 
             {!seg.por_pessoa.length ? (
               <div className="card" style={{ padding: 26, textAlign: 'center', color: 'var(--muted)', fontSize: 13.5 }}>

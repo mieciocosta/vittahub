@@ -883,6 +883,12 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
     // "Virou venda": fecha o ciclo orçamento → venda sem redigitar
     await query(`ALTER TABLE orcamentos ADD COLUMN IF NOT EXISTS fechado BOOLEAN DEFAULT false`).catch(() => {});
     await query(`ALTER TABLE orcamentos ADD COLUMN IF NOT EXISTS venda_id TEXT`).catch(() => {});
+    // 📸 Banco de prints: reconstituição da tela no momento da captura (30 dias)
+    await query(`CREATE TABLE IF NOT EXISTS capturas_print (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      usuario_id TEXT, usuario_nome TEXT, tela TEXT, conversa TEXT, conv_id TEXT,
+      imagem TEXT, created_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS idx_capturas_print_data ON capturas_print (created_at)`).catch(() => {});
     // 🎓 Aula de vendas gerada pela IA a partir de cada case de sucesso
     await query(`CREATE TABLE IF NOT EXISTS cases_aulas (
       conversa_id TEXT PRIMARY KEY, texto TEXT, por TEXT,
