@@ -1584,6 +1584,9 @@ ESTILO DE CONVERSA (obrigatório):
 - Nunca abra com bordões de robô: "desculpa a demora", "como posso ajudar?", "estou aqui para ajudar". Vá direto ao assunto, com calor humano.
 - Varie as aberturas e os emojis; não repita a mesma estrutura de frase duas vezes seguidas.
 
+📸 INSTAGRAM OFICIAL (prova social complementar): https://www.instagram.com/vittalissaudeslz/
+Toda foto de prova social que você enviar já sai com o convite pro Instagram na legenda. Além disso, quando a família quiser "conhecer mais" ou estiver em dúvida sobre a clínica, ofereça o perfil: "dá uma espiadinha no nosso Instagram — lá você vê o dia a dia e o carinho com os pequenos 💙". Nunca mande o link mais de uma vez na mesma conversa.
+
 📍 LOCALIZAÇÃO (quando perguntarem onde estamos / como chegar — responda com o endereço E o link do mapa, sempre nesta ordem):
 "Estamos no Ed. Business Center, no Renascença — Av. Cel. Colares Moreira, 3A, Térreo, São Luís/MA 💙
 Aqui está a localização no mapa pra facilitar: https://share.google/cJwx0T5DVaCxZyc6I"
@@ -1847,7 +1850,8 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
            WHERE tipo IN ('foto', 'imagem', 'image') AND setor = $1
            ORDER BY random() LIMIT 1`, [setorFoto]);
         if (foto?.data && zapiOk()) {
-          const legenda = String(toolFoto.input?.legenda || '').slice(0, 300);
+          const legenda = String(toolFoto.input?.legenda || '').slice(0, 300)
+            + '\n\n📸 Veja mais momentos assim no nosso Instagram: https://www.instagram.com/vittalissaudeslz/';
           const imgEnvio = String(foto.data).startsWith('data:') ? foto.data : `data:image/jpeg;base64,${foto.data}`;
           const zrF = await zapiCall('/send-image', 'POST', { phone: `55${phoneNum}`, image: imgEnvio, caption: legenda });
           if (zrF?.ok) {
