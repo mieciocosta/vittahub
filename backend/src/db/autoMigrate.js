@@ -2154,6 +2154,38 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log(`🧽 Ficha limpa: ${r1.rowCount || 0} paciente(s) e ${r2.rowCount || 0} responsável(is) corporativos removidos da memória`);
     }
 
+    /* 🧩 PLANOS MENSAIS DE TERAPIAS (regra do master): R$ 200 por sessão —
+       plano mensal de N sessões custa N × 200 (2 sessões = R$400, 3 = R$600…
+       até 40 = R$8.000). Entram na aba Terapias da Tabela de Preços como
+       itens clicáveis (passos usuais até 10, depois marcos), e a regra
+       completa vive no prompt da Mary. Merge preservando o que já existe. */
+    const { rows: [flagPlanosT] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_planos_terapias_v1'");
+    if (!flagPlanosT) {
+      try {
+        const { rows: [tpCfg] } = await query("SELECT valor FROM configuracoes WHERE chave = 'tabela_precos_consultas'");
+        const atuais = Array.isArray(tpCfg?.valor?.itens) ? tpCfg.valor.itens : [];
+        const nomes = new Set(atuais.map(i => String(i.nome || '').toLowerCase()));
+        const sessoes = [2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 16, 20, 24, 28, 32, 36, 40];
+        const novos = [];
+        for (const n of sessoes) {
+          const nome = `Plano Mensal — ${n} sessões/mês`;
+          if (nomes.has(nome.toLowerCase())) continue;
+          novos.push({ id: Math.random().toString(36).slice(2, 10), nome, valor: n * 200,
+            categoria: 'Planos Mensais', setor: 'terapias', obs: 'R$ 200 por sessão' });
+        }
+        if (novos.length) {
+          const valorNovo = { ...(tpCfg?.valor || {}), itens: [...atuais, ...novos], por: 'Dr. Miécio (planos de terapias)', em: new Date().toISOString() };
+          await query(`INSERT INTO configuracoes (chave, valor) VALUES ('tabela_precos_consultas', $1::jsonb)
+                       ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`, [JSON.stringify(valorNovo)]);
+        }
+        await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+          ['🧩 Planos Mensais de Terapias cadastrados',
+           `${novos.length} plano(s) entraram na aba Terapias da Tabela de Preços (R$ 200/sessão: 2 sessões = R$ 400 … 40 sessões = R$ 8.000). A Mary aprendeu a regra completa e o orçamento em cliques já monta qualquer plano. Valores editáveis na própria tabela.`]).catch(() => {});
+        console.log(`🧩 Planos de terapias: ${novos.length} itens adicionados`);
+      } catch (e) { console.error('seed planos terapias:', e.message); }
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_planos_terapias_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);
