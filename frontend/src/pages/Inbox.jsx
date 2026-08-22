@@ -268,7 +268,7 @@ function SearchBar({ value, onChange, filter, setFilter, totalUnread, unreadOnly
 }
 
 /* ── LazyMedia: carrega base64 sob demanda via endpoint ─────────────────────── */
-function LazyMedia({ msgId, type, filename, token, onLightbox }) {
+function LazyMedia({ msgId, type, filename, token, onLightbox, fotoSel }) {
   const [src, setSrc]     = useState(null);
   const [loading, setLoading] = useState(false);
   const BASE = import.meta.env.VITE_API_URL || '';
@@ -301,7 +301,7 @@ function LazyMedia({ msgId, type, filename, token, onLightbox }) {
         {loading ? <Loader2 size={18} style={{animation:'spin 1s linear infinite'}} color="var(--muted)"/> : <><Image size={22} color="var(--muted)"/><span style={{fontSize:10.5,color:'var(--muted)'}}>Clique para ver</span></>}
       </div>
     );
-    return <img src={src} alt="img" onClick={()=>onLightbox(src)} style={{ maxWidth:220, maxHeight:220, borderRadius:8, display:'block', objectFit:'cover', cursor:'pointer' }}/>;
+    return <img src={src} alt="img" onClick={()=>onLightbox(src, msgId)} style={{ maxWidth:220, maxHeight:220, borderRadius:8, display:'block', objectFit:'cover', cursor:'pointer', outline: fotoSel ? '3px solid #22d3ee' : 'none', outlineOffset: 2, opacity: fotoSel ? .85 : 1 }}/>;
   }
   if (type === 'audio') {
     if (!src) return (
@@ -346,7 +346,7 @@ if (typeof document !== 'undefined' && !document.getElementById('msg-acoes-css')
   const st = document.createElement('style'); st.id = 'msg-acoes-css'; st.textContent = estiloAcoesMsg; document.head.appendChild(st);
 }
 
-const MsgItem = React.memo(function MsgItem({ m, prevMsg, contactName, channel, onLightbox, token, onEditar, onApagar }) {
+const MsgItem = React.memo(function MsgItem({ m, prevMsg, contactName, channel, onLightbox, token, onEditar, onApagar, fotoSel }) {
   const isMe = m.from_type==='me', isBot=m.from_type==='bot', isSys=m.from_type==='system';
   // Usa prevMsg em vez do array msgs inteiro — React.memo agora é eficaz
   const showDate = !prevMsg || new Date(prevMsg.created_at).toDateString() !== new Date(m.created_at).toDateString();
@@ -423,13 +423,13 @@ const MsgItem = React.memo(function MsgItem({ m, prevMsg, contactName, channel, 
                 {isBot ? (m.sender_nome?.split(' ')[0] || 'Mary') : m.sender_nome?.split(' ')[0]}
               </div>
             )}
-            {isLazy && <LazyMedia msgId={lazyId} type={m.type} filename={m.filename} token={token} onLightbox={onLightbox}/>}
+            {isLazy && <LazyMedia msgId={lazyId} type={m.type} filename={m.filename} token={token} onLightbox={onLightbox} fotoSel={fotoSel}/>}
             {!isLazy && m.type==='text'     && (
               m.status === 'deleted'
                 ? <div style={{ fontSize:13, fontStyle:'italic', color:'var(--light)' }}>🚫 Mensagem apagada</div>
                 : <div style={{ fontSize:13.5, lineHeight:1.55, whiteSpace:'pre-wrap', wordBreak:'break-word' }}>{m.content}{m.editada ? <span style={{ fontSize:10, color:'var(--light)', marginLeft:6 }}>(editada)</span> : null}</div>
             )}
-            {!isLazy && m.type==='image'    && <img onClick={()=>onLightbox(m.content)} src={m.content} alt="img" loading="lazy" style={{ maxWidth:220, maxHeight:220, borderRadius:8, display:'block', objectFit:'cover', cursor:'pointer' }} onError={e=>e.target.style.display='none'}/>}
+            {!isLazy && m.type==='image'    && <img onClick={()=>onLightbox(m.content, m.id)} src={m.content} alt="img" loading="lazy" style={{ maxWidth:220, maxHeight:220, borderRadius:8, display:'block', objectFit:'cover', cursor:'pointer', outline: fotoSel ? '3px solid #22d3ee' : 'none', outlineOffset: 2, opacity: fotoSel ? .85 : 1 }} onError={e=>e.target.style.display='none'}/>}
             {!isLazy && m.type==='sticker'  && <img onClick={()=>onLightbox(m.content)} src={m.content} alt="figurinha" loading="lazy" className="msg-sticker" onError={e=>e.target.style.display='none'}/>}
             {!isLazy && m.type==='gif'      && <video autoPlay loop muted playsInline src={m.content} style={{ maxWidth:220, borderRadius:10, display:'block' }} onError={e=>e.target.style.display='none'}/>}
             {!isLazy && m.type==='audio'    && <div style={{ minWidth:200 }}>
@@ -541,6 +541,28 @@ export default function Inbox({ onUnreadChange }) {
   const [showQR, setShowQR]     = useState(false);
   const [qr, setQr]             = useState([]);
   const [lightbox, setLightbox] = useState(null);
+  /* 🖼️ MODO EXPORTAR FOTOS (pedido do master): liga as caixinhas nas fotos da
+     conversa, seleciona várias e manda tudo pra Biblioteca de uma vez. O
+     servidor baixa as que forem URL do WhatsApp (o navegador não consegue). */
+  const [fotosModo, setFotosModo] = useState(false);
+  const [fotosSel, setFotosSel] = useState({});           // msgId -> src
+  const fotosModoRef = React.useRef(false);
+  useEffect(() => { fotosModoRef.current = fotosModo; if (!fotosModo) setFotosSel({}); }, [fotosModo]);
+  const abrirOuSelecionar = useCallback((src, mid) => {
+    if (fotosModoRef.current && mid) {
+      setFotosSel(p => { const n = { ...p }; if (n[mid]) delete n[mid]; else n[mid] = src; return n; });
+    } else setLightbox(src);
+  }, []);
+  const exportarFotos = async (setorDest, rot) => {
+    const fontes = Object.values(fotosSel);
+    if (!fontes.length) return Toast.show('Toque nas fotos pra selecionar primeiro.', 'info');
+    try {
+      const d = await api.post('/extras/biblioteca/da-conversa', {
+        fotos: fontes, setor: setorDest, titulo: `Foto da conversa — ${sel?.contact_name || 'cliente'}` });
+      Toast.show(`${d.salvas} foto(s) salvas na Biblioteca (${rot})${d.falhas ? ` — ${d.falhas} não deram` : ''}. Confirme a autorização de imagem! 📚`, 'success');
+      setFotosModo(false);
+    } catch (e) { Toast.show(e.message, 'error'); }
+  };
   const [waiting, setWaiting] = useState(false);
   const [setorFiltro, setSetorFiltro] = useState('all');
   const [searchParams, setSearchParams] = useSearchParams();
@@ -1844,6 +1866,12 @@ export default function Inbox({ onUnreadChange }) {
               {/* 🔒 Botão Excluir REMOVIDO por ordem do master ("ninguém pode
                   excluir conversa") — o histórico do cliente é permanente.
                   O endpoint no backend também foi trancado. */}
+              {['master','supervisor'].includes(user?.role) && (
+                <button onClick={()=>setFotosModo(f=>!f)} title="Exportar fotos desta conversa pra Biblioteca: ligue, toque nas fotos pra selecionar e escolha o setor"
+                  className="btn btn-sm" style={{ background: fotosModo ? '#0e7490' : 'var(--tq4)', color: fotosModo ? '#fff' : 'var(--tq2)', border:'1.5px solid var(--tq3)', fontSize:11, padding:'4px 9px', fontWeight:700 }}>
+                  🖼️ {fotosModo ? 'Selecionando…' : 'Fotos'}
+                </button>
+              )}
               <button onClick={estudarConversa} disabled={estudoBusy} title="Guardar esta conversa em Estudos — pra equipe aprender com ela depois (serve tanto a que deu certo quanto a que travou)"
                 className="btn btn-sm" style={{ background:'#422006', color:'#fcd34d', border:'1.5px solid #C4973B', fontSize:11, padding:'4px 9px', fontWeight:700 }}>
                 {estudoBusy ? <span className="spin" style={{width:10,height:10}}/> : '📚'} Estudar
@@ -1888,7 +1916,7 @@ export default function Inbox({ onUnreadChange }) {
                 </div>
               )}
               {msgs.map((m, i) => (
-                <MsgItem key={m.id||i} m={m} prevMsg={msgs[i-1] || null} contactName={sel.contact_name} channel={sel.channel} onLightbox={setLightbox} token={token} onEditar={editarMensagem} onApagar={apagarMensagem}/>
+                <MsgItem key={m.id||i} m={m} prevMsg={msgs[i-1] || null} contactName={sel.contact_name} channel={sel.channel} onLightbox={abrirOuSelecionar} token={token} onEditar={editarMensagem} onApagar={apagarMensagem} fotoSel={!!fotosSel[m.id]}/>
               ))}
               <div ref={endRef}/>
             </div>
@@ -2646,6 +2674,18 @@ export default function Inbox({ onUnreadChange }) {
       )}
 
       {/* Lightbox */}
+      {fotosModo && (
+        <div style={{ position:'fixed', bottom:18, left:'50%', transform:'translateX(-50%)', zIndex:600, display:'flex', gap:8, alignItems:'center',
+          background:'rgba(3,37,54,.92)', borderRadius:16, padding:'10px 14px', boxShadow:'0 10px 34px rgba(0,0,0,.4)', backdropFilter:'blur(4px)', flexWrap:'wrap', justifyContent:'center' }}>
+          <span style={{ color:'#fff', fontSize:12.5, fontWeight:900 }}>🖼️ {Object.keys(fotosSel).length} foto(s) — toque nas fotos da conversa pra marcar · salvar em:</span>
+          {[['terapias','🧩 Terapias'],['consultas','🩺 Consultas'],['vacinas','💉 Vacinas']].map(([k,rot]) => (
+            <button key={k} onClick={()=>exportarFotos(k, rot)}
+              style={{ padding:'7px 13px', borderRadius:10, border:'none', cursor:'pointer', background:'#fff', color:'#0e7490', fontSize:12, fontWeight:900 }}>{rot}</button>
+          ))}
+          <button onClick={()=>setFotosModo(false)} style={{ padding:'7px 11px', borderRadius:10, border:'1px solid rgba(255,255,255,.4)', cursor:'pointer', background:'transparent', color:'#fff', fontSize:12, fontWeight:800 }}>Cancelar</button>
+        </div>
+      )}
+
       {lightbox && (
         <div onClick={()=>setLightbox(null)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.92)', zIndex:500, display:'flex', alignItems:'center', justifyContent:'center', cursor:'zoom-out' }}>
           <img src={lightbox} alt="" style={{ maxWidth:'92vw', maxHeight:'90vh', borderRadius:8 }}/>

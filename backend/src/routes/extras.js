@@ -3011,6 +3011,45 @@ r.post('/figurinhas/seed', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* 📚 Foto da CONVERSA → Biblioteca (gestão): muitas imagens do chat são URLs
+   do WhatsApp — o navegador não consegue exportá-las (CORS), então quem baixa
+   é o SERVIDOR. Aceita data URL ou http(s). */
+r.post('/biblioteca/da-conversa', async (req, res) => {
+  try {
+    if (!gestao(req)) return res.status(403).json({ error: 'Só a gestão exporta fotos pra Biblioteca.' });
+    const setor = ['vacinas', 'consultas', 'terapias', 'geral'].includes(req.body?.setor) ? req.body.setor : 'terapias';
+    const titulo = cut(String(req.body?.titulo || 'Foto da conversa').trim(), 70) || 'Foto da conversa';
+    const fontes = (Array.isArray(req.body?.fotos) ? req.body.fotos : []).slice(0, 20);
+    if (!fontes.length) return res.status(400).json({ error: 'Nenhuma foto selecionada.' });
+    const { default: fetch } = await import('node-fetch');
+    let ok = 0, falhas = 0;
+    for (let i = 0; i < fontes.length; i++) {
+      try {
+        const src = String(fontes[i] || '');
+        let mime, b64;
+        if (src.startsWith('data:image/')) {
+          const m = src.match(/^data:([^;]+);base64,(.+)$/s);
+          if (!m) { falhas++; continue; }
+          mime = m[1]; b64 = m[2];
+        } else if (/^https?:\/\//.test(src)) {
+          const r2 = await fetch(src, { signal: AbortSignal.timeout(15000) });
+          if (!r2.ok) { falhas++; continue; }
+          mime = String(r2.headers.get('content-type') || 'image/jpeg').split(';')[0];
+          if (!mime.startsWith('image/')) { falhas++; continue; }
+          const buf = Buffer.from(await r2.arrayBuffer());
+          if (buf.length > 5 * 1024 * 1024) { falhas++; continue; }
+          b64 = buf.toString('base64');
+        } else { falhas++; continue; }
+        await query(`INSERT INTO biblioteca_midias (titulo, tipo, setor, categoria, mime, data)
+                     VALUES ($1, 'foto', $2, 'prova social', $3, $4)`,
+          [fontes.length > 1 ? `${titulo} — ${i + 1}` : titulo, setor, mime, b64]);
+        ok++;
+      } catch { falhas++; }
+    }
+    res.json({ ok: true, salvas: ok, falhas });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.get('/biblioteca', async (req, res) => {
   try {
     const conds = [], params = []; let i = 1;
