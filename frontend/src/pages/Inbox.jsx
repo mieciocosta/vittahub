@@ -2749,18 +2749,23 @@ export default function Inbox({ onUnreadChange }) {
             </div>
             <p style={{ fontSize:12, color:'var(--muted)', marginBottom:14 }}>Ao transferir, este atendimento sai da sua lista e vai para a pessoa escolhida.</p>
             <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
-              {atendentes.filter(a => a.id !== user?.id).map(a => (
+              {/* 👥 A equipe da supervisora vem PRIMEIRO, destacada — pedido do
+                  master: Danielle recebe os leads e distribui pros dela. */}
+              {atendentes.filter(a => a.id !== user?.id)
+                .sort((a,b)=>(b.supervisor_id===user?.id)-(a.supervisor_id===user?.id))
+                .map(a => { const minha = a.supervisor_id === user?.id; return (
                 <button key={a.id} onClick={()=>transferir(a)} disabled={transfSaving} className="btn"
-                  style={{ display:'flex', alignItems:'center', gap:10, justifyContent:'flex-start', padding:'9px 12px', textAlign:'left' }}>
+                  style={{ display:'flex', alignItems:'center', gap:10, justifyContent:'flex-start', padding:'9px 12px', textAlign:'left',
+                    ...(minha ? { border:'1.5px solid var(--tq)', background:'var(--tq3)' } : {}) }}>
                   <div style={{ width:30, height:30, borderRadius:'50%', background:a.cor||'var(--tq)', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:800, flexShrink:0 }}>
                     {(a.nome||'?').split(' ').map(p=>p[0]).slice(0,2).join('')}
                   </div>
                   <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontWeight:700, fontSize:13 }}>{a.nome}</div>
+                    <div style={{ fontWeight:700, fontSize:13 }}>{a.nome}{minha && <span style={{ fontSize:10, fontWeight:800, color:'var(--tq)', marginLeft:6 }}>👥 minha equipe</span>}</div>
                     {a.setor && <div style={{ fontSize:11, color:'var(--muted)' }}>{a.setor}</div>}
                   </div>
                 </button>
-              ))}
+              );})}
               {atendentes.filter(a => a.id !== user?.id).length === 0 && <div style={{ fontSize:12, color:'var(--muted)' }}>Nenhum outro atendente disponível.</div>}
             </div>
             <button onClick={()=>setTransfOpen(false)} className="btn btn-sm" style={{ width:'100%', marginTop:12 }}>Cancelar</button>

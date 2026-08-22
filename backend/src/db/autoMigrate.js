@@ -1839,6 +1839,11 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
     // Chave PESSOAL da IA: cada usuária liga/desliga a Mary nas conversas DELA,
     // sem afetar as colegas (pedido do master: "não quero que isso crie conflito")
     await query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS ia_ligada BOOLEAN DEFAULT true`).catch(() => {});
+    /* 👥 EQUIPE DA SUPERVISORA (pedido do master): quem tem supervisor_id
+       trabalha DEBAIXO daquela supervisora. Com equipe cadastrada, a
+       supervisora vira a triagem do setor: TODOS os leads novos caem com ela
+       e ela transfere pra quem escolher (Danielle: consultas/terapias). */
+    await query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS supervisor_id TEXT`).catch(() => {});
     const { rows: [flagTrioIA] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_ia_consultas_trio_v1'");
     if (!flagTrioIA) {
       const rTrio = await query(`UPDATE usuarios SET ia_consultas = true, updated_at = NOW()

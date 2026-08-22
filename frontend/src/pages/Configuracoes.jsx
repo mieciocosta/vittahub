@@ -86,6 +86,7 @@ export default function Configuracoes() {
         pode_impersonar: !!editUser.pode_impersonar,
         so_carteira: !!editUser.so_carteira,
         ia_consultas: !!editUser.ia_consultas,
+        supervisor_id: editUser.supervisor_id || null,
         meta_individual: parseFloat(editUser.meta_individual) || 0,
         meta_tipo: editUser.meta_tipo || 'valor',
         meta_qtd_dia: parseInt(editUser.meta_qtd_dia) || 0,
@@ -466,14 +467,15 @@ export default function Configuracoes() {
                   <div style={{ fontSize:11.5, color:'var(--muted)' }}>{u.cpf ? `CPF ${maskCpf(u.cpf)}` : 'Sem CPF cadastrado — entra pelo e-mail'}{(() => {
                     const labs = { vacinas:'Vacinas', consultas:'Consultas', terapias:'Terapias' };
                     const ss = (Array.isArray(u.setores) && u.setores.length) ? u.setores : (u.setor ? [u.setor] : []);
-                    return ss.length ? ` · ${ss.map(s=>labs[s]||s).join(', ')}` : '';
+                    const sup = u.supervisor_id ? users.find(x=>x.id===u.supervisor_id) : null;
+                    return `${ss.length ? ` · ${ss.map(s=>labs[s]||s).join(', ')}` : ''}${sup ? ` · 👥 Equipe de ${String(sup.nome).split(' ')[0]}` : ''}`;
                   })()}</div>
                 </div>
                 <span style={{ fontSize:11, fontWeight:700, padding:'3px 9px', borderRadius:12, background:u.role==='master'?'var(--gold2)':'var(--tq3)', color:u.role==='master'?'var(--gold)':'var(--tq)', flexShrink:0 }}>
                   {tituloUsuario(u)}
                 </span>
                 {isMaster && (
-                  <button onClick={()=>{setUserErr('');setEditUser(editUser?.id===u.id?null:{ id:u.id, cpf:maskCpf(u.cpf||''), senha:'', ativo:u.ativo, setor:u.setor||'', setores:Array.isArray(u.setores)?u.setores:[], lider:!!u.lider, pode_impersonar:!!u.pode_impersonar, so_carteira:!!u.so_carteira, ia_consultas:!!u.ia_consultas, meta_individual:u.meta_individual||'', meta_tipo:u.meta_tipo||'valor', meta_qtd_dia:u.meta_qtd_dia||'', meta_dias_uteis:u.meta_dias_uteis||26 });}}
+                  <button onClick={()=>{setUserErr('');setEditUser(editUser?.id===u.id?null:{ id:u.id, cpf:maskCpf(u.cpf||''), senha:'', ativo:u.ativo, setor:u.setor||'', setores:Array.isArray(u.setores)?u.setores:[], lider:!!u.lider, pode_impersonar:!!u.pode_impersonar, so_carteira:!!u.so_carteira, ia_consultas:!!u.ia_consultas, supervisor_id:u.supervisor_id||'', meta_individual:u.meta_individual||'', meta_tipo:u.meta_tipo||'valor', meta_qtd_dia:u.meta_qtd_dia||'', meta_dias_uteis:u.meta_dias_uteis||26 });}}
                     style={{ width:26, height:26, borderRadius:8, border:'1.5px solid var(--border)', background:'var(--card)', color:'var(--muted)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
                     {editUser?.id===u.id?<X size={12}/>:<Pencil size={12}/>}
                   </button>
@@ -503,6 +505,20 @@ export default function Configuracoes() {
                       style={{ width:'100%', padding:'8px 10px', borderRadius:10, border:'1.5px solid var(--border)', fontSize:12.5, background:'var(--card)', color:'var(--txt)' }}>
                       {[['','—'],['vacinas','Vacinas'],['consultas','Consultas'],['terapias','Terapias']].map(([v,l])=><option key={v} value={v}>{l}</option>)}
                     </select>
+                  </div>
+                  {/* 👥 Debaixo de qual supervisora essa pessoa trabalha (pedido do
+                      master): com equipe cadastrada, a supervisora recebe TODOS os
+                      leads do setor e distribui pra quem ela escolher. */}
+                  <div className="field">
+                    <label>👥 Trabalha na equipe de (supervisora)</label>
+                    <select value={editUser.supervisor_id||''} onChange={e=>setEditUser({...editUser, supervisor_id:e.target.value})}
+                      style={{ width:'100%', padding:'8px 10px', borderRadius:10, border:'1.5px solid var(--border)', fontSize:12.5, background:'var(--card)', color:'var(--txt)' }}>
+                      <option value="">— ninguém (fora de equipe)</option>
+                      {users.filter(s=>s.role==='supervisor' && s.ativo!==false && s.id!==u.id).map(s=><option key={s.id} value={s.id}>{s.nome}</option>)}
+                    </select>
+                    <span style={{ fontSize:11, color:'var(--muted)', display:'block', marginTop:5 }}>
+                      Quando uma supervisora tem equipe, os leads novos do setor dela caem primeiro com ela — ela olha e transfere pra quem escolher.
+                    </span>
                   </div>
                   <div className="field">
                     {/* 🎯 Duas unidades de meta: quem é cobrada em R$ no mês e

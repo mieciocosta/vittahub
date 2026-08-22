@@ -204,7 +204,7 @@ r.post('/impersonar/:id', auth, async (req, res) => {
 r.get('/usuarios', auth, async (req, res) => {
   if (req.user.role !== 'master') return res.status(403).json({ error: 'Acesso negado' });
   try {
-    const { rows } = await query("SELECT id,nome,email,cpf,role,cor,ativo,avatar,setor,setores,lider,ve_tudo,ve_geral,so_carteira,ia_consultas,ia_ligada,meta_individual,meta_tipo,meta_qtd_dia,meta_dias_uteis,pode_impersonar FROM usuarios WHERE role!='bot' ORDER BY nome");
+    const { rows } = await query("SELECT id,nome,email,cpf,role,cor,ativo,avatar,setor,setores,lider,ve_tudo,ve_geral,so_carteira,ia_consultas,ia_ligada,supervisor_id,meta_individual,meta_tipo,meta_qtd_dia,meta_dias_uteis,pode_impersonar FROM usuarios WHERE role!='bot' ORDER BY nome");
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -243,13 +243,22 @@ r.post('/usuarios', auth, async (req, res) => {
     if (dup) return res.status(409).json({ error: 'Este CPF já está cadastrado' });
     const hash = await bcrypt.hash(senha, 10);
     const email = `${cpf}@vittahub.local`; // e-mail é NOT NULL/único no schema; login é pelo CPF
+    /* 👥 Debaixo de quem essa pessoa trabalha: a supervisora que cadastra já
+       vira a chefe do integrante; o master escolhe na tela (pedido do master:
+       equipe da Danielle — ela recebe os leads e transfere pra quem quiser). */
+    let supervisorId = null;
+    if (ehSup) supervisorId = req.user.id;
+    else if (req.body.supervisor_id) {
+      const { rows: [sup] } = await query("SELECT id FROM usuarios WHERE id = $1 AND role = 'supervisor' AND ativo = true", [String(req.body.supervisor_id)]).catch(() => ({ rows: [null] }));
+      supervisorId = sup?.id || null;
+    }
     const { rows: [u] } = await query(
-      `INSERT INTO usuarios (id, nome, email, cpf, senha, role, cor, ativo, setor, meta_individual)
-       VALUES (gen_random_uuid()::text, $1, $2, $3, $4, $5, $6, true, $7, $8)
-       RETURNING id, nome, email, cpf, role, cor, ativo, setor, meta_individual`,
+      `INSERT INTO usuarios (id, nome, email, cpf, senha, role, cor, ativo, setor, meta_individual, supervisor_id)
+       VALUES (gen_random_uuid()::text, $1, $2, $3, $4, $5, $6, true, $7, $8, $9)
+       RETURNING id, nome, email, cpf, role, cor, ativo, setor, meta_individual, supervisor_id`,
       // Integrante nasce com a meta do time (R$ 100 mil) — sem isso ele entrava
       // no time sem alvo e o painel mostrava a equipe furada.
-      [nome, email, cpf, hash, role, cor, setor, Math.max(0, parseFloat(req.body.meta_individual) || 100000)]);
+      [nome, email, cpf, hash, role, cor, setor, Math.max(0, parseFloat(req.body.meta_individual) || 100000), supervisorId]);
     res.status(201).json(u);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -288,6 +297,8 @@ r.put('/usuarios/:id', auth, async (req, res) => {
     // IA de consultas por usuária (pedido do master: só Danielle, Stefany e Mayara)
     if (req.body.ia_consultas !== undefined) set('ia_consultas', req.body.ia_consultas === true);
     if (req.body.ia_ligada !== undefined) set('ia_ligada', req.body.ia_ligada === true);
+    // 👥 Debaixo de qual supervisora a pessoa trabalha ('' = ninguém)
+    if (req.body.supervisor_id !== undefined) set('supervisor_id', req.body.supervisor_id || null);
     if (senha) {
       if (String(senha).length < 8) return res.status(400).json({ error: 'A senha precisa de pelo menos 8 caracteres' });
       const hash = await bcrypt.hash(String(senha), 10);
@@ -296,7 +307,7 @@ r.put('/usuarios/:id', auth, async (req, res) => {
     if (!updates.length) return res.status(400).json({ error: 'Nada para atualizar' });
     params.push(req.params.id);
     const { rows } = await query(
-      `UPDATE usuarios SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${pi} RETURNING id,nome,email,cpf,role,cor,ativo,setor,setores,lider,ve_tudo,ve_geral,so_carteira,ia_consultas,ia_ligada,meta_individual,meta_tipo,meta_qtd_dia,meta_dias_uteis,pode_impersonar`,
+      `UPDATE usuarios SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${pi} RETURNING id,nome,email,cpf,role,cor,ativo,setor,setores,lider,ve_tudo,ve_geral,so_carteira,ia_consultas,ia_ligada,supervisor_id,meta_individual,meta_tipo,meta_qtd_dia,meta_dias_uteis,pode_impersonar`,
       params
     );
     if (!rows[0]) return res.status(404).json({ error: 'Usuário não encontrado' });

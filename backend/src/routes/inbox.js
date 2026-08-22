@@ -924,6 +924,21 @@ async function enviarMenuTriagem(phoneNum) {
 
 // Rodízio: pega a próxima atendente ativa do setor (contador em configuracoes)
 async function distribuirSetor(convId, setor) {
+  /* 👥 TRIAGEM DA SUPERVISORA (pedido do master): se o setor tem uma
+     supervisora COM equipe cadastrada debaixo dela (supervisor_id), TODOS os
+     leads novos caem com ELA — ela olha, escolhe e transfere pra quem quiser.
+     Sem equipe cadastrada, nada muda: segue o rodízio normal. */
+  const { rows: [sup] } = await query(
+    `SELECT s.id, s.nome FROM usuarios s
+      WHERE s.role = 'supervisor' AND s.ativo = true
+        AND ($1 = s.setor OR $1 = ANY(COALESCE(s.setores, '{}')))
+        AND EXISTS (SELECT 1 FROM usuarios f WHERE f.supervisor_id = s.id AND f.ativo = true)
+      ORDER BY s.nome LIMIT 1`, [setor]).catch(() => ({ rows: [null] }));
+  if (sup) {
+    await query('UPDATE conversas SET responsavel_id = $1 WHERE id = $2', [sup.id, convId]);
+    socketEmit('conv_assigned', { convId, responsavel_id: sup.id, responsavel_nome: sup.nome });
+    return sup;
+  }
   const { rows: equipe } = await query(
     `SELECT id, nome FROM usuarios
      WHERE setor = $1 AND ativo = true AND role IN ('atendente','supervisor')
@@ -4406,7 +4421,7 @@ r.get('/chat-interno-naolidas', async (req, res) => {
 r.get('/atendentes', async (req, res) => {
   try {
     const { rows } = await query(
-      `SELECT id, nome, setor, cor, avatar FROM usuarios
+      `SELECT id, nome, setor, cor, avatar, supervisor_id FROM usuarios
        WHERE ativo = true AND role IN ('atendente','supervisor','master') ORDER BY nome`);
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -4418,11 +4433,15 @@ r.patch('/conversations/:id/transferir', async (req, res) => {
   try {
     const paraId = req.body.para_id;
     if (!paraId) return res.status(400).json({ error: 'Escolha para quem transferir.' });
-    const { rows: [dest] } = await query("SELECT id, nome, setor FROM usuarios WHERE id = $1 AND ativo = true", [paraId]);
+    const { rows: [dest] } = await query("SELECT id, nome, setor, ia_consultas, ia_ligada FROM usuarios WHERE id = $1 AND ativo = true", [paraId]);
     if (!dest) return res.status(404).json({ error: 'Atendente não encontrado.' });
     const novoSetor = ['vacinas', 'consultas', 'terapias'].includes(dest.setor) ? dest.setor : null;
+    /* A supervisora distribui e a IA CONTINUA trabalhando — agora no nome de
+       quem recebeu (pedido do master: Danielle recebe todos e transfere).
+       A IA só desliga quando a destinatária não tem o botão da Vitta ligado. */
+    const mantemBot = dest.ia_consultas === true && dest.ia_ligada !== false;
     const { rows: [conv] } = await query(
-      `UPDATE conversas SET responsavel_id = $1, bot_ativo = false ${novoSetor ? ', setor = $3' : ''}
+      `UPDATE conversas SET responsavel_id = $1${mantemBot ? '' : ', bot_ativo = false'} ${novoSetor ? ', setor = $3' : ''}
        WHERE id = $2 RETURNING *`,
       novoSetor ? [paraId, req.params.id, novoSetor] : [paraId, req.params.id]);
     if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
