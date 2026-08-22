@@ -55,10 +55,11 @@ export default function BuscaRapida() {
         .catch(() => setConvs([]))
         .finally(() => setBuscando(false));
       /* 🔎 Master também procura DENTRO das mensagens ("quem perguntou por
-         nota fiscal hoje?") — últimos 30 dias, quem falou e quando. */
+         nota fiscal?") — GERAL, todos os leads, histórico inteiro (pedido
+         do master: sem janela de tempo). */
       if (user?.role === 'master' && q.trim().length >= 3) {
-        api.get(`/inbox/buscar-mensagens?q=${encodeURIComponent(q.trim())}&dias=30`)
-          .then(d => setMsgs(Array.isArray(d?.itens) ? d.itens.slice(0, 6) : []))
+        api.get(`/inbox/buscar-mensagens?q=${encodeURIComponent(q.trim())}`)
+          .then(d => setMsgs(Array.isArray(d?.itens) ? d.itens.slice(0, 10) : []))
           .catch(() => setMsgs([]));
       } else setMsgs([]);
     }, 260);
@@ -72,7 +73,7 @@ export default function BuscaRapida() {
   const itens = [
     ...convs.map(c => ({ tipo: 'conversa', titulo: c.contact_name || c.phone || 'Cliente', sub: 'Abrir conversa', emoji: '💬', ir: () => nav(`/inbox?conv=${c.id}`) })),
     ...msgs.map(m => ({ tipo: 'mensagem', titulo: m.contact_name || m.phone || 'Cliente',
-      sub: `${m.de} · ${new Date(m.quando).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} — "${m.trecho}"`,
+      sub: `${m.de} · ${new Date(m.quando).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })} — "${m.trecho}"`,
       emoji: '🗨️', ir: () => nav(`/inbox?conv=${m.conversa_id}`) })),
     ...pgs.map(p => ({ tipo: 'pagina', titulo: p[0], sub: 'Ir para a página', emoji: p[2], ir: () => nav(p[1]) })),
   ];

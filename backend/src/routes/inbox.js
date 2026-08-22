@@ -3770,14 +3770,19 @@ r.get('/buscar-mensagens', async (req, res) => {
     if (req.user?.role !== 'master') return res.status(403).json({ error: 'Busca nas mensagens é só do master.' });
     const q = String(req.query.q || '').trim().slice(0, 80);
     if (q.length < 3) return res.json({ itens: [] });
-    const dias = Math.max(1, Math.min(parseInt(req.query.dias) || 7, 90));
+    // Pedido do master: "pesquisar geral todos os leads" — sem janela de tempo.
+    // dias > 0 vira filtro opcional; sem o parâmetro, varre o histórico inteiro.
+    const dias = parseInt(req.query.dias) || 0;
+    const params = [`%${q}%`];
+    let filtroTempo = '';
+    if (dias > 0) { params.push(String(dias)); filtroTempo = `AND m.created_at > NOW() - ($2 || ' days')::interval`; }
     const { rows } = await query(
       `SELECT m.conversa_id, m.content, m.created_at, m.from_type, c.contact_name, c.phone
          FROM mensagens m JOIN conversas c ON c.id = m.conversa_id
-        WHERE m.type = 'text' AND m.created_at > NOW() - ($2 || ' days')::interval
+        WHERE m.type = 'text' ${filtroTempo}
           AND unaccent(lower(m.content)) LIKE unaccent(lower($1))
           AND c.contact_id NOT LIKE '%g.us%'
-        ORDER BY m.created_at DESC LIMIT 30`, [`%${q}%`, String(dias)]);
+        ORDER BY m.created_at DESC LIMIT 50`, params);
     const itens = rows.map(m => {
       const txt = String(m.content || '');
       const pos = txt.toLowerCase().indexOf(q.toLowerCase());
