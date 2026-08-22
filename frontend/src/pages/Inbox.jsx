@@ -1946,7 +1946,7 @@ export default function Inbox({ onUnreadChange }) {
 
             {/* Info panel */}
             {showInfo && (
-              {/* Mais largo (pedido do master): botões do perfil visíveis sem aperto */}
+              // Mais largo (pedido do master): botões do perfil visíveis sem aperto
               <div style={{ width:'min(350px, 88vw)', flexShrink:0, borderLeft:'1px solid var(--border)', background:'var(--card,#fff)', overflowY:'auto', display:'flex', flexDirection:'column' }}>
                 <div style={{ padding:'14px 14px 10px', borderBottom:'1px solid var(--border)', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                   <span style={{ fontWeight:700, fontSize:13 }}>Informações</span>
