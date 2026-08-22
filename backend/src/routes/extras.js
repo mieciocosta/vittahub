@@ -289,6 +289,7 @@ async function choqueVacina({ data, hora, ignorarId }) {
     `SELECT id, paciente FROM agenda_eventos
       WHERE COALESCE(setor,'vacinas') = 'vacinas' AND data = $1 AND hora = $2
         AND LOWER(COALESCE(status,'')) NOT LIKE 'cancel%'
+        AND servico IS DISTINCT FROM 'Pós Vacinal'  -- pós é contato, não ocupa o motorista
         AND ($3::int IS NULL OR id <> $3::int) LIMIT 1`,
     [data, hora, ignorarId || null]).catch(() => ({ rows: [] }));
   return rows[0] || null;
@@ -3532,7 +3533,9 @@ r.get('/agenda/relatorio-dia', async (req, res) => {
                     a.telefone, a.valor, a.forma_pagamento, a.conversa_id, a.responsavel_id,
                     u.nome resp_nome
                FROM agenda_eventos a LEFT JOIN usuarios u ON u.id = a.responsavel_id
-              WHERE a.data = $1 ORDER BY a.hora, a.paciente`, [dia]),
+              WHERE a.data = $1
+                AND a.servico IS DISTINCT FROM 'Pós Vacinal'  -- pós é seção própria da agenda; não infla os números do dia
+              ORDER BY a.hora, a.paciente`, [dia]),
       query(`SELECT COALESCE(atendente_nome,'—') nome, COUNT(*)::int n,
                     COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float confirmado
                FROM vendas WHERE data_venda = $1 GROUP BY 1`, [dia]),
@@ -3540,7 +3543,8 @@ r.get('/agenda/relatorio-dia', async (req, res) => {
       // Agendamentos CRIADOS hoje (produtividade de quem agenda, não só de quem atende)
       query(`SELECT COALESCE(u.nome,'—') nome, COUNT(*)::int n
                FROM agenda_eventos a LEFT JOIN usuarios u ON u.id = a.responsavel_id
-              WHERE a.created_at::date = $1 GROUP BY 1`, [dia]).catch(() => ({ rows: [] })),
+              WHERE a.created_at::date = $1
+                AND a.servico IS DISTINCT FROM 'Pós Vacinal' GROUP BY 1`, [dia]).catch(() => ({ rows: [] })),
     ]);
 
     const eventos = evQ.rows.map(e => ({ ...e, valor: e.valor == null ? null : Number(e.valor) }));

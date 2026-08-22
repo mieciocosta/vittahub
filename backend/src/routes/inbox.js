@@ -1971,7 +1971,8 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
         // Choque: mesmo profissional, mesma data e hora já ocupados
         const { rows: [choque] } = await query(`SELECT 1 FROM agenda_eventos
           WHERE data = $1 AND hora = $2 AND LOWER(COALESCE(profissional,'')) = LOWER($3)
-            AND LOWER(COALESCE(status,'')) NOT LIKE 'cancel%' LIMIT 1`,
+            AND LOWER(COALESCE(status,'')) NOT LIKE 'cancel%'
+            AND servico IS DISTINCT FROM 'Pós Vacinal' LIMIT 1`,
           [dataA, horaA, String(inA.profissional || '')]).catch(() => ({ rows: [] }));
         if (choque) {
           if (!botReply) botReply = 'Esse horário acabou de ser preenchido! Já te trago outras opções, um instante 💙';
@@ -4930,13 +4931,9 @@ setTimeout(rodarRecallVacinal, 90000);
    e aí o novo evento gera o dele). */
 async function rodarPosVacinalAgenda() {
   try {
-    const { rows } = await query(`
-      INSERT INTO agenda_eventos (paciente, responsavel_nome, servico, data, hora, telefone,
-                                  observacoes, status, setor, responsavel_id, conversa_id)
-      SELECT e.paciente, e.responsavel_nome, 'Pós Vacinal', e.data + 1, '09:00', e.telefone,
-             '💙 Pós-vacinal automático do atendimento de ' || to_char(e.data, 'DD/MM') ||
-             ' — entrar em contato e saber como o pequeno passou após as vacinas.',
-             'Agendado', 'vacinas', e.responsavel_id, e.conversa_id
+    const { rows: cands } = await query(`
+      SELECT e.paciente, e.responsavel_nome, to_char(e.data + 1, 'YYYY-MM-DD') alvo, e.telefone,
+             e.responsavel_id, e.conversa_id, to_char(e.data, 'DD/MM') dia_orig
         FROM agenda_eventos e
        WHERE COALESCE(e.setor, 'vacinas') = 'vacinas'
          AND e.status NOT IN ('Cancelado', 'Faltou', 'Reagendado')
@@ -4945,9 +4942,38 @@ async function rodarPosVacinalAgenda() {
          AND NOT EXISTS (SELECT 1 FROM agenda_eventos p
                           WHERE p.servico = 'Pós Vacinal' AND p.data = e.data + 1
                             AND lower(p.paciente) = lower(e.paciente))
-      RETURNING id`).catch(() => ({ rows: [] }));
-    if (rows.length) {
-      console.log(`💙 Pós-vacinal: ${rows.length} evento(s) criados na agenda`);
+       ORDER BY e.data, e.hora`).catch(() => ({ rows: [] }));
+    if (!cands.length) return;
+    // Agenda dividida: os pós-vacinais entram na SEÇÃO de baixo, cada um no seu
+    // horário — 9:00 Fulano, 10:00 Ciclano… (pedido do master). Continua de onde
+    // o dia já parou (conta os pós existentes) e trava às 17h se lotar.
+    const porDia = {};
+    for (const c of cands) (porDia[c.alvo] ||= []).push(c);
+    let criados = 0;
+    for (const [dia, lista] of Object.entries(porDia)) {
+      const { rows: [{ n: jaTem }] } = await query(`SELECT COUNT(*)::int n FROM agenda_eventos
+        WHERE data = $1 AND servico = 'Pós Vacinal'`, [dia]).catch(() => ({ rows: [{ n: 0 }] }));
+      for (let i = 0; i < lista.length; i++) {
+        const c = lista[i];
+        const hora = `${String(Math.min(9 + jaTem + i, 17)).padStart(2, '0')}:00`;
+        const { rows } = await query(`
+          INSERT INTO agenda_eventos (paciente, responsavel_nome, servico, data, hora, telefone,
+                                      observacoes, status, setor, responsavel_id, conversa_id)
+          SELECT $1, $2, 'Pós Vacinal', $3, $4, $5,
+                 '💙 Pós-vacinal automático do atendimento de ' || $6 ||
+                 ' — entrar em contato e saber como o pequeno passou após as vacinas.',
+                 'Agendado', 'vacinas', $7, $8
+          WHERE NOT EXISTS (SELECT 1 FROM agenda_eventos p
+                             WHERE p.servico = 'Pós Vacinal' AND p.data = $3::date
+                               AND lower(p.paciente) = lower($1))
+          RETURNING id`,
+          [c.paciente, c.responsavel_nome, dia, hora, c.telefone, c.dia_orig,
+           c.responsavel_id, c.conversa_id]).catch(() => ({ rows: [] }));
+        criados += rows.length;
+      }
+    }
+    if (criados) {
+      console.log(`💙 Pós-vacinal: ${criados} evento(s) criados na agenda`);
       socketEmit('agenda_update', { auto: true });
     }
   } catch (e) { console.error('pós-vacinal agenda:', e.message); }

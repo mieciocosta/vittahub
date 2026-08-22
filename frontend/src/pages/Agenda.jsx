@@ -103,7 +103,8 @@ export default function Agenda() {
       const dia = m.data || data;
       let doDia = dia === data ? eventos : [];
       if (dia !== data) { try { doDia = await api.get(`/extras/agenda?data=${dia}`); } catch { doDia = []; } }
-      const choque = (doDia || []).find(ev => ev.id !== m.id && ev.hora === m.hora && (ev.setor || 'vacinas') === 'vacinas' && ev.status !== 'Cancelado');
+      // Pós Vacinal não ocupa o motorista — é tarefa de contato, não visita.
+      const choque = (doDia || []).find(ev => ev.id !== m.id && ev.hora === m.hora && (ev.setor || 'vacinas') === 'vacinas' && ev.status !== 'Cancelado' && ev.servico !== 'Pós Vacinal');
       if (choque) {
         if (!window.confirm(`⚠️ Já existe um agendamento de VACINAS às ${m.hora} neste dia — o motorista é único. Agendar mesmo assim?`)) return;
         forcar = true; // confirmado na tela: o servidor deixa passar
@@ -138,6 +139,63 @@ export default function Agenda() {
   const ehHoje = data === hojeISO();
   const rotuloDia = new Date(data + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' });
 
+  // 💙 Agenda dividida (pedido do master): agendamentos em cima, pós-vacinais
+  // embaixo — assim o pós não conflita nem se mistura com as visitas do dia.
+  const agendamentos = eventos.filter(ev => ev.servico !== 'Pós Vacinal');
+  const posVacinais = eventos.filter(ev => ev.servico === 'Pós Vacinal');
+
+  // Uma linha de evento — a MESMA pra agendamentos e pós-vacinais (mesmas ações).
+  const linhaEvento = (ev, i, total) => {
+    const [bg, cor] = ST_CLR[ev.status] || ST_CLR.Agendado;
+    return (
+      <div key={ev.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 20px', borderBottom: i < total - 1 ? '1px solid var(--border)' : 'none', opacity: ev.status === 'Cancelado' ? .55 : 1 }}>
+        <div style={{ fontWeight: 800, fontSize: 14, color: 'var(--tq2)', minWidth: 48 }}>{ev.hora}</div>
+        <div style={{ width: 38, height: 38, borderRadius: '50%', flexShrink: 0, background: COR_BOLHA[i % COR_BOLHA.length], display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 }}>
+          {ev.servico === 'Pós Vacinal' ? '💙' : (ICONES[ev.setor] || '📌')}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 800, fontSize: 13.5 }}>{ev.paciente}</div>
+          <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+            {ev.servico || 'Atendimento'}{ev.responsavel_nome ? ` · Resp.: ${ev.responsavel_nome}` : ''}{ev.profissional ? ` · ${ev.profissional}` : ''}
+          </div>
+          {(ev.endereco || ev.email || ev.local_link || ev.valor != null) && (
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              {ev.valor != null && <span style={{ fontWeight: 800, color: 'var(--tq2)' }}>💰 {fmt.brl(parseFloat(ev.valor))}{ev.forma_pagamento ? ` · ${ev.forma_pagamento}${ev.parcelas > 1 ? ` ${ev.parcelas}x de ${fmt.brl(parseFloat(ev.valor) / ev.parcelas)}` : ''}` : ''}</span>}
+              {ev.endereco && <span title="Atendimento domiciliar">📍 {ev.endereco}</span>}
+              {ev.email && <span>✉️ {ev.email}</span>}
+              {ev.local_link && (
+                <a href={ev.local_link} target="_blank" rel="noreferrer"
+                  style={{ color: 'var(--tq2)', fontWeight: 800, textDecoration: 'none' }}>🗺️ Abrir localização</a>
+              )}
+            </div>
+          )}
+        </div>
+        <div style={{ fontSize: 11.5, color: 'var(--muted)', minWidth: 70, textAlign: 'center' }}>{ev.resp_nome ? ev.resp_nome.split(' ')[0] : ''}</div>
+        <span style={{ padding: '3px 10px', borderRadius: 8, fontSize: 10.5, fontWeight: 800, background: bg, color: cor, minWidth: 86, textAlign: 'center' }}>{ev.status}</span>
+        <div style={{ display: 'flex', gap: 5 }}>
+          {ev.telefone && (
+            <>
+              <a href={`tel:+55${ev.telefone}`} title="Ligar" style={btnAcao}><Phone size={13} /></a>
+              <button onClick={() => navigate(`/inbox?phone=${String(ev.telefone || '').replace(/\D/g, '')}`)} title="Abrir conversa no CRM" style={{ ...btnAcao, color: '#1da955', borderColor: '#bfe8cf', background: '#eafbf1', cursor: 'pointer' }}><MessageSquare size={13} /></button>
+            </>
+          )}
+          {ev.status !== 'Confirmado' && ev.status !== 'Realizado' && (
+            <button onClick={() => mudaStatus(ev, 'Confirmado')} title="Confirmar" style={{ ...btnAcao, color: 'var(--ok)', borderColor: '#bfe8cf', background: '#eafbf1' }}><Check size={13} /></button>
+          )}
+          {ev.status === 'Confirmado' && (
+            <button onClick={() => mudaStatus(ev, 'Realizado')} title="Marcar como realizado" style={{ ...btnAcao, color: 'var(--tq2)' }}><Check size={13} /></button>
+          )}
+          <button onClick={() => setModal({ ...ev, data: typeof ev.data === 'string' ? ev.data.slice(0, 10) : data })} title="✏️ Editar agendamento (dados, data, hora, valor…)" style={{ ...btnAcao, color: '#2563eb', borderColor: '#bfd7fe', background: '#eaf1fe' }}><Pencil size={13} /></button>
+          {ev.status !== 'Faltou' && ev.status !== 'Realizado' && ev.status !== 'Cancelado' && (
+            <button onClick={() => mudaStatus(ev, 'Faltou')} title="Marcar falta (a Vitta chama pra remarcar em 1h)" style={{ ...btnAcao, color: '#c2410c', borderColor: '#f6d5c2', background: '#fdf0e8', fontSize: 11, fontWeight: 800 }}>👻</button>
+          )}
+          <button onClick={() => mudaStatus(ev, 'Cancelado')} title="Cancelar" style={{ ...btnAcao, color: 'var(--err)', borderColor: '#f3cccc', background: '#fdf0f0' }}><XIcon size={13} /></button>
+          <button onClick={() => excluir(ev)} title="Excluir" style={{ ...btnAcao, color: 'var(--light)' }}><Trash2 size={13} /></button>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div style={{ padding: 28 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 20 }}>
@@ -151,7 +209,7 @@ export default function Agenda() {
             style={{ padding: '8px 12px', borderRadius: 10, border: '1.5px solid var(--border)', fontSize: 13, fontWeight: 700, background: 'var(--card)', color: 'var(--txt)' }} />
           <button onClick={() => mudaDia(1)} className="btn btn-s" style={{ padding: '8px 10px' }}><ChevronRight size={15} /></button>
           {!ehHoje && <button onClick={() => setData(hojeISO())} className="btn btn-s" style={{ fontSize: 12 }}>Hoje</button>}
-          <button onClick={() => baixarPDF(eventos, data, rotuloDia)} className="btn btn-s" style={{ gap: 6 }} title="Gera o PDF da agenda do dia pra imprimir ou salvar">
+          <button onClick={() => baixarPDF([...agendamentos, ...posVacinais], data, rotuloDia)} className="btn btn-s" style={{ gap: 6 }} title="Gera o PDF da agenda do dia pra imprimir ou salvar">
             ⬇ Baixar PDF
           </button>
           <button onClick={() => setModal({ data, hora: '', setor: 'vacinas' })} className="btn btn-p" style={{ gap: 6 }}>
@@ -170,71 +228,40 @@ export default function Agenda() {
       </div>
 
       {aba === 'vittamed' ? <AgendaVittaMed vmed={vmed} setor={vmedSetor} setSetor={setVmedSetor} rotuloDia={rotuloDia} onRecarregar={loadVmed} ehMaster={user?.role === 'master'} /> :
-       aba === 'relatorio' ? <RelatorioDia rel={rel} data={data} rotuloDia={rotuloDia} onLider={() => setRelLider(true)} /> : (
+       aba === 'relatorio' ? <RelatorioDia rel={rel} data={data} rotuloDia={rotuloDia} onLider={() => setRelLider(true)} /> : (<>
+      {/* ⬆️ AGENDA DE AGENDAMENTOS — as visitas e atendimentos do dia */}
       <div className="card" style={{ padding: 0, overflow: 'hidden', background: 'var(--card)' }}>
-        <div style={{ padding: '13px 20px', background: 'linear-gradient(90deg,var(--tq),#0aa6ae)', color: '#fff', fontWeight: 800, fontSize: 14, textTransform: 'capitalize' }}>
-          {ehHoje ? `Hoje · ${rotuloDia}` : rotuloDia}
+        <div style={{ padding: '13px 20px', background: 'linear-gradient(90deg,var(--tq),#0aa6ae)', color: '#fff', fontWeight: 800, fontSize: 14, textTransform: 'capitalize', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+          <span>{ehHoje ? `Hoje · ${rotuloDia}` : rotuloDia}</span>
+          <span style={{ fontSize: 11.5, fontWeight: 700, opacity: .9, textTransform: 'none' }}>📅 Agendamentos ({agendamentos.filter(e => e.status !== 'Cancelado').length})</span>
         </div>
 
-        {eventos.length === 0 && (
+        {agendamentos.length === 0 && (
           <div style={{ padding: '46px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: 13.5 }}>
             Nenhum agendamento neste dia.<br />
             <span style={{ fontSize: 12 }}>Clique em “Novo agendamento” pra começar. 😊</span>
           </div>
         )}
 
-        {eventos.map((ev, i) => {
-          const [bg, cor] = ST_CLR[ev.status] || ST_CLR.Agendado;
-          return (
-            <div key={ev.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 20px', borderBottom: i < eventos.length - 1 ? '1px solid var(--border)' : 'none', opacity: ev.status === 'Cancelado' ? .55 : 1 }}>
-              <div style={{ fontWeight: 800, fontSize: 14, color: 'var(--tq2)', minWidth: 48 }}>{ev.hora}</div>
-              <div style={{ width: 38, height: 38, borderRadius: '50%', flexShrink: 0, background: COR_BOLHA[i % COR_BOLHA.length], display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 }}>
-                {ICONES[ev.setor] || '📌'}
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 800, fontSize: 13.5 }}>{ev.paciente}</div>
-                <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
-                  {ev.servico || 'Atendimento'}{ev.responsavel_nome ? ` · Resp.: ${ev.responsavel_nome}` : ''}{ev.profissional ? ` · ${ev.profissional}` : ''}
-                </div>
-                {(ev.endereco || ev.email || ev.local_link || ev.valor != null) && (
-                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    {ev.valor != null && <span style={{ fontWeight: 800, color: 'var(--tq2)' }}>💰 {fmt.brl(parseFloat(ev.valor))}{ev.forma_pagamento ? ` · ${ev.forma_pagamento}${ev.parcelas > 1 ? ` ${ev.parcelas}x de ${fmt.brl(parseFloat(ev.valor) / ev.parcelas)}` : ''}` : ''}</span>}
-                    {ev.endereco && <span title="Atendimento domiciliar">📍 {ev.endereco}</span>}
-                    {ev.email && <span>✉️ {ev.email}</span>}
-                    {ev.local_link && (
-                      <a href={ev.local_link} target="_blank" rel="noreferrer"
-                        style={{ color: 'var(--tq2)', fontWeight: 800, textDecoration: 'none' }}>🗺️ Abrir localização</a>
-                    )}
-                  </div>
-                )}
-              </div>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)', minWidth: 70, textAlign: 'center' }}>{ev.resp_nome ? ev.resp_nome.split(' ')[0] : ''}</div>
-              <span style={{ padding: '3px 10px', borderRadius: 8, fontSize: 10.5, fontWeight: 800, background: bg, color: cor, minWidth: 86, textAlign: 'center' }}>{ev.status}</span>
-              <div style={{ display: 'flex', gap: 5 }}>
-                {ev.telefone && (
-                  <>
-                    <a href={`tel:+55${ev.telefone}`} title="Ligar" style={btnAcao}><Phone size={13} /></a>
-                    <button onClick={() => navigate(`/inbox?phone=${String(ev.telefone || '').replace(/\D/g, '')}`)} title="Abrir conversa no CRM" style={{ ...btnAcao, color: '#1da955', borderColor: '#bfe8cf', background: '#eafbf1', cursor: 'pointer' }}><MessageSquare size={13} /></button>
-                  </>
-                )}
-                {ev.status !== 'Confirmado' && ev.status !== 'Realizado' && (
-                  <button onClick={() => mudaStatus(ev, 'Confirmado')} title="Confirmar" style={{ ...btnAcao, color: 'var(--ok)', borderColor: '#bfe8cf', background: '#eafbf1' }}><Check size={13} /></button>
-                )}
-                {ev.status === 'Confirmado' && (
-                  <button onClick={() => mudaStatus(ev, 'Realizado')} title="Marcar como realizado" style={{ ...btnAcao, color: 'var(--tq2)' }}><Check size={13} /></button>
-                )}
-                <button onClick={() => setModal({ ...ev, data: typeof ev.data === 'string' ? ev.data.slice(0, 10) : data })} title="✏️ Editar agendamento (dados, data, hora, valor…)" style={{ ...btnAcao, color: '#2563eb', borderColor: '#bfd7fe', background: '#eaf1fe' }}><Pencil size={13} /></button>
-                {ev.status !== 'Faltou' && ev.status !== 'Realizado' && ev.status !== 'Cancelado' && (
-                  <button onClick={() => mudaStatus(ev, 'Faltou')} title="Marcar falta (a Vitta chama pra remarcar em 1h)" style={{ ...btnAcao, color: '#c2410c', borderColor: '#f6d5c2', background: '#fdf0e8', fontSize: 11, fontWeight: 800 }}>👻</button>
-                )}
-                <button onClick={() => mudaStatus(ev, 'Cancelado')} title="Cancelar" style={{ ...btnAcao, color: 'var(--err)', borderColor: '#f3cccc', background: '#fdf0f0' }}><XIcon size={13} /></button>
-                <button onClick={() => excluir(ev)} title="Excluir" style={{ ...btnAcao, color: 'var(--light)' }}><Trash2 size={13} /></button>
-              </div>
-            </div>
-          );
-        })}
+        {agendamentos.map((ev, i) => linhaEvento(ev, i, agendamentos.length))}
       </div>
-      )}
+
+      {/* ⬇️ AGENDA DE PÓS VACINAL — separada de propósito (pedido do master):
+          não conflita com os agendamentos e a equipe bate o olho e vê a lista
+          de contatos do dia, cada um no seu horário (9:00 Fulano, 10:00 Ciclano…). */}
+      <div className="card" style={{ padding: 0, overflow: 'hidden', background: 'var(--card)', marginTop: 14 }}>
+        <div style={{ padding: '13px 20px', background: 'linear-gradient(90deg,#1d4ed8,#3b82f6)', color: '#fff', fontWeight: 800, fontSize: 14, display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+          <span>💙 Pós Vacinal</span>
+          <span style={{ fontSize: 11.5, fontWeight: 700, opacity: .9 }}>{posVacinais.filter(e => e.status !== 'Cancelado').length} contato(s) pra realizar</span>
+        </div>
+        {posVacinais.length === 0 ? (
+          <div style={{ padding: '26px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
+            Nenhum pós-vacinal neste dia. 💙<br />
+            <span style={{ fontSize: 11.5 }}>Cada atendimento de vacinas gera automaticamente o pós-vacinal do dia seguinte.</span>
+          </div>
+        ) : posVacinais.map((ev, i) => linhaEvento(ev, i, posVacinais.length))}
+      </div>
+      </>)}
 
       {celebra && (
         <div onClick={() => setCelebra(null)}
@@ -331,7 +358,8 @@ function baixarPDF(eventos, dataISO, rotuloDia) {
   const brl = (v) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   const esc = (t) => String(t ?? '').replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
   const SET_ICO = { vacinas: '💉', consultas: '🩺', terapias: '🧩' };
-  const ativos = eventos.filter(e => e.status !== 'Cancelado');
+  // O chip "Agendamentos" não conta os pós-vacinais — eles são a seção de baixo
+  const ativos = eventos.filter(e => e.status !== 'Cancelado' && e.servico !== 'Pós Vacinal');
   const totalReceber = ativos.reduce((s, e) => s + (parseFloat(e.valor) || 0), 0);
   const confirmados = ativos.filter(e => e.status === 'Confirmado' || e.status === 'Realizado').length;
 
