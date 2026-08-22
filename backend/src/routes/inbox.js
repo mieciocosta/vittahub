@@ -1735,6 +1735,9 @@ OBJEÇÃO "VOU ANALISAR COM CALMA / VOU PENSAR" (resposta oficial — 4 moviment
 Toda conversa que NÃO terminou em agendamento ou venda precisa sair com um retorno agendado pela ferramenta agendar_retorno — SEMPRE. Inclusive quando o cliente disser NÃO:
 - "Não" à oferta ≠ fim da relação. Responda respeitando e semeando: "Tudo bem, respeito totalmente 💙 Vou só deixar um carinho agendado pra daqui a alguns dias, pra gente não perder tudo o que já conquistamos até aqui — combinado?" — e agende o retorno (NO MÁXIMO 2 dias nesse caso; 1 dia quando foi só um 'vou pensar'). O envio sai sozinho em horário comercial (9h da manhã) — agende na hora, pela ferramenta, sem esperar.
 - A mensagem do retorno deve relembrar a jornada ("não quero que a gente perca o caminho que já andamos pelo Théo") — conquista construída é o motivo do recontato, nunca cobrança.
+- 🎁 O RETORNO GARANTE O QUE JÁ FOI CONQUISTADO (ordem do master): sempre que houver desconto ou condição especial na mesa, o agendamento do retorno é apresentado como a forma de GARANTIR essa conquista — "vou deixar seu retorno agendado só pra garantir o desconto que você já conquistou, tá? É só um agendamento, pra gente não perder tudo o que já conquistamos 💙".
+- "Depois eu dou um retorno" / "te respondo depois" → agende para o DIA SEGUINTE (agendar_retorno, dias=1), explicando que está só deixando agendado pra não perder o que já foi conquistado.
+- "Mês que vem" / "só no próximo mês" → NÃO deixe o lead solto até lá: use agendar_retorno com quando="proximo_mes" — o retorno cai na PRIMEIRA SEMANA do próximo mês (nunca domingo) — e diga que já deixou agendado o início do mês pra garantir o desconto conquistado.
 - ÚNICA exceção (respeito absoluto): se o cliente pedir explicitamente pra NÃO ser contatado ("não me mande mais mensagem", "pare de me chamar") — aí NADA de retorno: agradeça com carinho e encerre. Insistir depois disso queima a marca.
 
 O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
@@ -1858,12 +1861,13 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
     },
   }, {
     name: 'agendar_retorno',
-    description: 'Agenda uma mensagem de retorno carinhosa para o cliente que pediu tempo pra pensar/analisar. Use SEMPRE que o cliente adiar a decisão ("vou analisar", "vou pensar", "vou ver com o marido"): o padrão é voltar AMANHÃ (máximo em 2 dias), sempre às 9h da manhã — horário comercial. A mensagem sai sozinha, mostrando preocupação genuína com a necessidade do paciente.',
+    description: 'Agenda uma mensagem de retorno carinhosa para o cliente que adiou a decisão. Use SEMPRE que o cliente ficar de dar resposta ("vou analisar", "vou pensar", "vou ver com o marido", "depois te respondo"): o padrão é voltar AMANHÃ (máximo em 2 dias), sempre às 9h da manhã. Se o cliente falar em PRÓXIMO MÊS ("mês que vem", "só no outro mês"), use quando="proximo_mes": o retorno cai na primeira semana do próximo mês, nunca no domingo. Ao agendar, DIGA ao cliente que você está deixando o retorno agendado PRA GARANTIR O DESCONTO/CONDIÇÃO que ele já conquistou — "é só um agendamento, pra gente não perder tudo o que já conquistamos". A mensagem sai sozinha, mostrando preocupação genuína com a necessidade do paciente.',
     input_schema: {
       type: 'object',
       properties: {
-        mensagem: { type: 'string', description: 'A mensagem que será enviada (curta, calorosa, personalizada com o nome da criança e a necessidade que a família contou — preocupação genuína, nunca cobrança). Ex.: "Bom dia, Maria! 💙 Fiquei pensando no Théo e na questão da fala que você me contou... Como estão os corações por aí? Se quiserem, ainda tenho aquele horário guardado 😊"' },
-        dias: { type: 'number', description: 'Daqui a quantos dias enviar (padrão 1 = amanhã; use o dia que o cliente combinar)' },
+        mensagem: { type: 'string', description: 'A mensagem que será enviada (curta, calorosa, personalizada com o nome da criança e a necessidade que a família contou — preocupação genuína, nunca cobrança; se houver desconto/condição conquistada, relembre que ela está garantida). Ex.: "Bom dia, Maria! 💙 Fiquei pensando no Théo e na questão da fala que você me contou... Como estão os corações por aí? Seu desconto continua guardadinho, e ainda tenho aquele horário 😊"' },
+        dias: { type: 'number', description: 'Daqui a quantos dias enviar (padrão 1 = amanhã; máximo 2)' },
+        quando: { type: 'string', enum: ['proximo_mes'], description: 'Use "proximo_mes" quando o cliente disse que só resolve no mês que vem — o sistema calcula a primeira semana do próximo mês (nunca domingo)' },
       },
       required: ['mensagem'],
     },
@@ -2019,10 +2023,23 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
         // Regra do master: conversa de VACINAS mostra fotos de vacinas;
         // consultas/terapias mostram as fotos das terapias.
         const setorFoto = conv.setor === 'vacinas' ? 'vacinas' : 'terapias';
-        const { rows: [foto] } = await query(`
-          SELECT id, titulo, data FROM biblioteca_midias
-           WHERE tipo IN ('foto', 'imagem', 'image') AND setor = $1
-           ORDER BY random() LIMIT 1`, [setorFoto]);
+        /* Robustez (master: "não estou vendo a IA enviar fotos"): 1) aceita
+           também as fotos do setor 'geral' como reserva; 2) resolve as fotos
+           que a Biblioteca só APONTA pra mensagem (data nula) buscando o
+           conteúdo original — antes essas eram sorteadas e morriam caladas. */
+        const { rows: fotosCand } = await query(`
+          SELECT id, titulo, data, msg_id FROM biblioteca_midias
+           WHERE tipo IN ('foto', 'imagem', 'image') AND setor IN ($1, 'geral')
+           ORDER BY (setor = $1) DESC, random() LIMIT 5`, [setorFoto]);
+        let foto = null;
+        for (const f of fotosCand) {
+          if (f.data) { foto = f; break; }
+          if (f.msg_id) {
+            const { rows: [msgF] } = await query('SELECT content FROM mensagens WHERE id = $1', [f.msg_id]).catch(() => ({ rows: [] }));
+            const cF = String(msgF?.content || '');
+            if (cF.startsWith('data:')) { foto = { ...f, data: cF }; break; }
+          }
+        }
         if (foto?.data && zapiOk()) {
           const legenda = String(toolFoto.input?.legenda || '').slice(0, 300)
             + '\n\n📸 Veja mais momentos assim no nosso Instagram: https://www.instagram.com/vittalissaudeslz/';
@@ -2037,7 +2054,7 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
             console.log(`VITTA conv=${convId}: foto de terapias enviada (biblioteca #${foto.id})`);
           }
         } else if (!foto) {
-          console.log(`VITTA conv=${convId}: pediu foto de terapias, mas a Biblioteca não tem nenhuma (setor terapias)`);
+          console.log(`VITTA conv=${convId}: pediu foto de prova social, mas a Biblioteca não tem nenhuma utilizável (setor ${setorFoto}/geral — ${fotosCand.length} candidatas sem dados)`);
         }
       }
     } catch (e) { console.error('enviar_foto_terapias:', e.message); }
@@ -2046,11 +2063,22 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
   // ── 📅 Retorno do cuidado: cliente pediu tempo → a Mary volta amanhã ──
   if (toolRetorno) {
     try {
-      // Máximo 2 dias (ordem do master) — retorno frio demais esfria a venda
-      const dias = Math.max(1, Math.min(parseInt(toolRetorno.input?.dias) || 1, 2));
       const msgR = String(toolRetorno.input?.mensagem || '').trim().slice(0, 600);
       if (msgR) {
-        const quando = new Date(Date.now() + dias * 86400000);
+        let quando;
+        if (toolRetorno.input?.quando === 'proximo_mes') {
+          /* "Mês que vem" (pedido do master): já deixa o retorno agendado no
+             INÍCIO do próximo mês — primeira semana, nunca domingo — pra
+             garantir o desconto conquistado e não perder o lead no limbo. */
+          const hojeSLZ = new Date(Date.now() - 3 * 3600 * 1000);
+          quando = new Date(Date.UTC(hojeSLZ.getUTCFullYear(), hojeSLZ.getUTCMonth() + 1, 2));
+          if (quando.getUTCDay() === 0) quando.setUTCDate(quando.getUTCDate() + 1);
+        } else {
+          // Máximo 2 dias (ordem do master) — retorno frio demais esfria a venda
+          const dias = Math.max(1, Math.min(parseInt(toolRetorno.input?.dias) || 1, 2));
+          quando = new Date(Date.now() + dias * 86400000);
+          if (quando.getUTCDay() === 0) quando.setUTCDate(quando.getUTCDate() + 1); // domingo → segunda
+        }
         quando.setUTCHours(12, 0, 0, 0);   // 9h de São Luís — começo de manhã, sem incomodar
         await query(`INSERT INTO mensagens_agendadas (conversa_id, texto, enviar_em, criado_por)
                      SELECT $1, $2, $3, 'Vitta · Retorno do cuidado'

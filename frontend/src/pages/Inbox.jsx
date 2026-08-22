@@ -1876,6 +1876,13 @@ export default function Inbox({ onUnreadChange }) {
                 className="btn btn-sm" style={{ background:'#422006', color:'#fcd34d', border:'1.5px solid #C4973B', fontSize:11, padding:'4px 9px', fontWeight:700 }}>
                 {estudoBusy ? <span className="spin" style={{width:10,height:10}}/> : '📚'} Estudar
               </button>
+              {/* 🔁 REPIQUE (pedido do master): cliente que "vai ver com o marido",
+                  vai dar retorno etc. — a atendente coloca no repique DENTRO da
+                  conversa e ele cai no painel de Retornos pra ninguém esquecer. */}
+              <button onClick={abrirFollow} title="Colocar no repique: cliente que vai dar retorno, ver com o marido… Agenda a recobrança e aparece no painel de Retornos"
+                className="btn btn-sm" style={{ background:'#3b2564', color:'#d8b4fe', border:'1.5px solid #8b5cf6', fontSize:11, padding:'4px 9px', fontWeight:700 }}>
+                🔁 Repique
+              </button>
               <button onClick={abrirVenda} title="Registrar uma venda deste atendimento (entra na meta)"
                 className="btn btn-sm" style={{ background:'#14432a', color:'#7ee0a8', border:'1.5px solid #16a34a', fontSize:11, padding:'4px 9px', fontWeight:700 }}>
                 💰 Venda
@@ -2776,18 +2783,34 @@ export default function Inbox({ onUnreadChange }) {
       {followOpen && sel && (
         <div onClick={()=>setFollowOpen(false)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.5)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000, padding:16 }}>
           <div onClick={e=>e.stopPropagation()} className="card" style={{ width:360, maxWidth:'100%', padding:22 }}>
-            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}><Bell size={18} color="var(--tq)"/><h3 style={{ fontSize:16, fontWeight:800 }}>Criar follow-up</h3></div>
-            <p style={{ fontSize:12, color:'var(--muted)', marginBottom:16 }}>Lembrete de retorno pra <b>{sel.contact_name || fmt.phone(sel.phone)}</b>. Aparece em Follow-up.</p>
+            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}><span style={{ fontSize:18 }}>🔁</span><h3 style={{ fontSize:16, fontWeight:800 }}>Colocar no repique</h3></div>
+            <p style={{ fontSize:12, color:'var(--muted)', marginBottom:16 }}>Cliente <b>{sel.contact_name || fmt.phone(sel.phone)}</b> vai dar retorno? Marque aqui e ele entra no painel de <b>Retornos</b> — ninguém esquece de recobrar. 💪</p>
             <div style={{ display:'flex', flexDirection:'column', gap:11 }}>
-              <div className="field" style={{ margin:0 }}><label>Data do retorno *</label><input type="date" value={followForm.data} onChange={e=>setFollowForm(p=>({...p,data:e.target.value}))} /></div>
-              <div className="field" style={{ margin:0 }}><label>Motivo</label>
+              <div className="field" style={{ margin:0 }}>
+                <label>Recobrar quando? *</label>
+                {/* Atalhos rápidos — a atendente marca o repique em 2 toques */}
+                <div style={{ display:'flex', gap:6, flexWrap:'wrap', margin:'4px 0 7px' }}>
+                  {[['Amanhã',1],['2 dias',2],['3 dias',3],['1 semana',7]].map(([rot,dias])=>{
+                    const d = new Date(Date.now() + dias*86400000).toISOString().slice(0,10);
+                    const on = followForm.data === d;
+                    return (
+                      <button key={rot} type="button" onClick={()=>setFollowForm(p=>({...p,data:d}))}
+                        style={{ padding:'6px 12px', borderRadius:9, cursor:'pointer', fontSize:12, fontWeight:700,
+                          border:`1.5px solid ${on?'#8b5cf6':'var(--border)'}`,
+                          background:on?'#f5f3ff':'var(--card)', color:on?'#7c3aed':'var(--muted)' }}>{on?'✓ ':''}{rot}</button>
+                    );
+                  })}
+                </div>
+                <input type="date" value={followForm.data} onChange={e=>setFollowForm(p=>({...p,data:e.target.value}))} />
+              </div>
+              <div className="field" style={{ margin:0 }}><label>Motivo do repique</label>
                 <select value={followForm.motivo} onChange={e=>setFollowForm(p=>({...p,motivo:e.target.value}))} style={{ width:'100%' }}>
                   <option value="">— (opcional)</option>
                   {MOTIVOS_FOLLOW.map(m=><option key={m} value={m}>{m}</option>)}
                 </select>
               </div>
               <div style={{ display:'flex', gap:8, marginTop:4 }}>
-                <button onClick={salvarFollow} disabled={followSaving} className="btn btn-p" style={{ flex:1 }}>{followSaving ? <span className="spin" style={{width:14,height:14}}/> : '🔔 Agendar follow-up'}</button>
+                <button onClick={salvarFollow} disabled={followSaving} className="btn btn-p" style={{ flex:1, fontWeight:800 }}>{followSaving ? <span className="spin" style={{width:14,height:14}}/> : '🔁 Colocar no repique'}</button>
                 <button onClick={()=>setFollowOpen(false)} className="btn">Cancelar</button>
               </div>
             </div>

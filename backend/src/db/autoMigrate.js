@@ -2404,6 +2404,33 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log('🤖 Follow-up de IA ligado; Poliana com o botão');
     }
 
+    /* 🤖 IA NA CONVERSA DA SRA. NATHY (pedido do master, 22/08): ligar a Vitta
+       nessa conversa pra ela conduzir o agendamento com prova social. O robô
+       de uma passada acha a conversa pelo nome, liga o bot e garante setor de
+       consultas (sem setor a IA completa não age); a vassoura da Mary pega a
+       última mensagem pendente em até 5 min. Resultado no sino do master. */
+    const { rows: [flagNathy] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_ia_nathy_v1'");
+    if (!flagNathy) {
+      const { rows: convsN } = await query(`
+        SELECT id, contact_name, setor, phone FROM conversas
+         WHERE contact_name ILIKE '%nathy%' AND contact_id NOT LIKE '%g.us%'
+         ORDER BY last_message_at DESC NULLS LAST LIMIT 3`).catch(() => ({ rows: [] }));
+      let textoN;
+      if (convsN.length) {
+        const cN = convsN[0];
+        await query(`UPDATE conversas SET bot_ativo = true,
+                       setor = CASE WHEN setor IN ('consultas','terapias') THEN setor ELSE 'consultas' END
+                     WHERE id = $1`, [cN.id]).catch(() => {});
+        textoN = `A Vitta foi ligada na conversa de ${cN.contact_name} (${cN.phone || 'sem telefone'})${convsN.length > 1 ? ` — havia ${convsN.length} conversas com "Nathy"; liguei na mais recente` : ''}. Setor garantido em consultas/terapias pra IA completa agir, com prova social (foto + Instagram) no momento certo. Se ela tiver mensagem sem resposta, a IA responde em até 5 minutos.`;
+      } else {
+        textoN = 'Não achei nenhuma conversa com "Nathy" no nome do contato. Confere como o nome está salvo no Chat e me diz — posso ligar a IA pelo nome exato ou pelo telefone.';
+      }
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+        ['🤖 IA na conversa da Sra. Nathy', textoN]).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_ia_nathy_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🤖 Seed IA Nathy:', convsN.length ? 'ligada' : 'conversa não encontrada');
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);
