@@ -34,14 +34,23 @@ export function GridMidias({ tipoFixo = null, titulo, subtitulo, categorias = nu
      sozinha, a lista única vira um monte só. Em colunas a equipe bate o olho
      em "vacinas" ou "consultas" e escolhe o que mandar. */
   const [colunas, setColunas] = useState(true);
+  const [temMais, setTemMais] = useState(false);
+  const [importando, setImportando] = useState(false);
   const fileRef = useRef(null);
 
-  const load = useCallback(() => {
-    const q = new URLSearchParams({ tipo });
+  /* A biblioteca cresce todo dia (a foto da conversa entra sozinha), então a
+     lista vem por página — sem isso a tela puxaria tudo e iria ficando mais
+     lenta a cada semana. */
+  const load = useCallback((pulo = 0) => {
+    const q = new URLSearchParams({ tipo, limite: '60', pulo: String(pulo) });
     if (setor) q.set('setor', setor);
-    api.get(`/extras/biblioteca?${q}`).then(setItens).catch(() => {});
+    api.get(`/extras/biblioteca?${q}`).then(d => {
+      const lista = Array.isArray(d) ? d : (d?.itens || []);
+      setItens(prev => (pulo ? [...prev, ...lista] : lista));
+      setTemMais(Array.isArray(d) ? false : !!d?.tem_mais);
+    }).catch(() => {});
   }, [tipo, setor]); // eslint-disable-line
-  useEffect(load, [load]);
+  useEffect(() => { load(0); }, [load]);
 
   // Carrega a prévia (base64) sob demanda, um por vez
   useEffect(() => {
@@ -149,7 +158,23 @@ export function GridMidias({ tipoFixo = null, titulo, subtitulo, categorias = nu
             } catch (e) { window.alert('Erro ao carregar: ' + e.message); }
           }} className="btn btn-s" style={{ gap: 6, fontWeight: 700 }}>💟 Carregar figurinhas oficiais</button>
         )}
-        {gestao && <button onClick={() => setUp({ setor: setor || 'geral' })} className="btn btn-p" style={{ gap: 6 }}><Plus size={14} /> Adicionar</button>}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {gestao && tipoFixo !== 'figurinha' && (
+            <button onClick={async () => {
+              if (!window.confirm('Trazer para a biblioteca as fotos que já estão nas conversas dos últimos 60 dias?\n\nNão ocupa espaço a mais: a biblioteca aponta para a foto que já está guardada na mensagem.')) return;
+              setImportando(true);
+              try {
+                const r = await api.post('/extras/biblioteca/importar-conversas', { dias: 60 });
+                window.alert(`📸 ${r.importadas} foto(s) trazidas (${r.encontradas} encontradas nos últimos ${r.dias} dias).`);
+                load(0);
+              } catch (e) { window.alert('Erro: ' + e.message); }
+              setImportando(false);
+            }} className="btn btn-s" style={{ gap: 6 }} disabled={importando}>
+              📸 {importando ? 'Trazendo…' : 'Trazer fotos das conversas'}
+            </button>
+          )}
+          {gestao && <button onClick={() => setUp({ setor: setor || 'geral' })} className="btn btn-p" style={{ gap: 6 }}><Plus size={14} /> Adicionar</button>}
+        </div>
       </div>
 
       <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
@@ -198,6 +223,12 @@ export function GridMidias({ tipoFixo = null, titulo, subtitulo, categorias = nu
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(170px,1fr))', gap: 13 }}>
           {itens.map(it => <Cartao key={it.id} it={it} />)}
+        </div>
+      )}
+
+      {temMais && (
+        <div style={{ textAlign: 'center', marginTop: 16 }}>
+          <button onClick={() => load(itens.length)} className="btn btn-s">Carregar mais</button>
         </div>
       )}
 

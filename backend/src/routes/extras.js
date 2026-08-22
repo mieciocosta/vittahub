@@ -3102,15 +3102,41 @@ r.get('/biblioteca', async (req, res) => {
     const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
     // Lista SEM o base64 (leve); o dado pesado sai só no item
     // origem = 'conversa' marca a foto que a família mandou (entra sozinha)
-    const { rows } = await query(`SELECT id, titulo, tipo, setor, categoria, origem, mime, octet_length(data) tamanho, created_at FROM biblioteca_midias ${where} ORDER BY created_at DESC LIMIT 300`, params);
-    res.json(rows);
+    /* Paginação: com a foto da conversa entrando sozinha, a biblioteca cresce
+       todo dia. Sem página, a tela puxaria a lista inteira e ia ficando mais
+       lenta a cada semana. */
+    const limite = Math.min(200, Math.max(12, parseInt(req.query.limite) || 60));
+    const pulo = Math.max(0, parseInt(req.query.pulo) || 0);
+    const { rows } = await query(
+      `SELECT id, titulo, tipo, setor, categoria, origem, mime,
+              COALESCE(octet_length(data), 0) tamanho, created_at
+         FROM biblioteca_midias ${where}
+        ORDER BY created_at DESC LIMIT ${limite + 1} OFFSET ${pulo}`, params);
+    const tem_mais = rows.length > limite;
+    res.json({ itens: rows.slice(0, limite), tem_mais, pulo, limite });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* Foto da conversa não é copiada: a biblioteca APONTA pra mensagem onde a
+   imagem já está (msg_id). Aqui é onde isso é resolvido — quem chama continua
+   recebendo { mime, data } igual, sem saber de onde veio. */
+export async function midiaComDados(id) {
+  const { rows: [m] } = await query('SELECT * FROM biblioteca_midias WHERE id = $1', [id]);
+  if (!m) return null;
+  if (m.data) return m;
+  if (!m.msg_id) return { ...m, indisponivel: true };
+  const { rows: [msg] } = await query('SELECT content FROM mensagens WHERE id = $1', [m.msg_id]).catch(() => ({ rows: [] }));
+  const url = String(msg?.content || '');
+  if (!url.startsWith('data:')) return { ...m, indisponivel: true };   // mensagem apagada
+  const [cab, base64] = url.split(',');
+  return { ...m, mime: (cab.match(/data:([^;]+)/) || [])[1] || m.mime || 'image/jpeg', data: base64 };
+}
+
 r.get('/biblioteca/:id', async (req, res) => {
   try {
-    const { rows: [m] } = await query('SELECT * FROM biblioteca_midias WHERE id = $1', [req.params.id]);
+    const m = await midiaComDados(req.params.id);
     if (!m) return res.status(404).json({ error: 'Mídia não encontrada' });
+    if (m.indisponivel) return res.status(410).json({ error: 'A imagem saiu da conversa — remova este item da biblioteca.' });
     res.json(m);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -3131,6 +3157,49 @@ r.post('/biblioteca', async (req, res) => {
       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, titulo, tipo, setor, categoria, mime, created_at`,
       [titulo, b.tipo, setor, cut(b.categoria, 40), cut(b.mime, 60) || 'image/jpeg', b.data]);
     res.status(201).json(m);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* Trazer as fotos que JÁ ESTÃO nas conversas — pedido do master ("quero que
+   toda foto venha pra cá"). A entrada automática só pega as próximas; o
+   material bom dos últimos meses estava para trás.
+
+   Não copia nada: cria a ligação com a mensagem, então importar 500 fotos não
+   ocupa espaço nenhum a mais no banco. Roda quantas vezes quiser — o índice
+   único no id da mensagem impede repetir. */
+r.post('/biblioteca/importar-conversas', async (req, res) => {
+  try {
+    if (!gestao(req)) return res.status(403).json({ error: 'Importar é da gestão.' });
+    const dias = Math.min(365, Math.max(1, parseInt(req.body?.dias) || 30));
+    const { rows } = await query(`
+      SELECT m.id, m.wa_msg_id, m.content, m.created_at, c.id AS conversa_id,
+             COALESCE(c.contact_name, c.phone) AS nome, c.setor
+        FROM mensagens m
+        JOIN conversas c ON c.id = m.conversa_id
+       WHERE m.from_type = 'contact' AND m.type = 'image'
+         AND m.created_at > NOW() - ($1 || ' days')::interval
+         AND m.content LIKE 'data:image/%'
+         AND COALESCE(c.contact_id,'') NOT LIKE '%g.us%'
+         AND NOT EXISTS (SELECT 1 FROM biblioteca_midias b WHERE b.msg_id = m.id)
+       ORDER BY m.created_at DESC
+       LIMIT 800`, [String(dias)]);
+
+    let criadas = 0;
+    for (const r2 of rows) {
+      const primeiro = String(r2.nome || '').trim().split(/\s+/)[0] || 'Cliente';
+      const d = new Date(r2.created_at);
+      const dia = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const setor = ['vacinas', 'consultas', 'terapias'].includes(r2.setor) ? r2.setor : 'geral';
+      const rot = { vacinas: 'Vacinas', consultas: 'Consultas', terapias: 'Terapias', geral: 'Atendimento' }[setor];
+      const mime = (String(r2.content).match(/data:([^;]+)/) || [])[1] || 'image/jpeg';
+      const ok = await query(`
+        INSERT INTO biblioteca_midias (titulo, tipo, setor, categoria, mime, data, origem, origem_msg_id, conversa_id, msg_id)
+        VALUES ($1,'foto',$2,'Prova Social',$3,NULL,'conversa',$4,$5,$6)
+        ON CONFLICT (origem_msg_id) DO NOTHING RETURNING id`,
+        [`${primeiro} · ${rot} · ${dia}`.slice(0, 80), setor, mime, r2.wa_msg_id || null, r2.conversa_id, r2.id]).catch(() => ({ rows: [] }));
+      if (ok.rows?.length) criadas++;
+    }
+    res.json({ ok: true, encontradas: rows.length, importadas: criadas, dias });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

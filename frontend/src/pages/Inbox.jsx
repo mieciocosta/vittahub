@@ -2983,7 +2983,8 @@ function BibliotecaPicker({ convId, setor, api, onClose, abaInicial = 'foto' }) 
     const q = new URLSearchParams({ tipo: aba });
     if (filtroSetor) q.set('setor', filtroSetor);
     api.get(`/extras/biblioteca?${q}`).then(d => {
-      const lista = Array.isArray(d) ? d : [];
+      // A rota passou a paginar: { itens, tem_mais } (aceita o formato antigo)
+      const lista = Array.isArray(d) ? d : (d?.itens || []);
       // prioriza o setor da conversa, depois geral, depois o resto
       lista.sort((a, b) => (a.setor === setor ? 0 : a.setor === 'geral' ? 1 : 2) - (b.setor === setor ? 0 : b.setor === 'geral' ? 1 : 2));
       setItens(lista);

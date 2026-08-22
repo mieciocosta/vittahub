@@ -1107,6 +1107,13 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
     await query(`ALTER TABLE biblioteca_midias ADD COLUMN IF NOT EXISTS conversa_id TEXT`).catch(() => {});
     await query(`CREATE UNIQUE INDEX IF NOT EXISTS biblioteca_origem_msg_idx ON biblioteca_midias (origem_msg_id) WHERE origem_msg_id IS NOT NULL`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS biblioteca_setor_idx ON biblioteca_midias (setor, created_at DESC)`).catch(() => {});
+    /* A foto da conversa NÃO é copiada: a biblioteca aponta pra mensagem onde
+       ela já está. Copiar guardava a mesma imagem DUAS VEZES no banco — e com
+       toda foto entrando sozinha, isso vira centenas de MB por mês no Railway,
+       que é dinheiro. Por isso `data` deixou de ser obrigatória e existe
+       msg_id: quando ele está preenchido, a imagem é lida da mensagem. */
+    await query(`ALTER TABLE biblioteca_midias ADD COLUMN IF NOT EXISTS msg_id INT`).catch(() => {});
+    await query(`ALTER TABLE biblioteca_midias ALTER COLUMN data DROP NOT NULL`).catch(() => {});
 
     // 💟 FIGURINHAS OFICIAIS da Vittalis (logo + frases) — semeadas uma vez;
     // os .webp vivem em backend/src/assets/figurinhas (gerados pelo Claude).

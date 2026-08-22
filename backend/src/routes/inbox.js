@@ -606,7 +606,7 @@ r.post('/webhook/whatsapp', async (req, res) => {
    conversa manda a foto pra coluna certa (vacinas, consultas, terapias).
    Figurinha não entra; foto gigante não entra (a biblioteca guarda até ~3MB).
    Repetição não acontece: o id da mensagem no WhatsApp tem índice único. */
-async function fotoParaBiblioteca({ conv, dataUrl, waId, quando, messageType }) {
+async function fotoParaBiblioteca({ conv, dataUrl, waId, quando, messageType, msgId }) {
   try {
     if (messageType !== 'imageMessage') return;                 // sticker fica de fora
     if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) return;
@@ -621,11 +621,15 @@ async function fotoParaBiblioteca({ conv, dataUrl, waId, quando, messageType }) 
     const doSetor = { vacinas: 'Vacinas', consultas: 'Consultas', terapias: 'Terapias', geral: 'Atendimento' }[setor];
     const titulo = `${primeiro} · ${doSetor} · ${dia}`.slice(0, 80);
 
+    /* APONTA, não copia: a imagem já está guardada na mensagem. Guardar de
+       novo aqui dobraria o espaço no banco — com toda foto entrando sozinha,
+       são centenas de MB por mês à toa. `data` fica vazio e o download resolve
+       pelo msg_id. */
     await query(`
-      INSERT INTO biblioteca_midias (titulo, tipo, setor, categoria, mime, data, origem, origem_msg_id, conversa_id)
-      VALUES ($1,'foto',$2,'Prova Social',$3,$4,'conversa',$5,$6)
+      INSERT INTO biblioteca_midias (titulo, tipo, setor, categoria, mime, data, origem, origem_msg_id, conversa_id, msg_id)
+      VALUES ($1,'foto',$2,'Prova Social',$3,NULL,'conversa',$4,$5,$6)
       ON CONFLICT (origem_msg_id) DO NOTHING`,
-      [titulo, setor, mime, base64, waId || null, conv?.id || null]);
+      [titulo, setor, mime, waId || null, conv?.id || null, msgId || null]);
   } catch (_) { /* biblioteca nunca pode derrubar o recebimento da mensagem */ }
 }
 
@@ -675,15 +679,16 @@ async function fotoParaBiblioteca({ conv, dataUrl, waId, quando, messageType }) 
 
       // Salva mensagem com deduplicação por wa_msg_id
       const waId = key.id || null;
-      await query(
+      const { rows: [msgSalva] } = await query(
         `INSERT INTO mensagens (conversa_id, from_type, type, content, filename, created_at, wa_msg_id)
          SELECT $1, 'contact', $2, $3, $4, $5, $6
-         WHERE NOT EXISTS (SELECT 1 FROM mensagens WHERE wa_msg_id = $6 AND $6 IS NOT NULL)`,
+         WHERE NOT EXISTS (SELECT 1 FROM mensagens WHERE wa_msg_id = $6 AND $6 IS NOT NULL)
+         RETURNING id`,
         [conv.id, type, mediaData || content, messageType || null, ts, waId]
       );
 
       // Foto que a família mandou vira material da casa, com o nome dela no título
-      if (type === 'image') await fotoParaBiblioteca({ conv, dataUrl: mediaData, waId, quando: ts, messageType });
+      if (type === 'image') await fotoParaBiblioteca({ conv, dataUrl: mediaData, waId, quando: ts, messageType, msgId: msgSalva?.id });
 
       await query(
         `INSERT INTO notificacoes (tipo, titulo, texto, conv_id) VALUES ('mensagem',$1,$2,$3)`,
@@ -5300,8 +5305,11 @@ r.post('/conversations/:id/send-midia', async (req, res) => {
     const { midiaId } = req.body;
     const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
     if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
-    const { rows: [m] } = await query('SELECT * FROM biblioteca_midias WHERE id = $1', [midiaId]);
+    // Resolve pelo msg_id quando a foto veio da conversa (não é copiada)
+    const { midiaComDados } = await import('./extras.js');
+    const m = await midiaComDados(midiaId);
     if (!m) return res.status(404).json({ error: 'Mídia não encontrada' });
+    if (m.indisponivel) return res.status(410).json({ error: 'A imagem saiu da conversa — remova este item da biblioteca.' });
     if (!zapiOk()) return res.status(503).json({ error: 'Z-API não configurada' });
 
     let phoneNum = String(conv.phone || '').replace(/\D/g, '');
