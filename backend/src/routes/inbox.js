@@ -8300,7 +8300,7 @@ function dentroDoHorarioComercial() {
   return horaLocal >= 8 && horaLocal < 20;
 }
 
-async function gerarMensagemFollowup(conv, count) {
+async function gerarMensagemFollowup(conv, count, nomeFU = 'Mary') {
   const { rows: histRows } = await query(
     `SELECT from_type, type, content, filename FROM mensagens
      WHERE conversa_id = $1 AND type IN ('text','document') AND from_type NOT IN ('system','interno')
@@ -8329,7 +8329,7 @@ async function gerarMensagemFollowup(conv, count) {
       return `${quem}: ${txt}`;
     }).join('\n');
 
-    const sys = `Você é a Mary, atendente carinhosa da Vittalis Saúde no WhatsApp. O cliente parou de responder e você quer reativar a conversa com delicadeza. Escreva UMA única mensagem curta (1 a 2 frases), calorosa e humana, no tom da Vittalis: trate por "${trato}", use 1 emoji de afeto (💙🥰😊✨), e convide gentilmente para o próximo passo (tirar dúvida ou agendar). NÃO repita literalmente o que já foi dito. NÃO seja insistente nem cobre. Esta é a tentativa de retomada número ${count + 1} de ${FOLLOWUP_MAX} — quanto maior o número, mais leve e sem pressão. Responda APENAS a mensagem, sem aspas.`;
+    const sys = `Você é a ${nomeFU}, atendente carinhosa da Vittalis Saúde no WhatsApp (é assim que o cliente te conhece). O cliente parou de responder e você quer reativar a conversa com delicadeza. Escreva UMA única mensagem curta (1 a 2 frases), calorosa e humana, no tom da Vittalis: trate por "${trato}", use 1 emoji de afeto (💙🥰😊✨), e convide gentilmente para o próximo passo (tirar dúvida ou agendar). NÃO repita literalmente o que já foi dito. NÃO seja insistente nem cobre. Esta é a tentativa de retomada número ${count + 1} de ${FOLLOWUP_MAX} — quanto maior o número, mais leve e sem pressão. Responda APENAS a mensagem, sem aspas.`;
 
     const aiData = await openaiMessages({
       model: 'gpt-4o-mini', max_tokens: 150, system: sys,
@@ -8354,13 +8354,20 @@ export async function rodarFollowups() {
     const { rows: [cfgRow] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'");
     const cfg = cfgRow?.valor || {};
     // Opt-in: o follow-up só dispara quando explicitamente ligado (cfg.followup === true).
-    // Dado o histórico de IA "queimando leads", nasce desligado — ligue com consciência.
-    if (cfg.ativo === false || cfg.followup !== true) return;
+    // Ligado pelo master em 20/08 pras carteiras com o botão da IA. Não depende
+    // mais do bot geral (cfg.ativo) — são chaves de áreas diferentes.
+    if (cfg.followup !== true) return;
 
+    /* Quem entra no follow-up (pedido do master — equipe de vacinas dentro
+       do usuário delas): conversas do bot E as CARTEIRAS das usuárias com o
+       botão da IA (Stefany, Raylane, Poliana…), onde a última palavra foi
+       nossa ('bot' ou 'me') e o cliente silenciou. A chave pessoal manda:
+       usuária com a IA desligada fica de fora. */
     const { rows: candidatos } = await query(`
       SELECT * FROM conversas
-      WHERE bot_ativo = true
-        AND last_from = 'bot'
+      WHERE ((bot_ativo = true AND last_from = 'bot')
+          OR (responsavel_id IN (SELECT id FROM usuarios WHERE ia_consultas = true AND COALESCE(ia_ligada, true) = true AND ativo = true)
+              AND last_from IN ('bot','me')))
         AND COALESCE(followup_pausado, false) = false
         AND COALESCE(followup_count, 0) < $1
         AND phone IS NOT NULL AND phone <> ''
@@ -8378,15 +8385,24 @@ export async function rodarFollowups() {
         if (phoneNum.startsWith('55') && phoneNum.length >= 12) phoneNum = phoneNum.slice(2);
         if (phoneNum.length < 10) continue;
 
-        const count = conv.followup_count || 0;
-        const msg = await gerarMensagemFollowup(conv, count);
+        // 💁‍♀️ O follow-up sai NO NOME da responsável ("dentro do usuário dela")
+        let nomeFU = 'Mary';
+        if (conv.responsavel_id) {
+          const { rows: [respFU] } = await query('SELECT nome, ia_consultas, ia_ligada FROM usuarios WHERE id = $1', [conv.responsavel_id]).catch(() => ({ rows: [null] }));
+          if (respFU?.ia_ligada === false) continue;   // chave pessoal desligada = a IA cala na carteira dela
+          if (respFU?.nome) nomeFU = String(respFU.nome).trim().split(' ')[0];
+        }
 
-        const zr = await zapiCall('/send-text', 'POST', { phone: `55${phoneNum}`, message: msg });
+        const count = conv.followup_count || 0;
+        const msg = await gerarMensagemFollowup(conv, count, nomeFU);
+
+        const msgAssinada = msg.trimStart().startsWith('*') ? msg : `*${nomeFU}:*\n${msg}`;
+        const zr = await zapiCall('/send-text', 'POST', { phone: `55${phoneNum}`, message: msgAssinada });
         if (!zr?.ok) { console.error('Follow-up Z-API falhou:', conv.id, zr?.status); continue; }
 
         const { rows: [botMsg] } = await query(
           `INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome)
-           VALUES ($1,'bot','text',$2,'Mary') RETURNING *`, [conv.id, msg]
+           VALUES ($1,'bot','text',$2,$3) RETURNING *`, [conv.id, msg, nomeFU]
         ).catch(() => ({ rows: [null] }));
 
         await query(

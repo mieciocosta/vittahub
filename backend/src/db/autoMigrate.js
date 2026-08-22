@@ -2375,6 +2375,23 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_dica_raylane_v2','{"ok":true}') ON CONFLICT DO NOTHING`);
     }
 
+    /* 🤖 FOLLOW-UP DE IA LIGADO pras carteiras (ordem do master — equipe de
+       vacinas: Stefany, Raylane e Poliana). Poliana ganha o botão da IA;
+       cfg.followup vira true (a área followup já estava ligada). */
+    const { rows: [flagFuVac] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_followup_vacinas_v1'");
+    if (!flagFuVac) {
+      await query(`UPDATE usuarios SET ia_consultas = true, updated_at = NOW()
+                    WHERE ativo = true AND role <> 'master' AND nome ILIKE 'poliana%'`).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('bot', '{"followup":true}'::jsonb)
+                   ON CONFLICT (chave) DO UPDATE SET valor = COALESCE(configuracoes.valor,'{}'::jsonb) || '{"followup":true}'::jsonb, updated_at = NOW()`).catch(() => {});
+      const { rows: comBotao } = await query(`SELECT nome FROM usuarios WHERE ativo = true AND ia_consultas = true ORDER BY nome`).catch(() => ({ rows: [] }));
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+        ['🤖 Follow-up de IA ligado pras carteiras',
+         `A IA agora faz follow-up sozinha nas carteiras de quem tem o botão: ${comBotao.map(u => u.nome.split(' ')[0]).join(', ')}. Cliente que ficou sem responder recebe a retomada carinhosa ASSINADA PELO NOME da atendente responsável (até 3 tentativas, horário comercial, cada vez mais leve). Poliana ganhou o botão da IA. Quem desligar a chave pessoal na aba Assistente IA fica de fora — sem afetar as colegas.`]).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_followup_vacinas_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🤖 Follow-up de IA ligado; Poliana com o botão');
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);
