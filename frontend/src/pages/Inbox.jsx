@@ -2649,6 +2649,28 @@ export default function Inbox({ onUnreadChange }) {
       {lightbox && (
         <div onClick={()=>setLightbox(null)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.92)', zIndex:500, display:'flex', alignItems:'center', justifyContent:'center', cursor:'zoom-out' }}>
           <img src={lightbox} alt="" style={{ maxWidth:'92vw', maxHeight:'90vh', borderRadius:8 }}/>
+          {/* 📚 Foto da conversa → Biblioteca em 2 cliques (gestão): vira prova
+              social da Mary. Lembrete de autorização de imagem no próprio botão. */}
+          {['master','supervisor'].includes(user?.role) && String(lightbox).startsWith('data:image') && (
+            <div onClick={e=>e.stopPropagation()} style={{ position:'absolute', bottom:22, left:'50%', transform:'translateX(-50%)', display:'flex', gap:8, alignItems:'center',
+              background:'rgba(0,0,0,.55)', borderRadius:14, padding:'8px 12px', backdropFilter:'blur(4px)' }}>
+              <span style={{ color:'#fff', fontSize:11.5, fontWeight:800 }}>📚 Salvar na Biblioteca:</span>
+              {[['terapias','🧩 Terapias'],['consultas','🩺 Consultas'],['vacinas','💉 Vacinas']].map(([k,rot]) => (
+                <button key={k} onClick={async ()=>{
+                  try {
+                    const m = String(lightbox).match(/^data:([^;]+);base64,(.+)$/s);
+                    if (!m) return Toast.show('Formato da imagem não suportado.', 'error');
+                    await api.post('/extras/biblioteca', { titulo:`Foto da conversa — ${sel?.contact_name || 'cliente'}`,
+                      tipo:'foto', setor:k, categoria:'prova social', mime:m[1], data:m[2] });
+                    Toast.show(`Foto salva na Biblioteca (${rot}) — confirme que há autorização de imagem! 📚`, 'success');
+                    setLightbox(null);
+                  } catch (e) { Toast.show(e.message, 'error'); }
+                }} style={{ padding:'6px 12px', borderRadius:10, border:'none', cursor:'pointer', background:'#fff', color:'#0e7490', fontSize:11.5, fontWeight:900 }}>
+                  {rot}
+                </button>
+              ))}
+            </div>
+          )}
           <button onClick={()=>setLightbox(null)} style={{ position:'absolute', top:18, right:18, background:'rgba(255,255,255,.14)', color:'#fff', border:'none', borderRadius:'50%', padding:9, cursor:'pointer' }}><X size={17}/></button>
         </div>
       )}
