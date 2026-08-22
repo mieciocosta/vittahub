@@ -1591,7 +1591,7 @@ Nossos profissionais são BEM REQUISITADOS e nossas terapias BEM PROCURADAS — 
 - Nunca implore, nunca corra atrás parecendo desespero: quem tem qualidade tem procura.
 EQUILÍBRIO FINO: requisitada ≠ fria. O acolhimento caloroso continua sendo a alma — a procura é só a moldura de valor. E seja sempre VERDADEIRA: fale da procura sem inventar números ou falsas filas.
 
-📷 PROVA SOCIAL EM FOTO (ferramenta enviar_foto_terapias): você tem fotos REAIS das terapias na Biblioteca oficial da clínica (todas com autorização de imagem). O MOMENTO CERTO de enviar UMA: quando a mãe demonstra medo ou insegurança ("será que ele vai se adaptar?", "ele estranha lugares novos"), quando pede pra conhecer o espaço, ou junto da apresentação do plano pra materializar o cuidado. Legenda curta conectando à dor dela. NUNCA mais de uma foto por conversa, nunca de cara na primeira mensagem — foto sem contexto é panfleto; foto na hora da dúvida é resposta.
+📷 PROVA SOCIAL EM FOTO (ferramenta enviar_foto_terapias): você tem fotos REAIS da Biblioteca oficial da clínica (todas com autorização de imagem) — em conversas de VACINAS saem fotos de vacinação; em consultas/terapias, fotos das terapias. A ferramenta escolhe sozinha pelo setor. O MOMENTO CERTO de enviar UMA: quando a mãe demonstra medo ou insegurança ("será que ele vai se adaptar?", "ele estranha lugares novos"), quando pede pra conhecer o espaço, ou junto da apresentação do plano pra materializar o cuidado. Legenda curta conectando à dor dela. NUNCA mais de uma foto por conversa, nunca de cara na primeira mensagem — foto sem contexto é panfleto; foto na hora da dúvida é resposta.
 
 🎁 ENCANTAMENTO DA CASA (conte às famílias — é real e é nosso diferencial):
 Depois da consulta, cada criança recebe um PRESENTE e o *Certificado de Coragem* 🏅 — cada etapa vencida vira um momento de celebração. Use no fechamento ("e o seu pequeno ainda sai com o Certificado de Coragem dele 🏅") e no pós-venda ("ele mereceu o certificado hoje!"). Isso transforma medo de consultório em conquista — as mães amam.
@@ -1739,7 +1739,7 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
     },
   }, {
     name: 'enviar_foto_terapias',
-    description: 'Envia UMA foto real das terapias da clínica (da Biblioteca oficial, com autorização de imagem) como prova social. Use no MOMENTO CERTO: quando a mãe demonstra medo/insegurança ("será que ele se adapta?"), pede pra conhecer o espaço, ou junto da apresentação do plano. NUNCA mais de uma foto por conversa.',
+    description: 'Envia UMA foto real da clínica (da Biblioteca oficial, com autorização de imagem) como prova social — a foto certa pro setor da conversa (vacinas ou terapias) é escolhida sozinha. Use no MOMENTO CERTO: quando a mãe demonstra medo/insegurança ("será que ele se adapta?"), pede pra conhecer o espaço, ou junto da apresentação do plano. NUNCA mais de uma foto por conversa.',
     input_schema: {
       type: 'object',
       properties: {
@@ -1834,18 +1834,22 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
       const { rows: [jaFoto] } = await query(
         `SELECT 1 FROM mensagens WHERE conversa_id = $1 AND from_type = 'bot' AND type = 'image' LIMIT 1`, [convId]);
       if (!jaFoto) {
+        // Regra do master: conversa de VACINAS mostra fotos de vacinas;
+        // consultas/terapias mostram as fotos das terapias.
+        const setorFoto = conv.setor === 'vacinas' ? 'vacinas' : 'terapias';
         const { rows: [foto] } = await query(`
           SELECT id, titulo, data FROM biblioteca_midias
-           WHERE tipo IN ('foto', 'imagem', 'image') AND (setor = 'terapias' OR COALESCE(categoria,'') ILIKE '%terapia%')
-           ORDER BY random() LIMIT 1`);
+           WHERE tipo IN ('foto', 'imagem', 'image') AND setor = $1
+           ORDER BY random() LIMIT 1`, [setorFoto]);
         if (foto?.data && zapiOk()) {
           const legenda = String(toolFoto.input?.legenda || '').slice(0, 300);
-          const zrF = await zapiCall('/send-image', 'POST', { phone: `55${phoneNum}`, image: foto.data, caption: legenda });
+          const imgEnvio = String(foto.data).startsWith('data:') ? foto.data : `data:image/jpeg;base64,${foto.data}`;
+          const zrF = await zapiCall('/send-image', 'POST', { phone: `55${phoneNum}`, image: imgEnvio, caption: legenda });
           if (zrF?.ok) {
             const { rows: [fmsg] } = await query(
               `INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, created_at)
                VALUES ($1,'bot',$3,'image',$2,NOW()) RETURNING *`,
-              [convId, foto.data, nomePersona]).catch(() => ({ rows: [null] }));
+              [convId, imgEnvio, nomePersona]).catch(() => ({ rows: [null] }));
             if (fmsg) socketEmit('new_message', { convId, message: fmsg, conv });
             console.log(`VITTA conv=${convId}: foto de terapias enviada (biblioteca #${foto.id})`);
           }

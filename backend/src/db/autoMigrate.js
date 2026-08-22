@@ -2316,6 +2316,16 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log(`📚 Fotos Nágila: ${resNagila}`);
     }
 
+    // 📚 Correção do master: fotos da conversa da Nágila são prova social de VACINAS
+    const { rows: [flagNagila2] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_fotos_nagila_v2'");
+    if (!flagNagila2) {
+      const rN2 = await query(`UPDATE biblioteca_midias SET setor = 'vacinas'
+                                WHERE categoria = 'prova social'
+                                  AND lower(translate(titulo, 'áàâãäéèêëíìîïóòôõöúùûüçÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇ', 'aaaaaeeeeiiiiooooouuuucAAAAAEEEEIIIIOOOOOUUUUC')) LIKE '%nagila%'`).catch(() => ({ rowCount: 0 }));
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_fotos_nagila_v2','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log(`📚 Fotos da Nágila remarcadas pra vacinas: ${rN2.rowCount || 0}`);
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);
