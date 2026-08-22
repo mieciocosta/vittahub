@@ -2186,6 +2186,30 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_planos_terapias_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
     }
 
+    /* 🧩 v2 — a regra vale pra TODAS as especialidades (master): a observação
+       dos planos passa a dizer isso pra equipe também. */
+    const { rows: [flagPlanosT2] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_planos_terapias_v2'");
+    if (!flagPlanosT2) {
+      try {
+        const { rows: [tpC2] } = await query("SELECT valor FROM configuracoes WHERE chave = 'tabela_precos_consultas'");
+        const itens2 = Array.isArray(tpC2?.valor?.itens) ? tpC2.valor.itens : [];
+        let mudou = 0;
+        for (const it of itens2) {
+          if (it.categoria === 'Planos Mensais' && (it.setor || 'consultas') === 'terapias') {
+            it.obs = 'R$ 200/sessão · qualquer especialidade (Fono, T.O., ABA, Psico, Psicomotricidade, Neuropsico, Nutri…) — pode combinar';
+            mudou++;
+          }
+        }
+        if (mudou) {
+          await query(`INSERT INTO configuracoes (chave, valor) VALUES ('tabela_precos_consultas', $1::jsonb)
+                       ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`,
+            [JSON.stringify({ ...(tpC2?.valor || {}), itens: itens2 })]);
+        }
+        console.log(`🧩 Planos v2: ${mudou} itens com a observação de especialidades`);
+      } catch (e) { console.error('seed planos terapias v2:', e.message); }
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_planos_terapias_v2','{"ok":true}') ON CONFLICT DO NOTHING`);
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);
