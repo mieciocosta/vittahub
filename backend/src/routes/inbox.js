@@ -1601,6 +1601,8 @@ COMO VENDER (a escada de terapias):
 3) HÍBRIDO COM DOMICILIAR INCLUSO (diferencial da casa — use como argumento de fechamento): o atendimento pode ser na clínica, na residência ou metade e metade, SEM taxa adicional de deslocamento — no dia que a família não puder ir à clínica, a equipe vai até a casa.
 4) Destaque a lógica do plano: constância é o que faz a criança evoluir — e o valor da sessão é fixo em R$ 200, sem surpresa.
 5) Feche sempre com o próximo passo: agendar a avaliação ou a primeira sessão do plano.
+6) CADA SESSÃO DURA ~1 HORA. Se o cliente enviar a REQUISIÇÃO/PRESCRIÇÃO médica (foto), use a leitura da imagem pra traduzir a carga solicitada em plano: horas por semana × 4 = sessões por mês (ex.: prescrição de 2h/semana ≈ 8 sessões por mês = R$ 1.600) — e INDIQUE o plano ideal na hora, citando o que a requisição pede.
+7) SEM requisição e SEM diagnóstico fechado: os profissionais mais indicados pra fechar/ajudar no diagnóstico e definir as sessões e especialidades necessárias são o NEUROPSICÓLOGO e o NEUROPEDIATRA — conduza a família pra essa avaliação primeiro, com carinho ("é ela que diz exatamente do que o seu pequeno precisa").
 APRESENTAÇÃO PRONTA DOS PLANOS (quando for apresentar valores de terapia, use este modelo — os pais precisam entender de cara que vale pra TODAS as especialidades):
 "Nossos *Planos Mensais de Terapias* 💙
 Valem pra *todas as especialidades* — Fono, Terapia Ocupacional, Psicologia ABA e Clínica, Psicomotricidade, Neuropsicologia, Nutrição — e dá até pra *combinar* mais de uma no mesmo plano:
@@ -1646,7 +1648,22 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
       sysPrompt += `\n\nESTE CONTATO JÁ É PACIENTE DA CASA (cadastro no VittaMed${pac.nome ? ` — ${pac.nome}` : ''}${extras ? ` · ${extras}` : ''}). Trate como quem VOLTA: acolha como conhecida da família Vittalis, não apresente a clínica do zero e conduza direto pro que a pessoa precisa (retorno, nova avaliação ou dúvida).`;
     }
 
-    /* 🗺️ PROTOCOLO VITTALIS EM 7 ETAPAS no prompt (pedido do master): a Vitta
+    /* 📷 A LEITURA DA ÚLTIMA FOTO do cliente vira contexto (pedido do master:
+     requisição médica em imagem → a Mary lê e indica o plano). A análise
+     automática de fotos já existia como balão interno pra atendente — agora a
+     Mary também enxerga a mais recente (48h). */
+  try {
+    const { rows: [fotoLida] } = await query(`
+      SELECT content FROM mensagens
+       WHERE conversa_id = $1 AND from_type = 'interno' AND sender_nome = 'Vitta · Análise da foto'
+         AND created_at > NOW() - interval '48 hours'
+       ORDER BY created_at DESC LIMIT 1`, [convId]);
+    if (fotoLida?.content) {
+      sysPrompt += `\n\n📷 LEITURA DA ÚLTIMA FOTO QUE O CLIENTE ENVIOU (análise automática — use quando for relevante; se for requisição/prescrição médica de terapias, traduza a carga em sessões e indique o plano na hora):\n${String(fotoLida.content).slice(0, 900)}`;
+    }
+  } catch { /* contexto é bônus */ }
+
+  /* 🗺️ PROTOCOLO VITTALIS EM 7 ETAPAS no prompt (pedido do master): a Vitta
        recebe o trilho de venda E onde esta conversa está agora — versão leve
        dos mesmos sinais que o painel do protocolo usa (venda registrada,
        agendamento, preço enviado, resposta do cliente). */
