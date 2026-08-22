@@ -1669,6 +1669,18 @@ const CHAVES_PASTA = ['fidelidade', 'banco_dados', 'planos_vacinais', 'vacinacao
 /* 📲 RELATÓRIO EM PDF → WHATSAPP (pedido do master): o relatório emitido na
    tela tem o botão de enviar — o HTML chega aqui, vira PDF no servidor e sai
    pelo Z-API pro número escolhido. Gestão apenas. */
+// Gera o PDF do relatório e devolve em base64 — o navegador abre a folha de
+// compartilhar do aparelho com o arquivo anexado (WhatsApp entre as opções).
+r.post('/relatorio-pdf', async (req, res) => {
+  try {
+    if (!gestao(req)) return res.status(403).json({ error: 'Só a gestão emite relatórios.' });
+    const html = String(req.body?.html || '');
+    if (html.length < 100 || html.length > 900_000) return res.status(400).json({ error: 'Relatório inválido.' });
+    const pdf = await htmlParaPDF(html, { formato: 'A4' });
+    res.json({ pdf: pdf.toString('base64'), filename: `Relatorio-Vittalis-${new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10)}.pdf` });
+  } catch (err) { console.error('relatorio-pdf:', err.message); res.status(500).json({ error: 'Não consegui gerar o PDF agora.' }); }
+});
+
 r.post('/relatorio-pdf-whats', async (req, res) => {
   try {
     if (!gestao(req)) return res.status(403).json({ error: 'Só a gestão envia relatórios.' });

@@ -633,26 +633,38 @@ function RelatorioDia({ rel, data, rotuloDia, onLider }) {
       <div class="rod">Emitido em ${new Date().toLocaleString('pt-BR')} · VittaHub CRM</div>
       <div class="acoes" style="position:fixed;bottom:14px;right:14px;display:flex;gap:8px;align-items:center;background:#0E8C96;border-radius:14px;padding:10px 12px;box-shadow:0 8px 30px rgba(0,0,0,.35)">
         <button onclick="window.print()" style="border:none;border-radius:9px;padding:9px 14px;cursor:pointer;background:#fff;color:#0E8C96;font-weight:800;font-size:13px">🖨️ Imprimir / Salvar PDF</button>
-        <input id="zapfone" placeholder="DDD + número" style="border:none;border-radius:9px;padding:9px 10px;font-size:13px;width:130px">
         <button id="zapbtn" style="border:none;border-radius:9px;padding:9px 14px;cursor:pointer;background:#25D366;color:#fff;font-weight:800;font-size:13px">📲 Enviar no WhatsApp</button>
       </div>
       <style>@media print{.acoes{display:none!important}}</style>
       <script>
         document.getElementById('zapbtn').onclick = async () => {
           const btn = document.getElementById('zapbtn');
-          const fone = document.getElementById('zapfone').value.replace(/\\D/g,'');
-          if (fone.length < 10) { btn.textContent = '⚠️ Número com DDD'; setTimeout(()=>btn.textContent='📲 Enviar no WhatsApp', 2200); return; }
-          btn.textContent = 'Enviando…'; btn.disabled = true;
+          btn.textContent = 'Gerando PDF…'; btn.disabled = true;
           try {
             const html = '<html>' + document.documentElement.innerHTML.replace(/<div class="acoes"[\\s\\S]*?<\\/script>/, '') + '</html>';
-            const resp = await fetch('${(import.meta.env.VITE_API_URL||'')}/api/extras/relatorio-pdf-whats', {
+            const resp = await fetch('${(import.meta.env.VITE_API_URL||'')}/api/extras/relatorio-pdf', {
               method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (localStorage.getItem('vh_token')||'') },
-              body: JSON.stringify({ html, phone: fone }) });
-            const d = await resp.json().catch(()=>({}));
-            btn.textContent = resp.ok ? '✅ Enviado!' : ('⚠️ ' + (d.error || 'Falhou'));
-          } catch { btn.textContent = '⚠️ Sem conexão'; }
+              body: JSON.stringify({ html }) });
+            const d = await resp.json();
+            if (!resp.ok) throw new Error(d.error || 'Falhou');
+            const bin = atob(d.pdf); const bytes = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            const file = new File([bytes], d.filename, { type: 'application/pdf' });
+            // Abre a folha de compartilhar do aparelho COM o PDF anexado — é só
+            // escolher o WhatsApp e o contato. Sem suporte (desktop antigo):
+            // baixa o PDF e abre o WhatsApp Web pra anexar.
+            if (navigator.canShare && navigator.canShare({ files: [file] })) {
+              await navigator.share({ files: [file], title: d.filename });
+              btn.textContent = '✅ Pronto!';
+            } else {
+              const a = document.createElement('a');
+              a.href = URL.createObjectURL(file); a.download = d.filename; a.click();
+              window.open('https://web.whatsapp.com', '_blank');
+              btn.textContent = '⬇️ PDF baixado — anexe no WhatsApp';
+            }
+          } catch (e) { btn.textContent = (e && e.name === 'AbortError') ? '📲 Enviar no WhatsApp' : '⚠️ ' + (e.message || 'Falhou'); }
           btn.disabled = false;
-          setTimeout(()=>btn.textContent='📲 Enviar no WhatsApp', 3500);
+          setTimeout(()=>btn.textContent='📲 Enviar no WhatsApp', 4000);
         };
       </script></body></html>`);
     w.document.close();
