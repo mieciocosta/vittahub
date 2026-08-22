@@ -33,8 +33,17 @@ export default function TabelaPrecos() {
 
   // ── tabelas anexadas (mesma infra das pastas) ──────────────────────────────
   /* Abas por setor (pedido do master: repartido igual Profissionais) —
-     itens E anexos de cada setor vivem na sua aba. */
-  const [aba, setAba] = useState('consultas');
+     itens E anexos de cada setor vivem na sua aba.
+     Cada um no seu quadrado (ordem do master): vacinas vê só a aba de
+     vacinas; consultas/terapias veem as duas delas (vendem juntas). Master
+     e quem não tem setor (marketing) veem tudo. */
+  const meusSetores = (Array.isArray(user?.setores) && user.setores.length) ? user.setores : [user?.setor].filter(Boolean);
+  const veTudoTP = user?.role === 'master' || meusSetores.length === 0;
+  const ABAS_TP = [['vacinas', '💉 Vacinas', '#7c5cbf'], ['consultas', '🩺 Consultas', '#00B8C0'], ['terapias', '🧩 Terapias', '#C4973B']]
+    .filter(([k]) => veTudoTP
+      || (k === 'vacinas' ? meusSetores.includes('vacinas')
+        : (meusSetores.includes('consultas') || meusSetores.includes('terapias'))));
+  const [aba, setAba] = useState(() => (ABAS_TP.some(([k]) => k === 'consultas') ? 'consultas' : (ABAS_TP[0]?.[0] || 'consultas')));
   const CHAVE = 'tabela_precos_' + aba;
   const fileRef = useRef(null);
   const [arqs, setArqs] = useState([]);
@@ -252,7 +261,7 @@ export default function TabelaPrecos() {
 
       {/* 🗂️ ABAS POR SETOR (pedido do master: repartido igual Profissionais) */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
-        {[['vacinas', '💉 Vacinas', '#7c5cbf'], ['consultas', '🩺 Consultas', '#00B8C0'], ['terapias', '🧩 Terapias', '#C4973B']].map(([k, rot, cor]) => {
+        {ABAS_TP.map(([k, rot, cor]) => {
           const nAba = itens.filter(i => (i.setor || 'consultas') === k).length;
           return (
           <button key={k} onClick={() => setAba(k)}
