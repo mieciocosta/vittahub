@@ -4920,6 +4920,41 @@ async function rodarRecallVacinal() {
 setInterval(rodarRecallVacinal, 6 * 3600 * 1000);   // 4x ao dia (o limite diário segura)
 setTimeout(rodarRecallVacinal, 90000);
 
+/* 💙 PÓS-VACINAL NA AGENDA — pedido do master: cliente agendado dia 22/08 →
+   o dia 23/08 já nasce com o "Pós Vacinal" dele na agenda, pra equipe realizar
+   (ligar/chamar e saber como o bebê passou). Tudo num INSERT...SELECT
+   idempotente: olha os atendimentos de vacinas de ontem até D+30 e cria o
+   par do dia seguinte às 9h, sem duplicar (dedupe por paciente+data) e sem
+   encadear (um Pós Vacinal nunca gera outro). Cancelado/Faltou/Reagendado
+   não ganham pós — o atendimento não aconteceu (ou vai acontecer noutro dia,
+   e aí o novo evento gera o dele). */
+async function rodarPosVacinalAgenda() {
+  try {
+    const { rows } = await query(`
+      INSERT INTO agenda_eventos (paciente, responsavel_nome, servico, data, hora, telefone,
+                                  observacoes, status, setor, responsavel_id, conversa_id)
+      SELECT e.paciente, e.responsavel_nome, 'Pós Vacinal', e.data + 1, '09:00', e.telefone,
+             '💙 Pós-vacinal automático do atendimento de ' || to_char(e.data, 'DD/MM') ||
+             ' — entrar em contato e saber como o pequeno passou após as vacinas.',
+             'Agendado', 'vacinas', e.responsavel_id, e.conversa_id
+        FROM agenda_eventos e
+       WHERE COALESCE(e.setor, 'vacinas') = 'vacinas'
+         AND e.status NOT IN ('Cancelado', 'Faltou', 'Reagendado')
+         AND e.servico IS DISTINCT FROM 'Pós Vacinal'
+         AND e.data BETWEEN (NOW() - interval '3 hours')::date - 1 AND (NOW() - interval '3 hours')::date + 30
+         AND NOT EXISTS (SELECT 1 FROM agenda_eventos p
+                          WHERE p.servico = 'Pós Vacinal' AND p.data = e.data + 1
+                            AND lower(p.paciente) = lower(e.paciente))
+      RETURNING id`).catch(() => ({ rows: [] }));
+    if (rows.length) {
+      console.log(`💙 Pós-vacinal: ${rows.length} evento(s) criados na agenda`);
+      socketEmit('agenda_update', { auto: true });
+    }
+  } catch (e) { console.error('pós-vacinal agenda:', e.message); }
+}
+setInterval(rodarPosVacinalAgenda, 3600 * 1000);    // 1x por hora (agendou hoje, o pós aparece em até 1h)
+setTimeout(rodarPosVacinalAgenda, 60000);
+
 setInterval(vassouraMary, 5 * 60 * 1000);
 setTimeout(vassouraMary, 30000); // primeira varrida logo após subir
 
