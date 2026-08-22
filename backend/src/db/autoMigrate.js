@@ -2253,6 +2253,69 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_planos_terapias_v4','{"ok":true}') ON CONFLICT DO NOTHING`);
     }
 
+    /* 📚 FOTOS DA NÁGILA → BIBLIOTECA (pedido do master): pega as fotos
+       recentes (48h) da conversa da Nágila e salva como prova social de
+       terapias. Fotos em URL do WhatsApp são baixadas pelo servidor. */
+    const { rows: [flagNagila] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_fotos_nagila_v1'");
+    if (!flagNagila) {
+      let resNagila = '';
+      try {
+        // Telefone exato do print do master (559891992025) — nome só de reserva
+        let { rows: [convN] } = await query(`
+          SELECT id, contact_name FROM conversas
+           WHERE regexp_replace(COALESCE(phone,''),'\\D','','g') LIKE '%91992025'
+           ORDER BY last_message_at DESC NULLS LAST LIMIT 1`);
+        if (!convN) {
+          ({ rows: [convN] } = await query(`
+            SELECT id, contact_name FROM conversas
+             WHERE lower(translate(COALESCE(contact_name,''), 'áàâãäéèêëíìîïóòôõöúùûüçÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇ', 'aaaaaeeeeiiiiooooouuuucAAAAAEEEEIIIIOOOOOUUUUC')) LIKE '%nagila%'
+             ORDER BY last_message_at DESC NULLS LAST LIMIT 1`));
+        }
+        if (!convN) { resNagila = '❌ Não achei conversa com "Nágila".'; }
+        else {
+          const { rows: fotos } = await query(`
+            SELECT id, content FROM mensagens
+             WHERE conversa_id = $1 AND type = 'image' AND COALESCE(content,'') <> ''
+               AND created_at > NOW() - interval '48 hours'
+             ORDER BY created_at DESC LIMIT 10`, [convN.id]);
+          if (!fotos.length) { resNagila = `⚠️ Achei a conversa de "${convN.contact_name}", mas nenhuma foto nas últimas 48h.`; }
+          else {
+            const { default: fetch } = await import('node-fetch');
+            let okN = 0, falN = 0;
+            for (let i = 0; i < fotos.length; i++) {
+              try {
+                const src = String(fotos[i].content);
+                let mime, b64;
+                if (src.startsWith('data:image/')) {
+                  const m = src.match(/^data:([^;]+);base64,(.+)$/s);
+                  if (!m) { falN++; continue; }
+                  mime = m[1]; b64 = m[2];
+                } else if (/^https?:\/\//.test(src)) {
+                  const r2 = await fetch(src, { signal: AbortSignal.timeout(15000) });
+                  if (!r2.ok) { falN++; continue; }
+                  mime = String(r2.headers.get('content-type') || 'image/jpeg').split(';')[0];
+                  if (!mime.startsWith('image/')) { falN++; continue; }
+                  const buf = Buffer.from(await r2.arrayBuffer());
+                  if (buf.length > 5 * 1024 * 1024) { falN++; continue; }
+                  b64 = buf.toString('base64');
+                } else { falN++; continue; }
+                await query(`INSERT INTO biblioteca_midias (titulo, tipo, setor, categoria, mime, data)
+                             VALUES ($1, 'foto', 'terapias', 'prova social', $2, $3)`,
+                  [`Foto da conversa — ${convN.contact_name || 'Nágila'} — ${i + 1}`, mime, b64]);
+                okN++;
+              } catch { falN++; }
+            }
+            resNagila = `✅ ${okN} foto(s) da conversa de "${convN.contact_name}" salvas na Biblioteca (setor Terapias, prova social)${falN ? ` — ${falN} não deram (link expirado ou muito grandes)` : ''}.`;
+          }
+        }
+      } catch (e) { resNagila = `⚠️ Erro: ${e.message}`; }
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+        ['📚 Fotos da Nágila → Biblioteca',
+         `${resNagila}\n\nElas já valem como prova social da Mary nas conversas de terapias. Lembrete: confirme a autorização de uso de imagem. Pra ver/remover: menu → Biblioteca → setor Terapias.`]).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_fotos_nagila_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log(`📚 Fotos Nágila: ${resNagila}`);
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);
