@@ -338,8 +338,10 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
      vacinas fala em VALORES, consultas em porcentagem; quem não vê valores do
      setor só vê o que é DELA. */
   const [metaMini, setMetaMini] = useState(null);
+  const [dicaMeta, setDicaMeta] = useState(null);   // 💡 Caminho da Meta (dica do master)
   useEffect(() => {
     api.get('/extras/meta-setor').then(setMetaMini).catch(() => {});
+    api.get('/extras/dica-meta').then(d => setDicaMeta(d?.dica || null)).catch(() => {});
   }, []); // eslint-disable-line
 
   const VERS_DIA = versiculoDoDia();
@@ -641,6 +643,16 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                 background:'linear-gradient(90deg, rgba(252,211,77,.32), rgba(245,158,11,.10))' }}>
                 <div style={{ fontSize:10.5, fontWeight:900, color:'#fff', lineHeight:1.4 }}>🔥 {fraseVenda}</div>
               </div>
+
+              {/* 💡 CAMINHO DA META — a estratégia pessoal ditada pelo master
+                  (a 1ª foi da Raylane: 8 Planos Vacinais = meta batida) */}
+              {dicaMeta && (
+                <div style={{ padding:'8px 11px', borderTop:'1px solid rgba(255,255,255,.12)', borderLeft:'3px solid #4ade80',
+                  background:'linear-gradient(90deg, rgba(74,222,128,.22), rgba(34,197,94,.08))' }}>
+                  <div style={{ fontSize:9, fontWeight:900, letterSpacing:1, textTransform:'uppercase', color:'rgba(255,255,255,.75)', marginBottom:2 }}>💡 Caminho da meta</div>
+                  <div style={{ fontSize:10.5, fontWeight:800, color:'#fff', lineHeight:1.45 }}>{dicaMeta}</div>
+                </div>
+              )}
 
               {/* 🎯 Metas — duas linhas varridas num olhar */}
               {(() => {

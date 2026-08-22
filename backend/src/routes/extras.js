@@ -1666,6 +1666,18 @@ const CHAVES_PASTA = ['fidelidade', 'banco_dados', 'planos_vacinais', 'vacinacao
    pasta-arquivos com a chave tabela_precos_consultas) e mantém aqui a lista de
    itens digitada — é dela que o orçamento é montado na tela. Gestão edita;
    a equipe do setor consulta e monta orçamento. */
+/* 💡 CAMINHO DA META — dica estratégica por usuária (pedido do master, a
+   primeira foi pra Raylane). Fica no cartão de perfil, visível todo dia.
+   Editar: configuracoes.dicas_meta = { "primeironome": "frase" }. */
+r.get('/dica-meta', async (req, res) => {
+  try {
+    const { rows: [c] } = await query("SELECT valor FROM configuracoes WHERE chave = 'dicas_meta'").catch(() => ({ rows: [] }));
+    const chave = String(req.user.nome || '').trim().split(' ')[0].toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    res.json({ dica: (c?.valor || {})[chave] || null });
+  } catch { res.json({ dica: null }); }
+});
+
 r.get('/tabela-precos', async (req, res) => {
   try {
     const { rows: [c] } = await query("SELECT valor FROM configuracoes WHERE chave = 'tabela_precos_consultas'").catch(() => ({ rows: [] }));
