@@ -2319,7 +2319,7 @@ export default function Inbox({ onUnreadChange }) {
               terapias com o bot desligado, um convite impossível de ignorar:
               um toque e a Vitta — treinada nas conversas que agendaram — assume
               e conduz pro fechamento. */}
-          {sel && !sel.bot_ativo && (user?.ia_consultas === true || user?.role === 'master') && (
+          {sel && sel.setor !== 'vacinas' && !sel.bot_ativo && (user?.ia_consultas === true || user?.role === 'master') && (
             <div style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px', flexShrink:0,
               background:'linear-gradient(100deg,#4c1d95,#7c3aed 45%,#a855f7)', borderTop:'1px solid #7c3aed' }}>
               <style>{`@keyframes vhPulseIA{0%,100%{box-shadow:0 0 0 0 rgba(255,255,255,.55)}50%{box-shadow:0 0 0 9px rgba(255,255,255,0)}}`}</style>
@@ -2338,7 +2338,7 @@ export default function Inbox({ onUnreadChange }) {
           {/* 🟣 LETREIRO "VITTA AO VIVO" (pedido do master: bem atraente e
               visível quando a IA está respondendo) — gradiente roxo, ponto
               verde pulsando de transmissão e o desligar ali mesmo. */}
-          {sel && sel.bot_ativo && (user?.ia_consultas === true || user?.role === 'master') && (
+          {sel && sel.setor !== 'vacinas' && sel.bot_ativo && (user?.ia_consultas === true || user?.role === 'master') && (
             <div style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px', flexShrink:0, color:'#fff',
               background:'linear-gradient(100deg,#4c1d95,#7c3aed 55%,#a855f7)', borderTop:'1px solid #7c3aed' }}>
               <style>{`@keyframes vhVivoIA{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.7)}}`}</style>
