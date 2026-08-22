@@ -2276,9 +2276,9 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
           const { rows: fotos } = await query(`
             SELECT id, content FROM mensagens
              WHERE conversa_id = $1 AND type = 'image' AND COALESCE(content,'') <> ''
-               AND created_at > NOW() - interval '48 hours'
-             ORDER BY created_at DESC LIMIT 10`, [convN.id]);
-          if (!fotos.length) { resNagila = `⚠️ Achei a conversa de "${convN.contact_name}", mas nenhuma foto nas últimas 48h.`; }
+               AND created_at > NOW() - interval '7 days'
+             ORDER BY created_at DESC LIMIT 15`, [convN.id]);
+          if (!fotos.length) { resNagila = `⚠️ Achei a conversa de "${convN.contact_name}", mas nenhuma foto nos últimos 7 dias.`; }
           else {
             const { default: fetch } = await import('node-fetch');
             let okN = 0, falN = 0;
