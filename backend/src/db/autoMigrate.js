@@ -2210,6 +2210,29 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_planos_terapias_v2','{"ok":true}') ON CONFLICT DO NOTHING`);
     }
 
+    // 🧩 v3 — "no lugar de barra mês coloca por mês" (master): renomeia os planos
+    const { rows: [flagPlanosT3] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_planos_terapias_v3'");
+    if (!flagPlanosT3) {
+      try {
+        const { rows: [tpC3] } = await query("SELECT valor FROM configuracoes WHERE chave = 'tabela_precos_consultas'");
+        const itens3 = Array.isArray(tpC3?.valor?.itens) ? tpC3.valor.itens : [];
+        let mudou3 = 0;
+        for (const it of itens3) {
+          if (typeof it.nome === 'string' && it.nome.includes('sessões/mês')) {
+            it.nome = it.nome.replace('sessões/mês', 'sessões por mês');
+            mudou3++;
+          }
+        }
+        if (mudou3) {
+          await query(`INSERT INTO configuracoes (chave, valor) VALUES ('tabela_precos_consultas', $1::jsonb)
+                       ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`,
+            [JSON.stringify({ ...(tpC3?.valor || {}), itens: itens3 })]);
+        }
+        console.log(`🧩 Planos v3: ${mudou3} itens renomeados pra "por mês"`);
+      } catch (e) { console.error('seed planos terapias v3:', e.message); }
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_planos_terapias_v3','{"ok":true}') ON CONFLICT DO NOTHING`);
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);
