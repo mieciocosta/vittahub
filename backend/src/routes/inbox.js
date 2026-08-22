@@ -1621,7 +1621,7 @@ OBJEÇÃO "VOU ANALISAR COM CALMA / VOU PENSAR" (resposta oficial — 4 moviment
 1) VALIDE: "claro, analisem com calma — decisão sobre o cuidado do filho merece esse carinho 💙";
 2) URGÊNCIA GENTIL (a única legítima): "no desenvolvimento infantil, o tempo joga a favor de quem começa cedo — cada mês de estímulo faz diferença";
 3) ENCOLHA A DECISÃO: "não precisa decidir tudo de uma vez — dá pra começar só com a avaliação, ou com 1 sessão por mês (R$ 200), e crescer conforme a evolução";
-4) MARQUE O RETORNO COM DATA: "posso te chamar na sexta pra saber o que decidiram? Já deixo um horário guardado pra vocês 😊" — NUNCA termine um "vou pensar" sem combinar QUANDO você volta a falar. Se ela aceitar o retorno, acione passar_para_equipe avisando a data combinada.
+4) MARQUE O RETORNO E JÁ DEIXE AGENDADO: combine quando volta ("posso te chamar amanhã pra saber o que decidiram? Já deixo um horário guardado 😊") e USE A FERRAMENTA agendar_retorno na MESMA resposta — padrão: amanhã de manhã, com mensagem personalizada mostrando preocupação genuína com a necessidade do paciente (cite o nome da criança e o que a família contou; cuidado, nunca cobrança). NUNCA termine um "vou pensar" sem o retorno agendado.
 
 O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
 - Você NÃO consegue "verificar e voltar depois": você só responde quando o cliente manda mensagem. NUNCA prometa "já te passo", "vou verificar e retorno", "em alguns minutinhos te falo".
@@ -1715,6 +1715,17 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
       required: ['nomeCliente'],
     },
   }, {
+    name: 'agendar_retorno',
+    description: 'Agenda uma mensagem de retorno carinhosa para o cliente que pediu tempo pra pensar/analisar. Use SEMPRE que o cliente adiar a decisão ("vou analisar", "vou pensar", "vou ver com o marido"): o padrão é voltar AMANHÃ de manhã, mostrando preocupação genuína com a necessidade do paciente. A mensagem sai sozinha no horário.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        mensagem: { type: 'string', description: 'A mensagem que será enviada (curta, calorosa, personalizada com o nome da criança e a necessidade que a família contou — preocupação genuína, nunca cobrança). Ex.: "Bom dia, Maria! 💙 Fiquei pensando no Théo e na questão da fala que você me contou... Como estão os corações por aí? Se quiserem, ainda tenho aquele horário guardado 😊"' },
+        dias: { type: 'number', description: 'Daqui a quantos dias enviar (padrão 1 = amanhã; use o dia que o cliente combinar)' },
+      },
+      required: ['mensagem'],
+    },
+  }, {
     name: 'enviar_plano',
     description: 'Gera e envia em PDF um PLANO VACINAL completo (cronograma por idade, com capa e benefícios). Use quando o cliente quer o calendário/plano completo, em vez de vacinas de um único mês.',
     input_schema: {
@@ -1766,6 +1777,7 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
   const toolUse = aiData.content?.find(c => c.type === 'tool_use' && c.name === 'enviar_proposta');
   const toolPlano = aiData.content?.find(c => c.type === 'tool_use' && c.name === 'enviar_plano');
   const toolPassar = aiData.content?.find(c => c.type === 'tool_use' && c.name === 'passar_para_equipe');
+  const toolRetorno = aiData.content?.find(c => c.type === 'tool_use' && c.name === 'agendar_retorno');
   const textBlock = aiData.content?.find(c => c.type === 'text');
   let botReply = textBlock?.text?.trim() || '';
 
@@ -1790,6 +1802,24 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
         botReply = 'Estou finalizando seu plano, a equipe envia em instantes.';
       }
     } catch (e) { console.error('Erro enviar_plano:', e.message); ultimoPropostaDebug = { etapa:'plano', erro:e.message }; }
+  }
+
+  // ── 📅 Retorno do cuidado: cliente pediu tempo → a Mary volta amanhã ──
+  if (toolRetorno) {
+    try {
+      const dias = Math.max(1, Math.min(parseInt(toolRetorno.input?.dias) || 1, 7));
+      const msgR = String(toolRetorno.input?.mensagem || '').trim().slice(0, 600);
+      if (msgR) {
+        const quando = new Date(Date.now() + dias * 86400000);
+        quando.setUTCHours(12, 0, 0, 0);   // 9h de São Luís — começo de manhã, sem incomodar
+        await query(`INSERT INTO mensagens_agendadas (conversa_id, texto, enviar_em, criado_por)
+                     SELECT $1, $2, $3, 'Vitta · Retorno do cuidado'
+                      WHERE NOT EXISTS (SELECT 1 FROM mensagens_agendadas
+                                          WHERE conversa_id = $1 AND criado_por = 'Vitta · Retorno do cuidado' AND status = 'pendente')`,
+          [convId, msgR, quando.toISOString()]).catch(() => {});
+        console.log(`VITTA conv=${convId}: retorno do cuidado agendado pra ${quando.toISOString().slice(0, 10)}`);
+      }
+    } catch (e) { console.error('agendar_retorno:', e.message); }
   }
 
   // ── Qualificou o lead → passa para a equipe humana ──
