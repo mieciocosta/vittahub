@@ -41,6 +41,7 @@ export const useAuth = () => useContext(Ctx);
 export function useApi() {
   return {
     get:    (path)        => api.get(path),
+    blob:   (path)        => api.blob(path),
     post:   (path, body)  => api.post(path, body),
     put:    (path, body)  => api.put(path, body),
     patch:  (path, body)  => api.patch(path, body),

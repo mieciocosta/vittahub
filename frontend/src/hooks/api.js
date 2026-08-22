@@ -34,8 +34,23 @@ async function request(method, path, body, isFile = false) {
   return res.json();
 }
 
+/* Baixar arquivo (PDF do álbum, relatórios): o request() normal faz res.json()
+   e engasgaria num PDF. Mesmo cabeçalho de autenticação, resposta em blob. */
+async function baixar(path) {
+  const headers = {};
+  if (_token) headers['Authorization'] = `Bearer ${_token}`;
+  const res = await fetch(`${BASE}/api${path}`, { headers });
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`;
+    try { const e = await res.json(); msg = e.error || msg; } catch { /* não era JSON */ }
+    throw new Error(msg);
+  }
+  return res.blob();
+}
+
 export const api = {
   get:    (path)        => request('GET', path),
+  blob:   (path)        => baixar(path),
   post:   (path, body)  => request('POST', path, body),
   put:    (path, body)  => request('PUT', path, body),
   patch:  (path, body)  => request('PATCH', path, body),

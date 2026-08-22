@@ -804,6 +804,23 @@ function PainelAcompanhamento({ paciente, api, mostra, onMudou }) {
                 catch (er) { mostra('⚠️ ' + (er.message || 'Erro')); }
               }} />
           </label>
+          {/* O álbum sai do sistema: PDF pra imprimir, mandar no WhatsApp e
+              entregar na alta ou no aniversário — pedido do master. */}
+          {(fotos || []).length > 0 && (
+            <button onClick={async () => {
+              mostra('📄 Montando o álbum…');
+              try {
+                const blob = await api.blob(`/terapias/pacientes/${paciente.id}/album.pdf`);
+                const url = URL.createObjectURL(blob);
+                const a2 = document.createElement('a');
+                a2.href = url; a2.download = `album-${paciente.nome.replace(/[^a-zA-Z0-9]+/g, '-').toLowerCase()}.pdf`; a2.click();
+                URL.revokeObjectURL(url);
+                mostra('✓ Álbum gerado');
+              } catch (e) { mostra('⚠️ ' + (e.message || 'Não consegui gerar')); }
+            }} className="btn btn-s btn-sm" style={{ gap: 6 }}>
+              <Download size={13} /> Álbum em PDF
+            </button>
+          )}
           <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>As fotos ficam guardadas por data — é o álbum da evolução da criança.</span>
         </div>
         {fotos === null ? <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Carregando…</div>

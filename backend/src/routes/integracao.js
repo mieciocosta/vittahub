@@ -149,4 +149,26 @@ r.get('/agenda', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* GET /api/integracao/equipe — a equipe do VittaHub para o VittaMed importar.
+   Pedido do master: cadastrar duas atendentes na mão, com o CPF vindo do outro
+   sistema, é pedir pra errar dígito — e CPF errado no VittaMed significa
+   pessoa sem login no primeiro dia.
+
+   Vai só o que o outro lado precisa pra criar o acesso: nome, CPF, papel e
+   setor. Sem senha, sem e-mail interno, sem metas — cadastro de acesso não é
+   cópia de banco. Protegido pelo mesmo token das outras rotas de integração. */
+r.get('/equipe', async (req, res) => {
+  if (!autenticado(req)) return res.status(403).json({ error: 'Token de integração ausente ou inválido.' });
+  try {
+    const { query } = await import('../db/pool.js');
+    const { rows } = await query(`
+      SELECT nome, regexp_replace(COALESCE(cpf,''), '\\D', '', 'g') AS cpf,
+             role, setor, COALESCE(setores, ARRAY[]::text[]) AS setores, ativo
+        FROM usuarios
+       WHERE ativo = true
+       ORDER BY nome`);
+    res.json({ ok: true, equipe: rows.filter(u => u.cpf && u.cpf.length === 11), total: rows.length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 export default r;

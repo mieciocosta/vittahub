@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { query } from '../db/pool.js';
 import { SECRET, auth, revogarAcesso, reativarAcesso } from '../middleware/auth.js';
+import { erroCpf } from '../cpf.js';
 
 const r = express.Router();
 
@@ -233,7 +234,10 @@ r.post('/usuarios', auth, async (req, res) => {
       setor = meus.includes(setor) ? setor : meus[0];
     }
     if (!nome) return res.status(400).json({ error: 'Informe o nome' });
-    if (cpf.length !== 11) return res.status(400).json({ error: 'CPF inválido — precisa de 11 dígitos' });
+    // CPF é o login: número errado = conta em que ninguém entra. Confere o
+    // dígito verificador, não só o tamanho.
+    const erroDoCpf = erroCpf(cpf);
+    if (erroDoCpf) return res.status(400).json({ error: erroDoCpf });
     if (senha.length < 8) return res.status(400).json({ error: 'A senha precisa de pelo menos 8 caracteres' });
     const { rows: [dup] } = await query('SELECT 1 FROM usuarios WHERE cpf = $1', [cpf]);
     if (dup) return res.status(409).json({ error: 'Este CPF já está cadastrado' });

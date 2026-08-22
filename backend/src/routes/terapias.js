@@ -2,6 +2,7 @@ import express from 'express';
 import { auth } from '../middleware/auth.js';
 import { query } from '../db/pool.js';
 import { socketEmit } from '../socketServer.js';
+import { htmlParaPDF } from '../services/pdf.js';
 
 // ─── ÁREA DE TERAPIAS ────────────────────────────────────────────────────────
 // Pedido do master: uma aba só de TERAPIAS, onde a equipe puxa o paciente para
@@ -326,6 +327,62 @@ r.post('/pacientes/:id/fotos', auth, async (req, res) => {
     const n = await guardarFotos(+req.params.id, req.body?.sessao_id ? +req.body.sessao_id : null, req.body?.fotos, req.user);
     if (!n) return res.status(400).json({ error: 'Nenhuma foto válida (JPG/PNG/WebP até ~6MB) — ou o álbum já chegou no limite.' });
     res.json({ ok: true, adicionadas: n });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* ÁLBUM EM PDF — o que a família leva pra casa.
+   Pedido do master: as fotos viram um álbum. Em PDF ele existe fora do
+   sistema: dá pra imprimir, mandar no WhatsApp e entregar na alta ou no
+   aniversário. Usa a foto GRANDE (é pra ver), no máximo 24 por álbum, senão o
+   arquivo fica pesado demais pra mandar por WhatsApp. */
+r.get('/pacientes/:id/album.pdf', auth, async (req, res) => {
+  if (!guarda(req, res)) return;
+  try {
+    const [{ rows: [p] }, { rows: fotos }] = await Promise.all([
+      query(`SELECT nome, responsavel FROM terapia_pacientes WHERE id = $1`, [req.params.id]),
+      query(`SELECT TO_CHAR(data,'DD/MM/YYYY') AS data, legenda, arquivo
+               FROM terapia_fotos WHERE paciente_id = $1 ORDER BY data ASC, id ASC LIMIT 24`, [req.params.id]),
+    ]);
+    if (!p) return res.status(404).json({ error: 'Paciente não encontrado.' });
+    if (!fotos.length) return res.status(400).json({ error: 'Esse paciente ainda não tem foto no álbum.' });
+
+    const esc = (t) => String(t ?? '').replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+    const primeira = fotos[0].data, ultima = fotos[fotos.length - 1].data;
+    const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"><title>Álbum — ${esc(p.nome)}</title>
+      <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:'Segoe UI',Arial,sans-serif;color:#1f2937}
+        @page{margin:1.2cm;size:A4}
+        .capa{background:linear-gradient(135deg,#5b21b6,#a855f7);color:#fff;border-radius:18px;padding:34px 30px;text-align:center;margin-bottom:22px}
+        .capa h1{font-size:26px;font-weight:800;letter-spacing:.3px}
+        .capa .sub{font-size:14px;opacity:.92;margin-top:6px}
+        .capa .per{font-size:12px;opacity:.85;margin-top:14px;background:rgba(255,255,255,.18);display:inline-block;padding:5px 14px;border-radius:20px}
+        .grade{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+        .item{border:1px solid #e5e7eb;border-radius:14px;overflow:hidden;page-break-inside:avoid}
+        .item img{width:100%;height:210px;object-fit:cover;display:block}
+        .leg{padding:8px 11px}
+        .leg .d{font-size:11px;font-weight:800;color:#7c3aed}
+        .leg .t{font-size:12px;color:#4b5563;margin-top:2px;line-height:1.35}
+        .rodape{margin-top:22px;text-align:center;font-size:11px;color:#6b7280;border-top:1px solid #e5e7eb;padding-top:12px}
+      </style></head><body>
+      <div class="capa">
+        <h1>${esc(p.nome)}</h1>
+        <div class="sub">Álbum da evolução nas terapias${p.responsavel ? ` · resp. ${esc(p.responsavel)}` : ''}</div>
+        <div class="per">${esc(primeira)} — ${esc(ultima)} · ${fotos.length} momento${fotos.length > 1 ? 's' : ''}</div>
+      </div>
+      <div class="grade">
+        ${fotos.map(f => `<div class="item">
+          <img src="${f.arquivo}" />
+          <div class="leg"><div class="d">${esc(f.data)}</div>${f.legenda ? `<div class="t">${esc(f.legenda)}</div>` : ''}</div>
+        </div>`).join('')}
+      </div>
+      <div class="rodape">Vittalis Saúde · Jardim Renascença, São Luís — MA<br/>Cada conquista aqui é de vocês. 💜</div>
+      </body></html>`;
+
+    const pdf = await htmlParaPDF(html);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="album-${String(p.nome).replace(/[^a-zA-Z0-9]+/g, '-').toLowerCase()}.pdf"`);
+    res.send(pdf);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
