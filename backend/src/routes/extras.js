@@ -1698,6 +1698,32 @@ r.post('/relatorio-pdf-whats', async (req, res) => {
   } catch (err) { console.error('relatorio-pdf-whats:', err.message); res.status(500).json({ error: 'Não consegui gerar/enviar agora.' }); }
 });
 
+/* 💎 CARTEIRA DE UPGRADE (vacinas): clientes com 2+ compras de PACOTE mensal
+   e nenhum Plano — os candidatos naturais ao upgrade (máquina de vendas).
+   Vacinas/gestão veem; cada linha aponta a conversa. */
+r.get('/carteira-upgrade', async (req, res) => {
+  try {
+    const meusCU = await setoresDoUsuario(req);
+    const podeCU = req.user.role === 'master' || meusCU.includes('vacinas');
+    if (!podeCU) return res.status(403).json({ error: 'A Carteira de Upgrade é do setor de vacinas.' });
+    const { rows } = await query(`
+      SELECT c.id conv_id, c.contact_name, c.responsavel_id, u.nome resp_nome,
+             COUNT(v.id)::int pacotes, MAX(v.data_venda) ultima, SUM(v.valor)::float total_gasto
+      FROM vendas v
+      JOIN conversas c ON c.id = v.conversa_id
+      LEFT JOIN usuarios u ON u.id = c.responsavel_id
+      WHERE (v.servico ILIKE '%pacote%' OR v.categoria ILIKE '%pacote%')
+        AND COALESCE(v.setor, c.setor, 'vacinas') = 'vacinas'
+        AND NOT EXISTS (SELECT 1 FROM vendas v2 WHERE v2.conversa_id = c.id
+                          AND (v2.servico ILIKE '%plano%' OR v2.categoria ILIKE '%plano%'))
+      GROUP BY 1, 2, 3, 4
+      HAVING COUNT(v.id) >= 2
+      ORDER BY COUNT(v.id) DESC, MAX(v.data_venda) DESC
+      LIMIT 60`);
+    res.json({ itens: rows });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 /* 💡 CAMINHO DA META — dica estratégica por usuária (pedido do master, a
    primeira foi pra Raylane). Fica no cartão de perfil, visível todo dia.
    Editar: configuracoes.dicas_meta = { "primeironome": "frase" }. */

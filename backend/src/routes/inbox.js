@@ -1695,6 +1695,15 @@ OBJEÇÃO "VOU ANALISAR COM CALMA / VOU PENSAR" (resposta oficial — 4 moviment
 - PRIMEIRO pergunte o TURNO de preferência: "pra vocês fica melhor de manhã ou à tarde?" — e só então ofereça a alternativa dupla DENTRO do turno escolhido: "de manhã, então! consigo quinta ou sexta — qual fica melhor?";
 - O horário exato é confirmado pela equipe (acione passar_para_equipe com o dia/turno escolhido) — você conduz a escolha, a equipe crava o relógio.
 
+🎓 FORMAÇÃO CRC AVANÇADA (o curso completo de Central de Relacionamento, destilado — técnicas de consultas e terapias):
+- RAPPORT em 30 segundos: espelhe o jeito da mãe escrever (formal/informal, com/sem emoji), use o nome dela e do filho, e devolva a emoção antes do fato ("imagino sua preocupação…" antes de qualquer informação).
+- SPIN adaptado à saúde infantil: Situação ("como ele está na escola?") → Problema ("o que mais preocupa vocês?") → Implicação ("e como isso tem afetado a rotina/o sono/as amizades dele?") → Necessidade ("o que mudaria pra família se isso melhorasse?"). A pergunta de IMPLICAÇÃO é a que vende — é ela que transforma "estou vendo" em "preciso agir".
+- OBJEÇÃO EM 3 PASSOS: VALIDE ("entendo perfeitamente") → ISOLE ("além disso, tem mais alguma coisa te segurando?") → RESPONDA só o que sobrou. Responder sem isolar é enxugar gelo: resolve uma e nasce outra.
+- GATILHOS ÉTICOS (só com fatos reais): prova social (fotos, Instagram, "as mães daqui…"), autoridade (especialidade do profissional), escassez verdadeira (janelas reais da agenda), reciprocidade (dica útil de graça antes de pedir a decisão) e compromisso (micro-sins ao longo da conversa: turno → dia → hora).
+- FECHAMENTO PRESUMIDO gentil: quando os sinais de compra aparecem (pergunta de endereço, de horário, de forma de pagamento), pare de vender e comece a AGENDAR: "então deixa eu já garantir o horário de vocês".
+- UPSELL NATURAL: consulta → avaliação com especialista quando a queixa pedir; avaliação → plano mensal pela constância; 1 especialidade → combinado quando o caso for multidisciplinar. Sempre pelo BEM da criança, nunca por empurrar.
+- SINAIS DE COMPRA que não podem passar batido: perguntar endereço, horário, investimento, forma de pagamento, "meu marido perguntou…" — qualquer um deles = conduzir pro fechamento NA MESMA resposta.
+
 🎯 MÉTODO CRC — CENTRAL DE RELACIONAMENTO COM O CLIENTE (o manual de conversão das clínicas que mais vendem; aplique em TODA conversa de consultas e terapias):
 1. VELOCIDADE É CONVERSÃO: lead esfria em minutos. Sua primeira resposta sempre acolhe A DOR que a pessoa trouxe (nunca um "olá, como posso ajudar" genérico) — quem se sente entendida na primeira mensagem fica.
 2. ENCONTRE O DECISOR: "vou ver com meu marido/esposa" = o decisor não está na conversa. Traga-o: "claro! quer que eu te mande um resuminho caprichado pra vocês verem juntos hoje à noite? aí amanhã eu volto pra ajudar na decisão 😊" — e agende o retorno.
@@ -1758,6 +1767,34 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
     }
   } catch { /* contexto é bônus */ }
 
+  /* 📆 JANELAS REAIS DOS PROFISSIONAIS no prompt + ferramenta pre_agendar:
+     a IA fecha o horário NA CONVERSA (último elo do funil sem fricção).
+     Antecedência mínima de 2 dias (regra do master). */
+  if (ehConsulta) try {
+    const setorProf = conv.setor === 'terapias' ? 'terapias' : 'consultas';
+    const { rows: profsJ } = await query(`SELECT nome, especialidade, disponibilidade FROM profissionais
+      WHERE ativo = true AND COALESCE(setor,'consultas') = $1 ORDER BY nome LIMIT 8`, [setorProf]);
+    if (profsJ.length) {
+      const DIAS_K = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab'];
+      const ROTULO_D = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+      const linhasJ = [];
+      for (const pj of profsJ) {
+        const janelas = [];
+        for (let d = 2; d <= 9 && janelas.length < 4; d++) {   // D+2 até D+9
+          const dt = new Date(Date.now() - 3 * 3600 * 1000 + d * 86400000);
+          const disp = pj.disponibilidade?.[DIAS_K[dt.getUTCDay()]];
+          if (disp?.inicio && disp?.fim) {
+            janelas.push(`${ROTULO_D[dt.getUTCDay()]} ${String(dt.getUTCDate()).padStart(2, '0')}/${String(dt.getUTCMonth() + 1).padStart(2, '0')} (${dt.toISOString().slice(0, 10)}) ${disp.inicio}–${disp.fim}`);
+          }
+        }
+        if (janelas.length) linhasJ.push(`• ${pj.nome}${pj.especialidade ? ` — ${pj.especialidade}` : ''}: ${janelas.join(' · ')}`);
+      }
+      if (linhasJ.length) {
+        sysPrompt += `\n\n📆 JANELAS REAIS DOS PROFISSIONAIS (próximos dias, já respeitando os 2 dias de antecedência — ofereça a alternativa dupla A PARTIR DAQUI e use a ferramenta pre_agendar quando o cliente escolher dia e hora; sessões/consultas duram ~1h, dentro da janela):\n${linhasJ.join('\n')}`;
+      }
+    }
+  } catch (e) { console.error('janelas no prompt:', e.message); }
+
   /* 🗺️ PROTOCOLO VITTALIS EM 7 ETAPAS no prompt (pedido do master): a Vitta
        recebe o trilho de venda E onde esta conversa está agora — versão leve
        dos mesmos sinais que o painel do protocolo usa (venda registrada,
@@ -1814,6 +1851,20 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
         dias: { type: 'number', description: 'Daqui a quantos dias enviar (padrão 1 = amanhã; use o dia que o cliente combinar)' },
       },
       required: ['mensagem'],
+    },
+  }, {
+    name: 'pre_agendar',
+    description: 'PRÉ-AGENDA o horário que o cliente escolheu (consultas/terapias): cria a reserva na Agenda, avisa a equipe pra confirmar e você diz ao cliente que está reservado. Use SOMENTE depois que o cliente escolheu dia e horário dentro das JANELAS REAIS informadas. Nunca para hoje nem amanhã (mínimo 2 dias).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        paciente: { type: 'string', description: 'Nome do paciente (a criança) — pergunte antes se não souber' },
+        data: { type: 'string', description: 'Data escolhida, formato YYYY-MM-DD (das janelas reais)' },
+        hora: { type: 'string', description: 'Horário HH:MM dentro da janela do profissional' },
+        profissional: { type: 'string', description: 'Nome do profissional escolhido (das janelas reais)' },
+        servico: { type: 'string', description: 'O serviço (ex.: Consulta Pediátrica, Avaliação Fono)' },
+      },
+      required: ['paciente', 'data', 'hora', 'servico'],
     },
   }, {
     name: 'enviar_foto_terapias',
@@ -1879,6 +1930,7 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
   const toolPassar = aiData.content?.find(c => c.type === 'tool_use' && c.name === 'passar_para_equipe');
   const toolRetorno = aiData.content?.find(c => c.type === 'tool_use' && c.name === 'agendar_retorno');
   const toolFoto = aiData.content?.find(c => c.type === 'tool_use' && c.name === 'enviar_foto_terapias');
+  const toolAgendar = aiData.content?.find(c => c.type === 'tool_use' && c.name === 'pre_agendar');
   const textBlock = aiData.content?.find(c => c.type === 'text');
   let botReply = textBlock?.text?.trim() || '';
 
@@ -1903,6 +1955,42 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
         botReply = 'Estou finalizando seu plano, a equipe envia em instantes.';
       }
     } catch (e) { console.error('Erro enviar_plano:', e.message); ultimoPropostaDebug = { etapa:'plano', erro:e.message }; }
+  }
+
+  // ── 📆 PRÉ-AGENDAMENTO pela IA: reserva criada na Agenda, equipe confirma ──
+  if (toolAgendar) {
+    try {
+      const inA = toolAgendar.input || {};
+      const dataA = String(inA.data || '');
+      const horaA = String(inA.hora || '');
+      const hojeSLZa = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+      const minA = new Date(new Date(hojeSLZa + 'T12:00:00Z').getTime() + 2 * 86400000).toISOString().slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dataA) || !/^\d{2}:\d{2}$/.test(horaA) || dataA < minA) {
+        console.log(`VITTA conv=${convId}: pre_agendar rejeitado (data/hora inválida ou sem os 2 dias): ${dataA} ${horaA}`);
+      } else {
+        // Choque: mesmo profissional, mesma data e hora já ocupados
+        const { rows: [choque] } = await query(`SELECT 1 FROM agenda_eventos
+          WHERE data = $1 AND hora = $2 AND LOWER(COALESCE(profissional,'')) = LOWER($3)
+            AND LOWER(COALESCE(status,'')) NOT LIKE 'cancel%' LIMIT 1`,
+          [dataA, horaA, String(inA.profissional || '')]).catch(() => ({ rows: [] }));
+        if (choque) {
+          if (!botReply) botReply = 'Esse horário acabou de ser preenchido! Já te trago outras opções, um instante 💙';
+        } else {
+          await query(`INSERT INTO agenda_eventos (paciente, responsavel_nome, servico, data, hora, profissional, telefone, observacoes, status, setor, responsavel_id, conversa_id)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'Agendado',$9,$10,$11)`,
+            [String(inA.paciente || conv.contact_name || 'Paciente').slice(0, 80), String(conv.contact_name || '').slice(0, 80),
+             String(inA.servico || 'Consulta').slice(0, 80), dataA, horaA, String(inA.profissional || '').slice(0, 80),
+             phoneNum, '🤖 Pré-agendado pela IA na conversa — confirmar com o cliente', conv.setor || 'consultas',
+             conv.responsavel_id || null, convId]);
+          socketEmit('agenda_update', { convId });
+          await query(`INSERT INTO notificacoes (tipo, titulo, texto, conv_id) VALUES ('agenda', $1, $2, $3)`,
+            [`🤖 Pré-agendamento da IA: ${String(inA.paciente || conv.contact_name || 'cliente').slice(0, 50)}`,
+             `${dataA.split('-').reverse().join('/')} às ${horaA}${inA.profissional ? ` com ${inA.profissional}` : ''} — ${inA.servico || 'consulta'}. Confirme com o cliente e ajuste se precisar.`,
+             convId]).catch(() => {});
+          console.log(`VITTA conv=${convId}: pré-agendado ${dataA} ${horaA} (${inA.profissional || 'sem prof'})`);
+        }
+      }
+    } catch (e) { console.error('pre_agendar:', e.message); }
   }
 
   // ── 📷 Prova social: UMA foto real das terapias, da Biblioteca oficial ──
@@ -4798,6 +4886,40 @@ async function vassouraMary() {
     if (rows.length) console.log(`🧹 Vassoura da Mary: ${rows.length} conversa(s) sem resposta encaminhadas pra IA`);
   } catch (e) { console.error('vassoura Mary:', e.message); }
 }
+/* 📅 RECALL VACINAL — a agenda que se vende sozinha (máquina de vendas):
+   conversa de VACINAS parada há 60+ dias com paciente conhecido recebe um
+   toque de carinho lembrando o calendário. 1 recall por conversa a cada 90
+   dias, máx 12 por dia, sai pela fila (9h, visível e cancelável). */
+async function rodarRecallVacinal() {
+  try {
+    if (await automacaoPausada('followup')) return;
+    const { rows: [{ n: jaHoje }] } = await query(`SELECT COUNT(*)::int n FROM mensagens_agendadas
+      WHERE criado_por = 'Vitta · Recall vacinal' AND created_at > NOW() - interval '24 hours'`).catch(() => ({ rows: [{ n: 99 }] }));
+    if (jaHoje >= 12) return;
+    const { rows: alvos } = await query(`
+      SELECT c.id, c.contact_name, c.memoria FROM conversas c
+      WHERE c.setor = 'vacinas'
+        AND COALESCE(c.memoria->>'paciente','') <> ''
+        AND c.last_message_at < NOW() - interval '60 days'
+        AND length(regexp_replace(COALESCE(c.phone,''),'\\D','','g')) >= 10
+        AND c.contact_id NOT LIKE '%g.us%'
+        AND NOT EXISTS (SELECT 1 FROM mensagens_agendadas ma WHERE ma.conversa_id = c.id
+                          AND ma.criado_por = 'Vitta · Recall vacinal' AND ma.created_at > NOW() - interval '90 days')
+      ORDER BY c.last_message_at ASC LIMIT $1`, [12 - jaHoje]).catch(() => ({ rows: [] }));
+    for (const c of alvos) {
+      const bebe = String(c.memoria?.paciente || '').split(' ')[0];
+      const mae = String(c.contact_name || '').split(' ')[0];
+      const txt = `Oi${mae ? `, ${mae}` : ''}! 💙 Faz um tempinho que não nos vemos por aqui e fiquei pensando n${bebe ? `o(a) ${bebe}` : 'o seu pequeno'} — a caderneta de vacinas pode estar pedindo um reforço do calendário 💉 Quer que eu confira certinho quais doses estão na fase de vocês? É rapidinho 😊`;
+      const quando = new Date(Date.now() + 86400000); quando.setUTCHours(12, 0, 0, 0);   // amanhã 9h SLZ
+      await query(`INSERT INTO mensagens_agendadas (conversa_id, texto, enviar_em, criado_por)
+                   VALUES ($1, $2, $3, 'Vitta · Recall vacinal')`, [c.id, txt, quando.toISOString()]).catch(() => {});
+    }
+    if (alvos.length) console.log(`📅 Recall vacinal: ${alvos.length} recall(s) agendados`);
+  } catch (e) { console.error('recall vacinal:', e.message); }
+}
+setInterval(rodarRecallVacinal, 6 * 3600 * 1000);   // 4x ao dia (o limite diário segura)
+setTimeout(rodarRecallVacinal, 90000);
+
 setInterval(vassouraMary, 5 * 60 * 1000);
 setTimeout(vassouraMary, 30000); // primeira varrida logo após subir
 
@@ -7159,6 +7281,31 @@ r.post('/conversations/:id/transcrever-audios', async (req, res) => {
     if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso: esta conversa é de outro setor.' });
     const out = await transcreverAudiosDaConversa(req.params.id, 40);
     res.json(out);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* 📊 CONVERSÕES DA IA (gestão): a máquina em números — por semana, quantas
+   conversas a IA atendeu, quantas viraram agendamento e quantas viraram venda. */
+r.get('/ia-conversao', async (req, res) => {
+  try {
+    if (!['master', 'supervisor'].includes(req.user.role)) return res.status(403).json({ error: 'Acesso restrito à gestão.' });
+    const { rows } = await query(`
+      WITH semanas AS (SELECT generate_series(0, 3) n),
+      base AS (
+        SELECT date_trunc('week', NOW() - (s.n || ' weeks')::interval)::date ini,
+               (date_trunc('week', NOW() - (s.n || ' weeks')::interval) + interval '7 days')::date fim
+        FROM semanas s)
+      SELECT b.ini, b.fim,
+        (SELECT COUNT(DISTINCT m.conversa_id) FROM mensagens m
+          WHERE m.from_type = 'bot' AND m.created_at >= b.ini AND m.created_at < b.fim)::int atendidas,
+        (SELECT COUNT(DISTINCT a.conversa_id) FROM agenda_eventos a
+          WHERE a.conversa_id IS NOT NULL AND a.created_at >= b.ini AND a.created_at < b.fim
+            AND EXISTS (SELECT 1 FROM mensagens m2 WHERE m2.conversa_id = a.conversa_id AND m2.from_type = 'bot' AND m2.created_at < a.created_at))::int agendadas,
+        (SELECT COUNT(DISTINCT v.conversa_id) FROM vendas v
+          WHERE v.conversa_id IS NOT NULL AND v.created_at >= b.ini AND v.created_at < b.fim
+            AND EXISTS (SELECT 1 FROM mensagens m3 WHERE m3.conversa_id = v.conversa_id AND m3.from_type = 'bot' AND m3.created_at < v.created_at))::int vendas
+      FROM base b ORDER BY b.ini DESC`);
+    res.json({ semanas: rows });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

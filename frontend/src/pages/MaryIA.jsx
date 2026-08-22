@@ -26,11 +26,13 @@ export default function MaryIA() {
   const [me, setMe] = useState(null);
   const [pausa, setPausa] = useState(null);
   const [equipe, setEquipe] = useState([]);
+  const [conv, setConv] = useState(null);   // 📊 conversões da IA por semana
   useEffect(() => {
     if (!podeVer) return;
     api.get('/auth/me').then(setMe).catch(() => {});
     api.get('/inbox/automacao/pausa').then(setPausa).catch(() => {});
     if (master) api.get('/auth/ia-equipe').then(d => setEquipe(Array.isArray(d) ? d : [])).catch(() => {});
+    if (master) api.get('/inbox/ia-conversao').then(setConv).catch(() => {});
   }, []); // eslint-disable-line
 
   if (!podeVer) return <div style={{ padding: 40, color: 'var(--muted)' }}>🔒 O painel da Mary é de quem tem o botão da IA.</div>;
@@ -97,6 +99,41 @@ export default function MaryIA() {
           <div style={{ textAlign: 'center' }}>
             <Chave on={geralOn} onClick={trocarGeral} />
             <div style={{ fontSize: 10.5, fontWeight: 900, marginTop: 3, color: geralOn ? '#7c3aed' : 'var(--err,#dc2626)' }}>{geralOn ? 'LIGADA' : 'DESLIGADA'}</div>
+          </div>
+        </div>
+      )}
+
+      {/* 📊 A máquina em números — conversões da IA por semana (master) */}
+      {master && conv?.semanas?.length > 0 && (
+        <div className="card" style={{ padding: '17px 20px', marginBottom: 14 }}>
+          <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 4 }}>📊 Vendas da IA — últimas semanas</div>
+          <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 10 }}>
+            Conversas em que a IA falou → que agendaram → que viraram venda (na mesma semana).
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+              <thead><tr style={{ color: 'var(--muted)', fontSize: 10.5, textTransform: 'uppercase' }}>
+                <th style={{ textAlign: 'left', padding: '4px 6px' }}>Semana</th>
+                <th style={{ padding: '4px 6px' }}>🤖 Atendidas</th>
+                <th style={{ padding: '4px 6px' }}>📅 Agendaram</th>
+                <th style={{ padding: '4px 6px' }}>💰 Venderam</th>
+                <th style={{ padding: '4px 6px' }}>Conversão</th>
+              </tr></thead>
+              <tbody>
+                {conv.semanas.map((sm, i) => {
+                  const tx = sm.atendidas > 0 ? Math.round((sm.agendadas / sm.atendidas) * 100) : 0;
+                  return (
+                    <tr key={i} style={{ borderTop: '1px solid var(--border)' }}>
+                      <td style={{ padding: '6px', fontWeight: 700 }}>{new Date(sm.ini).toLocaleDateString('pt-BR').slice(0, 5)} – {new Date(sm.fim).toLocaleDateString('pt-BR').slice(0, 5)}{i === 0 ? ' (atual)' : ''}</td>
+                      <td style={{ padding: '6px', textAlign: 'center', fontWeight: 800 }}>{sm.atendidas}</td>
+                      <td style={{ padding: '6px', textAlign: 'center', fontWeight: 800, color: '#0ea5e9' }}>{sm.agendadas}</td>
+                      <td style={{ padding: '6px', textAlign: 'center', fontWeight: 800, color: 'var(--ok,#16a34a)' }}>{sm.vendas}</td>
+                      <td style={{ padding: '6px', textAlign: 'center', fontWeight: 900, color: tx >= 30 ? 'var(--ok,#16a34a)' : tx >= 10 ? '#d97706' : 'var(--muted)' }}>{tx}%</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
       )}

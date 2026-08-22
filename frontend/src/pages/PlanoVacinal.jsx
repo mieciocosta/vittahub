@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Syringe, ChevronLeft, ChevronRight, Plus, Check, X } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Syringe, ChevronLeft, ChevronRight, Plus, Check, X, MessageSquare, Gem } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt } from '../hooks/utils.js';
 
@@ -16,8 +17,13 @@ const FORMAS = ['Pix', 'Cartão', 'Dinheiro', 'Link de pagamento', 'Parcelado'];
 
 export default function PlanoVacinal() {
   const api = useApi();
+  const nav = useNavigate();
   const { user } = useAuth();
   const isMaster = user?.role === 'master';
+  // 💎 Carteira de Upgrade: clientes com 2+ pacotes mensais e nenhum Plano —
+  // é a mina de ouro que o master pediu ("clientes de pacotes mensais podem
+  // se tornar clientes de Plano"). 403 = usuária de outro setor, some quieto.
+  const [upgrade, setUpgrade] = useState(null);
   const hojeISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
   const [mes, setMes] = useState(hojeISO().slice(0, 7));
   const [quem, setQuem] = useState('');
@@ -33,6 +39,9 @@ export default function PlanoVacinal() {
       .then(setD).catch(e => setErro(e.message));
   };
   useEffect(() => { carregar(); }, []);            // eslint-disable-line
+  useEffect(() => {
+    api.get('/extras/carteira-upgrade').then(r => setUpgrade(r?.itens || [])).catch(() => setUpgrade(null));
+  }, []);                                          // eslint-disable-line
   useEffect(() => {
     if (isMaster) api.get('/auth/usuarios').then(u => setEquipe((u || []).filter(x => x.ativo !== false))).catch(() => {});
   }, [isMaster]);                                  // eslint-disable-line
@@ -159,6 +168,45 @@ export default function PlanoVacinal() {
             <span>🟩 fechou</span><span>🟥 dia útil sem plano</span><span>⬜ domingo / ainda por vir</span>
           </div>
         </div>
+
+        {/* 💎 Carteira de Upgrade — quem já compra pacote e ainda não tem Plano.
+            Cada linha é uma venda quase pronta: o cliente já confia, já paga
+            todo mês; falta oferecer o degrau de cima. */}
+        {Array.isArray(upgrade) && upgrade.length > 0 && (
+          <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: 14, border: '1.5px solid #d4a017' }}>
+            <div style={{ padding: '13px 16px', background: 'linear-gradient(120deg,#78350f,#b45309)', color: '#fff', display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
+              <Gem size={16} color="#fde68a" />
+              <b style={{ flex: 1, fontSize: 14 }}>Carteira de Upgrade — candidatos a Plano</b>
+              <span style={{ fontSize: 11.5, fontWeight: 800, background: 'rgba(253,230,138,.25)', color: '#fde68a', padding: '3px 10px', borderRadius: 20 }}>
+                {upgrade.length} cliente(s)
+              </span>
+            </div>
+            <div style={{ padding: '9px 16px', fontSize: 12, color: 'var(--muted)', borderBottom: '1px solid var(--border)', lineHeight: 1.5 }}>
+              Clientes com <b>2+ pacotes mensais</b> e nenhum Plano Vacinal ainda. Já confiam na Vittalis e pagam todo mês — ofereça o Plano e transforme em meta batida. 💪
+            </div>
+            {upgrade.slice(0, 15).map((c, i) => (
+              <div key={c.conv_id} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '10px 16px', borderBottom: i < Math.min(upgrade.length, 15) - 1 ? '1px solid var(--border)' : 'none' }}>
+                <span style={{ fontSize: 15 }}>💎</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 13.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.contact_name || 'Cliente'}</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 1 }}>
+                    {c.pacotes} pacote(s){c.total_gasto ? ` · ${fmt.brl(c.total_gasto)} investidos` : ''}
+                    {c.ultima ? ` · último em ${String(c.ultima).slice(0, 10).split('-').reverse().slice(0, 2).join('/')}` : ''}
+                    {c.resp_nome ? ` · com ${String(c.resp_nome).split(' ')[0]}` : ''}
+                  </div>
+                </div>
+                <button onClick={() => nav(`/inbox?conv=${c.conv_id}`)} className="btn btn-s btn-sm" style={{ gap: 5, flexShrink: 0, fontWeight: 700 }}>
+                  <MessageSquare size={13} /> Abrir conversa
+                </button>
+              </div>
+            ))}
+            {upgrade.length > 15 && (
+              <div style={{ padding: '9px 16px', fontSize: 11.5, color: 'var(--muted)', textAlign: 'center' }}>
+                + {upgrade.length - 15} cliente(s) esperando — trabalhe os primeiros e a lista renova sozinha.
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Lista dos planos do mês */}
         <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
