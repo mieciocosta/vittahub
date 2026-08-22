@@ -2361,9 +2361,18 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
     if (!flagDicaRay) {
       await query(`INSERT INTO configuracoes (chave, valor) VALUES ('dicas_meta', $1::jsonb)
                    ON CONFLICT (chave) DO UPDATE SET valor = COALESCE(configuracoes.valor,'{}'::jsonb) || $1::jsonb, updated_at = NOW()`,
-        [JSON.stringify({ raylane: '💉 8 Planos Vacinais e você bate a SUA meta! E lembra: clientes de pacotes podem se tornar clientes de Plano — olha sua carteira com carinho 💙' })]).catch(() => {});
+        [JSON.stringify({ raylane: '💉 8 Planos Vacinais e você bate a SUA meta! E lembra: clientes de PACOTES MENSAIS podem se tornar clientes de Plano — olha sua carteira com carinho 💙' })]).catch(() => {});
       await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_dica_raylane_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
       console.log('💡 Dica da meta da Raylane gravada');
+    }
+
+    // 💡 v2 — ajuste do master: "pacotes MENSAIS" na dica da Raylane
+    const { rows: [flagDicaRay2] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_dica_raylane_v2'");
+    if (!flagDicaRay2) {
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('dicas_meta', $1::jsonb)
+                   ON CONFLICT (chave) DO UPDATE SET valor = COALESCE(configuracoes.valor,'{}'::jsonb) || $1::jsonb, updated_at = NOW()`,
+        [JSON.stringify({ raylane: '💉 8 Planos Vacinais e você bate a SUA meta! E lembra: clientes de PACOTES MENSAIS podem se tornar clientes de Plano — olha sua carteira com carinho 💙' })]).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_dica_raylane_v2','{"ok":true}') ON CONFLICT DO NOTHING`);
     }
 
     console.log('✅ Auto-migrate complete');
