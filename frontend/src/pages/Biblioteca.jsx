@@ -49,30 +49,51 @@ export function GridMidias({ tipoFixo = null, titulo, subtitulo, categorias = nu
     })();
   }, [itens]); // eslint-disable-line
 
+  /* 📎 VÁRIOS ARQUIVOS DE UMA VEZ (pedido do master): seleciona 10 fotos e
+     sobe tudo junto — cada uma vira um item da biblioteca. */
   const escolherArquivo = (e) => {
-    const f = e.target.files?.[0];
+    const files = [...(e.target.files || [])];
     e.target.value = '';
-    if (!f) return;
-    const ehVideo = f.type.startsWith('video/');
-    const lim = ehVideo ? 12 * 1024 * 1024 : 3 * 1024 * 1024;
-    if (f.size > lim) return setErro(`Arquivo muito grande (máx ${ehVideo ? '12MB' : '3MB'}).`);
-    const r = new FileReader();
-    r.onload = () => setUp(u => ({ ...u, data: String(r.result).split(',')[1], mime: f.type, ehVideo, nomeArq: f.name }));
-    r.readAsDataURL(f);
+    if (!files.length) return;
+    setErro('');
+    const lidos = [];
+    let pendentes = files.length;
+    for (const f of files) {
+      const ehVideo = f.type.startsWith('video/');
+      const lim = ehVideo ? 12 * 1024 * 1024 : 3 * 1024 * 1024;
+      if (f.size > lim) { setErro(`"${f.name}" é muito grande (máx ${ehVideo ? '12MB' : '3MB'}) — ficou de fora.`); pendentes--; continue; }
+      const r = new FileReader();
+      r.onload = () => {
+        lidos.push({ data: String(r.result).split(',')[1], mime: f.type, ehVideo, nomeArq: f.name });
+        if (--pendentes === 0 && lidos.length) {
+          setUp(u => ({ ...u, arquivos: lidos, data: lidos[0].data, mime: lidos[0].mime, ehVideo: lidos[0].ehVideo, nomeArq: lidos[0].nomeArq }));
+        }
+      };
+      r.readAsDataURL(f);
+    }
+    if (pendentes === 0 && !lidos.length) return;   // todos grandes demais
   };
 
   const enviar = async () => {
     setErro('');
     if (!up?.titulo?.trim()) return setErro('Dê um título.');
-    if (!up?.data) return setErro('Escolha o arquivo.');
+    const fila = (up.arquivos && up.arquivos.length) ? up.arquivos : (up?.data ? [{ data: up.data, mime: up.mime, ehVideo: up.ehVideo }] : []);
+    if (!fila.length) return setErro('Escolha o(s) arquivo(s).');
     setSubindo(true);
+    let subidos = 0;
     try {
-      await api.post('/extras/biblioteca', {
-        titulo: up.titulo.trim(), tipo: tipoFixo || (up.ehVideo ? 'video' : tipo),
-        setor: up.setor || 'geral', categoria: up.categoria || '', mime: up.mime, data: up.data,
-      });
+      for (let i = 0; i < fila.length; i++) {
+        const a = fila[i];
+        // Vários arquivos: o título vira base numerada ("Sala sensorial — 2")
+        const titulo = fila.length > 1 ? `${up.titulo.trim()} — ${i + 1}` : up.titulo.trim();
+        await api.post('/extras/biblioteca', {
+          titulo, tipo: tipoFixo || (a.ehVideo ? 'video' : tipo),
+          setor: up.setor || 'geral', categoria: up.categoria || '', mime: a.mime, data: a.data,
+        });
+        subidos++;
+      }
       setUp(null); load();
-    } catch (e) { setErro(e.message); }
+    } catch (e) { setErro(`${e.message}${subidos ? ` (${subidos} de ${fila.length} já subiram)` : ''}`); }
     finally { setSubindo(false); }
   };
 
@@ -176,9 +197,9 @@ export function GridMidias({ tipoFixo = null, titulo, subtitulo, categorias = nu
                 </div>
               </div>
               <button onClick={() => fileRef.current?.click()} className="btn btn-s" style={{ justifyContent: 'center', gap: 7 }}>
-                {up.data ? `✅ ${up.nomeArq || 'Arquivo escolhido'}` : `Escolher ${tipoFixo === 'figurinha' ? 'imagem (png/webp)' : 'foto ou vídeo'}`}
+                {up.arquivos?.length > 1 ? `✅ ${up.arquivos.length} arquivos selecionados` : up.data ? `✅ ${up.nomeArq || 'Arquivo escolhido'}` : `Escolher ${tipoFixo === 'figurinha' ? 'imagens (png/webp)' : 'fotos ou vídeos (vários de uma vez)'}`}
               </button>
-              <input ref={fileRef} type="file" accept={tipoFixo === 'figurinha' ? 'image/png,image/webp' : 'image/*,video/mp4'} style={{ display: 'none' }} onChange={escolherArquivo} />
+              <input ref={fileRef} type="file" multiple accept={tipoFixo === 'figurinha' ? 'image/png,image/webp' : 'image/*,video/mp4'} style={{ display: 'none' }} onChange={escolherArquivo} />
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 13 }}>
               <button onClick={() => setUp(null)} className="btn btn-s">Cancelar</button>
