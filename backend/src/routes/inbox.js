@@ -8301,10 +8301,12 @@ function dentroDoHorarioComercial() {
 }
 
 async function gerarMensagemFollowup(conv, count, nomeFU = 'Mary') {
+  // Áudios transcritos entram no contexto — follow-up cego ao que foi FALADO
+  // errava o assunto e soava robô
   const { rows: histRows } = await query(
-    `SELECT from_type, type, content, filename FROM mensagens
-     WHERE conversa_id = $1 AND type IN ('text','document') AND from_type NOT IN ('system','interno')
-     ORDER BY created_at DESC LIMIT 12`, [conv.id]
+    `SELECT from_type, type, content, filename, transcricao FROM mensagens
+     WHERE conversa_id = $1 AND type IN ('text','document','audio') AND from_type NOT IN ('system','interno')
+     ORDER BY created_at DESC LIMIT 16`, [conv.id]
   );
   const hist = histRows.reverse();
   const enviouPdf = hist.some(m => m.from_type === 'bot' && m.type === 'document');
@@ -8324,16 +8326,33 @@ async function gerarMensagemFollowup(conv, count, nomeFU = 'Mary') {
 
   try {
     const resumo = hist.map(m => {
-      const quem = m.from_type === 'contact' ? 'Cliente' : 'Vitta';
-      const txt = m.type === 'document' ? `[enviou PDF: ${m.filename || 'proposta'}]` : String(m.content || '').slice(0, 200);
+      const quem = m.from_type === 'contact' ? 'Cliente' : nomeFU;
+      const txt = m.type === 'document' ? `[enviou PDF: ${m.filename || 'proposta'}]`
+        : m.type === 'audio' ? (String(m.transcricao || '').trim() ? `[áudio] ${String(m.transcricao).trim().slice(0, 200)}` : '[áudio]')
+        : String(m.content || '').slice(0, 200);
       return `${quem}: ${txt}`;
     }).join('\n');
+    // A memória do cliente muda tudo: follow-up que cita o filho pelo nome e a
+    // necessidade real não parece cobrança, parece cuidado.
+    const mem = conv.memoria || {};
+    const memTxt = ['paciente', 'idade', 'responsavel', 'interesse', 'observacoes']
+      .map(k => (mem[k] ? `${k}: ${String(mem[k]).slice(0, 80)}` : null)).filter(Boolean).join(' · ');
 
-    const sys = `Você é a ${nomeFU}, atendente carinhosa da Vittalis Saúde no WhatsApp (é assim que o cliente te conhece). O cliente parou de responder e você quer reativar a conversa com delicadeza. Escreva UMA única mensagem curta (1 a 2 frases), calorosa e humana, no tom da Vittalis: trate por "${trato}", use 1 emoji de afeto (💙🥰😊✨), e convide gentilmente para o próximo passo (tirar dúvida ou agendar). NÃO repita literalmente o que já foi dito. NÃO seja insistente nem cobre. Esta é a tentativa de retomada número ${count + 1} de ${FOLLOWUP_MAX} — quanto maior o número, mais leve e sem pressão. Responda APENAS a mensagem, sem aspas.`;
+    /* Estratégia por tentativa (método CRC): cada retomada tem um papel —
+       repetir "ficou alguma dúvida?" três vezes é o que faz cliente bloquear. */
+    const estrategia = count === 0
+      ? 'PRIMEIRA retomada: volte na DOR/necessidade que o cliente trouxe (cite o nome da criança se souber) e facilite a resposta com uma pergunta simples de escolha (ex.: "prefere manhã ou tarde?", "quer que eu te explique o investimento certinho?"). Tom próximo, como quem continua uma conversa boa.'
+      : count === 1
+        ? 'SEGUNDA retomada: NÃO repita a primeira. Agregue algo NOVO — um benefício que ainda não foi dito (atendimento sem pressa, domiciliar incluso nas terapias, Certificado de Coragem, parcelamento) conectado ao caso do cliente. Termine com um convite leve.'
+        : 'TERCEIRA e última: elegância e porta aberta. Sem pedir resposta — apenas carinho genuíno pelo bem-estar da criança e a certeza de que a Vittalis está aqui quando precisarem. Uma despedida que dá vontade de voltar.';
+
+    const sys = `Você é a ${nomeFU}, atendente carinhosa da Vittalis Saúde (pediatria, vacinas e terapias infantis — São Luís/MA) no WhatsApp; é assim que o cliente te conhece. O cliente parou de responder. Escreva UMA única mensagem curta (1 a 3 frases), calorosa e HUMANA, tratando por "${trato}", com 1 emoji de afeto (💙🥰😊✨).
+${estrategia}
+REGRAS DA CASA: fale "investimento", nunca "preço/valor"; nunca soe cobrança nem desespero (somos uma clínica procurada); não repita literalmente nada que já foi dito; não invente valores nem promessas. Responda APENAS a mensagem, sem aspas.`;
 
     const aiData = await openaiMessages({
-      model: 'gpt-4o-mini', max_tokens: 150, system: sys,
-      messages: [{ role: 'user', content: `Conversa até agora:\n${resumo}\n\nEscreva a mensagem de retomada.` }],
+      model: 'gpt-4o', max_tokens: 200, system: sys,
+      messages: [{ role: 'user', content: `${memTxt ? `O QUE SABEMOS DO CLIENTE: ${memTxt}\n\n` : ''}Conversa até agora:\n${resumo}\n\nEscreva a mensagem de retomada.` }],
     });
     const txt = aiData?.content?.find(c => c.type === 'text')?.text?.trim();
     return txt || fallback;
