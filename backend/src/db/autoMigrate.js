@@ -2233,6 +2233,26 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_planos_terapias_v3','{"ok":true}') ON CONFLICT DO NOTHING`);
     }
 
+    // 🧩 v4 — plano começa de 1 sessão por mês (R$ 200), degraus de R$ 200
+    const { rows: [flagPlanosT4] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_planos_terapias_v4'");
+    if (!flagPlanosT4) {
+      try {
+        const { rows: [tpC4] } = await query("SELECT valor FROM configuracoes WHERE chave = 'tabela_precos_consultas'");
+        const itens4 = Array.isArray(tpC4?.valor?.itens) ? tpC4.valor.itens : [];
+        const ja1 = itens4.some(i => String(i.nome || '').toLowerCase().includes('1 sessão por mês'));
+        if (!ja1) {
+          itens4.push({ id: Math.random().toString(36).slice(2, 10), nome: 'Plano Mensal — 1 sessão por mês', valor: 200,
+            categoria: 'Planos Mensais', setor: 'terapias',
+            obs: 'R$ 200/sessão · qualquer especialidade (Fono, T.O., ABA, Psico, Psicomotricidade, Neuropsico, Nutri…) — pode combinar' });
+          await query(`INSERT INTO configuracoes (chave, valor) VALUES ('tabela_precos_consultas', $1::jsonb)
+                       ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`,
+            [JSON.stringify({ ...(tpC4?.valor || {}), itens: itens4 })]);
+          console.log('🧩 Planos v4: item de 1 sessão por mês adicionado');
+        }
+      } catch (e) { console.error('seed planos terapias v4:', e.message); }
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_planos_terapias_v4','{"ok":true}') ON CONFLICT DO NOTHING`);
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);
