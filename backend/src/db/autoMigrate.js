@@ -2326,6 +2326,27 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log(`📚 Fotos da Nágila remarcadas pra vacinas: ${rN2.rowCount || 0}`);
     }
 
+    /* 🎯 META DE 100 MIL PRA CADA UMA (ordem do master, citando a Poliana):
+       Poliana recebe explicitamente a meta de R$ 100.000 (igual Raylane e
+       Suellen), e qualquer atendente/supervisora ativa que esteja com meta
+       zerada/nula ganha os mesmos 100 mil. Metas personalizadas diferentes
+       de zero NÃO são tocadas. */
+    const { rows: [flagMeta100] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_meta_100k_poliana_v1'");
+    if (!flagMeta100) {
+      await query(`UPDATE usuarios SET meta_individual = 100000, updated_at = NOW()
+                    WHERE ativo = true AND nome ILIKE 'poliana%'`).catch(() => {});
+      const rM100 = await query(`UPDATE usuarios SET meta_individual = 100000, updated_at = NOW()
+                                  WHERE ativo = true AND role IN ('atendente','supervisor')
+                                    AND COALESCE(meta_individual, 0) = 0`).catch(() => ({ rowCount: 0 }));
+      const { rows: metas } = await query(`SELECT nome, meta_individual FROM usuarios
+        WHERE ativo = true AND role IN ('atendente','supervisor') ORDER BY nome`).catch(() => ({ rows: [] }));
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+        ['🎯 Metas conferidas — 100 mil pra cada',
+         `Poliana ficou com meta de R$ 100.000 (e ${rM100.rowCount || 0} cadastro(s) que estavam sem meta também). Metas atuais: ${metas.map(m => `${m.nome.split(' ')[0]}: R$ ${Number(m.meta_individual || 0).toLocaleString('pt-BR')}`).join(' · ')}. O Caixa de cada uma mostra as próprias vendas — é registrar a venda (botão Venda na conversa ou pelo Caixa) que ela aparece.`]).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_meta_100k_poliana_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🎯 Metas 100k conferidas (Poliana explícita)');
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);
