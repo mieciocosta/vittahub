@@ -4688,6 +4688,29 @@ async function processarAgendadas() {
           console.warn('🚨 Mensagem de teste bloqueada na fila:', ag.id, JSON.stringify(String(ag.texto).slice(0, 60)));
           continue;
         }
+        /* 📷 Retorno do cuidado vai com uma FOTO junto (pedido do master:
+           "anima a pessoa a agendar") — prova social do setor, antes do texto.
+           Se a conversa já recebeu foto do bot na semana, vai só o texto. */
+        if (/retorno do cuidado/i.test(String(ag.criado_por || ''))) {
+          try {
+            const setorFotoR = conv.setor === 'vacinas' ? 'vacinas' : 'terapias';
+            const { rows: [jaImgR] } = await query(`SELECT 1 FROM mensagens WHERE conversa_id = $1 AND from_type = 'bot' AND type = 'image' AND created_at > NOW() - interval '7 days' LIMIT 1`, [conv.id]);
+            if (!jaImgR) {
+              const { rows: [fotoR] } = await query(`SELECT data FROM biblioteca_midias WHERE tipo IN ('foto','imagem','image') AND setor = $1 ORDER BY random() LIMIT 1`, [setorFotoR]);
+              if (fotoR?.data && zapiOk()) {
+                const waNR = conv.contact_id ? conv.contact_id.replace('@s.whatsapp.net', '') : `55${conv.phone}`;
+                const ph55R = waNR.startsWith('55') ? waNR : `55${waNR}`;
+                const imgR = String(fotoR.data).startsWith('data:') ? fotoR.data : `data:image/jpeg;base64,${fotoR.data}`;
+                const ziR = await zapiCall('/send-image', 'POST', { phone: ph55R, image: imgR, caption: '' });
+                if (ziR?.ok) {
+                  const { rows: [imR] } = await query(`INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, created_at)
+                    VALUES ($1,'bot','Mary','image',$2,NOW()) RETURNING *`, [conv.id, imgR]).catch(() => ({ rows: [null] }));
+                  if (imR) socketEmit('new_message', { convId: conv.id, message: imR, conv });
+                }
+              }
+            }
+          } catch (eF) { console.error('foto do retorno:', eF.message); }
+        }
         // Mensagem programada DA VITTA sai como bot e mantém a Vitta acordada
         await enviarTextoConversa(conv, ag.texto, ag.criado_por, { deBot: /^vitta/i.test(String(ag.criado_por || '')) });
         await query(`UPDATE mensagens_agendadas SET status='enviada', enviada_em=NOW() WHERE id=$1`, [ag.id]);
