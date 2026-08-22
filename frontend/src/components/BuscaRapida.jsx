@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useApi } from '../context/AuthContext.jsx';
+import { useApi, useAuth } from '../context/AuthContext.jsx';
 
 /* ⌘K / Ctrl+K — busca rápida global. De qualquer tela: digita o nome do
    cliente e vai direto pra conversa; ou digita uma página ("caixa", "agenda")
@@ -21,10 +21,12 @@ const semAcento = (t) => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, ''
 
 export default function BuscaRapida() {
   const api = useApi();
+  const { user } = useAuth();
   const nav = useNavigate();
   const [aberto, setAberto] = useState(false);
   const [q, setQ] = useState('');
   const [convs, setConvs] = useState([]);
+  const [msgs, setMsgs] = useState([]);   // 🔎 busca no texto das conversas (só master)
   const [buscando, setBuscando] = useState(false);
   const [idx, setIdx] = useState(0);
   const inputRef = useRef(null);
@@ -34,7 +36,7 @@ export default function BuscaRapida() {
     const onKey = (e) => {
       if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
         e.preventDefault();
-        setAberto(a => !a); setQ(''); setConvs([]); setIdx(0);
+        setAberto(a => !a); setQ(''); setConvs([]); setMsgs([]); setIdx(0);
       } else if (e.key === 'Escape') setAberto(false);
     };
     window.addEventListener('keydown', onKey);
@@ -45,13 +47,20 @@ export default function BuscaRapida() {
 
   // Busca de clientes (2+ letras), com pequeno atraso pra não pesar o servidor
   useEffect(() => {
-    if (!aberto || q.trim().length < 2) { setConvs([]); return; }
+    if (!aberto || q.trim().length < 2) { setConvs([]); setMsgs([]); return; }
     setBuscando(true);
     const t = setTimeout(() => {
       api.get(`/inbox/conversations/buscar?q=${encodeURIComponent(q.trim())}`)
         .then(d => setConvs(Array.isArray(d) ? d.slice(0, 6) : []))
         .catch(() => setConvs([]))
         .finally(() => setBuscando(false));
+      /* 🔎 Master também procura DENTRO das mensagens ("quem perguntou por
+         nota fiscal hoje?") — últimos 30 dias, quem falou e quando. */
+      if (user?.role === 'master' && q.trim().length >= 3) {
+        api.get(`/inbox/buscar-mensagens?q=${encodeURIComponent(q.trim())}&dias=30`)
+          .then(d => setMsgs(Array.isArray(d?.itens) ? d.itens.slice(0, 6) : []))
+          .catch(() => setMsgs([]));
+      } else setMsgs([]);
     }, 260);
     return () => { clearTimeout(t); setBuscando(false); };
   }, [q, aberto]); // eslint-disable-line
@@ -62,6 +71,9 @@ export default function BuscaRapida() {
   const pgs = termo ? PAGINAS.filter(p => semAcento(p[0]).includes(termo)).slice(0, 5) : PAGINAS.slice(0, 6);
   const itens = [
     ...convs.map(c => ({ tipo: 'conversa', titulo: c.contact_name || c.phone || 'Cliente', sub: 'Abrir conversa', emoji: '💬', ir: () => nav(`/inbox?conv=${c.id}`) })),
+    ...msgs.map(m => ({ tipo: 'mensagem', titulo: m.contact_name || m.phone || 'Cliente',
+      sub: `${m.de} · ${new Date(m.quando).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} — "${m.trecho}"`,
+      emoji: '🗨️', ir: () => nav(`/inbox?conv=${m.conversa_id}`) })),
     ...pgs.map(p => ({ tipo: 'pagina', titulo: p[0], sub: 'Ir para a página', emoji: p[2], ir: () => nav(p[1]) })),
   ];
 

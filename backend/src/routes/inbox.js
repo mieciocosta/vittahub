@@ -3760,6 +3760,39 @@ r.get('/conversations/buscar', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* 🔎 BUSCA NO CONTEÚDO DAS MENSAGENS (só master) — nasceu da pergunta do
+   master "qual cliente perguntou por nota fiscal hoje?". Digita o termo na
+   lupa e vê quem falou aquilo, quando, e abre a conversa. Master-only de
+   propósito: varrer o texto de TODAS as conversas é visão da clínica
+   inteira (regra da casa: clínica inteira = só master). */
+r.get('/buscar-mensagens', async (req, res) => {
+  try {
+    if (req.user?.role !== 'master') return res.status(403).json({ error: 'Busca nas mensagens é só do master.' });
+    const q = String(req.query.q || '').trim().slice(0, 80);
+    if (q.length < 3) return res.json({ itens: [] });
+    const dias = Math.max(1, Math.min(parseInt(req.query.dias) || 7, 90));
+    const { rows } = await query(
+      `SELECT m.conversa_id, m.content, m.created_at, m.from_type, c.contact_name, c.phone
+         FROM mensagens m JOIN conversas c ON c.id = m.conversa_id
+        WHERE m.type = 'text' AND m.created_at > NOW() - ($2 || ' days')::interval
+          AND unaccent(lower(m.content)) LIKE unaccent(lower($1))
+          AND c.contact_id NOT LIKE '%g.us%'
+        ORDER BY m.created_at DESC LIMIT 30`, [`%${q}%`, String(dias)]);
+    const itens = rows.map(m => {
+      const txt = String(m.content || '');
+      const pos = txt.toLowerCase().indexOf(q.toLowerCase());
+      const ini = Math.max(0, (pos < 0 ? 0 : pos) - 40);
+      return {
+        conversa_id: m.conversa_id, contact_name: m.contact_name, phone: m.phone,
+        de: m.from_type === 'contact' ? 'cliente' : m.from_type === 'bot' ? 'IA' : 'equipe',
+        quando: m.created_at,
+        trecho: (ini > 0 ? '…' : '') + txt.slice(ini, ini + 140) + (txt.length > ini + 140 ? '…' : ''),
+      };
+    });
+    res.json({ itens });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // EDITAR cadastro do cliente (nome / telefone) direto da pasta
 r.patch('/conversations/:id/contato', async (req, res) => {
   try {

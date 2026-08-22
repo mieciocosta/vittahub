@@ -2431,6 +2431,35 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log('🤖 Seed IA Nathy:', convsN.length ? 'ligada' : 'conversa não encontrada');
     }
 
+    /* 🔎 QUEM PERGUNTOU POR NOTA FISCAL? (pergunta do master, 22/08): robô de
+       uma passada que varre as mensagens das últimas 48h procurando "nota
+       fiscal" e entrega a resposta no sino do master, com nome, hora e trecho.
+       Pra próxima vez, a lupa (Ctrl+K) do master já busca dentro das mensagens. */
+    const { rows: [flagNF] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_busca_nota_fiscal_v1'");
+    if (!flagNF) {
+      const { rows: achadosNF } = await query(`
+        SELECT c.contact_name, c.phone, m.content, m.created_at, m.from_type
+          FROM mensagens m JOIN conversas c ON c.id = m.conversa_id
+         WHERE m.type = 'text' AND m.created_at > NOW() - interval '48 hours'
+           AND unaccent(lower(m.content)) LIKE '%nota%fiscal%'
+           AND c.contact_id NOT LIKE '%g.us%'
+         ORDER BY m.created_at DESC LIMIT 12`).catch(() => ({ rows: [] }));
+      const soClientes = achadosNF.filter(a => a.from_type === 'contact');
+      const lista = (soClientes.length ? soClientes : achadosNF).slice(0, 8).map(a => {
+        const h = new Date(new Date(a.created_at).getTime() - 3 * 3600 * 1000);
+        const hh = `${String(h.getUTCDate()).padStart(2, '0')}/${String(h.getUTCMonth() + 1).padStart(2, '0')} ${String(h.getUTCHours()).padStart(2, '0')}:${String(h.getUTCMinutes()).padStart(2, '0')}`;
+        const quem = a.from_type === 'contact' ? '' : a.from_type === 'bot' ? ' (dito pela IA)' : ' (dito pela equipe)';
+        return `• ${a.contact_name || a.phone || 'Cliente'} — ${hh}${quem}: "${String(a.content).slice(0, 110)}"`;
+      }).join('\n');
+      const textoNF = achadosNF.length
+        ? `Falaram de nota fiscal nas últimas 48h:\n\n${lista}\n\nE agora a sua lupa (Ctrl+K) busca DENTRO das mensagens: digite qualquer termo (ex.: "nota fiscal") e veja quem falou, quando, e abra a conversa na hora.`
+        : 'Não achei nenhuma mensagem com "nota fiscal" nas últimas 48h. Mas agora a sua lupa (Ctrl+K) busca dentro das mensagens: digite o termo e veja quem falou e quando.';
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+        ['🔎 Quem perguntou por nota fiscal', textoNF]).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_busca_nota_fiscal_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log(`🔎 Busca nota fiscal: ${achadosNF.length} mensagem(ns) encontradas`);
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);
