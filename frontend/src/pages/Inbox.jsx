@@ -388,7 +388,7 @@ const MsgItem = React.memo(function MsgItem({ m, prevMsg, contactName, channel, 
           <span style={{ background:'var(--ok2)', color:'var(--ok)', borderRadius:8, padding:'3px 14px', fontSize:10.5, fontWeight:600 }}>✓ {m.content}</span>
         </div>
       ) : (
-        <div className="msg-row" style={{ display:'flex', alignItems:'center', gap:5, justifyContent:isMe||isBot?'flex-end':'flex-start', marginBottom:2 }}>
+        <div className="msg-row" data-msgid={m.id} style={{ display:'flex', alignItems:'center', gap:5, justifyContent:isMe||isBot?'flex-end':'flex-start', marginBottom:2 }}>
           {/* Mensagem da IA (Mary) também pode ser editada/apagada — pedido do master */}
           {(isMe || isBot) && m.status !== 'deleted' && (onEditar || onApagar) && (() => {
             /* Ações SEMPRE meio visíveis (antes era só no hover — no celular

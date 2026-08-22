@@ -274,6 +274,25 @@ function SecurityLock({ user }) {
        Auditoria que já existia. E um truque a mais: o print do PrintScreen vai
        pra área de transferência — a gente a SOBRESCREVE com o aviso, então o
        Ctrl+V cola o texto da proibição em vez da imagem. */
+    /* 📸 RAIO-X DO PRINT (pedido do master: "quero saber qual foi a parte da
+       conversa que conseguiu fazer print"): no momento da captura, o registro
+       leva a conversa aberta e um trecho de CADA mensagem visível na tela —
+       a Auditoria mostra exatamente o que estava no print. */
+    const contextoPrint = () => {
+      const ctx = { tela: window.location.pathname };
+      try {
+        if (window.location.pathname.startsWith('/inbox')) {
+          const conv = JSON.parse(sessionStorage.getItem('vh_ultima_conversa') || 'null');
+          if (conv) { ctx.conversa = conv.nome || ''; ctx.conv_id = conv.id; }
+        }
+        const vis = [...document.querySelectorAll('[data-msgid]')].filter(el => {
+          const r2 = el.getBoundingClientRect();
+          return r2.bottom > 0 && r2.top < window.innerHeight && r2.height > 0;
+        }).slice(0, 15).map(el => String(el.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 90)).filter(Boolean);
+        if (vis.length) ctx.mensagens_na_tela = vis;
+      } catch { /* contexto é bônus — nunca pode travar o registro */ }
+      return ctx;
+    };
     const mostraAlertaPrint = () => {
       if (document.getElementById('vh-alerta-print')) return;
       const ov = document.createElement('div');
@@ -293,7 +312,7 @@ function SecurityLock({ user }) {
       if ((e.ctrlKey || e.metaKey) && ['p', 's'].includes(k)) {
         e.preventDefault();
         mostraAlertaPrint();
-        registra('captura_tela', { atalho: `ctrl+${k}` });
+        registra('captura_tela', { atalho: `ctrl+${k}`, ...contextoPrint() });
         return false;
       }
     };
@@ -312,9 +331,9 @@ function SecurityLock({ user }) {
       mostraAlertaPrint();                                               // o aviso aparece SEMPRE
       // Sabota o print colável: sobrescreve a área de transferência com o aviso
       setTimeout(() => { try { navigator.clipboard?.writeText('🚫 Proibido exportar dados do cliente — Vittalis Saúde'); } catch { /* ok */ } }, 250);
-      if (Date.now() - ultimoAviso < 15000) return;                      // registro não repete em rajada
+      if (Date.now() - ultimoAviso < 3000) return;                       // só desduplica rajada do mesmo apertar
       ultimoAviso = Date.now();
-      registra('captura_tela', { atalho: k });
+      registra('captura_tela', { atalho: k, ...contextoPrint() });
     };
 
     document.addEventListener('copy', filtraCopia);
