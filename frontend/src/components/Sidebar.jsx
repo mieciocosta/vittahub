@@ -778,6 +778,22 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
             {buscaAtiva && <button onClick={() => setBuscaMenu('')} style={{ background:'none', border:'none', cursor:'pointer', color:'rgba(255,255,255,.8)', padding:0, display:'flex' }}><X size={13} /></button>}
           </div>
         )}
+        {/* 🔎 PESQUISA GERAL (pedido do master: "onde aparece pra mim?") —
+            porta de entrada VISÍVEL pra busca global, que antes só abria com
+            Ctrl+K (impossível no celular). Se já digitou algo na caixinha do
+            menu, o termo vai junto e a pesquisa geral abre já procurando. */}
+        {!collapsed && (
+          <button onClick={() => { window.dispatchEvent(new CustomEvent('vh-abrir-busca', { detail: { q: buscaMenu.trim() } })); setBuscaMenu(''); }}
+            style={{ display:'flex', alignItems:'center', gap:8, margin:'0 4px 8px', padding:'8px 12px', borderRadius:10, cursor:'pointer',
+              background:'linear-gradient(120deg,rgba(0,184,192,.25),rgba(0,184,192,.12))', border:'1px solid rgba(0,184,192,.45)',
+              color:'#fff', fontSize:12, fontWeight:800, textAlign:'left', width:'calc(100% - 8px)' }}>
+            <span style={{ fontSize:13 }}>🔎</span>
+            <span style={{ flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+              {buscaAtiva ? `Pesquisar “${buscaMenu.trim()}” geral` : 'Pesquisa geral'}
+            </span>
+            <span style={{ fontSize:9, fontWeight:800, opacity:.7, border:'1px solid rgba(255,255,255,.35)', borderRadius:5, padding:'1px 5px', flexShrink:0 }}>Ctrl+K</span>
+          </button>
+        )}
         {NAV.filter(n => (!n.masterOnly || user?.role === 'master')
             && (!n.gestao || ['master','supervisor'].includes(user?.role))
             && (!n.consultas || podeSetor('consultas'))

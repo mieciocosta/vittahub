@@ -39,8 +39,12 @@ export default function BuscaRapida() {
         setAberto(a => !a); setQ(''); setConvs([]); setMsgs([]); setIdx(0);
       } else if (e.key === 'Escape') setAberto(false);
     };
+    // 🔎 Botão "Pesquisa geral" do menu (celular não tem Ctrl+K): abre a busca
+    // e, se veio um termo da caixinha do menu, já entra pesquisando.
+    const onAbrir = (e) => { setAberto(true); setQ(String(e?.detail?.q || '')); setConvs([]); setMsgs([]); setIdx(0); };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('vh-abrir-busca', onAbrir);
+    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('vh-abrir-busca', onAbrir); };
   }, []);
 
   useEffect(() => { if (aberto) setTimeout(() => inputRef.current?.focus(), 40); }, [aberto]);
