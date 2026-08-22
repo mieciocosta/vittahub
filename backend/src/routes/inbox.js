@@ -596,6 +596,39 @@ r.post('/webhook/whatsapp', async (req, res) => {
       const pushName = msg.pushName || msg.verifiedBizName || '';
       const contactName = (pushName && pushName.length > 2 && pushName !== phone) ? pushName : phone;
 
+/* ─── Foto da conversa → Biblioteca de Experiências ───────────────────────────
+   Pedido do master: "quero que TODA foto venha pra cá, com um título conforme
+   a conversa". São as fotos que a família manda — criança com o certificado de
+   coragem, sorrindo depois da vacina. Isso é o melhor material da clínica e
+   estava se perdendo no meio do chat.
+
+   O título sai do próprio atendimento (nome do cliente + dia) e o SETOR da
+   conversa manda a foto pra coluna certa (vacinas, consultas, terapias).
+   Figurinha não entra; foto gigante não entra (a biblioteca guarda até ~3MB).
+   Repetição não acontece: o id da mensagem no WhatsApp tem índice único. */
+async function fotoParaBiblioteca({ conv, dataUrl, waId, quando, messageType }) {
+  try {
+    if (messageType !== 'imageMessage') return;                 // sticker fica de fora
+    if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) return;
+    const [cabecalho, base64] = dataUrl.split(',');
+    if (!base64 || base64.length > 4_000_000) return;           // ~3MB: mesmo teto do upload
+    const mime = (cabecalho.match(/data:([^;]+)/) || [])[1] || 'image/jpeg';
+
+    const primeiro = String(conv?.contact_name || '').trim().split(/\s+/)[0] || 'Cliente';
+    const d = new Date(quando || Date.now());
+    const dia = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const setor = ['vacinas', 'consultas', 'terapias'].includes(conv?.setor) ? conv.setor : 'geral';
+    const doSetor = { vacinas: 'Vacinas', consultas: 'Consultas', terapias: 'Terapias', geral: 'Atendimento' }[setor];
+    const titulo = `${primeiro} · ${doSetor} · ${dia}`.slice(0, 80);
+
+    await query(`
+      INSERT INTO biblioteca_midias (titulo, tipo, setor, categoria, mime, data, origem, origem_msg_id, conversa_id)
+      VALUES ($1,'foto',$2,'Prova Social',$3,$4,'conversa',$5,$6)
+      ON CONFLICT (origem_msg_id) DO NOTHING`,
+      [titulo, setor, mime, base64, waId || null, conv?.id || null]);
+  } catch (_) { /* biblioteca nunca pode derrubar o recebimento da mensagem */ }
+}
+
       const m = msg.message || {};
       let content = '[mensagem]', type = 'text', mediaData = null;
       let messageType = '';
@@ -648,6 +681,9 @@ r.post('/webhook/whatsapp', async (req, res) => {
          WHERE NOT EXISTS (SELECT 1 FROM mensagens WHERE wa_msg_id = $6 AND $6 IS NOT NULL)`,
         [conv.id, type, mediaData || content, messageType || null, ts, waId]
       );
+
+      // Foto que a família mandou vira material da casa, com o nome dela no título
+      if (type === 'image') await fotoParaBiblioteca({ conv, dataUrl: mediaData, waId, quando: ts, messageType });
 
       await query(
         `INSERT INTO notificacoes (tipo, titulo, texto, conv_id) VALUES ('mensagem',$1,$2,$3)`,

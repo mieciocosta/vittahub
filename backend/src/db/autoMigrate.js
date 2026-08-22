@@ -1098,6 +1098,15 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       id SERIAL PRIMARY KEY, titulo TEXT NOT NULL, tipo TEXT NOT NULL,
       setor TEXT DEFAULT 'geral', categoria TEXT, mime TEXT, data TEXT NOT NULL,
       created_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
+    /* Foto que chega na conversa entra sozinha na Biblioteca (pedido do master).
+       origem_msg_id é o id da mensagem no WhatsApp: com índice único, webhook
+       repetido não duplica a mesma foto. conversa_id liga a foto de volta ao
+       atendimento — é o que permite o título sair com o nome do cliente. */
+    await query(`ALTER TABLE biblioteca_midias ADD COLUMN IF NOT EXISTS origem TEXT`).catch(() => {});
+    await query(`ALTER TABLE biblioteca_midias ADD COLUMN IF NOT EXISTS origem_msg_id TEXT`).catch(() => {});
+    await query(`ALTER TABLE biblioteca_midias ADD COLUMN IF NOT EXISTS conversa_id TEXT`).catch(() => {});
+    await query(`CREATE UNIQUE INDEX IF NOT EXISTS biblioteca_origem_msg_idx ON biblioteca_midias (origem_msg_id) WHERE origem_msg_id IS NOT NULL`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS biblioteca_setor_idx ON biblioteca_midias (setor, created_at DESC)`).catch(() => {});
 
     // 💟 FIGURINHAS OFICIAIS da Vittalis (logo + frases) — semeadas uma vez;
     // os .webp vivem em backend/src/assets/figurinhas (gerados pelo Claude).

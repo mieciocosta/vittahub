@@ -2372,8 +2372,6 @@ export default function Inbox({ onUnreadChange }) {
                   className={`tb-ico-color${showQR?' tb-on':''}`} style={{ '--ic':'#06b6d4' }}><Zap size={18} strokeWidth={2.3}/></button>
                 <button onClick={()=>{setBibAba('figurinha');setShowBib(true);}} title="Figurinhas da Vittalis"
                   className="tb-ico-color" style={{ '--ic':'#eab308' }}><Sticker size={18} strokeWidth={2.3}/></button>
-                <button onClick={()=>{setBibAba('foto');setShowBib(true);}} title="Fotos e vídeos da Biblioteca"
-                  className="tb-ico-color" style={{ '--ic':'#d946ef' }}><Image size={18} strokeWidth={2.3}/></button>
                 <button onClick={()=>{setShowDocs(p=>!p);setShowQR(false);setShowEmoji(false);}} title="Banco de documentos — envie os principais em 1 clique"
                   className={`tb-ico-color${showDocs?' tb-on':''}`} style={{ '--ic':'#10b981' }}><FileText size={18} strokeWidth={2.3}/></button>
                 <button onClick={()=>setShowAgendarMsg(true)} title="⏰ Agendar mensagem — escolha o dia e a hora pra disparar pro cliente"
@@ -2384,6 +2382,11 @@ export default function Inbox({ onUnreadChange }) {
 
                 <button onClick={()=>fileRef.current?.click()} title="Anexar arquivo"
                   className="tb-ico-color" style={{ '--ic':'#3b82f6' }}><Paperclip size={18} strokeWidth={2.3}/></button>
+                {/* Biblioteca colada no clipe e no emoji — pedido do master: é
+                    daqui que a equipe manda foto pro cliente, então tem que
+                    estar junto do que ela já usa pra enviar. */}
+                <button onClick={()=>{setBibAba('foto');setShowBib(true);}} title="🖼️ Biblioteca de Experiências — fotos e vídeos da clínica"
+                  className="tb-ico-color" style={{ '--ic':'#d946ef' }}><Image size={18} strokeWidth={2.3}/></button>
                 <button onClick={()=>{setShowEmoji(p=>!p);setShowQR(false);}} title="Emojis"
                   className={`tb-ico-color${showEmoji?' tb-on':''}`} style={{ '--ic':'#f59e0b' }}><Smile size={18} strokeWidth={2.3}/></button>
               </div>
@@ -2966,6 +2969,11 @@ export default function Inbox({ onUnreadChange }) {
 /* ── Picker da Biblioteca: envia foto/vídeo/figurinha na conversa ──────────── */
 function BibliotecaPicker({ convId, setor, api, onClose, abaInicial = 'foto' }) {
   const [aba, setAba] = React.useState(abaInicial);
+  /* Filtro de setor no próprio picker — pedido do master: a equipe escolhe a
+     coluna (vacinas ou consultas) e manda. Começa no setor da conversa, que é
+     quase sempre o certo. */
+  const [filtroSetor, setFiltroSetor] = React.useState(setor || '');
+  const SETORES_PICK = [['', 'Todos'], ['vacinas', '💉 Vacinas'], ['consultas', '🩺 Consultas'], ['terapias', '🧩 Terapias'], ['geral', '⭐ Geral']];
   const [itens, setItens] = React.useState([]);
   const [previews, setPreviews] = React.useState({});
   const [enviando, setEnviando] = React.useState(null);
@@ -2973,13 +2981,14 @@ function BibliotecaPicker({ convId, setor, api, onClose, abaInicial = 'foto' }) 
 
   React.useEffect(() => {
     const q = new URLSearchParams({ tipo: aba });
+    if (filtroSetor) q.set('setor', filtroSetor);
     api.get(`/extras/biblioteca?${q}`).then(d => {
       const lista = Array.isArray(d) ? d : [];
       // prioriza o setor da conversa, depois geral, depois o resto
       lista.sort((a, b) => (a.setor === setor ? 0 : a.setor === 'geral' ? 1 : 2) - (b.setor === setor ? 0 : b.setor === 'geral' ? 1 : 2));
       setItens(lista);
     }).catch(() => {});
-  }, [aba]); // eslint-disable-line
+  }, [aba, filtroSetor]); // eslint-disable-line
 
   React.useEffect(() => {
     (async () => {
@@ -3021,6 +3030,15 @@ function BibliotecaPicker({ convId, setor, api, onClose, abaInicial = 'foto' }) 
               style={{ padding:'5px 12px', borderRadius:9, fontSize:11.5, fontWeight:700, cursor:'pointer',
                 border:`1.5px solid ${aba===k?'var(--tq)':'var(--border)'}`,
                 background: aba===k?'var(--tq)':'var(--card)', color: aba===k?'#fff':'var(--muted)' }}>{l}</button>
+          ))}
+        </div>
+        {/* Coluna do setor: vacinas de um lado, consultas do outro */}
+        <div style={{ display:'flex', gap:5, padding:'8px 18px 0', flexWrap:'wrap' }}>
+          {SETORES_PICK.map(([k, l]) => (
+            <button key={k || 'todos'} onClick={() => setFiltroSetor(k)}
+              style={{ padding:'4px 11px', borderRadius:999, fontSize:11, fontWeight:700, cursor:'pointer',
+                border:`1.5px solid ${filtroSetor===k?'#7c5cbf':'var(--border)'}`,
+                background: filtroSetor===k?'#7c5cbf':'var(--card)', color: filtroSetor===k?'#fff':'var(--muted)' }}>{l}</button>
           ))}
         </div>
         <div style={{ flex:1, overflowY:'auto', padding:'14px 18px', display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(135px,1fr))', gap:10 }}>

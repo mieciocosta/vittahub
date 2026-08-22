@@ -14,6 +14,9 @@ export const TIPOS_BIB = [
   { k: 'apresentacao', l: 'Apresentações', Icon: FileText },
 ];
 const SETORES = [['geral', '⭐ Geral'], ['vacinas', '💉 Vacinas'], ['consultas', '🩺 Consultas'], ['terapias', '🧩 Terapias']];
+/* Ordem das COLUNAS: vacinas e consultas primeiro, que é o que a equipe manda
+   o dia inteiro (pedido do master). Geral fecha a fila. */
+const COLUNAS_SETOR = [['vacinas', '💉 Vacinas'], ['consultas', '🩺 Consultas'], ['terapias', '🧩 Terapias'], ['geral', '⭐ Geral']];
 
 export function GridMidias({ tipoFixo = null, titulo, subtitulo, categorias = null }) {
   const api = useApi();
@@ -27,6 +30,10 @@ export function GridMidias({ tipoFixo = null, titulo, subtitulo, categorias = nu
   const [erro, setErro] = useState('');
   const [subindo, setSubindo] = useState(false);
   const [zoom, setZoom] = useState(null); // { titulo, src } — visualização em tela cheia
+  /* Colunas por setor (pedido do master): com a foto da conversa entrando
+     sozinha, a lista única vira um monte só. Em colunas a equipe bate o olho
+     em "vacinas" ou "consultas" e escolhe o que mandar. */
+  const [colunas, setColunas] = useState(true);
   const fileRef = useRef(null);
 
   const load = useCallback(() => {
@@ -39,7 +46,7 @@ export function GridMidias({ tipoFixo = null, titulo, subtitulo, categorias = nu
   // Carrega a prévia (base64) sob demanda, um por vez
   useEffect(() => {
     (async () => {
-      for (const it of itens.slice(0, 24)) {
+      for (const it of itens.slice(0, colunas ? 48 : 24)) {
         if (previews[it.id] || it.tipo === 'video') continue;
         try {
           const m = await api.get(`/extras/biblioteca/${it.id}`);
@@ -102,6 +109,30 @@ export function GridMidias({ tipoFixo = null, titulo, subtitulo, categorias = nu
     try { await api.delete(`/extras/biblioteca/${it.id}`); load(); } catch {}
   };
 
+  // Cartão da mídia — o mesmo nas duas visões (lista e colunas)
+  const Cartao = ({ it }) => (
+    <div className="card" onClick={() => it.tipo !== 'video' && previews[it.id] && setZoom({ titulo: it.titulo, src: previews[it.id] })}
+      style={{ padding: 0, overflow: 'hidden', background: 'var(--card)', cursor: it.tipo !== 'video' ? 'zoom-in' : 'default' }}
+      title={it.tipo !== 'video' ? 'Clique pra ver em tamanho grande' : ''}>
+      <div style={{ height: 110, background: 'var(--bg2)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+        {it.tipo === 'video'
+          ? <Video size={30} color="var(--light)" />
+          : previews[it.id]
+            ? <img src={previews[it.id]} alt={it.titulo} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            : <ImgIcon size={26} color="var(--light)" />}
+      </div>
+      <div style={{ padding: '8px 10px' }}>
+        <div style={{ fontWeight: 700, fontSize: 11.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={it.titulo}>{it.titulo}</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 3 }}>
+          <span style={{ fontSize: 9.5, color: 'var(--muted)', fontWeight: 700 }}>
+            {it.origem === 'conversa' ? '💬 da conversa' : (it.categoria || it.setor)}
+          </span>
+          {gestao && <button onClick={(e) => { e.stopPropagation(); excluir(it); }} style={{ border: 'none', background: 'none', color: 'var(--light)', cursor: 'pointer', padding: 2 }}><Trash2 size={12} /></button>}
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div style={{ padding: 28 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
@@ -128,6 +159,14 @@ export function GridMidias({ tipoFixo = null, titulo, subtitulo, categorias = nu
         <div style={{ width: 1, background: 'var(--border)', margin: '0 4px' }} />
         <button onClick={() => setSetor('')} style={chip(!setor)}>Todos</button>
         {SETORES.map(([k, l]) => <button key={k} onClick={() => setSetor(k)} style={chip(setor === k)}>{l}</button>)}
+        {!setor && (
+          <>
+            <div style={{ width: 1, background: 'var(--border)', margin: '0 4px' }} />
+            <button onClick={() => setColunas(c => !c)} style={chip(colunas)} title="Vacinas e consultas lado a lado">
+              {colunas ? '▦ Em colunas' : '☰ Em lista'}
+            </button>
+          </>
+        )}
       </div>
 
       {itens.length === 0 && (
@@ -136,28 +175,31 @@ export function GridMidias({ tipoFixo = null, titulo, subtitulo, categorias = nu
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(170px,1fr))', gap: 13 }}>
-        {itens.map(it => (
-          <div key={it.id} className="card" onClick={() => it.tipo !== 'video' && previews[it.id] && setZoom({ titulo: it.titulo, src: previews[it.id] })}
-            style={{ padding: 0, overflow: 'hidden', background: 'var(--card)', cursor: it.tipo !== 'video' ? 'zoom-in' : 'default' }}
-            title={it.tipo !== 'video' ? 'Clique pra ver em tamanho grande' : ''}>
-            <div style={{ height: 120, background: 'var(--bg2)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-              {it.tipo === 'video'
-                ? <Video size={30} color="var(--light)" />
-                : previews[it.id]
-                  ? <img src={previews[it.id]} alt={it.titulo} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  : <ImgIcon size={26} color="var(--light)" />}
-            </div>
-            <div style={{ padding: '9px 11px' }}>
-              <div style={{ fontWeight: 700, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.titulo}</div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 3 }}>
-                <span style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 700, textTransform: 'capitalize' }}>{it.setor}{it.categoria ? ` · ${it.categoria}` : ''}</span>
-                {gestao && <button onClick={(e) => { e.stopPropagation(); excluir(it); }} style={{ border: 'none', background: 'none', color: 'var(--light)', cursor: 'pointer', padding: 2 }}><Trash2 size={12} /></button>}
+      {/* ── COLUNAS POR SETOR ── Pedido do master: vacinas de um lado, consultas
+           do outro, pra equipe achar e mandar sem caçar no meio de tudo. */}
+      {!setor && colunas ? (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(260px,1fr))', gap: 14, alignItems: 'start' }}>
+          {COLUNAS_SETOR.map(([k, rotulo]) => {
+            const doSetor = itens.filter(it => (it.setor || 'geral') === k);
+            return (
+              <div key={k} className="card" style={{ padding: 0, overflow: 'hidden' }}>
+                <div style={{ padding: '10px 13px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, background: 'var(--card)', zIndex: 1 }}>
+                  <b style={{ fontSize: 13 }}>{rotulo}</b>
+                  <span style={{ fontSize: 11, fontWeight: 800, color: 'var(--muted)' }}>{doSetor.length}</span>
+                </div>
+                <div style={{ padding: 10, display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(112px,1fr))', gap: 9, maxHeight: 560, overflowY: 'auto' }}>
+                  {doSetor.length === 0 && <div style={{ gridColumn: '1 / -1', fontSize: 11.5, color: 'var(--muted)', padding: '14px 4px', textAlign: 'center' }}>Nada aqui ainda.</div>}
+                  {doSetor.map(it => <Cartao key={it.id} it={it} />)}
+                </div>
               </div>
-            </div>
-          </div>
-        ))}
-      </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(170px,1fr))', gap: 13 }}>
+          {itens.map(it => <Cartao key={it.id} it={it} />)}
+        </div>
+      )}
 
       {/* 🔍 Visualização em tela cheia (clicou na figurinha/foto → abre grande) */}
       {zoom && (

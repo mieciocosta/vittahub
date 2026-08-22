@@ -3057,7 +3057,8 @@ r.get('/biblioteca', async (req, res) => {
     if (['vacinas', 'consultas', 'terapias', 'geral'].includes(req.query.setor)) { conds.push(`setor = $${i++}`); params.push(req.query.setor); }
     const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
     // Lista SEM o base64 (leve); o dado pesado sai só no item
-    const { rows } = await query(`SELECT id, titulo, tipo, setor, categoria, mime, octet_length(data) tamanho, created_at FROM biblioteca_midias ${where} ORDER BY created_at DESC LIMIT 200`, params);
+    // origem = 'conversa' marca a foto que a família mandou (entra sozinha)
+    const { rows } = await query(`SELECT id, titulo, tipo, setor, categoria, origem, mime, octet_length(data) tamanho, created_at FROM biblioteca_midias ${where} ORDER BY created_at DESC LIMIT 300`, params);
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
