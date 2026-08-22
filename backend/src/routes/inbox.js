@@ -397,10 +397,11 @@ function cacheGetList({ channel, search, unread_only, waiting, minhas, responsav
   const clsEspecifica = classificacao && classificacao !== 'all' && classificacao !== 'sem';
   if (categoria) list = list.filter(c => c.categoria === categoria);
   /* 🔍 BUSCANDO, as pastas entram na procura (cobrança do master: "coloco na
-     lupa e não acha"). A lista normal esconde quem foi movido pra Fidelidade/
-     Banco de Dados — mas quem DIGITA um nome quer achar a pessoa onde ela
-     estiver; a pasta é organização, não esconderijo. */
-  else if (!clsEspecifica && !search) list = list.filter(c => !c.categoria);
+     lupa e não acha"). E FIDELIDADE NÃO SOME MAIS do Chat geral (cobrança do
+     master 22/08: "a conversa desapareceu... foi pra pasta de fidelidade" —
+     a pasta é organização, não esconderijo). Só o Banco de Dados continua
+     fora da lista normal: ele é arquivo morto de propósito. */
+  else if (!clsEspecifica && !search) list = list.filter(c => c.categoria !== 'banco_dados');
   // Filtro de setor: chips da gestão (?setor=) ou trava da atendente (vê só o dela)
   if (setor && setor !== 'all') list = list.filter(c => c.setor === setor);
   // Filtro por classificação fina (atalhos coloridos do menu). 'sem' = ainda não
@@ -3515,7 +3516,7 @@ r.get('/conversations', async (req, res) => {
       if (req.query.classificacao && req.query.classificacao !== 'all') {
         conditions.push(`c.classificacao = $${pi++}`); params.push(req.query.classificacao);
       } else if (req.query.categoria) { conditions.push(`c.categoria = $${pi++}`); params.push(req.query.categoria); }
-      else conditions.push(`c.categoria IS NULL`);
+      else conditions.push(`(c.categoria IS NULL OR c.categoria <> 'banco_dados')`);
       // Acesso por setor (rede de segurança na janela de boot, antes do cache):
       // mesma precedência do cache — o setor da CONVERSA manda; só usa o do
       // responsável quando a conversa não tem setor.
