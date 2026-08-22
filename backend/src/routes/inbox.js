@@ -1591,6 +1591,8 @@ Nossos profissionais são BEM REQUISITADOS e nossas terapias BEM PROCURADAS — 
 - Nunca implore, nunca corra atrás parecendo desespero: quem tem qualidade tem procura.
 EQUILÍBRIO FINO: requisitada ≠ fria. O acolhimento caloroso continua sendo a alma — a procura é só a moldura de valor. E seja sempre VERDADEIRA: fale da procura sem inventar números ou falsas filas.
 
+📷 PROVA SOCIAL EM FOTO (ferramenta enviar_foto_terapias): você tem fotos REAIS das terapias na Biblioteca oficial da clínica (todas com autorização de imagem). O MOMENTO CERTO de enviar UMA: quando a mãe demonstra medo ou insegurança ("será que ele vai se adaptar?", "ele estranha lugares novos"), quando pede pra conhecer o espaço, ou junto da apresentação do plano pra materializar o cuidado. Legenda curta conectando à dor dela. NUNCA mais de uma foto por conversa, nunca de cara na primeira mensagem — foto sem contexto é panfleto; foto na hora da dúvida é resposta.
+
 🎁 ENCANTAMENTO DA CASA (conte às famílias — é real e é nosso diferencial):
 Depois da consulta, cada criança recebe um PRESENTE e o *Certificado de Coragem* 🏅 — cada etapa vencida vira um momento de celebração. Use no fechamento ("e o seu pequeno ainda sai com o Certificado de Coragem dele 🏅") e no pós-venda ("ele mereceu o certificado hoje!"). Isso transforma medo de consultório em conquista — as mães amam.
 
@@ -1736,6 +1738,16 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
       required: ['mensagem'],
     },
   }, {
+    name: 'enviar_foto_terapias',
+    description: 'Envia UMA foto real das terapias da clínica (da Biblioteca oficial, com autorização de imagem) como prova social. Use no MOMENTO CERTO: quando a mãe demonstra medo/insegurança ("será que ele se adapta?"), pede pra conhecer o espaço, ou junto da apresentação do plano. NUNCA mais de uma foto por conversa.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        legenda: { type: 'string', description: 'Legenda curta e calorosa conectando a foto à dor da família (ex.: "Olha o carinho com que nossos pequenos são cuidados 💙 É nesse ambiente que o Théo vai ser recebido")' },
+      },
+      required: ['legenda'],
+    },
+  }, {
     name: 'enviar_plano',
     description: 'Gera e envia em PDF um PLANO VACINAL completo (cronograma por idade, com capa e benefícios). Use quando o cliente quer o calendário/plano completo, em vez de vacinas de um único mês.',
     input_schema: {
@@ -1788,6 +1800,7 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
   const toolPlano = aiData.content?.find(c => c.type === 'tool_use' && c.name === 'enviar_plano');
   const toolPassar = aiData.content?.find(c => c.type === 'tool_use' && c.name === 'passar_para_equipe');
   const toolRetorno = aiData.content?.find(c => c.type === 'tool_use' && c.name === 'agendar_retorno');
+  const toolFoto = aiData.content?.find(c => c.type === 'tool_use' && c.name === 'enviar_foto_terapias');
   const textBlock = aiData.content?.find(c => c.type === 'text');
   let botReply = textBlock?.text?.trim() || '';
 
@@ -1812,6 +1825,35 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
         botReply = 'Estou finalizando seu plano, a equipe envia em instantes.';
       }
     } catch (e) { console.error('Erro enviar_plano:', e.message); ultimoPropostaDebug = { etapa:'plano', erro:e.message }; }
+  }
+
+  // ── 📷 Prova social: UMA foto real das terapias, da Biblioteca oficial ──
+  if (toolFoto) {
+    try {
+      // Uma por conversa: álbum de fotos vira spam e quebra o encanto
+      const { rows: [jaFoto] } = await query(
+        `SELECT 1 FROM mensagens WHERE conversa_id = $1 AND from_type = 'bot' AND type = 'image' LIMIT 1`, [convId]);
+      if (!jaFoto) {
+        const { rows: [foto] } = await query(`
+          SELECT id, titulo, data FROM biblioteca_midias
+           WHERE tipo IN ('foto', 'imagem', 'image') AND (setor = 'terapias' OR COALESCE(categoria,'') ILIKE '%terapia%')
+           ORDER BY random() LIMIT 1`);
+        if (foto?.data && zapiOk()) {
+          const legenda = String(toolFoto.input?.legenda || '').slice(0, 300);
+          const zrF = await zapiCall('/send-image', 'POST', { phone: `55${phoneNum}`, image: foto.data, caption: legenda });
+          if (zrF?.ok) {
+            const { rows: [fmsg] } = await query(
+              `INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, created_at)
+               VALUES ($1,'bot',$3,'image',$2,NOW()) RETURNING *`,
+              [convId, foto.data, nomePersona]).catch(() => ({ rows: [null] }));
+            if (fmsg) socketEmit('new_message', { convId, message: fmsg, conv });
+            console.log(`VITTA conv=${convId}: foto de terapias enviada (biblioteca #${foto.id})`);
+          }
+        } else if (!foto) {
+          console.log(`VITTA conv=${convId}: pediu foto de terapias, mas a Biblioteca não tem nenhuma (setor terapias)`);
+        }
+      }
+    } catch (e) { console.error('enviar_foto_terapias:', e.message); }
   }
 
   // ── 📅 Retorno do cuidado: cliente pediu tempo → a Mary volta amanhã ──
