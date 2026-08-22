@@ -1746,6 +1746,15 @@ export default function Inbox({ onUnreadChange }) {
                   style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', cursor:'pointer', textDecoration:'underline', textDecorationStyle:'dotted', textUnderlineOffset:3 }}>
                   {sel.contact_name}
                 </span>
+                {/* 🆔 Código único do cliente (pedido do master): diferencia
+                    clientes com o mesmo nome. Toque copia pra anotar. */}
+                {sel.codigo && (
+                  <span onClick={()=>{ try { navigator.clipboard.writeText(`VT-${String(sel.codigo).padStart(4,'0')}`); Toast.show('Código copiado! 🆔','success'); } catch { /* webview sem clipboard */ } }}
+                    title="Código único do cliente — toque pra copiar"
+                    style={{ display:'inline-flex', alignItems:'center', background:'var(--bg2)', color:'var(--muted)', border:'1px solid var(--border)', borderRadius:6, padding:'1px 7px', fontSize:9.5, fontWeight:800, flexShrink:0, cursor:'pointer', letterSpacing:.4 }}>
+                    🆔 VT-{String(sel.codigo).padStart(4,'0')}
+                  </span>
+                )}
                 {sel.bot_ativo && <span style={{ display:'inline-flex', alignItems:'center', gap:2, background:'var(--ok2)', color:'var(--ok)', borderRadius:6, padding:'1px 6px', fontSize:9.5, fontWeight:700, flexShrink:0 }}><Bot size={7}/>Bot</span>}
                 {leadData && <span style={{ display:'inline-flex', alignItems:'center', gap:2, background:'var(--tq3)', color:'var(--tq2)', borderRadius:6, padding:'1px 6px', fontSize:9.5, fontWeight:700, flexShrink:0 }}>◆ Lead</span>}
                 {sel.last_from === 'contact' && !String(sel.contact_id || '').endsWith('@g.us') && sel.last_message_at && (() => {
@@ -1948,6 +1957,13 @@ export default function Inbox({ onUnreadChange }) {
                     <Avatar conv={sel} size={72} fontSize={22}/>
                   </div>
                   <div style={{ fontWeight:700, fontSize:15, marginBottom:3, marginTop:10 }}>{sel.contact_name}</div>
+                  {sel.codigo && (
+                    <div onClick={()=>{ try { navigator.clipboard.writeText(`VT-${String(sel.codigo).padStart(4,'0')}`); Toast.show('Código copiado! 🆔','success'); } catch { /* ok */ } }}
+                      title="Código único do cliente — toque pra copiar"
+                      style={{ display:'inline-block', fontSize:11.5, fontWeight:800, color:'var(--tq2)', background:'var(--tq3)', borderRadius:8, padding:'2px 10px', marginBottom:6, cursor:'pointer', letterSpacing:.5 }}>
+                      🆔 VT-{String(sel.codigo).padStart(4,'0')}
+                    </div>
+                  )}
                   {sel.phone && <div style={{ fontSize:12.5, color:'var(--muted)', marginBottom:8 }}>+{sel.phone}</div>}
                   <StatusBadge status={sel.status_atend} size="sm"/>
                   <div style={{ display:'flex', justifyContent:'center', gap:6, marginTop:10 }}>

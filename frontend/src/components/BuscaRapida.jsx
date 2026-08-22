@@ -75,7 +75,9 @@ export default function BuscaRapida() {
   const termo = semAcento(q);
   const pgs = termo ? PAGINAS.filter(p => semAcento(p[0]).includes(termo)).slice(0, 5) : PAGINAS.slice(0, 6);
   const itens = [
-    ...convs.map(c => ({ tipo: 'conversa', titulo: c.contact_name || c.phone || 'Cliente', sub: 'Abrir conversa', emoji: '💬', ir: () => nav(`/inbox?conv=${c.id}`) })),
+    ...convs.map(c => ({ tipo: 'conversa', titulo: c.contact_name || c.phone || 'Cliente',
+      sub: c.codigo ? `🆔 VT-${String(c.codigo).padStart(4, '0')} · Abrir conversa` : 'Abrir conversa',
+      emoji: '💬', ir: () => nav(`/inbox?conv=${c.id}`) })),
     ...msgs.map(m => ({ tipo: 'mensagem', titulo: m.contact_name || m.phone || 'Cliente',
       sub: `${m.de} · ${new Date(m.quando).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })} — "${m.trecho}"`,
       emoji: '🗨️', ir: () => nav(`/inbox?conv=${m.conversa_id}`) })),

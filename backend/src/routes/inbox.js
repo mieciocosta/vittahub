@@ -396,12 +396,10 @@ function cacheGetList({ channel, search, unread_only, waiting, minhas, responsav
   // Terapias), que devem listar todos daquela classificação, mesmo se tiverem pasta.
   const clsEspecifica = classificacao && classificacao !== 'all' && classificacao !== 'sem';
   if (categoria) list = list.filter(c => c.categoria === categoria);
-  /* 🔍 BUSCANDO, as pastas entram na procura (cobrança do master: "coloco na
-     lupa e não acha"). E FIDELIDADE NÃO SOME MAIS do Chat geral (cobrança do
-     master 22/08: "a conversa desapareceu... foi pra pasta de fidelidade" —
-     a pasta é organização, não esconderijo). Só o Banco de Dados continua
-     fora da lista normal: ele é arquivo morto de propósito. */
-  else if (!clsEspecifica && !search) list = list.filter(c => c.categoria !== 'banco_dados');
+  /* 📌 NINGUÉM SOME DO ATENDIMENTO GERAL (ordem do master, 22/08): a pasta
+     (Fidelidade, Banco de Dados…) é uma CÓPIA organizada — a conversa continua
+     na lista geral, na ordem certinha da última mensagem. Antes o inbox
+     escondia quem tinha pasta e a cliente "desapareceu do nada". */
   // Filtro de setor: chips da gestão (?setor=) ou trava da atendente (vê só o dela)
   if (setor && setor !== 'all') list = list.filter(c => c.setor === setor);
   // Filtro por classificação fina (atalhos coloridos do menu). 'sem' = ainda não
@@ -429,7 +427,12 @@ function cacheGetList({ channel, search, unread_only, waiting, minhas, responsav
     // Telefone digitado COM máscara ("(98) 98822…") não batia com o número
     // guardado só em dígitos — compara dígito com dígito.
     const soDig = s.replace(/\D/g, '');
+    // 🆔 Busca pelo CÓDIGO do cliente ("VT-123", "vt123" ou só "123") —
+    // pedido do master pra diferenciar clientes com o mesmo nome.
+    const mCod = s.match(/^vt-?0*(\d{1,8})$/) || (/^\d{1,8}$/.test(s) ? [null, s] : null);
+    const codBuscado = mCod ? parseInt(mCod[1]) : null;
     list = list.filter(c =>
+      (codBuscado !== null && c.codigo === codBuscado) ||
       (c.contact_name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').includes(s) ||
       (c.phone || '').includes(s) ||
       (soDig.length >= 4 && String(c.phone || '').replace(/\D/g, '').includes(soDig)) ||
@@ -3516,7 +3519,7 @@ r.get('/conversations', async (req, res) => {
       if (req.query.classificacao && req.query.classificacao !== 'all') {
         conditions.push(`c.classificacao = $${pi++}`); params.push(req.query.classificacao);
       } else if (req.query.categoria) { conditions.push(`c.categoria = $${pi++}`); params.push(req.query.categoria); }
-      else conditions.push(`(c.categoria IS NULL OR c.categoria <> 'banco_dados')`);
+      // (sem filtro de pasta: ninguém some do atendimento geral — ordem do master)
       // Acesso por setor (rede de segurança na janela de boot, antes do cache):
       // mesma precedência do cache — o setor da CONVERSA manda; só usa o do
       // responsável quando a conversa não tem setor.
@@ -3753,10 +3756,14 @@ r.get('/conversations/buscar', async (req, res) => {
     const q = String(req.query.q || '').trim();
     if (q.length < 2) return res.json([]);
     const like = `%${q}%`;
+    // 🆔 "VT-123", "vt123" ou só número acha o cliente pelo código único
+    const mCod = q.toLowerCase().match(/^vt-?0*(\d{1,8})$/) || (/^\d{1,8}$/.test(q) ? [null, q] : null);
+    const codB = mCod ? parseInt(mCod[1]) : null;
     const { rows } = await query(
-      `SELECT id, contact_name, phone, categoria, classificacao FROM conversas
+      `SELECT id, contact_name, phone, categoria, classificacao, codigo FROM conversas
        WHERE unaccent(lower(COALESCE(contact_name,''))) ILIKE unaccent(lower($1)) OR phone ILIKE $1
-       ORDER BY last_message_at DESC NULLS LAST LIMIT 20`, [like]);
+          OR ($2::int IS NOT NULL AND codigo = $2::int)
+       ORDER BY last_message_at DESC NULLS LAST LIMIT 20`, [like, codB]);
     res.json(mascararLista(rows, req.user));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

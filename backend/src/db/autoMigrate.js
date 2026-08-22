@@ -2431,6 +2431,22 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log('🤖 Seed IA Nathy:', convsN.length ? 'ligada' : 'conversa não encontrada');
     }
 
+    /* 🆔 CÓDIGO DO CLIENTE (pedido do master, 22/08): cada cliente ganha um
+       código único tipo VT-0123 — como um CPF curto da casa — porque cliente
+       com nome repetido confunde a busca. SERIAL preenche as conversas
+       existentes sozinho e numera as novas automaticamente. */
+    await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS codigo SERIAL`).catch(() => {});
+    await query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_conversas_codigo ON conversas (codigo)`).catch(() => {});
+    const { rows: [flagCod] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_codigo_cliente_v1'");
+    if (!flagCod) {
+      const { rows: [{ n: totalCod }] } = await query(`SELECT COUNT(*)::int n FROM conversas WHERE codigo IS NOT NULL`).catch(() => ({ rows: [{ n: 0 }] }));
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+        ['🆔 Cada cliente agora tem um código',
+         `${totalCod} clientes receberam código único (VT-0001, VT-0002…) — o "CPF da casa" que o senhor pediu pra diferenciar clientes com o mesmo nome. O código aparece no topo da conversa e no painel Info (toque nele pra copiar), e a busca acha o cliente digitando o código (ex.: "VT-123" ou só "123").`]).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_codigo_cliente_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log(`🆔 Código do cliente: ${totalCod} conversas numeradas`);
+    }
+
     /* 🔎 QUEM PERGUNTOU POR NOTA FISCAL? (pergunta do master, 22/08): robô de
        uma passada que varre as mensagens das últimas 48h procurando "nota
        fiscal" e entrega a resposta no sino do master, com nome, hora e trecho.
