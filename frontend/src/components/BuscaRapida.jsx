@@ -6,15 +6,31 @@ import { useApi, useAuth } from '../context/AuthContext.jsx';
    cliente e vai direto pra conversa; ou digita uma página ("caixa", "agenda")
    e pula pra ela. Economiza dezenas de cliques por dia da equipe. */
 
+/* Lista COMPLETA do menu (cobrança do master: "pesquisei a pasta de fidelidade
+   e não trouxe — essa lupa não traz tudo"). Espelha o Sidebar, incluindo as
+   PASTAS de organização. Quem não tem acesso a uma página cai na regra normal
+   de permissão ao abrir. */
 const PAGINAS = [
-  ['Resumo', '/', '🏠'], ['Chat', '/inbox', '💬'], ['Agenda', '/agenda', '📅'],
+  ['Resumo', '/', '🏠'], ['Chat', '/inbox', '💬'],
+  ['Fidelidade (pasta)', '/fidelidade', '⭐'], ['Vacinação (pasta)', '/vacinacao', '💉'],
+  ['Planos Vacinais (pasta)', '/planos-vacinais', '🛡️'], ['Consultas (pasta)', '/consultas', '🩺'],
+  ['Terapias (pasta)', '/terapias', '🧩'],
+  ['Cases de Sucesso', '/cases-sucesso', '🏆'], ['Tabela de Preços', '/tabela-precos', '📋'],
+  ['Assistente IA', '/mary', '🤖'], ['Profissionais', '/profissionais', '👩‍⚕️'],
+  ['Agenda', '/agenda', '📅'], ['Relatório do Dia', '/agenda?aba=relatorio', '📈'],
+  ['Plano Vacinal', '/plano-vacinal', '💉'], ['Plano de Terapias', '/plano-terapias', '🧩'],
   ['Follow-up', '/retornos', '🔔'], ['Recuperação', '/recuperacao', '🔥'],
+  ['Ranking', '/ranking', '🥇'], ['Minha Carteira', '/minha-carteira', '👛'],
   ['Clientes', '/leads', '👥'], ['Lembretes', '/lembretes', '⏰'], ['Caixa', '/caixa', '💰'],
-  ['Metas', '/metas', '🎯'], ['Relatórios', '/relatorios', '📊'], ['Organização', '/funil', '🗂️'],
+  ['Metas', '/metas', '🎯'], ['Solicitar Vacinas', '/vacinas-solicitacao', '💌'],
+  ['Funil', '/funil', '🗂️'], ['Relatórios', '/relatorios', '📊'],
   ['Banco de Dados', '/banco-dados', '🗄️'], ['Chat da Equipe', '/equipe', '👨‍👩‍👧'],
-  ['Meu Devocional', '/amigo', '📖'], ['Figurinhas', '/figurinhas', '💟'],
-  ['Biblioteca', '/biblioteca', '🖼️'], ['Indicações', '/indicacoes', '🎁'],
-  ['Cursos', '/cursos', '🎓'], ['Quiz de Vendas', '/quiz', '🎮'], ['Configurações', '/configuracoes', '⚙️'],
+  ['Meu Painel', '/meu-painel', '🧭'], ['Meu Devocional', '/amigo', '📖'],
+  ['Planejamento', '/planejamento', '🚀'], ['Quiz de Vendas', '/quiz', '🎮'],
+  ['Estudos', '/estudos', '📚'], ['Cursos', '/cursos', '🎓'], ['Indicações', '/indicacoes', '🎁'],
+  ['Biblioteca', '/biblioteca', '🖼️'], ['Modelos de Mensagens', '/modelos', '📝'],
+  ['Figurinhas', '/figurinhas', '💟'], ['Ligações', '/ligacoes', '📞'],
+  ['Auditoria', '/auditoria', '🛡️'], ['Configurações', '/configuracoes', '⚙️'],
 ];
 
 const semAcento = (t) => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
