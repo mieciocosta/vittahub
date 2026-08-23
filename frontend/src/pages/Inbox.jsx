@@ -4,7 +4,7 @@ import {
   UserPlus, Hash, Bot, FileText, Volume2, File, Tag,
   Smile, PanelLeftClose, PanelLeftOpen, Play, ChevronUp, Loader2, Zap, Plus,
   CheckCircle2, Clock, MessageCircle, Phone, Image,
-  MailOpen, VolumeX, CalendarDays, Bell, Trash2, Sticker } from 'lucide-react';
+  MailOpen, VolumeX, CalendarDays, Bell, Trash2, Sticker, MessageSquare } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { useSearchParams } from 'react-router-dom';
 import { fmt, openWA, avatarGrad } from '../hooks/utils.js';
