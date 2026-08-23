@@ -1028,20 +1028,14 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
             lateral inteira tem overflow:hidden, então qualquer coisa que se
             sobreponha a ela é cortada — era por isso que o clique parecia não
             fazer nada. Fixed sai da barra e nada mais o corta. */}
+        {/* 🗑️ Botão "Cor do CRM" do rodapé REMOVIDO (pedido do master, 22/08:
+            "retire esse de baixo pois já tem em cima") — o atalho vive na
+            bolinha colorida do cartão de perfil; o painel continua o mesmo. */}
         {!collapsed && paletaCores.length > 0 && (() => {
+          // Usado no rodapé do painel ("Aplicada agora")
           const corAtual = corDia === 'auto' || corDia === 'off' ? null : paletaCores[parseInt(corDia)];
           return (
           <>
-            <button onClick={() => { setPaletaOrigem('rodape'); setPaletaAberta(a => !a); }}
-              style={{ width:'100%', display:'flex', alignItems:'center', gap:7, padding:'8px 10px', marginTop:8,
-                borderRadius:12, background:'rgba(255,255,255,.08)', border:'1px solid rgba(255,255,255,.14)',
-                cursor:'pointer', color:'#fff' }}>
-              <span style={{ width:16, height:16, borderRadius:'50%', flexShrink:0, background: corAtual?.tq || 'conic-gradient(#00B8C0,#7c3aed,#f59e0b,#16a34a,#00B8C0)', border:'1.5px solid rgba(255,255,255,.5)' }} />
-              <span style={{ fontSize:11.5, fontWeight:800, flex:1, textAlign:'left', color:'rgba(255,255,255,.92)' }}>Cor do CRM</span>
-              <span style={{ fontSize:9.5, fontWeight:700, color:'rgba(255,255,255,.62)' }}>{corDia === 'auto' ? 'do dia' : (corAtual?.nome || '')}</span>
-              {paletaAberta ? <ChevronDown size={13} color="rgba(255,255,255,.7)" /> : <ChevronRight size={13} color="rgba(255,255,255,.7)" />}
-            </button>
-
             {paletaAberta && (
               <>
                 <div onClick={() => setPaletaAberta(false)} style={{ position:'fixed', inset:0, zIndex:600 }} />

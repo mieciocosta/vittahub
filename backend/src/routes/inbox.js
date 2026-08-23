@@ -6268,6 +6268,56 @@ function htmlCartaoNome(nome, origem, significado, bencao, logoB64) {
   </div></body></html>`;
 }
 
+/* 📸 PROVA SOCIAL EM 1 CLIQUE (pedido do master, 22/08): o botão do protocolo
+   envia um CONJUNTO de fotos da Biblioteca (até 3, do setor da conversa +
+   'geral' de reserva) com o Instagram na legenda da última — sem a atendente
+   caçar foto por foto. Resolve também as fotos que só apontam pra mensagem. */
+r.post('/conversations/:id/prova-social', async (req, res) => {
+  try {
+    const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso.' });
+    if (!zapiOk()) return res.status(400).json({ error: 'WhatsApp não configurado.' });
+    const phoneNum = conv.contact_id ? conv.contact_id.replace('@s.whatsapp.net', '') : String(conv.phone || '').replace(/\D/g, '');
+    if (!phoneNum) return res.status(400).json({ error: 'Conversa sem telefone.' });
+    const ph55 = phoneNum.startsWith('55') ? phoneNum : `55${phoneNum}`;
+
+    const setorFoto = conv.setor === 'vacinas' ? 'vacinas' : 'terapias';
+    const { rows: cands } = await query(`
+      SELECT id, titulo, data, msg_id FROM biblioteca_midias
+       WHERE tipo IN ('foto', 'imagem', 'image') AND setor IN ($1, 'geral')
+       ORDER BY (setor = $1) DESC, random() LIMIT 8`, [setorFoto]);
+    const prontas = [];
+    for (const f of cands) {
+      if (prontas.length >= 3) break;
+      let d = f.data;
+      if (!d && f.msg_id) {
+        const { rows: [msgF] } = await query('SELECT content FROM mensagens WHERE id = $1', [f.msg_id]).catch(() => ({ rows: [] }));
+        d = String(msgF?.content || '').startsWith('data:') ? msgF.content : null;
+      }
+      if (d) prontas.push(String(d).startsWith('data:') ? d : `data:image/jpeg;base64,${d}`);
+    }
+    if (!prontas.length) return res.status(400).json({ error: 'A Biblioteca não tem fotos utilizáveis pra este setor — anexe fotos em Biblioteca primeiro.' });
+
+    const insta = '📸 Veja mais momentos assim no nosso Instagram: https://www.instagram.com/vittalissaudeslz/';
+    let enviadas = 0;
+    for (let i = 0; i < prontas.length; i++) {
+      const legenda = i === prontas.length - 1 ? insta : '';
+      const zr = await zapiCall('/send-image', 'POST', { phone: ph55, image: prontas[i], caption: legenda });
+      if (!zr?.ok) continue;
+      enviadas++;
+      const { rows: [m] } = await query(`INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, created_at)
+        VALUES ($1,'me',$2,'image',$3,NOW()) RETURNING *`, [conv.id, req.user.nome, prontas[i]]).catch(() => ({ rows: [null] }));
+      if (m) socketEmit('new_message', { convId: conv.id, message: m, conv });
+    }
+    if (!enviadas) return res.status(500).json({ error: 'Nenhuma foto conseguiu sair — tente de novo.' });
+    // Atendente respondeu → bot desliga nesta conversa (regra da casa)
+    await query('UPDATE conversas SET last_from = $2, last_message = $3, last_message_at = NOW() WHERE id = $1 RETURNING *', [conv.id, 'me', '[image]'])
+      .then(({ rows: [c2] }) => c2 && cacheUpdate(c2)).catch(() => {});
+    res.json({ ok: true, enviadas });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // POST /conversations/:id/significado-nome { nome, enviar }
 r.post('/conversations/:id/significado-nome', async (req, res) => {
   try {

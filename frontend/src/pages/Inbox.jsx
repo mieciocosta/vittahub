@@ -2319,22 +2319,28 @@ export default function Inbox({ onUnreadChange }) {
                     ? `Protocolo Vittalis: faltam ${proto.faltando.length} passo${proto.faltando.length > 1 ? 's' : ''}`
                     : 'Protocolo Vittalis completo! Atendimento nota 10 💙'}
                 </span>
-                <span style={{ display:'flex', gap:2, alignItems:'center' }}>
-                  {proto.passos.map(p2 => (
-                    <span key={p2.k} title={`${p2.feito ? '✅' : '⚠️ falta'} ${p2.nome}`}
-                      style={{ width:7, height:7, borderRadius:'50%', background: p2.feito ? '#16a34a' : '#f59e0b', opacity: p2.feito ? 1 : .85 }} />
-                  ))}
+                {/* Barra de progresso no lugar das bolinhas (pedido do master:
+                    "melhora essa apresentação") — o avanço se lê num olhar. */}
+                <span style={{ width:78, height:8, borderRadius:6, background:'rgba(0,0,0,.12)', overflow:'hidden', flexShrink:0 }}>
+                  <span style={{ display:'block', width:`${Math.max(proto.pct, 4)}%`, height:'100%', borderRadius:6,
+                    background: proto.pct >= 100 ? 'linear-gradient(90deg,#16a34a,#4ade80)' : 'linear-gradient(90deg,#f59e0b,#fcd34d)' }} />
                 </span>
                 <span style={{ fontSize:10.5, fontWeight:800, color:'var(--muted)' }}>{proto.pct}% · {protoAberto ? '▲' : '▼'}</span>
               </button>
 
               {protoAberto && (
-                <div style={{ padding:'2px 12px 10px', maxHeight:190, overflowY:'auto' }}>
+                <div style={{ padding:'2px 12px 10px', maxHeight:230, overflowY:'auto' }}>
                   {proto.passos.map(p2 => (
-                    <div key={p2.k} style={{ display:'flex', alignItems:'center', gap:8, padding:'5px 6px', borderRadius:8, background: p2.feito ? 'transparent' : 'rgba(245,158,11,.10)', marginBottom:3 }}>
-                      <span style={{ fontSize:12, width:16, textAlign:'center', flexShrink:0 }}>{p2.feito ? '✅' : p2.emoji}</span>
+                    <div key={p2.k} style={{ display:'flex', alignItems:'center', gap:9, padding:'7px 9px', borderRadius:11, marginBottom:5,
+                      background: p2.feito ? 'rgba(22,163,74,.06)' : '#fff',
+                      border: p2.feito ? '1px solid rgba(22,163,74,.25)' : '1px solid #fde4b8',
+                      boxShadow: p2.feito ? 'none' : '0 1px 4px rgba(180,83,9,.08)' }}>
+                      <span style={{ width:26, height:26, borderRadius:'50%', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:13,
+                        background: p2.feito ? 'rgba(22,163,74,.12)' : '#fff4dd', border: p2.feito ? '1px solid rgba(22,163,74,.3)' : '1px solid #fcd34d' }}>
+                        {p2.feito ? '✅' : p2.emoji}
+                      </span>
                       <div style={{ flex:1, minWidth:0 }}>
-                        <div style={{ fontSize:11.5, fontWeight: p2.feito ? 500 : 800, color: p2.feito ? 'var(--muted)' : '#92400e', textDecoration: p2.feito ? 'line-through' : 'none', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                        <div style={{ fontSize:11.5, fontWeight: p2.feito ? 600 : 800, color: p2.feito ? '#15803d' : '#92400e', textDecoration: p2.feito ? 'line-through' : 'none', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
                           {p2.nome}
                         </div>
                         {!p2.feito && p2.dica && <div style={{ fontSize:10, color:'#b45309', opacity:.85, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{p2.dica}</div>}
@@ -2355,7 +2361,24 @@ export default function Inbox({ onUnreadChange }) {
                           {protoBusy === p2.k ? '…' : '✨ Gerar e enviar'}
                         </button>
                       )}
-                      {!p2.feito && p2.modelo && p2.k !== 'significado_nome' && (
+                      {/* 📸 PROVA SOCIAL EM 1 CLIQUE (pedido do master): envia um
+                          conjunto de fotos da Biblioteca + Instagram na legenda */}
+                      {!p2.feito && p2.k === 'prova_social' && (
+                        <button onClick={async () => {
+                          setProtoBusy(p2.k);
+                          try {
+                            const r = await api.post(`/inbox/conversations/${sel.id}/prova-social`, {});
+                            Toast.show(`📸 ${r.enviadas} foto(s) + Instagram enviados!`, 'success');
+                            api.get(`/inbox/conversations/${sel.id}/protocolo`).then(setProto).catch(() => {});
+                          } catch (e) { Toast.show(e.message, 'error'); }
+                          setProtoBusy('');
+                        }} disabled={!!protoBusy}
+                          title="Envia até 3 fotos de prova social da Biblioteca com o link do Instagram na legenda"
+                          style={{ flexShrink:0, border:'none', borderRadius:8, padding:'4px 10px', cursor:'pointer', background:'linear-gradient(120deg,#ec4899,#a855f7)', color:'#fff', fontSize:10.5, fontWeight:800 }}>
+                          {protoBusy === p2.k ? '…' : '📸 Fotos + Insta'}
+                        </button>
+                      )}
+                      {!p2.feito && p2.modelo && p2.k !== 'significado_nome' && p2.k !== 'prova_social' && (
                         <button onClick={() => { setInput(p2.modelo); textRef.current?.focus(); }}
                           title="Coloca a mensagem pronta no campo de digitação"
                           style={{ flexShrink:0, border:'1px solid #fcd34d', borderRadius:8, padding:'4px 10px', cursor:'pointer', background:'#fff', color:'#b45309', fontSize:10.5, fontWeight:800 }}>
