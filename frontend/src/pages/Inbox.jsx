@@ -2286,17 +2286,31 @@ export default function Inbox({ onUnreadChange }) {
 
           {/* Emoji picker */}
           {showEmoji && (
-            <div style={{ background:'var(--card,#fff)', borderTop:'1px solid var(--border)', padding:'9px 12px', flexShrink:0, maxHeight:160, overflowY:'auto' }}>
-              <div style={{ fontSize:10.5, fontWeight:700, color:'var(--muted)', marginBottom:7, textTransform:'uppercase', letterSpacing:.6 }}>Emojis</div>
-              <div style={{ display:'flex', flexWrap:'wrap', gap:3 }}>
-                {['😊','😂','❤️','👍','🙏','😍','🎉','😢','😮','😡','👏','🔥','✅','⭐','💎','💉','🏥','👶','💊','🩺','😁','🤣','😘','🥰','😎','🤔','😴','🤒','🤧','💪','🌟','💯','📋','📅','⏰','📞','💬','📱','🚀','✨'].map(e=>(
+            <div style={{ background:'var(--card,#fff)', borderTop:'1px solid var(--border)', padding:'9px 12px', flexShrink:0, maxHeight:230, overflowY:'auto' }}>
+              {/* Ampliado por grupos (pedido do master: "não tem corações de
+                  diversas cores e formas — melhore, amplia") */}
+              {[
+                ['💗 Corações', ['❤️','🧡','💛','💚','💙','💜','🖤','🤍','🤎','💖','💗','💓','💞','💕','💘','💝','❣️','💟','❤️‍🔥','❤️‍🩹','💔','😍','🥰','😻','🫶','❤️‍🙈'.replace('❤️‍🙈','🫀') ]],
+                ['😊 Carinhas', ['😊','😁','😂','🤣','😄','😅','😉','😌','😍','😘','🥰','😎','🤗','🤭','😇','🥹','🥲','😢','😭','😮','😱','😡','🤔','😴','🙃','😋','🤤','🫠','🥺','😷','🤒','🤧','🤢','😵‍💫']],
+                ['🙌 Gestos', ['👍','👎','👏','🙏','🤝','👋','✌️','🤞','🫰','👌','🤙','💪','🫶','👊','✊','🤲','🖐️','☝️']],
+                ['🎉 Festa & brilho', ['🎉','🎊','🥳','🎈','🎁','✨','🌟','⭐','💫','🌈','🔥','💯','🏆','🥇','🏅','💎','👑','🚀']],
+                ['🩺 Saúde & bebê', ['💉','🩺','🏥','👶','🍼','🧸','👨‍👩‍👧','🤱','🤰','💊','🩹','🧬','🦷','👩‍⚕️','👨‍⚕️','🚑','😷','🌡️']],
+                ['📅 Trabalho', ['📋','📅','⏰','📞','💬','📱','💰','💵','💳','🧾','📈','✅','☑️','✍️','📌','📎','🔔','⚡']],
+                ['🌸 Natureza & extras', ['🌸','🌺','🌻','🌷','🌹','🍀','☀️','🌙','⛅','🦋','🐣','🌊','🍎','☕','🍰','🎂','🙌','🤩']],
+              ].map(([grupo, lista]) => (
+                <div key={grupo} style={{ marginBottom:8 }}>
+                  <div style={{ fontSize:10, fontWeight:800, color:'var(--muted)', marginBottom:4, textTransform:'uppercase', letterSpacing:.6 }}>{grupo}</div>
+                  <div style={{ display:'flex', flexWrap:'wrap', gap:3 }}>
+                    {lista.map(e=>(
                   <button key={e} onClick={()=>{setInput(p=>p+e);textRef.current?.focus();}}
                     style={{ fontSize:19, padding:'3px 4px', background:'none', border:'none', cursor:'pointer', borderRadius:5, lineHeight:1 }}
                     onMouseEnter={ev=>ev.currentTarget.style.background='var(--bg)'}
                     onMouseLeave={ev=>ev.currentTarget.style.background='none'}
                   >{e}</button>
-                ))}
-              </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
 
