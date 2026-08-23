@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, MessageSquare, Users, Kanban, BarChart2,
   LogOut, Settings, Smartphone, Sun, Moon, ChevronLeft, ChevronRight, ChevronDown,
@@ -461,6 +461,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
     ? <img src={user.avatar} alt="" style={{ width:size, height:size, borderRadius:'50%', objectFit:'cover', flexShrink:0, display:'block' }} />
     : <div style={{ width:size, height:size, borderRadius:'50%', background:`linear-gradient(135deg, var(--tq), var(--pet))`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:size*0.36, fontWeight:700, color:'#fff', letterSpacing:.5, flexShrink:0 }}>{initials(user?.nome)}</div>;
   const api = useApi();
+  const navegar = useNavigate();   // atalhos do cartão (devocional, metas, caixa)
   // 280px (pedido do master: "sensação de aperto" no menu) — mais respiro
   // pros rótulos, o cartão de perfil e os botões. Casar SEMPRE com o sw do
   // App.jsx, senão o conteúdo fica por baixo ou sobra vão.
@@ -682,7 +683,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                 const ehConsultas = lista[0]?.setor === 'consultas';
                 if (!ind && !verVal && !focoTxt) return null;
                 const Linha = ({ icone, rotulo, valor, cor }) => (
-                  <div style={{ display:'flex', alignItems:'baseline', gap:6, fontSize:10 }}>
+                  <div style={{ display:'flex', alignItems:'baseline', gap:6, fontSize:11.5 }}>
                     <span style={{ flexShrink:0 }}>{icone}</span>
                     <span style={{ color:'rgba(255,255,255,.65)', fontWeight:800, flexShrink:0 }}>{rotulo}</span>
                     {/* Quebra em 2 linhas em vez de cortar com "…" — número
@@ -691,19 +692,19 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                   </div>
                 );
                 return (
-                  <div style={{ padding:'7px 11px 9px', borderTop:'1px solid rgba(255,255,255,.12)', display:'flex', flexDirection:'column', gap:4 }}>
+                  <div style={{ padding:'9px 11px 11px', borderTop:'1px solid rgba(255,255,255,.12)', borderLeft:'3px solid #fcd34d', background:'linear-gradient(90deg, rgba(252,211,77,.30), rgba(245,158,11,.10))', display:'flex', flexDirection:'column', gap:5 }}>
                     {focoTxt && (
                       <Linha icone="🎯" rotulo="Hoje" cor={focoOk ? '#6ee7b7' : '#fff'}
                         valor={focoOk ? `✅ ${focoTxt}` : focoTxt} />
                     )}
                     {(ind || verVal) && alvo > 0 && (
                       <>
-                        <Linha icone={ehConsultas ? '📈' : '💰'} rotulo="Mês"
+                        <Linha icone="🏅" rotulo="Mês"
                           cor={pct >= 100 ? '#6ee7b7' : '#fcd34d'}
                           valor={ehConsultas
                             ? `${pct.toFixed(1).replace('.', ',')}% de 100%`
                             : `${brl(feito)} · falta ${brl(falta)}`} />
-                        <div style={{ height:6, borderRadius:6, background:'rgba(0,0,0,.35)', overflow:'hidden', marginTop:2, boxShadow:'inset 0 1px 2px rgba(0,0,0,.4)' }}>
+                        <div style={{ height:9, borderRadius:8, background:'rgba(0,0,0,.35)', overflow:'hidden', marginTop:3, boxShadow:'inset 0 1px 2px rgba(0,0,0,.4)' }}>
                           <div style={{ width:`${Math.max(pct, 2)}%`, height:'100%', borderRadius:6,
                             background: pct >= 100 ? 'linear-gradient(90deg,#34d399,#6ee7b7)' : 'linear-gradient(90deg,#f59e0b,#fcd34d)', boxShadow:'0 0 8px rgba(252,211,77,.5)' }} />
                         </div>
@@ -713,7 +714,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                 );
               })()}
             </div>
-            <div style={{ width:'100%', display:'flex', alignItems:'center', gap:6, justifyContent:'flex-end', marginTop:4 }}>
+            <div style={{ width:'100%', display:'flex', alignItems:'center', gap:6, justifyContent:'flex-end', flexWrap:'wrap', marginTop:4 }}>
             {podeTrocar && (
               <button onClick={abrirTroca} title="Trocar de usuário (entrar como)" style={{ padding:8, background: trocaOpen ? 'rgba(255,255,255,.3)' : 'rgba(255,255,255,.14)', color:'#fff', borderRadius:9, cursor:'pointer', border:'1px solid rgba(255,255,255,.22)' }}>
                 <Users size={16} />
@@ -746,6 +747,28 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
               onMouseEnter={e=>e.currentTarget.style.color='#ffffff'}
               onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,.62)'}>
               <Palette size={16} />
+            </button>
+            {/* 📖🎯💰 Atalhos do dia (pedido do master: "traz devocional e
+                metas e caixa também") — direto do cartão pro que importa. */}
+            <button onClick={() => navegar('/amigo')} title="Meu Devocional"
+              style={{ padding:8, background:'rgba(255,255,255,.14)', color:'rgba(255,255,255,.85)', borderRadius:9, cursor:'pointer', border:'1px solid rgba(255,255,255,.22)' }}
+              onMouseEnter={e=>e.currentTarget.style.color='#ffffff'}
+              onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,.85)'}>
+              <BookOpen size={16} />
+            </button>
+            {['master','supervisor'].includes(user?.role) && (
+              <button onClick={() => navegar('/metas')} title="Metas"
+                style={{ padding:8, background:'rgba(255,255,255,.14)', color:'rgba(255,255,255,.85)', borderRadius:9, cursor:'pointer', border:'1px solid rgba(255,255,255,.22)' }}
+                onMouseEnter={e=>e.currentTarget.style.color='#ffffff'}
+                onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,.85)'}>
+                <Target size={16} />
+              </button>
+            )}
+            <button onClick={() => navegar('/caixa')} title="Caixa"
+              style={{ padding:8, background:'rgba(255,255,255,.14)', color:'rgba(255,255,255,.85)', borderRadius:9, cursor:'pointer', border:'1px solid rgba(255,255,255,.22)' }}
+              onMouseEnter={e=>e.currentTarget.style.color='#ffffff'}
+              onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,.85)'}>
+              <Wallet size={16} />
             </button>
             {/* 🎨 Cor do CRM no cartão (pedido do master: "traz algumas funções
                 que estão lá embaixo pra cá, como as cores") — a bolinha mostra
