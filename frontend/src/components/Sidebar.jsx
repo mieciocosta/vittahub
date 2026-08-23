@@ -1110,6 +1110,30 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                     Escolher qualquer cor
                   </label>
 
+                  {/* 🔤 FONTE DO SISTEMA (pedido do master: "consigo mudar o
+                      modelo de fonte?") — muda a letra do CRM inteiro, na hora,
+                      só pro usuário deste aparelho. */}
+                  <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:1.2, color:'var(--muted,#64748b)', textTransform:'uppercase', margin:'14px 0 7px' }}>
+                    🔤 Modelo de letra
+                  </div>
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6 }}>
+                    {Object.entries(window.__vhFontes || {}).map(([k, f]) => {
+                      const on = (localStorage.getItem('vh_fonte') || 'padrao') === k;
+                      return (
+                        <button key={k} onClick={() => { window.__vhAplicarFonte?.(k); setPaletaAberta(a => a); setFamilia(fam => fam); }}
+                          style={{ padding:'8px 6px', borderRadius:10, cursor:'pointer', fontSize:12.5, fontWeight:700,
+                            fontFamily: f.css || 'inherit',
+                            border: on ? '2px solid var(--tq)' : '1.5px solid var(--border,#e2e8f0)',
+                            background: on ? 'var(--tq3,#eef6f7)' : 'var(--card,#fff)', color:'var(--txt,#0f172a)' }}>
+                          {on ? '✓ ' : ''}{f.nome}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div style={{ fontSize:10.5, color:'var(--muted,#64748b)', marginTop:6, lineHeight:1.5 }}>
+                    Muda a letra do CRM na sua tela. A letra que o cliente vê no WhatsApp é a do aplicativo dele — essa ninguém muda.
+                  </div>
+
                   <div style={{ display:'flex', alignItems:'center', gap:9, marginTop:12, padding:'9px 11px',
                     borderRadius:11, background:'var(--bg2,#f1f5f9)' }}>
                     <span style={{ width:22, height:22, borderRadius:'50%', flexShrink:0,

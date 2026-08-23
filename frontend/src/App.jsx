@@ -95,6 +95,39 @@ function corDeHex(hex) {
 
 /* vh_cor: 'off' (marca padrão) | 'auto' (cor do dia) | '0'..'16' (da paleta)
    | '#RRGGBB' (tom montado pela pessoa) */
+/* 🔤 FONTE DO SISTEMA (pedido do master): a pessoa escolhe o modelo de letra
+   do CRM — muda a tela DELA (localStorage vh_fonte), na hora. As opções vêm
+   do Google Fonts, carregadas só quando escolhidas. Importante: isso muda o
+   CRM; a letra que o CLIENTE vê no WhatsApp é do aplicativo dele. */
+const FONTES = {
+  padrao:      { nome: 'Padrão Vittalis', css: null },
+  inter:       { nome: 'Inter',       css: "'Inter', system-ui, sans-serif",       gf: 'Inter:wght@400;600;700;800;900' },
+  poppins:     { nome: 'Poppins',     css: "'Poppins', system-ui, sans-serif",     gf: 'Poppins:wght@400;600;700;800;900' },
+  nunito:      { nome: 'Nunito',      css: "'Nunito', system-ui, sans-serif",      gf: 'Nunito:wght@400;600;700;800;900' },
+  montserrat:  { nome: 'Montserrat',  css: "'Montserrat', system-ui, sans-serif",  gf: 'Montserrat:wght@400;600;700;800;900' },
+  comfortaa:   { nome: 'Comfortaa',   css: "'Comfortaa', system-ui, sans-serif",   gf: 'Comfortaa:wght@400;600;700' },
+  lora:        { nome: 'Lora',        css: "'Lora', Georgia, serif",               gf: 'Lora:wght@400;600;700' },
+};
+export function aplicarFonte(chave) {
+  const f = FONTES[chave] || FONTES.padrao;
+  document.getElementById('vh-fonte-css')?.remove();
+  document.getElementById('vh-fonte-link')?.remove();
+  if (!f.css) return;
+  if (f.gf) {
+    const l = document.createElement('link');
+    l.id = 'vh-fonte-link'; l.rel = 'stylesheet';
+    l.href = `https://fonts.googleapis.com/css2?family=${f.gf}&display=swap`;
+    document.head.appendChild(l);
+  }
+  const st = document.createElement('style');
+  st.id = 'vh-fonte-css';
+  st.textContent = `body, button, input, select, textarea { font-family: ${f.css} !important; }`;
+  document.head.appendChild(st);
+}
+window.__vhFontes = FONTES;
+window.__vhAplicarFonte = (k) => { localStorage.setItem('vh_fonte', k); aplicarFonte(k); };
+try { aplicarFonte(localStorage.getItem('vh_fonte') || 'padrao'); } catch { /* ok */ }
+
 function corSelecionada() {
   const v = localStorage.getItem('vh_cor') || 'auto';
   if (v === 'off') return null;
