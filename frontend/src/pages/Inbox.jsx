@@ -208,8 +208,11 @@ const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect, usersB
           {onToggleFix && (
             <button onClick={e => { e.stopPropagation(); onToggleFix(conv); }}
               title={fixada ? 'Desafixar — volta pra lista geral' : 'Fixar conversa — sobe pra sua seção de fixadas (só no seu usuário)'}
-              style={{ fontSize: 9, fontWeight: 900, padding: '2px 9px', borderRadius: 9, letterSpacing: .5, cursor: 'pointer', border: 'none',
+              style={{ fontSize: 9, fontWeight: 900, padding: '3px 9px', borderRadius: 9, letterSpacing: .5, cursor: 'pointer', border: 'none',
                 background: 'linear-gradient(120deg,#f59e0b,#fcd34d)', color: '#78350f',
+                /* Padrão fixo (cobrança do master: uns gordos, outros esticados):
+                   nunca quebra linha nem estica — mesmo tamanho em toda linha */
+                whiteSpace: 'nowrap', flexShrink: 0, lineHeight: 1.2, flexGrow: 0,
                 boxShadow: '0 1px 6px rgba(245,158,11,.5)' }}>
               📌 {fixada ? 'CONVERSA FIXADA' : 'FIXAR CONVERSA'}
             </button>
