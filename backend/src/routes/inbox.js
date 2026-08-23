@@ -2054,8 +2054,21 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
           if (inA.profissional) linhasConf.push(`👩‍⚕️ *Profissional: ${String(inA.profissional).slice(0, 60)}*`);
           linhasConf.push(`📍 *Local: ${localTxt.slice(0, 80)}*`);
           linhasConf.push(`📌 *Serviço: ${String(inA.servico || 'Atendimento').slice(0, 80)}*`);
+          /* Atendimento NA CLÍNICA leva o endereço por escrito + Google Maps
+             (pedido do master); o Instagram vai em TODOS os atendimentos. */
+          const ehResidencia = /resid|casa|domic/i.test(localTxt);
+          if (!ehResidencia) {
+            linhasConf.push('');
+            linhasConf.push('🏥 *Nosso endereço, Clínica Vittalis Saúde:*');
+            linhasConf.push('Ed. Business Center, Térreo');
+            linhasConf.push('Av. Cel. Colares Moreira, 3A, Renascença');
+            linhasConf.push('São Luís/MA');
+            linhasConf.push('🗺️ Como chegar: https://share.google/cJwx0T5DVaCxZyc6I');
+          }
           linhasConf.push('');
           linhasConf.push(`*Parabéns ${trat ? trat + ' ' : ''}pelo investimento na saúde do seu Baby 🩵*`);
+          linhasConf.push('');
+          linhasConf.push('📸 Acompanhe momentos de cuidado no nosso Instagram: https://www.instagram.com/vittalissaudeslz/');
           botReply = linhasConf.join('\n');
         }
       }
