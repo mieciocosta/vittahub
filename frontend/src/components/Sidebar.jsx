@@ -1144,7 +1144,8 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
         .vh-chip { transition: transform .18s ease; }
         .vh-nav.ativo .vh-chip { transform: scale(1.05); }
       `}</style>
-      {showAvatarBuilder && <AvatarBuilder onClose={() => setShowAvatarBuilder(false)} />}
+      {showAvatarBuilder && <AvatarBuilder onClose={() => setShowAvatarBuilder(false)}
+        paletaCores={paletaCores} corDia={corDia} onSetCorDia={onSetCorDia} />}
     </aside>
   );
 }

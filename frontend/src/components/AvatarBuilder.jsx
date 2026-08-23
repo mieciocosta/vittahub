@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { X, Check, Shuffle, Palette, Camera, Upload } from 'lucide-react';
+import { X, Check, Shuffle, Palette, Camera, Upload, Droplet } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 
 /* FOTO & AVATAR DE PERFIL — um modal só, com duas abas:
@@ -172,7 +172,7 @@ function svgParaPng(svg, size = 512) {
 
 const rnd = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
-export default function AvatarBuilder({ onClose }) {
+export default function AvatarBuilder({ onClose, paletaCores = [], corDia, onSetCorDia }) {
   const api = useApi();
   const { user, setUser } = useAuth();
   const [aba, setAba] = useState('foto'); // 'foto' | 'ilustrado'
@@ -250,7 +250,7 @@ export default function AvatarBuilder({ onClose }) {
     </button>
   );
 
-  const podeSalvar = aba === 'ilustrado' || (aba === 'foto' && !!foto);
+  const podeSalvar = aba === 'ilustrado' || (aba === 'foto' && !!foto) || aba === 'cor';
 
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200, padding: 16 }}>
@@ -264,9 +264,46 @@ export default function AvatarBuilder({ onClose }) {
         <div style={{ display: 'flex' }}>
           <TabBtn id="foto" icon={Camera}>Minha foto</TabBtn>
           <TabBtn id="ilustrado" icon={Palette}>Avatar ilustrado</TabBtn>
+          {paletaCores.length > 0 && <TabBtn id="cor" icon={Droplet}>Cor do CRM</TabBtn>}
         </div>
 
-        {aba === 'foto' ? (
+        {aba === 'cor' ? (
+          /* 🎨 Cor do CRM dentro do mesmo modal (pedido do master): clicou na
+             família, o sistema inteiro muda de cor na hora. */
+          <div style={{ padding: '22px 20px', overflow: 'auto' }}>
+            <button onClick={() => onSetCorDia && onSetCorDia('auto')}
+              style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 9, padding: '10px 13px', marginBottom: 14,
+                borderRadius: 12, cursor: 'pointer', fontSize: 13, fontWeight: 700, textAlign: 'left',
+                border: corDia === 'auto' ? '2px solid var(--tq)' : '1.5px solid var(--border,#e2e8f0)',
+                background: corDia === 'auto' ? 'var(--tq3,#eef6f7)' : 'var(--card,#fff)', color: 'var(--txt,#0f172a)' }}>
+              <span style={{ width: 24, height: 24, borderRadius: '50%', flexShrink: 0,
+                background: 'conic-gradient(#00B8C0,#7c3aed,#f59e0b,#16a34a,#00B8C0)' }} />
+              <span style={{ flex: 1 }}>Cor do dia (muda sozinha a cada dia)</span>
+              {corDia === 'auto' && <span>✓</span>}
+            </button>
+            <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: 1, color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 9 }}>Ou escolha a sua</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(44px,1fr))', gap: 10 }}>
+              {paletaCores.map((c, i) => (
+                <button key={i} onClick={() => onSetCorDia && onSetCorDia(String(i))} title={c.nome}
+                  style={{ width: 44, height: 44, borderRadius: '50%', cursor: 'pointer', padding: 0, background: c.tq,
+                    border: String(corDia) === String(i) ? '3px solid var(--txt,#0f172a)' : '2px solid rgba(0,0,0,.08)',
+                    boxShadow: String(corDia) === String(i) ? '0 0 0 3px var(--tq3,#eef6f7)' : '0 2px 6px rgba(0,0,0,.15)',
+                    transition: 'transform .12s' }}
+                  onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.12)'}
+                  onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'} />
+              ))}
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 16, fontSize: 12.5, fontWeight: 700, cursor: 'pointer', color: 'var(--txt,#0f172a)' }}>
+              <input type="color" value={/^#/.test(String(corDia)) ? corDia : '#00B8C0'}
+                onChange={e => onSetCorDia && onSetCorDia(e.target.value)}
+                style={{ width: 34, height: 34, border: 'none', background: 'none', padding: 0, cursor: 'pointer' }} />
+              Montar a minha cor (qualquer tom)
+            </label>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 10, lineHeight: 1.5 }}>
+              A cor muda na hora, em todo o sistema — só no seu usuário. É só fechar quando gostar do resultado. 💙
+            </div>
+          </div>
+        ) : aba === 'foto' ? (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, padding: '26px 20px', overflow: 'auto' }}>
             {foto || user?.avatar ? (
               <img src={foto || user.avatar} alt="" style={{ width: 170, height: 170, borderRadius: '50%', objectFit: 'cover', boxShadow: '0 8px 24px rgba(0,0,0,.18)', border: '4px solid var(--tq3, #d3f4f6)' }} />
@@ -318,8 +355,8 @@ export default function AvatarBuilder({ onClose }) {
 
         {erro && <div style={{ padding: '0 20px 8px', fontSize: 12.5, color: 'var(--err)', fontWeight: 600 }}>{erro}</div>}
         <div style={{ display: 'flex', gap: 8, padding: '14px 20px', borderTop: '1px solid var(--border)' }}>
-          <button onClick={salvar} disabled={salvando || !podeSalvar} className="btn btn-p" style={{ flex: 1, gap: 6, opacity: podeSalvar ? 1 : .55 }}>
-            <Check size={15} /> {salvando ? 'Salvando…' : aba === 'foto' ? 'Salvar minha foto' : 'Usar este avatar'}
+          <button onClick={aba === 'cor' ? onClose : salvar} disabled={salvando || !podeSalvar} className="btn btn-p" style={{ flex: 1, gap: 6, opacity: podeSalvar ? 1 : .55 }}>
+            <Check size={15} /> {aba === 'cor' ? 'Pronto' : salvando ? 'Salvando…' : aba === 'foto' ? 'Salvar minha foto' : 'Usar este avatar'}
           </button>
           <button onClick={onClose} className="btn">Cancelar</button>
         </div>
