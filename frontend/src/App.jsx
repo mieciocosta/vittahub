@@ -410,24 +410,14 @@ function SecurityLock({ user }) {
     };
   }, []);
 
-  /* 🖋️ MARCA D'ÁGUA RASTREÁVEL (revisão do master, 22/08: "a segurança está
-     fraca — dá a mensagem e permite mesmo assim"). Verdade técnica: NENHUM
-     site impede o print — é função do sistema operacional. O que muda o jogo
-     é o print sair ASSINADO: o nome de quem está logado atravessa a tela em
-     diagonal, quase invisível no uso normal, mas presente em qualquer captura
-     (inclusive recorte do Windows e print de celular, que o detector não vê).
-     Quem pensar em vazar sabe que a imagem entrega o autor. Só a equipe tem
-     a marca — o master navega limpo. */
-  const marcaTxt = `${String(user?.nome || '').split(' ').slice(0, 2).join(' ')} · Vittalis`;
-  const marcaSvg = `data:image/svg+xml;utf8,${encodeURIComponent(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="360" height="240"><text x="30" y="130" transform="rotate(-24 180 120)" font-family="Arial" font-size="17" font-weight="700" fill="rgba(128,128,160,0.10)">${marcaTxt.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</text></svg>`
-  )}`;
-  return (
-    <div aria-hidden="true" style={{ position: 'fixed', inset: 0, zIndex: 2147483000, pointerEvents: 'none',
-      backgroundImage: `url("${marcaSvg}")`, backgroundRepeat: 'repeat', mixBlendMode: 'luminosity' }} />
-  );
+  /* Marca d'água: instalada em 22/08 e REMOVIDA no mesmo dia a pedido do
+     master ("não quero marca d'água"). O que segura o print é o conjunto:
+     Ctrl+P imprime página em branco, o PrintScreen clássico tem a área de
+     transferência sobrescrita (colar não funciona), telefone não é copiável
+     em nenhum ponto do perfil, e todo print detectado gera registro com
+     imagem reconstituída + alerta de rajada no 5º do dia. */
+  return null;
 }
-
 export default function App() {
   const { user, loading } = useAuth();
   const [unread, setUnread] = useState(0);
