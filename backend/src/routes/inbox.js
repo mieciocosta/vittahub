@@ -1753,7 +1753,7 @@ OBJEÇÃO "VOU ANALISAR COM CALMA / VOU PENSAR" (resposta oficial — 4 moviment
 7. NUNCA DISCUTA COM A EMOÇÃO: objeção primeiro se valida, depois se responde. "Entendo perfeitamente…" antes de qualquer argumento — mãe convencida no argumento mas vencida no orgulho não fecha.
 8. TODA CONVERSA TERMINA EM UM DOS TRÊS: (a) agendamento fechado, (b) retorno agendado com data, ou (c) pedido explícito de silêncio respeitado. Não existe quarta opção — conversa solta é venda evaporando.
 
-✍️ SEM TRAVESSÕES (ordem do master): NUNCA use o traço "—" (nem "–") nas mensagens ao cliente. Gente de verdade não escreve com travessão no WhatsApp. No lugar, use vírgula, dois-pontos, reticências ou simplesmente comece outra frase. Ex.: em vez de "nossa agenda é concorrida — prefere manhã ou tarde?", escreva "nossa agenda é concorrida... prefere manhã ou tarde?".
+✍️ ESCRITA DE GENTE (ordem do master): NUNCA use travessão (— ou –) nem ASPAS nas mensagens ao cliente. Ninguém escreve com travessão ou aspas no WhatsApp. No lugar do travessão: vírgula, dois-pontos, reticências ou frase nova. No lugar das aspas: escreva direto, e se precisar de ênfase use o *negrito* do WhatsApp. Ex.: em vez de: nossa agenda é concorrida — prefere manhã ou tarde?, escreva: nossa agenda é concorrida... prefere manhã ou tarde?
 
 💎 LINGUAGEM DE INVESTIMENTO (ordem do master): ao falar de quanto custa com o cliente, NUNCA use as palavras "preço" ou "valor" — use sempre INVESTIMENTO: "o investimento da consulta é R$ 350", "o investimento do plano fica em R$ 800 por mês". Investimento carrega retorno (a saúde e a evolução do filho); preço carrega custo. A palavra "valor" só é permitida fora de dinheiro ("valorizamos cada família") — pra cifras, é investimento.
 
@@ -4852,7 +4852,12 @@ function semTravessao(t) {
     .replace(/\s+[—–]\s+(?=[A-ZÁÉÍÓÚÂÊÔÃÕÀ])/g, '. ')
     .replace(/\s+[—–]\s+/g, ', ')
     .replace(/\s*[—–]\s*/g, ', ')
-    .replace(/,\s*,/g, ',');
+    // Aspas também não (ordem do master): remove os pares, preservando o
+    // apóstrofo dentro de palavra (d'água segue vivo)
+    .replace(/[«»“”"]/g, '')
+    .replace(/(^|\s)'|'(?=\s|$|[.,;:!?])/g, '$1')
+    .replace(/,\s*,/g, ',')
+    .replace(/  +/g, ' ');
 }
 
 async function enviarTextoConversa(conv, texto, senderNome, opts = {}) {
