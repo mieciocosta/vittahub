@@ -764,12 +764,6 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                 <Target size={16} />
               </button>
             )}
-            <button onClick={() => navegar('/caixa')} title="Caixa"
-              style={{ padding:8, background:'rgba(255,255,255,.14)', color:'rgba(255,255,255,.85)', borderRadius:9, cursor:'pointer', border:'1px solid rgba(255,255,255,.22)' }}
-              onMouseEnter={e=>e.currentTarget.style.color='#ffffff'}
-              onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,.85)'}>
-              <Wallet size={16} />
-            </button>
             {/* 🎨 Cor do CRM no cartão (pedido do master: "traz algumas funções
                 que estão lá embaixo pra cá, como as cores") — a bolinha mostra
                 a cor atual e abre a mesma paleta do rodapé, só que aqui em cima. */}
