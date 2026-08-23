@@ -58,7 +58,9 @@ const NAV = [
   { to:'/mary', icon:Bot, label:'Assistente IA', iaBotao:true, cor:'#a855f7' },
   // Quem agenda consulta vive alternando entre a conversa e a grade dos profissionais.
   // Aberto pra clínica toda: virou o quadro de 3 colunas (vacinas/consultas/terapias)
-  { to:'/profissionais', icon:Stethoscope,  label:'Profissionais', cor:'#22d3ee' },
+  /* Profissionais é de CONSULTAS/TERAPIAS (cobrança do master, 22/08:
+     aparecia pros usuários de vacinas). Master e quem não tem setor veem. */
+  { to:'/profissionais', icon:Stethoscope,  label:'Profissionais', consultasOuTerapias:true, cor:'#22d3ee' },
   { to:'/agenda',     icon:CalendarDays,    label:'Agenda', cor:'#f59e0b' },
 
   { grupo:'Vender' },
@@ -831,6 +833,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
         {NAV.filter(n => (!n.masterOnly || user?.role === 'master')
             && (!n.gestao || ['master','supervisor'].includes(user?.role))
             && (!n.consultas || podeSetor('consultas'))
+            && (!n.consultasOuTerapias || podeSetor('consultas') || podeSetor('terapias'))
             /* Cada uma vê o plano do SEU setor: Raylane e Stefany o vacinal,
                Danielle/Suellen/Mayara o de terapias. Só o MASTER vê os dois —
                'supervisor' não serve aqui, porque Raylane e Danielle são
