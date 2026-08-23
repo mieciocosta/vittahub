@@ -234,7 +234,7 @@ function SearchBar({ value, onChange, filter, setFilter, totalUnread, unreadOnly
   return (
     <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
       <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
-        {[['todas','Todas','todas'],['minhas','Minhas','minhas'],['naolidas','Não lidas','naoLidas'],['grupos','Grupos','grupos']].map(([k, l, ck]) => {
+        {[['todas','Todas','todas'],['minhas','Minhas','minhas'],['naolidas','Não lidas','naoLidas'],['grupos','Grupos','grupos'],['fixadas','📌 Fixadas','fixadas']].map(([k, l, ck]) => {
           const ativo = modo === k;
           return (
             <button key={k} onClick={() => setModo(k)}
@@ -1656,11 +1656,13 @@ export default function Inbox({ onUnreadChange }) {
 
   const convosExib = useMemo(
     () => {
+      // Aba "📌 Fixadas" (pedido do master): a lista vira só as fixadas
+      if (modo === 'fixadas') return fixadas;
       const base = quentesPrimeiro ? [...convos].sort((a, b) => scoreRank(a.lead_score) - scoreRank(b.lead_score)) : convos;
       // A geral não repete quem está na seção de fixadas
       return fixadasIds.size ? base.filter(c => !fixadasIds.has(c.id)) : base;
     },
-    [convos, quentesPrimeiro, fixadasIds]
+    [convos, quentesPrimeiro, fixadasIds, modo, fixadas]
   );
 
   /* ─────────────────── RENDER ──────────────────────────────────────────────── */
@@ -1693,7 +1695,7 @@ export default function Inbox({ onUnreadChange }) {
           totalUnread={totalUnread} unreadOnly={unreadOnly} setUnreadOnly={setUnreadOnly}
           waiting={waiting} setWaiting={setWaiting}
           setor={setorFiltro} setSetor={setSetorFiltro} mostraSetores={user?.role !== 'atendente'}
-          modo={modo} setModo={setModo} counts={counts}/>
+          modo={modo} setModo={setModo} counts={{ ...(counts || {}), fixadas: fixadas.length }}/>
 
         {setorResumo && (
           <div style={{ padding:'10px 12px', borderBottom:'1px solid var(--border)', background:'var(--bg2)' }}>
@@ -1719,7 +1721,7 @@ export default function Inbox({ onUnreadChange }) {
         )}
 
         {/* 📌 SEÇÃO FIXADAS — sem limite, por usuário; rola sozinha se crescer */}
-        {fixadas.length > 0 && (
+        {fixadas.length > 0 && modo !== 'fixadas' && (
           <div style={{ flexShrink:0, maxHeight:'38%', overflowY:'auto', borderBottom:'2px solid var(--tq)' }}>
             <div style={{ padding:'5px 13px', fontSize:10, fontWeight:800, letterSpacing:.8, textTransform:'uppercase',
               color:'var(--tq2)', background:'var(--tq4,#e8f7f8)', position:'sticky', top:0, zIndex:2, display:'flex', justifyContent:'space-between' }}>
@@ -1731,7 +1733,7 @@ export default function Inbox({ onUnreadChange }) {
             ))}
           </div>
         )}
-        {fixadas.length > 0 && (
+        {fixadas.length > 0 && modo !== 'fixadas' && (
           <div style={{ flexShrink:0, padding:'5px 13px', fontSize:10, fontWeight:800, letterSpacing:.8, textTransform:'uppercase', color:'var(--muted)', background:'var(--bg2)' }}>
             💬 Geral
           </div>
