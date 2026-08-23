@@ -2522,6 +2522,18 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log('🏅 Prêmio v2: Raylane 2500, demais 1500');
     }
 
+    /* 🏅 PRÊMIO v3 (ajuste do master, 22/08): Raylane passa de 2.500 pra
+       R$ 2.000. O recado de parabéns continua. */
+    const { rows: [flagPremioV3] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_premio_raylane_v3'");
+    if (!flagPremioV3) {
+      await query(`UPDATE configuracoes SET
+                     valor = COALESCE(valor,'{}'::jsonb) || '{"premiosPessoa":{"raylane":2000}}'::jsonb,
+                     updated_at = NOW()
+                   WHERE chave = 'metas'`).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_premio_raylane_v3','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🏅 Prêmio v3: Raylane R$ 2.000');
+    }
+
     /* 📎 ANEXO NA MENSAGEM PROGRAMADA (pedido do master, 22/08): a agendada
        pode levar um documento ou imagem junto — sai na hora marcada, antes
        do texto. Guardado como data URI; nome pro cliente ver o arquivo. */

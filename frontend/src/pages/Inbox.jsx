@@ -1464,6 +1464,8 @@ export default function Inbox({ onUnreadChange }) {
     vacinacao:       { setor:'vacinas',   label:'Vacinação',      cat:null },
     planos_vacinais: { setor:'vacinas',   label:'Planos Vacinais', cat:null },
     fidelidade:      { setor:'vacinas',   label:'Fidelidade',     cat:'fidelidade' },
+    gestao:             { setor:null, label:'Gestão / Direção',        cat:null },
+    profissional_saude: { setor:null, label:'Profissional da clínica', cat:null },
     consultas:       { setor:'consultas', label:'Consultas',      cat:null },
     terapias:        { setor:'terapias',  label:'Terapias',       cat:null },
   };
@@ -1945,6 +1947,9 @@ export default function Inbox({ onUnreadChange }) {
                 <option value="fidelidade">⭐ Fidelidade</option>
                 <option value="consultas">🩺 Consultas</option>
                 <option value="terapias">🧩 Terapias</option>
+                {/* 👔 Contatos internos (pedido do master): a IA não age com eles */}
+                <option value="gestao">👔 Gestão / Direção</option>
+                <option value="profissional_saude">🏥 Profissional da clínica</option>
               </select>
               <button onClick={abrirAgendar} title="Agendar este atendimento (conta na meta do mês)"
                 className="btn btn-sm" style={{ background:'#1e3a5f', color:'#7cc4ff', border:'1.5px solid #2563eb', fontSize:11, padding:'4px 9px', fontWeight:700 }}>

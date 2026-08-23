@@ -1393,6 +1393,8 @@ async function vittaResponder(convId) {
   // Estado mais recente — o humano pode ter assumido (bot_ativo=false) nesse meio-tempo
   const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [convId]);
   if (!conv || !conv.bot_ativo) { console.log(`VITTA skip conv=${convId}: bot_ativo=${conv?.bot_ativo} (conversa inexistente ou bot desligado)`); return; }
+  // 👔 Interno (gestão/profissional da clínica) nunca recebe IA — não é cliente
+  if (CLS_INTERNAS.includes(String(conv.classificacao || ''))) { console.log(`VITTA skip conv=${convId}: contato interno (${conv.classificacao})`); return; }
   // FAIL-CLOSED: se a leitura da config falhar, trata como DESLIGADO (nunca
   // responde cliente por engano em falha de banco).
   const { rows: [cfgRow] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'")
@@ -4158,7 +4160,14 @@ const CLASSIFICACOES = {
   fidelidade:      { setor: 'vacinas',   categoria: 'fidelidade' },
   consultas:       { setor: 'consultas', categoria: null },
   terapias:        { setor: 'terapias',  categoria: null },
+  /* 👔 CONTATOS INTERNOS (pedido do master, 22/08): profissionais da saúde e
+     gestores falam no número da central e eram tratados como clientes. Nessas
+     conversas a IA NUNCA age — nem resposta, nem follow-up, nem ativação. */
+  gestao:             { setor: null, categoria: null, interna: true },
+  profissional_saude: { setor: null, categoria: null, interna: true },
 };
+// Toda rotina automática filtra por isto: interno não é lead
+const CLS_INTERNAS = ['gestao', 'profissional_saude'];
 r.patch('/conversations/:id/classificar', async (req, res) => {
   try {
     const cls = req.body.classificacao;
@@ -4173,7 +4182,9 @@ r.patch('/conversations/:id/classificar', async (req, res) => {
     const mapa = CLASSIFICACOES[cls];
     if (!mapa) return res.status(400).json({ error: 'Classificação inválida.' });
     const { rows: [conv] } = await query(
-      'UPDATE conversas SET classificacao = $1, setor = $2, categoria = $3, menu_enviado = true WHERE id = $4 RETURNING *',
+      mapa.interna
+        ? 'UPDATE conversas SET classificacao = $1, setor = $2, categoria = $3, menu_enviado = true, bot_ativo = false WHERE id = $4 RETURNING *'
+        : 'UPDATE conversas SET classificacao = $1, setor = $2, categoria = $3, menu_enviado = true WHERE id = $4 RETURNING *',
       [cls, mapa.setor, mapa.categoria, req.params.id]);
     if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
     cacheUpdate(conv);
@@ -5046,6 +5057,7 @@ async function vassouraMary() {
     const { rows } = await query(`
       SELECT id FROM conversas
        WHERE bot_ativo = true AND last_from = 'contact'
+         AND COALESCE(classificacao,'') NOT IN ('gestao','profissional_saude')
          AND last_message_at BETWEEN NOW() - interval '48 hours' AND NOW() - interval '3 minutes'
        ORDER BY last_message_at DESC LIMIT 10`).catch(() => ({ rows: [] }));
     for (const c of rows) agendarVitta(c.id);
@@ -5145,6 +5157,38 @@ async function rodarPosVacinalAgenda() {
 }
 setInterval(rodarPosVacinalAgenda, 3600 * 1000);    // 1x por hora (agendou hoje, o pós aparece em até 1h)
 setTimeout(rodarPosVacinalAgenda, 60000);
+
+/* ⚡ 24 HORAS SEM VENDA = IA EM CAMPO (ordem do master, 22/08: "se não houve
+   registro de venda dentro de 24 horas a IA é ativada, independente de qual
+   setor e conversa seja"). De hora em hora: conversa com movimento nos
+   últimos 7 dias, parada há 24h+, sem venda no mês e sem agendamento futuro
+   → bot ligado. Interno, grupo e Banco de Dados ficam de fora. A partir daí
+   a máquina age: vassoura responde pendência, follow-up retoma o lead. */
+async function rodarAtivacao24h() {
+  try {
+    if (await automacaoPausada('bot')) return;
+    const { rows } = await query(`
+      UPDATE conversas c SET bot_ativo = true
+       WHERE c.bot_ativo = false
+         AND c.last_message_at BETWEEN NOW() - interval '7 days' AND NOW() - interval '24 hours'
+         AND c.contact_id NOT LIKE '%g.us%'
+         AND length(regexp_replace(COALESCE(c.phone,''),'\\D','','g')) >= 10
+         AND COALESCE(c.categoria,'') <> 'banco_dados'
+         AND COALESCE(c.classificacao,'') NOT IN ('gestao','profissional_saude')
+         AND NOT EXISTS (SELECT 1 FROM vendas v WHERE v.conversa_id = c.id
+                           AND v.data_venda > (NOW() - interval '3 hours')::date - 30)
+         AND NOT EXISTS (SELECT 1 FROM agenda_eventos a WHERE a.conversa_id = c.id
+                           AND a.data >= (NOW() - interval '3 hours')::date
+                           AND a.status NOT IN ('Cancelado','Faltou'))
+       RETURNING c.id`).catch(() => ({ rows: [] }));
+    if (rows.length) {
+      for (const r2 of rows) { const cc = convoCache.get(r2.id); if (cc) cc.bot_ativo = true; }
+      console.log(`⚡ 24h sem venda: IA ligada em ${rows.length} conversa(s)`);
+    }
+  } catch (e) { console.error('ativação 24h:', e.message); }
+}
+setInterval(rodarAtivacao24h, 3600 * 1000);
+setTimeout(rodarAtivacao24h, 120000);
 
 setInterval(vassouraMary, 5 * 60 * 1000);
 setTimeout(vassouraMary, 30000); // primeira varrida logo após subir
@@ -8832,6 +8876,7 @@ export async function rodarFollowups() {
       WHERE ((bot_ativo = true AND last_from = 'bot')
           OR (responsavel_id IN (SELECT id FROM usuarios WHERE ia_consultas = true AND COALESCE(ia_ligada, true) = true AND ativo = true)
               AND last_from IN ('bot','me')))
+        AND COALESCE(classificacao,'') NOT IN ('gestao','profissional_saude')
         AND COALESCE(followup_pausado, false) = false
         AND COALESCE(followup_count, 0) < $1
         AND phone IS NOT NULL AND phone <> ''
