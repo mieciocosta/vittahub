@@ -2449,6 +2449,14 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log('📜 Protocolo: modelos v2 liberados');
     }
 
+    /* 🧾 COMPROVANTES DE ATENDIMENTO (pedido do master, 22/08: "o sistema
+       peça pra anexar o comprovante" ao concluir — é o que torna o ranking
+       fidedigno). Tabela própria pra não engordar o SELECT da agenda. */
+    await query(`CREATE TABLE IF NOT EXISTS agenda_comprovantes (
+      id SERIAL PRIMARY KEY, evento_id INT NOT NULL, nome TEXT, mime TEXT,
+      data TEXT, autor_nome TEXT, created_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS idx_agcomp_evento ON agenda_comprovantes (evento_id)`).catch(() => {});
+
     /* 📌 CONVERSAS FIXADAS (pedido do master, 22/08): cada usuário fixa as
        conversas que quiser — SEM limite — e elas moram numa seção própria no
        topo da lista do Chat, separadas da geral. Fixação é POR USUÁRIO:
@@ -2492,6 +2500,26 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
          'O prêmio de quem bate a meta mínima subiu de R$ 1.500 para R$ 2.500 nos três setores — já aparece no placar de cada uma ("Seu prêmio do mês"). Pra ajustar de novo, é na tela de Metas.']).catch(() => {});
       await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_premio_2500_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
       console.log('🎁 Prêmio de meta: R$ 2.500 nos três setores');
+    }
+
+    /* 🏅 PRÊMIO v2 (correção do master, 22/08): o R$ 2.500 é SÓ da Raylane;
+       as demais voltam pro padrão de R$ 1.500. E a Raylane ganha o recado
+       no placar: "seu prêmio aumentou — agora é correr atrás da meta". */
+    const { rows: [flagPremioV2] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_premio_raylane_v2'");
+    if (!flagPremioV2) {
+      await query(`INSERT INTO configuracoes (chave, valor)
+                   VALUES ('metas', '{}'::jsonb)
+                   ON CONFLICT (chave) DO UPDATE SET
+                     valor = COALESCE(configuracoes.valor,'{}'::jsonb)
+                       || '{"premiosMin":{"vacinas":1500,"consultas":1500,"terapias":1500}}'::jsonb
+                       || '{"premiosPessoa":{"raylane":2500}}'::jsonb
+                       || '{"premiosMsg":{"raylane":"🎉 Seu prêmio aumentou! Parabéns — agora é correr atrás da meta! 💪"}}'::jsonb,
+                     updated_at = NOW()`).catch(() => {});
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+        ['🏅 Prêmio ajustado: R$ 2.500 só da Raylane',
+         'O prêmio de meta mínima voltou a R$ 1.500 pra equipe; a Raylane ficou com R$ 2.500 e vê no placar dela o recado: "Seu prêmio aumentou! Parabéns — agora é correr atrás da meta". Pra mudar de novo: configuracoes → metas (premiosPessoa).']).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_premio_raylane_v2','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🏅 Prêmio v2: Raylane 2500, demais 1500');
     }
 
     /* 📎 ANEXO NA MENSAGEM PROGRAMADA (pedido do master, 22/08): a agendada

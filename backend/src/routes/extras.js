@@ -68,7 +68,8 @@ r.get('/agenda', async (req, res) => {
     // Dia padrão no fuso de São Luís (UTC-3) — toISOString puro virava 'amanhã' após as 21h
     const data = /^\d{4}-\d{2}-\d{2}$/.test(req.query.data || '') ? req.query.data : new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
     const { rows } = await query(`
-      SELECT a.*, u.nome resp_nome, u.avatar resp_avatar, u.cor resp_cor
+      SELECT a.*, u.nome resp_nome, u.avatar resp_avatar, u.cor resp_cor,
+             EXISTS(SELECT 1 FROM agenda_comprovantes ac WHERE ac.evento_id = a.id) AS tem_comprovante
       FROM agenda_eventos a LEFT JOIN usuarios u ON u.id = a.responsavel_id
       WHERE a.data = $1 ORDER BY a.hora, a.created_at`, [data]);
     // Motorista único: a colega do MESMO setor vê que o horário está OCUPADO
@@ -346,6 +347,31 @@ r.post('/agenda', async (req, res) => {
     socketEmit('agenda_update', { id: ev.id });
     socketEmit('vacinas_solicitacao', { agenda_id: ev.id });
     res.status(201).json(ev);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* 🧾 Comprovante do atendimento concluído (pedido do master): anexado ao
+   marcar Realizado, é o lastro que deixa o ranking fidedigno. */
+r.post('/agenda/:id/comprovante', async (req, res) => {
+  try {
+    const data = String(req.body?.data || '');
+    const m = data.match(/^data:([\w.+-]+\/[\w.+-]+);base64,/);
+    if (!m) return res.status(400).json({ error: 'Arquivo inválido.' });
+    if (data.length > 9_000_000) return res.status(400).json({ error: 'Arquivo muito grande (máx ~6MB).' });
+    const { rows: [ev] } = await query('SELECT id FROM agenda_eventos WHERE id = $1', [req.params.id]);
+    if (!ev) return res.status(404).json({ error: 'Agendamento não encontrado.' });
+    await query(`INSERT INTO agenda_comprovantes (evento_id, nome, mime, data, autor_nome)
+                 VALUES ($1,$2,$3,$4,$5)`,
+      [ev.id, cut(String(req.body?.nome || 'comprovante'), 120), m[1], data, req.user.nome]);
+    res.status(201).json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+r.get('/agenda/:id/comprovante', async (req, res) => {
+  try {
+    const { rows: [c] } = await query(`SELECT nome, mime, data, autor_nome, created_at
+      FROM agenda_comprovantes WHERE evento_id = $1 ORDER BY created_at DESC LIMIT 1`, [req.params.id]);
+    if (!c) return res.status(404).json({ error: 'Sem comprovante anexado.' });
+    res.json(c);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -695,8 +721,27 @@ r.get('/ranking', async (req, res) => {
        Faz sentido porque é o trabalho que a equipe controla — marcar a família.
        A venda vem depois e nem sempre no mesmo dia; cobrar por ela punia quem
        agendou bem e foi furada. "Vendas" continua como opção na tela. */
+    /* 🧾 'concluidos' (pedido do master: ranking fidedigno): conta o
+       agendamento REALIZADO, pelo dia do atendimento — só trabalho terminado. */
+    const porConcluido = req.query.metrica === 'concluidos';
     const porVenda = req.query.metrica === 'vendas';
-    const { rows } = porVenda
+    const { rows } = porConcluido
+      ? await query(
+        `SELECT COALESCE(a.setor,'vacinas') setor,
+                COALESCE(a.responsavel_id,'') aid,
+                COALESCE(u.nome, a.responsavel_nome, '(sem nome)') nome,
+                u.avatar, u.cor,
+                COUNT(*)::int n,
+                COUNT(*) FILTER (WHERE a.data = $2::date)::int hoje
+           FROM agenda_eventos a
+           LEFT JOIN usuarios u ON u.id = a.responsavel_id
+          WHERE ${filtroPeriodo.replace(/v\.data_venda/g, 'a.data')}
+            AND a.status = 'Realizado'
+            AND a.servico IS DISTINCT FROM 'Pós Vacinal'
+            AND COALESCE(a.setor,'vacinas') = ANY($1)
+          GROUP BY 1,2,3,4,5
+          ORDER BY n DESC, nome ASC`, [meus, hojeSLZ])
+      : porVenda
       ? await query(
         `SELECT COALESCE(v.setor,'vacinas') setor,
                 COALESCE(v.atendente_id,'') aid,
@@ -721,6 +766,7 @@ r.get('/ranking', async (req, res) => {
            LEFT JOIN usuarios u ON u.id = a.responsavel_id
           WHERE ${filtroPeriodo.replace(/v\.data_venda/g, "(a.created_at - interval '3 hours')::date")}
             AND LOWER(COALESCE(a.status,'')) NOT LIKE 'cancel%'
+            AND a.servico IS DISTINCT FROM 'Pós Vacinal'  -- automático não é mérito de agendamento
             AND COALESCE(a.setor,'vacinas') = ANY($1)
           GROUP BY 1,2,3,4,5
           ORDER BY n DESC, nome ASC`, [meus, hojeSLZ]);
@@ -829,7 +875,7 @@ r.get('/minha-equipe', async (req, res) => {
 
     const setor = meus[0];
     const metaGlobal = Math.max(1, parseFloat(v.globais?.[setor]) || 500000);
-    const premioPessoa = Math.max(0, parseFloat(v.premiosMin?.[setor]) || 2500);  // R$ 2.500 (ordem do master, 22/08)
+    const premioPessoa = Math.max(0, parseFloat(v.premiosMin?.[setor]) || 1500);  // padrão R$ 1.500; o 2.500 é só da Raylane (premiosPessoa)
 
     // Time = quem é do MESMO setor (a própria supervisora fica de fora da lista)
     /* Marketing (ve_geral) fica FORA do time: eles enxergam tudo mas não
@@ -903,7 +949,7 @@ r.get('/meta-setor', async (req, res) => {
     const metaMinimaDe = (s) => Math.max(0, parseFloat(minimasCfg[s]) || 100000);
     const metaGlobalDe = (s) => Math.max(1, parseFloat(globaisCfg[s]) || 500000);
     const premioDe     = (s) => Math.max(0, parseFloat(premiosCfg[s]) || 10000);
-    const premioMinDe  = (s) => Math.max(0, parseFloat(premiosMinCfg[s]) || 2500);  // R$ 2.500 (ordem do master, 22/08)
+    const premioMinDe  = (s) => Math.max(0, parseFloat(premiosMinCfg[s]) || 1500);  // padrão R$ 1.500; exceção pessoal via premiosPessoa
     // Setores do usuário (autoridade: banco — evita token velho). Multi-setor separa.
     const { rows: [u] } = await query('SELECT setor, setores FROM usuarios WHERE id = $1', [req.user.id]);
     let setores = [];
@@ -1023,6 +1069,18 @@ r.get('/meta-setor', async (req, res) => {
     const porSetor = [];
     for (const s of ordem) porSetor.push(await confDe(s));
 
+    /* 🏅 PRÊMIO PESSOAL (ordem do master, 22/08: "R$ 2.500 é somente para a
+       Raylane; as demais, R$ 1.500"): configuracoes.metas.premiosPessoa =
+       { "raylane": 2500 } sobrepõe o prêmio da mínima SÓ pra pessoa logada,
+       e premiosMsg carrega o recado dela ("seu prêmio aumentou!"). */
+    const premiosPessoaCfg = cfg[0]?.valor?.premiosPessoa || {};
+    const premiosMsgCfg = cfg[0]?.valor?.premiosMsg || {};
+    const chaveEu = String(req.user.nome || '').trim().split(/\s+/)[0].toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const premioEu = Math.max(0, parseFloat(premiosPessoaCfg[chaveEu]) || 0);
+    const premioMsgEu = premiosMsgCfg[chaveEu] || null;
+    if (premioEu > 0) for (const ps of porSetor) { ps.premioMinimo = premioEu; }
+
     /* 💵 DIÁRIAS CONQUISTADAS — o prêmio de consultas não é "bateu a mínima,
        ganhou R$ X": é R$ 100 POR DIA em que a meta do dia foi batida, até 26
        dias úteis = R$ 2.600 no mês (regra do master, cobrada por ele quando o
@@ -1070,6 +1128,7 @@ r.get('/meta-setor', async (req, res) => {
     res.json({
       ...porSetorSeguro[0], porSetor: porSetorSeguro,
       multi: true, individual, focoDia, focoMes, mostra_valores: podeValores,
+      premioMsg: premioMsgEu,   // 🏅 recado pessoal do prêmio (ex.: Raylane)
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

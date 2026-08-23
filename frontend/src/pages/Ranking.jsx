@@ -82,7 +82,7 @@ export default function Ranking() {
         <div style={{ flex: 1, minWidth: 220 }}>
           <h1 style={{ fontSize: 21, fontWeight: 900, margin: 0 }}>Ranking da equipe</h1>
           <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>
-            Por <b>quantidade de {metrica === 'vendas' ? 'vendas fechadas' : 'agendamentos'}</b> — sem valores. {rotuloPeriodo}.
+            Por <b>quantidade de {metrica === 'vendas' ? 'vendas fechadas' : metrica === 'concluidos' ? 'atendimentos concluídos (Realizado na agenda)' : 'agendamentos'}</b> — sem valores. {rotuloPeriodo}.
           </div>
         </div>
         <button onClick={() => carregar()} className="btn btn-sm" title="Atualizar agora"
@@ -93,7 +93,7 @@ export default function Ranking() {
 
       {/* O que conta no pódio */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-        {[['agendamentos', '📅 Agendamentos'], ['vendas', '💰 Vendas fechadas']].map(([k, rot]) => (
+        {[['agendamentos', '📅 Agendamentos'], ['concluidos', '🧾 Concluídos'], ['vendas', '💰 Vendas fechadas']].map(([k, rot]) => (
           <button key={k} onClick={() => setMetrica(k)}
             style={{ padding: '6px 13px', borderRadius: 20, fontSize: 12, fontWeight: 800, cursor: 'pointer',
               border: `1.5px solid ${metrica === k ? 'var(--tq)' : 'var(--border)'}`,

@@ -348,6 +348,8 @@ export default function PlacarVendas() {
                 · {fmt.brl(premio.porDiaVale)}/dia batido
               </span>
             </div>
+            {/* 🏅 Recado pessoal do prêmio (ex.: Raylane — "seu prêmio aumentou!") */}
+            {meta.premioMsg && <div style={{ fontSize: 10, fontWeight: 800, color: '#fde68a', marginTop: 2, whiteSpace: 'normal', maxWidth: 240, lineHeight: 1.3 }}>{meta.premioMsg}</div>}
           </div>
         </Capsula>
       )}
@@ -364,6 +366,8 @@ export default function PlacarVendas() {
                 </span>
               )}
             </div>
+            {/* 🏅 Recado pessoal do prêmio (ex.: Raylane — "seu prêmio aumentou!") */}
+            {meta.premioMsg && <div style={{ fontSize: 10, fontWeight: 800, color: '#fde68a', marginTop: 2, whiteSpace: 'normal', maxWidth: 240, lineHeight: 1.3 }}>{meta.premioMsg}</div>}
           </div>
         </Capsula>
       )}

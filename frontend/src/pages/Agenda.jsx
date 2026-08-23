@@ -125,9 +125,35 @@ export default function Agenda() {
     finally { setSalvando(false); }
   };
 
+  // 🧾 Concluir com comprovante (pedido do master: ranking fidedigno) —
+  // marcar Realizado abre o modal pedindo o anexo; os demais status seguem direto.
+  const [concluir, setConcluir] = useState(null); // { ev, arquivo:{nome,data}|null, obs, salvando }
   const mudaStatus = async (ev, status) => {
+    if (status === 'Realizado') { setConcluir({ ev, arquivo: null, obs: '', salvando: false }); return; }
     setEventos(p => p.map(x => x.id === ev.id ? { ...x, status } : x));
     try { await api.put(`/extras/agenda/${ev.id}`, { status }); if (aba === 'relatorio') loadRel(false); } catch { load(); }
+  };
+  const finalizarConcluir = async () => {
+    const c = concluir; if (!c || c.salvando) return;
+    setConcluir(p => ({ ...p, salvando: true }));
+    try {
+      if (c.arquivo) await api.post(`/extras/agenda/${c.ev.id}/comprovante`, { nome: c.arquivo.nome, data: c.arquivo.data });
+      await api.put(`/extras/agenda/${c.ev.id}`, { status: 'Realizado', ...(c.obs.trim() ? { observacoes: `${c.ev.observacoes ? c.ev.observacoes + ' · ' : ''}${c.obs.trim()}` } : {}) });
+      setEventos(p => p.map(x => x.id === c.ev.id ? { ...x, status: 'Realizado', tem_comprovante: x.tem_comprovante || !!c.arquivo } : x));
+      setConcluir(null);
+      if (aba === 'relatorio') loadRel(false);
+    } catch (e) { window.alert('Erro: ' + e.message); setConcluir(p => ({ ...p, salvando: false })); }
+  };
+  const verComprovante = async (ev) => {
+    try {
+      const c = await api.get(`/extras/agenda/${ev.id}/comprovante`);
+      const [, b64] = String(c.data).split(',');
+      const bin = atob(b64); const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const url = URL.createObjectURL(new Blob([bytes], { type: c.mime || 'image/jpeg' }));
+      window.open(url, '_blank');
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (e) { window.alert(e.message); }
   };
 
   const excluir = async (ev) => {
@@ -172,6 +198,10 @@ export default function Agenda() {
         </div>
         <div style={{ fontSize: 11.5, color: 'var(--muted)', minWidth: 70, textAlign: 'center' }}>{ev.resp_nome ? ev.resp_nome.split(' ')[0] : ''}</div>
         <span style={{ padding: '3px 10px', borderRadius: 8, fontSize: 10.5, fontWeight: 800, background: bg, color: cor, minWidth: 86, textAlign: 'center' }}>{ev.status}</span>
+        {/* 🧾 Comprovante anexado na conclusão — clica pra ver */}
+        {ev.tem_comprovante && (
+          <button onClick={() => verComprovante(ev)} title="Ver o comprovante anexado" style={{ ...btnAcao, color: '#16a34a', borderColor: '#bfe8cf', background: '#eafbf1', fontSize: 13 }}>🧾</button>
+        )}
         <div style={{ display: 'flex', gap: 5 }}>
           {/* 💙 MANDAR PÓS VACINAL (pedido do master): leva direto pra conversa
               com a mensagem de cuidado JÁ ESCRITA na caixa — a atendente lê,
@@ -282,6 +312,60 @@ export default function Agenda() {
         ) : posVacinais.map((ev, i) => linhaEvento(ev, i, posVacinais.length))}
       </div>
       </>)}
+
+      {/* 🧾 Modal de conclusão: Realizado passa por aqui e PEDE o comprovante
+          (pedido do master — é o lastro que torna o ranking fidedigno) */}
+      {concluir && (
+        <div onClick={e => e.target === e.currentTarget && setConcluir(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(3,43,48,.55)', zIndex: 650, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div className="card" style={{ width: '100%', maxWidth: 430, padding: 0, overflow: 'hidden' }}>
+            <div style={{ padding: '14px 20px', background: 'linear-gradient(120deg,#14532d,#16a34a)', color: '#fff', display: 'flex', alignItems: 'center', gap: 9 }}>
+              <span style={{ fontSize: 16 }}>🧾</span>
+              <b style={{ flex: 1, fontSize: 14.5 }}>Concluir atendimento — {concluir.ev.paciente}</b>
+              <button onClick={() => setConcluir(null)} style={{ background: 'rgba(255,255,255,.2)', border: 'none', color: '#fff', borderRadius: 8, padding: '4px 8px', cursor: 'pointer' }}><X size={14} /></button>
+            </div>
+            <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.55 }}>
+                Anexe o <b>comprovante do atendimento</b> (foto do recibo, da carteirinha ou do pagamento) — é ele que deixa o ranking e os relatórios 100% fidedignos.
+              </div>
+              {concluir.arquivo ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', borderRadius: 10, background: '#eafbf1', border: '1.5px solid #16a34a' }}>
+                  <span>🧾</span>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 700, color: '#15803d', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{concluir.arquivo.nome}</span>
+                  <button onClick={() => setConcluir(p => ({ ...p, arquivo: null }))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#15803d' }}><X size={14} /></button>
+                </div>
+              ) : (
+                <label className="btn btn-s" style={{ gap: 7, fontWeight: 800, cursor: 'pointer', justifyContent: 'center' }}>
+                  📎 Anexar comprovante (foto ou PDF)
+                  <input type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={e => {
+                    const f = e.target.files?.[0]; e.target.value = '';
+                    if (!f) return;
+                    if (f.size > 6 * 1024 * 1024) return window.alert('Arquivo muito grande — máximo 6MB.');
+                    const r = new FileReader();
+                    r.onload = () => setConcluir(p => ({ ...p, arquivo: { nome: f.name, data: r.result } }));
+                    r.readAsDataURL(f);
+                  }} />
+                </label>
+              )}
+              <div className="field" style={{ margin: 0 }}>
+                <label>Observação do atendimento (opcional)</label>
+                <input value={concluir.obs} onChange={e => setConcluir(p => ({ ...p, obs: e.target.value }))} placeholder="Ex.: remarcou a 2ª dose, pagou no pix…" maxLength={200} />
+              </div>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <button onClick={finalizarConcluir} disabled={concluir.salvando || !concluir.arquivo} className="btn btn-p" style={{ gap: 6, fontWeight: 800, opacity: (!concluir.arquivo && !concluir.salvando) ? .55 : 1 }}>
+                  <Check size={14} /> {concluir.salvando ? 'Concluindo…' : 'Concluir com comprovante'}
+                </button>
+                <button onClick={() => { setConcluir(p => ({ ...p, arquivo: null })); if (window.confirm('Concluir SEM comprovante? O atendimento conta no ranking, mas fica sem o lastro do anexo.')) { setConcluir(p => { finalizarConcluir.call(null); return p; }); } }}
+                  style={{ display: 'none' }}>x</button>
+                <button onClick={async () => { if (!window.confirm('Concluir SEM comprovante? O atendimento fica sem o lastro do anexo.')) return; setConcluir(p => ({ ...p, arquivo: null, salvando: false })); await finalizarConcluir(); }}
+                  disabled={concluir.salvando} className="btn btn-s" style={{ fontSize: 12 }}>
+                  Concluir sem anexo
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {celebra && (
         <div onClick={() => setCelebra(null)}
