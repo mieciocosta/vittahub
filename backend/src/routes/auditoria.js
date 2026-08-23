@@ -53,6 +53,20 @@ r.post('/print-tela', async (req, res) => {
        String(req.body?.conversa || '').slice(0, 80) || null,
        String(req.body?.conv_id || '').slice(0, 60) || null, img]);
     query(`DELETE FROM capturas_print WHERE created_at < NOW() - interval '30 days'`).catch(() => {});
+    /* 🚨 Rajada de prints (pedido do master: "a segurança está fraca"):
+       no 5º print do dia da MESMA pessoa, o master é avisado na hora no
+       sino — uma vez só por dia, pra não virar ruído. */
+    try {
+      const { rows: [{ n: printsHoje }] } = await query(
+        `SELECT COUNT(*)::int n FROM capturas_print
+          WHERE usuario_id = $1 AND created_at > (NOW() - interval '3 hours')::date + interval '3 hours'`,
+        [req.user.id]);
+      if (printsHoje === 5) {
+        await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('alerta', $1, $2, true)`,
+          [`🚨 ${String(req.user.nome || '').split(' ')[0]} já tirou 5 prints hoje`,
+           `${req.user.nome} capturou a tela 5 vezes hoje. As imagens reconstituídas estão em Auditoria → Prints com imagem — vale conferir o que está sendo capturado. Lembrando: todo print da equipe sai com a marca d'água do nome de quem capturou.`]);
+      }
+    } catch { /* alerta é melhor-esforço */ }
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
