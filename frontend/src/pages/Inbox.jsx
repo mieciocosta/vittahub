@@ -663,6 +663,25 @@ export default function Inbox({ onUnreadChange }) {
   // a frase salva e nem de editar")
   const [protoEditK, setProtoEditK] = useState(null);
   const [protoEditTxt, setProtoEditTxt] = useState('');
+  // 📎 Clipe em todos os passos (pedido do master): anexa e ENVIA na conversa
+  // imagem, vídeo ou documento, direto do cartão do passo (até 45MB).
+  const protoFileRef = useRef(null);
+  const anexarDoPasso = async (e) => {
+    const f = e.target.files?.[0]; e.target.value = '';
+    if (!f || !sel) return;
+    setProtoBusy('anexo');
+    try {
+      const mb = f.size / 1048576;
+      if (mb > 8) Toast.show(`Enviando ${mb.toFixed(1)} MB… pode levar alguns segundos ⏳`, 'info');
+      const fd = new FormData(); fd.append('file', f);
+      const m = await api.upload(`/inbox/conversations/${sel.id}/upload`, fd);
+      setMsgs(p => [...p, m]);
+      if (m?.aviso) Toast.show(`⚠️ ${m.aviso}`, 'error');
+      else Toast.show('📎 Arquivo enviado na conversa!', 'success');
+      api.get(`/inbox/conversations/${sel.id}/protocolo`).then(setProto).catch(() => {});
+    } catch (e2) { Toast.show(e2.message || 'Falha no envio', 'error'); }
+    setProtoBusy('');
+  };
   const [resumoLoad, setResumoLoad] = useState(false);
   const [estudoBusy, setEstudoBusy] = useState(false);
   const [estudoAviso, setEstudoAviso] = useState(null);
@@ -2397,6 +2416,14 @@ export default function Inbox({ onUnreadChange }) {
                             style={{ width:'100%', boxSizing:'border-box', marginTop:7, padding:'8px 10px', borderRadius:9, border:'1.5px solid var(--tq)', fontSize:11.5, lineHeight:1.5, resize:'vertical', background:'var(--card)', color:'var(--txt)', fontFamily:'inherit' }} />
                         )}
                         <div style={{ display:'flex', gap:6, marginTop:8, flexWrap:'wrap' }}>
+                          {/* 📎 Em TODOS os passos: anexa e envia imagem, vídeo ou
+                              documento na conversa, direto daqui */}
+                          <input ref={protoFileRef} type="file" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx" style={{ display:'none' }} onChange={anexarDoPasso} />
+                          <button onClick={() => protoFileRef.current?.click()} disabled={protoBusy === 'anexo'}
+                            title="Anexar e enviar um arquivo nesta conversa (imagem, vídeo, PDF, documento — até 45MB)"
+                            style={{ flexShrink:0, borderRadius:9, padding:'6px 13px', cursor:'pointer', border:'1px solid #C4973B', background:'#fdf6e7', color:'#8a6417', fontSize:11, fontWeight:800 }}>
+                            {protoBusy === 'anexo' ? '…' : '📎 Anexar'}
+                          </button>
                           {p2.k === 'significado_nome' && !p2.feito && (
                             <button onClick={async () => {
                               const nome = proto.paciente || window.prompt('Nome da criança:');
