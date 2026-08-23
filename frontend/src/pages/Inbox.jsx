@@ -217,11 +217,9 @@ const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect, usersB
               📌 {fixada ? 'CONVERSA FIXADA' : 'FIXAR CONVERSA'}
             </button>
           )}
-          {resp && (
-            <span title={`Responsável: ${resp.nome}`} style={{ marginLeft: 'auto', width: 18, height: 18, borderRadius: '50%', background: resp.cor || 'var(--tq)', color: '#fff', fontSize: 8, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, border: '1.5px solid var(--card)' }}>
-              {fmt.initials(resp.nome)}
-            </span>
-          )}
+          {/* 🗑️ Bolinha de iniciais da responsável REMOVIDA da lista (pedido do
+              master, 22/08: "deixe apenas dentro de cada perfil como já está")
+              — quem responde pela conversa aparece no cabeçalho e no painel. */}
         </div>
       </div>
     </div>
@@ -664,6 +662,10 @@ export default function Inbox({ onUnreadChange }) {
   const [protoAberto, setProtoAberto] = useState(true);
   const [protoBusy, setProtoBusy] = useState('');
   const [protoSel, setProtoSel] = useState(null); // passo aberto nos botões numerados (23/08/2026)
+  // ✏️ Edição da frase do passo (pedido do master: "não me dá a opção de usar
+  // a frase salva e nem de editar")
+  const [protoEditK, setProtoEditK] = useState(null);
+  const [protoEditTxt, setProtoEditTxt] = useState('');
   const [resumoLoad, setResumoLoad] = useState(false);
   const [estudoBusy, setEstudoBusy] = useState(false);
   const [estudoAviso, setEstudoAviso] = useState(null);
@@ -2380,37 +2382,97 @@ export default function Inbox({ onUnreadChange }) {
                   {protoSel && (() => {
                     const p2 = proto.passos.find(x => x.k === protoSel);
                     if (!p2) return null;
+                    const editando2 = protoEditK === p2.k;
                     return (
-                      <div style={{ marginTop:7, padding:'8px 11px', borderRadius:11, border:'1px solid var(--border)', background:'var(--bg)', display:'flex', alignItems:'center', gap:9, flexWrap:'wrap' }}>
-                        <div style={{ flex:1, minWidth:180 }}>
-                          <div style={{ fontSize:11.5, fontWeight:800, color:'var(--txt2)' }}>{p2.feito ? '✅ ' : `${p2.emoji} `}{p2.nome}</div>
-                          <div style={{ fontSize:10.5, color:'var(--muted)', marginTop:2, lineHeight:1.45 }}>
-                            {p2.feito ? 'Este passo já foi cumprido nesta conversa. 👏' : (p2.dica || 'Falta fazer este passo com o cliente.')}
-                          </div>
+                      <div style={{ marginTop:7, padding:'9px 12px', borderRadius:11, border:'1px solid var(--border)', background:'var(--bg)' }}>
+                        <div style={{ fontSize:11.5, fontWeight:800, color:'var(--txt2)' }}>{p2.feito ? '✅ ' : `${p2.emoji} `}{p2.nome}</div>
+                        <div style={{ fontSize:10.5, color:'var(--muted)', marginTop:2, lineHeight:1.45 }}>
+                          {p2.feito ? 'Este passo já foi cumprido nesta conversa. 👏' : (p2.dica || 'Falta fazer este passo com o cliente.')}
                         </div>
-                        {!p2.feito && p2.k === 'significado_nome' && (
-                          <button onClick={async () => {
-                            const nome = proto.paciente || window.prompt('Nome da criança:');
-                            if (!nome) return;
-                            setProtoBusy(p2.k);
-                            try {
-                              const r = await api.post(`/inbox/conversations/${sel.id}/significado-nome`, { nome });
-                              Toast.show(`✨ Cartão do nome ${r.nome} enviado!`, 'success');
-                              api.get(`/inbox/conversations/${sel.id}/protocolo`).then(setProto).catch(() => {});
-                            } catch (e) { Toast.show(e.message, 'error'); }
-                            setProtoBusy('');
-                          }} disabled={!!protoBusy}
-                            style={{ flexShrink:0, border:'none', borderRadius:9, padding:'6px 13px', cursor:'pointer', background:'#7c3aed', color:'#fff', fontSize:11, fontWeight:800 }}>
-                            {protoBusy === p2.k ? '…' : '✨ Gerar e enviar'}
-                          </button>
+                        {/* A FRASE SALVA sempre à vista (pedido do master) — e editável */}
+                        {p2.modelo && !editando2 && (
+                          <div style={{ marginTop:7, padding:'7px 10px', borderRadius:9, background:'var(--card)', border:'1px dashed var(--border)', fontSize:11.5, lineHeight:1.5, color:'var(--txt2)', whiteSpace:'pre-wrap' }}>
+                            “{p2.modelo}”
+                          </div>
                         )}
-                        {!p2.feito && p2.modelo && p2.k !== 'significado_nome' && (
-                          <button onClick={() => { setInput(p2.modelo); textRef.current?.focus(); }}
-                            title="Coloca a mensagem pronta no campo de digitação"
-                            style={{ flexShrink:0, borderRadius:9, padding:'6px 13px', cursor:'pointer', border:'1px solid var(--tq3)', background:'var(--tq4)', color:'var(--tq2)', fontSize:11, fontWeight:800 }}>
-                            ✍️ Usar texto
-                          </button>
+                        {editando2 && (
+                          <textarea value={protoEditTxt} onChange={e => setProtoEditTxt(e.target.value)} rows={3}
+                            style={{ width:'100%', boxSizing:'border-box', marginTop:7, padding:'8px 10px', borderRadius:9, border:'1.5px solid var(--tq)', fontSize:11.5, lineHeight:1.5, resize:'vertical', background:'var(--card)', color:'var(--txt)', fontFamily:'inherit' }} />
                         )}
+                        <div style={{ display:'flex', gap:6, marginTop:8, flexWrap:'wrap' }}>
+                          {p2.k === 'significado_nome' && !p2.feito && (
+                            <button onClick={async () => {
+                              const nome = proto.paciente || window.prompt('Nome da criança:');
+                              if (!nome) return;
+                              setProtoBusy(p2.k);
+                              try {
+                                const r = await api.post(`/inbox/conversations/${sel.id}/significado-nome`, { nome });
+                                Toast.show(`✨ Cartão do nome ${r.nome} enviado!`, 'success');
+                                api.get(`/inbox/conversations/${sel.id}/protocolo`).then(setProto).catch(() => {});
+                              } catch (e) { Toast.show(e.message, 'error'); }
+                              setProtoBusy('');
+                            }} disabled={!!protoBusy}
+                              style={{ flexShrink:0, border:'none', borderRadius:9, padding:'6px 13px', cursor:'pointer', background:'#7c3aed', color:'#fff', fontSize:11, fontWeight:800 }}>
+                              {protoBusy === p2.k ? '…' : '✨ Gerar e enviar'}
+                            </button>
+                          )}
+                          {p2.k === 'prova_social' && (
+                            <button onClick={async () => {
+                              setProtoBusy(p2.k);
+                              try {
+                                const r = await api.post(`/inbox/conversations/${sel.id}/prova-social`, {});
+                                Toast.show(`📸 ${r.enviadas} foto(s) + Instagram enviados!`, 'success');
+                                api.get(`/inbox/conversations/${sel.id}/protocolo`).then(setProto).catch(() => {});
+                              } catch (e) { Toast.show(e.message, 'error'); }
+                              setProtoBusy('');
+                            }} disabled={!!protoBusy}
+                              title="Envia até 3 fotos de prova social da Biblioteca com o Instagram na legenda"
+                              style={{ flexShrink:0, border:'none', borderRadius:9, padding:'6px 13px', cursor:'pointer', background:'linear-gradient(120deg,#ec4899,#a855f7)', color:'#fff', fontSize:11, fontWeight:800 }}>
+                              {protoBusy === p2.k ? '…' : '📸 Fotos + Insta'}
+                            </button>
+                          )}
+                          {p2.modelo && !editando2 && (<>
+                            <button onClick={() => { setInput(p2.modelo); textRef.current?.focus(); }}
+                              title="Coloca a frase salva no campo de digitação — ajuste como quiser antes de enviar"
+                              style={{ flexShrink:0, borderRadius:9, padding:'6px 13px', cursor:'pointer', border:'1px solid var(--tq3)', background:'var(--tq4)', color:'var(--tq2)', fontSize:11, fontWeight:800 }}>
+                              ✍️ Usar frase
+                            </button>
+                            <button onClick={() => { setProtoEditK(p2.k); setProtoEditTxt(p2.modelo); }}
+                              title="Editar a frase deste passo"
+                              style={{ flexShrink:0, borderRadius:9, padding:'6px 13px', cursor:'pointer', border:'1px solid var(--border)', background:'var(--card)', color:'var(--txt2)', fontSize:11, fontWeight:800 }}>
+                              ✏️ Editar
+                            </button>
+                          </>)}
+                          {editando2 && (<>
+                            <button onClick={() => { setInput(protoEditTxt); textRef.current?.focus(); setProtoEditK(null); }}
+                              title="Usa a frase editada nesta conversa (vai pro campo de digitação)"
+                              style={{ flexShrink:0, border:'none', borderRadius:9, padding:'6px 13px', cursor:'pointer', background:'var(--tq)', color:'#fff', fontSize:11, fontWeight:800 }}>
+                              ✍️ Usar editada
+                            </button>
+                            {['master','supervisor'].includes(user?.role) && (
+                              <button onClick={async () => {
+                                try {
+                                  // Salva como padrão da equipe: pega a config CRUA (com os
+                                  // curingas) e troca só o modelo deste passo
+                                  const cfg2 = await api.get('/inbox/protocolo/config');
+                                  const passos2 = (cfg2?.passos || []).map(x => x.k === p2.k ? { ...x, modelo: protoEditTxt } : x);
+                                  await api.put('/inbox/protocolo/config', { passos: passos2, clinica: cfg2?.clinica || {} });
+                                  Toast.show('💾 Frase salva pra toda a equipe!', 'success');
+                                  setProtoEditK(null);
+                                  api.get(`/inbox/conversations/${sel.id}/protocolo`).then(setProto).catch(() => {});
+                                } catch (e) { Toast.show(e.message, 'error'); }
+                              }}
+                                title="Grava esta frase como o novo padrão do passo pra toda a equipe (gestão)"
+                                style={{ flexShrink:0, border:'none', borderRadius:9, padding:'6px 13px', cursor:'pointer', background:'#16a34a', color:'#fff', fontSize:11, fontWeight:800 }}>
+                                💾 Salvar pra equipe
+                              </button>
+                            )}
+                            <button onClick={() => setProtoEditK(null)}
+                              style={{ flexShrink:0, borderRadius:9, padding:'6px 13px', cursor:'pointer', border:'1px solid var(--border)', background:'var(--card)', color:'var(--muted)', fontSize:11, fontWeight:800 }}>
+                              Cancelar
+                            </button>
+                          </>)}
+                        </div>
                       </div>
                     );
                   })()}
