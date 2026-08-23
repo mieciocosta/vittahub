@@ -1907,6 +1907,7 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
         data: { type: 'string', description: 'Data escolhida, formato YYYY-MM-DD (das janelas reais)' },
         hora: { type: 'string', description: 'Horário HH:MM dentro da janela do profissional' },
         profissional: { type: 'string', description: 'Nome do profissional escolhido (das janelas reais) — obrigatório quando for consulta' },
+        especialidade: { type: 'string', description: 'Especialidade do profissional (ex.: Pediatra, Fonoaudióloga) — se não informar, o sistema busca no cadastro' },
         servico: { type: 'string', description: 'O serviço (ex.: Consulta Pediátrica, Avaliação Fono, Vacinas de 5 meses)' },
         local: { type: 'string', description: 'Onde será o atendimento: "Em sua residência" (domiciliar) ou "Na Clínica Vittalis Saúde (Renascença)". Padrão: clínica' },
         tratamento: { type: 'string', enum: ['papai', 'mamãe'], description: 'Como parabenizar no fim: papai ou mamãe (omita se não souber)' },
@@ -2051,7 +2052,16 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
             `📅 *Data: ${dataA.split('-').reverse().join('/')} ${dSem}*`,
             `🕓 *Horário: ${horaA}hs*`,
           ];
-          if (inA.profissional) linhasConf.push(`👩‍⚕️ *Profissional: ${String(inA.profissional).slice(0, 60)}*`);
+          if (inA.profissional) {
+            // Especialidade junto do nome (pedido do master): Dra. Luísa (Pediatra)
+            let espec = String(inA.especialidade || '').trim();
+            if (!espec) {
+              const { rows: [pf] } = await query(`SELECT especialidade FROM profissionais
+                WHERE ativo = true AND nome ILIKE $1 LIMIT 1`, [String(inA.profissional).trim()]).catch(() => ({ rows: [] }));
+              espec = String(pf?.especialidade || '').trim();
+            }
+            linhasConf.push(`👩‍⚕️ *Profissional: ${String(inA.profissional).slice(0, 60)}${espec ? ` (${espec.slice(0, 40)})` : ''}*`);
+          }
           linhasConf.push(`📍 *Local: ${localTxt.slice(0, 80)}*`);
           linhasConf.push(`📌 *Serviço: ${String(inA.servico || 'Atendimento').slice(0, 80)}*`);
           /* Atendimento NA CLÍNICA leva o endereço por escrito + Google Maps
