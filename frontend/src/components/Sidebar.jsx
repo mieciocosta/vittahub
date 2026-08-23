@@ -309,6 +309,9 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
   }, []); // eslint-disable-line
   const [showAvatarBuilder, setShowAvatarBuilder] = useState(false);
   const [paletaAberta, setPaletaAberta] = useState(false);
+  // De onde a paleta foi aberta: 'topo' (atalho do cartão de perfil — pedido
+  // do master: "traz as cores pra cá") ou 'rodape' (botão de sempre)
+  const [paletaOrigem, setPaletaOrigem] = useState('rodape');
   // Família escolhida no seletor de cor (o tom sai dela). Começa na cor atual.
   const [familia, setFamilia] = useState(() => {
     const v = localStorage.getItem('vh_cor') || '';
@@ -744,6 +747,17 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
               onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,.62)'}>
               <Palette size={16} />
             </button>
+            {/* 🎨 Cor do CRM no cartão (pedido do master: "traz algumas funções
+                que estão lá embaixo pra cá, como as cores") — a bolinha mostra
+                a cor atual e abre a mesma paleta do rodapé, só que aqui em cima. */}
+            {paletaCores.length > 0 && (
+              <button onClick={() => { setPaletaOrigem('topo'); setPaletaAberta(a => !a); }} title="Cor do CRM"
+                style={{ padding:8, background: paletaAberta ? 'rgba(255,255,255,.3)' : 'rgba(255,255,255,.14)', borderRadius:9, cursor:'pointer', border:'1px solid rgba(255,255,255,.22)', display:'flex' }}>
+                <span style={{ width:16, height:16, borderRadius:'50%', flexShrink:0,
+                  background: /^#/.test(corDia) ? corDia : (corDia !== 'auto' && corDia !== 'off' && paletaCores[parseInt(corDia)]?.tq) || 'conic-gradient(#00B8C0,#7c3aed,#f59e0b,#16a34a,#00B8C0)',
+                  border:'1.5px solid rgba(255,255,255,.6)' }} />
+              </button>
+            )}
             <button onClick={onToggleTheme} title={theme === 'dark' ? 'Modo claro' : 'Modo escuro'} style={{ padding:8, background:'rgba(255,255,255,.14)', color:'rgba(255,255,255,.85)', borderRadius:9, transition:'color .15s', cursor:'pointer', border:'1px solid rgba(255,255,255,.22)' }}
               onMouseEnter={e=>e.currentTarget.style.color='#ffffff'}
               onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,.62)'}>
@@ -1007,7 +1021,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
           const corAtual = corDia === 'auto' || corDia === 'off' ? null : paletaCores[parseInt(corDia)];
           return (
           <>
-            <button onClick={() => setPaletaAberta(a => !a)}
+            <button onClick={() => { setPaletaOrigem('rodape'); setPaletaAberta(a => !a); }}
               style={{ width:'100%', display:'flex', alignItems:'center', gap:7, padding:'8px 10px', marginTop:8,
                 borderRadius:12, background:'rgba(255,255,255,.08)', border:'1px solid rgba(255,255,255,.14)',
                 cursor:'pointer', color:'#fff' }}>
@@ -1020,7 +1034,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
             {paletaAberta && (
               <>
                 <div onClick={() => setPaletaAberta(false)} style={{ position:'fixed', inset:0, zIndex:600 }} />
-                <div style={{ position:'fixed', left:12, bottom:16, zIndex:601, width:250, maxHeight:'70vh', overflowY:'auto',
+                <div style={{ position:'fixed', left:12, ...(paletaOrigem === 'topo' ? { top:110 } : { bottom:16 }), zIndex:601, width:250, maxHeight:'70vh', overflowY:'auto',
                   padding:14, borderRadius:16, background:'var(--card,#fff)', border:'1px solid var(--border,#e2e8f0)',
                   boxShadow:'0 18px 44px rgba(0,0,0,.34)' }}>
                   <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:11 }}>
