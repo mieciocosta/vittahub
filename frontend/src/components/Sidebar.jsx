@@ -294,7 +294,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
         <a key={p2.k} href={p2.url} target="_blank" rel="noreferrer" title={`Abrir o ${p2.nome}`}
           className="vh-nav"
           style={{ display:'flex', alignItems:'center', gap: collapsed ? 0 : 10,
-            padding: collapsed ? '8px 0' : '6px 10px', justifyContent: collapsed ? 'center' : 'flex-start',
+            padding: collapsed ? '8px 0' : '8px 12px', justifyContent: collapsed ? 'center' : 'flex-start',
             borderRadius:12, textDecoration:'none', color:'rgba(255,255,255,.88)', fontSize:13, fontWeight:500 }}>
           <span className="vh-chip" style={{ width:25, height:25, borderRadius:8, flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center',
             background:p2.cor, boxShadow:`0 2px 8px ${p2.sombra}` }}>
@@ -458,7 +458,10 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
     ? <img src={user.avatar} alt="" style={{ width:size, height:size, borderRadius:'50%', objectFit:'cover', flexShrink:0, display:'block' }} />
     : <div style={{ width:size, height:size, borderRadius:'50%', background:`linear-gradient(135deg, var(--tq), var(--pet))`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:size*0.36, fontWeight:700, color:'#fff', letterSpacing:.5, flexShrink:0 }}>{initials(user?.nome)}</div>;
   const api = useApi();
-  const w = collapsed ? '56px' : '230px';
+  // 280px (pedido do master: "sensação de aperto" no menu) — mais respiro
+  // pros rótulos, o cartão de perfil e os botões. Casar SEMPRE com o sw do
+  // App.jsx, senão o conteúdo fica por baixo ou sobra vão.
+  const w = collapsed ? '56px' : '280px';
   // Retornos vencidos: badge vermelho no menu (atualiza a cada 60s)
   const [vencidos, setVencidos] = useState(0);
   useEffect(() => {
@@ -840,7 +843,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
             className={({ isActive }) => `vh-nav${isActive ? ' ativo' : ''}`}
             style={({ isActive }) => ({
             display:'flex', alignItems:'center', gap: collapsed ? 0 : 10,
-            padding: collapsed ? '8px 0' : '6px 10px',
+            padding: collapsed ? '8px 0' : '8px 12px',
             justifyContent: collapsed ? 'center' : 'flex-start',
             borderRadius:12, textDecoration:'none',
             color: isActive ? 'var(--tq2)' : (destaque ? '#ffd166' : 'rgba(255,255,255,.88)'),
