@@ -544,6 +544,7 @@ export default function Inbox({ onUnreadChange }) {
   const [agForm, setAgForm] = useState({ data: hojeISO, hora: '', servico: '', valor: '', observacoes: '', setor: 'consultas' });
   const [showInfo, setShowInfo] = useState(false);
   const [showEmoji, setShowEmoji] = useState(false);
+  const [showProntas, setShowProntas] = useState(false); // 📝 mensagens prontas (pra quem não usa a IA)
   const [filePreview, setFilePreview] = useState(null);
   const [showQR, setShowQR]     = useState(false);
   const [qr, setQr]             = useState([]);
@@ -2284,6 +2285,56 @@ export default function Inbox({ onUnreadChange }) {
             </div>
           )}
 
+          {/* 📝 Mensagens prontas — modelos oficiais pra enviar na mão */}
+          {showProntas && sel && (() => {
+            const nomeC = sel.contact_name || '{CLIENTE}';
+            const at1 = String(user?.nome || '').split(' ')[0];
+            const pac = proto?.paciente || '{PACIENTE}';
+            const ENDER = '🏥 *Nosso endereço, Clínica Vittalis Saúde:*\nEd. Business Center, Térreo\nAv. Cel. Colares Moreira, 3A, Renascença\nSão Luís/MA\n🗺️ Como chegar: https://share.google/cJwx0T5DVaCxZyc6I';
+            const INSTA = '📸 Acompanhe momentos de cuidado no nosso Instagram: https://www.instagram.com/vittalissaudeslz/';
+            const cartao = (linhas) => linhas.join('\n');
+            const GRUPOS_PRONTAS = [
+              ['👋 Atendimento', [
+                ['Boas-vindas', `Oi! 💙 Que alegria receber sua mensagem! Eu sou a ${at1}, da Vittalis Saúde, e a partir de agora cuido de vocês pessoalmente, tá? Me conta: o que o seu pequeno tem precisado? 😊`],
+                ['Perguntar o nome do paciente', 'Pra eu cuidar de vocês do jeitinho certo: qual é o nome e a idade do seu pequeno ou da sua pequena? 🥰 Assim já preparo tudo pensando nele(a).'],
+                ['Aviso de ligação', `Uma ligação rapidinha resolve mais que 20 mensagens 😊 Estarei te ligando daqui a pouquinho pra te explicar tudo com calma, tá bem? 💙`],
+                ['Convite de agendamento', `Vamos garantir o horário de ${pac}? 💙 Nossa agenda é bem procurada e quero deixar o melhor reservado pra vocês. Prefere manhã ou tarde?`],
+              ]],
+              ['📍 Endereço e casa', [
+                ['Endereço da clínica', `📍 *Nosso endereço, Clínica Vittalis Saúde* 💎\n🏥 Ed. Business Center, Térreo\nAv. Cel. Colares Moreira, 3A, Renascença\nSão Luís/MA\n🗺️ *Como chegar (Google Maps):*\nhttps://share.google/cJwx0T5DVaCxZyc6I\nEstamos te esperando de braços abertos 💙 Quer que eu já deixe um horário reservado pra sua visita? 😊`],
+                ['Clínica ou em casa? (ambos)', `${nomeC}, atendemos dos dois jeitinhos 💙 E aqui vai algo que nos orgulha muito: somos a única clínica que também atende na sua casa. Pensamos no conforto da família, sabemos que muitos pais não conseguem se deslocar. Por isso enviamos nossos profissionais até a sua residência, com o mesmo carinho e o mesmo cuidado da clínica. Para vocês, fica melhor em sua residência ou em nossa clínica? 😊`],
+                ['Plano de saúde (resposta oficial)', 'Nós atendemos somente de forma particular 💙 Isso porque queremos garantir que cada consulta seja sem pressa, que o plano tanto exige com o tempo contado, e com toda a atenção que cada cliente merece. Ajudamos ainda mais com o reembolso: emitimos a nota fiscal e a maioria dos planos devolve o valor. E trabalhamos com parcelamento no cartão de crédito. Tudo pra que o nosso cliente tenha o melhor atendimento 😊'],
+              ]],
+              ['✅ Cartões de agendamento (preencha os campos)', [
+                ['Vacina em casa', cartao(['✅ *Agendamento de confirmação*','',`📁 *Cliente: ${nomeC}*`,`👶🏻 *Paciente: ${pac}*`,'📅 *Data: {DATA} {DIA DA SEMANA}*','🕓 *Horário: {HORA}hs*','📍 *Local: Em sua residência*','📌 *Serviço: Vacinas de {IDADE}*','','*Parabéns pelo investimento na saúde do seu Baby 🩵*','',INSTA])],
+                ['Vacina na clínica', cartao(['✅ *Agendamento de confirmação*','',`📁 *Cliente: ${nomeC}*`,`👶🏻 *Paciente: ${pac}*`,'📅 *Data: {DATA} {DIA DA SEMANA}*','🕓 *Horário: {HORA}hs*','📍 *Local: Na Clínica Vittalis Saúde (Renascença)*','📌 *Serviço: Vacinas de {IDADE}*','',ENDER,'','*Parabéns pelo investimento na saúde do seu Baby 🩵*','',INSTA])],
+                ['Consulta na clínica', cartao(['✅ *Agendamento de confirmação*','',`📁 *Cliente: ${nomeC}*`,`👶🏻 *Paciente: ${pac}*`,'📅 *Data: {DATA} {DIA DA SEMANA}*','🕓 *Horário: {HORA}hs*','👩‍⚕️ *Profissional: {PROFISSIONAL} ({ESPECIALIDADE})*','📍 *Local: Na Clínica Vittalis Saúde (Renascença)*','📌 *Serviço: {SERVIÇO}*','',ENDER,'','*Parabéns pelo investimento na saúde do seu Baby 🩵*','',INSTA])],
+                ['Consulta em casa', cartao(['✅ *Agendamento de confirmação*','',`📁 *Cliente: ${nomeC}*`,`👶🏻 *Paciente: ${pac}*`,'📅 *Data: {DATA} {DIA DA SEMANA}*','🕓 *Horário: {HORA}hs*','👩‍⚕️ *Profissional: {PROFISSIONAL} ({ESPECIALIDADE})*','📍 *Local: Em sua residência*','📌 *Serviço: {SERVIÇO}*','','*Parabéns pelo investimento na saúde do seu Baby 🩵*','',INSTA])],
+              ]],
+            ];
+            return (
+              <div style={{ background:'var(--card,#fff)', borderTop:'1px solid var(--border)', padding:'9px 12px', flexShrink:0, maxHeight:250, overflowY:'auto' }}>
+                <div style={{ fontSize:10.5, fontWeight:800, color:'var(--muted)', marginBottom:7, textTransform:'uppercase', letterSpacing:.6 }}>
+                  📝 Mensagens prontas da casa <span style={{ textTransform:'none', fontWeight:600 }}>· toque, ajuste os {'{campos}'} e envie</span>
+                </div>
+                {GRUPOS_PRONTAS.map(([grupo, itens2]) => (
+                  <div key={grupo} style={{ marginBottom:9 }}>
+                    <div style={{ fontSize:10, fontWeight:800, color:'var(--tq2)', marginBottom:4 }}>{grupo}</div>
+                    <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+                      {itens2.map(([rot, txt]) => (
+                        <button key={rot} onClick={()=>{ setInput(txt); setShowProntas(false); textRef.current?.focus(); }}
+                          title={txt.slice(0, 200)}
+                          style={{ padding:'6px 12px', borderRadius:10, border:'1px solid var(--border)', background:'var(--bg)', color:'var(--txt2)', fontSize:11.5, fontWeight:700, cursor:'pointer' }}>
+                          {rot}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+
           {/* Emoji picker */}
           {showEmoji && (
             <div style={{ background:'var(--card,#fff)', borderTop:'1px solid var(--border)', padding:'9px 12px', flexShrink:0, maxHeight:230, overflowY:'auto' }}>
@@ -2651,8 +2702,12 @@ export default function Inbox({ onUnreadChange }) {
                     estar junto do que ela já usa pra enviar. */}
                 <button onClick={()=>{setBibAba('foto');setShowBib(true);}} title="🖼️ Biblioteca de Experiências — fotos e vídeos da clínica"
                   className="tb-ico-color" style={{ '--ic':'#d946ef' }}><Image size={18} strokeWidth={2.3}/></button>
-                <button onClick={()=>{setShowEmoji(p=>!p);setShowQR(false);}} title="Emojis"
+                <button onClick={()=>{setShowEmoji(p=>!p);setShowQR(false);setShowProntas(false);}} title="Emojis"
                   className={`tb-ico-color${showEmoji?' tb-on':''}`} style={{ '--ic':'#f59e0b' }}><Smile size={18} strokeWidth={2.3}/></button>
+                {/* 📝 MENSAGENS PRONTAS (pedido do master: tem atendente que não
+                    usa a IA cem por cento) — os textos oficiais da casa em 1 toque */}
+                <button onClick={()=>{setShowProntas(p=>!p);setShowEmoji(false);setShowQR(false);}} title="📝 Mensagens prontas da casa: boas-vindas, endereço, cartões de agendamento…"
+                  className={`tb-ico-color${showProntas?' tb-on':''}`} style={{ '--ic':'#ec4899' }}><MessageSquare size={18} strokeWidth={2.3}/></button>
               </div>
 
               {/* Botão "IA responde" RETIRADO a pedido do master — a Vitta agora
