@@ -2534,6 +2534,42 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log('🏅 Prêmio v3: Raylane R$ 2.000');
     }
 
+    /* 💰 CONFERÊNCIA DA RAYLANE (ordem do master, 22/08: "a Raylane vendeu
+       R$ 36.508,01 — ajusta no sistema na barra de cima"): soma as vendas do
+       mês dela e, se faltar pra chegar nesse total, lança a diferença como
+       venda de AJUSTE (categoria explícita, rastreável no Caixa). Se o
+       sistema já tiver MAIS que isso, não apaga nada — só avisa no sino. */
+    const { rows: [flagRay38] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_ajuste_raylane_2208'");
+    if (!flagRay38) {
+      const ALVO_RAY = 36508.01;   // corrigido pelo master no ato ('ops, R$36.508,01')
+      const { rows: [uRay] } = await query(`SELECT id, nome FROM usuarios
+        WHERE ativo = true AND nome ILIKE 'raylane%' ORDER BY nome LIMIT 1`).catch(() => ({ rows: [null] }));
+      let textoRay;
+      if (uRay) {
+        const { rows: [{ soma }] } = await query(`SELECT COALESCE(SUM(valor),0)::float soma FROM vendas
+          WHERE atendente_id = $1
+            AND to_char(data_venda,'YYYY-MM') = to_char(NOW() - interval '3 hours','YYYY-MM')`, [uRay.id]);
+        const dif = +(ALVO_RAY - (soma || 0)).toFixed(2);
+        if (dif > 0.009) {
+          const hojeR = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+          await query(`INSERT INTO vendas (atendente_id, atendente_nome, setor, categoria, cliente_nome, servico,
+                         valor, forma_pagamento, status_pagamento, data_venda, origem, observacao)
+                       VALUES ($1,$2,'vacinas','Ajuste','— Ajuste de conferência —','Ajuste de conferência',
+                         $3,'—','pago',$4,'Ajuste','Lançado pelo sistema por ordem do Dr. Miécio (22/08): total real do mês da Raylane é R$ 36.508,01; o registrado somava menos. Diferença lançada pra barra bater com a realidade.')`,
+            [uRay.id, uRay.nome, dif, hojeR]);
+          textoRay = `As vendas registradas da ${uRay.nome.split(' ')[0]} somavam R$ ${(soma || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })} no mês. Lancei um AJUSTE de R$ ${dif.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} (categoria "Ajuste", visível no Caixa) — a barra de cima agora mostra R$ 36.508,01.`;
+        } else if (dif < -0.009) {
+          textoRay = `Atenção: as vendas registradas da ${uRay.nome.split(' ')[0]} somam R$ ${(soma || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })} — MAIS que os R$ 36.508,01 informados. Não removi nada: confira no Caixa (filtro do mês, vendas dela) se há lançamento duplicado.`;
+        } else {
+          textoRay = `As vendas da ${uRay.nome.split(' ')[0]} já somavam exatamente R$ 36.508,01 — nada a ajustar.`;
+        }
+      } else textoRay = 'Não achei usuária ativa com nome Raylane pra ajustar a soma de vendas.';
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+        ['💰 Conferência das vendas da Raylane', textoRay]).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_ajuste_raylane_2208','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('💰 Ajuste Raylane:', textoRay);
+    }
+
     /* 📎 ANEXO NA MENSAGEM PROGRAMADA (pedido do master, 22/08): a agendada
        pode levar um documento ou imagem junto — sai na hora marcada, antes
        do texto. Guardado como data URI; nome pro cliente ver o arquivo. */
