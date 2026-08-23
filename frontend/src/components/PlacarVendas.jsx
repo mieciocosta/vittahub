@@ -453,9 +453,11 @@ export default function PlacarVendas() {
         🏆 Ranking
       </button>
 
-      {/* 6️⃣ DO IMPULSO À AÇÃO — registrar a venda sem sair procurando onde */}
-      <button onClick={() => nav('/caixa')}
-        title="Registrar uma venda agora"
+      {/* 6️⃣ DO IMPULSO À AÇÃO — o botão CUMPRE o título (cobrança do master:
+          "não sei se o título combina com o conteúdo"): abre o Caixa já com o
+          formulário de venda na tela, não só a página. */}
+      <button onClick={() => nav('/caixa?nova=1')}
+        title="Abre o formulário de registrar venda, já pronto pra preencher"
         style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 12, cursor: 'pointer',
           border: '1px solid rgba(255,255,255,.3)', color: '#0b1023', whiteSpace: 'nowrap',
           background: 'linear-gradient(180deg,#fde68a,#f59e0b)', fontSize: 12, fontWeight: 900,

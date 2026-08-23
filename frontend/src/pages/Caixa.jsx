@@ -337,6 +337,11 @@ export default function Caixa() {
     data_venda: hojeLocalISO(), origem: 'Balcão', observacao: '',
   });
   const [novaVendaSaving, setNovaVendaSaving] = useState(false);
+  // 💰 Vindo do botão "Registrar venda" do topo (?nova=1): o formulário já
+  // abre — o título do botão agora cumpre o que promete (cobrança do master).
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('nova') === '1') abrirNovaVenda();
+  }, []); // eslint-disable-line
   const salvarNovaVenda = async () => {
     if (!novaVenda) return;
     const numBR = (x) => Math.max(0, parseFloat(String(x).replace(/\./g, '').replace(',', '.')) || 0);
