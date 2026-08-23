@@ -545,6 +545,9 @@ export default function Inbox({ onUnreadChange }) {
   const [showInfo, setShowInfo] = useState(false);
   const [showEmoji, setShowEmoji] = useState(false);
   const [showProntas, setShowProntas] = useState(false); // 📝 mensagens prontas (pra quem não usa a IA)
+  const [encOpen, setEncOpen] = useState(false);         // 📤 encaminhar conversa pra outro canal
+  const [encForm, setEncForm] = useState({ destino: '', mensagens: 20, observacao: '' });
+  const [encSaving, setEncSaving] = useState(false);
   const [filePreview, setFilePreview] = useState(null);
   const [showQR, setShowQR]     = useState(false);
   const [qr, setQr]             = useState([]);
@@ -1952,6 +1955,21 @@ export default function Inbox({ onUnreadChange }) {
                 <option value="gestao">👔 Gestão / Direção</option>
                 <option value="profissional_saude">🏥 Profissional da clínica</option>
               </select>
+              {/* 🔁 TRANSFERIR (pedido do master: "além do setor, transferir
+                  para o atendente que quero") — o modal completo existia sem
+                  botão; agora abre daqui, com a equipe da supervisora no topo
+                  e aviso pra quem recebe. */}
+              <button onClick={abrirTransferir} title="Transferir este atendimento para a atendente que você escolher (ela recebe o aviso e assume a conversa)"
+                className="btn btn-sm" style={{ background:'#0e7490', color:'#a5f3fc', border:'1.5px solid #06b6d4', fontSize:11, padding:'4px 9px', fontWeight:700 }}>
+                🔁 Transferir
+              </button>
+              {/* 📤 Encaminhar pra outro canal (pedido do master): manda o
+                  histórico pro WhatsApp do setor com o link do cliente no fim */}
+              <button onClick={()=>{ setEncForm({ destino: '', mensagens: 20, observacao: '' }); setEncOpen(true); }}
+                title="Encaminhar o histórico desta conversa pro WhatsApp de outro setor/canal, com o link do cliente pronto pra chamar"
+                className="btn btn-sm" style={{ background:'#4a044e', color:'#f0abfc', border:'1.5px solid #c026d3', fontSize:11, padding:'4px 9px', fontWeight:700 }}>
+                📤 Encaminhar
+              </button>
               <button onClick={abrirAgendar} title="Agendar este atendimento (conta na meta do mês)"
                 className="btn btn-sm" style={{ background:'#1e3a5f', color:'#7cc4ff', border:'1.5px solid #2563eb', fontSize:11, padding:'4px 9px', fontWeight:700 }}>
                 <CalendarDays size={10}/> Agendar
@@ -3080,6 +3098,42 @@ export default function Inbox({ onUnreadChange }) {
 
       {showTerapia && sel && (
         <TerapiaOrcamentoModal contactName={sel.contact_name} atendente={user?.nome} onClose={()=>setShowTerapia(false)} />
+      )}
+
+      {encOpen && sel && (
+        <div onClick={()=>setEncOpen(false)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.5)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000, padding:16 }}>
+          <div onClick={e=>e.stopPropagation()} className="card" style={{ width:380, maxWidth:'100%', padding:22 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}><span style={{ fontSize:17 }}>📤</span><h3 style={{ fontSize:16, fontWeight:800 }}>Encaminhar conversa</h3></div>
+            <p style={{ fontSize:12, color:'var(--muted)', marginBottom:14, lineHeight:1.5 }}>
+              Envia o histórico de <b>{sel.contact_name || fmt.phone(sel.phone)}</b> pro WhatsApp de outro canal/setor, já com o <b>link do cliente no final</b> pra equipe de lá chamar e agendar.
+            </p>
+            <div style={{ display:'flex', flexDirection:'column', gap:11 }}>
+              <div className="field" style={{ margin:0 }}><label>WhatsApp de destino (com DDD) *</label>
+                <input inputMode="numeric" value={encForm.destino} onChange={e=>setEncForm(p=>({ ...p, destino: e.target.value.replace(/[^\d() -]/g,'') }))} placeholder="(98) 9...." /></div>
+              <div className="field" style={{ margin:0 }}><label>Quantas mensagens do histórico</label>
+                <select value={encForm.mensagens} onChange={e=>setEncForm(p=>({ ...p, mensagens: parseInt(e.target.value) }))} style={{ width:'100%' }}>
+                  {[10,20,40,60].map(n=><option key={n} value={n}>Últimas {n}</option>)}
+                </select></div>
+              <div className="field" style={{ margin:0 }}><label>Observação pro setor (opcional)</label>
+                <input value={encForm.observacao} onChange={e=>setEncForm(p=>({ ...p, observacao: e.target.value }))} maxLength={200} placeholder="Ex.: cliente do plano ativo pedindo agendamento" /></div>
+              <div style={{ display:'flex', gap:8, marginTop:4 }}>
+                <button onClick={async ()=>{
+                  if (String(encForm.destino).replace(/\D/g,'').length < 10) { Toast.show('Informe o número de destino com DDD', 'error'); return; }
+                  setEncSaving(true);
+                  try {
+                    await api.post(`/inbox/conversations/${sel.id}/encaminhar`, { destino: encForm.destino, mensagens: encForm.mensagens, observacao: encForm.observacao });
+                    Toast.show('📤 Conversa encaminhada com o link do cliente!', 'success');
+                    setEncOpen(false);
+                  } catch (e) { Toast.show(e.message || 'Falha ao encaminhar', 'error'); }
+                  setEncSaving(false);
+                }} disabled={encSaving} className="btn btn-p" style={{ flex:1, fontWeight:800 }}>
+                  {encSaving ? <span className="spin" style={{width:14,height:14}}/> : '📤 Encaminhar agora'}
+                </button>
+                <button onClick={()=>setEncOpen(false)} className="btn">Cancelar</button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {transfOpen && sel && (

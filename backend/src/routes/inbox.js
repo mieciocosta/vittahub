@@ -268,7 +268,7 @@ async function processarRespostaConfirmacao(conv, texto, phoneDigits) {
         const ack = 'Perfeito! 💙 Está tudo organizado com muito amor e carinho pra receber vocês. Estamos te esperando! 🥰';
         await zapiCall('/send-text', 'POST', { phone: `55${ph}`, message: ack }).catch(() => {});
         const { rows: [bm] } = await query(`INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome)
-          VALUES ($1,'bot','text',$2,'Mary') RETURNING *`, [conv.id, ack]).catch(() => ({ rows: [null] }));
+          VALUES ($1,'bot','text',$2,$3) RETURNING *`, [conv.id, ack, await nomeAssinatura(conv)]).catch(() => ({ rows: [null] }));
         if (bm) socketEmit('new_message', { convId: conv.id, message: bm, conv });
       }
     }
@@ -908,9 +908,9 @@ A gente cuida da sua família em três frentes:`;
 // montado no boot cumprimentaria "Bom dia" às 20h.
 const MENU_TRIAGEM = () => `${MENU_TITULO()}
 
-1️⃣ 💉 *Vacinas* — infantil e adulto, na clínica ou em casa
-2️⃣ 🩺 *Consultas* — pediatria, neuropediatria e outras especialidades
-3️⃣ 🤲 *Terapias* — fono, psicologia, psicopedagogia, T.O. e ABA
+1️⃣ 💉 *Vacinas*: infantil e adulto, na clínica ou em casa
+2️⃣ 🩺 *Consultas*: pediatria, neuropediatria e outras especialidades
+3️⃣ 🤲 *Terapias*: fono, psicologia, psicopedagogia, T.O. e ABA
 4️⃣ 💬 *Outro assunto*
 
 Qual delas te trouxe aqui hoje? É só responder com o número ou o nome 😊`;
@@ -1097,7 +1097,7 @@ async function capturaDados(conv, texto, phoneNum) {
     if (zapiOk()) await zapiCall('/send-text', 'POST', { phone: `55${phoneNum}`, message: msg });
     const { rows: [m] } = await query(
       `INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, created_at)
-       VALUES ($1,'bot','Mary','text',$2,NOW()) RETURNING *`, [conv.id, msg]).catch(() => ({ rows: [null] }));
+       VALUES ($1,'bot',$3,'text',$2,NOW()) RETURNING *`, [conv.id, msg, await nomeAssinatura(conv)]).catch(() => ({ rows: [null] }));
     if (m) socketEmit('new_message', { convId: conv.id, message: m, conv });
   };
 
@@ -1245,11 +1245,23 @@ async function triagemSetor(conv, texto, phoneNum) {
       }
       return false;                                 // a IA (agendarVitta) responde
     }
+    /* 🧠 LER A CONVERSA ANTES (erro feio apontado pelo master): se a equipe ou
+       a IA JÁ falou com esse cliente, o menu de boas-vindas não cabe mais.
+       Marca como triado, assume consultas se não tiver setor, e deixa a IA
+       responder lendo o histórico inteiro. */
+    const { rows: [{ n: jaFalamos }] } = await query(`SELECT COUNT(*)::int n FROM mensagens
+      WHERE conversa_id = $1 AND from_type IN ('me','bot')`, [conv.id]).catch(() => ({ rows: [{ n: 0 }] }));
+    if (jaFalamos > 0) {
+      await query(`UPDATE conversas SET menu_enviado = true${conv.setor ? '' : ", setor = 'consultas'"} WHERE id = $1`, [conv.id]).catch(() => {});
+      if (!conv.setor) conv.setor = 'consultas';
+      const ccM = convoCache.get(conv.id); if (ccM) cacheUpdate({ ...ccM, menu_enviado: true, setor: conv.setor });
+      return false;   // a IA responde de onde a conversa parou
+    }
     await query('UPDATE conversas SET menu_enviado = true WHERE id = $1', [conv.id]);
     const registrado = await enviarMenuTriagem(phoneNum);
     const { rows: [m] } = await query(
       `INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, created_at)
-       VALUES ($1,'bot','Mary','text',$2,NOW()) RETURNING *`, [conv.id, registrado]).catch(() => ({ rows: [null] }));
+       VALUES ($1,'bot',$3,'text',$2,NOW()) RETURNING *`, [conv.id, registrado, await nomeAssinatura(conv)]).catch(() => ({ rows: [null] }));
     if (m) socketEmit('new_message', { convId: conv.id, message: m, conv });
     return true;
   }
@@ -1300,7 +1312,7 @@ async function triagemSetor(conv, texto, phoneNum) {
     if (cachedO) cacheUpdate({ ...cachedO, bot_ativo: false });
     const { rows: [mo] } = await query(
       `INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, created_at)
-       VALUES ($1,'bot','Mary','text',$2,NOW()) RETURNING *`, [conv.id, confOutros]).catch(() => ({ rows: [null] }));
+       VALUES ($1,'bot',$3,'text',$2,NOW()) RETURNING *`, [conv.id, confOutros, await nomeAssinatura(conv)]).catch(() => ({ rows: [null] }));
     if (mo) socketEmit('new_message', { convId: conv.id, message: mo, conv });
     socketEmit('bot_status', { convId: conv.id, bot_ativo: false });
     await query(
@@ -1321,7 +1333,7 @@ async function triagemSetor(conv, texto, phoneNum) {
   if (zapiOk()) await zapiCall('/send-text', 'POST', { phone: `55${phoneNum}`, message: confirmaCurta });
   const { rows: [mc] } = await query(
     `INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, created_at)
-     VALUES ($1,'bot','Mary','text',$2,NOW()) RETURNING *`, [conv.id, confirmaCurta]).catch(() => ({ rows: [null] }));
+     VALUES ($1,'bot',$3,'text',$2,NOW()) RETURNING *`, [conv.id, confirmaCurta, await nomeAssinatura(conv)]).catch(() => ({ rows: [null] }));
   if (mc) socketEmit('new_message', { convId: conv.id, message: mc, conv });
 
   // Saudação por turno + apresentação da atendente sorteada (espec da gestão)
@@ -1337,7 +1349,7 @@ async function triagemSetor(conv, texto, phoneNum) {
     [conv.id, 'bot', confirma.slice(0, 100)]).catch(() => {});
   const { rows: [m2] } = await query(
     `INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, created_at)
-     VALUES ($1,'bot','Mary','text',$2,NOW()) RETURNING *`, [conv.id, confirma]).catch(() => ({ rows: [null] }));
+     VALUES ($1,'bot',$3,'text',$2,NOW()) RETURNING *`, [conv.id, confirma, await nomeAssinatura(conv)]).catch(() => ({ rows: [null] }));
   if (m2) socketEmit('new_message', { convId: conv.id, message: m2, conv });
   socketEmit('bot_status', { convId: conv.id, bot_ativo: false });
   await query(
@@ -1413,7 +1425,7 @@ async function vittaResponder(convId) {
        (ou responsável fora do programa), ela é a Mary;
      · cada usuária tem a própria chave (ia_ligada): desligou, a IA cala nas
        conversas DELA — as das colegas seguem normais, sem conflito. */
-  let nomePersona = 'Mary';   // último recurso — a regra é assinar com gente real
+  let nomePersona = null;   // resolvido abaixo — NUNCA Mary (ordem do master)
   if (!conv.responsavel_id && conv.setor) {
     /* Ordem do master: a IA NÃO responde como Mary — responde com o nome da
        usuária. Conversa sem dona ganha uma AGORA pelo rodízio do setor (de
@@ -1431,6 +1443,7 @@ async function vittaResponder(convId) {
       if (respU.nome) nomePersona = String(respU.nome).trim().split(' ')[0];
     }
   }
+  if (!nomePersona) nomePersona = await nomeAssinatura(conv);
 
   // Histórico em ordem cronológica: textos + documentos (a Vitta precisa saber
   // que JÁ enviou um PDF para não oferecer de novo)
@@ -4599,6 +4612,66 @@ r.post('/conversations/:id/fixar', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* 📤 ENCAMINHAR CONVERSA PRA OUTRO CANAL (pedido do master, 22/08): cliente
+   de setor específico (ex.: os ativos dos planos) manda a solicitação pra
+   central; a equipe encaminha o histórico pro WhatsApp daquele setor com o
+   link do cliente no final, pronto pra chamar e agendar. */
+r.post('/conversations/:id/encaminhar', async (req, res) => {
+  try {
+    const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso a esta conversa.' });
+    if (!zapiOk()) return res.status(400).json({ error: 'WhatsApp não configurado.' });
+    let destino = String(req.body?.destino || '').replace(/\D/g, '');
+    if (destino.length < 10) return res.status(400).json({ error: 'Informe o número de destino com DDD.' });
+    if (!destino.startsWith('55')) destino = '55' + destino;
+    const qtd = Math.max(3, Math.min(parseInt(req.body?.mensagens) || 20, 60));
+    const obs = String(req.body?.observacao || '').trim().slice(0, 400);
+
+    const { rows: msgsE } = await query(`
+      SELECT from_type, type, content, transcricao, sender_nome, created_at FROM mensagens
+       WHERE conversa_id = $1 AND from_type NOT IN ('system','interno')
+       ORDER BY created_at DESC LIMIT $2`, [conv.id, qtd]);
+    const hist = msgsE.reverse().map(m => {
+      const h = new Date(new Date(m.created_at).getTime() - 3 * 3600 * 1000);
+      const hh = `${String(h.getUTCDate()).padStart(2, '0')}/${String(h.getUTCMonth() + 1).padStart(2, '0')} ${String(h.getUTCHours()).padStart(2, '0')}:${String(h.getUTCMinutes()).padStart(2, '0')}`;
+      const quem = m.from_type === 'contact' ? (conv.contact_name || 'Cliente') : (m.sender_nome || 'Equipe');
+      const txt = m.type === 'text' ? String(m.content || '')
+        : m.type === 'audio' ? (m.transcricao ? `(áudio) ${m.transcricao}` : '(áudio)')
+        : `(${m.type})`;
+      return `[${hh}] ${quem}: ${txt.slice(0, 300)}`;
+    }).join('\n');
+
+    const foneCli = String(conv.phone || '').replace(/\D/g, '');
+    const linkCli = foneCli ? `https://wa.me/55${foneCli}` : '(conversa sem telefone)';
+    const cod = conv.codigo ? ` (VT-${String(conv.codigo).padStart(4, '0')})` : '';
+    const texto = [
+      '📤 *Encaminhamento de atendimento, Vittalis Saúde*',
+      '',
+      `👤 *Cliente:* ${conv.contact_name || 'Sem nome'}${cod}`,
+      `📞 *WhatsApp do cliente:* ${linkCli}`,
+      `✍️ *Encaminhado por:* ${req.user.nome}${conv.setor ? ` · setor ${conv.setor}` : ''}`,
+      obs ? `📝 *Observação:* ${obs}` : null,
+      '',
+      '*Histórico recente da conversa:*',
+      hist || '(sem mensagens de texto)',
+      '',
+      '👉 *Toque aqui pra chamar o cliente e fazer o agendamento:*',
+      linkCli,
+    ].filter(x => x !== null).join('\n');
+
+    const zr = await zapiCall('/send-text', 'POST', { phone: destino, message: texto.slice(0, 60000) });
+    if (!zr?.ok) return res.status(502).json({ error: 'O WhatsApp não aceitou o envio agora, tente de novo.' });
+    // Nota interna: fica registrado na conversa que houve encaminhamento
+    const { rows: [nota] } = await query(`INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome, created_at)
+      VALUES ($1,'interno','text',$2,$3,NOW()) RETURNING *`,
+      [conv.id, `📤 Conversa encaminhada por ${req.user.nome} para o número ${destino} (${qtd} mensagens)${obs ? ` · Obs: ${obs}` : ''}`,
+       'Vitta · Encaminhamento']).catch(() => ({ rows: [null] }));
+    if (nota) socketEmit('new_message', { convId: conv.id, message: nota, conv });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Lista de atendentes (pra o seletor de transferência) — acessível a todos logados
 r.get('/atendentes', async (req, res) => {
   try {
@@ -4906,6 +4979,23 @@ function semTravessao(t) {
     .replace(/  +/g, ' ');
 }
 
+/* 🎭 NOME DA ASSINATURA (ordem do master, 22/08: "retira esse nome Mary"):
+   1) responsável da conversa; 2) sem dona ainda: Danielle pra consultas e
+   terapias, Raylane pra vacinas; 3) último recurso: Equipe Vittalis.
+   NUNCA Mary. */
+async function nomeAssinatura(conv) {
+  try {
+    if (conv?.responsavel_id) {
+      const { rows: [u] } = await query('SELECT nome FROM usuarios WHERE id = $1 AND ativo = true', [conv.responsavel_id]);
+      if (u?.nome) return String(u.nome).trim().split(/\s+/)[0];
+    }
+    const alvoN = conv?.setor === 'vacinas' ? 'raylane' : 'danielle';
+    const { rows: [f] } = await query(`SELECT nome FROM usuarios WHERE ativo = true AND nome ILIKE $1 || '%' ORDER BY nome LIMIT 1`, [alvoN]);
+    if (f?.nome) return String(f.nome).trim().split(/\s+/)[0];
+  } catch { /* segue pro fallback */ }
+  return 'Equipe Vittalis';
+}
+
 async function enviarTextoConversa(conv, texto, senderNome, opts = {}) {
   if (opts.deBot) texto = semTravessao(texto);
   /* Bloqueia ANTES de gravar: se a tranca barrar depois, o histórico mostra a
@@ -4922,11 +5012,7 @@ async function enviarTextoConversa(conv, texto, senderNome, opts = {}) {
      do usuário — está saindo Mary"): mensagem automática assina com o nome da
      RESPONSÁVEL pela conversa, igual à resposta ao vivo. Mary é só o fallback
      de conversa sem dona. */
-  let senderBot = 'Mary';
-  if (opts.deBot && conv.responsavel_id) {
-    const { rows: [ru] } = await query('SELECT nome FROM usuarios WHERE id = $1 AND ativo = true', [conv.responsavel_id]).catch(() => ({ rows: [] }));
-    if (ru?.nome) senderBot = String(ru.nome).trim().split(/\s+/)[0];
-  }
+  const senderBot = opts.deBot ? await nomeAssinatura(conv) : null;
   const { rows: [msg] } = await query(
     `INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome, status) VALUES ($1,$2,'text',$3,$4,'sent') RETURNING *`,
     [conv.id, opts.deBot ? 'bot' : 'me', texto, opts.deBot ? senderBot : (senderNome || 'Agendada')]);
@@ -5078,11 +5164,7 @@ async function processarAgendadas() {
                 const imgR = String(fotoR.data).startsWith('data:') ? fotoR.data : `data:image/jpeg;base64,${fotoR.data}`;
                 const ziR = await zapiCall('/send-image', 'POST', { phone: ph55R, image: imgR, caption: '' });
                 if (ziR?.ok) {
-                  let nomeFotoR = 'Mary';
-                  if (conv.responsavel_id) {
-                    const { rows: [ruF] } = await query('SELECT nome FROM usuarios WHERE id = $1', [conv.responsavel_id]).catch(() => ({ rows: [] }));
-                    if (ruF?.nome) nomeFotoR = String(ruF.nome).trim().split(/\s+/)[0];
-                  }
+                  const nomeFotoR = await nomeAssinatura(conv);
                   const { rows: [imR] } = await query(`INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, created_at)
                     VALUES ($1,'bot',$3,'image',$2,NOW()) RETURNING *`, [conv.id, imgR, nomeFotoR]).catch(() => ({ rows: [null] }));
                   if (imR) socketEmit('new_message', { convId: conv.id, message: imR, conv });
@@ -8874,7 +8956,7 @@ function dentroDoHorarioComercial() {
   return horaLocal >= 8 && horaLocal < 20;
 }
 
-async function gerarMensagemFollowup(conv, count, nomeFU = 'Mary') {
+async function gerarMensagemFollowup(conv, count, nomeFU = 'Equipe Vittalis') {
   // Áudios transcritos entram no contexto — follow-up cego ao que foi FALADO
   // errava o assunto e soava robô
   const { rows: histRows } = await query(
@@ -8980,11 +9062,13 @@ export async function rodarFollowups() {
         if (phoneNum.length < 10) continue;
 
         // 💁‍♀️ O follow-up sai NO NOME da responsável ("dentro do usuário dela")
-        let nomeFU = 'Mary';
+        let nomeFU = null;
         if (conv.responsavel_id) {
           const { rows: [respFU] } = await query('SELECT nome, ia_consultas, ia_ligada FROM usuarios WHERE id = $1', [conv.responsavel_id]).catch(() => ({ rows: [null] }));
           if (respFU?.ia_ligada === false) continue;   // chave pessoal desligada = a IA cala na carteira dela
           if (respFU?.nome) nomeFU = String(respFU.nome).trim().split(' ')[0];
+        }
+        if (!nomeFU) { nomeFU = await nomeAssinatura(conv);
         }
 
         const count = conv.followup_count || 0;
