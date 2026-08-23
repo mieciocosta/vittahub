@@ -1965,10 +1965,19 @@ export default function Inbox({ onUnreadChange }) {
                       🆔 VT-{String(sel.codigo).padStart(4,'0')}
                     </div>
                   )}
-                  {sel.phone && <div style={{ fontSize:12.5, color:'var(--muted)', marginBottom:8 }}>+{sel.phone}</div>}
+                  {/* Telefone do perfil: legível mas NÃO copiável (mesma trava do
+                      cabeçalho — este aqui tinha ficado de fora, furo achado na
+                      pergunta do master "elas conseguem copiar o telefone?") */}
+                  {sel.phone && (
+                    <div data-nocopy="1" onCopy={e => e.preventDefault()} onContextMenu={e => e.preventDefault()}
+                      style={{ fontSize:12.5, color:'var(--muted)', marginBottom:8,
+                        userSelect:'none', WebkitUserSelect:'none', MozUserSelect:'none',
+                        WebkitTouchCallout:'none', cursor:'default' }}>+{sel.phone}</div>
+                  )}
                   <StatusBadge status={sel.status_atend} size="sm"/>
                   <div style={{ display:'flex', justifyContent:'center', gap:6, marginTop:10 }}>
                     <a href={`https://wa.me/55${sel.phone?.replace(/\D/g,'')}`} target="_blank" rel="noreferrer"
+                      onContextMenu={e => e.preventDefault()} draggable={false}
                       style={{ padding:'5px 12px', background:'#25D366', color:'#fff', borderRadius:8, fontSize:11.5, fontWeight:700, textDecoration:'none', display:'flex', alignItems:'center', gap:4 }}>
                       <WA s={11}/> WhatsApp
                     </a>
