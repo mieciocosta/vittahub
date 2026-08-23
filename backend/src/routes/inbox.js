@@ -1899,15 +1899,17 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
     },
   }, {
     name: 'pre_agendar',
-    description: 'PRÉ-AGENDA o horário que o cliente escolheu (consultas/terapias): cria a reserva na Agenda, avisa a equipe pra confirmar e você diz ao cliente que está reservado. Use SOMENTE depois que o cliente escolheu dia e horário dentro das JANELAS REAIS informadas. Nunca para hoje nem amanhã (mínimo 2 dias).',
+    description: 'PRÉ-AGENDA o horário que o cliente escolheu: cria a reserva na Agenda, avisa a equipe e envia AUTOMATICAMENTE ao cliente o cartão de confirmação no formato oficial da casa (não escreva você outra confirmação — só complete os campos local e tratamento). Use SOMENTE depois que o cliente escolheu dia e horário dentro das JANELAS REAIS informadas. Nunca para hoje nem amanhã (mínimo 2 dias).',
     input_schema: {
       type: 'object',
       properties: {
         paciente: { type: 'string', description: 'Nome do paciente (a criança) — pergunte antes se não souber' },
         data: { type: 'string', description: 'Data escolhida, formato YYYY-MM-DD (das janelas reais)' },
         hora: { type: 'string', description: 'Horário HH:MM dentro da janela do profissional' },
-        profissional: { type: 'string', description: 'Nome do profissional escolhido (das janelas reais)' },
-        servico: { type: 'string', description: 'O serviço (ex.: Consulta Pediátrica, Avaliação Fono)' },
+        profissional: { type: 'string', description: 'Nome do profissional escolhido (das janelas reais) — obrigatório quando for consulta' },
+        servico: { type: 'string', description: 'O serviço (ex.: Consulta Pediátrica, Avaliação Fono, Vacinas de 5 meses)' },
+        local: { type: 'string', description: 'Onde será o atendimento: "Em sua residência" (domiciliar) ou "Na Clínica Vittalis Saúde (Renascença)". Padrão: clínica' },
+        tratamento: { type: 'string', enum: ['papai', 'mamãe'], description: 'Como parabenizar no fim: papai ou mamãe (omita se não souber)' },
       },
       required: ['paciente', 'data', 'hora', 'servico'],
     },
@@ -2034,6 +2036,27 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
              `${dataA.split('-').reverse().join('/')} às ${horaA}${inA.profissional ? ` com ${inA.profissional}` : ''} — ${inA.servico || 'consulta'}. Confirme com o cliente e ajuste se precisar.`,
              convId]).catch(() => {});
           console.log(`VITTA conv=${convId}: pré-agendado ${dataA} ${horaA} (${inA.profissional || 'sem prof'})`);
+          /* ✅ CARTÃO DE CONFIRMAÇÃO — formato OFICIAL ditado pelo master
+             (22/08). Montado pelo sistema, sempre igual; consulta leva a
+             linha do profissional. */
+          const DIAS_SEM = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+          const dSem = DIAS_SEM[new Date(dataA + 'T12:00:00Z').getUTCDay()] || '';
+          const localTxt = String(inA.local || '').trim() || 'Na Clínica Vittalis Saúde (Renascença)';
+          const trat = ['papai', 'mamãe'].includes(String(inA.tratamento || '')) ? inA.tratamento : '';
+          const linhasConf = [
+            '✅ *Agendamento de confirmação*',
+            '',
+            `📁 *Cliente: ${String(conv.contact_name || 'Cliente').slice(0, 60)}*`,
+            `👶🏻 *Paciente: ${String(inA.paciente || '').slice(0, 60)}*`,
+            `📅 *Data: ${dataA.split('-').reverse().join('/')} ${dSem}*`,
+            `🕓 *Horário: ${horaA}hs*`,
+          ];
+          if (inA.profissional) linhasConf.push(`👩‍⚕️ *Profissional: ${String(inA.profissional).slice(0, 60)}*`);
+          linhasConf.push(`📍 *Local: ${localTxt.slice(0, 80)}*`);
+          linhasConf.push(`📌 *Serviço: ${String(inA.servico || 'Atendimento').slice(0, 80)}*`);
+          linhasConf.push('');
+          linhasConf.push(`*Parabéns ${trat ? trat + ' ' : ''}pelo investimento na saúde do seu Baby 🩵*`);
+          botReply = linhasConf.join('\n');
         }
       }
     } catch (e) { console.error('pre_agendar:', e.message); }
