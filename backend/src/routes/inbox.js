@@ -4491,6 +4491,36 @@ r.get('/chat-interno-naolidas', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* 📌 CONVERSAS FIXADAS — cada usuário fixa as SUAS (sem limite), e elas viram
+   a seção de cima da lista do Chat (pedido do master, 22/08). */
+r.get('/fixadas', async (req, res) => {
+  try {
+    const { rows } = await query(`SELECT conversa_id FROM conversas_fixadas
+      WHERE usuario_id = $1 ORDER BY created_at DESC`, [req.user.id]).catch(() => ({ rows: [] }));
+    const convs = [];
+    for (const f of rows) {
+      let c = convoCache.get(f.conversa_id);
+      if (!c) {
+        const { rows: [db] } = await query('SELECT * FROM conversas WHERE id = $1', [f.conversa_id]).catch(() => ({ rows: [] }));
+        c = db || null;
+      }
+      if (c) convs.push(c);
+    }
+    res.json(mascararLista(convs, req.user));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+r.post('/conversations/:id/fixar', async (req, res) => {
+  try {
+    // Alterna: já fixada → desafixa; senão fixa. Sem limite de quantidade.
+    const { rowCount } = await query('DELETE FROM conversas_fixadas WHERE usuario_id = $1 AND conversa_id = $2',
+      [req.user.id, req.params.id]);
+    if (rowCount) return res.json({ fixada: false });
+    await query('INSERT INTO conversas_fixadas (usuario_id, conversa_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+      [req.user.id, req.params.id]);
+    res.json({ fixada: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Lista de atendentes (pra o seletor de transferência) — acessível a todos logados
 r.get('/atendentes', async (req, res) => {
   try {

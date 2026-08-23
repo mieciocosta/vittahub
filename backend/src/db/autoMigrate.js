@@ -2433,6 +2433,15 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log('🤖 Seed IA Nathy:', convsN.length ? 'ligada' : 'conversa não encontrada');
     }
 
+    /* 📌 CONVERSAS FIXADAS (pedido do master, 22/08): cada usuário fixa as
+       conversas que quiser — SEM limite — e elas moram numa seção própria no
+       topo da lista do Chat, separadas da geral. Fixação é POR USUÁRIO:
+       o que a Raylane fixa não aparece fixado pra Danielle. */
+    await query(`CREATE TABLE IF NOT EXISTS conversas_fixadas (
+      usuario_id TEXT NOT NULL, conversa_id TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (usuario_id, conversa_id))`).catch(() => {});
+
     /* 🩺 PRONTUÁRIO DO PACIENTE (pedido do master, 22/08: "um verdadeiro
        prontuário onde posso anotar o que eu quiser e anexar documentos").
        Duas tabelas ancoradas na CONVERSA (existe sempre, mesmo sem lead):

@@ -106,7 +106,7 @@ const StatusBadge = ({ status, size = 'sm' }) => {
 };
 
 /* ── VirtualList ─────────────────────────────────────────────────────────────── */
-function VirtualList({ items, selectedId, onSelect, containerHeight, loadMore, hasMore, loadingMore, usersById }) {
+function VirtualList({ items, selectedId, onSelect, containerHeight, loadMore, hasMore, loadingMore, usersById, fixadasIds, onToggleFix }) {
   const scrollRef = useRef(null);
   const [scrollTop, setScrollTop] = useState(0);
 
@@ -129,7 +129,8 @@ function VirtualList({ items, selectedId, onSelect, containerHeight, loadMore, h
       <div style={{ height: totalHeight, position: 'relative' }}>
         <div style={{ position: 'absolute', top: visibleStart * ITEM_HEIGHT, left: 0, right: 0 }}>
           {visibleItems.map(c => (
-            <ConvoRow key={c.id} conv={c} selected={selectedId === c.id} onSelect={onSelect} usersById={usersById} />
+            <ConvoRow key={c.id} conv={c} selected={selectedId === c.id} onSelect={onSelect} usersById={usersById}
+              fixada={!!fixadasIds?.has?.(c.id)} onToggleFix={onToggleFix} />
           ))}
         </div>
       </div>
@@ -147,7 +148,7 @@ const MEDIA_PREVIEW = {
   '[image]': 'Foto', '[video]': 'Vídeo', '[audio]': 'Áudio',
   '[document]': 'Documento', '[sticker]': 'Figurinha',
 };
-const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect, usersById }) {
+const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect, usersById, fixada, onToggleFix }) {
   const st = STATUS_CFG[conv.status_atend] || STATUS_CFG.aberto;
   const hasUnread = conv.unread > 0;
   const resp = conv.responsavel_id ? usersById?.[conv.responsavel_id] : null;
@@ -174,6 +175,14 @@ const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect, usersB
             {conv.lead_score === 'quente' && <span title="Lead quente" style={{ marginRight: 3 }}>🔥</span>}
             {conv.contact_name || fmt.phone(conv.phone) || '…'}
           </span>
+          {/* 📌 Fixar/desafixar — POR USUÁRIO (pedido do master): apagadinho
+              quando solta, aceso quando fixada. Não abre a conversa ao clicar. */}
+          {onToggleFix && (
+            <button onClick={e => { e.stopPropagation(); onToggleFix(conv); }}
+              title={fixada ? 'Desafixar do topo' : 'Fixar esta conversa no topo (só pra você)'}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0 2px', fontSize: 12, lineHeight: 1,
+                opacity: fixada ? 1 : .3, filter: fixada ? 'none' : 'grayscale(60%)', flexShrink: 0 }}>📌</button>
+          )}
           {esperando ? (
             <span title={`Cliente esperando resposta há ${fmt.relTime(conv.last_message_at)}`}
               style={{ fontSize: 10, fontWeight: 800, color: '#fff', background: waitColor, borderRadius: 8, padding: '1px 6px', flexShrink: 0, whiteSpace: 'nowrap' }}>
@@ -1622,9 +1631,29 @@ export default function Inbox({ onUnreadChange }) {
   const totalUnread = useMemo(() => convos.reduce((s, c) => s + (c.unread||0), 0), [convos]);
   const totalQuentes = useMemo(() => convos.filter(c => c.lead_score === 'quente').length, [convos]);
   // Ordena por temperatura quando o modo "quentes primeiro" está ligado (sort estável preserva a recência dentro de cada faixa)
+  /* 📌 Fixadas do usuário (pedido do master: "2 colunas — fixadas sem limite
+     e a geral; cada um fixa a que quiser dentro do seu usuário"). */
+  const [fixadas, setFixadas] = useState([]);
+  const loadFixadas = useCallback(() => {
+    api.get('/inbox/fixadas').then(d => setFixadas(Array.isArray(d) ? d : [])).catch(() => {});
+  }, []); // eslint-disable-line
+  useEffect(() => { loadFixadas(); }, [loadFixadas]);
+  const fixadasIds = useMemo(() => new Set(fixadas.map(c => c.id)), [fixadas]);
+  const toggleFix = useCallback(async (conv) => {
+    try {
+      const r = await api.post(`/inbox/conversations/${conv.id}/fixar`, {});
+      Toast.show(r.fixada ? 'Conversa fixada no topo 📌' : 'Conversa desafixada', 'success');
+      loadFixadas();
+    } catch (e) { Toast.show(e.message || 'Não foi possível fixar', 'error'); }
+  }, [loadFixadas]); // eslint-disable-line
+
   const convosExib = useMemo(
-    () => quentesPrimeiro ? [...convos].sort((a, b) => scoreRank(a.lead_score) - scoreRank(b.lead_score)) : convos,
-    [convos, quentesPrimeiro]
+    () => {
+      const base = quentesPrimeiro ? [...convos].sort((a, b) => scoreRank(a.lead_score) - scoreRank(b.lead_score)) : convos;
+      // A geral não repete quem está na seção de fixadas
+      return fixadasIds.size ? base.filter(c => !fixadasIds.has(c.id)) : base;
+    },
+    [convos, quentesPrimeiro, fixadasIds]
   );
 
   /* ─────────────────── RENDER ──────────────────────────────────────────────── */
@@ -1682,9 +1711,28 @@ export default function Inbox({ onUnreadChange }) {
           </div>
         )}
 
+        {/* 📌 SEÇÃO FIXADAS — sem limite, por usuário; rola sozinha se crescer */}
+        {fixadas.length > 0 && (
+          <div style={{ flexShrink:0, maxHeight:'38%', overflowY:'auto', borderBottom:'2px solid var(--tq)' }}>
+            <div style={{ padding:'5px 13px', fontSize:10, fontWeight:800, letterSpacing:.8, textTransform:'uppercase',
+              color:'var(--tq2)', background:'var(--tq4,#e8f7f8)', position:'sticky', top:0, zIndex:2, display:'flex', justifyContent:'space-between' }}>
+              <span>📌 Fixadas</span><span>{fixadas.length}</span>
+            </div>
+            {fixadas.map(c => (
+              <ConvoRow key={c.id} conv={c} selected={sel?.id === c.id} onSelect={openConvo} usersById={usersById}
+                fixada onToggleFix={toggleFix} />
+            ))}
+          </div>
+        )}
+        {fixadas.length > 0 && (
+          <div style={{ flexShrink:0, padding:'5px 13px', fontSize:10, fontWeight:800, letterSpacing:.8, textTransform:'uppercase', color:'var(--muted)', background:'var(--bg2)' }}>
+            💬 Geral
+          </div>
+        )}
         <div ref={listContainerRef} style={{ flex:1, minHeight:0 }}>
           <VirtualList items={convosExib} selectedId={sel?.id} onSelect={openConvo} usersById={usersById}
-            containerHeight={listH} loadMore={loadMore} hasMore={hasMore} loadingMore={loadingMore}/>
+            containerHeight={listH} loadMore={loadMore} hasMore={hasMore} loadingMore={loadingMore}
+            fixadasIds={fixadasIds} onToggleFix={toggleFix}/>
         </div>
 
         {/* Rodapé da lista: resumo do dia + controle de som (ocupa o espaço ocioso) */}
