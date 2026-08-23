@@ -341,10 +341,8 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
      vacinas fala em VALORES, consultas em porcentagem; quem não vê valores do
      setor só vê o que é DELA. */
   const [metaMini, setMetaMini] = useState(null);
-  const [dicaMeta, setDicaMeta] = useState(null);   // 💡 Caminho da Meta (dica do master)
   useEffect(() => {
     api.get('/extras/meta-setor').then(setMetaMini).catch(() => {});
-    api.get('/extras/dica-meta').then(d => setDicaMeta(d?.dica || null)).catch(() => {});
   }, []); // eslint-disable-line
 
   const VERS_DIA = versiculoDoDia();
@@ -658,15 +656,8 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
 
               {/* 💡 CAMINHO DA META — a estratégia pessoal ditada pelo master
                   (a 1ª foi da Raylane: 8 Planos Vacinais = meta batida) */}
-              {/* 💡 O Caminho da Meta mora DENTRO da faixa da meta (pedido do
-                  master) — este bloco só aparece se não houver meta pra abrigá-lo. */}
-              {dicaMeta && !metaMini?.metaGlobal && (
-                <div style={{ padding:'8px 11px', borderTop:'1px solid rgba(255,255,255,.12)', borderLeft:'3px solid #4ade80',
-                  background:'linear-gradient(90deg, rgba(74,222,128,.22), rgba(34,197,94,.08))' }}>
-                  <div style={{ fontSize:9, fontWeight:900, letterSpacing:1, textTransform:'uppercase', color:'rgba(255,255,255,.75)', marginBottom:2 }}>💡 Caminho da meta</div>
-                  <div style={{ fontSize:11.5, fontWeight:800, color:'#fff', lineHeight:1.5 }}>{dicaMeta}</div>
-                </div>
-              )}
+              {/* 💡 Caminho da Meta saiu do cartão (pedido do master, 22/08):
+                  agora mora na aba Metas. */}
 
               {/* 🎯 Metas — duas linhas varridas num olhar */}
               {(() => {
@@ -683,7 +674,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                 const focoOk = foco ? foco.every(f => (f.falta ?? 0) === 0) : false;
                 const focoTxt = foco ? foco.map(f => (f.falta ?? 0) > 0 ? `falta ${f.falta} ${f.rotulo}` : f.rotulo).join(' ou ') : null;
                 const ehConsultas = lista[0]?.setor === 'consultas';
-                if (!ind && !verVal && !focoTxt && !dicaMeta) return null;
+                if (!ind && !verVal && !focoTxt) return null;
                 const Linha = ({ icone, rotulo, valor, cor }) => (
                   <div style={{ display:'flex', alignItems:'baseline', gap:6, fontSize:11.5 }}>
                     <span style={{ flexShrink:0 }}>{icone}</span>
@@ -712,14 +703,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                         </div>
                       </>
                     )}
-                    {/* 💡 Caminho da meta DENTRO da meta (pedido do master):
-                        a estratégia mora junto do número que ela ataca. */}
-                    {dicaMeta && (
-                      <div style={{ marginTop:5, paddingTop:6, borderTop:'1px dashed rgba(252,211,77,.45)' }}>
-                        <div style={{ fontSize:9, fontWeight:900, letterSpacing:1, textTransform:'uppercase', color:'rgba(255,255,255,.8)', marginBottom:2 }}>💡 Caminho da meta</div>
-                        <div style={{ fontSize:11.5, fontWeight:800, color:'#fff', lineHeight:1.5 }}>{dicaMeta}</div>
-                      </div>
-                    )}
+
                   </div>
                 );
               })()}

@@ -2431,6 +2431,27 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log('🤖 Seed IA Nathy:', convsN.length ? 'ligada' : 'conversa não encontrada');
     }
 
+    /* 🎁 PRÊMIO DE META = R$ 2.500 (ordem do master, 22/08: "muda o prêmio
+       para R$2.500"): o prêmio de quem bate a meta mínima sobe de R$ 1.500
+       pra R$ 2.500 em todos os setores. Grava por cima do que estiver na
+       config — a partir daqui o master ajusta pela tela de Metas. */
+    const { rows: [flagPremio25] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_premio_2500_v1'");
+    if (!flagPremio25) {
+      await query(`INSERT INTO configuracoes (chave, valor)
+                   VALUES ('metas', '{"premiosMin":{"vacinas":2500,"consultas":2500,"terapias":2500}}'::jsonb)
+                   ON CONFLICT (chave) DO UPDATE SET
+                     valor = COALESCE(configuracoes.valor,'{}'::jsonb)
+                       || jsonb_build_object('premiosMin',
+                            COALESCE(configuracoes.valor->'premiosMin','{}'::jsonb)
+                              || '{"vacinas":2500,"consultas":2500,"terapias":2500}'::jsonb),
+                     updated_at = NOW()`).catch(() => {});
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+        ['🎁 Prêmio de meta agora é R$ 2.500',
+         'O prêmio de quem bate a meta mínima subiu de R$ 1.500 para R$ 2.500 nos três setores — já aparece no placar de cada uma ("Seu prêmio do mês"). Pra ajustar de novo, é na tela de Metas.']).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_premio_2500_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🎁 Prêmio de meta: R$ 2.500 nos três setores');
+    }
+
     /* 📎 ANEXO NA MENSAGEM PROGRAMADA (pedido do master, 22/08): a agendada
        pode levar um documento ou imagem junto — sai na hora marcada, antes
        do texto. Guardado como data URI; nome pro cliente ver o arquivo. */

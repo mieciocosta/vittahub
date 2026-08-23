@@ -829,7 +829,7 @@ r.get('/minha-equipe', async (req, res) => {
 
     const setor = meus[0];
     const metaGlobal = Math.max(1, parseFloat(v.globais?.[setor]) || 500000);
-    const premioPessoa = Math.max(0, parseFloat(v.premiosMin?.[setor]) || 1500);
+    const premioPessoa = Math.max(0, parseFloat(v.premiosMin?.[setor]) || 2500);  // R$ 2.500 (ordem do master, 22/08)
 
     // Time = quem é do MESMO setor (a própria supervisora fica de fora da lista)
     /* Marketing (ve_geral) fica FORA do time: eles enxergam tudo mas não
@@ -903,7 +903,7 @@ r.get('/meta-setor', async (req, res) => {
     const metaMinimaDe = (s) => Math.max(0, parseFloat(minimasCfg[s]) || 100000);
     const metaGlobalDe = (s) => Math.max(1, parseFloat(globaisCfg[s]) || 500000);
     const premioDe     = (s) => Math.max(0, parseFloat(premiosCfg[s]) || 10000);
-    const premioMinDe  = (s) => Math.max(0, parseFloat(premiosMinCfg[s]) || 1500);
+    const premioMinDe  = (s) => Math.max(0, parseFloat(premiosMinCfg[s]) || 2500);  // R$ 2.500 (ordem do master, 22/08)
     // Setores do usuário (autoridade: banco — evita token velho). Multi-setor separa.
     const { rows: [u] } = await query('SELECT setor, setores FROM usuarios WHERE id = $1', [req.user.id]);
     let setores = [];

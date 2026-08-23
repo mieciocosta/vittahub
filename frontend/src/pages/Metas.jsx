@@ -23,6 +23,11 @@ export default function Metas() {
   const api = useApi();
   const { user } = useAuth();
   const ehGestao = user?.role === 'master' || user?.role === 'supervisor';
+  // 💡 Caminho da Meta (pedido do master, 22/08: saiu do cartão do menu e
+  // agora mora aqui) — a estratégia pessoal ditada por ele, ex.: Raylane
+  // e os 8 Planos Vacinais.
+  const [dicaMeta, setDicaMeta] = useState(null);
+  useEffect(() => { api.get('/extras/dica-meta').then(d => setDicaMeta(d?.dica || null)).catch(() => {}); }, []); // eslint-disable-line
   const [data, setData] = useState(null);
   const [metaEdit, setMetaEdit] = useState({ vacinas: '', consultas: '', terapias: '' });
   const [salvando, setSalvando] = useState(false);
@@ -97,6 +102,18 @@ export default function Metas() {
           <p style={{ color: 'var(--muted)', fontSize: 13 }}>Vendas registradas alimentam aqui. Confirmado = pago · Agendado = na agenda · Pendente = aguardando pagamento.</p>
         </div>
       </div>
+
+      {/* 💡 Caminho da Meta — faixa dourada no topo da aba (pedido do master) */}
+      {dicaMeta && (
+        <div style={{ marginBottom: 16, padding: '14px 18px', borderRadius: 14,
+          background: 'linear-gradient(120deg, #78350f, #b45309)', border: '1.5px solid #d4a017',
+          boxShadow: '0 6px 20px rgba(180,83,9,.25)' }}>
+          <div style={{ fontSize: 10.5, fontWeight: 900, letterSpacing: 1.2, textTransform: 'uppercase', color: '#fde68a', marginBottom: 4 }}>
+            💡 Seu caminho da meta
+          </div>
+          <div style={{ fontSize: 14.5, fontWeight: 800, color: '#fff', lineHeight: 1.55 }}>{dicaMeta}</div>
+        </div>
+      )}
 
       {/* 🩺 CONSULTAS — meta por QUANTIDADE, não por valor.
           Pedido do master: "retira os valores a serem alcançados e sim deixa a
