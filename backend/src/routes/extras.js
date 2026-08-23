@@ -4644,6 +4644,84 @@ r.put('/config-review', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* ═══ 🩺 PRONTUÁRIO DO PACIENTE ═══════════════════════════════════════════════
+   Pedido do master (22/08): "um verdadeiro prontuário onde posso anotar o que
+   eu quiser sobre meu paciente e anexar documentos". Ancorado na CONVERSA:
+   funciona mesmo sem lead cadastrado. Anotações têm autor e hora (prontuário
+   é rastro clínico); documentos guardam base64 e saem sob demanda. */
+r.get('/prontuario', async (req, res) => {
+  try {
+    const convId = String(req.query.conversa_id || '');
+    if (!convId) return res.status(400).json({ error: 'Informe a conversa.' });
+    const [notas, docs] = await Promise.all([
+      query(`SELECT id, autor_id, autor_nome, texto, created_at FROM prontuario_notas
+              WHERE conversa_id = $1 ORDER BY created_at DESC LIMIT 200`, [convId]),
+      query(`SELECT id, nome, mime, tamanho, autor_nome, created_at FROM prontuario_docs
+              WHERE conversa_id = $1 ORDER BY created_at DESC LIMIT 100`, [convId]),
+    ]);
+    res.json({ notas: notas.rows, docs: docs.rows });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.post('/prontuario/nota', async (req, res) => {
+  try {
+    const convId = String(req.body?.conversa_id || '');
+    const texto = String(req.body?.texto || '').trim().slice(0, 4000);
+    if (!convId || !texto) return res.status(400).json({ error: 'Escreva a anotação.' });
+    const { rows: [n] } = await query(
+      `INSERT INTO prontuario_notas (conversa_id, lead_id, autor_id, autor_nome, texto)
+       VALUES ($1,$2,$3,$4,$5) RETURNING id, autor_id, autor_nome, texto, created_at`,
+      [convId, parseInt(req.body?.lead_id) || null, req.user.id, req.user.nome, texto]);
+    res.status(201).json(n);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.delete('/prontuario/nota/:id', async (req, res) => {
+  try {
+    // Prontuário é rastro: só o próprio autor (ou o master) apaga uma anotação
+    const { rows: [n] } = await query('SELECT autor_id FROM prontuario_notas WHERE id = $1', [req.params.id]);
+    if (!n) return res.status(404).json({ error: 'Anotação não encontrada.' });
+    if (n.autor_id !== req.user.id && req.user.role !== 'master')
+      return res.status(403).json({ error: 'Só quem escreveu (ou o master) apaga a anotação.' });
+    await query('DELETE FROM prontuario_notas WHERE id = $1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.post('/prontuario/doc', async (req, res) => {
+  try {
+    const convId = String(req.body?.conversa_id || '');
+    const data = String(req.body?.data || '');
+    const nome = String(req.body?.nome || '').trim().slice(0, 140) || 'documento';
+    if (!convId) return res.status(400).json({ error: 'Informe a conversa.' });
+    const m = data.match(/^data:([\w.+-]+\/[\w.+-]+);base64,/);
+    if (!m) return res.status(400).json({ error: 'Arquivo inválido.' });
+    if (data.length > 9_000_000) return res.status(400).json({ error: 'Arquivo muito grande (máx ~6MB).' });
+    const tamanho = Math.round((data.length - m[0].length) * 3 / 4);
+    const { rows: [d] } = await query(
+      `INSERT INTO prontuario_docs (conversa_id, lead_id, nome, mime, tamanho, data, autor_nome)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, nome, mime, tamanho, autor_nome, created_at`,
+      [convId, parseInt(req.body?.lead_id) || null, nome, m[1], tamanho, data, req.user.nome]);
+    res.status(201).json(d);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.get('/prontuario/doc/:id', async (req, res) => {
+  try {
+    const { rows: [d] } = await query('SELECT nome, mime, data FROM prontuario_docs WHERE id = $1', [req.params.id]);
+    if (!d) return res.status(404).json({ error: 'Documento não encontrado.' });
+    res.json(d);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.delete('/prontuario/doc/:id', async (req, res) => {
+  try {
+    if (!gestao(req)) return res.status(403).json({ error: 'Excluir documento do prontuário é da gestão.' });
+    await query('DELETE FROM prontuario_docs WHERE id = $1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 export default r;
 
 

@@ -1951,6 +1951,8 @@ export default function Inbox({ onUnreadChange }) {
                   <span style={{ fontWeight:700, fontSize:13 }}>Informações</span>
                   <button onClick={()=>setShowInfo(false)} style={{ padding:4, background:'none', border:'none', cursor:'pointer', color:'var(--muted)' }}>✕</button>
                 </div>
+                {/* 🩺 Prontuário sempre presente (não depende de lead) — pedido do master */}
+                <Prontuario sel={sel} api={api} user={user} />
                 {sel.lead_id && <FichaPaciente leadId={sel.lead_id} api={api} setor={sel.setor} />}
                 <div style={{ padding:'16px 14px', textAlign:'center', borderBottom:'1px solid var(--border)' }}>
                   <div className={sel.profile_pic ? 'avatar-clickable' : ''} style={{ display:'inline-block' }} onClick={()=>sel.profile_pic && setLightbox(sel.profile_pic)} title={sel.profile_pic ? 'Ver foto de perfil' : ''}>
@@ -3584,6 +3586,151 @@ function IndicarModal({ sel, api, onClose }) {
 
 /* ── Ficha do paciente (mock): dados, funil em bolinhas e próximas etapas ──── */
 const MARCOS_VACINAIS = [2, 3, 4, 5, 6, 7, 9, 12, 15, 16, 18]; // meses
+
+/* ═══ 🩺 PRONTUÁRIO DO PACIENTE ═══════════════════════════════════════════════
+   Pedido do master (22/08): "um verdadeiro prontuário onde posso anotar o que
+   eu quiser e anexar documentos — deixa algo mais premium". Anotações livres
+   com autor e hora + anexos (PDF, imagem, Office). Vive no painel Info. */
+function Prontuario({ sel, api, user }) {
+  const [dados, setDados] = React.useState(null);
+  const [nota, setNota] = React.useState('');
+  const [salvando, setSalvando] = React.useState(false);
+  const [anexando, setAnexando] = React.useState(false);
+  const fileRef = React.useRef(null);
+  const ehGestao = ['master', 'supervisor'].includes(user?.role);
+
+  const load = React.useCallback(() => {
+    api.get(`/extras/prontuario?conversa_id=${sel.id}`).then(setDados).catch(() => setDados({ notas: [], docs: [] }));
+  }, [sel.id]); // eslint-disable-line
+  React.useEffect(load, [load]);
+
+  const salvarNota = async () => {
+    if (!nota.trim() || salvando) return;
+    setSalvando(true);
+    try {
+      await api.post('/extras/prontuario/nota', { conversa_id: sel.id, lead_id: sel.lead_id || null, texto: nota.trim() });
+      setNota(''); load();
+    } catch (e) { Toast.show(e.message, 'error'); }
+    setSalvando(false);
+  };
+  const apagarNota = async (n) => {
+    if (!window.confirm('Apagar esta anotação do prontuário?')) return;
+    try { await api.del(`/extras/prontuario/nota/${n.id}`); load(); } catch (e) { Toast.show(e.message, 'error'); }
+  };
+  const anexar = (e) => {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f) return;
+    if (f.size > 6 * 1024 * 1024) { Toast.show('Arquivo muito grande — máximo 6MB.', 'error'); return; }
+    setAnexando(true);
+    const r = new FileReader();
+    r.onload = async () => {
+      try {
+        await api.post('/extras/prontuario/doc', { conversa_id: sel.id, lead_id: sel.lead_id || null, nome: f.name, data: r.result });
+        Toast.show('Documento anexado ao prontuário 📎', 'success'); load();
+      } catch (e2) { Toast.show(e2.message, 'error'); }
+      setAnexando(false);
+    };
+    r.readAsDataURL(f);
+  };
+  const abrirDoc = async (d) => {
+    try {
+      const full = await api.get(`/extras/prontuario/doc/${d.id}`);
+      const [cab, b64] = String(full.data).split(',');
+      const bin = atob(b64); const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const blob = new Blob([bytes], { type: full.mime || 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      // PDF e imagem abrem pra ver; o resto baixa com o nome certo
+      if (/pdf|image/.test(full.mime || '')) window.open(url, '_blank');
+      else { const a = document.createElement('a'); a.href = url; a.download = full.nome || 'documento'; a.click(); }
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (e) { Toast.show(e.message, 'error'); }
+  };
+  const apagarDoc = async (d) => {
+    if (!window.confirm(`Excluir "${d.nome}" do prontuário?`)) return;
+    try { await api.del(`/extras/prontuario/doc/${d.id}`); load(); } catch (e) { Toast.show(e.message, 'error'); }
+  };
+
+  const kb = (n) => n > 1024 * 1024 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
+  const icone = (mime) => /pdf/.test(mime) ? '📕' : /image/.test(mime) ? '🖼️' : /word|document/.test(mime) ? '📘' : /sheet|excel/.test(mime) ? '📗' : '📄';
+  const quando = (s) => new Date(s).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
+  const total = (dados?.notas?.length || 0) + (dados?.docs?.length || 0);
+
+  return (
+    <div style={{ borderBottom: '1px solid var(--border)' }}>
+      {/* Cabeçalho premium */}
+      <div style={{ padding: '11px 14px', background: 'linear-gradient(120deg,#06424A,#0E8C96)', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ fontSize: 15 }}>🩺</span>
+        <span style={{ fontWeight: 800, fontSize: 13, color: '#fff', flex: 1 }}>Prontuário do Paciente</span>
+        {total > 0 && <span style={{ fontSize: 10, fontWeight: 800, background: 'rgba(255,255,255,.22)', color: '#fff', borderRadius: 20, padding: '2px 9px' }}>{total}</span>}
+      </div>
+
+      <div style={{ padding: '11px 14px' }}>
+        {/* ✍️ Nova anotação */}
+        <textarea value={nota} onChange={e => setNota(e.target.value)} rows={2}
+          placeholder="Anote o que quiser sobre o paciente: evolução, alergias, combinados com a família…"
+          style={{ width: '100%', boxSizing: 'border-box', padding: '9px 11px', borderRadius: 10, border: '1.5px solid var(--border)', fontSize: 12, resize: 'vertical', background: 'var(--bg)', color: 'var(--txt)', fontFamily: 'inherit' }} />
+        <div style={{ display: 'flex', gap: 6, marginTop: 7 }}>
+          <button onClick={salvarNota} disabled={salvando || !nota.trim()}
+            style={{ flex: 1, padding: '8px 10px', borderRadius: 10, border: 'none', cursor: 'pointer', fontSize: 11.5, fontWeight: 800,
+              background: 'linear-gradient(120deg,#0E8C96,#00B8C0)', color: '#fff', opacity: (salvando || !nota.trim()) ? .55 : 1 }}>
+            {salvando ? 'Salvando…' : '✍️ Salvar anotação'}
+          </button>
+          <input ref={fileRef} type="file" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx" style={{ display: 'none' }} onChange={anexar} />
+          <button onClick={() => fileRef.current?.click()} disabled={anexando} title="Anexar documento ao prontuário (PDF, imagem, Word, Excel — máx 6MB)"
+            style={{ padding: '8px 12px', borderRadius: 10, cursor: 'pointer', fontSize: 11.5, fontWeight: 800,
+              border: '1.5px solid #C4973B', background: '#fdf6e7', color: '#8a6417' }}>
+            {anexando ? '…' : '📎 Anexar'}
+          </button>
+        </div>
+
+        {/* 📎 Documentos */}
+        {(dados?.docs || []).length > 0 && (
+          <div style={{ marginTop: 11 }}>
+            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: .8, textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 6 }}>📎 Documentos</div>
+            {dados.docs.map(d => (
+              <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 9px', borderRadius: 10, background: 'var(--bg2)', marginBottom: 5, border: '1px solid var(--border)' }}>
+                <span style={{ fontSize: 15 }}>{icone(d.mime || '')}</span>
+                <div onClick={() => abrirDoc(d)} style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} title="Abrir / baixar">
+                  <div style={{ fontSize: 11.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--tq2)' }}>{d.nome}</div>
+                  <div style={{ fontSize: 9.5, color: 'var(--muted)' }}>{kb(d.tamanho || 0)} · {String(d.autor_nome || '').split(' ')[0]} · {quando(d.created_at)}</div>
+                </div>
+                {ehGestao && <button onClick={() => apagarDoc(d)} title="Excluir (gestão)" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 12 }}>✕</button>}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* 📋 Anotações (linha do tempo) */}
+        {(dados?.notas || []).length > 0 && (
+          <div style={{ marginTop: 11 }}>
+            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: .8, textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 6 }}>📋 Anotações</div>
+            {dados.notas.map(n => (
+              <div key={n.id} style={{ padding: '8px 11px', borderRadius: 10, background: 'var(--bg)', border: '1px solid var(--border)', borderLeft: '3px solid var(--tq)', marginBottom: 6 }}>
+                <div style={{ fontSize: 12, lineHeight: 1.55, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{n.texto}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                  <span style={{ fontSize: 9.5, color: 'var(--muted)', fontWeight: 700, flex: 1 }}>
+                    {String(n.autor_nome || '').split(' ')[0]} · {quando(n.created_at)}
+                  </span>
+                  {(n.autor_id === user?.id || user?.role === 'master') && (
+                    <button onClick={() => apagarNota(n)} title="Apagar anotação" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 11 }}>🗑️</button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {dados && total === 0 && (
+          <div style={{ marginTop: 9, fontSize: 11, color: 'var(--muted)', textAlign: 'center', lineHeight: 1.5 }}>
+            Prontuário vazio — a primeira anotação ou documento fica registrado aqui, com autor e hora. 💙
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function FichaPaciente({ leadId, api, setor }) {
   const [lead, setLead] = React.useState(null);

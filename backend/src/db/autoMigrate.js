@@ -2431,6 +2431,21 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log('🤖 Seed IA Nathy:', convsN.length ? 'ligada' : 'conversa não encontrada');
     }
 
+    /* 🩺 PRONTUÁRIO DO PACIENTE (pedido do master, 22/08: "um verdadeiro
+       prontuário onde posso anotar o que eu quiser e anexar documentos").
+       Duas tabelas ancoradas na CONVERSA (existe sempre, mesmo sem lead):
+       anotações com autor e hora, e documentos anexados (base64). */
+    await query(`CREATE TABLE IF NOT EXISTS prontuario_notas (
+      id SERIAL PRIMARY KEY, conversa_id TEXT, lead_id INT,
+      autor_id TEXT, autor_nome TEXT, texto TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS idx_pront_notas_conv ON prontuario_notas (conversa_id)`).catch(() => {});
+    await query(`CREATE TABLE IF NOT EXISTS prontuario_docs (
+      id SERIAL PRIMARY KEY, conversa_id TEXT, lead_id INT,
+      nome TEXT, mime TEXT, tamanho INT, data TEXT,
+      autor_nome TEXT, created_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS idx_pront_docs_conv ON prontuario_docs (conversa_id)`).catch(() => {});
+
     /* 🎁 PRÊMIO DE META = R$ 2.500 (ordem do master, 22/08: "muda o prêmio
        para R$2.500"): o prêmio de quem bate a meta mínima sobe de R$ 1.500
        pra R$ 2.500 em todos os setores. Grava por cima do que estiver na
