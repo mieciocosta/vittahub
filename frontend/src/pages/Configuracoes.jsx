@@ -259,6 +259,36 @@ export default function Configuracoes() {
                 </div>
               )}
 
+              {/* 📜 MENSAGENS DO PROTOCOLO (pedido do master: "deixe a
+                  possibilidade de alterarem o texto") — cada passo editável. */}
+              {protoPassos.length > 0 && (
+                <div className="field" style={{ background:'var(--bg2,#f8fafc)', padding:'10px 12px', borderRadius:10 }}>
+                  <label>📜 Mensagens do Protocolo (editáveis)</label>
+                  <span style={{ fontSize:11, color:'var(--muted)', display:'block', marginBottom:8 }}>
+                    Os textos prontos que a equipe usa em cada passo. Escritos no estilo dos Cases de Sucesso — ajuste à vontade.
+                    Curingas: {'{ATENDENTE}'}, {'{PACIENTE}'}, {'{INSTAGRAM}'}, {'{ENDERECO}'}, {'{MAPA}'}, {'{LINK_AGENDAR}'}.
+                  </span>
+                  {protoPassos.map((p2, i) => (
+                    <div key={p2.k} style={{ marginBottom:10 }}>
+                      <div style={{ fontSize:11.5, fontWeight:800, marginBottom:3 }}>{p2.emoji} {p2.nome}</div>
+                      {p2.k === 'significado_nome' || p2.k === 'preco' ? (
+                        <span style={{ fontSize:10.5, color:'var(--muted)' }}>
+                          {p2.k === 'significado_nome' ? 'Gerado pela IA na hora (botão ✨ Gerar e enviar).' : 'O investimento é apresentado com a Tabela de Preços — sem texto fixo.'}
+                        </span>
+                      ) : (
+                        <textarea value={p2.modelo || ''} rows={3}
+                          onChange={e => setProtoPassos(prev => prev.map((x, j) => j === i ? { ...x, modelo: e.target.value } : x))}
+                          style={{ width:'100%', boxSizing:'border-box', padding:'8px 10px', borderRadius:9, border:'1.5px solid var(--border)', fontSize:12, lineHeight:1.55, resize:'vertical', background:'var(--card)', color:'var(--txt)', fontFamily:'inherit' }} />
+                      )}
+                    </div>
+                  ))}
+                  <button onClick={async () => {
+                    try { await api.put('/inbox/protocolo/config', { passos: protoPassos, clinica: clin }); window.alert('✅ Mensagens salvas! Já valem pra toda a equipe.'); }
+                    catch (e) { window.alert('Erro: ' + e.message); }
+                  }} className="btn btn-sm" style={{ fontWeight:700, width:'100%' }}>Salvar mensagens do protocolo</button>
+                </div>
+              )}
+
               <div className="field" style={{ background:'var(--bg2,#f8fafc)', padding:'10px 12px', borderRadius:10 }}>
                 <label>📍 Dados da clínica (usados no protocolo de atendimento)</label>
                 <span style={{ fontSize:11, color:'var(--muted)', display:'block', marginBottom:6 }}>Entram automaticamente na mensagem de agendamento que a equipe envia.</span>

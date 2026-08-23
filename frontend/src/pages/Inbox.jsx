@@ -207,13 +207,15 @@ const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect, usersB
           {conv.bot_ativo && <span style={{ fontSize: 9, color: 'var(--ok)', fontWeight: 800, background: 'var(--ok2)', padding: '1.5px 6px', borderRadius: 8, letterSpacing: .4 }}>BOT</span>}
           {/* 📌 Botão FIXAR no lugar do selo LEAD (pedido do master): clicou,
               a conversa sobe pra seção Fixadas — que aparece sozinha no topo. */}
+          {/* Chamativo de propósito (pedido do master): degradê rosa-roxo com
+              brilho quando solta; dourado quando fixada. */}
           {onToggleFix && (
             <button onClick={e => { e.stopPropagation(); onToggleFix(conv); }}
               title={fixada ? 'Desafixar — volta pra lista geral' : 'Fixar conversa — sobe pra sua seção de fixadas (só no seu usuário)'}
-              style={{ fontSize: 9, fontWeight: 800, padding: '1.5px 7px', borderRadius: 8, letterSpacing: .4, cursor: 'pointer',
-                border: fixada ? 'none' : '1px solid var(--border)',
-                background: fixada ? 'linear-gradient(120deg,#f59e0b,#fcd34d)' : 'var(--bg2)',
-                color: fixada ? '#78350f' : 'var(--muted)' }}>
+              style={{ fontSize: 9, fontWeight: 900, padding: '2px 9px', borderRadius: 9, letterSpacing: .5, cursor: 'pointer', border: 'none',
+                background: fixada ? 'linear-gradient(120deg,#f59e0b,#fcd34d)' : 'linear-gradient(120deg,#ec4899,#8b5cf6)',
+                color: fixada ? '#78350f' : '#fff',
+                boxShadow: fixada ? '0 1px 6px rgba(245,158,11,.5)' : '0 1px 6px rgba(139,92,246,.45)' }}>
               📌 {fixada ? 'FIXADA' : 'FIXAR'}
             </button>
           )}

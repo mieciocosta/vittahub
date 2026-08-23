@@ -6981,31 +6981,37 @@ r.put('/conversations/:id/ficha', async (req, res) => {
    definido pelo Dr. Miécio. O sistema detecta sozinho o que já foi feito na
    conversa e mostra pra atendente o que FALTOU — com o texto pronto pra
    enviar em 1 clique. A gestão ajusta os textos em Configurações.        */
+/* Modelos REESCRITOS com o estilo das conversas que AGENDARAM (pedido do
+   master, 22/08: "melhore as mensagens conforme já conseguimos agendar — é só
+   pegar os cases de sucesso como exemplo"). O padrão dos cases: acolher pela
+   dor, chamar a criança pelo nome, sempre TERMINAR com uma pergunta que
+   conduz, e fechar oferecendo escolha (manhã ou tarde), nunca "quer agendar?".
+   A gestão edita tudo em Configurações → Mensagens do Protocolo. */
 const PROTOCOLO_PADRAO = [
   { k: 'boas_vindas', emoji: '👋', nome: 'Boas-vindas calorosas',
-    dica: 'Receber com carinho e se apresentar pelo nome.',
-    modelo: 'Oi! 💙 Seja muito bem-vinda à Vittalis Saúde! Meu nome é {ATENDENTE} e vou cuidar do seu atendimento com todo o carinho hoje 😊' },
+    dica: 'Acolher pelo nome e JÁ perguntar a necessidade — é assim que os cases começam.',
+    modelo: 'Oi! 💙 Que alegria receber sua mensagem! Eu sou a {ATENDENTE}, da Vittalis Saúde, e a partir de agora cuido de vocês pessoalmente, tá? Me conta: o que o seu pequeno tem precisado? 😊' },
   { k: 'nome_paciente', emoji: '👶', nome: 'Perguntar o nome do paciente',
-    dica: 'Saber o nome da criança personaliza TODO o resto do atendimento.',
-    modelo: 'Pra eu te atender do jeitinho certo: qual é o nome do seu pequeno ou da sua pequena? 🥰' },
+    dica: 'Saber o nome da criança personaliza TODO o resto — os cases que fecharam usam o nome em cada mensagem.',
+    modelo: 'Pra eu cuidar de vocês do jeitinho certo: qual é o nome e a idade do seu pequeno ou da sua pequena? 🥰 Assim já preparo tudo pensando nele(a).' },
   { k: 'significado_nome', emoji: '✨', nome: 'Enviar o significado do nome (com imagem)',
     dica: 'Encanta a família logo no começo — é o toque que ninguém mais faz.',
     modelo: '' },
   { k: 'material', emoji: '📖', nome: 'Enviar a revista/material do serviço',
-    dica: 'Apresentar o serviço ANTES do preço — valor percebido primeiro.',
-    modelo: 'Vou te enviar nosso material com tudo o que preparamos para essa fase 💙 Dá uma olhadinha com calma!' },
-  { k: 'preco', emoji: '💰', nome: 'Apresentar o valor',
-    dica: 'Só depois de apresentar o serviço. Sempre com as formas de pagamento.',
+    dica: 'Serviço ANTES do investimento — valor percebido primeiro. E terminar com pergunta.',
+    modelo: 'Preparei um material lindo mostrando como cuidamos dessa fase de {PACIENTE} 💙 Dá uma olhadinha com calma — as famílias amam ver como funciona por dentro. Depois me conta o que mais tocou o coração de vocês? 😊' },
+  { k: 'preco', emoji: '💰', nome: 'Apresentar o investimento',
+    dica: 'Só depois do material. Fale "investimento" (nunca preço), com as formas de pagamento e parcelamento juntos.',
     modelo: '' },
   { k: 'ligacao', emoji: '📞', nome: 'Avisar que vai ligar (afirmativo)',
-    dica: 'Afirmar, não perguntar: "estarei ligando", nunca "posso ligar?".',
-    modelo: 'Vou te ligar daqui a pouquinho pra complementar nosso atendimento e tirar todas as suas dúvidas com mais carinho, tudo bem? 💙' },
-  { k: 'prova_social', emoji: '📸', nome: 'Enviar provas sociais (fotos/vídeos + Instagram)',
-    dica: 'Mostrar outras crianças sendo atendidas gera confiança imediata.',
-    modelo: 'Olha como é o cuidado da nossa equipe com as crianças 🥰 No nosso Instagram tem muitos momentos lindos: instagram.com/vittalissaude' },
+    dica: 'Afirmar, não perguntar: "estarei ligando", nunca "posso ligar?". Ligação fechou os maiores cases.',
+    modelo: 'Uma ligação rapidinha resolve mais que 20 mensagens 😊 Estarei te ligando daqui a pouquinho pra te explicar tudo com calma e já deixar o melhor caminho pronto pra {PACIENTE}, tá bem? 💙' },
+  { k: 'prova_social', emoji: '📸', nome: 'Enviar provas sociais (fotos + Instagram)',
+    dica: 'Fotos de outras crianças sendo cuidadas geram confiança imediata — use o botão que envia tudo em 1 clique.',
+    modelo: 'Olha que lindo o cuidado da nossa equipe com as crianças 🥰 Cada sorriso desses é uma família que confiou na gente. No nosso Instagram tem muitos momentos assim: {INSTAGRAM} 💙' },
   { k: 'agendamento', emoji: '📅', nome: 'Convite de agendamento com a localização',
-    dica: 'Fechar com convite claro, endereço e link do mapa.',
-    modelo: 'Vamos deixar o horário de vocês reservado? 💙 Você pode escolher o melhor dia e horário por aqui: {LINK_AGENDAR}\n\n📍 Nossa clínica: {ENDERECO}\n🗺️ Como chegar: {MAPA}' },
+    dica: 'Fechar oferecendo ESCOLHA (manhã ou tarde?) — nos cases, quem escolhe o turno, fecha.',
+    modelo: 'Vamos garantir o horário de {PACIENTE}? 💙 Nossa agenda é bem procurada e quero deixar o melhor reservado pra vocês. Prefere manhã ou tarde? Se quiser, também dá pra escolher por aqui: {LINK_AGENDAR}\n\n📍 Clínica Vittalis Saúde: {ENDERECO}\n🗺️ Como chegar: {MAPA}' },
 ];
 
 async function getProtocolo() {

@@ -2433,6 +2433,22 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log('🤖 Seed IA Nathy:', convsN.length ? 'ligada' : 'conversa não encontrada');
     }
 
+    /* 📜 MENSAGENS DO PROTOCOLO v2 (pedido do master, 22/08: "melhore as
+       mensagens conforme já conseguimos agendar — pega os cases de sucesso
+       como exemplo"). Os modelos novos vivem no PROTOCOLO_PADRAO do código;
+       este seed LIMPA a cópia congelada na config (o salvar dos dados da
+       clínica gravava os passos antigos junto) pra o padrão novo valer.
+       Ninguém tinha editado os textos de propósito — não havia tela pra isso. */
+    const { rows: [flagProtoV2] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_protocolo_msgs_v2'");
+    if (!flagProtoV2) {
+      await query(`UPDATE configuracoes SET valor = valor - 'passos', updated_at = NOW() WHERE chave = 'protocolo'`).catch(() => {});
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+        ['📜 Mensagens do Protocolo renovadas',
+         'Os textos prontos do Protocolo Vittalis foram reescritos no estilo das conversas que AGENDARAM (cases de sucesso): acolher pela dor, usar o nome da criança, terminar sempre com pergunta e fechar oferecendo escolha de turno. A gestão pode ajustar cada texto em Configurações → 📜 Mensagens do Protocolo; a equipe também pode editar na hora, porque o "Usar texto" coloca a mensagem na caixa antes de enviar.']).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_protocolo_msgs_v2','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('📜 Protocolo: modelos v2 liberados');
+    }
+
     /* 📌 CONVERSAS FIXADAS (pedido do master, 22/08): cada usuário fixa as
        conversas que quiser — SEM limite — e elas moram numa seção própria no
        topo da lista do Chat, separadas da geral. Fixação é POR USUÁRIO:
