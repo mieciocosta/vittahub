@@ -1117,7 +1117,11 @@ r.get('/meta-setor', async (req, res) => {
        setor dela (os setores já vêm filtrados acima), mas nunca a linha de cada
        colega: a Raylane não vê o número da Stefany, nem o contrário.
        Total do setor = trabalho dela. Número da colega = do master. */
-    const podeValores = req.user.role === 'master' || req.user.role === 'supervisor';
+    /* Ordem do master (22/08, depois do susto da Raylane: "lá em cima está um
+       valor e dentro do caixa está outro"): mesmo a SUPERVISORA vê no placar
+       só os números DELA — a barra mostra a produção própria e o "falta" é o
+       dela, contra a meta dela. O total do setor em R$ é visão do master. */
+    const podeValores = req.user.role === 'master';
     const porSetorSeguro = podeValores ? porSetor : porSetor.map(s => ({
       setor: s.setor, metaGlobal: s.metaGlobal, metaMinima: s.metaMinima,
       premio: s.premio, premioMinimo: s.premioMinimo, premioDia: s.premioDia,

@@ -2570,6 +2570,22 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log('💰 Ajuste Raylane:', textoRay);
     }
 
+    /* 💰 DESFAZ O AJUSTE DA RAYLANE (22/08): o master descobriu a causa real
+       da diferença — a tela comparava número do SETOR com número DELA. O
+       lançamento de "Ajuste de conferência" partiu de premissa errada e sai;
+       os registros verdadeiros dela ficam como estão. */
+    const { rows: [flagDesfazAj] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_desfaz_ajuste_raylane'");
+    if (!flagDesfazAj) {
+      const { rowCount: nAj } = await query(`DELETE FROM vendas
+        WHERE categoria = 'Ajuste' AND servico = 'Ajuste de conferência'
+          AND observacao LIKE '%ordem do Dr. Miécio (22/08)%'`).catch(() => ({ rowCount: 0 }));
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+        ['💰 Ajuste da Raylane desfeito — mistério resolvido',
+         `${nAj > 0 ? 'Removi a venda de "Ajuste de conferência" que eu tinha lançado. ' : ''}A causa real da diferença: uma tela mostrava o total do SETOR de vacinas e a outra só as vendas DELA. Agora o placar de cada colaboradora (inclusive supervisora) mostra apenas a produção própria, e o "falta" é contra a meta dela. O total do setor em R$ ficou exclusivo do seu usuário.`]).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_desfaz_ajuste_raylane','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('💰 Ajuste da Raylane desfeito:', nAj);
+    }
+
     /* 📎 ANEXO NA MENSAGEM PROGRAMADA (pedido do master, 22/08): a agendada
        pode levar um documento ou imagem junto — sai na hora marcada, antes
        do texto. Guardado como data URI; nome pro cliente ver o arquivo. */
