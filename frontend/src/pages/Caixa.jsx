@@ -189,7 +189,7 @@ export default function Caixa() {
     if (mes) qs.set('mes', mes);
     if (setor) qs.set('setor', setor);
     if (status) qs.set('status', status);
-    api.get('/extras/meta-setor').then(d => setMetasSetor(d?.porSetor || [])).catch(() => {});
+    api.get('/extras/meta-setor').then(d => { setMetasSetor(d?.porSetor || []); setMetaEu(d?.individual || null); }).catch(() => {});
     api.get(`/extras/vendas?${qs.toString()}`)
       .then(d => setLista(Array.isArray(d) ? d : []))
       .catch(() => setLista([]))
@@ -311,6 +311,7 @@ export default function Caixa() {
   const [despesas, setDespesas] = useState([]);
   const [despTotal, setDespTotal] = useState(0);
   const [metasSetor, setMetasSetor] = useState([]); // metas minima/global por setor (gestao)
+  const [metaEu, setMetaEu] = useState(null);       // 🎯 o MESMO número do placar de cima (fonte única)
   const [modalDesp, setModalDesp] = useState(null);
   const [salvandoDesp, setSalvandoDesp] = useState(false);
   const loadDespesas = () => {
@@ -755,6 +756,27 @@ export default function Caixa() {
         </div>
       ) : (
       <>
+      {/* 🔗 CONCILIAÇÃO COM O PLACAR (cobrança do master via Raylane: "um valor
+          no painel de cima e outro no caixa") — este banner vem da MESMA fonte
+          do placar, então os dois números são sempre iguais. A lista abaixo
+          muda com os filtros (dia, status, busca), e é isso que pode fazer a
+          soma da lista diferir: filtro não é divergência. */}
+      {metaEu && metaEu.meta > 0 && (
+        <div className="card" style={{ padding: '12px 16px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', borderLeft: '4px solid var(--tq)' }}>
+          <span style={{ fontSize: 17 }}>🎯</span>
+          <div style={{ flex: 1, minWidth: 220 }}>
+            <div style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: .6, color: 'var(--muted)' }}>Suas vendas no mês — mesmo número do placar de cima</div>
+            <div style={{ fontSize: 17, fontWeight: 900, color: 'var(--tq2)' }}>
+              {fmt.brl(metaEu.confirmado || 0)}
+              <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--muted)', marginLeft: 8 }}>· faltam {fmt.brl(Math.max((metaEu.meta || 0) - (metaEu.confirmado || 0), 0))} pra sua meta</span>
+            </div>
+          </div>
+          <span style={{ fontSize: 10.5, color: 'var(--muted)', maxWidth: 260, lineHeight: 1.45 }}>
+            A lista abaixo obedece aos filtros (dia, status, busca) — por isso a soma dela pode ser diferente deste total do mês.
+          </span>
+        </div>
+      )}
+
       {/* 🎯 Metas do mês — cada usuário vê o(s) setor(es) dele; master vê todos */}
       {metasSetor.length > 0 && (
         <div className="card" style={{ padding: '14px 16px', marginBottom: 16 }}>
