@@ -118,6 +118,16 @@ export default function BuscaRapida() {
             style={{ flex: 1, border: 'none', outline: 'none', fontSize: 15.5, background: 'transparent', color: 'var(--txt)', fontFamily: 'inherit' }} />
           <span style={{ fontSize: 10, fontWeight: 800, color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: 6, padding: '2px 6px' }}>ESC</span>
         </div>
+        {/* 💬 O que dá pra pesquisar aqui (pedido do master: "coloca um texto
+            explicando pra que serve") — aparece antes de digitar. */}
+        {!q.trim() && (
+          <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--border)', background: 'var(--bg2,#f8fafc)', fontSize: 12, color: 'var(--muted)', lineHeight: 1.65 }}>
+            <b style={{ color: 'var(--txt)' }}>Por aqui você pode pesquisar:</b><br />
+            💬 <b>Clientes</b> pelo nome, telefone ou código (ex.: VT-123) — abre a conversa na hora;<br />
+            {user?.role === 'master' && (<>🗨️ <b>Palavras-chave das conversas</b> (ex.: “nota fiscal”, “desconto”, “plano”) — mostra quem falou, quando e o trecho, em todo o histórico;<br /></>)}
+            📄 <b>Páginas e pastas</b> do sistema (ex.: “fidelidade”, “caixa”, “agenda”) — pra navegar sem procurar no menu.
+          </div>
+        )}
         <div style={{ maxHeight: 380, overflowY: 'auto' }}>
           {buscando && <div style={{ padding: '12px 18px', fontSize: 12.5, color: 'var(--muted)' }}>Procurando…</div>}
           {itens.length === 0 && !buscando && (
