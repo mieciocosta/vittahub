@@ -2433,6 +2433,110 @@ r.delete('/vendas/:id/comprovantes/:compId', async (req, res) => {
 });
 
 // IA analisa 1 comprovante (imagem): extrai valor/data/pagador/forma e confere com a venda
+/* 🔍 Núcleo da leitura de comprovante por IA — usado pelo botão manual e pela
+   AUDITORIA AUTOMÁTICA (pedido do master: IA lê os comprovantes, autentica e
+   sinaliza divergência pra gestão e pra quem registrou a venda). */
+async function analisarComprovanteIA(comp, valorVenda, analisadoPor) {
+  const sys = 'Você confere comprovantes de pagamento de uma clínica (Vittalis Saúde). Analise a imagem e responda APENAS um JSON válido, em português do Brasil, sem texto extra. Se a imagem não parecer um comprovante de pagamento verdadeiro (montagem, print de conversa, imagem aleatória), retorne parece_comprovante=false e explique na observacao.';
+  const prompt = `Extraia os dados deste comprovante de pagamento e devolva exatamente:
+{"parece_comprovante":true,"valor":0,"data":"YYYY-MM-DD ou null","pagador":"nome ou null","recebedor":"nome ou null","forma":"Pix|Cartão|Dinheiro|TED|Boleto|null","instituicao":"banco/instituição ou null","suspeita_fraude":false,"observacao":"1 frase"}
+O valor esperado desta venda é R$ ${valorVenda.toFixed(2)} — não force esse número; extraia o que estiver na imagem. Marque suspeita_fraude=true se houver sinais de edição, fonte inconsistente, dados cortados ou layout que não bate com a instituição.`;
+  let par = null;
+  if (usaClaude()) {
+    const mImg = String(comp.data_url || '').match(/^data:([^;]+);base64,(.+)$/s);
+    if (!mImg) return null;
+    const client = await anthropicClient();
+    const resp = await client.messages.create({
+      model: CLAUDE_MODEL_MINI(), max_tokens: 1024,
+      system: sys + ' Responda SOMENTE o JSON, sem markdown.',
+      messages: [{ role: 'user', content: [
+        { type: 'image', source: { type: 'base64', media_type: mImg[1], data: mImg[2].replace(/\s/g, '') } },
+        { type: 'text', text: prompt },
+      ] }],
+    });
+    const txt = (resp.content || []).filter(b => b.type === 'text').map(b => b.text).join('')
+      .replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+    try { par = JSON.parse(txt || '{}'); } catch { par = null; }
+  } else if (process.env.OPENAI_API_KEY) {
+    const { default: fetch } = await import('node-fetch');
+    const body = {
+      model: 'gpt-4o-mini', max_tokens: 500, response_format: { type: 'json_object' },
+      messages: [{ role: 'system', content: sys }, { role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: comp.data_url } }] }],
+    };
+    const r2 = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` }, body: JSON.stringify(body),
+    });
+    const d = await r2.json();
+    if (d.error) return null;
+    try { par = JSON.parse(d.choices?.[0]?.message?.content || '{}'); } catch { par = null; }
+  }
+  if (!par) return null;
+  const valorExtraido = parseFloat(par.valor) || 0;
+  const confere = !!par.parece_comprovante && !par.suspeita_fraude
+    && valorExtraido > 0 && Math.abs(valorExtraido - valorVenda) <= Math.max(1, valorVenda * 0.02);
+  return {
+    parece_comprovante: !!par.parece_comprovante,
+    valor: valorExtraido, data: par.data || null, pagador: par.pagador || null, recebedor: par.recebedor || null,
+    forma: par.forma || null, instituicao: par.instituicao || null,
+    suspeita_fraude: !!par.suspeita_fraude, observacao: par.observacao || null,
+    valor_venda: valorVenda, confere, analisado_por: analisadoPor,
+  };
+}
+
+/* 🕵️ AUDITORIA AUTOMÁTICA DOS COMPROVANTES — a cada 30 min a IA lê os
+   comprovantes recém-anexados que ainda não foram analisados. Divergência
+   (não parece comprovante, valor não bate ou suspeita de fraude) entra na
+   caixa de sinalização do Caixa (gestão vê tudo; quem registrou vê a sua)
+   e alerta o master no sino. */
+async function auditarComprovantes() {
+  try {
+    if (!usaClaude() && !process.env.OPENAI_API_KEY) return;
+    const { rows } = await query(`
+      SELECT vc.id, vc.data_url, vc.tipo, v.id v_id, v.valor v_valor, v.cliente_nome, v.atendente_nome
+        FROM venda_comprovantes vc JOIN vendas v ON v.id = vc.venda_id
+       WHERE vc.analise IS NULL AND vc.tipo LIKE 'image%'
+         AND vc.created_at > NOW() - interval '7 days'
+       ORDER BY vc.created_at LIMIT 4`).catch(() => ({ rows: [] }));
+    for (const c of rows) {
+      const analise = await analisarComprovanteIA(c, parseFloat(c.v_valor) || 0, 'Vitta · Auditoria automática');
+      if (!analise) {
+        await query(`UPDATE venda_comprovantes SET analise = '{"erro":"não foi possível analisar"}'::jsonb WHERE id = $1`, [c.id]).catch(() => {});
+        continue;
+      }
+      await query(`UPDATE venda_comprovantes SET analise = $1::jsonb WHERE id = $2`, [JSON.stringify(analise), c.id]).catch(() => {});
+      if (!analise.confere) {
+        const motivo = !analise.parece_comprovante ? 'a imagem não parece um comprovante de pagamento'
+          : analise.suspeita_fraude ? 'há sinais de possível adulteração na imagem'
+          : `o valor lido (R$ ${analise.valor.toFixed(2)}) não bate com a venda (R$ ${(parseFloat(c.v_valor) || 0).toFixed(2)})`;
+        await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('alerta', $1, $2, true)`,
+          [`🕵️ Comprovante com divergência — ${String(c.atendente_nome || '').split(' ')[0] || 'venda'}`,
+           `Na venda de ${c.cliente_nome || 'cliente'} (${c.atendente_nome || 'sem atendente'}): ${motivo}. Veja na caixa de sinalização do Caixa.`]).catch(() => {});
+      }
+    }
+    if (rows.length) console.log(`🕵️ Auditoria de comprovantes: ${rows.length} analisado(s)`);
+  } catch (e) { console.error('auditoria comprovantes:', e.message); }
+}
+setInterval(auditarComprovantes, 30 * 60 * 1000);
+setTimeout(auditarComprovantes, 240000);
+
+/* 🚨 Caixa de sinalização: comprovantes reprovados pela IA. Gestão vê todos;
+   quem registrou a venda vê os dela (pedido do master: "todos que registraram
+   aquela venda possam olhar"). */
+r.get('/comprovantes/divergencias', async (req, res) => {
+  try {
+    const soMinhas = gestao(req) ? '' : `AND v.atendente_id = '${String(req.user.id).replace(/[^a-zA-Z0-9-]/g, '')}'`;
+    const { rows } = await query(`
+      SELECT vc.id, vc.venda_id, vc.analise, vc.created_at,
+             v.cliente_nome, v.valor, v.atendente_nome, v.data_venda
+        FROM venda_comprovantes vc JOIN vendas v ON v.id = vc.venda_id
+       WHERE vc.analise IS NOT NULL
+         AND ((vc.analise->>'parece_comprovante') = 'false' OR (vc.analise->>'confere') = 'false')
+         AND vc.created_at > NOW() - interval '60 days' ${soMinhas}
+       ORDER BY vc.created_at DESC LIMIT 50`).catch(() => ({ rows: [] }));
+    res.json({ itens: rows });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.post('/vendas/:id/comprovantes/:compId/analisar', async (req, res) => {
   try {
     if (!temIA()) return res.status(400).json({ error: 'IA não configurada.' });

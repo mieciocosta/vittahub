@@ -190,6 +190,7 @@ export default function Caixa() {
     if (setor) qs.set('setor', setor);
     if (status) qs.set('status', status);
     api.get('/extras/meta-setor').then(d => { setMetasSetor(d?.porSetor || []); setMetaEu(d?.individual || null); }).catch(() => {});
+    api.get('/extras/comprovantes/divergencias').then(d => setDivergencias(Array.isArray(d?.itens) ? d.itens : [])).catch(() => {});
     api.get(`/extras/vendas?${qs.toString()}`)
       .then(d => setLista(Array.isArray(d) ? d : []))
       .catch(() => setLista([]))
@@ -312,6 +313,7 @@ export default function Caixa() {
   const [despTotal, setDespTotal] = useState(0);
   const [metasSetor, setMetasSetor] = useState([]); // metas minima/global por setor (gestao)
   const [metaEu, setMetaEu] = useState(null);       // 🎯 o MESMO número do placar de cima (fonte única)
+  const [divergencias, setDivergencias] = useState([]); // 🕵️ comprovantes reprovados pela IA
   const [modalDesp, setModalDesp] = useState(null);
   const [salvandoDesp, setSalvandoDesp] = useState(false);
   const loadDespesas = () => {
@@ -444,15 +446,30 @@ export default function Caixa() {
   const RECEBIDO_ST = ['pago', 'cortesia'];
   const ARECEBER_ST = ['sinal', 'aguardando', 'parcelado', 'pendente'];
   const fech = { Pix: { v: 0, n: 0 }, 'Cartão': { v: 0, n: 0 }, Dinheiro: { v: 0, n: 0 }, Outros: { v: 0, n: 0 } };
+  /* "Que Outros são esses?" (pergunta do master): eram Crédito, Débito,
+     À vista, Link de pagamento, Parcelado e vendas sem forma — o agrupador só
+     reconhecia os nomes exatos Pix/Cartão/Dinheiro. Agora normaliza: cartão em
+     todas as variações vira Cartão, link entra no Pix, à vista é Dinheiro; só
+     sobra em Outros o que realmente não tem forma informada. */
+  const formaNorm = (f) => {
+    const t = String(f || '').toLowerCase();
+    if (/pix|link/.test(t)) return 'Pix';
+    if (/cart|cr[eé]dito|d[eé]bito|parcel/.test(t)) return 'Cartão';
+    if (/dinheiro|vista|esp[eé]cie/.test(t)) return 'Dinheiro';
+    return 'Outros';
+  };
+  const outrasFormas = {};
   filtrada.forEach(v => {
     const val = parseFloat(v.valor) || 0;
-    const chave = ['Pix', 'Cartão', 'Dinheiro'].includes(v.forma_pagamento) ? v.forma_pagamento : 'Outros';
+    const chave = formaNorm(v.forma_pagamento);
+    if (chave === 'Outros') { const rot = v.forma_pagamento || '(sem forma)'; outrasFormas[rot] = (outrasFormas[rot] || 0) + val; }
     fech[chave].v += val; fech[chave].n += 1;
   });
   const formasFixas = ['Pix', 'Cartão', 'Dinheiro'];
   const formaCor = { Pix: '#059669', 'Cartão': '#2563eb', Dinheiro: '#d97706', Outros: '#7c3aed' };
   const formaIcone = { Pix: '⚡', 'Cartão': '💳', Dinheiro: '💵', Outros: '🔗' };
   const formasOrdenadas = [...formasFixas, ...(fech.Outros.v > 0 ? ['Outros'] : [])].map(f => [f, fech[f].v]);
+  const outrosDetalhe = Object.entries(outrasFormas).map(([k, v]) => `${k}: ${fmt.brl(v)}`).join(' · ');
 
   // Vendas POR SETOR (quantas e quanto cada setor fez)
   const porSetor = { vacinas: { v: 0, n: 0 }, consultas: { v: 0, n: 0 }, terapias: { v: 0, n: 0 }, outros: { v: 0, n: 0 } };
@@ -621,8 +638,9 @@ export default function Caixa() {
           {[...formasFixas, 'Outros'].filter(f => f !== 'Outros' || fech.Outros.v > 0).map(f => {
             const cor = formaCor[f]; const val = fech[f].v;
             return (
-              <div key={f} style={{ flex: '1 1 140px', minWidth: 130, background: 'var(--bg2)', borderRadius: 11, padding: '9px 13px', borderLeft: `3px solid ${cor}` }}>
-                <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>{formaIcone[f]} {f}</div>
+              <div key={f} title={f === 'Outros' ? `Vendas sem forma de pagamento informada — ${outrosDetalhe || 'edite a venda e escolha a forma'}` : ''}
+                style={{ flex: '1 1 140px', minWidth: 130, background: 'var(--bg2)', borderRadius: 11, padding: '9px 13px', borderLeft: `3px solid ${cor}` }}>
+                <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>{formaIcone[f]} {f === 'Outros' ? 'Sem forma informada' : f}</div>
                 <div style={{ fontSize: 17, fontWeight: 900, color: cor }}>{fmt.brl(val)}</div>
                 <div style={{ fontSize: 10.5, color: 'var(--light)' }}>{fech[f].n} venda(s) · {total > 0 ? Math.round((val / total) * 100) : 0}%</div>
               </div>
@@ -758,6 +776,35 @@ export default function Caixa() {
         </div>
       ) : (
       <>
+      {/* 🕵️ CAIXA DE SINALIZAÇÃO (pedido do master): a IA lê cada comprovante
+          anexado; o que não bate (valor, autenticidade) aparece aqui — gestão
+          vê tudo, cada atendente vê os das próprias vendas. */}
+      {divergencias.length > 0 && (
+        <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: 12, border: '1.5px solid #fca5a5' }}>
+          <div style={{ padding: '11px 16px', background: 'linear-gradient(120deg,#7f1d1d,#dc2626)', color: '#fff', display: 'flex', alignItems: 'center', gap: 9 }}>
+            <span style={{ fontSize: 15 }}>🕵️</span>
+            <b style={{ flex: 1, fontSize: 13.5 }}>Comprovantes com divergência — conferir</b>
+            <span style={{ background: 'rgba(255,255,255,.25)', borderRadius: 10, padding: '2px 9px', fontSize: 12, fontWeight: 800 }}>{divergencias.length}</span>
+          </div>
+          {divergencias.slice(0, 8).map((d, i) => {
+            const a = d.analise || {};
+            const motivo = a.parece_comprovante === false ? 'a imagem não parece um comprovante'
+              : a.suspeita_fraude ? 'sinais de possível adulteração'
+              : `valor lido ${fmt.brl(a.valor || 0)} ≠ venda ${fmt.brl(parseFloat(d.valor) || 0)}`;
+            return (
+              <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 16px', borderBottom: i < Math.min(divergencias.length, 8) - 1 ? '1px solid var(--border)' : 'none' }}>
+                <span>⚠️</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 700 }}>{d.cliente_nome || 'Cliente'} · {fmt.brl(parseFloat(d.valor) || 0)} <span style={{ color: 'var(--muted)', fontWeight: 600 }}>· {String(d.atendente_nome || '').split(' ')[0]}</span></div>
+                  <div style={{ fontSize: 11, color: '#dc2626', fontWeight: 700 }}>{motivo}{a.observacao ? ` — ${a.observacao}` : ''}</div>
+                </div>
+                <button onClick={() => abrirComprovantes({ id: d.venda_id, cliente_nome: d.cliente_nome, valor: d.valor })} className="btn btn-s btn-sm" style={{ flexShrink: 0, fontSize: 11, fontWeight: 700 }}>Ver comprovante</button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {/* 🔗 CONCILIAÇÃO COM O PLACAR (cobrança do master via Raylane: "um valor
           no painel de cima e outro no caixa") — este banner vem da MESMA fonte
           do placar, então os dois números são sempre iguais. A lista abaixo
