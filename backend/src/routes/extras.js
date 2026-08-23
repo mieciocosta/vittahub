@@ -2134,14 +2134,11 @@ Se ${primeiro} pedir "palavra do dia" sem tema, use o VERSÍCULO DE HOJE do devo
 r.get('/vendas', async (req, res) => {
   try {
     const cond = [], params = []; let i = 1;
-    if (!gestao(req)) { cond.push(`atendente_id = $${i++}`); params.push(req.user.id); }
-    /* Supervisora responde pelo SETOR dela, não pelo Caixa da clínica inteira:
-       ela via as vendas de consultas no Caixa dela (e vice-versa). O master
-       continua vendo tudo. */
-    else if (!veGeral(req)) {
-      const meus = await setoresDoUsuario(req);
-      cond.push(`COALESCE(setor,'vacinas') = ANY($${i++})`); params.push(meus);
-    }
+    /* Ordem do master (22/08, "em todos os lugares fidedigno"): fora o master
+       (e o marketing com ve_geral), CADA UMA vê no Caixa só as próprias
+       vendas — inclusive a supervisora. Assim o Caixa bate com o placar e
+       com a meta dela, sem misturar número de colega. */
+    if (req.user.role !== 'master' && !veGeral(req)) { cond.push(`atendente_id = $${i++}`); params.push(req.user.id); }
     if (['vacinas', 'consultas', 'terapias'].includes(req.query.setor)) { cond.push(`setor = $${i++}`); params.push(req.query.setor); }
     if (/^\d{4}-\d{2}$/.test(req.query.mes || '')) { cond.push(`to_char(data_venda,'YYYY-MM') = $${i++}`); params.push(req.query.mes); }
     if (/^\d{4}-\d{2}-\d{2}$/.test(req.query.dia || '')) { cond.push(`data_venda = $${i++}`); params.push(req.query.dia); }
@@ -2498,8 +2495,10 @@ O valor esperado desta venda é R$ ${valorVenda.toFixed(2)} — não force esse 
 const SET3 = ['vacinas', 'consultas', 'terapias'];
 r.get('/vendas/resumo', async (req, res) => {
   try {
-    // Painel comercial agregado (faturamento, metas, ranking) — só o master vê.
-    if (req.user.role !== 'master') return res.status(403).json({ error: 'Apenas o master vê o painel comercial.' });
+    /* Painel comercial: o master (e o marketing com ve_geral) vê a CASA; todo
+       o resto vê o próprio recorte — cada uma controla a própria meta e as
+       próprias vendas (ordem do master, 22/08: "em todos os lugares
+       fidedigno"). O soMinhas logo abaixo faz o corte. */
     /* ⚖️ RÉGUA ÚNICA (auditoria de 16/08): este endpoint contava só o PAGO
        enquanto o placar (/meta-setor) conta VENDIDO — o mesmo "faturamento do
        mês" dava dois valores conforme a tela. Agora: confirmado = TODA venda
@@ -2509,7 +2508,7 @@ r.get('/vendas/resumo', async (req, res) => {
        COALESCE: venda sem setor aparecia no placar e SUMIA daqui. */
     const mes = /^\d{4}-\d{2}$/.test(req.query.mes || '') ? req.query.mes
       : new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 7);
-    const soMinhas = !gestao(req) ? `AND atendente_id = '${String(req.user.id).replace(/[^a-zA-Z0-9-]/g, '')}'` : '';
+    const soMinhas = (req.user.role === 'master' || veGeral(req)) ? '' : `AND atendente_id = '${String(req.user.id).replace(/[^a-zA-Z0-9-]/g, '')}'`;
     const [vendasSetor, porAtendente, porCategoria, agSetor, cfg] = await Promise.all([
       query(`SELECT COALESCE(setor,'vacinas') setor,
           COALESCE(SUM(valor),0)::float confirmado,
