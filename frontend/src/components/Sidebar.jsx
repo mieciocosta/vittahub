@@ -464,7 +464,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
   // 280px (pedido do master: "sensação de aperto" no menu) — mais respiro
   // pros rótulos, o cartão de perfil e os botões. Casar SEMPRE com o sw do
   // App.jsx, senão o conteúdo fica por baixo ou sobra vão.
-  const w = collapsed ? '56px' : '300px';
+  const w = collapsed ? '56px' : '330px';
   // Retornos vencidos: badge vermelho no menu (atualiza a cada 60s)
   const [vencidos, setVencidos] = useState(0);
   useEffect(() => {
