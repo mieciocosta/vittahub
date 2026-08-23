@@ -661,6 +661,7 @@ export default function Inbox({ onUnreadChange }) {
   const [protoSel, setProtoSel] = useState(null); // passo aberto nos botões numerados (23/08/2026)
   // ✏️ Edição da frase do passo (pedido do master: "não me dá a opção de usar
   // a frase salva e nem de editar")
+  const [codigoInfoOpen, setCodigoInfoOpen] = useState(false);  // balão “o que é o código?”
   const [protoEditK, setProtoEditK] = useState(null);
   const [protoEditTxt, setProtoEditTxt] = useState('');
   // 📎 Clipe em todos os passos (pedido do master): anexa e ENVIA na conversa
@@ -1824,10 +1825,25 @@ export default function Inbox({ onUnreadChange }) {
                 {/* 🆔 Código único do cliente (pedido do master): diferencia
                     clientes com o mesmo nome. Toque copia pra anotar. */}
                 {sel.codigo && (
-                  <span onClick={()=>{ try { navigator.clipboard.writeText(`VT-${String(sel.codigo).padStart(4,'0')}`); Toast.show('Código copiado! 🆔','success'); } catch { /* webview sem clipboard */ } }}
-                    title="Código único do cliente — toque pra copiar"
-                    style={{ display:'inline-flex', alignItems:'center', background:'var(--bg2)', color:'var(--muted)', border:'1px solid var(--border)', borderRadius:6, padding:'1px 7px', fontSize:9.5, fontWeight:800, flexShrink:0, cursor:'pointer', letterSpacing:.4 }}>
-                    🆔 VT-{String(sel.codigo).padStart(4,'0')}
+                  <span style={{ position:'relative', display:'inline-flex', alignItems:'center', gap:3, flexShrink:0 }}>
+                    <span onClick={()=>{ try { navigator.clipboard.writeText(`VT-${String(sel.codigo).padStart(4,'0')}`); Toast.show('Código copiado! 🆔','success'); } catch { /* webview sem clipboard */ } }}
+                      title="Código único do cliente — toque pra copiar"
+                      style={{ display:'inline-flex', alignItems:'center', background:'var(--bg2)', color:'var(--muted)', border:'1px solid var(--border)', borderRadius:6, padding:'1px 7px', fontSize:9.5, fontWeight:800, cursor:'pointer', letterSpacing:.4 }}>
+                      🆔 VT-{String(sel.codigo).padStart(4,'0')}
+                    </span>
+                    {/* ⓘ explicação do código (pedido do master: caixa de texto do lado) */}
+                    <span onClick={() => setCodigoInfoOpen(v => !v)} title="O que é este código?"
+                      style={{ width:15, height:15, borderRadius:'50%', background:'var(--tq3)', color:'var(--tq2)', fontSize:10, fontWeight:900, display:'inline-flex', alignItems:'center', justifyContent:'center', cursor:'pointer' }}>?</span>
+                    {codigoInfoOpen && (
+                      <>
+                        <span onClick={() => setCodigoInfoOpen(false)} style={{ position:'fixed', inset:0, zIndex:800 }} />
+                        <span style={{ position:'absolute', top:'calc(100% + 7px)', left:0, zIndex:801, width:270, padding:'11px 13px', borderRadius:12,
+                          background:'var(--card,#fff)', border:'1.5px solid var(--tq)', boxShadow:'0 10px 30px rgba(0,0,0,.25)',
+                          fontSize:11.5, fontWeight:500, lineHeight:1.6, color:'var(--txt)', whiteSpace:'normal' }}>
+                          🆔 <b>Cada cliente agora tem um código único.</b> Como às vezes dois clientes têm o mesmo nome, o código é a identificação exata dele. Toque no código pra copiar, anote onde quiser — e pesquise por ele na lupa sempre que precisar (ex.: VT-{String(sel.codigo).padStart(4,'0')}).
+                        </span>
+                      </>
+                    )}
                   </span>
                 )}
                 {sel.bot_ativo && <span style={{ display:'inline-flex', alignItems:'center', gap:2, background:'var(--ok2)', color:'var(--ok)', borderRadius:6, padding:'1px 6px', fontSize:9.5, fontWeight:700, flexShrink:0 }}><Bot size={7}/>Bot</span>}
@@ -2039,6 +2055,11 @@ export default function Inbox({ onUnreadChange }) {
                       title="Código único do cliente — toque pra copiar"
                       style={{ display:'inline-block', fontSize:11.5, fontWeight:800, color:'var(--tq2)', background:'var(--tq3)', borderRadius:8, padding:'2px 10px', marginBottom:6, cursor:'pointer', letterSpacing:.5 }}>
                       🆔 VT-{String(sel.codigo).padStart(4,'0')}
+                    </div>
+                  )}
+                  {sel.codigo && (
+                    <div style={{ margin:'0 10px 8px', padding:'7px 10px', borderRadius:9, background:'var(--bg2)', border:'1px dashed var(--border)', fontSize:10.5, color:'var(--muted)', lineHeight:1.55, textAlign:'left' }}>
+                      Este é o <b>código de identificação do cliente</b> — como às vezes dois clientes têm o mesmo nome, o código diferencia com certeza. Toque nele pra copiar, salve onde quiser e pesquise por ele na lupa quando precisar.
                     </div>
                   )}
                   {/* Telefone do perfil: legível mas NÃO copiável (mesma trava do
