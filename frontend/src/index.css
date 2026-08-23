@@ -76,21 +76,21 @@ a { text-decoration: none; color: inherit; }
 /* Scrollbar — todas as rolagens do app no mesmo padrão discreto (pedido do
    master: melhorar também as do lado do conteúdo, lista de conversas e chat).
    Fininha, arredondada e translúcida; só ganha presença no hover. */
-::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar { width: 9px; height: 9px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(100,116,139,.30); border-radius: 8px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(100,116,139,.55); }
+::-webkit-scrollbar-thumb { background: rgba(100,116,139,.55); border-radius: 10px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: rgba(100,116,139,.8); border: 2px solid transparent; background-clip: padding-box; }
 ::-webkit-scrollbar-corner { background: transparent; }
-* { scrollbar-width: thin; scrollbar-color: rgba(100,116,139,.30) transparent; }
+* { scrollbar-width: auto; scrollbar-color: rgba(100,116,139,.55) transparent; }
 
 /* Barra de rolagem DENTRO do menu roxo (pedido do master: "melhora essa
    barra"): o polegar padrão destoava do degradê. Aqui ela fica fininha,
    translúcida e quase invisível — aparece de leve só quando precisa. */
-.vh-sidebar ::-webkit-scrollbar { width: 4px; }
+.vh-sidebar ::-webkit-scrollbar { width: 9px; }
 .vh-sidebar ::-webkit-scrollbar-track { background: transparent; }
-.vh-sidebar ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.18); border-radius: 8px; }
-.vh-sidebar ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.4); }
-.vh-sidebar, .vh-sidebar nav { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.22) transparent; }
+.vh-sidebar ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.45); border-radius: 10px; border: 2px solid transparent; background-clip: padding-box; }
+.vh-sidebar ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.7); border: 2px solid transparent; background-clip: padding-box; }
+.vh-sidebar, .vh-sidebar nav { scrollbar-width: auto; scrollbar-color: rgba(255,255,255,.45) transparent; }
 
 /* ─── Status Badges ─────────────────────────────────────────────────────────── */
 .badge {
@@ -278,9 +278,9 @@ h1 { letter-spacing: -0.7px; }
    claros (ou com texto claro sobre branco) no escuro. Inline style ainda vence,
    por isso o JSX também foi convertido para var(--card)/var(--txt).            */
 [data-theme="dark"] .btn-p { color: #fff; }
-[data-theme="dark"] ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.16); }
-[data-theme="dark"] ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.35); }
-[data-theme="dark"] * { scrollbar-color: rgba(255,255,255,.16) transparent; }
+[data-theme="dark"] ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.4); border: 2px solid transparent; background-clip: padding-box; }
+[data-theme="dark"] ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.65); border: 2px solid transparent; background-clip: padding-box; }
+[data-theme="dark"] * { scrollbar-color: rgba(255,255,255,.4) transparent; }
 [data-theme="dark"] .msg-date-pill { background: var(--bg2); color: var(--muted); }
 /* Badges de status: texto mais claro no escuro (o fundo pastel virou translúcido) */
 [data-theme="dark"] .b-novo    { color: #93c5fd; }
