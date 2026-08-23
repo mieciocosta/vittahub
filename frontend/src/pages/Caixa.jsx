@@ -588,7 +588,9 @@ export default function Caixa() {
       <div style={{ borderRadius: 18, padding: '22px 26px', marginBottom: 18, color: '#fff', position: 'relative', overflow: 'hidden',
         background: 'linear-gradient(135deg,#0b1023 0%,#123 30%,#065f46 130%)', boxShadow: '0 10px 30px rgba(6,95,70,.28)', border: '1px solid rgba(212,175,55,.28)' }}>
         <div style={{ position: 'absolute', right: -25, top: -25, width: 140, height: 140, borderRadius: '50%', background: 'rgba(212,175,55,.12)' }} />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 23, fontWeight: 800 }}><Wallet size={24} /> Caixa</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 23, fontWeight: 800 }}>
+              <Wallet size={24} /> {user?.role === 'master' ? 'Caixa — Vittalis Saúde' : `Caixa do atendimento de ${String(user?.nome || '').split(' ')[0]}`}
+            </div>
         <div style={{ fontSize: 13.5, opacity: .95, marginTop: 6, maxWidth: 620, lineHeight: 1.5 }}>
           Todas as vendas registradas ficam aqui. Anexe o comprovante de pagamento de cada uma pra manter o financeiro organizado. 💚
         </div>
