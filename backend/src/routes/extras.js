@@ -2094,7 +2094,11 @@ r.get('/vendas', async (req, res) => {
              (SELECT u.role FROM usuarios u WHERE u.id = v.atendente_id) AS atendente_role,
              COALESCE((SELECT COUNT(*) FROM venda_comprovantes c WHERE c.venda_id = v.id),0)::int n_comprovantes,
              v.created_at, v.updated_at
-      FROM vendas v ${where} ORDER BY v.data_venda DESC, v.created_at DESC LIMIT 500`, params);
+      FROM vendas v ${where} ORDER BY v.data_venda DESC, v.created_at DESC LIMIT 2000`, params);
+    /* ⚖️ LIMIT 2000 (era 500): o total do Caixa é a SOMA das linhas listadas —
+       num mês com mais de 500 vendas, as mais antigas caíam fora e o Caixa
+       mostrava MENOS que o placar (mesma tabela, mesma régua, soma diferente).
+       Achado na conferência do master (22/08): "veja se está batendo". */
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
