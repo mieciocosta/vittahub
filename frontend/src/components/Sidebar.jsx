@@ -461,7 +461,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
   // 280px (pedido do master: "sensação de aperto" no menu) — mais respiro
   // pros rótulos, o cartão de perfil e os botões. Casar SEMPRE com o sw do
   // App.jsx, senão o conteúdo fica por baixo ou sobra vão.
-  const w = collapsed ? '56px' : '280px';
+  const w = collapsed ? '56px' : '300px';
   // Retornos vencidos: badge vermelho no menu (atualiza a cada 60s)
   const [vencidos, setVencidos] = useState(0);
   useEffect(() => {
@@ -623,28 +623,33 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                 metas são duas linhas varridas num olhar, com a barra por
                 último. Menos moldura, mais leitura. */}
             <div style={{ width:'100%', marginTop:6, borderRadius:13, overflow:'hidden',
-              background:'linear-gradient(180deg, rgba(0,0,0,.20), rgba(0,0,0,.10))', border:'1px solid rgba(255,255,255,.18)', boxShadow:'inset 0 1px 0 rgba(255,255,255,.08)' }}>
+              background:'linear-gradient(180deg, rgba(0,0,0,.22), rgba(0,0,0,.10))', border:'1.5px solid rgba(252,211,77,.55)', boxShadow:'0 0 18px rgba(252,211,77,.18), inset 0 1px 0 rgba(255,255,255,.10)' }}>
 
               {/* Saudação + versículo */}
               <div style={{ padding:'8px 11px 7px' }}>
-                <div style={{ fontSize:13, fontWeight:900, color:'#fff', letterSpacing:.2 }}>
+                <div style={{ fontSize:15.5, fontWeight:900, letterSpacing:.3,
+                  background:'linear-gradient(90deg,#fde68a,#fff7d6,#fde68a)', WebkitBackgroundClip:'text', backgroundClip:'text', color:'transparent',
+                  textShadow:'0 1px 8px rgba(252,211,77,.25)' }}>
                   {(() => { const h = new Date().getHours();
-                    return h < 12 ? `☀️ Bom dia, ${(user?.nome || '').split(' ')[0]}!`
-                      : h < 18 ? `🌤️ Boa tarde, ${(user?.nome || '').split(' ')[0]}!`
-                      : `🌙 Boa noite, ${(user?.nome || '').split(' ')[0]}!`; })()}
+                    /* "Dra. Nágila" cortava em "Dra." — título vem junto do nome */
+                    const pn = String(user?.nome || '').trim().split(/\s+/);
+                    const nome = /^dr[a]?\.?$/i.test(pn[0] || '') ? pn.slice(0, 2).join(' ') : (pn[0] || '');
+                    return h < 12 ? `☀️ Bom dia, ${nome}!`
+                      : h < 18 ? `🌤️ Boa tarde, ${nome}!`
+                      : `🌙 Boa noite, ${nome}!`; })()}
                 </div>
                 <div title={`“${VERS_DIA[0]}” — ${VERS_DIA[1]}`}
-                  style={{ fontSize:10, color:'rgba(255,255,255,.85)', lineHeight:1.45, fontStyle:'italic', marginTop:3,
+                  style={{ fontSize:11.5, color:'rgba(255,255,255,.9)', lineHeight:1.5, fontStyle:'italic', marginTop:4,
                     display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden' }}>
                   “{VERS_DIA[0]}”
                 </div>
-                <div style={{ fontSize:9, color:'rgba(255,255,255,.55)', fontWeight:800, marginTop:1, textAlign:'right' }}>— {VERS_DIA[1]}</div>
+                <div style={{ fontSize:10, color:'rgba(255,255,255,.6)', fontWeight:800, marginTop:2, textAlign:'right' }}>— {VERS_DIA[1]}</div>
               </div>
 
               {/* 🔥 A frase do dia — o ÚNICO destaque colorido do bloco */}
               <div style={{ padding:'8px 11px', borderTop:'1px solid rgba(255,255,255,.12)', borderLeft:'3px solid #fcd34d',
                 background:'linear-gradient(90deg, rgba(252,211,77,.32), rgba(245,158,11,.10))' }}>
-                <div style={{ fontSize:10.5, fontWeight:900, color:'#fff', lineHeight:1.4 }}>🔥 {fraseVenda}</div>
+                <div style={{ fontSize:12, fontWeight:900, color:'#fff', lineHeight:1.45 }}>🔥 {fraseVenda}</div>
               </div>
 
               {/* 💡 CAMINHO DA META — a estratégia pessoal ditada pelo master
@@ -653,7 +658,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                 <div style={{ padding:'8px 11px', borderTop:'1px solid rgba(255,255,255,.12)', borderLeft:'3px solid #4ade80',
                   background:'linear-gradient(90deg, rgba(74,222,128,.22), rgba(34,197,94,.08))' }}>
                   <div style={{ fontSize:9, fontWeight:900, letterSpacing:1, textTransform:'uppercase', color:'rgba(255,255,255,.75)', marginBottom:2 }}>💡 Caminho da meta</div>
-                  <div style={{ fontSize:10.5, fontWeight:800, color:'#fff', lineHeight:1.45 }}>{dicaMeta}</div>
+                  <div style={{ fontSize:11.5, fontWeight:800, color:'#fff', lineHeight:1.5 }}>{dicaMeta}</div>
                 </div>
               )}
 
@@ -705,10 +710,10 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                 );
               })()}
             </div>
-            <div style={{ width:'100%', display:'flex', alignItems:'center', gap:3, justifyContent:'flex-end', marginTop:-2 }}>
+            <div style={{ width:'100%', display:'flex', alignItems:'center', gap:6, justifyContent:'flex-end', marginTop:4 }}>
             {podeTrocar && (
-              <button onClick={abrirTroca} title="Trocar de usuário (entrar como)" style={{ padding:6, background: trocaOpen ? 'rgba(255,255,255,.25)' : 'none', color:'#fff', borderRadius:6, cursor:'pointer', border:'none' }}>
-                <Users size={13} />
+              <button onClick={abrirTroca} title="Trocar de usuário (entrar como)" style={{ padding:8, background: trocaOpen ? 'rgba(255,255,255,.3)' : 'rgba(255,255,255,.14)', color:'#fff', borderRadius:9, cursor:'pointer', border:'1px solid rgba(255,255,255,.22)' }}>
+                <Users size={16} />
               </button>
             )}
             {trocaOpen && (
@@ -734,20 +739,20 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                 {!trocaUsers.length && <div style={{ fontSize:12, color:'var(--muted, #6b7280)', padding:8 }}>Carregando…</div>}
               </div>
             )}
-            <button onClick={()=>setShowAvatarBuilder(true)} title="Criar meu avatar" style={{ padding:6, background:'none', color:'rgba(255,255,255,.62)', borderRadius:6, transition:'color .15s', cursor:'pointer', border:'none' }}
+            <button onClick={()=>setShowAvatarBuilder(true)} title="Criar meu avatar" style={{ padding:8, background:'rgba(255,255,255,.14)', color:'rgba(255,255,255,.85)', borderRadius:9, transition:'color .15s', cursor:'pointer', border:'1px solid rgba(255,255,255,.22)' }}
               onMouseEnter={e=>e.currentTarget.style.color='#ffffff'}
               onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,.62)'}>
-              <Palette size={13} />
+              <Palette size={16} />
             </button>
-            <button onClick={onToggleTheme} title={theme === 'dark' ? 'Modo claro' : 'Modo escuro'} style={{ padding:6, background:'none', color:'rgba(255,255,255,.62)', borderRadius:6, transition:'color .15s', cursor:'pointer', border:'none' }}
+            <button onClick={onToggleTheme} title={theme === 'dark' ? 'Modo claro' : 'Modo escuro'} style={{ padding:8, background:'rgba(255,255,255,.14)', color:'rgba(255,255,255,.85)', borderRadius:9, transition:'color .15s', cursor:'pointer', border:'1px solid rgba(255,255,255,.22)' }}
               onMouseEnter={e=>e.currentTarget.style.color='#ffffff'}
               onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,.62)'}>
-              {theme === 'dark' ? <Sun size={13} /> : <Moon size={13} />}
+              {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
             </button>
-            <button onClick={logout} title="Sair" style={{ padding:6, background:'none', color:'rgba(255,255,255,.62)', borderRadius:6, transition:'color .15s', cursor:'pointer', border:'none' }}
+            <button onClick={logout} title="Sair" style={{ padding:8, background:'rgba(255,255,255,.14)', color:'rgba(255,255,255,.85)', borderRadius:9, transition:'color .15s', cursor:'pointer', border:'1px solid rgba(255,255,255,.22)' }}
               onMouseEnter={e=>e.currentTarget.style.color='#ffffff'}
               onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,.62)'}>
-              <LogOut size={13} />
+              <LogOut size={16} />
             </button>
             </div>
           </div>

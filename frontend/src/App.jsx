@@ -412,7 +412,7 @@ export default function App() {
 
   // Atualiza a CSS variable --sw ao colapsar/expandir sidebar
   useEffect(() => {
-    const sw = navCollapsed ? '56px' : '280px';   // casar com o w do Sidebar.jsx
+    const sw = navCollapsed ? '56px' : '300px';   // casar com o w do Sidebar.jsx
     document.documentElement.style.setProperty('--sw', sw);
     localStorage.setItem('vh_nav', navCollapsed ? 'collapsed' : 'open');
   }, [navCollapsed]);
