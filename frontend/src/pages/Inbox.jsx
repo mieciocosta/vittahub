@@ -194,12 +194,9 @@ const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect, usersB
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
           <StatusBadge status={conv.status_atend} size="xs" />
-          {SCORE_CFG[conv.lead_score] && (
-            <span title={conv.lead_score_motivo ? `Lead ${conv.lead_score}: ${conv.lead_score_motivo}` : `Lead ${conv.lead_score}`}
-              style={{ fontSize: 9, color: SCORE_CFG[conv.lead_score].color, fontWeight: 800, background: SCORE_CFG[conv.lead_score].bg, padding: '1.5px 6px', borderRadius: 8, letterSpacing: .4, display: 'inline-flex', alignItems: 'center', gap: 2 }}>
-              {SCORE_CFG[conv.lead_score].emoji}{SCORE_CFG[conv.lead_score].label}
-            </span>
-          )}
+          {/* 🗑️ Selo de temperatura (QUENTE/MORNO/FRIO) REMOVIDO da lista
+              (pedido do master, 22/08) — segue dentro da conversa, na faixa
+              de contexto. O 🔥 do lead quente continua ao lado do nome. */}
           {conv.bot_ativo && <span style={{ fontSize: 9, color: 'var(--ok)', fontWeight: 800, background: 'var(--ok2)', padding: '1.5px 6px', borderRadius: 8, letterSpacing: .4 }}>BOT</span>}
           {/* 📌 Botão FIXAR no lugar do selo LEAD (pedido do master): clicou,
               a conversa sobe pra seção Fixadas — que aparece sozinha no topo. */}
