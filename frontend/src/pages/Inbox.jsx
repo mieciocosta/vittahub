@@ -1859,10 +1859,9 @@ export default function Inbox({ onUnreadChange }) {
                 className="btn btn-sm" style={{ background:'#1e3a5f', color:'#7cc4ff', border:'1.5px solid #2563eb', fontSize:11, padding:'4px 9px', fontWeight:700 }}>
                 <CalendarDays size={10}/> Agendar
               </button>
-              <button onClick={sugerirAgendaIA} disabled={iaAgendaBusy} title="A IA lê a conversa e sugere o agendamento (data, hora, serviço) — você revisa e confirma"
-                className="btn btn-sm" style={{ background:'#3b0764', color:'#e9d5ff', border:'1.5px solid #7c3aed', fontSize:11, padding:'4px 9px', fontWeight:700 }}>
-                {iaAgendaBusy ? <span className="spin" style={{width:10,height:10}}/> : '🤖'} Agendar IA
-              </button>
+              {/* 🗑️ Botão "Agendar IA" REMOVIDO (pedido do master, 22/08: "tem
+                  muitos botões aqui que não servem de nada") — a IA já
+                  pré-agenda sozinha na conversa pela tool pre_agendar. */}
               <button onClick={async () => {
                   setResumoLoad(true); setResumo(null);
                   try { setResumo(await api.get(`/inbox/conversations/${sel.id}/resumo`)); }
