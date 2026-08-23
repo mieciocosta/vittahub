@@ -683,7 +683,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                 const focoOk = foco ? foco.every(f => (f.falta ?? 0) === 0) : false;
                 const focoTxt = foco ? foco.map(f => (f.falta ?? 0) > 0 ? `falta ${f.falta} ${f.rotulo}` : f.rotulo).join(' ou ') : null;
                 const ehConsultas = lista[0]?.setor === 'consultas';
-                if (!ind && !verVal && !focoTxt) return null;
+                if (!ind && !verVal && !focoTxt && !dicaMeta) return null;
                 const Linha = ({ icone, rotulo, valor, cor }) => (
                   <div style={{ display:'flex', alignItems:'baseline', gap:6, fontSize:11.5 }}>
                     <span style={{ flexShrink:0 }}>{icone}</span>
