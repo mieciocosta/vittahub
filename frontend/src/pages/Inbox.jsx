@@ -660,6 +660,7 @@ export default function Inbox({ onUnreadChange }) {
   };
   const [protoAberto, setProtoAberto] = useState(true);
   const [protoBusy, setProtoBusy] = useState('');
+  const [protoSel, setProtoSel] = useState(null); // passo aberto nos botões numerados (23/08/2026)
   const [resumoLoad, setResumoLoad] = useState(false);
   const [estudoBusy, setEstudoBusy] = useState(false);
   const [estudoAviso, setEstudoAviso] = useState(null);
@@ -2329,83 +2330,87 @@ export default function Inbox({ onUnreadChange }) {
           )}
 
           {proto && proto.passos && (
-            <div style={{ flexShrink:0, borderTop:'1px solid var(--border)', background: proto.faltando.length ? '#fff8ed' : '#f0fdf4' }}>
+            <div style={{ flexShrink:0, borderTop:'1px solid var(--border)', background:'var(--card)' }}>
+              {/* 🔢 PROTOCOLO EM BOTÕES NUMERADOS (pedido do master, 23/08/2026:
+                  "estava muito claro — transforma tudo em algo discreto, botões
+                  modernos, passo a passo enumerado: botão 1: Boas-vindas!").
+                  Uma fileira de botões 1..N no tom do tema; toque abre o passo
+                  com a dica e as ações. Verde = feito, âmbar = falta. */}
               <button onClick={() => setProtoAberto(a => !a)}
-                style={{ width:'100%', display:'flex', alignItems:'center', gap:9, padding:'7px 14px', border:'none', cursor:'pointer', background:'transparent', textAlign:'left' }}>
-                <span style={{ fontSize:14 }}>{proto.faltando.length ? '📋' : '🏆'}</span>
-                <span style={{ flex:1, minWidth:0, fontSize:12, fontWeight:800, color: proto.faltando.length ? '#b45309' : '#15803d' }}>
+                style={{ width:'100%', display:'flex', alignItems:'center', gap:9, padding:'6px 14px', border:'none', cursor:'pointer', background:'transparent', textAlign:'left' }}>
+                <span style={{ fontSize:13 }}>{proto.faltando.length ? '📋' : '🏆'}</span>
+                <span style={{ flex:1, minWidth:0, fontSize:11.5, fontWeight:800, color:'var(--txt2)' }}>
                   {proto.faltando.length
-                    ? `Protocolo Vittalis: faltam ${proto.faltando.length} passo${proto.faltando.length > 1 ? 's' : ''}`
+                    ? `Protocolo Vittalis — ${proto.passos.length - proto.faltando.length}/${proto.passos.length} passos`
                     : 'Protocolo Vittalis completo! Atendimento nota 10 💙'}
                 </span>
-                {/* Barra de progresso no lugar das bolinhas (pedido do master:
-                    "melhora essa apresentação") — o avanço se lê num olhar. */}
-                <span style={{ width:78, height:8, borderRadius:6, background:'rgba(0,0,0,.12)', overflow:'hidden', flexShrink:0 }}>
-                  <span style={{ display:'block', width:`${Math.max(proto.pct, 4)}%`, height:'100%', borderRadius:6,
-                    background: proto.pct >= 100 ? 'linear-gradient(90deg,#16a34a,#4ade80)' : 'linear-gradient(90deg,#f59e0b,#fcd34d)' }} />
+                <span style={{ width:64, height:5, borderRadius:99, background:'var(--border)', overflow:'hidden', flexShrink:0 }}>
+                  <span style={{ display:'block', height:'100%', width:`${proto.pct}%`, borderRadius:99, background: proto.faltando.length ? '#f59e0b' : '#16a34a' }} />
                 </span>
-                <span style={{ fontSize:10.5, fontWeight:800, color:'var(--muted)' }}>{proto.pct}% · {protoAberto ? '▲' : '▼'}</span>
+                <span style={{ fontSize:10, fontWeight:800, color:'var(--muted)' }}>{proto.pct}% {protoAberto ? '▲' : '▼'}</span>
               </button>
 
               {protoAberto && (
-                <div style={{ padding:'2px 12px 10px', maxHeight:230, overflowY:'auto' }}>
-                  {proto.passos.map(p2 => (
-                    <div key={p2.k} style={{ display:'flex', alignItems:'center', gap:9, padding:'7px 9px', borderRadius:11, marginBottom:5,
-                      background: p2.feito ? 'rgba(22,163,74,.06)' : '#fff',
-                      border: p2.feito ? '1px solid rgba(22,163,74,.25)' : '1px solid #fde4b8',
-                      boxShadow: p2.feito ? 'none' : '0 1px 4px rgba(180,83,9,.08)' }}>
-                      <span style={{ width:26, height:26, borderRadius:'50%', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:13,
-                        background: p2.feito ? 'rgba(22,163,74,.12)' : '#fff4dd', border: p2.feito ? '1px solid rgba(22,163,74,.3)' : '1px solid #fcd34d' }}>
-                        {p2.feito ? '✅' : p2.emoji}
-                      </span>
-                      <div style={{ flex:1, minWidth:0 }}>
-                        <div style={{ fontSize:11.5, fontWeight: p2.feito ? 600 : 800, color: p2.feito ? '#15803d' : '#92400e', textDecoration: p2.feito ? 'line-through' : 'none', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                          {p2.nome}
+                <div style={{ padding:'0 12px 9px' }}>
+                  <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
+                    {proto.passos.map((p2, i) => {
+                      const sel2 = protoSel === p2.k;
+                      return (
+                        <button key={p2.k} onClick={() => setProtoSel(sel2 ? null : p2.k)}
+                          title={`${p2.feito ? 'Feito ✓' : 'Falta'} — ${p2.nome}`}
+                          style={{
+                            display:'flex', alignItems:'center', gap:6, padding:'4px 10px 4px 4px', cursor:'pointer',
+                            borderRadius:99, fontSize:10.5, fontWeight:700, maxWidth:'100%',
+                            border: sel2 ? '1.5px solid var(--tq2)' : '1px solid ' + (p2.feito ? 'rgba(22,163,74,.35)' : 'var(--border)'),
+                            background: sel2 ? 'var(--tq4)' : (p2.feito ? 'rgba(22,163,74,.08)' : 'var(--bg)'),
+                            color: p2.feito ? '#15803d' : 'var(--txt2)', opacity: p2.feito && !sel2 ? .75 : 1,
+                          }}>
+                          <span style={{ width:18, height:18, borderRadius:'50%', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center',
+                            fontSize:10, fontWeight:900, color:'#fff', background: p2.feito ? '#16a34a' : '#f59e0b' }}>
+                            {p2.feito ? '✓' : i + 1}
+                          </span>
+                          <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{p2.nome}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {protoSel && (() => {
+                    const p2 = proto.passos.find(x => x.k === protoSel);
+                    if (!p2) return null;
+                    return (
+                      <div style={{ marginTop:7, padding:'8px 11px', borderRadius:11, border:'1px solid var(--border)', background:'var(--bg)', display:'flex', alignItems:'center', gap:9, flexWrap:'wrap' }}>
+                        <div style={{ flex:1, minWidth:180 }}>
+                          <div style={{ fontSize:11.5, fontWeight:800, color:'var(--txt2)' }}>{p2.feito ? '✅ ' : `${p2.emoji} `}{p2.nome}</div>
+                          <div style={{ fontSize:10.5, color:'var(--muted)', marginTop:2, lineHeight:1.45 }}>
+                            {p2.feito ? 'Este passo já foi cumprido nesta conversa. 👏' : (p2.dica || 'Falta fazer este passo com o cliente.')}
+                          </div>
                         </div>
-                        {!p2.feito && p2.dica && <div style={{ fontSize:10, color:'#b45309', opacity:.85, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{p2.dica}</div>}
+                        {!p2.feito && p2.k === 'significado_nome' && (
+                          <button onClick={async () => {
+                            const nome = proto.paciente || window.prompt('Nome da criança:');
+                            if (!nome) return;
+                            setProtoBusy(p2.k);
+                            try {
+                              const r = await api.post(`/inbox/conversations/${sel.id}/significado-nome`, { nome });
+                              Toast.show(`✨ Cartão do nome ${r.nome} enviado!`, 'success');
+                              api.get(`/inbox/conversations/${sel.id}/protocolo`).then(setProto).catch(() => {});
+                            } catch (e) { Toast.show(e.message, 'error'); }
+                            setProtoBusy('');
+                          }} disabled={!!protoBusy}
+                            style={{ flexShrink:0, border:'none', borderRadius:9, padding:'6px 13px', cursor:'pointer', background:'#7c3aed', color:'#fff', fontSize:11, fontWeight:800 }}>
+                            {protoBusy === p2.k ? '…' : '✨ Gerar e enviar'}
+                          </button>
+                        )}
+                        {!p2.feito && p2.modelo && p2.k !== 'significado_nome' && (
+                          <button onClick={() => { setInput(p2.modelo); textRef.current?.focus(); }}
+                            title="Coloca a mensagem pronta no campo de digitação"
+                            style={{ flexShrink:0, borderRadius:9, padding:'6px 13px', cursor:'pointer', border:'1px solid var(--tq3)', background:'var(--tq4)', color:'var(--tq2)', fontSize:11, fontWeight:800 }}>
+                            ✍️ Usar texto
+                          </button>
+                        )}
                       </div>
-                      {!p2.feito && p2.k === 'significado_nome' && (
-                        <button onClick={async () => {
-                          const nome = proto.paciente || window.prompt('Nome da criança:');
-                          if (!nome) return;
-                          setProtoBusy(p2.k);
-                          try {
-                            const r = await api.post(`/inbox/conversations/${sel.id}/significado-nome`, { nome });
-                            Toast.show(`✨ Cartão do nome ${r.nome} enviado!`, 'success');
-                            api.get(`/inbox/conversations/${sel.id}/protocolo`).then(setProto).catch(() => {});
-                          } catch (e) { Toast.show(e.message, 'error'); }
-                          setProtoBusy('');
-                        }} disabled={!!protoBusy}
-                          style={{ flexShrink:0, border:'none', borderRadius:8, padding:'4px 10px', cursor:'pointer', background:'#7c3aed', color:'#fff', fontSize:10.5, fontWeight:800 }}>
-                          {protoBusy === p2.k ? '…' : '✨ Gerar e enviar'}
-                        </button>
-                      )}
-                      {/* 📸 PROVA SOCIAL EM 1 CLIQUE (pedido do master): envia um
-                          conjunto de fotos da Biblioteca + Instagram na legenda */}
-                      {!p2.feito && p2.k === 'prova_social' && (
-                        <button onClick={async () => {
-                          setProtoBusy(p2.k);
-                          try {
-                            const r = await api.post(`/inbox/conversations/${sel.id}/prova-social`, {});
-                            Toast.show(`📸 ${r.enviadas} foto(s) + Instagram enviados!`, 'success');
-                            api.get(`/inbox/conversations/${sel.id}/protocolo`).then(setProto).catch(() => {});
-                          } catch (e) { Toast.show(e.message, 'error'); }
-                          setProtoBusy('');
-                        }} disabled={!!protoBusy}
-                          title="Envia até 3 fotos de prova social da Biblioteca com o link do Instagram na legenda"
-                          style={{ flexShrink:0, border:'none', borderRadius:8, padding:'4px 10px', cursor:'pointer', background:'linear-gradient(120deg,#ec4899,#a855f7)', color:'#fff', fontSize:10.5, fontWeight:800 }}>
-                          {protoBusy === p2.k ? '…' : '📸 Fotos + Insta'}
-                        </button>
-                      )}
-                      {!p2.feito && p2.modelo && p2.k !== 'significado_nome' && p2.k !== 'prova_social' && (
-                        <button onClick={() => { setInput(p2.modelo); textRef.current?.focus(); }}
-                          title="Coloca a mensagem pronta no campo de digitação"
-                          style={{ flexShrink:0, border:'1px solid #fcd34d', borderRadius:8, padding:'4px 10px', cursor:'pointer', background:'#fff', color:'#b45309', fontSize:10.5, fontWeight:800 }}>
-                          ✍️ Usar texto
-                        </button>
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })()}
                 </div>
               )}
             </div>
