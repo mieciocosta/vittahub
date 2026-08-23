@@ -658,7 +658,9 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
 
               {/* 💡 CAMINHO DA META — a estratégia pessoal ditada pelo master
                   (a 1ª foi da Raylane: 8 Planos Vacinais = meta batida) */}
-              {dicaMeta && (
+              {/* 💡 O Caminho da Meta mora DENTRO da faixa da meta (pedido do
+                  master) — este bloco só aparece se não houver meta pra abrigá-lo. */}
+              {dicaMeta && !metaMini?.metaGlobal && (
                 <div style={{ padding:'8px 11px', borderTop:'1px solid rgba(255,255,255,.12)', borderLeft:'3px solid #4ade80',
                   background:'linear-gradient(90deg, rgba(74,222,128,.22), rgba(34,197,94,.08))' }}>
                   <div style={{ fontSize:9, fontWeight:900, letterSpacing:1, textTransform:'uppercase', color:'rgba(255,255,255,.75)', marginBottom:2 }}>💡 Caminho da meta</div>
@@ -709,6 +711,14 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                             background: pct >= 100 ? 'linear-gradient(90deg,#34d399,#6ee7b7)' : 'linear-gradient(90deg,#f59e0b,#fcd34d)', boxShadow:'0 0 8px rgba(252,211,77,.5)' }} />
                         </div>
                       </>
+                    )}
+                    {/* 💡 Caminho da meta DENTRO da meta (pedido do master):
+                        a estratégia mora junto do número que ela ataca. */}
+                    {dicaMeta && (
+                      <div style={{ marginTop:5, paddingTop:6, borderTop:'1px dashed rgba(252,211,77,.45)' }}>
+                        <div style={{ fontSize:9, fontWeight:900, letterSpacing:1, textTransform:'uppercase', color:'rgba(255,255,255,.8)', marginBottom:2 }}>💡 Caminho da meta</div>
+                        <div style={{ fontSize:11.5, fontWeight:800, color:'#fff', lineHeight:1.5 }}>{dicaMeta}</div>
+                      </div>
                     )}
                   </div>
                 );
