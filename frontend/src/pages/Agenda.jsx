@@ -173,6 +173,26 @@ export default function Agenda() {
         <div style={{ fontSize: 11.5, color: 'var(--muted)', minWidth: 70, textAlign: 'center' }}>{ev.resp_nome ? ev.resp_nome.split(' ')[0] : ''}</div>
         <span style={{ padding: '3px 10px', borderRadius: 8, fontSize: 10.5, fontWeight: 800, background: bg, color: cor, minWidth: 86, textAlign: 'center' }}>{ev.status}</span>
         <div style={{ display: 'flex', gap: 5 }}>
+          {/* 💙 MANDAR PÓS VACINAL (pedido do master): leva direto pra conversa
+              com a mensagem de cuidado JÁ ESCRITA na caixa — a atendente lê,
+              ajusta e envia. */}
+          {ev.servico === 'Pós Vacinal' && (ev.conversa_id || ev.telefone) && (
+            <button onClick={() => {
+              const resp1 = String(ev.responsavel_nome || '').trim().split(' ')[0];
+              const pac1 = String(ev.paciente || '').trim().split(' ')[0];
+              const msg = `Oi${resp1 ? `, ${resp1}` : ''}! 💙 Aqui é da Vittalis Saúde. Passando pra saber: como ${pac1 ? `o(a) ${pac1}` : 'o(a) pequeno(a)'} passou depois das vacinas? Teve febre, dorzinha no local ou ficou mais manhosinho(a)? Qualquer coisa, estamos aqui pra orientar vocês 🥰`;
+              if (ev.conversa_id) {
+                try { sessionStorage.setItem('vh_rascunho_' + ev.conversa_id, msg); } catch { /* ok */ }
+                navigate(`/inbox?conv=${ev.conversa_id}`);
+              } else navigate(`/inbox?phone=${String(ev.telefone).replace(/\D/g, '')}`);
+            }}
+              title="Abre a conversa do cliente com a mensagem de pós-vacinal pronta na caixa"
+              style={{ height: 30, padding: '0 12px', borderRadius: 9, border: 'none', cursor: 'pointer', flexShrink: 0,
+                background: 'linear-gradient(120deg,#1d4ed8,#3b82f6)', color: '#fff', fontSize: 11, fontWeight: 800,
+                boxShadow: '0 1px 6px rgba(59,130,246,.4)', whiteSpace: 'nowrap' }}>
+              💙 Mandar Pós Vacinal
+            </button>
+          )}
           {ev.telefone && (
             <>
               <a href={`tel:+55${ev.telefone}`} title="Ligar" style={btnAcao}><Phone size={13} /></a>
