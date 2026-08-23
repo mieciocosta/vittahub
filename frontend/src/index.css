@@ -73,11 +73,15 @@ button { font-family: 'DM Sans', sans-serif; cursor: pointer; border: none; outl
 input, select, textarea { font-family: 'DM Sans', sans-serif; font-size: 14px; }
 a { text-decoration: none; color: inherit; }
 
-/* Scrollbar */
-::-webkit-scrollbar { width: 5px; height: 5px; }
+/* Scrollbar — todas as rolagens do app no mesmo padrão discreto (pedido do
+   master: melhorar também as do lado do conteúdo, lista de conversas e chat).
+   Fininha, arredondada e translúcida; só ganha presença no hover. */
+::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--bord2); border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+::-webkit-scrollbar-thumb { background: rgba(100,116,139,.30); border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(100,116,139,.55); }
+::-webkit-scrollbar-corner { background: transparent; }
+* { scrollbar-width: thin; scrollbar-color: rgba(100,116,139,.30) transparent; }
 
 /* Barra de rolagem DENTRO do menu roxo (pedido do master: "melhora essa
    barra"): o polegar padrão destoava do degradê. Aqui ela fica fininha,
@@ -274,7 +278,9 @@ h1 { letter-spacing: -0.7px; }
    claros (ou com texto claro sobre branco) no escuro. Inline style ainda vence,
    por isso o JSX também foi convertido para var(--card)/var(--txt).            */
 [data-theme="dark"] .btn-p { color: #fff; }
-[data-theme="dark"] ::-webkit-scrollbar-thumb { background: var(--border); }
+[data-theme="dark"] ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.16); }
+[data-theme="dark"] ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.35); }
+[data-theme="dark"] * { scrollbar-color: rgba(255,255,255,.16) transparent; }
 [data-theme="dark"] .msg-date-pill { background: var(--bg2); color: var(--muted); }
 /* Badges de status: texto mais claro no escuro (o fundo pastel virou translúcido) */
 [data-theme="dark"] .b-novo    { color: #93c5fd; }
