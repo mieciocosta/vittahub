@@ -312,6 +312,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
   // De onde a paleta foi aberta: 'topo' (atalho do cartão de perfil — pedido
   // do master: "traz as cores pra cá") ou 'rodape' (botão de sempre)
   const [paletaOrigem, setPaletaOrigem] = useState('rodape');
+  const [, forceFonte] = useState(0);   // re-render pro ✓ da fonte acompanhar o clique
   // Família escolhida no seletor de cor (o tom sai dela). Começa na cor atual.
   const [familia, setFamilia] = useState(() => {
     const v = localStorage.getItem('vh_cor') || '';
@@ -1120,7 +1121,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                     {Object.entries(window.__vhFontes || {}).map(([k, f]) => {
                       const on = (localStorage.getItem('vh_fonte') || 'padrao') === k;
                       return (
-                        <button key={k} onClick={() => { window.__vhAplicarFonte?.(k); setPaletaAberta(a => a); setFamilia(fam => fam); }}
+                        <button key={k} onClick={() => { window.__vhAplicarFonte?.(k); forceFonte(x => x + 1); }}
                           style={{ padding:'8px 6px', borderRadius:10, cursor:'pointer', fontSize:12.5, fontWeight:700,
                             fontFamily: f.css || 'inherit',
                             border: on ? '2px solid var(--tq)' : '1.5px solid var(--border,#e2e8f0)',
