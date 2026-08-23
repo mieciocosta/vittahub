@@ -2221,6 +2221,7 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
     try { await zapiCall('/send-chat-state', 'POST', { phone: `55${phoneNum}`, chatState: 'composing' }); } catch {}
     await new Promise(r => setTimeout(r, Math.min(1200 + String(botReply).length * 30, 6000)));
     // Assinatura igual à das atendentes humanas: "*Nome:*" na primeira linha
+    botReply = semTravessao(botReply);
     const msgSaida = botReply.trimStart().startsWith('*') ? botReply : `*${nomePersona}:*\n${botReply}`;
     await zapiCall('/send-text', 'POST', { phone: `55${phoneNum}`, message: msgSaida });
     const { rows: [botMsg] } = await query(
@@ -4843,7 +4844,19 @@ r.post('/conversations/:id/orcamento-pdf', async (req, res) => {
 
 /* ─── MENSAGENS AGENDADAS: dispara texto pro cliente em data/hora marcada ──────── */
 // Envia um texto pela conversa (usado pelo agendador) e registra no histórico.
+/* ✍️ SEM TRAVESSÕES (ordem do master, reforçada): mesmo que a IA escorregue,
+   o texto é saneado antes de sair. "— " no meio de frase vira vírgula; quando
+   o que segue começa em maiúscula, vira ponto (concordância com o português). */
+function semTravessao(t) {
+  return String(t || '')
+    .replace(/\s+[—–]\s+(?=[A-ZÁÉÍÓÚÂÊÔÃÕÀ])/g, '. ')
+    .replace(/\s+[—–]\s+/g, ', ')
+    .replace(/\s*[—–]\s*/g, ', ')
+    .replace(/,\s*,/g, ',');
+}
+
 async function enviarTextoConversa(conv, texto, senderNome, opts = {}) {
+  if (opts.deBot) texto = semTravessao(texto);
   /* Bloqueia ANTES de gravar: se a tranca barrar depois, o histórico mostra a
      mensagem como enviada e ninguém entende por que o cliente não respondeu. */
   if (pareceMensagemDeTeste(texto)) {
