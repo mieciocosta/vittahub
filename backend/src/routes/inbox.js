@@ -8973,8 +8973,8 @@ async function gerarMensagemFollowup(conv, count, nomeFU = 'Equipe Vittalis') {
   const fallback = (() => {
     if (count === 0) return enviouPdf
       ? `Oi, ${trato}! 😊 Conseguiu dar uma olhadinha na proposta que te enviei? Posso esclarecer qualquer dúvida e já deixar seu horário reservado 💙`
-      : `Oi, ${trato}! 😊 Passando aqui pra saber se ficou alguma dúvida. Vai ser um prazer te ajudar a deixar tudo certinho 💙`;
-    if (count === 1) return `Oii, ${trato}, ainda está por aí? 🥰 Qualquer dúvida sobre valores ou datas é só me chamar — será um prazer cuidar de vocês 💙`;
+      : `Oi, ${trato}! 😊 Passando aqui pra saber se ficou alguma dúvida. Vai ser um prazer te ajudar a deixar tudo certinho 💙 Me conta: o que falta pra gente cuidar do seu pequeno?`
+    if (count === 1) return `Oii, ${trato}, ainda está por aí? 🥰 Qualquer dúvida sobre o investimento ou as datas é só me chamar, será um prazer cuidar de vocês 💙 Prefere manhã ou tarde?`;
     return `Oi, ${trato}! Não quero te incomodar 😊 Só deixar registrado que estou por aqui quando quiser seguir. Será um prazer receber vocês na Vittalis 💎`;
   })();
 
@@ -9002,7 +9002,7 @@ async function gerarMensagemFollowup(conv, count, nomeFU = 'Equipe Vittalis') {
         ? 'SEGUNDA retomada: NÃO repita a primeira. Agregue algo NOVO — um benefício que ainda não foi dito (atendimento sem pressa, domiciliar incluso nas terapias, Certificado de Coragem, parcelamento) conectado ao caso do cliente. Termine com um convite leve.'
         : 'TERCEIRA e última: elegância e porta aberta. Sem pedir resposta — apenas carinho genuíno pelo bem-estar da criança e a certeza de que a Vittalis está aqui quando precisarem. Uma despedida que dá vontade de voltar.';
 
-    const sys = `Você é a ${nomeFU}, atendente carinhosa da Vittalis Saúde (pediatria, vacinas e terapias infantis — São Luís/MA) no WhatsApp; é assim que o cliente te conhece. O cliente parou de responder. Escreva UMA única mensagem curta (1 a 3 frases), calorosa e HUMANA, tratando por "${trato}", com 1 emoji de afeto (💙🥰😊✨).
+    const sys = `REGRAS DE ESTILO OBRIGATÓRIAS: nunca use travessão (— ou –) nem aspas; no lugar use vírgula, dois-pontos ou frase nova. Nunca diga preço ou valores: diga investimento. Termine com uma pergunta leve. Você é a ${nomeFU}, atendente carinhosa da Vittalis Saúde (pediatria, vacinas e terapias infantis — São Luís/MA) no WhatsApp; é assim que o cliente te conhece. O cliente parou de responder. Escreva UMA única mensagem curta (1 a 3 frases), calorosa e HUMANA, tratando por "${trato}", com 1 emoji de afeto (💙🥰😊✨).
 ${estrategia}
 REGRAS DA CASA: fale "investimento", nunca "preço/valor"; nunca soe cobrança nem desespero (somos uma clínica procurada); não repita literalmente nada que já foi dito; não invente valores nem promessas. Responda APENAS a mensagem, sem aspas.`;
 
@@ -9072,7 +9072,7 @@ export async function rodarFollowups() {
         }
 
         const count = conv.followup_count || 0;
-        const msg = await gerarMensagemFollowup(conv, count, nomeFU);
+        const msg = semTravessao(await gerarMensagemFollowup(conv, count, nomeFU));
 
         const msgAssinada = msg.trimStart().startsWith('*') ? msg : `*${nomeFU}:*\n${msg}`;
         const zr = await zapiCall('/send-text', 'POST', { phone: `55${phoneNum}`, message: msgAssinada });
