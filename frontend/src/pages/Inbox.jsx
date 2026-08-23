@@ -548,6 +548,7 @@ export default function Inbox({ onUnreadChange }) {
   const [encOpen, setEncOpen] = useState(false);         // 📤 encaminhar conversa pra outro canal
   const [encForm, setEncForm] = useState({ destino: '', mensagens: 20, observacao: '' });
   const [encSaving, setEncSaving] = useState(false);
+  const [encDestino, setEncDestino] = useState(null);    // destino único salvo (Planos Vacinais)
   const [filePreview, setFilePreview] = useState(null);
   const [showQR, setShowQR]     = useState(false);
   const [qr, setQr]             = useState([]);
@@ -1965,7 +1966,7 @@ export default function Inbox({ onUnreadChange }) {
               </button>
               {/* 📤 Encaminhar pra outro canal (pedido do master): manda o
                   histórico pro WhatsApp do setor com o link do cliente no fim */}
-              <button onClick={()=>{ setEncForm({ destino: '', mensagens: 20, observacao: '' }); setEncOpen(true); }}
+              <button onClick={()=>{ setEncForm({ destino: '', mensagens: 20, observacao: '' }); setEncOpen(true); api.get('/inbox/encaminhar-destino').then(setEncDestino).catch(()=>setEncDestino(null)); }}
                 title="Encaminhar o histórico desta conversa pro WhatsApp de outro setor/canal, com o link do cliente pronto pra chamar"
                 className="btn btn-sm" style={{ background:'#4a044e', color:'#f0abfc', border:'1.5px solid #c026d3', fontSize:11, padding:'4px 9px', fontWeight:700 }}>
                 📤 Encaminhar
@@ -3108,8 +3109,20 @@ export default function Inbox({ onUnreadChange }) {
               Envia o histórico de <b>{sel.contact_name || fmt.phone(sel.phone)}</b> pro WhatsApp de outro canal/setor, já com o <b>link do cliente no final</b> pra equipe de lá chamar e agendar.
             </p>
             <div style={{ display:'flex', flexDirection:'column', gap:11 }}>
-              <div className="field" style={{ margin:0 }}><label>WhatsApp de destino (com DDD) *</label>
-                <input inputMode="numeric" value={encForm.destino} onChange={e=>setEncForm(p=>({ ...p, destino: e.target.value.replace(/[^\d() -]/g,'') }))} placeholder="(98) 9...." /></div>
+              {encDestino?.configurado ? (
+                <div style={{ display:'flex', alignItems:'center', gap:10, padding:'11px 13px', borderRadius:12,
+                  background:'linear-gradient(120deg, var(--tq), #0aa6ae)', color:'#fff', boxShadow:'0 3px 10px rgba(0,184,192,.35)' }}>
+                  <span style={{ fontSize:17 }}>📌</span>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:10, fontWeight:800, textTransform:'uppercase', letterSpacing:.6, opacity:.85 }}>Enviar para (destino fixo)</div>
+                    <div style={{ fontSize:14, fontWeight:900 }}>{encDestino.nome || 'Planos Vacinais'}</div>
+                  </div>
+                  <span style={{ fontSize:15 }}>✅</span>
+                </div>
+              ) : (
+                <div className="field" style={{ margin:0 }}><label>WhatsApp de destino (com DDD) *</label>
+                  <input inputMode="numeric" value={encForm.destino} onChange={e=>setEncForm(p=>({ ...p, destino: e.target.value.replace(/[^\d() -]/g,'') }))} placeholder="(98) 9...." /></div>
+              )}
               <div className="field" style={{ margin:0 }}><label>Quantas mensagens do histórico</label>
                 <select value={encForm.mensagens} onChange={e=>setEncForm(p=>({ ...p, mensagens: parseInt(e.target.value) }))} style={{ width:'100%' }}>
                   {[10,20,40,60].map(n=><option key={n} value={n}>Últimas {n}</option>)}
@@ -3118,7 +3131,7 @@ export default function Inbox({ onUnreadChange }) {
                 <input value={encForm.observacao} onChange={e=>setEncForm(p=>({ ...p, observacao: e.target.value }))} maxLength={200} placeholder="Ex.: cliente do plano ativo pedindo agendamento" /></div>
               <div style={{ display:'flex', gap:8, marginTop:4 }}>
                 <button onClick={async ()=>{
-                  if (String(encForm.destino).replace(/\D/g,'').length < 10) { Toast.show('Informe o número de destino com DDD', 'error'); return; }
+                  if (!encDestino?.configurado && String(encForm.destino).replace(/\D/g,'').length < 10) { Toast.show('Informe o número de destino com DDD', 'error'); return; }
                   setEncSaving(true);
                   try {
                     await api.post(`/inbox/conversations/${sel.id}/encaminhar`, { destino: encForm.destino, mensagens: encForm.mensagens, observacao: encForm.observacao });

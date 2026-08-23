@@ -4616,6 +4616,28 @@ r.post('/conversations/:id/fixar', async (req, res) => {
    de setor específico (ex.: os ativos dos planos) manda a solicitação pra
    central; a equipe encaminha o histórico pro WhatsApp daquele setor com o
    link do cliente no final, pronto pra chamar e agendar. */
+/* 📌 DESTINO ÚNICO DO ENCAMINHAMENTO (ordem do master, 22/08): o canal fixo
+   é o setor Planos Vacinais (contato "Vittalis Saúde Ativos"). Salvo em
+   configuracoes.encaminhar_destino; o master pode trocar. */
+r.get('/encaminhar-destino', async (req, res) => {
+  try {
+    const { rows: [c] } = await query("SELECT valor FROM configuracoes WHERE chave = 'encaminhar_destino'").catch(() => ({ rows: [] }));
+    res.json({ nome: c?.valor?.nome || null, configurado: !!c?.valor?.phone });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+r.put('/encaminhar-destino', async (req, res) => {
+  try {
+    if (req.user?.role !== 'master') return res.status(403).json({ error: 'Só o master define o destino do encaminhamento.' });
+    const phone = String(req.body?.phone || '').replace(/\D/g, '');
+    const nome = String(req.body?.nome || 'Planos Vacinais').trim().slice(0, 60);
+    if (phone.length < 10) return res.status(400).json({ error: 'Informe o número com DDD.' });
+    await query(`INSERT INTO configuracoes (chave, valor) VALUES ('encaminhar_destino', $1::jsonb)
+                 ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`,
+      [JSON.stringify({ nome, phone, por: req.user.nome })]);
+    res.json({ ok: true, nome });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.post('/conversations/:id/encaminhar', async (req, res) => {
   try {
     const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
@@ -4623,7 +4645,12 @@ r.post('/conversations/:id/encaminhar', async (req, res) => {
     if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso a esta conversa.' });
     if (!zapiOk()) return res.status(400).json({ error: 'WhatsApp não configurado.' });
     let destino = String(req.body?.destino || '').replace(/\D/g, '');
-    if (destino.length < 10) return res.status(400).json({ error: 'Informe o número de destino com DDD.' });
+    if (destino.length < 10) {
+      // Sem número informado: usa o destino ÚNICO salvo (Planos Vacinais)
+      const { rows: [cd] } = await query("SELECT valor FROM configuracoes WHERE chave = 'encaminhar_destino'").catch(() => ({ rows: [] }));
+      destino = String(cd?.valor?.phone || '').replace(/\D/g, '');
+    }
+    if (destino.length < 10) return res.status(400).json({ error: 'Nenhum destino configurado — o master define o canal em Encaminhar.' });
     if (!destino.startsWith('55')) destino = '55' + destino;
     const qtd = Math.max(3, Math.min(parseInt(req.body?.mensagens) || 20, 60));
     const obs = String(req.body?.observacao || '').trim().slice(0, 400);

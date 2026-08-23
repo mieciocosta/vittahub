@@ -2651,6 +2651,29 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log(`🔎 Busca nota fiscal: ${achadosNF.length} mensagem(ns) encontradas`);
     }
 
+    /* 📌 DESTINO DO ENCAMINHAMENTO = PLANOS VACINAIS (ordem do master, 22/08):
+       acha o contato "Vittalis Saúde Ativos" nas conversas e salva o telefone
+       dele como destino único do botão Encaminhar. */
+    const { rows: [flagEncDest] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_encaminhar_destino_v1'");
+    if (!flagEncDest) {
+      const { rows: [cAtivos] } = await query(`SELECT contact_name, phone FROM conversas
+        WHERE contact_name ILIKE '%ativos%' AND length(regexp_replace(COALESCE(phone,''),'\\D','','g')) >= 10
+        ORDER BY (contact_name ILIKE '%vittalis%') DESC, last_message_at DESC NULLS LAST LIMIT 1`).catch(() => ({ rows: [null] }));
+      let txtEnc;
+      if (cAtivos?.phone) {
+        await query(`INSERT INTO configuracoes (chave, valor) VALUES ('encaminhar_destino', $1::jsonb)
+                     ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`,
+          [JSON.stringify({ nome: 'Planos Vacinais', phone: String(cAtivos.phone).replace(/\D/g, ''), por: 'seed 22/08' })]).catch(() => {});
+        txtEnc = `O canal do setor Planos Vacinais (contato "${cAtivos.contact_name}") foi salvo como destino único do botão 📤 Encaminhar. A equipe agora encaminha em 1 toque, sem digitar número.`;
+      } else {
+        txtEnc = 'Não achei o contato "Vittalis Saúde Ativos" com telefone nas conversas. Abra o Encaminhar numa conversa: o campo de número aparece até o destino ser configurado (ou me diga o número que eu salvo).';
+      }
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+        ['📌 Destino do Encaminhar: Planos Vacinais', txtEnc]).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_encaminhar_destino_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('📌 Encaminhar destino:', txtEnc.slice(0, 60));
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);
