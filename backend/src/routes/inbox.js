@@ -4848,11 +4848,18 @@ async function enviarTextoConversa(conv, texto, senderNome, opts = {}) {
      Sai como 'bot' e NÃO desliga o bot da conversa — desligar aqui calaria a
      própria Vitta no momento em que o cliente responde. Mensagem de atendente
      (padrão) continua desligando, como sempre. */
+  /* 🎭 PERSONA DA FILA (cobrança do master: "a IA não está saindo com o nome
+     do usuário — está saindo Mary"): mensagem automática assina com o nome da
+     RESPONSÁVEL pela conversa, igual à resposta ao vivo. Mary é só o fallback
+     de conversa sem dona. */
+  let senderBot = 'Mary';
+  if (opts.deBot && conv.responsavel_id) {
+    const { rows: [ru] } = await query('SELECT nome FROM usuarios WHERE id = $1 AND ativo = true', [conv.responsavel_id]).catch(() => ({ rows: [] }));
+    if (ru?.nome) senderBot = String(ru.nome).trim().split(/\s+/)[0];
+  }
   const { rows: [msg] } = await query(
     `INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome, status) VALUES ($1,$2,'text',$3,$4,'sent') RETURNING *`,
-    // Na conversa a IA assina "Mary" (nome que o cliente conhece); o criado_por
-    // técnico ('Vitta · …') fica só na fila, pro agrupamento do Dashboard.
-    [conv.id, opts.deBot ? 'bot' : 'me', texto, opts.deBot ? 'Mary' : (senderNome || 'Agendada')]);
+    [conv.id, opts.deBot ? 'bot' : 'me', texto, opts.deBot ? senderBot : (senderNome || 'Agendada')]);
   const { rows: [convUpd] } = await query(
     `UPDATE conversas SET last_message=$1, last_from='me', last_message_at=NOW()${opts.deBot ? '' : ', bot_ativo=false'} WHERE id=$2 RETURNING *`,
     [texto.slice(0, 100), conv.id]);
@@ -4861,7 +4868,10 @@ async function enviarTextoConversa(conv, texto, senderNome, opts = {}) {
   if (conv.channel === 'whatsapp' && zapiOk()) {
     const waNumber = conv.contact_id ? conv.contact_id.replace('@s.whatsapp.net', '') : `55${conv.phone}`;
     const phone55 = waNumber.startsWith('55') ? waNumber : `55${waNumber}`;
-    await zapiCall('/send-text', 'POST', { phone: phone55, message: texto });
+    // No WhatsApp a automática também sai assinada com o nome da responsável
+    // (mesmo padrão da resposta ao vivo) — a menos que o texto já venha assinado.
+    const msgZap = opts.deBot && !/^\*/.test(texto) ? `*${senderBot}:*\n${texto}` : texto;
+    await zapiCall('/send-text', 'POST', { phone: phone55, message: msgZap });
   }
   return msg;
 }
@@ -4998,8 +5008,13 @@ async function processarAgendadas() {
                 const imgR = String(fotoR.data).startsWith('data:') ? fotoR.data : `data:image/jpeg;base64,${fotoR.data}`;
                 const ziR = await zapiCall('/send-image', 'POST', { phone: ph55R, image: imgR, caption: '' });
                 if (ziR?.ok) {
+                  let nomeFotoR = 'Mary';
+                  if (conv.responsavel_id) {
+                    const { rows: [ruF] } = await query('SELECT nome FROM usuarios WHERE id = $1', [conv.responsavel_id]).catch(() => ({ rows: [] }));
+                    if (ruF?.nome) nomeFotoR = String(ruF.nome).trim().split(/\s+/)[0];
+                  }
                   const { rows: [imR] } = await query(`INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, created_at)
-                    VALUES ($1,'bot','Mary','image',$2,NOW()) RETURNING *`, [conv.id, imgR]).catch(() => ({ rows: [null] }));
+                    VALUES ($1,'bot',$3,'image',$2,NOW()) RETURNING *`, [conv.id, imgR, nomeFotoR]).catch(() => ({ rows: [null] }));
                   if (imR) socketEmit('new_message', { convId: conv.id, message: imR, conv });
                 }
               }
