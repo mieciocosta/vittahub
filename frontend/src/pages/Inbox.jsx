@@ -213,9 +213,8 @@ const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect, usersB
             <button onClick={e => { e.stopPropagation(); onToggleFix(conv); }}
               title={fixada ? 'Desafixar — volta pra lista geral' : 'Fixar conversa — sobe pra sua seção de fixadas (só no seu usuário)'}
               style={{ fontSize: 9, fontWeight: 900, padding: '2px 9px', borderRadius: 9, letterSpacing: .5, cursor: 'pointer', border: 'none',
-                background: fixada ? 'linear-gradient(120deg,#f59e0b,#fcd34d)' : 'linear-gradient(120deg,#ec4899,#8b5cf6)',
-                color: fixada ? '#78350f' : '#fff',
-                boxShadow: fixada ? '0 1px 6px rgba(245,158,11,.5)' : '0 1px 6px rgba(139,92,246,.45)' }}>
+                background: 'linear-gradient(120deg,#f59e0b,#fcd34d)', color: '#78350f',
+                boxShadow: '0 1px 6px rgba(245,158,11,.5)' }}>
               📌 {fixada ? 'FIXADA' : 'FIXAR'}
             </button>
           )}
@@ -969,6 +968,9 @@ export default function Inbox({ onUnreadChange }) {
       const list = data.data || data;
       const tot  = data.total ?? list.length;
       setConvos(list); setTotal(tot); setPage(1); setHasMore(list.length < tot);
+      // 📌 Fixadas sempre em dia (pedido do master: "fixação fidedigna") —
+      // recarrega junto pra não-lidas e última mensagem não ficarem velhas
+      api.get('/inbox/fixadas').then(d => Array.isArray(d) && setFixadas(d)).catch(() => {});
       lastPollTs.current = new Date().toISOString();
       onUnreadChange?.(list.reduce((s, c) => s + (c.unread || 0), 0));
     } catch(err) { console.error('loadConvos:', err.message); }
