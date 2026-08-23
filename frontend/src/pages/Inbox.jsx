@@ -175,16 +175,12 @@ const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect, usersB
             {conv.lead_score === 'quente' && <span title="Lead quente" style={{ marginRight: 3 }}>🔥</span>}
             {conv.contact_name || fmt.phone(conv.phone) || '…'}
           </span>
-          {esperando ? (
-            <span title={`Cliente esperando resposta há ${fmt.relTime(conv.last_message_at)}`}
-              style={{ fontSize: 10, fontWeight: 800, color: '#fff', background: waitColor, borderRadius: 8, padding: '1px 6px', flexShrink: 0, whiteSpace: 'nowrap' }}>
-              ⏱ {waitLabel}
-            </span>
-          ) : (
-            <span style={{ fontSize: 10.5, fontWeight: hasUnread ? 800 : 500, color: hasUnread ? 'var(--tq)' : 'var(--light)', flexShrink: 0 }}>
-              {fmt.relTime(conv.last_message_at)}
-            </span>
-          )}
+          {/* ⏱ Cronômetro vermelho saiu da lista (pedido do master) — o tempo
+              de espera agora mora no painel de perfil da conversa aberta. */}
+          <span title={esperando ? `Cliente esperando resposta há ${waitLabel}` : ''}
+            style={{ fontSize: 10.5, fontWeight: hasUnread ? 800 : 500, color: esperando && waitMin >= 30 ? waitColor : hasUnread ? 'var(--tq)' : 'var(--light)', flexShrink: 0 }}>
+            {fmt.relTime(conv.last_message_at)}
+          </span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
           <span style={{ fontSize: 12, color: hasUnread ? 'var(--txt2)' : 'var(--muted)', fontWeight: hasUnread ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
@@ -2033,6 +2029,20 @@ export default function Inbox({ onUnreadChange }) {
                         WebkitTouchCallout:'none', cursor:'default' }}>+{sel.phone}</div>
                   )}
                   <StatusBadge status={sel.status_atend} size="sm"/>
+                  {/* ⏱ Tempo de espera do cliente — mudou da lista pra cá (pedido do master) */}
+                  {sel.last_from === 'contact' && !String(sel.contact_id || '').endsWith('@g.us') && sel.last_message_at && (() => {
+                    const minE = Math.floor((Date.now() - new Date(sel.last_message_at)) / 60000);
+                    if (minE < 1) return null;
+                    const txtE = minE >= 60 ? `${Math.floor(minE / 60)}h${String(minE % 60).padStart(2, '0')}` : `${minE} min`;
+                    const corE = minE >= 120 ? '#dc2626' : minE >= 30 ? '#f97316' : '#f59e0b';
+                    return (
+                      <div style={{ marginTop: 8 }}>
+                        <span style={{ fontSize: 11.5, fontWeight: 800, color: '#fff', background: corE, borderRadius: 9, padding: '3px 11px' }}>
+                          ⏱ Esperando resposta há {txtE}
+                        </span>
+                      </div>
+                    );
+                  })()}
                   <div style={{ display:'flex', justifyContent:'center', gap:6, marginTop:10 }}>
                     <a href={`https://wa.me/55${sel.phone?.replace(/\D/g,'')}`} target="_blank" rel="noreferrer"
                       onContextMenu={e => e.preventDefault()} draggable={false}
