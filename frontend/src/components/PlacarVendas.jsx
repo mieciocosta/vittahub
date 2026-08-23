@@ -55,9 +55,13 @@ function horasDeExpediente() {
 // Cápsula de vidro — todo bloco da faixa usa o mesmo desenho, pra ficar limpo
 const Capsula = ({ children, destaque, title, onClick }) => (
   <div title={title} onClick={onClick}
-    style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '5px 12px', borderRadius: 13,
-      background: destaque ? 'rgba(252,211,77,.16)' : 'rgba(255,255,255,.09)',
-      border: `1px solid ${destaque ? 'rgba(252,211,77,.45)' : 'rgba(255,255,255,.16)'}`,
+    style={{ display: 'flex', alignItems: 'center', gap: 9, padding: destaque ? '6px 15px' : '5px 12px', borderRadius: 14,
+      background: destaque
+        ? 'linear-gradient(120deg, rgba(180,83,9,.42), rgba(252,211,77,.20))'
+        : 'linear-gradient(180deg, rgba(255,255,255,.12), rgba(255,255,255,.06))',
+      border: destaque ? '1.5px solid rgba(252,211,77,.75)' : '1px solid rgba(255,255,255,.18)',
+      boxShadow: destaque ? '0 0 16px rgba(252,211,77,.28), inset 0 1px 0 rgba(255,255,255,.18)' : 'inset 0 1px 0 rgba(255,255,255,.10)',
+      animation: destaque ? 'vh-premio-glow 2.6s ease-in-out infinite' : 'none',
       backdropFilter: 'blur(6px)', whiteSpace: 'nowrap', cursor: onClick ? 'pointer' : 'default' }}>
     {children}
   </div>
@@ -332,13 +336,13 @@ export default function PlacarVendas() {
           informação demais na faixa era exatamente a reclamação dele. */}
       {premio && premio.modelo === 'diaria' && (
         <Capsula destaque title={`${fmt.brl(premio.porDiaVale)} por dia batido · ${premio.dias} de ${premio.tetoDias} dias já conquistados · já garantiu ${fmt.brl(premio.acumulado)}`}>
-          <span style={{ fontSize: 16 }}>{premio.ganho ? '🏆' : '🎁'}</span>
+          <span style={{ fontSize: 19, filter: 'drop-shadow(0 1px 4px rgba(252,211,77,.6))' }}>{premio.ganho ? '🏆' : '🏅'}</span>
           <div style={{ lineHeight: 1.12 }}>
             <Rotulo>Seu prêmio do mês</Rotulo>
             {/* O master mandou o recorte exato do que quer ver aqui:
                 "R$ 2.600,00 · R$ 100,00/dia batido" — e só. O acumulado e a
                 contagem de dias vivem no passar do mouse. */}
-            <div style={{ fontSize: 13.5, fontWeight: 900, color: '#fcd34d', textShadow: '0 1px 3px rgba(0,0,0,.45)' }}>
+            <div style={{ fontSize: 16, fontWeight: 900, letterSpacing: .3, background: 'linear-gradient(90deg,#fde68a,#fff3c4,#fcd34d)', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent', filter: 'drop-shadow(0 1px 3px rgba(0,0,0,.5))' }}>
               {fmt.brl(premio.valor)}
               <span style={{ fontSize: 11, fontWeight: 800, color: 'rgba(255,255,255,.92)', marginLeft: 6 }}>
                 · {fmt.brl(premio.porDiaVale)}/dia batido
@@ -349,10 +353,10 @@ export default function PlacarVendas() {
       )}
       {premio && premio.modelo !== 'diaria' && premio.valor > 0 && (
         <Capsula destaque title={`Prêmio de ${fmt.brl(premio.valor)} ao alcançar ${fmt.brl(premio.alvo || 0)}`}>
-          <span style={{ fontSize: 16 }}>{premio.ganho ? '🏆' : '🎁'}</span>
+          <span style={{ fontSize: 19, filter: 'drop-shadow(0 1px 4px rgba(252,211,77,.6))' }}>{premio.ganho ? '🏆' : '🏅'}</span>
           <div style={{ lineHeight: 1.12 }}>
             <Rotulo>{premio.ganho ? 'Prêmio conquistado' : 'Seu prêmio'}</Rotulo>
-            <div style={{ fontSize: 13.5, fontWeight: 900, color: '#fcd34d', textShadow: '0 1px 3px rgba(0,0,0,.45)' }}>
+            <div style={{ fontSize: 16, fontWeight: 900, letterSpacing: .3, background: 'linear-gradient(90deg,#fde68a,#fff3c4,#fcd34d)', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent', filter: 'drop-shadow(0 1px 3px rgba(0,0,0,.5))' }}>
               {fmt.brl(premio.valor)}
               {!premio.ganho && (
                 <span style={{ fontSize: 11, fontWeight: 800, color: 'rgba(255,255,255,.92)', marginLeft: 6 }}>
@@ -526,6 +530,7 @@ export default function PlacarVendas() {
 
       <style>{`
         @keyframes vh-placar-shine { 0% { transform: translateX(-100%);} 55%,100% { transform: translateX(200%);} }
+        @keyframes vh-premio-glow { 0%,100% { box-shadow: 0 0 10px rgba(252,211,77,.22), inset 0 1px 0 rgba(255,255,255,.18); } 50% { box-shadow: 0 0 22px rgba(252,211,77,.5), inset 0 1px 0 rgba(255,255,255,.18); } }
         @keyframes vh-placar-cai { 0% { transform: translateY(0) rotate(0); opacity: 1; } 100% { transform: translateY(90px) rotate(220deg); opacity: 0; } }
       `}</style>
     </div>
