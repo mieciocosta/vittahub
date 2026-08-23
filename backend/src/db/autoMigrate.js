@@ -786,6 +786,8 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
     await query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS endereco TEXT`).catch(() => {});
     await query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS bairro TEXT`).catch(() => {});
     await query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS responsavel_cliente TEXT`).catch(() => {});
+    // 📝 Anotações da ficha sem limite de caracteres (pedido do master, 22/08)
+    await query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS anotacoes TEXT`).catch(() => {});
 
     // ── FERRAMENTAS: Agenda, Indicações, Biblioteca, Ligações ───────────────
     await query(`CREATE TABLE IF NOT EXISTS agenda_eventos (

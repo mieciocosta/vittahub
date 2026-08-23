@@ -3775,6 +3775,8 @@ function FichaPaciente({ leadId, api, setor }) {
         nome: form.nome, responsavel_cliente: form.responsavel_cliente,
         nascimento: form.nascimento ? String(form.nascimento).slice(0, 10) : '',
         endereco: form.endereco, bairro: form.bairro, observacoes: form.observacoes,
+        // filhos NÃO era enviado — o campo era editável e a edição se perdia
+        filhos: form.filhos, anotacoes: form.anotacoes,
       });
       setLead(upd); setEditando(false);
     } catch (e) { Toast.show(e.message, 'error'); }
@@ -3791,17 +3793,21 @@ function FichaPaciente({ leadId, api, setor }) {
     }
   };
 
-  const Linha = ({ label, campo, tipo = 'text', placeholder = '—', mask }) => (
-    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '4px 0', fontSize: 11.5 }}>
-      <span style={{ color: 'var(--muted)', fontWeight: 600, flexShrink: 0 }}>{label}</span>
+  /* Caixas organizadas (pedido do master: "deixa as caixas dos textos bem
+     lindas e organizadas"): rótulo em cima, valor numa caixinha — nada de
+     texto cortado com "…"; o que não cabe quebra a linha. */
+  const Linha = ({ label, campo, tipo = 'text', placeholder = '—', mask, largo }) => (
+    <div style={{ gridColumn: largo ? '1 / -1' : 'auto', minWidth: 0 }}>
+      <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: .7, textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 3 }}>{label}</div>
       {editando ? (
         <input type={tipo} value={form[campo] ? (tipo === 'date' ? String(form[campo]).slice(0, 10) : form[campo]) : ''} maxLength={tipo === 'date' ? undefined : 160}
+          placeholder={placeholder === '—' ? '' : placeholder}
           onChange={e => setForm({ ...form, [campo]: mask ? mask(e.target.value) : e.target.value })}
-          style={{ flex: 1, minWidth: 0, padding: '2px 7px', borderRadius: 7, border: '1px solid var(--border)', fontSize: 11.5, textAlign: 'right', background: 'var(--bg)', color: 'var(--txt)' }} />
+          style={{ width: '100%', boxSizing: 'border-box', padding: '7px 10px', borderRadius: 9, border: '1.5px solid var(--tq)', fontSize: 12, background: 'var(--card)', color: 'var(--txt)' }} />
       ) : (
-        <span style={{ fontWeight: 700, textAlign: 'right', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <div style={{ padding: '7px 10px', borderRadius: 9, background: 'var(--bg)', border: '1px solid var(--border)', fontSize: 12, fontWeight: 700, minHeight: 18, lineHeight: 1.45, overflowWrap: 'anywhere', color: lead[campo] ? 'var(--txt)' : 'var(--muted)' }}>
           {campo === 'nascimento' && lead.nascimento ? fmt.date(String(lead.nascimento).slice(0, 10)) + idade : (lead[campo] || placeholder)}
-        </span>
+        </div>
       )}
     </div>
   );
@@ -3820,13 +3826,30 @@ function FichaPaciente({ leadId, api, setor }) {
             <button onClick={() => { setForm(lead); setEditando(true); }} style={{ border: 'none', background: 'none', color: 'var(--tq2)', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>✏️ Editar</button>
           )}
         </div>
-        <Linha label="Responsável" campo="responsavel_cliente" placeholder="Quem responde pela família" />
-        <Linha label="Paciente" campo="nome" />
-        <Linha label="Nascimento" campo="nascimento" tipo="date" />
-        <Linha label="👶 Outros filhos" campo="filhos" placeholder="Ex.: João (03/2026), Ana (2023)" />
-        <Linha label="Endereço" campo="endereco" />
-        <Linha label="Bairro" campo="bairro" />
-        <Linha label="Observações" campo="observacoes" />
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          <Linha label="👤 Responsável" campo="responsavel_cliente" placeholder="Quem responde pela família" largo />
+          <Linha label="🧒 Paciente" campo="nome" largo />
+          <Linha label="🎂 Nascimento" campo="nascimento" tipo="date" />
+          <Linha label="📍 Bairro" campo="bairro" />
+          <Linha label="🏠 Endereço" campo="endereco" largo />
+          <Linha label="👶 Outros filhos" campo="filhos" placeholder="Ex.: João (03/2026), Ana (2023)" largo />
+          <Linha label="🗒️ Observações" campo="observacoes" largo />
+          {/* 📝 ANOTAÇÕES SEM LIMITE (pedido do master): escreve à vontade,
+              o texto inteiro fica visível — nada é cortado. */}
+          <div style={{ gridColumn: '1 / -1' }}>
+            <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: .7, textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 3 }}>📝 Anotações <span style={{ textTransform: 'none', fontWeight: 700 }}>(sem limite)</span></div>
+            {editando ? (
+              <textarea value={form.anotacoes || ''} onChange={e => setForm({ ...form, anotacoes: e.target.value })}
+                rows={Math.min(14, Math.max(4, String(form.anotacoes || '').split('\n').length + 1))}
+                placeholder="Escreva à vontade sobre o paciente e a família — histórico, preferências, tudo que importa…"
+                style={{ width: '100%', boxSizing: 'border-box', padding: '9px 11px', borderRadius: 9, border: '1.5px solid var(--tq)', fontSize: 12, lineHeight: 1.6, resize: 'vertical', background: 'var(--card)', color: 'var(--txt)', fontFamily: 'inherit' }} />
+            ) : lead.anotacoes ? (
+              <div style={{ padding: '9px 11px', borderRadius: 9, background: 'var(--bg)', border: '1px solid var(--border)', borderLeft: '3px solid var(--tq)', fontSize: 12, lineHeight: 1.6, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{lead.anotacoes}</div>
+            ) : (
+              <div style={{ padding: '9px 11px', borderRadius: 9, background: 'var(--bg)', border: '1px dashed var(--border)', fontSize: 11.5, color: 'var(--muted)' }}>Toque em ✏️ Editar pra escrever a primeira anotação.</div>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Funil em bolinhas */}
