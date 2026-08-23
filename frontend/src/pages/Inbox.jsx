@@ -175,14 +175,6 @@ const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect, usersB
             {conv.lead_score === 'quente' && <span title="Lead quente" style={{ marginRight: 3 }}>🔥</span>}
             {conv.contact_name || fmt.phone(conv.phone) || '…'}
           </span>
-          {/* 📌 Fixar/desafixar — POR USUÁRIO (pedido do master): apagadinho
-              quando solta, aceso quando fixada. Não abre a conversa ao clicar. */}
-          {onToggleFix && (
-            <button onClick={e => { e.stopPropagation(); onToggleFix(conv); }}
-              title={fixada ? 'Desafixar do topo' : 'Fixar esta conversa no topo (só pra você)'}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0 2px', fontSize: 12, lineHeight: 1,
-                opacity: fixada ? 1 : .3, filter: fixada ? 'none' : 'grayscale(60%)', flexShrink: 0 }}>📌</button>
-          )}
           {esperando ? (
             <span title={`Cliente esperando resposta há ${fmt.relTime(conv.last_message_at)}`}
               style={{ fontSize: 10, fontWeight: 800, color: '#fff', background: waitColor, borderRadius: 8, padding: '1px 6px', flexShrink: 0, whiteSpace: 'nowrap' }}>
@@ -213,7 +205,18 @@ const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect, usersB
             </span>
           )}
           {conv.bot_ativo && <span style={{ fontSize: 9, color: 'var(--ok)', fontWeight: 800, background: 'var(--ok2)', padding: '1.5px 6px', borderRadius: 8, letterSpacing: .4 }}>BOT</span>}
-          {conv.lead_id   && <span style={{ fontSize: 9, color: 'var(--tq)', fontWeight: 800, background: 'var(--tq3)', padding: '1.5px 6px', borderRadius: 8, letterSpacing: .4 }}>LEAD</span>}
+          {/* 📌 Botão FIXAR no lugar do selo LEAD (pedido do master): clicou,
+              a conversa sobe pra seção Fixadas — que aparece sozinha no topo. */}
+          {onToggleFix && (
+            <button onClick={e => { e.stopPropagation(); onToggleFix(conv); }}
+              title={fixada ? 'Desafixar — volta pra lista geral' : 'Fixar conversa — sobe pra sua seção de fixadas (só no seu usuário)'}
+              style={{ fontSize: 9, fontWeight: 800, padding: '1.5px 7px', borderRadius: 8, letterSpacing: .4, cursor: 'pointer',
+                border: fixada ? 'none' : '1px solid var(--border)',
+                background: fixada ? 'linear-gradient(120deg,#f59e0b,#fcd34d)' : 'var(--bg2)',
+                color: fixada ? '#78350f' : 'var(--muted)' }}>
+              📌 {fixada ? 'FIXADA' : 'FIXAR'}
+            </button>
+          )}
           {resp && (
             <span title={`Responsável: ${resp.nome}`} style={{ marginLeft: 'auto', width: 18, height: 18, borderRadius: '50%', background: resp.cor || 'var(--tq)', color: '#fff', fontSize: 8, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, border: '1.5px solid var(--card)' }}>
               {fmt.initials(resp.nome)}
