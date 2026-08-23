@@ -2430,6 +2430,12 @@ export default function Inbox({ onUnreadChange }) {
             return (
               <div style={{ display:'flex', alignItems:'center', gap:9, padding:'7px 12px', background:'linear-gradient(90deg,#fffbeb,#fef3c7)', borderTop:'1px solid #fde68a', fontSize:12, flexShrink:0 }}>
                 <span style={{ fontSize:14 }}>💡</span>
+                {/* Selo pedido pelo master: deixar claro que isto é a LEITURA
+                    da conversa (resumo do que o cliente acabou de dizer) */}
+                <span style={{ flexShrink:0, fontSize:8.5, fontWeight:900, letterSpacing:.7, textTransform:'uppercase',
+                  background:'#92400e', color:'#fde68a', borderRadius:6, padding:'2px 7px' }}>
+                  Resumo da conversa
+                </span>
                 <span style={{ flex:1, minWidth:0, fontWeight:700, color:'#92400e', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
                   O cliente {intent.rot}: “{String(ult.content).slice(0, 64)}{String(ult.content).length > 64 ? '…' : ''}”
                 </span>
