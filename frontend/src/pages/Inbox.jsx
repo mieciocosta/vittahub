@@ -3283,6 +3283,18 @@ function AgendarMsgModal({ sel, api, textoInicial, onClose }) {
   const [lista, setLista] = React.useState([]);
   const [erro, setErro] = React.useState('');
   const [salvando, setSalvando] = React.useState(false);
+  // 📎 Anexo (pedido do master): documento ou imagem que sai junto na hora marcada
+  const [anexo, setAnexo] = React.useState(null); // { data, nome }
+  const fileRef = React.useRef(null);
+  const escolherArquivo = (e) => {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f) return;
+    if (f.size > 6 * 1024 * 1024) { setErro('Arquivo muito grande — máximo 6MB.'); return; }
+    const r = new FileReader();
+    r.onload = () => { setAnexo({ data: r.result, nome: f.name }); setErro(''); };
+    r.readAsDataURL(f);
+  };
 
   const load = () => api.get(`/inbox/conversations/${sel.id}/agendadas`).then(d => setLista(Array.isArray(d) ? d : [])).catch(() => {});
   React.useEffect(() => { load(); }, []); // eslint-disable-line
@@ -3290,12 +3302,15 @@ function AgendarMsgModal({ sel, api, textoInicial, onClose }) {
   const fmtQuando = (s) => { try { return new Date(s).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); } catch { return s; } };
 
   const agendar = async () => {
-    if (!texto.trim()) { setErro('Escreva a mensagem.'); return; }
+    if (!texto.trim() && !anexo) { setErro('Escreva a mensagem ou anexe um arquivo.'); return; }
     if (!quando) { setErro('Escolha a data e a hora.'); return; }
     setSalvando(true); setErro('');
     try {
-      await api.post(`/inbox/conversations/${sel.id}/agendar`, { texto: texto.trim(), enviar_em: new Date(quando).toISOString() });
-      setTexto(''); setQuando(''); load(); onClose?.(true);
+      await api.post(`/inbox/conversations/${sel.id}/agendar`, {
+        texto: texto.trim(), enviar_em: new Date(quando).toISOString(),
+        ...(anexo ? { anexo: anexo.data, anexo_nome: anexo.nome } : {}),
+      });
+      setTexto(''); setQuando(''); setAnexo(null); load(); onClose?.(true);
     } catch (e) { setErro(e.message || 'Falha ao agendar.'); setSalvando(false); }
   };
   const cancelar = async (ag) => {
@@ -3315,6 +3330,21 @@ function AgendarMsgModal({ sel, api, textoInicial, onClose }) {
         <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12 }}>Para {sel?.contact_name || 'o cliente'} — será enviada automaticamente na hora marcada.</div>
         <div className="field" style={{ margin: 0, marginBottom: 10 }}><label>Mensagem</label>
           <textarea value={texto} onChange={e => setTexto(e.target.value)} rows={3} placeholder="Ex: Oi! Passando pra lembrar da sua vacina amanhã 💉" style={{ resize: 'vertical' }} /></div>
+        {/* 📎 Anexo opcional: sai ANTES do texto, na mesma hora marcada */}
+        <div style={{ marginBottom: 10 }}>
+          <input ref={fileRef} type="file" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx" style={{ display: 'none' }} onChange={escolherArquivo} />
+          {anexo ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 11px', background: 'var(--tq3)', borderRadius: 9, border: '1px solid var(--tq)' }}>
+              <span style={{ fontSize: 14 }}>📎</span>
+              <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 700, color: 'var(--tq2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{anexo.nome}</span>
+              <button onClick={() => setAnexo(null)} title="Remover anexo" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--tq2)', display: 'flex' }}><X size={14} /></button>
+            </div>
+          ) : (
+            <button onClick={() => fileRef.current?.click()} className="btn btn-s btn-sm" style={{ width: '100%', gap: 6, fontWeight: 700 }}>
+              📎 Anexar documento ou imagem (opcional)
+            </button>
+          )}
+        </div>
         <div className="field" style={{ margin: 0, marginBottom: 10 }}><label>Quando enviar</label>
           <input type="datetime-local" value={quando} onChange={e => setQuando(e.target.value)} /></div>
         {erro && <div style={{ fontSize: 12, color: 'var(--err)', fontWeight: 600, marginBottom: 8 }}>{erro}</div>}
@@ -3329,7 +3359,10 @@ function AgendarMsgModal({ sel, api, textoInicial, onClose }) {
                 return (
                   <div key={ag.id} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '8px 11px', background: 'var(--bg2)', borderRadius: 9 }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 12.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ag.texto}</div>
+                      <div style={{ fontSize: 12.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {ag.tem_anexo && <span title={ag.anexo_nome || 'com anexo'} style={{ marginRight: 4 }}>📎</span>}
+                        {ag.texto || ag.anexo_nome || 'Anexo'}
+                      </div>
                       <div style={{ fontSize: 10.5, color: st.c, fontWeight: 700 }}>{st.l} · {fmtQuando(ag.enviar_em)}</div>
                     </div>
                     {ag.status === 'pendente' && <button onClick={() => cancelar(ag)} title="Cancelar" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={15} /></button>}

@@ -2431,6 +2431,12 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log('🤖 Seed IA Nathy:', convsN.length ? 'ligada' : 'conversa não encontrada');
     }
 
+    /* 📎 ANEXO NA MENSAGEM PROGRAMADA (pedido do master, 22/08): a agendada
+       pode levar um documento ou imagem junto — sai na hora marcada, antes
+       do texto. Guardado como data URI; nome pro cliente ver o arquivo. */
+    await query(`ALTER TABLE mensagens_agendadas ADD COLUMN IF NOT EXISTS anexo TEXT`).catch(() => {});
+    await query(`ALTER TABLE mensagens_agendadas ADD COLUMN IF NOT EXISTS anexo_nome TEXT`).catch(() => {});
+
     /* 🆔 CÓDIGO DO CLIENTE (pedido do master, 22/08): cada cliente ganha um
        código único tipo VT-0123 — como um CPF curto da casa — porque cliente
        com nome repetido confunde a busca. SERIAL preenche as conversas

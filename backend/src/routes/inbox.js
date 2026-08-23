@@ -4912,8 +4912,9 @@ async function processarAgendadas() {
         const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [ag.conversa_id]);
         if (!conv) { await query(`UPDATE mensagens_agendadas SET status='erro', erro='conversa não encontrada' WHERE id=$1`, [ag.id]); continue; }
         // Rede de segurança: texto IDÊNTICO já enviado nesta conversa há pouco = duplicata
-        const { rows: [jaFoi] } = await query(`SELECT 1 FROM mensagens WHERE conversa_id=$1 AND from_type IN ('me','bot')
-          AND content=$2 AND created_at > NOW() - interval '12 hours' LIMIT 1`, [ag.conversa_id, ag.texto]).catch(() => ({ rows: [] }));
+        // (agendada só de anexo, sem texto, não entra na checagem)
+        const { rows: [jaFoi] } = ag.texto ? await query(`SELECT 1 FROM mensagens WHERE conversa_id=$1 AND from_type IN ('me','bot')
+          AND content=$2 AND created_at > NOW() - interval '12 hours' LIMIT 1`, [ag.conversa_id, ag.texto]).catch(() => ({ rows: [] })) : { rows: [] };
         if (jaFoi) {
           await query(`UPDATE mensagens_agendadas SET status='cancelada', erro='duplicada — mensagem igual já enviada' WHERE id=$1`, [ag.id]).catch(() => {});
           continue;
@@ -4950,8 +4951,35 @@ async function processarAgendadas() {
             }
           } catch (eF) { console.error('foto do retorno:', eF.message); }
         }
+        /* 📎 Anexo da agendada (pedido do master: "quero poder anexar documentos"):
+           sai ANTES do texto — imagem vai como imagem, o resto como documento
+           com o nome do arquivo. Registrado na conversa como qualquer envio. */
+        if (ag.anexo && zapiOk()) {
+          const waNA = conv.contact_id ? conv.contact_id.replace('@s.whatsapp.net', '') : `55${conv.phone}`;
+          const ph55A = waNA.startsWith('55') ? waNA : `55${waNA}`;
+          const mimeA = (String(ag.anexo).match(/^data:([^;]+)/) || [])[1] || 'application/pdf';
+          const deBotA = /^vitta/i.test(String(ag.criado_por || ''));
+          if (mimeA.startsWith('image/')) {
+            const ziA = await zapiCall('/send-image', 'POST', { phone: ph55A, image: ag.anexo, caption: '' });
+            if (!ziA?.ok) throw new Error('falha ao enviar a imagem anexa');
+            const { rows: [mA] } = await query(`INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, created_at)
+              VALUES ($1,$2,$3,'image',$4,NOW()) RETURNING *`,
+              [conv.id, deBotA ? 'bot' : 'me', ag.criado_por || null, ag.anexo]).catch(() => ({ rows: [null] }));
+            if (mA) socketEmit('new_message', { convId: conv.id, message: mA, conv });
+          } else {
+            const extA = (String(ag.anexo_nome || '').match(/\.(\w{2,5})$/) || [])[1]?.toLowerCase()
+              || ({ 'application/pdf': 'pdf' })[mimeA] || 'pdf';
+            const nomeA = ag.anexo_nome || `documento.${extA}`;
+            const zdA = await zapiCall(`/send-document/${extA}`, 'POST', { phone: ph55A, document: ag.anexo, fileName: nomeA });
+            if (!zdA?.ok) throw new Error('falha ao enviar o documento anexo');
+            const { rows: [mA] } = await query(`INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, filename, created_at)
+              VALUES ($1,$2,$3,'document',$4,$5,NOW()) RETURNING *`,
+              [conv.id, deBotA ? 'bot' : 'me', ag.criado_por || null, ag.anexo, nomeA]).catch(() => ({ rows: [null] }));
+            if (mA) socketEmit('new_message', { convId: conv.id, message: mA, conv });
+          }
+        }
         // Mensagem programada DA VITTA sai como bot e mantém a Vitta acordada
-        await enviarTextoConversa(conv, ag.texto, ag.criado_por, { deBot: /^vitta/i.test(String(ag.criado_por || '')) });
+        if (ag.texto) await enviarTextoConversa(conv, ag.texto, ag.criado_por, { deBot: /^vitta/i.test(String(ag.criado_por || '')) });
         await query(`UPDATE mensagens_agendadas SET status='enviada', enviada_em=NOW() WHERE id=$1`, [ag.id]);
       } catch (e) {
         await query(`UPDATE mensagens_agendadas SET status='erro', erro=$2 WHERE id=$1`, [ag.id, String(e.message).slice(0, 200)]).catch(() => {});
@@ -5120,13 +5148,19 @@ r.post('/conversations/:id/agendar', async (req, res) => {
     if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
     if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso a esta conversa.' });
     const texto = String((req.body || {}).texto || '').trim();
-    if (!texto) return res.status(400).json({ error: 'Escreva a mensagem.' });
+    // 📎 Anexo opcional (pedido do master): documento ou imagem em data URI
+    const anexo = String((req.body || {}).anexo || '');
+    const anexoNome = String((req.body || {}).anexo_nome || '').trim().slice(0, 120);
+    if (anexo && !/^data:[\w.+-]+\/[\w.+-]+;base64,/.test(anexo)) return res.status(400).json({ error: 'Anexo inválido.' });
+    if (anexo.length > 9_000_000) return res.status(400).json({ error: 'Anexo muito grande (máx ~6MB).' });
+    if (!texto && !anexo) return res.status(400).json({ error: 'Escreva a mensagem ou anexe um arquivo.' });
     const quando = new Date((req.body || {}).enviar_em);
     if (isNaN(quando.getTime())) return res.status(400).json({ error: 'Data/hora inválida.' });
     if (quando.getTime() < Date.now() - 60000) return res.status(400).json({ error: 'Escolha uma data/hora no futuro.' });
     const { rows: [ag] } = await query(
-      `INSERT INTO mensagens_agendadas (conversa_id, texto, enviar_em, criado_por, criado_por_id) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-      [req.params.id, texto.slice(0, 4000), quando.toISOString(), req.user.nome, req.user.id]);
+      `INSERT INTO mensagens_agendadas (conversa_id, texto, enviar_em, criado_por, criado_por_id, anexo, anexo_nome)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, conversa_id, texto, enviar_em, status, criado_por, anexo_nome`,
+      [req.params.id, texto.slice(0, 4000), quando.toISOString(), req.user.nome, req.user.id, anexo || null, anexoNome || null]);
     res.status(201).json(ag);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -5135,7 +5169,9 @@ r.post('/conversations/:id/agendar', async (req, res) => {
 r.get('/conversations/:id/agendadas', async (req, res) => {
   try {
     const { rows } = await query(
-      `SELECT id, texto, enviar_em, status, criado_por, enviada_em FROM mensagens_agendadas
+      `SELECT id, texto, enviar_em, status, criado_por, enviada_em, anexo_nome,
+              (anexo IS NOT NULL) AS tem_anexo
+         FROM mensagens_agendadas
        WHERE conversa_id = $1 ORDER BY (status='pendente') DESC, enviar_em`, [req.params.id]);
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
