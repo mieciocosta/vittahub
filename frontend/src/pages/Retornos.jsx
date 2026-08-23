@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { CalendarClock, AlertTriangle, CalendarCheck, MessageCircle, Check, Pencil, RotateCcw } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt, openWA, avatarGrad } from '../hooks/utils.js';
@@ -22,6 +23,7 @@ function diasAtraso(iso) {
 
 export default function Retornos() {
   const api = useApi();
+  const nav = useNavigate();
   const { isMaster } = useAuth();
   const [data, setData] = useState(null);
   const [modal, setModal] = useState(null);
@@ -63,7 +65,48 @@ export default function Retornos() {
 
       {erro && <div style={{ marginBottom: 12, padding: '8px 14px', borderRadius: 10, background: 'var(--err2)', color: 'var(--err)', fontSize: 12.5, fontWeight: 600 }}>{erro}</div>}
 
-      {total === 0 && (
+      {/* 🤖 SEM AGENDAMENTO — a fila que a IA trabalha (pedido do master:
+          "não está trazendo os clientes que não foram agendados") */}
+      {(data.sem_agendamento || []).length > 0 && (
+        <div className="card" style={{ overflow: 'hidden', marginBottom: 16 }}>
+          <div style={{ padding: '13px 16px', display: 'flex', alignItems: 'center', gap: 10, background: 'linear-gradient(120deg,#2e1065,#6d28d9)', color: '#fff' }}>
+            <span style={{ fontSize: 16 }}>🤖</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 800, fontSize: 13.5 }}>Sem agendamento — pra trabalhar</div>
+              <div style={{ fontSize: 10.5, opacity: .85 }}>Conversas que esfriaram sem agendar, sem venda no mês e sem retorno marcado. A IA cuida de quem tem a Vitta ligada; o resto pede seu toque.</div>
+            </div>
+            <span style={{ background: 'rgba(255,255,255,.2)', borderRadius: 10, padding: '2px 10px', fontSize: 12.5, fontWeight: 800 }}>{data.sem_agendamento.length}</span>
+          </div>
+          <div style={{ maxHeight: 380, overflowY: 'auto' }}>
+            {data.sem_agendamento.map((c, i) => (
+              <div key={c.conv_id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderBottom: i < data.sem_agendamento.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                <div style={{ width: 32, height: 32, borderRadius: '50%', background: avatarGrad(c.telefone || c.nome), color: '#fff', fontWeight: 800, fontSize: 11, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  {fmt.initials(c.nome || '?')}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.nome || fmt.phone(c.telefone)}</div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                    {c.setor ? `${c.setor} · ` : ''}última conversa {fmt.relTime(c.last_message_at)}
+                    {c.responsavel_nome ? ` · ${String(c.responsavel_nome).split(' ')[0]}` : ''}
+                  </div>
+                </div>
+                {c.ia_trabalhando ? (
+                  <span title="A responsável está com a Vitta ligada — o follow-up automático cobre esta conversa"
+                    style={{ fontSize: 9.5, fontWeight: 800, background: '#f3e8ff', color: '#7c3aed', borderRadius: 8, padding: '2px 8px', flexShrink: 0 }}>🤖 IA no caso</span>
+                ) : (
+                  <span title="Sem IA nesta carteira — precisa de contato humano"
+                    style={{ fontSize: 9.5, fontWeight: 800, background: 'var(--warn2,#fef3c7)', color: 'var(--warn,#b45309)', borderRadius: 8, padding: '2px 8px', flexShrink: 0 }}>🙋 chame você</span>
+                )}
+                <button onClick={() => nav(`/inbox?conv=${c.conv_id}`)} className="btn btn-s btn-sm" style={{ gap: 5, flexShrink: 0, fontWeight: 700 }}>
+                  <MessageCircle size={13} /> Abrir
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {total === 0 && (data.sem_agendamento || []).length === 0 && (
         <div className="card" style={{ padding: '46px 20px', textAlign: 'center' }}>
           <CalendarCheck size={34} color="var(--ok)" style={{ marginBottom: 10 }} />
           <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4 }}>Tudo em dia</div>

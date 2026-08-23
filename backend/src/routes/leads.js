@@ -148,10 +148,37 @@ r.get('/retornos', async (req, res) => {
         ${uFilter}
       ORDER BY l.data_retorno, l.nome`);
     const guardRow = (row) => req.user.role === 'master' ? row : { ...row, valor_proposta: null };
+    /* 🤖 SEM AGENDAMENTO (pedido do master, 22/08: "não está trazendo os
+       clientes que não foram agendados — a IA vai trabalhar neles"):
+       conversas que esfriaram SEM agendamento futuro, sem venda no mês e sem
+       retorno já marcado. É a fila de recuperação — mostra quem a IA está
+       trabalhando (responsável com o botão da Vitta ligado) e quem depende
+       de contato humano. */
+    const uFilterConv = (['master', 'supervisor'].includes(req.user.role) || req.user.ve_tudo)
+      ? '' : ` AND c.responsavel_id = '${uid}'`;
+    const { rows: semAg } = await query(`
+      SELECT c.id AS conv_id, c.contact_name AS nome, c.phone AS telefone, c.setor,
+             c.last_message_at, c.last_from, u.nome AS responsavel_nome, u.cor AS responsavel_cor,
+             COALESCE(u.ia_consultas = true AND u.ia_ligada <> false, false) AS ia_trabalhando
+        FROM conversas c LEFT JOIN usuarios u ON u.id = c.responsavel_id
+       WHERE c.last_message_at BETWEEN NOW() - interval '30 days' AND NOW() - interval '20 hours'
+         AND c.contact_id NOT LIKE '%g.us%'
+         AND length(regexp_replace(COALESCE(c.phone, ''), '\\D', '', 'g')) >= 10
+         AND COALESCE(c.categoria, '') <> 'banco_dados'
+         AND NOT EXISTS (SELECT 1 FROM agenda_eventos a WHERE a.conversa_id = c.id
+                           AND a.data >= (NOW() - interval '3 hours')::date
+                           AND a.status NOT IN ('Cancelado', 'Faltou'))
+         AND NOT EXISTS (SELECT 1 FROM vendas v WHERE v.conversa_id = c.id
+                           AND v.data_venda > (NOW() - interval '3 hours')::date - 30)
+         AND NOT EXISTS (SELECT 1 FROM leads l2 WHERE l2.id = c.lead_id
+                           AND (l2.data_retorno IS NOT NULL OR l2.status IN ('Fechado', 'Perdido')))
+         ${uFilterConv}
+       ORDER BY c.last_message_at DESC LIMIT 60`).catch(() => ({ rows: [] }));
     res.json({
       vencidos: rows.filter(r2 => r2.grupo === 'vencido').map(guardRow),
       hoje:     rows.filter(r2 => r2.grupo === 'hoje').map(guardRow),
       proximos: rows.filter(r2 => r2.grupo === 'proximo').map(guardRow),
+      sem_agendamento: semAg,
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
