@@ -92,7 +92,7 @@ r.post('/login', async (req, res) => {
 
 r.get('/me', auth, async (req, res) => {
   try {
-    const { rows } = await query('SELECT id,nome,email,cpf,role,cor,avatar,setor,setores,lider,ve_tudo,ve_geral,so_carteira,ia_consultas,ia_ligada,pode_impersonar FROM usuarios WHERE id=$1', [req.user.id]);
+    const { rows } = await query('SELECT id,nome,email,cpf,role,cor,avatar,setor,setores,lider,ve_tudo,ve_geral,so_carteira,ia_consultas,ia_ligada,pode_impersonar,baixa_supervisionada FROM usuarios WHERE id=$1', [req.user.id]);
     if (!rows[0]) return res.status(404).json({ error: 'Não encontrado' });
     res.json({ ...rows[0], dono: ehDono(rows[0]) || rows[0].pode_impersonar === true });
   } catch (err) { res.status(500).json({ error: err.message }); }

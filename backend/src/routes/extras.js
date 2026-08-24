@@ -2330,11 +2330,59 @@ r.patch('/vendas/:id/repasse', async (req, res) => {
 });
 
 // CAIXA — baixa de pendência: marca a venda como recebida (1 clique). Gestão ou dono.
+/* 💸 Fila de baixas aguardando o master */
+r.get('/baixas-pendentes', async (req, res) => {
+  try {
+    const filtro = req.user.role === 'master' ? '' : `AND bp.solicitante_id = '${String(req.user.id).replace(/[^a-zA-Z0-9-]/g, '')}'`;
+    const { rows } = await query(`
+      SELECT bp.*, v.cliente_nome, v.valor, v.servico, v.categoria, v.data_venda
+        FROM baixas_pendentes bp JOIN vendas v ON v.id = bp.venda_id
+       WHERE bp.status = 'pendente' ${filtro}
+       ORDER BY bp.created_at DESC LIMIT 50`).catch(() => ({ rows: [] }));
+    res.json({ itens: rows });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+r.post('/baixas-pendentes/:id/decidir', async (req, res) => {
+  try {
+    if (req.user.role !== 'master') return res.status(403).json({ error: 'Só o Dr. Miécio autoriza baixas.' });
+    const aprovar = req.body?.aprovar === true;
+    const { rows: [bp] } = await query(`SELECT * FROM baixas_pendentes WHERE id = $1 AND status = 'pendente'`, [req.params.id]);
+    if (!bp) return res.status(404).json({ error: 'Solicitação não encontrada (ou já decidida).' });
+    if (aprovar) {
+      const { rows: [v] } = await query(`UPDATE vendas SET status_pagamento = 'pago', updated_at = NOW()
+        WHERE id = $1 RETURNING id, setor, valor`, [bp.venda_id]);
+      if (v) socketEmit('venda_registrada', { id: v.id, setor: v.setor, valor: v.valor });
+    }
+    await query(`UPDATE baixas_pendentes SET status = $1, decidido_por = $2, decidido_em = NOW() WHERE id = $3`,
+      [aprovar ? 'aprovada' : 'negada', req.user.nome, bp.id]);
+    await query(`INSERT INTO notificacoes (tipo, titulo, texto) VALUES ('info', $1, $2)`,
+      [`💸 Baixa ${aprovar ? 'APROVADA ✅' : 'negada'} pelo Dr. Miécio`,
+       `A baixa solicitada por ${bp.solicitante_nome} foi ${aprovar ? 'autorizada e aplicada' : 'negada'}.`]).catch(() => {});
+    res.json({ ok: true, status: aprovar ? 'aprovada' : 'negada' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.patch('/vendas/:id/receber', async (req, res) => {
   try {
-    const { rows: [v] } = await query(`SELECT atendente_id, setor, valor FROM vendas WHERE id = $1`, [req.params.id]);
+    const { rows: [v] } = await query(`SELECT atendente_id, setor, valor, cliente_nome FROM vendas WHERE id = $1`, [req.params.id]);
     if (!v) return res.status(404).json({ error: 'Venda não encontrada' });
-    if (!gestao(req) && v.atendente_id !== req.user.id) return res.status(403).json({ error: 'Sem permissão.' });
+    /* 💸 BAIXA SUPERVISIONADA (ordem do master, 22/08): fora da gestão, SÓ a
+       Jéssica (flag baixa_supervisionada) tem baixa manual — e a dela vira
+       SOLICITAÇÃO: justificativa obrigatória + autorização do Dr. Miécio. */
+    if (!gestao(req)) {
+      const { rows: [euB] } = await query('SELECT baixa_supervisionada FROM usuarios WHERE id = $1', [req.user.id]).catch(() => ({ rows: [{}] }));
+      if (!euB?.baixa_supervisionada) return res.status(403).json({ error: 'Baixa manual é da gestão. Se o pagamento caiu, avise a Jéssica ou o financeiro.' });
+      const just = String((req.body || {}).justificativa || '').trim();
+      if (just.length < 10) return res.status(400).json({ error: 'Justificativa obrigatória (mínimo 10 caracteres) — explique como o pagamento foi confirmado.' });
+      const { rows: [jaPend] } = await query(`SELECT 1 FROM baixas_pendentes WHERE venda_id = $1 AND status = 'pendente' LIMIT 1`, [req.params.id]);
+      if (jaPend) return res.status(409).json({ error: 'Esta venda já tem uma baixa aguardando autorização do Dr. Miécio.' });
+      await query(`INSERT INTO baixas_pendentes (venda_id, solicitante_id, solicitante_nome, justificativa)
+                   VALUES ($1,$2,$3,$4)`, [req.params.id, req.user.id, req.user.nome, just.slice(0, 400)]);
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('alerta', $1, $2, true)`,
+        [`💸 ${String(req.user.nome).split(' ')[0]} pediu baixa manual`,
+         `Venda de ${v.cliente_nome || 'cliente'} (R$ ${Number(v.valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}). Justificativa: ${just.slice(0, 200)}. Aprove ou negue no Caixa, no cartão de baixas pendentes.`]).catch(() => {});
+      return res.json({ pendente: true, mensagem: 'Solicitação enviada ao Dr. Miécio — a baixa aplica quando ele autorizar.' });
+    }
     const novo = STATUS_PG.includes((req.body || {}).status) ? req.body.status : 'pago';
     const forma = FORMAS_PG.includes((req.body || {}).forma_pagamento) ? req.body.forma_pagamento : null;
     const sets = ['status_pagamento = $1']; const params = [novo];

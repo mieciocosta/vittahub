@@ -2699,6 +2699,32 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log('🏁 Grupo caixa:', txtG.slice(0, 60));
     }
 
+    /* 💸 BAIXA SUPERVISIONADA (ordem do master, 22/08): SOMENTE a Jéssica tem
+       a baixa manual — e ela só finaliza com justificativa + autorização do
+       Dr. Miécio. Flag no cadastro + fila de solicitações. */
+    await query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS baixa_supervisionada BOOLEAN DEFAULT false`).catch(() => {});
+    await query(`CREATE TABLE IF NOT EXISTS baixas_pendentes (
+      id SERIAL PRIMARY KEY, venda_id TEXT NOT NULL, solicitante_id TEXT, solicitante_nome TEXT,
+      justificativa TEXT, status TEXT DEFAULT 'pendente',
+      decidido_por TEXT, decidido_em TIMESTAMPTZ, created_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
+    const { rows: [flagJess] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_baixa_jessica_v1'");
+    if (!flagJess) {
+      /* Géssica com as MESMAS funções da Poliana (complemento do master):
+         setor vacinas (se não tiver), meta individual de R$ 100 mil e o
+         botão da IA de follow-up — além da baixa supervisionada. */
+      const { rowCount: nJ } = await query(`UPDATE usuarios SET baixa_supervisionada = true,
+          setor = COALESCE(setor, 'vacinas'),
+          meta_individual = CASE WHEN COALESCE(meta_individual, 0) = 0 THEN 100000 ELSE meta_individual END,
+          ia_consultas = true, updated_at = NOW()
+        WHERE ativo = true AND (nome ILIKE 'gessica%' OR nome ILIKE 'géssica%' OR nome ILIKE 'jessica%' OR nome ILIKE 'jéssica%')`).catch(() => ({ rowCount: 0 }));
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+        ['💸 Baixa supervisionada da Jéssica',
+         nJ > 0 ? 'A Géssica agora tem: baixa manual no Caixa (sempre com justificativa e a sua autorização), as mesmas funções da Poliana — setor vacinas, meta de R$ 100 mil, caixa próprio e o botão da IA de follow-up. As demais atendentes não têm baixa manual.'
+                : 'Não achei usuária ativa com nome Gessica/Jéssica pra dar a permissão de baixa supervisionada. Confira o nome no cadastro e me avise.']).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_baixa_jessica_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('💸 Baixa supervisionada:', nJ);
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);

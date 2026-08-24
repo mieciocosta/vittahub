@@ -192,6 +192,7 @@ export default function Caixa() {
     api.get('/extras/meta-setor').then(d => { setMetasSetor(d?.porSetor || []); setMetaEu(d?.individual || null); }).catch(() => {});
     api.get('/extras/comprovantes/divergencias').then(d => setDivergencias(Array.isArray(d?.itens) ? d.itens : [])).catch(() => {});
     api.get('/extras/caixa/fechar-meu/status').then(setFechStatus).catch(() => {});
+    api.get('/extras/baixas-pendentes').then(d => setBaixasPend(Array.isArray(d?.itens) ? d.itens : [])).catch(() => {});
     api.get(`/extras/vendas?${qs.toString()}`)
       .then(d => setLista(Array.isArray(d) ? d : []))
       .catch(() => setLista([]))
@@ -286,11 +287,34 @@ export default function Caixa() {
   // Baixa de pendência: marca a venda como recebida (1 clique)
   const [recebendo, setRecebendo] = useState(null);
   const marcarRecebido = async (v) => {
+    /* 💸 Baixa supervisionada (ordem do master): a Géssica dá baixa SÓ com
+       justificativa + autorização do Dr. Miécio — abre o modal em vez de
+       aplicar direto. Gestão continua com baixa em 1 clique. */
+    if (user?.baixa_supervisionada && !['master', 'supervisor'].includes(user?.role)) {
+      setBaixaJust({ venda: v, texto: '' });
+      return;
+    }
     setRecebendo(v.id); setErro('');
     setLista(p => p.map(x => x.id === v.id ? { ...x, status_pagamento: 'pago' } : x));
     try { await api.patch(`/extras/vendas/${v.id}/receber`, { status: 'pago' }); }
     catch (err) { setErro(err.message || 'Falha ao dar baixa.'); load(); }
     setRecebendo(null);
+  };
+  const enviarBaixaJust = async () => {
+    const b = baixaJust; if (!b || String(b.texto).trim().length < 10) { window.alert('Escreva a justificativa (mínimo 10 caracteres): como o pagamento foi confirmado?'); return; }
+    try {
+      const r2 = await api.patch(`/extras/vendas/${b.venda.id}/receber`, { status: 'pago', justificativa: b.texto.trim() });
+      window.alert(r2?.mensagem || '✅ Solicitação enviada ao Dr. Miécio.');
+      setBaixaJust(null);
+      api.get('/extras/baixas-pendentes').then(d => setBaixasPend(Array.isArray(d?.itens) ? d.itens : [])).catch(() => {});
+    } catch (e) { window.alert('Erro: ' + e.message); }
+  };
+  const decidirBaixa = async (bp, aprovar) => {
+    try {
+      await api.post(`/extras/baixas-pendentes/${bp.id}/decidir`, { aprovar });
+      setBaixasPend(p => p.filter(x => x.id !== bp.id));
+      if (aprovar) load();
+    } catch (e) { window.alert('Erro: ' + e.message); }
   };
 
   // Saídas / despesas (gestão) — pra fechar o saldo real
@@ -317,6 +341,8 @@ export default function Caixa() {
   const [divergencias, setDivergencias] = useState([]); // 🕵️ comprovantes reprovados pela IA
   const [fechStatus, setFechStatus] = useState(null);   // 🏁 fechamento do dia no grupo
   const [fechEnviando, setFechEnviando] = useState(false);
+  const [baixasPend, setBaixasPend] = useState([]);     // 💸 baixas aguardando o master
+  const [baixaJust, setBaixaJust] = useState(null);     // { venda, texto } — modal de justificativa (Géssica)
   const [modalDesp, setModalDesp] = useState(null);
   const [salvandoDesp, setSalvandoDesp] = useState(false);
   const loadDespesas = () => {
@@ -809,6 +835,55 @@ export default function Caixa() {
           {fechEnviando ? 'Enviando…' : fechStatus?.fechado_hoje ? '↻ Reenviar no grupo' : '🏁 Fechar e enviar no grupo'}
         </button>
       </div>
+
+      {/* 💸 Baixas aguardando autorização (master decide; Géssica acompanha as dela) */}
+      {baixasPend.length > 0 && (
+        <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: 12, border: '1.5px solid #fcd34d' }}>
+          <div style={{ padding: '11px 16px', background: 'linear-gradient(120deg,#78350f,#b45309)', color: '#fff', display: 'flex', alignItems: 'center', gap: 9 }}>
+            <span style={{ fontSize: 15 }}>💸</span>
+            <b style={{ flex: 1, fontSize: 13.5 }}>{user?.role === 'master' ? 'Baixas manuais aguardando sua autorização' : 'Suas baixas aguardando o Dr. Miécio'}</b>
+            <span style={{ background: 'rgba(255,255,255,.25)', borderRadius: 10, padding: '2px 9px', fontSize: 12, fontWeight: 800 }}>{baixasPend.length}</span>
+          </div>
+          {baixasPend.map((bp, i) => (
+            <div key={bp.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', borderBottom: i < baixasPend.length - 1 ? '1px solid var(--border)' : 'none', flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: 220 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 800 }}>{bp.cliente_nome || 'Cliente'} · {Number(bp.valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} <span style={{ color: 'var(--muted)', fontWeight: 600 }}>· pedido por {String(bp.solicitante_nome || '').split(' ')[0]}</span></div>
+                <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2, lineHeight: 1.45 }}>📝 {bp.justificativa}</div>
+              </div>
+              {user?.role === 'master' ? (
+                <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                  <button onClick={() => decidirBaixa(bp, true)} className="btn btn-sm" style={{ background: '#16a34a', color: '#fff', border: 'none', fontWeight: 800 }}>✅ Autorizar</button>
+                  <button onClick={() => decidirBaixa(bp, false)} className="btn btn-sm" style={{ background: '#dc2626', color: '#fff', border: 'none', fontWeight: 800 }}>✕ Negar</button>
+                </div>
+              ) : (
+                <span style={{ fontSize: 10.5, fontWeight: 800, color: '#b45309', background: '#fef3c7', borderRadius: 8, padding: '3px 10px', flexShrink: 0 }}>⏳ aguardando autorização</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 💸 Modal de justificativa da baixa supervisionada (Géssica) */}
+      {baixaJust && (
+        <div onClick={e => e.target === e.currentTarget && setBaixaJust(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(3,43,48,.55)', zIndex: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div className="card" style={{ width: '100%', maxWidth: 420, padding: 20 }}>
+            <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 6 }}>💸 Dar baixa com autorização</div>
+            <p style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.5 }}>
+              Baixa de <b>{baixaJust.venda.cliente_nome || 'cliente'}</b> ({Number(baixaJust.venda.valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}). A justificativa é obrigatória e a baixa só aplica depois que o <b>Dr. Miécio autorizar</b>.
+            </p>
+            <div className="field" style={{ margin: 0, marginBottom: 12 }}>
+              <label>Justificativa * (como o pagamento foi confirmado?)</label>
+              <textarea rows={3} value={baixaJust.texto} onChange={e => setBaixaJust(p => ({ ...p, texto: e.target.value }))}
+                placeholder="Ex.: cliente mostrou o comprovante do Pix na recepção, valor conferido…" style={{ resize: 'vertical' }} />
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button onClick={enviarBaixaJust} className="btn btn-p" style={{ fontWeight: 800 }}>📨 Enviar pro Dr. Miécio</button>
+              <button onClick={() => setBaixaJust(null)} className="btn">Cancelar</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 🕵️ CAIXA DE SINALIZAÇÃO (pedido do master): a IA lê cada comprovante
           anexado; o que não bate (valor, autenticidade) aparece aqui — gestão
