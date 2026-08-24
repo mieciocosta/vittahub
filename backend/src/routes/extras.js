@@ -3900,24 +3900,27 @@ r.get('/fechamento-diario', async (req, res) => {
 
     // Já fechado? Devolve a foto guardada
     const { rows: [f] } = await query('SELECT * FROM fechamentos_diarios WHERE data = $1', [dia]).catch(() => ({ rows: [] }));
-    if (f && req.query.recalcular !== '1') {
+    // A foto guardada é da CASA — atendente calcula sempre o recorte próprio
+    if (f && req.query.recalcular !== '1' && veGeral(req)) {
       return res.json({ ...f.dados, data: dia, fechado: true, fechado_por: f.fechado_por_nome,
         fechado_em: f.fechado_em, observacao: f.observacao });
     }
 
     const PAGO = "status_pagamento IN ('pago','cortesia')";
-    /* O caixa do dia é o do SETOR de quem abriu (o master vê a casa toda). A
-       supervisora de vacinas estava conferindo o dinheiro de consultas — e o
-       contrário também acontecia. */
-    const setoresCaixa = veGeral(req) ? null : await setoresDoUsuario(req);
-    const filtroSetor = setoresCaixa ? ` AND COALESCE(setor,'vacinas') = ANY($2)` : '';
-    const parDia = setoresCaixa ? [dia, setoresCaixa] : [dia];
+    /* Ordem do master (22/08: "o caixa da Poliana está pegando o da Stefany —
+       cada caixa separado"): fora o master/ve_geral, o fechamento do dia é da
+       PRÓPRIA pessoa — as vendas dela, o dinheiro dela, o relatório dela.
+       Setor não é mais o recorte: pessoa é. */
+    const ehCasaF = veGeral(req);
+    const setoresCaixa = ehCasaF ? null : await setoresDoUsuario(req);   // usado só pro bloco de estoque
+    const filtroSetor = ehCasaF ? '' : ` AND atendente_id = $2`;
+    const parDia = ehCasaF ? [dia] : [dia, req.user.id];
     const [vendasQ, formasQ, dosesQ, agendaQ] = await Promise.all([
       // Vendas do dia (lista curta pra conferência)
       query(`SELECT id, cliente_nome, paciente_nome, servico, categoria, setor, valor, forma_pagamento,
                     status_pagamento, atendente_nome,
                     (SELECT COUNT(*) FROM venda_comprovantes c WHERE c.venda_id = v.id)::int comprovantes
-               FROM vendas v WHERE data_venda = $1${setoresCaixa ? ` AND COALESCE(v.setor,'vacinas') = ANY($2)` : ''} ORDER BY created_at`, parDia),
+               FROM vendas v WHERE data_venda = $1${ehCasaF ? '' : ' AND v.atendente_id = $2'} ORDER BY created_at`, parDia),
       // Total por forma de pagamento (o que precisa bater no fim do dia)
       query(`SELECT COALESCE(forma_pagamento,'Outros') forma, COUNT(*)::int n,
                     COALESCE(SUM(valor) FILTER (WHERE ${PAGO}),0)::float recebido,
@@ -3928,7 +3931,7 @@ r.get('/fechamento-diario', async (req, res) => {
                FROM carteira_doses WHERE data_aplicacao = $1 AND aplicada = true
               GROUP BY 1 ORDER BY qtd DESC`, [dia]).catch(() => ({ rows: [] })),
       // Atendimentos do dia (contexto: quantos realizados x faltas)
-      query(`SELECT status, COUNT(*)::int n FROM agenda_eventos WHERE data = $1${filtroSetor} GROUP BY 1`, parDia).catch(() => ({ rows: [] })),
+      query(`SELECT status, COUNT(*)::int n FROM agenda_eventos WHERE data = $1${ehCasaF ? '' : ' AND responsavel_id = $2'} GROUP BY 1`, parDia).catch(() => ({ rows: [] })),
     ]);
 
     // Doses que estavam solicitadas pra hoje (o que era esperado sair)
