@@ -191,6 +191,7 @@ export default function Caixa() {
     if (status) qs.set('status', status);
     api.get('/extras/meta-setor').then(d => { setMetasSetor(d?.porSetor || []); setMetaEu(d?.individual || null); }).catch(() => {});
     api.get('/extras/comprovantes/divergencias').then(d => setDivergencias(Array.isArray(d?.itens) ? d.itens : [])).catch(() => {});
+    api.get('/extras/caixa/fechar-meu/status').then(setFechStatus).catch(() => {});
     api.get(`/extras/vendas?${qs.toString()}`)
       .then(d => setLista(Array.isArray(d) ? d : []))
       .catch(() => setLista([]))
@@ -314,6 +315,8 @@ export default function Caixa() {
   const [metasSetor, setMetasSetor] = useState([]); // metas minima/global por setor (gestao)
   const [metaEu, setMetaEu] = useState(null);       // 🎯 o MESMO número do placar de cima (fonte única)
   const [divergencias, setDivergencias] = useState([]); // 🕵️ comprovantes reprovados pela IA
+  const [fechStatus, setFechStatus] = useState(null);   // 🏁 fechamento do dia no grupo
+  const [fechEnviando, setFechEnviando] = useState(false);
   const [modalDesp, setModalDesp] = useState(null);
   const [salvandoDesp, setSalvandoDesp] = useState(false);
   const loadDespesas = () => {
@@ -776,6 +779,37 @@ export default function Caixa() {
         </div>
       ) : (
       <>
+      {/* 🏁 FECHAR O CAIXA DO DIA (pedido do master): cada colaboradora fecha o
+          seu e o relatório cai no grupo Caixa do WhatsApp. */}
+      <div className="card" style={{ padding: '13px 16px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+        background: 'linear-gradient(120deg,#14532d,#166534)', color: '#fff', border: 'none' }}>
+        <span style={{ fontSize: 20 }}>🏁</span>
+        <div style={{ flex: 1, minWidth: 220 }}>
+          <div style={{ fontWeight: 900, fontSize: 14.5 }}>{user?.role === 'master' ? 'Fechar o caixa da casa' : 'Fechar o meu caixa do dia'}</div>
+          <div style={{ fontSize: 11.5, opacity: .9, marginTop: 2 }}>
+            {fechStatus?.fechado_hoje
+              ? `✅ Fechado hoje às ${new Date(fechStatus.enviado_em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}${fechStatus?.grupo ? ` · enviado no grupo ${fechStatus.grupo}` : ''}`
+              : fechStatus?.grupo
+                ? `O relatório das suas vendas de hoje vai direto pro grupo ${fechStatus.grupo} no WhatsApp.`
+                : 'O relatório vai pro grupo Caixa do WhatsApp (grupo ainda não configurado — fale com o Dr. Miécio).'}
+          </div>
+        </div>
+        <button onClick={async () => {
+          if (fechStatus?.fechado_hoje && !window.confirm('O caixa de hoje já foi fechado e enviado. Reenviar o relatório atualizado pro grupo?')) return;
+          setFechEnviando(true);
+          try {
+            const r2 = await api.post('/extras/caixa/fechar-meu', {});
+            window.alert(`✅ Caixa fechado! ${r2.vendas} venda(s) · total ${Number(r2.total || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} — relatório enviado no ${r2.grupo}.`);
+            api.get('/extras/caixa/fechar-meu/status').then(setFechStatus).catch(() => {});
+          } catch (e) { window.alert('Erro: ' + e.message); }
+          setFechEnviando(false);
+        }} disabled={fechEnviando}
+          style={{ border: 'none', borderRadius: 11, padding: '10px 18px', cursor: 'pointer', fontSize: 13, fontWeight: 900, flexShrink: 0,
+            background: 'linear-gradient(180deg,#fde68a,#f59e0b)', color: '#78350f', boxShadow: '0 3px 12px rgba(245,158,11,.4)' }}>
+          {fechEnviando ? 'Enviando…' : fechStatus?.fechado_hoje ? '↻ Reenviar no grupo' : '🏁 Fechar e enviar no grupo'}
+        </button>
+      </div>
+
       {/* 🕵️ CAIXA DE SINALIZAÇÃO (pedido do master): a IA lê cada comprovante
           anexado; o que não bate (valor, autenticidade) aparece aqui — gestão
           vê tudo, cada atendente vê os das próprias vendas. */}
