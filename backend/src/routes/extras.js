@@ -5126,6 +5126,7 @@ async function confirmacaoVespera() {
       SELECT * FROM agenda_eventos
       WHERE data = $1 AND status IN ('Agendado','Confirmado')
         AND COALESCE(confirmacao_enviada, false) = false
+        AND servico IS DISTINCT FROM 'Pós Vacinal'  -- ordem do master: pós-vacinal SÓ na agenda, nenhuma mensagem sai sozinha
       ORDER BY hora LIMIT 60`, [amanha]);
     let n = 0, semConversa = 0;
     for (const ev of eventos) {

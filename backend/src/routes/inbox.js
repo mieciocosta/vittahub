@@ -1808,6 +1808,8 @@ Toda conversa que NÃO terminou em agendamento ou venda precisa sair com um reto
 - "Mês que vem" / "só no próximo mês" → NÃO deixe o lead solto até lá: use agendar_retorno com quando="proximo_mes" — o retorno cai na PRIMEIRA SEMANA do próximo mês (nunca domingo) — e diga que já deixou agendado o início do mês pra garantir o desconto conquistado.
 - ÚNICA exceção (respeito absoluto): se o cliente pedir explicitamente pra NÃO ser contatado ("não me mande mais mensagem", "pare de me chamar") — aí NADA de retorno: agradeça com carinho e encerre. Insistir depois disso queima a marca.
 
+💙 PÓS-VACINAL É TAREFA DA EQUIPE, NÃO SUA (ordem do master): você NUNCA manda mensagem de pós-vacinal por conta própria — nada de "como o pequeno passou depois da vacina?", nada de lembrete de pós-vacinal. O pós-vacinal nasce sozinho na AGENDA, no dia seguinte ao atendimento, e quem faz o contato é a atendente, na hora dela. Se o cliente é quem escreve falando de febre ou reação depois da vacina, aí sim você acolhe e orienta com carinho normalmente (e aciona a equipe se for algo clínico).
+
 O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
 - Você NÃO consegue "verificar e voltar depois": você só responde quando o cliente manda mensagem. NUNCA prometa "já te passo", "vou verificar e retorno", "em alguns minutinhos te falo".
 - Quando precisar de algo que você não sabe (disponibilidade de agenda, confirmação de horário, caso muito específico): diga que vai acionar a equipe AGORA e que ELES confirmam por aqui em seguida — e use a ferramenta passar_para_equipe na mesma resposta. Ex.: "Vou acionar nossa equipe agora pra confirmar sexta à tarde, tá? Já já te respondem por aqui 💙".`;
@@ -5360,16 +5362,21 @@ setTimeout(rodarRecallVacinal, 90000);
 async function rodarPosVacinalAgenda() {
   try {
     const { rows: cands } = await query(`
-      SELECT e.paciente, e.responsavel_nome, to_char(e.data + 1, 'YYYY-MM-DD') alvo, e.telefone,
+      SELECT e.paciente, e.responsavel_nome, e.telefone,
+             -- Se o D+1 já passou (backend fora do ar, atendimento lançado depois),
+             -- o pós NÃO se perde no passado: ele cai na agenda de HOJE, pra
+             -- atendente ver e realizar. Pedido do master: todo dia a lista de
+             -- pós-vacinal aparece pra equipe agendar.
+             to_char(GREATEST(e.data + 1, (NOW() - interval '3 hours')::date), 'YYYY-MM-DD') alvo,
              e.responsavel_id, e.conversa_id, to_char(e.data, 'DD/MM') dia_orig
         FROM agenda_eventos e
        WHERE COALESCE(e.setor, 'vacinas') = 'vacinas'
          AND e.status NOT IN ('Cancelado', 'Faltou', 'Reagendado')
          AND e.servico IS DISTINCT FROM 'Pós Vacinal'
-         AND e.data BETWEEN (NOW() - interval '3 hours')::date - 1 AND (NOW() - interval '3 hours')::date + 30
+         AND e.data BETWEEN (NOW() - interval '3 hours')::date - 7 AND (NOW() - interval '3 hours')::date + 30
          AND NOT EXISTS (SELECT 1 FROM agenda_eventos p
-                          WHERE p.servico = 'Pós Vacinal' AND p.data = e.data + 1
-                            AND lower(p.paciente) = lower(e.paciente))
+                          WHERE p.servico = 'Pós Vacinal' AND lower(p.paciente) = lower(e.paciente)
+                            AND p.data >= e.data)
        ORDER BY e.data, e.hora`).catch(() => ({ rows: [] }));
     if (!cands.length) return;
     // Agenda dividida: os pós-vacinais entram na SEÇÃO de baixo, cada um no seu

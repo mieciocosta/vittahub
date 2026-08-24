@@ -230,6 +230,7 @@ r.get('/resumo', async (req, res) => {
       `SELECT id, paciente, servico, TO_CHAR(data,'YYYY-MM-DD') AS data, hora, profissional, telefone, setor, lembrete_enviado_em
          FROM agenda_eventos
         WHERE data = $1 AND LOWER(COALESCE(status,'')) NOT LIKE 'cancel%'
+          AND servico IS DISTINCT FROM 'Pós Vacinal'  -- pós-vacinal não é lembrete de cliente, é tarefa da equipe
         ORDER BY hora`, [amanhaStr]);
 
     const { rows: leadsNasc } = await query(
@@ -274,7 +275,8 @@ r.post('/enviar', async (req, res) => {
     if (tipo === 'amanha') {
       const { rows } = await query(
         `SELECT id, paciente, servico, TO_CHAR(data,'YYYY-MM-DD') AS data, hora, profissional, telefone, setor
-           FROM agenda_eventos WHERE id = ANY($1::int[]) AND lembrete_enviado_em IS NULL`, [ids.map(Number)]);
+           FROM agenda_eventos WHERE id = ANY($1::int[]) AND lembrete_enviado_em IS NULL
+              AND servico IS DISTINCT FROM 'Pós Vacinal'`, [ids.map(Number)]);
       for (const ev of rows) {
         if (!ev.telefone || String(ev.telefone).replace(/\D/g, '').length < 10) { pulados++; continue; }
         const texto = msgAmanha(ev);
@@ -416,7 +418,10 @@ export async function rodarLembretesAutomaticos() {
     const { rows } = await query(
       `SELECT id, paciente, servico, TO_CHAR(data,'YYYY-MM-DD') AS data, hora, profissional, telefone, setor
          FROM agenda_eventos
-        WHERE data = $1 AND lembrete_enviado_em IS NULL AND LOWER(COALESCE(status,'')) NOT LIKE 'cancel%'`, [amanhaLocal]);
+        WHERE data = $1 AND lembrete_enviado_em IS NULL AND LOWER(COALESCE(status,'')) NOT LIKE 'cancel%'
+          AND servico IS DISTINCT FROM 'Pós Vacinal'`, [amanhaLocal]);
+    // 💙 Pós Vacinal NUNCA entra em envio automático (ordem do master): ele é
+    // tarefa interna da equipe na agenda, não um horário que o cliente confirma.
     let n = 0;
     for (const ev of rows) {
       if (!ev.telefone || String(ev.telefone).replace(/\D/g, '').length < 10) continue;
