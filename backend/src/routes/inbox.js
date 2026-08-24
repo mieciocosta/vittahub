@@ -9002,7 +9002,8 @@ async function gerarMensagemFollowup(conv, count, nomeFU = 'Equipe Vittalis') {
   );
   const hist = histRows.reverse();
   const enviouPdf = hist.some(m => m.from_type === 'bot' && m.type === 'document');
-  const primeiroNome = String(conv.contact_name || '').trim().split(/\s+/)[0] || '';
+  const brutoNome = String(conv.contact_name || '').trim().split(/\s+/)[0] || '';
+  const primeiroNome = brutoNome ? brutoNome[0].toUpperCase() + brutoNome.slice(1) : '';
   const trato = primeiroNome && !/^\d+$/.test(primeiroNome) ? primeiroNome : 'mamãe';
 
   // Templates de segurança (tom real da Vittalis) — usados sem IA ou em falha
@@ -9014,7 +9015,10 @@ async function gerarMensagemFollowup(conv, count, nomeFU = 'Equipe Vittalis') {
     return `Oi, ${trato}! Não quero te incomodar 😊 Só deixar registrado que estou por aqui quando quiser seguir. Será um prazer receber vocês na Vittalis 💎`;
   })();
 
-  if (!temIA() || !hist.length) return fallback;
+  /* Ordem do master (22/08): mensagem genérica que ignora a conversa NÃO
+     sai. Sem IA ou sem histórico = sem follow-up nesta rodada (tenta na
+     próxima). O fallback fixo só é usado se a PRÓPRIA IA gerar vazio. */
+  if (!temIA() || !hist.length) return null;
 
   try {
     const resumo = hist.map(m => {
@@ -9047,10 +9051,11 @@ REGRAS DA CASA: fale "investimento", nunca "preço/valor"; nunca soe cobrança n
       messages: [{ role: 'user', content: `${memTxt ? `O QUE SABEMOS DO CLIENTE: ${memTxt}\n\n` : ''}Conversa até agora:\n${resumo}\n\nEscreva a mensagem de retomada.` }],
     });
     const txt = aiData?.content?.find(c => c.type === 'text')?.text?.trim();
-    return txt || fallback;
+    // Ordem do master: sem texto lido da conversa, NADA de template genérico
+    return txt || null;
   } catch (e) {
     console.error('Follow-up IA erro:', e.message);
-    return fallback;
+    return null;
   }
 }
 
@@ -9108,7 +9113,9 @@ export async function rodarFollowups() {
         }
 
         const count = conv.followup_count || 0;
-        const msg = semTravessao(await gerarMensagemFollowup(conv, count, nomeFU));
+        const gerada = await gerarMensagemFollowup(conv, count, nomeFU);
+        if (!gerada) { console.log(`Follow-up adiado conv=${conv.id}: IA não gerou (sem texto genérico, ordem do master)`); continue; }
+        const msg = semTravessao(gerada);
 
         const msgAssinada = msg.trimStart().startsWith('*') ? msg : `*${nomeFU}:*\n${msg}`;
         const zr = await zapiCall('/send-text', 'POST', { phone: `55${phoneNum}`, message: msgAssinada });
@@ -9173,8 +9180,10 @@ Seja concreto e útil pra quem vai ligar agora. Nada de "o cliente demonstrou in
 
 // Cada tentativa ataca por um lado diferente — repetir o mesmo texto queima.
 async function mensagemResgate(conv, tentativa, hist) {
-  const primeiro = String(conv.contact_name || '').trim().split(/\s+/)[0] || '';
+  const primeiroB = String(conv.contact_name || '').trim().split(/\s+/)[0] || '';
+  const primeiro = primeiroB ? primeiroB[0].toUpperCase() + primeiroB.slice(1) : '';
   const trato = primeiro && !/^\d+$/.test(primeiro) ? primeiro : 'mamãe';
+  const nomeR = await nomeAssinatura(conv);
   const ANGULOS = [
     'Retome com leveza e SEM cobrar: lembre que ficou algo em aberto e ofereça ajuda pra resolver a dúvida que travou.',
     'Traga FACILIDADE concreta: formas de pagamento (entrada + restante em 30 dias), possibilidade de agendar sem compromisso, ou aplicação em casa. Nada de pressão.',
@@ -9186,19 +9195,21 @@ async function mensagemResgate(conv, tentativa, hist) {
     `Oi, ${trato}! 💙 Não vou te incomodar mais 😊 Só deixar registrado que, quando fizer sentido, a Vittalis está aqui de portas abertas pra cuidar de vocês.`,
   ];
   const i = Math.min(tentativa, 2);
-  if (!temIA() || !hist.length) return fallback[i];
+  /* Ordem do master (22/08): mensagem genérica que não leu a conversa NÃO
+     sai. Sem IA ou sem histórico = pula a rodada. */
+  if (!temIA() || !hist.length) return null;
   try {
     const linhas = hist.map(m => `${m.from_type === 'contact' ? 'Cliente' : 'Vitta'}: ${String(m.content || '').slice(0, 180)}`).join('\n');
     const d = await openaiMessages({
       model: 'gpt-4o-mini', max_tokens: 260,
-      system: `Você é a Mary, atendente da Vittalis Saúde (pediatria e vacinação, São Luís-MA), escrevendo no WhatsApp para um cliente que conversou e NÃO fechou.
+      system: `Você é a ${nomeR}, atendente da Vittalis Saúde (pediatria e vacinação, São Luís-MA), escrevendo no WhatsApp para um cliente que conversou e NÃO fechou. NUNCA use travessão (— ou –) nem aspas; diga investimento, nunca preço ou valores.
 Esta é a tentativa ${tentativa + 1} de 3. ${ANGULOS[i]}
 Regras: português do Brasil, caloroso e humano, 2 a 4 linhas, no máximo 2 emojis, trate por "${trato}". Use o que a pessoa realmente disse na conversa. NUNCA invente preço, data ou informação que não esteja no histórico. Não diga que é uma IA. Responda SOMENTE com o texto da mensagem.`,
       messages: [{ role: 'user', content: linhas.slice(0, 5000) }],
     });
     const txt = (d.content || []).filter(b => b.type === 'text').map(b => b.text).join(' ').trim();
-    return txt && txt.length > 15 ? txt : fallback[i];
-  } catch { return fallback[i]; }
+    return txt && txt.length > 15 ? semTravessao(txt) : null;
+  } catch { return null; }
 }
 
 let resgateRodando = false;
@@ -9260,12 +9271,15 @@ export async function rodarResgateIA() {
 
         // 2) A tentativa em si
         const msg = await mensagemResgate(conv, tentativa, hist);
-        const zr = await zapiCall('/send-text', 'POST', { phone: `55${phoneNum}`, message: msg });
+        if (!msg) { console.log(`Resgate adiado conv=${conv.id}: IA não gerou (sem texto genérico, ordem do master)`); continue; }
+        const nomeR2 = await nomeAssinatura(conv);
+        const msgAssinadaR = msg.trimStart().startsWith('*') ? msg : `*${nomeR2}:*\n${msg}`;
+        const zr = await zapiCall('/send-text', 'POST', { phone: `55${phoneNum}`, message: msgAssinadaR });
         if (!zr?.ok) { console.error('Resgate Z-API falhou:', conv.id, zr?.status); continue; }
 
         const { rows: [botMsg] } = await query(
           `INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome)
-           VALUES ($1,'bot','text',$2,'Mary') RETURNING *`, [conv.id, msg]
+           VALUES ($1,'bot','text',$2,$3) RETURNING *`, [conv.id, msg, nomeR2]
         ).catch(() => ({ rows: [null] }));
 
         const { rows: [novo] } = await query(
