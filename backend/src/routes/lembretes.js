@@ -4,6 +4,7 @@ import { auth } from '../middleware/auth.js';
 import { zapiOk, zapiSendText } from '../services/zapi.js';
 import { socketEmit } from '../socketServer.js';
 import { CALENDARIO_PADRAO, getCalendario, invalidarCacheCalendario } from '../services/calendario.js';
+import { cartaoDoEvento } from '../services/cartaoAgenda.js';
 
 // Registra a mensagem enviada dentro da conversa do CRM (se existir), pra
 // equipe ver no chat o que foi mandado. Melhor esforço — nunca quebra o envio.
@@ -35,9 +36,14 @@ r.use(auth);
 
 const fmtBR = (d) => new Date(String(d).slice(0, 10) + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
 
+/* O lembrete é o MESMO cartão oficial da confirmação de agendamento (ordem do
+   master, 24/08): muda só o título e a frase inicial. */
 function msgAmanha(ev) {
-  const serv = ev.servico ? ev.servico : (ev.setor === 'terapias' ? 'sessão de terapia' : ev.setor === 'consultas' ? 'consulta' : 'atendimento');
-  return `Olá! 💙 Aqui é da Vittalis Saúde. Lembrete: ${serv} de ${ev.paciente} no dia ${fmtBR(ev.data)} às ${ev.hora}${ev.profissional ? `, com ${ev.profissional}` : ''}. Responda SIM para confirmar, ou nos avise se precisar remarcar. Até lá! 😊`;
+  const nome = String(ev.paciente || '').split(' ')[0];
+  return cartaoDoEvento(ev, {
+    titulo: '🔔 *Lembrete do seu agendamento*',
+    frase: `Olá! 💙 Aqui é da Vittalis Saúde 😊 Passando para lembrar que é amanhã, dia ${fmtBR(ev.data)}, o atendimento${nome ? ` do(a) ${nome}` : ''}, e já está tudo preparado com muito carinho para receber vocês 🥰`,
+  });
 }
 const msgAniversario = (nome) => `🎂🎉 Parabéns, ${String(nome || '').split(' ')[0]}! A equipe da Vittalis Saúde deseja um aniversário cheio de saúde e alegria! 💙 Conte sempre com a gente. "Sua vida é preciosa!"`;
 const msgIndicacao = (nome) => `Olá! 💙 Aqui é da Vittalis Saúde. Foi um prazer atender ${String(nome || '').split(' ')[0]}! Se você conhece alguém que também precisa de vacinas, consultas ou terapias, adoraríamos receber sua indicação. 😊 É só encaminhar nosso contato: (98) 98422-1002. Obrigado pela confiança!`;
@@ -207,7 +213,7 @@ async function enviarLembretesVittaMed(itens, dataISO, autor) {
     if (tel.length < 10) { pulados++; continue; }
     if (lembrados.has(Number(ev.id))) { pulados++; continue; }
     if (jaNaCasa.has(`${tel.slice(-11)}|${ev.hora}`)) { pulados++; continue; }
-    const texto = msgAmanha({ paciente: ev.paciente, servico: ev.servico, hora: ev.hora, profissional: ev.profissional, setor: ev.setor });
+    const texto = await msgAmanha({ paciente: ev.paciente, servico: ev.servico, hora: ev.hora, profissional: ev.profissional, setor: ev.setor });
     const zr = await zapiSendText(tel, texto).catch(() => null);
     if (zr?.ok) {
       enviados++;
@@ -274,12 +280,12 @@ r.post('/enviar', async (req, res) => {
 
     if (tipo === 'amanha') {
       const { rows } = await query(
-        `SELECT id, paciente, servico, TO_CHAR(data,'YYYY-MM-DD') AS data, hora, profissional, telefone, setor
+        `SELECT id, paciente, responsavel_nome, endereco, servico, TO_CHAR(data,'YYYY-MM-DD') AS data, hora, profissional, telefone, setor
            FROM agenda_eventos WHERE id = ANY($1::int[]) AND lembrete_enviado_em IS NULL
               AND servico IS DISTINCT FROM 'Pós Vacinal'`, [ids.map(Number)]);
       for (const ev of rows) {
         if (!ev.telefone || String(ev.telefone).replace(/\D/g, '').length < 10) { pulados++; continue; }
-        const texto = msgAmanha(ev);
+        const texto = await msgAmanha(ev);
         const zr = await zapiSendText(ev.telefone, texto).catch(() => null);
         if (zr?.ok) { enviados++; await query(`UPDATE agenda_eventos SET lembrete_enviado_em = NOW() WHERE id = $1`, [ev.id]); await registraNaConversa(ev.telefone, texto, req.user?.nome); }
         else falhas++;
@@ -416,7 +422,7 @@ export async function rodarLembretesAutomaticos() {
     const d = new Date(hojeLocal + 'T12:00:00'); d.setDate(d.getDate() + 1);
     const amanhaLocal = d.toISOString().slice(0, 10);
     const { rows } = await query(
-      `SELECT id, paciente, servico, TO_CHAR(data,'YYYY-MM-DD') AS data, hora, profissional, telefone, setor
+      `SELECT id, paciente, responsavel_nome, endereco, servico, TO_CHAR(data,'YYYY-MM-DD') AS data, hora, profissional, telefone, setor
          FROM agenda_eventos
         WHERE data = $1 AND lembrete_enviado_em IS NULL AND LOWER(COALESCE(status,'')) NOT LIKE 'cancel%'
           AND servico IS DISTINCT FROM 'Pós Vacinal'`, [amanhaLocal]);
@@ -425,7 +431,7 @@ export async function rodarLembretesAutomaticos() {
     let n = 0;
     for (const ev of rows) {
       if (!ev.telefone || String(ev.telefone).replace(/\D/g, '').length < 10) continue;
-      const texto = msgAmanha(ev);
+      const texto = await msgAmanha(ev);
       const zr = await zapiSendText(ev.telefone, texto).catch(() => null);
       if (zr?.ok) { n++; await query(`UPDATE agenda_eventos SET lembrete_enviado_em = NOW() WHERE id = $1`, [ev.id]); await registraNaConversa(ev.telefone, texto, 'Envio automático 🤖'); }
     }

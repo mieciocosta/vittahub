@@ -14,6 +14,7 @@ import { sincronizarFidelidadeVittasys, pontePronta, ultimaSincronizacaoFidelida
 import { htmlParaPDF } from '../services/pdf.js';
 import { pareceMensagemDeTeste, pareceArquivoDeTeste, avisarTesteBloqueado } from '../services/freio.js';
 import { pacienteVittaMedLocal } from './vittamed.js';
+import { cartaoAgendamento } from '../services/cartaoAgenda.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const r = express.Router();
@@ -2098,46 +2099,17 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
           /* ✅ CARTÃO DE CONFIRMAÇÃO — formato OFICIAL ditado pelo master
              (22/08). Montado pelo sistema, sempre igual; consulta leva a
              linha do profissional. */
-          const DIAS_SEM = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
-          const dSem = DIAS_SEM[new Date(dataA + 'T12:00:00Z').getUTCDay()] || '';
-          const localTxt = String(inA.local || '').trim() || 'Na Clínica Vittalis Saúde (Renascença)';
-          const trat = ['papai', 'mamãe'].includes(String(inA.tratamento || '')) ? inA.tratamento : '';
-          const linhasConf = [
-            '✅ *Agendamento de confirmação*',
-            '',
-            `📁 *Cliente: ${String(conv.contact_name || 'Cliente').slice(0, 60)}*`,
-            `👶🏻 *Paciente: ${String(inA.paciente || '').slice(0, 60)}*`,
-            `📅 *Data: ${dataA.split('-').reverse().join('/')} ${dSem}*`,
-            `🕓 *Horário: ${horaA}hs*`,
-          ];
-          if (inA.profissional) {
-            // Especialidade junto do nome (pedido do master): Dra. Luísa (Pediatra)
-            let espec = String(inA.especialidade || '').trim();
-            if (!espec) {
-              const { rows: [pf] } = await query(`SELECT especialidade FROM profissionais
-                WHERE ativo = true AND nome ILIKE $1 LIMIT 1`, [String(inA.profissional).trim()]).catch(() => ({ rows: [] }));
-              espec = String(pf?.especialidade || '').trim();
-            }
-            linhasConf.push(`👩‍⚕️ *Profissional: ${String(inA.profissional).slice(0, 60)}${espec ? ` (${espec.slice(0, 40)})` : ''}*`);
-          }
-          linhasConf.push(`📍 *Local: ${localTxt.slice(0, 80)}*`);
-          linhasConf.push(`📌 *Serviço: ${String(inA.servico || 'Atendimento').slice(0, 80)}*`);
-          /* Atendimento NA CLÍNICA leva o endereço por escrito + Google Maps
-             (pedido do master); o Instagram vai em TODOS os atendimentos. */
-          const ehResidencia = /resid|casa|domic/i.test(localTxt);
-          if (!ehResidencia) {
-            linhasConf.push('');
-            linhasConf.push('🏥 *Nosso endereço, Clínica Vittalis Saúde:*');
-            linhasConf.push('Ed. Business Center, Térreo');
-            linhasConf.push('Av. Cel. Colares Moreira, 3A, Renascença');
-            linhasConf.push('São Luís/MA');
-            linhasConf.push('🗺️ Como chegar: https://share.google/cJwx0T5DVaCxZyc6I');
-          }
-          linhasConf.push('');
-          linhasConf.push(`*Parabéns ${trat ? trat + ' ' : ''}pelo investimento na saúde do seu Baby 🩵*`);
-          linhasConf.push('');
-          linhasConf.push('📸 Acompanhe momentos de cuidado no nosso Instagram: https://www.instagram.com/vittalissaudeslz/');
-          botReply = linhasConf.join('\n');
+          botReply = await cartaoAgendamento({
+            cliente: conv.contact_name,
+            paciente: inA.paciente,
+            data: dataA,
+            hora: horaA,
+            profissional: inA.profissional,
+            especialidade: inA.especialidade,
+            local: inA.local,
+            servico: inA.servico,
+            tratamento: inA.tratamento,
+          });
         }
       }
     } catch (e) { console.error('pre_agendar:', e.message); }
