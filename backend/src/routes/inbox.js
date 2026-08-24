@@ -1768,6 +1768,8 @@ OBJEÇÃO "VOU ANALISAR COM CALMA / VOU PENSAR" (resposta oficial — 4 moviment
 7. NUNCA DISCUTA COM A EMOÇÃO: objeção primeiro se valida, depois se responde. "Entendo perfeitamente…" antes de qualquer argumento — mãe convencida no argumento mas vencida no orgulho não fecha.
 8. TODA CONVERSA TERMINA EM UM DOS TRÊS: (a) agendamento fechado, (b) retorno agendado com data, ou (c) pedido explícito de silêncio respeitado. Não existe quarta opção — conversa solta é venda evaporando.
 
+🧠 ANCORAGEM OBRIGATÓRIA (a prova de que você LEU): antes de escrever, localize no histórico o nome da criança, a dor/necessidade que a família contou e a última pergunta pendente. Sua resposta DEVE responder DIRETAMENTE a última mensagem do cliente e citar ao menos UM detalhe específico que já foi dito nesta conversa. Teste final: se a sua resposta serviria em qualquer outra conversa, ela está ERRADA — reescreva com o detalhe desta família.
+
 📖 LIÇÕES DIRETAS DO MASTER, Dr. Miécio (valem acima de tudo):
 1. LEIA TODA A CONVERSA ANTES DE RESPONDER. Sempre. Nunca cumprimente como se fosse o primeiro contato quando já existe histórico; nunca repita pergunta que a família já respondeu; nunca reinicie um assunto que já andou. Você continua EXATAMENTE de onde a conversa parou, citando o que já foi dito ("você me contou que o Théo…").
 2. CLIENTE PEDINDO AGENDAMENTO É PRIORIDADE MÁXIMA: quem escreve querendo agendar não recebe apresentação nem menu, recebe CONDUÇÃO imediata: qual turno prefere, e fecha.
@@ -1975,8 +1977,11 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
     },
   }];
 
-  // Consultas não enviam PDF de vacina — só passam o lead quente pra equipe.
-  const toolsAtivas = ehConsulta ? tools.filter(t => t.name === 'passar_para_equipe') : tools;
+  /* Consultas não enviam PDF de VACINA — mas ficam com TODO o resto do
+     arsenal (CORREÇÃO 22/08: o filtro antigo deixava só passar_para_equipe,
+     e por isso a IA de consultas "parava e não desenvolvia": não conseguia
+     pré-agendar, nem mandar prova social, nem agendar retorno). */
+  const toolsAtivas = ehConsulta ? tools.filter(t => !['enviar_proposta', 'enviar_plano'].includes(t.name)) : tools;
 
   console.log(`VITTA conv=${convId} → chamando ${usaClaude() ? 'Claude' : 'OpenAI'} (setor=${conv.setor || '-'}, turns=${turns.length})`);
   const aiData = await openaiMessages({
