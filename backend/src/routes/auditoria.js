@@ -70,6 +70,32 @@ r.post('/print-tela', async (req, res) => {
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
+/* 🌐 ACESSOS POR LOCALIZAÇÃO (ordem do master): quem entrou, de onde e em
+   quantos endereços diferentes — senha compartilhada aparece aqui. */
+r.get('/acessos', onlyMaster, async (req, res) => {
+  try {
+    const { rows } = await query(`
+      SELECT usuario_id, COALESCE(usuario_nome,'(desconhecido)') nome, ip,
+             MAX(created_at) ultimo, COUNT(*)::int logins,
+             MAX(user_agent) exemplo_aparelho
+        FROM audit_logs
+       WHERE acao = 'login' AND created_at > NOW() - interval '7 days'
+       GROUP BY 1, 2, 3 ORDER BY 2, ultimo DESC`);
+    const porUser = {};
+    for (const r2 of rows) {
+      const k = r2.usuario_id || r2.nome;
+      (porUser[k] ||= { nome: r2.nome, ips: [] }).ips.push({
+        ip: r2.ip, ultimo: r2.ultimo, logins: r2.logins,
+        aparelho: String(r2.exemplo_aparelho || '').replace(/^Mozilla\/[\d.]+\s*/, '').slice(0, 90),
+      });
+    }
+    const itens = Object.values(porUser).map(u => ({
+      ...u, enderecos: u.ips.length, suspeito: u.ips.length >= 2,
+    })).sort((a, b) => b.enderecos - a.enderecos);
+    res.json({ itens, dias: 7 });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.get('/prints', onlyMaster, async (req, res) => {
   try {
     const { rows } = await query(`SELECT id, usuario_nome, tela, conversa, created_at FROM capturas_print ORDER BY created_at DESC LIMIT 100`);

@@ -63,6 +63,25 @@ r.post('/login', async (req, res) => {
     if (!ok) { registraFalhaLogin(ip); logAudit(req, null, id, 'login_falha', { motivo: 'Senha incorreta' }); return res.status(401).json({ error: 'Senha incorreta' }); }
     limpaFalhasLogin(ip);
     const token = jwt.sign({ id: u.id, nome: u.nome, email: u.email, role: u.role, cor: u.cor, setor: u.setor || null, setores: u.setores || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo, ve_geral: !!u.ve_geral, so_carteira: !!u.so_carteira }, SECRET, { expiresIn: u.role === 'master' ? '30d' : '16h' }); // equipe: sessão morre no mesmo dia; master mantém 30d
+    /* 🌐 RASTREIO DE LOCALIZAÇÃO (ordem do master, 22/08): mesmo login usado
+       em ENDEREÇOS (IPs) diferentes num curto intervalo = alerta na hora pro
+       master. É o sinal clássico de senha compartilhada. */
+    try {
+      const { rows: ipsAnt } = await query(`SELECT DISTINCT ip FROM audit_logs
+        WHERE usuario_id = $1 AND acao = 'login' AND ip IS NOT NULL
+          AND created_at > NOW() - interval '12 hours'`, [u.id]);
+      const outros = ipsAnt.map(r2 => r2.ip).filter(x => x && x !== ip);
+      if (outros.length) {
+        const { rows: [jaAvisou] } = await query(`SELECT 1 FROM notificacoes
+          WHERE tipo = 'alerta' AND titulo LIKE $1 AND created_at > NOW() - interval '6 hours' LIMIT 1`,
+          [`%login em 2 lugares%${String(u.nome).split(' ')[0]}%`]);
+        if (!jaAvisou) {
+          await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('alerta', $1, $2, true)`,
+            [`🌐 Possível login em 2 lugares: ${String(u.nome).split(' ')[0]}`,
+             `A conta de ${u.nome} entrou agora do endereço ${ip} e, nas últimas 12 horas, também foi usada de: ${outros.slice(0, 3).join(', ')}. Pode ser troca de rede (Wi-Fi/4G) ou a senha sendo usada por duas pessoas. Detalhes em Auditoria, seção Acessos.`]);
+        }
+      }
+    } catch { /* rastreio é melhor-esforço, nunca trava o login */ }
     logAudit(req, u.id, u.nome, 'login', { metodo: 'cpf' });
     res.json({ token, user: { id: u.id, nome: u.nome, email: u.email, cpf: u.cpf, role: u.role, cor: u.cor, avatar: u.avatar || null, setor: u.setor || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo, dono: ehDono(u) || u.pode_impersonar === true } });
   } catch (err) {

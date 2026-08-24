@@ -31,10 +31,12 @@ export default function Auditoria() {
   const [dias, setDias] = useState([]);
   // 🔒 Tentativas de copiar telefone e capturas de tela (pedido do master)
   const [seg, setSeg] = useState(null);
+  const [acessos, setAcessos] = useState(null);   // 🌐 logins por IP (senha compartilhada aparece)
   useEffect(() => {
     if (nivel !== 'seguranca') return;
     setSeg(null);
     api.get('/auditoria/seguranca?dias=30').then(setSeg).catch(e => setSeg({ erro: e.message }));
+    api.get('/auditoria/acessos').then(setAcessos).catch(() => setAcessos(null));
   }, [nivel]); // eslint-disable-line
   // 📸 Banco de prints: a reconstituição da tela de cada captura (30 dias)
   const [prints, setPrints] = useState([]);
@@ -139,6 +141,45 @@ export default function Auditoria() {
               <StatCard label="Pessoas envolvidas" valor={seg.resumo.pessoas} cor="var(--tq)" />
               <StatCard label="Período" valor={`${seg.dias}d`} cor="var(--muted)" />
             </div>
+
+            {/* 🌐 ACESSOS POR LOCALIZAÇÃO (pedido do master): mesmo login em
+                endereços diferentes fica exposto aqui — e gera alerta no sino. */}
+            {acessos?.itens?.length > 0 && (
+              <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: 16 }}>
+                <div style={{ padding: '12px 16px', background: 'var(--bg)', borderBottom: '1px solid var(--border)', fontWeight: 800, fontSize: 14 }}>
+                  🌐 Acessos por localização <span style={{ fontWeight: 600, color: 'var(--muted)', fontSize: 11.5 }}>(logins dos últimos {acessos.dias} dias, por endereço de rede)</span>
+                </div>
+                <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+                  {acessos.itens.map((u, i) => (
+                    <div key={i} style={{ padding: '10px 16px', borderBottom: '1px solid var(--border)', background: u.suspeito ? 'rgba(220,38,38,.05)' : 'transparent' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontWeight: 800, fontSize: 13 }}>{u.nome}</span>
+                        {u.suspeito ? (
+                          <span style={{ fontSize: 10, fontWeight: 800, background: '#fee2e2', color: '#dc2626', borderRadius: 8, padding: '2px 9px' }}>
+                            ⚠️ {u.enderecos} endereços diferentes
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)' }}>1 endereço</span>
+                        )}
+                      </div>
+                      <div style={{ marginTop: 5, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                        {u.ips.map((x, j) => (
+                          <div key={j} style={{ fontSize: 11.5, color: 'var(--muted)', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                            <span style={{ fontWeight: 800, color: u.suspeito ? '#dc2626' : 'var(--txt2)', fontFamily: 'monospace' }}>{x.ip}</span>
+                            <span>{x.logins} login(s)</span>
+                            <span>último: {new Date(x.ultimo).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+                            {x.aparelho && <span style={{ opacity: .8, overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 260, whiteSpace: 'nowrap' }}>{x.aparelho}</span>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ padding: '8px 16px', fontSize: 11, color: 'var(--muted)', lineHeight: 1.5 }}>
+                  ⚠️ 2+ endereços pode ser troca de rede (Wi-Fi ↔ 4G) ou a senha usada por duas pessoas — o alerta chega no seu sino na hora do segundo login. Aparelhos diferentes no mesmo nome reforçam a suspeita.
+                </div>
+              </div>
+            )}
 
             {/* 📸 O banco de prints — a tela como estava no momento da captura */}
             {prints.length > 0 && (
