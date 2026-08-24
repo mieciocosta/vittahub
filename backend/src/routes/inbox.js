@@ -4814,7 +4814,7 @@ r.patch('/conversations/:id/bot', async (req, res) => {
       const { rows: [euIA] } = await query('SELECT ia_consultas FROM usuarios WHERE id = $1', [req.user.id]).catch(() => ({ rows: [null] }));
       if (euIA?.ia_consultas !== true) return res.status(403).json({ error: 'Só quem tem o botão da Mary (liberado pelo master) liga ou desliga a IA.' });
     }
-    const { rows: [c] } = await query('UPDATE conversas SET bot_ativo = $1 WHERE id = $2 RETURNING bot_ativo', [req.body.ativo, req.params.id]);
+    const { rows: [c] } = await query('UPDATE conversas SET bot_ativo = $1, bot_off_manual = (NOT $1::boolean) WHERE id = $2 RETURNING bot_ativo', [req.body.ativo, req.params.id]);
     if (c) { const cached = convoCache.get(req.params.id); if (cached) cacheUpdate({ ...cached, bot_ativo: c.bot_ativo }); }
     socketEmit('bot_status', { convId: req.params.id, bot_ativo: c?.bot_ativo });
     // Ligou o bot e a última mensagem é do cliente esperando? Responde JÁ, sem ter
@@ -5426,6 +5426,41 @@ async function rodarAtivacao24h() {
 }
 setInterval(rodarAtivacao24h, 3600 * 1000);
 setTimeout(rodarAtivacao24h, 120000);
+
+/* 🔁 IA SEM PARAR EM CONSULTAS/TERAPIAS (ordem do master, 22/08: "em cada
+   consulta ela fica ativa sem parar"): quando a atendente responde, o bot
+   pausa pra não falar por cima — mas se a conversa ficar 2h sem ninguém da
+   equipe mexer, a IA REASSUME sozinha. Só o desligamento MANUAL (botão da
+   conversa) segura ela de vez. Internos, grupos e Banco de Dados fora. */
+async function rodarReligadorConsultas() {
+  try {
+    if (await automacaoPausada('bot')) return;
+    const { rows: [cfgR] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bot'").catch(() => ({ rows: [{}] }));
+    if ((cfgR?.valor?.consultaIA) === false) return;
+    const { rows } = await query(`
+      UPDATE conversas c SET bot_ativo = true
+       WHERE c.bot_ativo = false
+         AND COALESCE(c.bot_off_manual, false) = false
+         AND c.setor IN ('consultas', 'terapias')
+         AND c.contact_id NOT LIKE '%g.us%'
+         AND COALESCE(c.categoria,'') <> 'banco_dados'
+         AND COALESCE(c.classificacao,'') NOT IN ('gestao','profissional_saude')
+         AND c.last_message_at BETWEEN NOW() - interval '7 days' AND NOW() - interval '2 hours'
+         -- Só as carteiras dos USUÁRIOS DE CONSULTAS (ajuste do master):
+         -- responsável do time de consultas/terapias, ou conversa ainda sem dona
+         AND (c.responsavel_id IS NULL OR c.responsavel_id IN (
+               SELECT u.id FROM usuarios u WHERE u.ativo = true
+                 AND (u.setor IN ('consultas','terapias')
+                      OR u.setores && ARRAY['consultas','terapias'])))
+       RETURNING c.id`).catch(() => ({ rows: [] }));
+    if (rows.length) {
+      for (const r2 of rows) { const cc = convoCache.get(r2.id); if (cc) cc.bot_ativo = true; }
+      console.log(`🔁 Religador de consultas: IA reassumiu ${rows.length} conversa(s)`);
+    }
+  } catch (e) { console.error('religador consultas:', e.message); }
+}
+setInterval(rodarReligadorConsultas, 15 * 60 * 1000);
+setTimeout(rodarReligadorConsultas, 150000);
 
 setInterval(vassouraMary, 5 * 60 * 1000);
 setTimeout(vassouraMary, 30000); // primeira varrida logo após subir

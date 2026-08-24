@@ -2457,6 +2457,11 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       data TEXT, autor_nome TEXT, created_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS idx_agcomp_evento ON agenda_comprovantes (evento_id)`).catch(() => {});
 
+    /* 🔁 IA SEM PARAR EM CONSULTAS (ordem do master, 22/08): o desligamento
+       pelo BOTÃO é soberano e fica registrado aqui; o desligamento automático
+       (atendente respondeu) é temporário — a IA reassume sozinha em 2h. */
+    await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS bot_off_manual BOOLEAN DEFAULT false`).catch(() => {});
+
     /* 📌 CONVERSAS FIXADAS (pedido do master, 22/08): cada usuário fixa as
        conversas que quiser — SEM limite — e elas moram numa seção própria no
        topo da lista do Chat, separadas da geral. Fixação é POR USUÁRIO:
