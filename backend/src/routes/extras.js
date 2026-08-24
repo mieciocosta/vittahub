@@ -1822,6 +1822,38 @@ r.post('/relatorio-pdf-whats', async (req, res) => {
 /* 💎 CARTEIRA DE UPGRADE (vacinas): clientes com 2+ compras de PACOTE mensal
    e nenhum Plano — os candidatos naturais ao upgrade (máquina de vendas).
    Vacinas/gestão veem; cada linha aponta a conversa. */
+/* 👶 RELATÓRIO: PLANOS COM BEBÊS ATÉ 9 MESES (pedido do master, 22/08 —
+   "qualquer uma consegue pegar"): clientes com Plano Vacinal cuja criança tem
+   até 9 meses de idade — a fase de mais doses pela frente. Aberto a toda a
+   equipe logada; telefones seguem a máscara de privacidade das listas. */
+r.get('/relatorio-planos-9m', async (req, res) => {
+  try {
+    const { rows } = await query(`
+      SELECT DISTINCT ON (COALESCE(l.id::text, v.conversa_id, v.id))
+             COALESCE(l.nome, v.paciente_nome, v.cliente_nome) paciente,
+             COALESCE(l.responsavel_cliente, v.cliente_nome) responsavel,
+             COALESCE(l.telefone, c.phone) phone,
+             l.nascimento, v.data_venda, v.atendente_nome, v.valor,
+             c.id conv_id, c.codigo
+        FROM vendas v
+        LEFT JOIN conversas c ON c.id = v.conversa_id
+        LEFT JOIN leads l ON l.id = c.lead_id
+       WHERE (v.categoria ILIKE '%plano%' OR v.servico ILIKE '%plano%')
+         AND COALESCE(v.setor, 'vacinas') = 'vacinas'
+         AND l.nascimento IS NOT NULL
+         AND l.nascimento > (NOW() - interval '9 months')::date
+         AND l.nascimento <= (NOW() - interval '0 days')::date
+       ORDER BY COALESCE(l.id::text, v.conversa_id, v.id), v.data_venda DESC`).catch(() => ({ rows: [] }));
+    const hoje = Date.now();
+    const itens = rows.map(r2 => {
+      const nasc = new Date(String(r2.nascimento).slice(0, 10) + 'T12:00:00Z');
+      const meses = Math.floor((hoje - nasc.getTime()) / (30.44 * 86400000));
+      return { ...r2, meses: Math.max(0, meses) };
+    }).sort((a, b) => a.meses - b.meses);
+    res.json({ itens: mascararLista(itens, req.user), total: itens.length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.get('/carteira-upgrade', async (req, res) => {
   try {
     const meusCU = await setoresDoUsuario(req);

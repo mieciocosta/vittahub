@@ -24,6 +24,9 @@ export default function PlanoVacinal() {
   // é a mina de ouro que o master pediu ("clientes de pacotes mensais podem
   // se tornar clientes de Plano"). 403 = usuária de outro setor, some quieto.
   const [upgrade, setUpgrade] = useState(null);
+  // 👶 Relatório: planos com bebês até 9 meses (aberto a toda a equipe)
+  const [nove, setNove] = useState(null);
+  const [noveAberto, setNoveAberto] = useState(false);
   const hojeISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
   const [mes, setMes] = useState(hojeISO().slice(0, 7));
   const [quem, setQuem] = useState('');
@@ -41,6 +44,7 @@ export default function PlanoVacinal() {
   useEffect(() => { carregar(); }, []);            // eslint-disable-line
   useEffect(() => {
     api.get('/extras/carteira-upgrade').then(r => setUpgrade(r?.itens || [])).catch(() => setUpgrade(null));
+    api.get('/extras/relatorio-planos-9m').then(r => setNove(Array.isArray(r?.itens) ? r.itens : [])).catch(() => setNove([]));
   }, []);                                          // eslint-disable-line
   useEffect(() => {
     if (isMaster) api.get('/auth/usuarios').then(u => setEquipe((u || []).filter(x => x.ativo !== false))).catch(() => {});
@@ -168,6 +172,54 @@ export default function PlanoVacinal() {
             <span>🟩 fechou</span><span>🟥 dia útil sem plano</span><span>⬜ domingo / ainda por vir</span>
           </div>
         </div>
+
+        {/* 👶 Planos com bebês até 9 meses — relatório aberto a toda a equipe
+            (pedido do master): a fase com mais doses pela frente. */}
+        {Array.isArray(nove) && nove.length > 0 && (
+          <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: 14 }}>
+            <button onClick={() => setNoveAberto(a => !a)} style={{ width: '100%', padding: '13px 16px', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 9, background: 'linear-gradient(120deg,#0E8C96,#00B8C0)', color: '#fff', textAlign: 'left' }}>
+              <span style={{ fontSize: 16 }}>👶</span>
+              <b style={{ flex: 1, fontSize: 14 }}>Planos com bebês até 9 meses</b>
+              <span style={{ fontSize: 11.5, fontWeight: 800, background: 'rgba(255,255,255,.22)', borderRadius: 20, padding: '3px 10px' }}>{nove.length}</span>
+              <span style={{ fontSize: 11 }}>{noveAberto ? '▲' : '▼'}</span>
+            </button>
+            {noveAberto && (<>
+              <div style={{ padding: '8px 16px', fontSize: 11.5, color: 'var(--muted)', borderBottom: '1px solid var(--border)', lineHeight: 1.5 }}>
+                Clientes com Plano Vacinal cuja criança tem até 9 meses — a fase com mais doses pela frente. Ordem: dos mais novinhos pros maiores.
+              </div>
+              <div style={{ maxHeight: 340, overflowY: 'auto' }}>
+                {nove.map((b, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 16px', borderBottom: i < nove.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                    <span style={{ fontSize: 15 }}>👶</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {b.paciente || 'Bebê'} <span style={{ color: 'var(--tq2)', fontWeight: 800 }}>· {b.meses} {b.meses === 1 ? 'mês' : 'meses'}</span>
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                        {b.responsavel ? `Resp.: ${b.responsavel}` : ''}{b.atendente_nome ? ` · com ${String(b.atendente_nome).split(' ')[0]}` : ''}
+                        {b.data_venda ? ` · plano em ${String(b.data_venda).slice(0, 10).split('-').reverse().slice(0, 2).join('/')}` : ''}
+                        {b.codigo ? ` · VT-${String(b.codigo).padStart(4, '0')}` : ''}
+                      </div>
+                    </div>
+                    {b.conv_id && (
+                      <button onClick={() => nav(`/inbox?conv=${b.conv_id}`)} className="btn btn-s btn-sm" style={{ gap: 5, flexShrink: 0, fontWeight: 700 }}>
+                        <MessageSquare size={13} /> Abrir
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div style={{ padding: '8px 16px' }}>
+                <button onClick={() => {
+                  const w = window.open('', '_blank'); if (!w) return;
+                  const linhas = nove.map(b => `<tr><td>${b.paciente || ''}</td><td>${b.meses} m</td><td>${b.responsavel || ''}</td><td>${b.phone || ''}</td><td>${b.atendente_nome || ''}</td><td>${b.data_venda ? String(b.data_venda).slice(0, 10).split('-').reverse().join('/') : ''}</td></tr>`).join('');
+                  w.document.write(`<html><head><title>Planos até 9 meses</title><style>body{font-family:Arial;padding:20px;color:#14202b}h1{font-size:18px;color:#0E8C96}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#0E8C96;color:#fff;padding:6px;text-align:left}td{border:1px solid #dbe3ea;padding:5px}</style></head><body><h1>👶 Planos Vacinais — bebês até 9 meses (${nove.length})</h1><table><thead><tr><th>Paciente</th><th>Idade</th><th>Responsável</th><th>Telefone</th><th>Atendente</th><th>Plano em</th></tr></thead><tbody>${linhas}</tbody></table><script>onload=()=>setTimeout(()=>print(),300)</scr`+`ipt></body></html>`);
+                  w.document.close();
+                }} className="btn btn-s btn-sm" style={{ width: '100%', fontWeight: 800 }}>🖨️ Imprimir / salvar PDF</button>
+              </div>
+            </>)}
+          </div>
+        )}
 
         {/* 💎 Carteira de Upgrade — quem já compra pacote e ainda não tem Plano.
             Cada linha é uma venda quase pronta: o cliente já confia, já paga
