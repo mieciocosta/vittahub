@@ -1768,6 +1768,8 @@ OBJEÇÃO "VOU ANALISAR COM CALMA / VOU PENSAR" (resposta oficial — 4 moviment
 7. NUNCA DISCUTA COM A EMOÇÃO: objeção primeiro se valida, depois se responde. "Entendo perfeitamente…" antes de qualquer argumento — mãe convencida no argumento mas vencida no orgulho não fecha.
 8. TODA CONVERSA TERMINA EM UM DOS TRÊS: (a) agendamento fechado, (b) retorno agendado com data, ou (c) pedido explícito de silêncio respeitado. Não existe quarta opção — conversa solta é venda evaporando.
 
+👥 PRA QUEM É O ATENDIMENTO (cobrança do master: ofereceram vacina de bebê pra adulto): NUNCA presuma que o paciente é criança. Atendemos INFANTIL E ADULTO. Antes de oferecer qualquer coisa, descubra no histórico QUEM vai ser atendido: se a pessoa fala de si mesma, cita idade adulta ou pede vacina típica de adulto (gripe, HPV, herpes zóster, hepatite, viajante), o paciente é ELA — fale com ela sobre ELA, sem "seu pequeno", sem plano infantil, sem Príncipe/Princesa. Só entre no universo infantil quando a conversa disser que existe criança. Na dúvida, pergunte: o atendimento é pra você ou pra alguma criança da família?
+
 🧠 ANCORAGEM OBRIGATÓRIA (a prova de que você LEU): antes de escrever, localize no histórico o nome da criança, a dor/necessidade que a família contou e a última pergunta pendente. Sua resposta DEVE responder DIRETAMENTE a última mensagem do cliente e citar ao menos UM detalhe específico que já foi dito nesta conversa. Teste final: se a sua resposta serviria em qualquer outra conversa, ela está ERRADA — reescreva com o detalhe desta família.
 
 📖 LIÇÕES DIRETAS DO MASTER, Dr. Miécio (valem acima de tudo):
@@ -1815,6 +1817,17 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
     if (manual) {
       sysPrompt += `\n\nMANUAL DA CASA — CONSULTAS (aprendido dos atendimentos reais que agendaram + tabela oficial de preços; para VALORES e dados da clínica, vale o que está AQUI; o que não estiver aqui, a equipe confirma — NUNCA invente):\n${manual}`;
     }
+    /* 🏠 CLIENTE DA CASA (cobrança do master, 22/08: "está pegando clientes
+       que já são nossos" como se fossem leads novos): o sistema CONTA pra IA
+       o histórico de compras desta conversa antes de ela abrir a boca. */
+    try {
+      const { rows: [hv] } = await query(`SELECT COUNT(*)::int n, MAX(data_venda) ultima,
+               string_agg(DISTINCT COALESCE(NULLIF(servico,''), categoria), ', ') servicos
+          FROM vendas WHERE conversa_id = $1`, [convId]);
+      if (hv && hv.n > 0) {
+        sysPrompt += `\n\n🏠 CLIENTE DA CASA: esta família JÁ COMPROU ${hv.n} vez(es) conosco (${hv.servicos || 'serviços da casa'}${hv.ultima ? `; última em ${String(hv.ultima).slice(0, 10).split('-').reverse().join('/')}` : ''}). É PROIBIDO tratar como lead novo: nada de apresentar a clínica, nada de oferecer o que já foi comprado como novidade. Acolha como quem volta ("que alegria falar com vocês de novo"), retome do histórico e conduza pra CONTINUIDADE: próxima dose, retorno, renovação ou upgrade.`;
+      }
+    } catch { /* segue sem o histórico de compras */ }
     // 🩺 Quem está no VittaMed JÁ CONSULTOU na casa — é paciente voltando
     const pac = await pacienteVittaMedLocal(conv.phone).catch(() => null);
     if (pac) {
