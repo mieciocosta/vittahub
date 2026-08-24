@@ -1447,10 +1447,12 @@ async function vittaResponder(convId) {
 
   // Histórico em ordem cronológica: textos + documentos (a Vitta precisa saber
   // que JÁ enviou um PDF para não oferecer de novo)
+  // Leitura AMPLA (cobrança do master: "não estava lendo as conversas"):
+  // 60 mensagens de contexto, pra nunca perder o fio de conversa longa
   const { rows: histRows } = await query(
     `SELECT from_type, type, content, filename FROM mensagens
      WHERE conversa_id = $1 AND type IN ('text','document') AND from_type NOT IN ('system','interno')
-     ORDER BY created_at DESC LIMIT 30`,
+     ORDER BY created_at DESC LIMIT 60`,
     [convId]
   );
   const hist = histRows.reverse();
@@ -9012,7 +9014,7 @@ async function gerarMensagemFollowup(conv, count, nomeFU = 'Equipe Vittalis') {
   const { rows: histRows } = await query(
     `SELECT from_type, type, content, filename, transcricao FROM mensagens
      WHERE conversa_id = $1 AND type IN ('text','document','audio') AND from_type NOT IN ('system','interno')
-     ORDER BY created_at DESC LIMIT 16`, [conv.id]
+     ORDER BY created_at DESC LIMIT 30`, [conv.id]
   );
   const hist = histRows.reverse();
   const enviouPdf = hist.some(m => m.from_type === 'bot' && m.type === 'document');
