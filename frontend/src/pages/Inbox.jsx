@@ -1776,6 +1776,14 @@ export default function Inbox({ onUnreadChange }) {
             <span>{total.toLocaleString()} conversas</span>
             <span style={{ color: totalUnread>0 ? 'var(--tq2)' : 'var(--light)' }}>{totalUnread} não lida{totalUnread===1?'':'s'}</span>
             <span style={{ color:'var(--light)' }}>{convos.filter(c=>c.bot_ativo).length} com bot</span>
+            {modo === 'grupos' && ['master','supervisor'].includes(user?.role) && (
+              <button onClick={async ()=>{ Toast.show('Buscando todos os grupos na Z-API…', 'info');
+                  try { const r2 = await api.post('/inbox/sincronizar-chats', {}); Toast.show(`✅ ${r2.grupos_no_crm} grupo(s) no CRM (${r2.novas} conversa(s) novas)`, 'success'); loadConvos(); }
+                  catch (e) { Toast.show(e.message, 'error'); } }}
+                style={{ border:'none', cursor:'pointer', fontSize:11, fontWeight:700, padding:'1px 7px', borderRadius:8, background:'var(--tq4)', color:'var(--tq2)' }}>
+                ↻ Buscar todos os grupos
+              </button>
+            )}
             <button onClick={()=>setQuentesPrimeiro(v=>!v)}
               title={quentesPrimeiro ? 'Mostrando leads quentes no topo' : 'Ordenar leads quentes primeiro'}
               style={{ border:'none', cursor:'pointer', fontSize:11, fontWeight:700, padding:'1px 7px', borderRadius:8,

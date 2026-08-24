@@ -4708,6 +4708,20 @@ r.post('/conversations/:id/encaminhar', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* 🔄 SINCRONIZAR CHATS AGORA (cobrança do master: "nem todos os grupos estão
+   aparecendo"): grupo que nunca mandou mensagem só entrava na varredura das
+   4h da manhã. Este botão puxa a lista completa da Z-API na hora. */
+r.post('/sincronizar-chats', async (req, res) => {
+  try {
+    if (!['master', 'supervisor'].includes(req.user?.role)) return res.status(403).json({ error: 'Sincronizar é da gestão.' });
+    if (!zapiOk()) return res.status(400).json({ error: 'WhatsApp não configurado.' });
+    const r2 = await syncZapiChats({ updateExisting: false });
+    if (r2.newConvos > 0) { convoCache.clear(); cacheReady = false; await loadCache(); }
+    const { rows: [{ n: grupos }] } = await query(`SELECT COUNT(*)::int n FROM conversas WHERE contact_id LIKE '%g.us%'`).catch(() => ({ rows: [{ n: 0 }] }));
+    res.json({ ok: true, novas: r2.newConvos || 0, vistas: r2.seen || 0, grupos_no_crm: grupos });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Lista de atendentes (pra o seletor de transferência) — acessível a todos logados
 r.get('/atendentes', async (req, res) => {
   try {

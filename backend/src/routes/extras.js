@@ -598,6 +598,63 @@ r.post('/vendas', async (req, res) => {
 
 // Placar do dia (motivacional): quantas vendas a equipe fechou HOJE. O VALOR em
 // R$ só vai para a gestão (regra do painel comercial); a contagem é pra todos.
+/* 🏁 FECHAR MEU CAIXA (pedido do master, 22/08): a colaboradora fecha o
+   caixa do dia dela e o relatório sai no GRUPO Caixa do WhatsApp — cada uma
+   com o seu. Master fecha o da casa inteira. */
+r.get('/caixa/fechar-meu/status', async (req, res) => {
+  try {
+    const hojeCx = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+    const alvoId = req.user.role === 'master' ? 'casa' : req.user.id;
+    const { rows: [f] } = await query(`SELECT enviado_em FROM caixa_fechamentos
+      WHERE usuario_id = $1 AND data = $2::date ORDER BY enviado_em DESC LIMIT 1`, [alvoId, hojeCx]).catch(() => ({ rows: [] }));
+    const { rows: [g] } = await query("SELECT valor FROM configuracoes WHERE chave = 'grupo_caixa'").catch(() => ({ rows: [] }));
+    res.json({ fechado_hoje: !!f, enviado_em: f?.enviado_em || null, grupo: g?.valor?.nome || null });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+r.post('/caixa/fechar-meu', async (req, res) => {
+  try {
+    const { rows: [g] } = await query("SELECT valor FROM configuracoes WHERE chave = 'grupo_caixa'").catch(() => ({ rows: [] }));
+    const grupoId = String(g?.valor?.id || '').replace('@g.us', '').replace('@s.whatsapp.net', '');
+    if (!grupoId) return res.status(400).json({ error: 'O grupo Caixa ainda não foi configurado — peça ao master (o grupo precisa ter mandado ao menos 1 mensagem pro número da central).' });
+    const hojeCx = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+    const ehCasa = req.user.role === 'master';
+    const filtroU = ehCasa ? '' : `AND atendente_id = '${String(req.user.id).replace(/[^a-zA-Z0-9-]/g, '')}'`;
+    const { rows: vds } = await query(`
+      SELECT cliente_nome, servico, categoria, valor, forma_pagamento, status_pagamento
+        FROM vendas WHERE data_venda = $1::date ${filtroU} ORDER BY created_at`, [hojeCx]);
+    const total = vds.reduce((a, v) => a + (parseFloat(v.valor) || 0), 0);
+    const recebido = vds.filter(v => ['pago', 'cortesia'].includes(v.status_pagamento)).reduce((a, v) => a + (parseFloat(v.valor) || 0), 0);
+    const brlF = (v) => 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+    const norm = (f) => { const t = String(f || '').toLowerCase();
+      if (/pix|link/.test(t)) return 'Pix'; if (/cart|cr[eé]d|d[eé]b|parcel/.test(t)) return 'Cartão';
+      if (/dinheiro|vista/.test(t)) return 'Dinheiro'; return 'Outros'; };
+    const formas = {};
+    for (const v of vds) { const k = norm(v.forma_pagamento); formas[k] = (formas[k] || 0) + (parseFloat(v.valor) || 0); }
+    const { rows: [rep] } = await query(`SELECT 1 FROM caixa_fechamentos WHERE usuario_id = $1 AND data = $2::date LIMIT 1`,
+      [ehCasa ? 'casa' : req.user.id, hojeCx]).catch(() => ({ rows: [] }));
+    const dataBR = hojeCx.split('-').reverse().join('/');
+    const linhas = [
+      `🏁 *Fechamento de caixa${rep ? ' (reenvio)' : ''}, ${ehCasa ? 'Vittalis Saúde (casa inteira)' : req.user.nome}*`,
+      `📅 ${dataBR}`,
+      '',
+      `💰 *Vendas do dia:* ${vds.length} · *Total:* ${brlF(total)}`,
+      `✅ Recebido: ${brlF(recebido)} · ⏳ A receber: ${brlF(Math.max(total - recebido, 0))}`,
+      Object.keys(formas).length ? Object.entries(formas).map(([k, v]) => `${k === 'Pix' ? '⚡' : k === 'Cartão' ? '💳' : k === 'Dinheiro' ? '💵' : '🔗'} ${k}: ${brlF(v)}`).join('\n') : null,
+      '',
+      vds.length ? '*Vendas:*\n' + vds.slice(0, 25).map(v => `• ${String(v.cliente_nome || 'Cliente').slice(0, 40)} · ${String(v.servico || v.categoria || '').slice(0, 40)} · ${brlF(v.valor)}`).join('\n') : '(nenhuma venda registrada hoje)',
+      vds.length > 25 ? `… e mais ${vds.length - 25} venda(s)` : null,
+      '',
+      `_Enviado pelo VittaHub às ${new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(11, 16)}_`,
+    ].filter(x => x !== null).join('\n');
+    const zr = await zapiCall('/send-text', 'POST', { phone: grupoId, message: linhas });
+    if (!zr?.ok) return res.status(502).json({ error: 'O WhatsApp não aceitou o envio pro grupo agora, tente de novo.' });
+    await query(`INSERT INTO caixa_fechamentos (usuario_id, usuario_nome, data, total, vendas)
+                 VALUES ($1,$2,$3::date,$4,$5)`,
+      [ehCasa ? 'casa' : req.user.id, ehCasa ? 'Casa inteira' : req.user.nome, hojeCx, total, vds.length]).catch(() => {});
+    res.json({ ok: true, total, vendas: vds.length, grupo: g?.valor?.nome || 'grupo Caixa' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.get('/vendas/hoje', async (req, res) => {
   try {
     const podeValor = req.user.role === 'master';   // o número da casa e a campeã são só do dono

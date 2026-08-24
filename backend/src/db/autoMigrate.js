@@ -2674,6 +2674,31 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log('📌 Encaminhar destino:', txtEnc.slice(0, 60));
     }
 
+    /* 🏁 FECHAMENTO DE CAIXA POR COLABORADORA (pedido do master, 22/08):
+       registro de cada fechamento enviado ao grupo + o grupo Caixa salvo. */
+    await query(`CREATE TABLE IF NOT EXISTS caixa_fechamentos (
+      id SERIAL PRIMARY KEY, usuario_id TEXT, usuario_nome TEXT, data DATE,
+      total NUMERIC(12,2), vendas INT, enviado_em TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
+    const { rows: [flagGrpCx] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_grupo_caixa_v1'");
+    if (!flagGrpCx) {
+      const { rows: [gCx] } = await query(`SELECT contact_name, contact_id FROM conversas
+        WHERE contact_id LIKE '%g.us%' AND contact_name ILIKE '%caixa%'
+        ORDER BY last_message_at DESC NULLS LAST LIMIT 1`).catch(() => ({ rows: [null] }));
+      let txtG;
+      if (gCx?.contact_id) {
+        await query(`INSERT INTO configuracoes (chave, valor) VALUES ('grupo_caixa', $1::jsonb)
+                     ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`,
+          [JSON.stringify({ nome: gCx.contact_name, id: gCx.contact_id, por: 'seed 22/08' })]).catch(() => {});
+        txtG = `O grupo "${gCx.contact_name}" foi salvo como destino dos fechamentos de caixa. Cada colaboradora agora fecha o caixa dela na aba Caixa e o relatório cai direto no grupo.`;
+      } else {
+        txtG = 'Não achei um grupo de WhatsApp com "caixa" no nome nas conversas do CRM. Assim que o grupo mandar qualquer mensagem no número da central, ele aparece — aí me avise que eu salvo (ou me diga o nome exato do grupo).';
+      }
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+        ['🏁 Fechamento de caixa no grupo', txtG]).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_grupo_caixa_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🏁 Grupo caixa:', txtG.slice(0, 60));
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);
