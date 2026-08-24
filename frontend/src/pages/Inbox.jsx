@@ -2356,8 +2356,14 @@ export default function Inbox({ onUnreadChange }) {
             ];
             return (
               <div style={{ background:'var(--card,#fff)', borderTop:'1px solid var(--border)', padding:'9px 12px', flexShrink:0, maxHeight:250, overflowY:'auto' }}>
-                <div style={{ fontSize:10.5, fontWeight:800, color:'var(--muted)', marginBottom:7, textTransform:'uppercase', letterSpacing:.6 }}>
-                  📝 Mensagens prontas da casa <span style={{ textTransform:'none', fontWeight:600 }}>· toque, ajuste os {'{campos}'} e envie</span>
+                <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:7 }}>
+                  <span style={{ flex:1, fontSize:10.5, fontWeight:800, color:'var(--muted)', textTransform:'uppercase', letterSpacing:.6 }}>
+                    📝 Mensagens prontas da casa <span style={{ textTransform:'none', fontWeight:600 }}>· toque, ajuste os {'{campos}'} e envie</span>
+                  </span>
+                  <button onClick={()=>setShowProntas(false)}
+                    style={{ border:'none', borderRadius:8, padding:'3px 10px', cursor:'pointer', background:'var(--err2,#fde8e8)', color:'var(--err,#dc2626)', fontSize:11, fontWeight:900, flexShrink:0 }}>
+                    ✕ Fechar
+                  </button>
                 </div>
                 {GRUPOS_PRONTAS.map(([grupo, itens2]) => (
                   <div key={grupo} style={{ marginBottom:9 }}>
@@ -2379,7 +2385,12 @@ export default function Inbox({ onUnreadChange }) {
 
           {/* Emoji picker */}
           {showEmoji && (
-            <div style={{ background:'var(--card,#fff)', borderTop:'1px solid var(--border)', padding:'9px 12px', flexShrink:0, maxHeight:230, overflowY:'auto' }}>
+            <div style={{ background:'var(--card,#fff)', borderTop:'1px solid var(--border)', padding:'9px 12px', flexShrink:0, maxHeight:185, overflowY:'auto', position:'relative' }}>
+              {/* ✕ sempre à vista (cobrança do master: "o menu de emoji não some") */}
+              <button onClick={()=>setShowEmoji(false)}
+                style={{ position:'sticky', top:0, float:'right', zIndex:2, border:'none', borderRadius:8, padding:'3px 10px', cursor:'pointer', background:'var(--err2,#fde8e8)', color:'var(--err,#dc2626)', fontSize:11, fontWeight:900 }}>
+                ✕ Fechar
+              </button>
               {/* Ampliado por grupos (pedido do master: "não tem corações de
                   diversas cores e formas — melhore, amplia") */}
               {[
@@ -2395,7 +2406,7 @@ export default function Inbox({ onUnreadChange }) {
                   <div style={{ fontSize:10, fontWeight:800, color:'var(--muted)', marginBottom:4, textTransform:'uppercase', letterSpacing:.6 }}>{grupo}</div>
                   <div style={{ display:'flex', flexWrap:'wrap', gap:3 }}>
                     {lista.map(e=>(
-                  <button key={e} onClick={()=>{setInput(p=>p+e);textRef.current?.focus();}}
+                  <button key={e} onClick={()=>setInput(p=>p+e)}
                     style={{ fontSize:19, padding:'3px 4px', background:'none', border:'none', cursor:'pointer', borderRadius:5, lineHeight:1 }}
                     onMouseEnter={ev=>ev.currentTarget.style.background='var(--bg)'}
                     onMouseLeave={ev=>ev.currentTarget.style.background='none'}
@@ -2760,7 +2771,7 @@ export default function Inbox({ onUnreadChange }) {
                 onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}}}
                 placeholder="Mensagem… (Enter envia)" rows={1}
                 style={{ flex:1, padding:'8px 12px', border:'1.5px solid var(--border)', borderRadius:10, fontSize:13, resize:'none', outline:'none', maxHeight:100, overflowY:'auto', lineHeight:1.55, fontFamily:'DM Sans, sans-serif', transition:'border-color .15s', background:'var(--card,#fff)', color:'var(--txt)' }}
-                onFocus={e=>e.target.style.borderColor='var(--tq)'} onBlur={e=>e.target.style.borderColor='var(--border)'}/>
+                onFocus={e=>{ e.target.style.borderColor='var(--tq)'; setShowEmoji(false); setShowProntas(false); }} onBlur={e=>e.target.style.borderColor='var(--border)'}/>
               <button onClick={recording?stopRec:startRec} className="btn btn-ico" style={{ background:recording?'var(--err2)':'var(--bg2)', color:recording?'var(--err)':'var(--muted)', borderRadius:8, animation:recording?'pulse 1.2s infinite':'none' }}>
                 {recording?<MicOff size={15}/>:<Mic size={15}/>}
               </button>
