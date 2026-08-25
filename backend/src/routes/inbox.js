@@ -62,7 +62,8 @@ async function loadCache() {
   try {
     // Limite alto para não "esconder" conversas quando o histórico é grande.
     // São só metadados (preview + URL de foto), então cabe bem em memória.
-    const { rows } = await query(`SELECT * FROM conversas ORDER BY last_message_at DESC LIMIT 20000`);
+    // 🧪 As conversas de simulação (avaliação da IA) não entram na lista do time
+    const { rows } = await query(`SELECT * FROM conversas WHERE COALESCE(simulacao,false) = false ORDER BY last_message_at DESC LIMIT 20000`);
     rows.forEach(c => convoCache.set(c.id, c));
     cacheReady = true;
     console.log(`✅ ConvoCache: ${rows.length} conversas`);
@@ -772,6 +773,7 @@ const ZAPI_CTOKEN = () => process.env.ZAPI_CLIENT_TOKEN || '';
 const zapiOk = () => process.env.ZAPI_INSTANCE && process.env.ZAPI_TOKEN;
 
 // Helper: call Z-API
+export const TELEFONE_SIMULADOR = '5500000000000';
 export async function zapiCall(path, method = 'GET', body = null) {
   const { default: fetch } = await import('node-fetch');
   /* 🚨 TRANCA ÚNICA: nenhuma mensagem de teste chega no WhatsApp do cliente,
@@ -779,6 +781,13 @@ export async function zapiCall(path, method = 'GET', body = null) {
      lembrete, fila agendada, Chat ou endpoint de diagnóstico). É de propósito
      que a checagem mora AQUI, na porta, e não em cada chamador: bloquear num
      lugar só empurrava o problema pro caminho seguinte. */
+  /* 🧪 SIMULADOR (ordem do master, 24/08: "meu intuito é avaliar"): a conversa
+     de treino usa este telefone-sentinela. Nada que sair pra ele toca o
+     WhatsApp — a resposta da IA fica só dentro do VittaHub, pro master avaliar. */
+  if (/\/send-/.test(path) && body && String(body.phone || '').includes(TELEFONE_SIMULADOR)) {
+    console.log('🧪 Simulador: envio interceptado (não foi pro WhatsApp)');
+    return { ok: true, status: 200, json: async () => ({ simulado: true }), text: async () => '{"simulado":true}' };
+  }
   if (/\/send-/.test(path) && body) {
     /* Olha os TRÊS lugares por onde um "teste" chega no balão do cliente:
        o texto, a legenda da foto e o TÍTULO do arquivo — um PDF chamado
@@ -2102,7 +2111,8 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
         if (choque) {
           if (!botReply) botReply = 'Esse horário acabou de ser preenchido! Já te trago outras opções, um instante 💙';
         } else {
-          await query(`INSERT INTO agenda_eventos (paciente, responsavel_nome, servico, data, hora, profissional, telefone, observacoes, status, setor, responsavel_id, conversa_id)
+          // 🧪 Em simulação, o cartão sai igualzinho mas NADA entra na agenda real
+          if (!conv.simulacao) await query(`INSERT INTO agenda_eventos (paciente, responsavel_nome, servico, data, hora, profissional, telefone, observacoes, status, setor, responsavel_id, conversa_id)
             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'Agendado',$9,$10,$11)`,
             [String(inA.paciente || conv.contact_name || 'Paciente').slice(0, 80), String(conv.contact_name || '').slice(0, 80),
              String(inA.servico || 'Consulta').slice(0, 80), dataA, horaA, String(inA.profissional || '').slice(0, 80),
@@ -3628,7 +3638,8 @@ r.get('/conversations', async (req, res) => {
     try {
       const { channel, search, page = 1, limit = 50, unread_only } = req.query;
       const offset = (parseInt(page) - 1) * parseInt(limit);
-      const conditions = [];
+      // 🧪 Conversa de simulação nunca aparece pro time nem na busca
+      const conditions = ['COALESCE(c.simulacao,false) = false'];
       const params = [];
       let pi = 1;
       if (channel && channel !== 'all') { conditions.push(`c.channel = $${pi++}`); params.push(channel); }
@@ -7403,6 +7414,75 @@ async function getProtocolo() {
   } catch { /* usa o padrão */ }
   return PROTOCOLO_PADRAO;
 }
+
+/* ═══ 🧪 SIMULADOR DA IA (ordem do master, 24/08: "meu intuito é avaliar") ═══
+   Uma conversa de mentira, por usuário, onde ele escreve como se fosse o
+   cliente e vê a resposta REAL da IA: mesmo cérebro, mesmas regras, mesmas
+   ferramentas. Nada sai pro WhatsApp (o telefone é o sentinela), a conversa
+   não aparece na lista do time e o pré-agendamento não entra na agenda. */
+function convSimuladorId(user) { return `sim-${user.id}`; }
+
+async function garantirConvSimulador(user, setor) {
+  const id = convSimuladorId(user);
+  const st = ['consultas', 'terapias', 'vacinas'].includes(setor) ? setor : 'consultas';
+  const { rows: [ja] } = await query('SELECT * FROM conversas WHERE id = $1', [id]);
+  if (!ja) {
+    await query(
+      `INSERT INTO conversas (id, channel, contact_name, contact_id, phone, setor, bot_ativo, simulacao, menu_enviado, last_message_at)
+       VALUES ($1, 'whatsapp', $2, $3, $4, $5, true, true, true, NOW())`,
+      [id, '🧪 Cliente de teste (simulação)', `sim-${user.id}@c.us`, TELEFONE_SIMULADOR.slice(2), st]);
+  } else {
+    // Sempre pronta pra rodar: bot ligado, marcada como simulação, no setor escolhido
+    await query('UPDATE conversas SET setor = $1, bot_ativo = true, simulacao = true WHERE id = $2', [st, id]);
+  }
+  const { rows: [c] } = await query('SELECT * FROM conversas WHERE id = $1', [id]);
+  return c;
+}
+
+// Histórico da simulação
+r.get('/simulador', async (req, res) => {
+  try {
+    const conv = await garantirConvSimulador(req.user, req.query.setor);
+    const { rows } = await query(
+      `SELECT id, from_type, type, content, sender_nome, created_at FROM mensagens
+        WHERE conversa_id = $1 ORDER BY created_at ASC LIMIT 200`, [conv.id]);
+    res.json({ setor: conv.setor, mensagens: rows });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Limpa e recomeça (troca de setor também recomeça)
+r.post('/simulador/reiniciar', async (req, res) => {
+  try {
+    const conv = await garantirConvSimulador(req.user, req.body?.setor);
+    await query('DELETE FROM mensagens WHERE conversa_id = $1', [conv.id]);
+    await query(`UPDATE conversas SET last_message = NULL, last_from = NULL, memoria = NULL,
+                        lead_score = NULL, followup_count = 0 WHERE id = $1`, [conv.id]).catch(() => {});
+    res.json({ ok: true, setor: conv.setor });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Escreve como cliente e recebe a resposta REAL da IA
+r.post('/simulador/mensagem', async (req, res) => {
+  try {
+    const texto = String(req.body?.texto || '').trim().slice(0, 2000);
+    if (!texto) return res.status(400).json({ error: 'Escreva a mensagem do cliente.' });
+    const conv = await garantirConvSimulador(req.user, req.body?.setor);
+    const { rows: [minha] } = await query(
+      `INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome)
+       VALUES ($1,'contact','text',$2,$3) RETURNING id, from_type, type, content, sender_nome, created_at`,
+      [conv.id, texto, '🧪 Cliente de teste']);
+    await query(`UPDATE conversas SET last_message = $1, last_from = 'contact', last_message_at = NOW() WHERE id = $2`,
+      [texto.slice(0, 100), conv.id]).catch(() => {});
+
+    const t0 = Date.now();
+    await vittaResponder(conv.id).catch(e => console.error('simulador:', e.message));
+    const { rows: respostas } = await query(
+      `SELECT id, from_type, type, content, sender_nome, created_at FROM mensagens
+        WHERE conversa_id = $1 AND created_at > $2 AND from_type <> 'contact'
+        ORDER BY created_at ASC`, [conv.id, minha.created_at]).catch(() => ({ rows: [] }));
+    res.json({ cliente: minha, respostas, ms: Date.now() - t0 });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
 r.get('/protocolo/config', async (req, res) => {
   try {

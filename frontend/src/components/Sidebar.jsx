@@ -56,6 +56,9 @@ const NAV = [
   { to:'/tabela-precos', icon:FileText,     label:'Tabela de Preços', cor:'#0ea5e9' },
   // 🤖 Painel da Mary — só pra quem tem o botão da IA (e o master)
   { to:'/mary', icon:Bot, label:'Assistente IA', iaBotao:true, cor:'#a855f7' },
+  /* 🧪 Simulador: o master (e quem tem o botão da IA) conversa com a IA fazendo
+     o papel do cliente, pra AVALIAR o atendimento dela sem risco nenhum. */
+  { to:'/simulador-ia', icon:Bot, label:'Simulador da IA', iaBotao:true, cor:'#f472b6' },
   // Quem agenda consulta vive alternando entre a conversa e a grade dos profissionais.
   // Aberto pra clínica toda: virou o quadro de 3 colunas (vacinas/consultas/terapias)
   /* Profissionais é de CONSULTAS/TERAPIAS (cobrança do master, 22/08:

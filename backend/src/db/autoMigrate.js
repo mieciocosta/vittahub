@@ -125,6 +125,8 @@ export default async function runMigrate() {
     // Add profile_pic column if not exists (for existing databases)
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS profile_pic TEXT`).catch(() => {});
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS status_atend TEXT DEFAULT 'aberto'`).catch(() => {});
+    // 🧪 Conversa de SIMULAÇÃO (treino/avaliação da IA): nada dela vai pro WhatsApp
+    await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS simulacao BOOLEAN DEFAULT false`).catch(() => {});
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS provider TEXT DEFAULT 'zapi'`).catch(() => {});
     // Follow-up automático: nutrição de leads que ficaram em silêncio
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS followup_count INT DEFAULT 0`).catch(() => {});

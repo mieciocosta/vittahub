@@ -28,6 +28,7 @@ const PlanoVacinal = React.lazy(() => import('./pages/PlanoVacinal.jsx'));
 const Ranking = React.lazy(() => import('./pages/Ranking.jsx'));
 const TabelaPrecos = React.lazy(() => import('./pages/TabelaPrecos.jsx'));
 const MaryIA = React.lazy(() => import('./pages/MaryIA.jsx'));
+const SimuladorIA = React.lazy(() => import('./pages/SimuladorIA.jsx'));
 const Indicacoes = lazy(() => import('./pages/Indicacoes.jsx'));
 const PastaClientes = lazy(() => import('./pages/PastaClientes.jsx'));
 const Classificar = lazy(() => import('./pages/Classificar.jsx'));
@@ -518,6 +519,7 @@ export default function App() {
           <Route path="/ranking"      element={<Ranking />} />
           <Route path="/tabela-precos" element={<TabelaPrecos />} />
           <Route path="/mary" element={<MaryIA />} />
+          <Route path="/simulador-ia" element={<SimuladorIA />} />
           <Route path="/profissionais" element={(['master','supervisor'].includes(user.role) || user.setor === 'consultas') ? <Profissionais /> : <Navigate to="/" />} />
           <Route path="/metas" element={<Metas />} />
           <Route path="/plano-terapias" element={<Terapias />} />
