@@ -3885,23 +3885,17 @@ function AgendarModal({ sel, api, onClose }) {
         if (m._nascimento && !leadBase?.nascimento) ficha.nascimento = m._nascimento;
         await api.put(`/leads/${sel.lead_id}`, ficha).catch(() => {});
       }
-      // 3) Confirmação automática pro cliente (com local quando for domiciliar)
+      // 3) Confirmação automática pro cliente — SEMPRE no cartão oficial da casa
+      //    (ordem do master: a confirmação da agenda é idêntica à da IA, com
+      //    endereço, Maps, especialidade e Instagram). O texto vem montado do
+      //    backend, que é a fonte única do cartão.
       if (m.confirmar) {
-        const dataBr = m.data.split('-').reverse().join('/');
-        const linhas = [`Prontinho! Seu agendamento está confirmado 🗓️`, '',
-          `👶 ${m.paciente.trim()}${m.responsavel.trim() ? ` (resp.: ${m.responsavel.trim()})` : ''}`];
-        if (m.servico) linhas.push(`💉 ${m.servico}`);
-        linhas.push(`📅 ${dataBr} às ${m.hora}`);
-        if (m.profissional) linhas.push(`👩‍⚕️ ${m.profissional}`);
-        if (m.valor && !isNaN(parseFloat(m.valor))) {
-          const pc = m.forma_pagamento === 'Crédito' && parseInt(m.parcelas) > 1
-            ? ` ${m.parcelas}x de ${(parseFloat(m.valor)/parseInt(m.parcelas)).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}` : '';
-          linhas.push(`💰 Valor: ${parseFloat(m.valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}${m.forma_pagamento ? ` — ${m.forma_pagamento}${pc}` : ''}`);
-        }
-        if (m.endereco.trim()) linhas.push(`📍 ${m.endereco.trim()}`);
-        if (m.local_link.trim()) linhas.push(`🗺️ Localização: ${m.local_link.trim()}`);
-        linhas.push('', 'Qualquer imprevisto é só me avisar por aqui 💙');
-        await api.post(`/inbox/conversations/${sel.id}/send`, { type: 'text', content: linhas.join('\n') }).catch(() => {});
+        const { texto } = await api.post('/inbox/cartao-agendamento', {
+          cliente: sel.contact_name || m.responsavel.trim(),
+          paciente: m.paciente.trim(), data: m.data, hora: m.hora,
+          profissional: m.profissional, servico: m.servico, endereco: m.endereco.trim(),
+        }).catch(() => ({ texto: '' }));
+        if (texto) await api.post(`/inbox/conversations/${sel.id}/send`, { type: 'text', content: texto }).catch(() => {});
       }
       onClose(true);
     } catch (e) { setErro(e.message); }

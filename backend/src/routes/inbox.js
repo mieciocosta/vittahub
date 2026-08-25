@@ -1202,7 +1202,14 @@ async function capturaDados(conv, texto, phoneNum) {
                  VALUES ('novo_lead', $1, $2, $3)`,
       [`🗓️ Agendado: ${dadosLead.nome || conv.contact_name || 'cliente'}`,
        `Boas-vindas agendou ${dataISO.split('-').reverse().join('/')} às ${hora} — confirmar detalhes.`, conv.id]).catch(() => {});
-    await responde(`Prontinho! Agendei pra *${dataISO.split('-').reverse().join('/')}* às *${hora}* 🗓️💎\nNossa equipe confirma os detalhes com você por aqui. Até lá! 😊`, null);
+    /* Confirmação no formato OFICIAL da casa (ordem do master: toda confirmação
+       de agendamento usa o mesmo cartão, não importa por onde nasceu). */
+    const cartaoMenu = await cartaoAgendamento({
+      cliente: conv.contact_name || dadosLead.nome, paciente: dadosLead.nome || conv.contact_name,
+      data: dataISO, hora, servico: dadosLead.interesse,
+      local: String(dadosLead.endereco || '').trim() ? 'Em sua residência' : 'Na Clínica Vittalis Saúde (Renascença)',
+    }).catch(() => null);
+    await responde(cartaoMenu || `Prontinho! Agendei pra *${dataISO.split('-').reverse().join('/')}* às *${hora}* 🗓️💎\nNossa equipe confirma os detalhes com você por aqui. Até lá! 😊`, null);
     return true;
   }
   return false;
@@ -4832,6 +4839,24 @@ r.patch('/conversations/:id/bot', async (req, res) => {
 });
 
 // ─── SEND MESSAGE ─────────────────────────────────────────────────────────────
+/* 🗓️ CARTÃO OFICIAL PRONTO (fonte única): o CRM pede o texto aqui em vez de
+   montar a confirmação por conta própria. Assim a confirmação que a atendente
+   manda pela agenda é IDÊNTICA à que a IA manda, com endereço, Maps,
+   especialidade e Instagram, do jeito que o master ditou. */
+r.post('/cartao-agendamento', async (req, res) => {
+  try {
+    const b = req.body || {};
+    const emCasa = !!String(b.endereco || '').trim() || /resid|casa|domic/i.test(String(b.local || '') + ' ' + String(b.servico || ''));
+    const texto = await cartaoAgendamento({
+      cliente: b.cliente, paciente: b.paciente, data: b.data, hora: b.hora,
+      profissional: b.profissional, especialidade: b.especialidade,
+      servico: b.servico, tratamento: b.tratamento,
+      local: emCasa ? 'Em sua residência' : 'Na Clínica Vittalis Saúde (Renascença)',
+    });
+    res.json({ texto });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.post('/conversations/:id/send', async (req, res) => {
   try {
     const { content, type = 'text' } = req.body;
