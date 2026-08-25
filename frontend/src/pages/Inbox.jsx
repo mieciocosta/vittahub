@@ -661,7 +661,17 @@ export default function Inbox({ onUnreadChange }) {
     try { await api.del(`/inbox/notas/${id}`); setNotas(p => p.filter(n => n.id !== id)); }
     catch (e) { Toast.show(e.message, 'error'); }
   };
-  const [protoAberto, setProtoAberto] = useState(true);
+  // 📋 A barra do passo a passo pode ser BAIXADA por qualquer uma (pedido do
+  // master, 24/08) e a escolha fica guardada: abaixou, continua abaixada em
+  // todas as conversas e depois do refresh, até ela querer abrir de novo.
+  const [protoAberto, setProtoAberto] = useState(() => {
+    try { return localStorage.getItem('vh_proto_aberto') !== '0'; } catch { return true; }
+  });
+  const alternarProto = () => setProtoAberto(a => {
+    const nova = !a;
+    try { localStorage.setItem('vh_proto_aberto', nova ? '1' : '0'); } catch { /* ok */ }
+    return nova;
+  });
   const [protoBusy, setProtoBusy] = useState('');
   const [protoSel, setProtoSel] = useState(null); // passo aberto nos botões numerados (23/08/2026)
   // ✏️ Edição da frase do passo (pedido do master: "não me dá a opção de usar
@@ -1126,7 +1136,7 @@ export default function Inbox({ onUnreadChange }) {
     try { sessionStorage.setItem('vh_ultima_conversa', JSON.stringify({ id: c.id, nome: c.contact_name || '' })); } catch { /* ok */ }
     setSel(c); setMsgs([]); setMsgsHasMore(false); setMsgsTotal(0);
     // ✅ Protocolo: carrega sozinho ao abrir a conversa e já destaca o que faltou
-    setProto(null); setProtoAberto(true);
+    setProto(null);   // a barra respeita o que a atendente escolheu (aberta/baixada)
     api.get(`/inbox/conversations/${c.id}/protocolo`).then(setProto).catch(() => {});
     // IA fica aberta do lado por padrão (lembrando a preferência do usuário).
     setShowProposta(false); setLeadData(null);
@@ -1886,7 +1896,7 @@ export default function Inbox({ onUnreadChange }) {
                     todo: no rodapé só quem procurava enxergava. Clicar abre o
                     protocolo com o texto pronto do passo que falta. */}
                 {proto?.nota && (
-                  <button onClick={() => setProtoAberto(true)}
+                  <button onClick={() => { setProtoAberto(true); try { localStorage.setItem('vh_proto_aberto','1'); } catch { /* ok */ } }}
                     title={`${proto.nota.titulo} — ${proto.nota.texto}`}
                     style={{ display:'inline-flex', alignItems:'center', gap:5, border:'none', cursor:'pointer',
                       borderRadius:20, padding:'2px 9px', fontSize:10, fontWeight:800, whiteSpace:'nowrap',
@@ -2512,7 +2522,7 @@ export default function Inbox({ onUnreadChange }) {
                   modernos, passo a passo enumerado: botão 1: Boas-vindas!").
                   Uma fileira de botões 1..N no tom do tema; toque abre o passo
                   com a dica e as ações. Verde = feito, âmbar = falta. */}
-              <button onClick={() => setProtoAberto(a => !a)}
+              <button onClick={alternarProto} title={protoAberto ? 'Baixar a barra do passo a passo' : 'Abrir a barra do passo a passo'}
                 style={{ width:'100%', display:'flex', alignItems:'center', gap:9, padding:'6px 14px', border:'none', cursor:'pointer', background:'transparent', textAlign:'left' }}>
                 <span style={{ fontSize:13 }}>{proto.faltando.length ? '📋' : '🏆'}</span>
                 <span style={{ flex:1, minWidth:0, fontSize:11.5, fontWeight:800, color:'var(--txt2)' }}>
@@ -2564,6 +2574,13 @@ export default function Inbox({ onUnreadChange }) {
                         {p2.modelo && !editando2 && (
                           <div style={{ marginTop:7, padding:'7px 10px', borderRadius:9, background:'var(--card)', border:'1px dashed var(--border)', fontSize:11.5, lineHeight:1.5, color:'var(--txt2)', whiteSpace:'pre-wrap' }}>
                             “{p2.modelo}”
+                          </div>
+                        )}
+                        {/* Quem melhorou a frase por último (todas podem editar) */}
+                        {p2.editado_por && !editando2 && (
+                          <div style={{ marginTop:4, fontSize:10, color:'var(--muted)', fontWeight:700 }}>
+                            ✍️ Frase melhorada por {p2.editado_por}
+                            {p2.editado_em ? ` em ${String(p2.editado_em).slice(0, 10).split('-').reverse().join('/')}` : ''}
                           </div>
                         )}
                         {editando2 && (
@@ -2628,7 +2645,10 @@ export default function Inbox({ onUnreadChange }) {
                               style={{ flexShrink:0, border:'none', borderRadius:9, padding:'6px 13px', cursor:'pointer', background:'var(--tq)', color:'#fff', fontSize:11, fontWeight:800 }}>
                               ✍️ Usar editada
                             </button>
-                            {['master','supervisor'].includes(user?.role) && (
+                            {/* 💾 Pedido do master (24/08): TODAS podem salvar a frase do
+                                passo pra equipe, não só a gestão. O sistema registra quem
+                                editou por último e mostra no painel. */}
+                            {(
                               <button onClick={async () => {
                                 try {
                                   // Salva como padrão da equipe: pega a config CRUA (com os
@@ -2641,7 +2661,7 @@ export default function Inbox({ onUnreadChange }) {
                                   api.get(`/inbox/conversations/${sel.id}/protocolo`).then(setProto).catch(() => {});
                                 } catch (e) { Toast.show(e.message, 'error'); }
                               }}
-                                title="Grava esta frase como o novo padrão do passo pra toda a equipe (gestão)"
+                                title="Grava esta frase como o novo padrão deste passo pra toda a equipe"
                                 style={{ flexShrink:0, border:'none', borderRadius:9, padding:'6px 13px', cursor:'pointer', background:'#16a34a', color:'#fff', fontSize:11, fontWeight:800 }}>
                                 💾 Salvar pra equipe
                               </button>

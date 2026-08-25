@@ -7368,10 +7368,24 @@ r.get('/protocolo/config', async (req, res) => {
 });
 r.put('/protocolo/config', async (req, res) => {
   try {
-    if (!['master', 'supervisor'].includes(req.user.role)) return res.status(403).json({ error: 'Apenas a gestão altera o protocolo.' });
+    /* 📋 Pedido do master (24/08): TODAS as atendentes podem editar as mensagens
+       do protocolo, não só a gestão. Quem vive a conversa é quem sabe a frase
+       que converte. Pra não virar bagunça, o sistema CARIMBA quem mexeu por
+       último em cada passo (aparece no painel). */
+    const { rows: [antesRow] } = await query("SELECT valor FROM configuracoes WHERE chave = 'protocolo'").catch(() => ({ rows: [] }));
+    const antes = new Map((antesRow?.valor?.passos || []).map(p => [p.k, p]));
+    const quemEditou = String(req.user?.nome || '').split(' ')[0].slice(0, 40);
+    const agoraISO = new Date().toISOString();
     const passos = (Array.isArray(req.body?.passos) ? req.body.passos : [])
       .map(p => ({ k: String(p.k || '').slice(0, 30), nome: String(p.nome || '').slice(0, 80), dica: String(p.dica || '').slice(0, 200), modelo: String(p.modelo || '').slice(0, 900) }))
-      .filter(p => p.k && p.nome);
+      .filter(p => p.k && p.nome)
+      .map(p => {
+        const old = antes.get(p.k);
+        const mudou = !old || String(old.modelo || '') !== p.modelo || String(old.nome || '') !== p.nome;
+        return { ...p,
+          editado_por: mudou ? quemEditou : (old?.editado_por || null),
+          editado_em:  mudou ? agoraISO   : (old?.editado_em  || null) };
+      });
     const cl = req.body?.clinica || {};
     const clinica = { endereco: String(cl.endereco || '').slice(0, 160), mapa: String(cl.mapa || '').slice(0, 300),
       instagram: String(cl.instagram || '').slice(0, 120), link_agendar: String(cl.link_agendar || '').slice(0, 200) };
