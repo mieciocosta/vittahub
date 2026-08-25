@@ -2326,7 +2326,7 @@ export default function Inbox({ onUnreadChange }) {
             const nomeC = sel.contact_name || '{CLIENTE}';
             const at1 = String(user?.nome || '').split(' ')[0];
             const pac = proto?.paciente || '{PACIENTE}';
-            const ENDER = '🏥 *Nosso endereço, Clínica Vittalis Saúde:*\nEd. Business Center, Térreo\nAv. Cel. Colares Moreira, 3A, Renascença\nSão Luís/MA\n🗺️ Como chegar: https://share.google/cJwx0T5DVaCxZyc6I';
+            const ENDER = '🏥 Nosso endereço, Clínica Vittalis Saúde:\nEd. Business Center, Térreo\nAv. Cel. Colares Moreira, 3A, Renascença\nSão Luís/MA\n🗺️ Como chegar: https://share.google/cJwx0T5DVaCxZyc6I';
             const INSTA = '📸 Acompanhe momentos de cuidado no nosso Instagram: https://www.instagram.com/vittalissaudeslz/';
             const cartao = (linhas) => linhas.join('\n');
             const GRUPOS_PRONTAS = [
@@ -2337,7 +2337,7 @@ export default function Inbox({ onUnreadChange }) {
                 ['Convite de agendamento', `Vamos garantir o horário de ${pac}? 💙 Nossa agenda é bem procurada e quero deixar o melhor reservado pra vocês. Prefere manhã ou tarde?`],
               ]],
               ['📍 Endereço e casa', [
-                ['Endereço da clínica', `📍 *Nosso endereço, Clínica Vittalis Saúde* 💎\n🏥 Ed. Business Center, Térreo\nAv. Cel. Colares Moreira, 3A, Renascença\nSão Luís/MA\n🗺️ *Como chegar (Google Maps):*\nhttps://share.google/cJwx0T5DVaCxZyc6I\nEstamos te esperando de braços abertos 💙 Quer que eu já deixe um horário reservado pra sua visita? 😊`],
+                ['Endereço da clínica', `📍 Nosso endereço, Clínica Vittalis Saúde 💎\n🏥 Ed. Business Center, Térreo\nAv. Cel. Colares Moreira, 3A, Renascença\nSão Luís/MA\n🗺️ Como chegar (Google Maps):\nhttps://share.google/cJwx0T5DVaCxZyc6I\nEstamos te esperando de braços abertos 💙 Quer que eu já deixe um horário reservado pra sua visita? 😊`],
                 ['Clínica ou em casa? (ambos)', `${nomeC}, atendemos dos dois jeitinhos 💙 E aqui vai algo que nos orgulha muito: somos a única clínica que também atende na sua casa. Pensamos no conforto da família, sabemos que muitos pais não conseguem se deslocar. Por isso enviamos nossos profissionais até a sua residência, com o mesmo carinho e o mesmo cuidado da clínica. Para vocês, fica melhor em sua residência ou em nossa clínica? 😊`],
                 ['Plano de saúde (resposta oficial)', 'Nós atendemos somente de forma particular. Isso porque queremos garantir que cada consulta seja sem pressa, que o plano tanto exige, e com toda atenção, que cada cliente merece. Ajudamos ainda mais com o reembolso, pois emitimos a nota fiscal. E a maioria dos planos devolvem o valor. Ainda trabalhamos com parcelamento no cartão de crédito. Tudo para que o nosso cliente tenha o melhor atendimento 💙 Quer que eu veja um horário para vocês? 😊'],
               ]],
@@ -2368,10 +2368,10 @@ export default function Inbox({ onUnreadChange }) {
                 ['Pedir indicação', `Uma coisinha rápida 💙 Se você conhece outra mamãe ou papai que merece esse mesmo cuidado, indica a gente? Presente seu e da família que chegar por você 🥰 É só me mandar o contato ou compartilhar o nosso número 😊`],
               ]],
               ['✅ Cartões de agendamento (preencha os campos)', [
-                ['Vacina em casa', cartao(['✅ *Agendamento de confirmação*','',`📁 *Cliente: ${nomeC}*`,`👶🏻 *Paciente: ${pac}*`,'📅 *Data: {DATA} {DIA DA SEMANA}*','🕓 *Horário: {HORA}hs*','📍 *Local: Em sua residência*','📌 *Serviço: Vacinas de {IDADE}*','','*Parabéns pelo investimento na saúde do seu Baby 🩵*','',INSTA])],
-                ['Vacina na clínica', cartao(['✅ *Agendamento de confirmação*','',`📁 *Cliente: ${nomeC}*`,`👶🏻 *Paciente: ${pac}*`,'📅 *Data: {DATA} {DIA DA SEMANA}*','🕓 *Horário: {HORA}hs*','📍 *Local: Na Clínica Vittalis Saúde (Renascença)*','📌 *Serviço: Vacinas de {IDADE}*','',ENDER,'','*Parabéns pelo investimento na saúde do seu Baby 🩵*','',INSTA])],
-                ['Consulta na clínica', cartao(['✅ *Agendamento de confirmação*','',`📁 *Cliente: ${nomeC}*`,`👶🏻 *Paciente: ${pac}*`,'📅 *Data: {DATA} {DIA DA SEMANA}*','🕓 *Horário: {HORA}hs*','👩‍⚕️ *Profissional: {PROFISSIONAL} ({ESPECIALIDADE})*','📍 *Local: Na Clínica Vittalis Saúde (Renascença)*','📌 *Serviço: {SERVIÇO}*','',ENDER,'','*Parabéns pelo investimento na saúde do seu Baby 🩵*','',INSTA])],
-                ['Consulta em casa', cartao(['✅ *Agendamento de confirmação*','',`📁 *Cliente: ${nomeC}*`,`👶🏻 *Paciente: ${pac}*`,'📅 *Data: {DATA} {DIA DA SEMANA}*','🕓 *Horário: {HORA}hs*','👩‍⚕️ *Profissional: {PROFISSIONAL} ({ESPECIALIDADE})*','📍 *Local: Em sua residência*','📌 *Serviço: {SERVIÇO}*','','*Parabéns pelo investimento na saúde do seu Baby 🩵*','',INSTA])],
+                ['Vacina em casa', cartao(['✅ Agendamento de confirmação','',`📁 Cliente: ${nomeC}`,`👶🏻 Paciente: ${pac}`,'📅 Data: {DATA} {DIA DA SEMANA}','🕓 Horário: {HORA}hs','📍 Local: Em sua residência','📌 Serviço: Vacinas de {IDADE}','','Parabéns pelo investimento na saúde do seu Baby 🩵','',INSTA])],
+                ['Vacina na clínica', cartao(['✅ Agendamento de confirmação','',`📁 Cliente: ${nomeC}`,`👶🏻 Paciente: ${pac}`,'📅 Data: {DATA} {DIA DA SEMANA}','🕓 Horário: {HORA}hs','📍 Local: Na Clínica Vittalis Saúde (Renascença)','📌 Serviço: Vacinas de {IDADE}','',ENDER,'','Parabéns pelo investimento na saúde do seu Baby 🩵','',INSTA])],
+                ['Consulta na clínica', cartao(['✅ Agendamento de confirmação','',`📁 Cliente: ${nomeC}`,`👶🏻 Paciente: ${pac}`,'📅 Data: {DATA} {DIA DA SEMANA}','🕓 Horário: {HORA}hs','👩‍⚕️ Profissional: {PROFISSIONAL} ({ESPECIALIDADE})','📍 Local: Na Clínica Vittalis Saúde (Renascença)','📌 Serviço: {SERVIÇO}','',ENDER,'','Parabéns pelo investimento na saúde do seu Baby 🩵','',INSTA])],
+                ['Consulta em casa', cartao(['✅ Agendamento de confirmação','',`📁 Cliente: ${nomeC}`,`👶🏻 Paciente: ${pac}`,'📅 Data: {DATA} {DIA DA SEMANA}','🕓 Horário: {HORA}hs','👩‍⚕️ Profissional: {PROFISSIONAL} ({ESPECIALIDADE})','📍 Local: Em sua residência','📌 Serviço: {SERVIÇO}','','Parabéns pelo investimento na saúde do seu Baby 🩵','',INSTA])],
               ]],
             ];
             return (

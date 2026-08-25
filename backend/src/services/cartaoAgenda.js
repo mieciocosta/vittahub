@@ -9,7 +9,7 @@ const DIAS_SEM = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Q
 
 // Endereço da clínica + Google Maps — só entra quando o atendimento é aqui.
 const ENDERECO = [
-  '🏥 *Nosso endereço, Clínica Vittalis Saúde:*',
+  '🏥 Nosso endereço, Clínica Vittalis Saúde:',
   'Ed. Business Center, Térreo',
   'Av. Cel. Colares Moreira, 3A, Renascença',
   'São Luís/MA',
@@ -23,7 +23,7 @@ export const ehEmCasa = (txt) => /resid|casa|domic/i.test(String(txt || ''));
             local, servico, tratamento 'papai'|'mamãe' }
    opts:  { titulo, frase } — o resto do cartão nunca muda. */
 export async function cartaoAgendamento(dados = {}, opts = {}) {
-  const titulo = opts.titulo || '✅ *Agendamento de confirmação*';
+  const titulo = opts.titulo || '✅ Agendamento de confirmação';
   const dataISO = String(dados.data || '').slice(0, 10);
   const dSem = /^\d{4}-\d{2}-\d{2}$/.test(dataISO) ? (DIAS_SEM[new Date(dataISO + 'T12:00:00Z').getUTCDay()] || '') : '';
   const dataBR = dataISO ? dataISO.split('-').reverse().join('/') : '';
@@ -34,10 +34,10 @@ export async function cartaoAgendamento(dados = {}, opts = {}) {
   const linhas = [titulo];
   if (opts.frase) { linhas.push(''); linhas.push(String(opts.frase)); }
   linhas.push('');
-  linhas.push(`📁 *Cliente: ${String(dados.cliente || 'Cliente').slice(0, 60)}*`);
-  linhas.push(`👶🏻 *Paciente: ${String(dados.paciente || '').slice(0, 60)}*`);
-  linhas.push(`📅 *Data: ${dataBR}${dSem ? ` ${dSem}` : ''}*`);
-  linhas.push(`🕓 *Horário: ${hora}hs*`);
+  linhas.push(`📁 Cliente: ${String(dados.cliente || 'Cliente').slice(0, 60)}`);
+  linhas.push(`👶🏻 Paciente: ${String(dados.paciente || '').slice(0, 60)}`);
+  linhas.push(`📅 Data: ${dataBR}${dSem ? ` ${dSem}` : ''}`);
+  linhas.push(`🕓 Horário: ${hora}hs`);
 
   if (dados.profissional) {
     // Especialidade junto do nome (pedido do master): Dra. Luísa (Pediatra)
@@ -47,14 +47,14 @@ export async function cartaoAgendamento(dados = {}, opts = {}) {
         WHERE ativo = true AND nome ILIKE $1 LIMIT 1`, [String(dados.profissional).trim()]).catch(() => ({ rows: [] }));
       espec = String(pf?.especialidade || '').trim();
     }
-    linhas.push(`👩‍⚕️ *Profissional: ${String(dados.profissional).slice(0, 60)}${espec ? ` (${espec.slice(0, 40)})` : ''}*`);
+    linhas.push(`👩‍⚕️ Profissional: ${String(dados.profissional).slice(0, 60)}${espec ? ` (${espec.slice(0, 40)})` : ''}`);
   }
-  linhas.push(`📍 *Local: ${localTxt.slice(0, 80)}*`);
-  linhas.push(`📌 *Serviço: ${String(dados.servico || 'Atendimento').slice(0, 80)}*`);
+  linhas.push(`📍 Local: ${localTxt.slice(0, 80)}`);
+  linhas.push(`📌 Serviço: ${String(dados.servico || 'Atendimento').slice(0, 80)}`);
 
   if (!ehEmCasa(localTxt)) { linhas.push(''); linhas.push(...ENDERECO); }
   linhas.push('');
-  linhas.push(`*Parabéns ${trat ? trat + ' ' : ''}pelo investimento na saúde do seu Baby 🩵*`);
+  linhas.push(`Parabéns ${trat ? trat + ' ' : ''}pelo investimento na saúde do seu Baby 🩵`);
   linhas.push('');
   linhas.push(INSTAGRAM);
   return linhas.join('\n');
