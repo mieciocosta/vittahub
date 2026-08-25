@@ -5234,6 +5234,19 @@ async function processarAgendadas() {
           await query(`UPDATE mensagens_agendadas SET status='cancelada', erro='duplicada — mensagem igual já enviada' WHERE id=$1`, [ag.id]).catch(() => {});
           continue;
         }
+        /* 💉 VACINAS: SÓ A CONFIRMAÇÃO DE VÉSPERA (ordem do master, 24/08:
+           "nas vacinas somente isso"). Qualquer outra mensagem AUTOMÁTICA da
+           Vitta (recall, próxima dose, pós-venda, avaliação, resgate, retorno
+           do cuidado…) é cancelada aqui, no funil por onde tudo passa — assim a
+           regra vale também para o que for criado no futuro. Mensagem escrita
+           ou agendada por uma atendente NÃO entra nesta trava: essa é dela. */
+        const ehAutomaticaVitta = /^Vitta\s*·/.test(String(ag.criado_por || ''));
+        const ehConfirmacaoVespera = String(ag.criado_por || '') === 'Vitta · Confirmação de agenda';
+        if (ehAutomaticaVitta && !ehConfirmacaoVespera && String(conv.setor || 'vacinas') === 'vacinas') {
+          await query(`UPDATE mensagens_agendadas SET status='cancelada', erro=$2 WHERE id=$1`,
+            [ag.id, 'Vacinas: só a confirmação de véspera sai automática (ordem do master)']).catch(() => {});
+          continue;
+        }
         if (pareceMensagemDeTeste(ag.texto)) {
           await query(`UPDATE mensagens_agendadas SET status='cancelada', erro=$2 WHERE id=$1`,
             [ag.id, 'Bloqueada: parecia mensagem de teste']).catch(() => {});
@@ -5356,8 +5369,12 @@ async function rodarRecallVacinal() {
     if (alvos.length) console.log(`📅 Recall vacinal: ${alvos.length} recall(s) agendados`);
   } catch (e) { console.error('recall vacinal:', e.message); }
 }
-setInterval(rodarRecallVacinal, 6 * 3600 * 1000);   // 4x ao dia (o limite diário segura)
-setTimeout(rodarRecallVacinal, 90000);
+/* ⏸️ DESLIGADO por ordem do master (24/08): em vacinas só sai a confirmação de
+   véspera. O recall continua no código e volta com um setInterval quando ele
+   pedir — a inteligência da base segue viva no painel de Lembretes, para a
+   equipe abordar na mão. */
+// setInterval(rodarRecallVacinal, 6 * 3600 * 1000);
+// setTimeout(rodarRecallVacinal, 90000);
 
 /* 💙 PÓS-VACINAL NA AGENDA — pedido do master: cliente agendado dia 22/08 →
    o dia 23/08 já nasce com o "Pós Vacinal" dele na agenda, pra equipe realizar
@@ -5436,6 +5453,7 @@ async function rodarAtivacao24h() {
     const { rows } = await query(`
       UPDATE conversas c SET bot_ativo = true
        WHERE c.bot_ativo = false
+         AND COALESCE(c.setor,'vacinas') <> 'vacinas'   -- vacinas: só a confirmação de véspera (ordem do master, 24/08)
          AND c.last_message_at BETWEEN NOW() - interval '7 days' AND NOW() - interval '24 hours'
          AND c.contact_id NOT LIKE '%g.us%'
          AND length(regexp_replace(COALESCE(c.phone,''),'\\D','','g')) >= 10
@@ -9198,6 +9216,7 @@ export async function rodarFollowups() {
           OR (responsavel_id IN (SELECT id FROM usuarios WHERE ia_consultas = true AND COALESCE(ia_ligada, true) = true AND ativo = true)
               AND last_from IN ('bot','me')))
         AND COALESCE(classificacao,'') NOT IN ('gestao','profissional_saude')
+        AND COALESCE(setor,'vacinas') <> 'vacinas'   -- vacinas: só a confirmação de véspera (ordem do master)
         AND COALESCE(followup_pausado, false) = false
         AND COALESCE(followup_count, 0) < $1
         AND phone IS NOT NULL AND phone <> ''
@@ -9343,6 +9362,7 @@ export async function rodarResgateIA() {
       SELECT c.* FROM conversas c
        WHERE c.phone IS NOT NULL AND c.phone <> ''
          AND COALESCE(c.contact_id,'') NOT LIKE '%g.us%'
+         AND COALESCE(c.setor,'vacinas') <> 'vacinas'   -- vacinas: só a confirmação de véspera (ordem do master)
          AND COALESCE(c.resgate_pausado, false) = false
          AND COALESCE(c.resgate_tentativas, 0) < $1
          AND (c.resgate_ultima IS NULL OR c.resgate_ultima < NOW() - INTERVAL '24 hours')

@@ -425,7 +425,9 @@ export async function rodarLembretesAutomaticos() {
       `SELECT id, paciente, responsavel_nome, endereco, servico, TO_CHAR(data,'YYYY-MM-DD') AS data, hora, profissional, telefone, setor
          FROM agenda_eventos
         WHERE data = $1 AND lembrete_enviado_em IS NULL AND LOWER(COALESCE(status,'')) NOT LIKE 'cancel%'
-          AND servico IS DISTINCT FROM 'Pós Vacinal'`, [amanhaLocal]);
+          AND servico IS DISTINCT FROM 'Pós Vacinal'
+          AND COALESCE(setor,'vacinas') <> 'vacinas'          -- vacinas: quem avisa é a confirmação de véspera
+          AND COALESCE(confirmacao_enviada, false) = false`, [amanhaLocal]);
     // 💙 Pós Vacinal NUNCA entra em envio automático (ordem do master): ele é
     // tarefa interna da equipe na agenda, não um horário que o cliente confirma.
     let n = 0;
