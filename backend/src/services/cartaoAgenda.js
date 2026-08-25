@@ -19,11 +19,25 @@ const INSTAGRAM = '📸 Acompanhe momentos de cuidado no nosso Instagram: https:
 
 export const ehEmCasa = (txt) => /resid|casa|domic/i.test(String(txt || ''));
 
+/* O título diz do que se trata: vacinação, consulta ou sessão de terapia
+   (ordem do master, 24/08: "melhora o título para que fique conforme o
+   conteúdo da mensagem"). Lê o serviço e, se faltar, o setor do evento. */
+function assuntoDoCartao({ servico, setor, profissional } = {}) {
+  const t = `${servico || ''} ${setor || ''}`.toLowerCase();
+  if (/vacin|imuniz|dose/.test(t)) return { nome: 'vacinação', artigo: 'da sua' };
+  if (/terapia|fono|psico|ocupacional|psicomotric|nutri|\baba\b|sess/.test(t)) return { nome: 'sessão de terapia', artigo: 'da sua' };
+  if (/consulta|avalia|pediatr|retorno/.test(t) || profissional) return { nome: 'consulta', artigo: 'da sua' };
+  return { nome: 'atendimento', artigo: 'do seu' };
+}
+
 /* dados: { cliente, paciente, data 'YYYY-MM-DD', hora, profissional, especialidade,
             local, servico, tratamento 'papai'|'mamãe' }
    opts:  { titulo, frase } — o resto do cartão nunca muda. */
 export async function cartaoAgendamento(dados = {}, opts = {}) {
-  const titulo = opts.titulo || '✅ Agendamento de confirmação';
+  const assunto = assuntoDoCartao({ servico: dados.servico, setor: dados.setor, profissional: dados.profissional });
+  const titulo = opts.titulo || (opts.lembrete
+    ? `🔔 Lembrete ${assunto.artigo} ${assunto.nome}`
+    : `✅ Confirmação ${assunto.artigo} ${assunto.nome}`);
   const dataISO = String(dados.data || '').slice(0, 10);
   const dSem = /^\d{4}-\d{2}-\d{2}$/.test(dataISO) ? (DIAS_SEM[new Date(dataISO + 'T12:00:00Z').getUTCDay()] || '') : '';
   const dataBR = dataISO ? dataISO.split('-').reverse().join('/') : '';
@@ -71,6 +85,7 @@ export async function cartaoDoEvento(ev = {}, opts = {}) {
     data: ev.data,
     hora: ev.hora,
     profissional: ev.profissional,
+    setor: ev.setor,
     servico: ev.servico || (ev.setor === 'terapias' ? 'Sessão de terapia' : ev.setor === 'consultas' ? 'Consulta' : 'Vacinação'),
     local: emCasa ? 'Em sua residência' : 'Na Clínica Vittalis Saúde (Renascença)',
   }, opts);

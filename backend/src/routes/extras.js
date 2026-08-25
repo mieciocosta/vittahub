@@ -5140,7 +5140,7 @@ async function confirmacaoVespera() {
          muda só o título e a frase inicial. Tom afirmativo, avisando que está
          tudo pronto, em vez de pedir confirmação — reduz desistência. */
       const txt = await cartaoDoEvento(ev, {
-        titulo: '🔔 *Lembrete do seu agendamento*',
+        lembrete: true,
         frase: `Oi! 💙 Aqui é da Vittalis Saúde 😊 Passando para lembrar que é amanhã o atendimento${nome ? ` do(a) ${nome}` : ''}, e está tudo organizado, com muito amor e carinho, para receber vocês 🥰`,
       });
       await query(`INSERT INTO mensagens_agendadas (conversa_id, texto, enviar_em, criado_por) VALUES ($1, $2, NOW(), 'Vitta · Confirmação de agenda')`,

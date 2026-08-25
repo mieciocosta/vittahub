@@ -41,7 +41,7 @@ const fmtBR = (d) => new Date(String(d).slice(0, 10) + 'T12:00:00').toLocaleDate
 function msgAmanha(ev) {
   const nome = String(ev.paciente || '').split(' ')[0];
   return cartaoDoEvento(ev, {
-    titulo: '🔔 *Lembrete do seu agendamento*',
+    lembrete: true,
     frase: `Olá! 💙 Aqui é da Vittalis Saúde 😊 Passando para lembrar que é amanhã, dia ${fmtBR(ev.data)}, o atendimento${nome ? ` do(a) ${nome}` : ''}, e já está tudo preparado com muito carinho para receber vocês 🥰`,
   });
 }
