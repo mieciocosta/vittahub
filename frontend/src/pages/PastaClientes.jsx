@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { Search, Trash2, Star, Database, Phone, CalendarDays, UserPlus, X, Syringe, Stethoscope, Brain, MessageSquare, Pencil, List, Kanban, Check, ArrowRightLeft, Paperclip, FileText, Download, ChevronDown, ChevronRight } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt, openWA } from '../hooks/utils.js';
-import CarteiraVacinal from '../components/CarteiraVacinal.jsx';
 import PastaFunil from './PastaFunil.jsx';
 
 const fileToDataUrl = (file) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file); });
@@ -583,11 +582,6 @@ export default function PastaClientes({ categoria, classificacao }) {
                               ✅ Atendido neste mês{checks[c.id].feito_por_nome ? ` por ${String(checks[c.id].feito_por_nome).split(' ')[0]}` : ''}
                             </div>
                           )}
-                          {/* 💉 Esquema vacinal completo, imprimível e com agendamento */}
-                          <div style={{ width: '100%', marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
-                            <CarteiraVacinal convId={c.id} compacto
-                              onAgendar={() => nav(`/inbox?conv=${c.id}`)} />
-                          </div>
                         </div>
                       );
                     })()}

@@ -7230,14 +7230,15 @@ r.get('/conversations/:id/notas', async (req, res) => {
     const { rows } = await query(
       `SELECT id, texto, tipo, autor_id, autor_nome, created_at FROM cliente_notas
         WHERE conversa_id = $1 OR (lead_id IS NOT NULL AND lead_id = $2)
-        ORDER BY created_at DESC LIMIT 200`, [req.params.id, conv.lead_id || null]);
+        ORDER BY created_at DESC LIMIT 500`, [req.params.id, conv.lead_id || null]);
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 r.post('/conversations/:id/notas', async (req, res) => {
   try {
-    const texto = String(req.body?.texto || '').trim().slice(0, 4000);
+    // Sem limite prático (ordem do master): a atendente descreve a ligação inteira
+    const texto = String(req.body?.texto || '').trim().slice(0, 40000);
     if (!texto) return res.status(400).json({ error: 'Escreva a anotação.' });
     const tipo = ['nota', 'ligacao', 'visita', 'importante'].includes(req.body?.tipo) ? req.body.tipo : 'nota';
     const { rows: [conv] } = await query('SELECT id, lead_id FROM conversas WHERE id = $1', [req.params.id]);

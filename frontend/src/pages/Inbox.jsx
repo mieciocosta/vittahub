@@ -26,7 +26,6 @@ const PERGUNTAS_QUALIFICACAO = [
   'O que espera que a Clínica Vittalis ajude? 💙',
 ];
 import PropostaModal from '../components/PropostaModal.jsx';
-import CarteiraVacinal from '../components/CarteiraVacinal.jsx';
 import TerapiaOrcamentoModal from '../components/TerapiaOrcamentoModal.jsx';
 import Calculadora from '../components/Calculadora.jsx';
 import Copiloto from '../components/Copiloto.jsx';
@@ -2913,10 +2912,48 @@ export default function Inbox({ onUnreadChange }) {
                   </div>
                 ))}
 
-                {/* 💉 Carteira vacinal (esquema 0-18 meses, imprimível) */}
-                <div style={{ margin:'16px 0 6px', padding:'12px 14px', borderRadius:12, background:'var(--bg2)', border:'1px solid var(--border)' }}>
-                  <CarteiraVacinal convId={sel.id} compacto
-                    onAgendar={(m) => { setFicha(null); setShowAgendar(true); setInput(prev => prev); Toast.show(`Agende a etapa de ${m.nome} 💉`, 'info'); }} />
+                {/* 📝 BLOCO DE NOTAS — o que se descobre na ligação fica aqui,
+                    com quem anotou e quando. Nada some quando outra pessoa edita. */}
+                {/* 📝 O CORAÇÃO DO PERFIL (ordem do master, 24/08): aqui fica tudo o
+                    que foi conversado por ligação, sem limite de tamanho, para
+                    qualquer atendente abrir depois e já saber a história do cliente. */}
+                <div style={{ fontSize:10.5, fontWeight:800, color:'var(--muted)', textTransform:'uppercase', letterSpacing:.6, margin:'16px 0 3px' }}>
+                  📝 Anotações do cliente {notas.length ? `(${notas.length})` : ''}
+                </div>
+                <div style={{ fontSize:11, color:'var(--muted)', marginBottom:8, lineHeight:1.45 }}>
+                  Escreva sem limite o que foi conversado na ligação e o que for importante. Fica guardado com o seu nome e a data, e qualquer atendente encontra aqui depois 💙
+                </div>
+                <div style={{ display:'flex', gap:6, marginBottom:7, flexWrap:'wrap' }}>
+                  {[['ligacao','📞 Ligação'],['nota','📝 Nota'],['visita','🏥 Visita'],['importante','⭐ Importante']].map(([v,l]) => (
+                    <button key={v} onClick={() => setNotaTipo(v)}
+                      style={{ padding:'4px 10px', borderRadius:8, fontSize:11, fontWeight:700, cursor:'pointer',
+                        border:`1.5px solid ${notaTipo===v?'var(--tq)':'var(--border)'}`,
+                        background:notaTipo===v?'var(--tq3)':'var(--card)', color:notaTipo===v?'var(--tq2)':'var(--muted)' }}>{l}</button>
+                  ))}
+                </div>
+                <textarea value={notaTxt} onChange={e => setNotaTxt(e.target.value)} rows={6}
+                  placeholder="Ex.: Liguei 14h. A mãe decide, o pai paga. O Théo tem 8 meses, já tomou as do 6º mês em outra clínica. Vai viajar em janeiro e quer retomar em fevereiro. Pediu para chamar no WhatsApp só de tarde."
+                  style={{ width:'100%', minHeight:120, padding:'10px 12px', borderRadius:10, border:'1.5px solid var(--border)', fontSize:12.5, lineHeight:1.55,
+                    background:'var(--card)', color:'var(--txt)', boxSizing:'border-box', resize:'vertical', fontFamily:'inherit' }} />
+                <button onClick={salvarNota} disabled={notaBusy || !notaTxt.trim()} className="btn btn-p btn-sm"
+                  style={{ marginTop:7, fontWeight:700, opacity:(notaBusy || !notaTxt.trim())?.5:1 }}>
+                  {notaBusy ? 'Salvando…' : 'Salvar anotação'}
+                </button>
+
+                <div style={{ marginTop:12, display:'flex', flexDirection:'column', gap:8 }}>
+                  {!notas.length && <div style={{ fontSize:12.5, color:'var(--muted)' }}>Nenhuma anotação ainda.</div>}
+                  {notas.map(n => (
+                    <div key={n.id} style={{ padding:'9px 11px', borderRadius:10, background:'var(--bg2)',
+                      borderLeft:`3px solid ${n.tipo==='importante'?'#eab308':n.tipo==='ligacao'?'#34d399':n.tipo==='visita'?'#8b5cf6':'var(--tq)'}` }}>
+                      <div style={{ fontSize:12.5, whiteSpace:'pre-wrap', lineHeight:1.5 }}>{n.texto}</div>
+                      <div style={{ display:'flex', alignItems:'center', gap:7, marginTop:5, fontSize:10.5, color:'var(--muted)' }}>
+                        <b>{String(n.autor_nome || '—').split(' ')[0]}</b>
+                        <span>{new Date(n.created_at).toLocaleString('pt-BR')}</span>
+                        <button onClick={() => apagarNota(n.id)} title="Apagar"
+                          style={{ marginLeft:'auto', border:'none', background:'none', color:'var(--muted)', cursor:'pointer', fontSize:11 }}>✕</button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
 
                 {/* Histórico de serviços */}
@@ -2951,43 +2988,6 @@ export default function Inbox({ onUnreadChange }) {
                   ))}
                 </>)}
 
-                {/* 📝 BLOCO DE NOTAS — o que se descobre na ligação fica aqui,
-                    com quem anotou e quando. Nada some quando outra pessoa edita. */}
-                <div style={{ fontSize:10.5, fontWeight:800, color:'var(--muted)', textTransform:'uppercase', letterSpacing:.6, margin:'18px 0 7px' }}>
-                  📝 Bloco de notas {notas.length ? `(${notas.length})` : ''}
-                </div>
-                <div style={{ display:'flex', gap:6, marginBottom:7, flexWrap:'wrap' }}>
-                  {[['ligacao','📞 Ligação'],['nota','📝 Nota'],['visita','🏥 Visita'],['importante','⭐ Importante']].map(([v,l]) => (
-                    <button key={v} onClick={() => setNotaTipo(v)}
-                      style={{ padding:'4px 10px', borderRadius:8, fontSize:11, fontWeight:700, cursor:'pointer',
-                        border:`1.5px solid ${notaTipo===v?'var(--tq)':'var(--border)'}`,
-                        background:notaTipo===v?'var(--tq3)':'var(--card)', color:notaTipo===v?'var(--tq2)':'var(--muted)' }}>{l}</button>
-                  ))}
-                </div>
-                <textarea value={notaTxt} onChange={e => setNotaTxt(e.target.value)} rows={3}
-                  placeholder="Ex.: Liguei 14h. A mãe decide, o pai paga. Vai viajar em janeiro, quer retomar em fevereiro."
-                  style={{ width:'100%', padding:'9px 11px', borderRadius:10, border:'1.5px solid var(--border)', fontSize:12.5,
-                    background:'var(--card)', color:'var(--txt)', boxSizing:'border-box', resize:'vertical', fontFamily:'inherit' }} />
-                <button onClick={salvarNota} disabled={notaBusy || !notaTxt.trim()} className="btn btn-p btn-sm"
-                  style={{ marginTop:7, fontWeight:700, opacity:(notaBusy || !notaTxt.trim())?.5:1 }}>
-                  {notaBusy ? 'Salvando…' : 'Salvar anotação'}
-                </button>
-
-                <div style={{ marginTop:12, display:'flex', flexDirection:'column', gap:8 }}>
-                  {!notas.length && <div style={{ fontSize:12.5, color:'var(--muted)' }}>Nenhuma anotação ainda.</div>}
-                  {notas.map(n => (
-                    <div key={n.id} style={{ padding:'9px 11px', borderRadius:10, background:'var(--bg2)',
-                      borderLeft:`3px solid ${n.tipo==='importante'?'#eab308':n.tipo==='ligacao'?'#34d399':n.tipo==='visita'?'#8b5cf6':'var(--tq)'}` }}>
-                      <div style={{ fontSize:12.5, whiteSpace:'pre-wrap', lineHeight:1.5 }}>{n.texto}</div>
-                      <div style={{ display:'flex', alignItems:'center', gap:7, marginTop:5, fontSize:10.5, color:'var(--muted)' }}>
-                        <b>{String(n.autor_nome || '—').split(' ')[0]}</b>
-                        <span>{new Date(n.created_at).toLocaleString('pt-BR')}</span>
-                        <button onClick={() => apagarNota(n.id)} title="Apagar"
-                          style={{ marginLeft:'auto', border:'none', background:'none', color:'var(--muted)', cursor:'pointer', fontSize:11 }}>✕</button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
               </>)}
             </div>
           </div>
