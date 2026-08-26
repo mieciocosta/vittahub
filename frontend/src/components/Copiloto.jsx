@@ -314,7 +314,7 @@ export default function Copiloto({ conv, onUse, onClose }) {
           <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, paddingBottom: 4 }}>
             {chatMsgs.length === 0 && (
               <div style={{ textAlign: 'center', padding: '28px 10px', color: P.txt3, fontSize: 12, lineHeight: 1.65 }}>
-                Converse com o Copiloto sobre esta conversa.<br />
+                Converse com seu assistente sobre este cliente.<br />
                 Anexe foto ou PDF (carteira de vacinação, exame, proposta)<br />ou aperte o microfone e fale — a IA transcreve e responde.
               </div>
             )}
@@ -398,7 +398,7 @@ export default function Copiloto({ conv, onUse, onClose }) {
     );
     if (!data) return (
       <div style={{ textAlign: 'center', padding: '36px 12px', color: P.txt3, fontSize: 12.5, lineHeight: 1.6 }}>
-        Selecione uma análise acima.<br />O Copiloto lê a conversa inteira e o catálogo da clínica.
+        Escolha o que você precisa acima.<br />Seu assistente lê a conversa inteira e a tabela da casa antes de falar.
       </div>
     );
 
@@ -437,6 +437,44 @@ export default function Copiloto({ conv, onUse, onClose }) {
                 </div>
               ))}
             </Card>
+          )}
+          {data.ja_dito?.length > 0 && (
+            <Card>
+              <Label>Ela já te disse (não pergunte de novo)</Label>
+              {data.ja_dito.map((x, i) => (
+                <div key={i} style={{ fontSize: 12.5, color: P.txt2, lineHeight: 1.55, display: 'flex', gap: 7 }}>
+                  <span style={{ color: '#4ade80' }}>✓</span>{x}
+                </div>
+              ))}
+            </Card>
+          )}
+          {data.ja_enviado?.length > 0 && (
+            <Card>
+              <Label>Já enviamos pra ela</Label>
+              {data.ja_enviado.map((x, i) => (
+                <div key={i} style={{ fontSize: 12.5, color: P.txt2, lineHeight: 1.55, display: 'flex', gap: 7 }}>
+                  <span style={{ color: P.tq }}>↗</span>{x}
+                </div>
+              ))}
+            </Card>
+          )}
+          {data.risco && (
+            <Card style={{ borderLeft: '3px solid #f0b429' }}>
+              <Label>O que faz perder esta venda</Label>
+              <div style={{ fontSize: 12.5, color: '#ffe1a8', lineHeight: 1.55 }}>{data.risco}</div>
+            </Card>
+          )}
+          {data.sugestoes?.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <Label>Mandar agora, é só escolher</Label>
+              {data.sugestoes.map((sg, i) => (
+                <Card key={i} style={{ borderLeft: `3px solid ${P.tq}` }}>
+                  <div style={{ fontSize: 10.5, fontWeight: 800, color: P.tq, letterSpacing: .4, marginBottom: 5, textTransform: 'uppercase' }}>{sg.titulo || `Opção ${i + 1}`}</div>
+                  <div style={{ fontSize: 13, color: P.txt, lineHeight: 1.6, whiteSpace: 'pre-wrap', marginBottom: 10 }}>{sg.texto}</div>
+                  <UseBtn onClick={() => onUse?.(sg.texto)}>Usar esta</UseBtn>
+                </Card>
+              ))}
+            </div>
           )}
           {data.proximo_passo && (
             <Card style={{ background: P.tqDim, borderColor: 'rgba(0,184,192,.3)' }}>
