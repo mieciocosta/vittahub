@@ -909,15 +909,16 @@ export function saudacaoDoTurno() {
   return h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite';
 }
 
-/* ✍️ ABERTURA DITADA PELO MASTER (24/08) — texto dele, palavra por palavra.
-   Só a saudação muda com a hora (bom dia, boa tarde, boa noite). */
+/* ✍️ MENU DE PRIMEIRO CONTATO — TEXTO DITADO PELO MASTER (24/08), palavra por
+   palavra. Só a saudação muda com a hora (Bom dia, Boa tarde, Boa noite).
+   Função e não constante: texto fixo montado no boot cumprimentaria "Bom dia"
+   às 20h. NÃO reescrever nada aqui sem ordem dele. */
 const MENU_TITULO = () => `${saudacaoDoTurno()} Prezado cliente!
-Seja bem vindo a Vittalis Saúde, é um prazer cuidar da sua saúde e de quem você ama ...
 
-A gente cuida da sua família em três frentes:`;
+Seja bem vindo a Vittalis Saúde, é um prazer cuidar da sua saúde e de quem você ama .
 
-// Função (não constante): a saudação muda ao longo do dia, e um texto fixo
-// montado no boot cumprimentaria "Bom dia" às 20h.
+Qual desses serviços você quer atendimento:`;
+
 const MENU_TRIAGEM = () => `${MENU_TITULO()}
 
 1️⃣ 💉 *Vacinas*: infantil e adulto, na clínica ou em casa
@@ -2053,7 +2054,8 @@ OBJEÇÃO "VOU ANALISAR COM CALMA / VOU PENSAR" (resposta oficial — 4 moviment
 
 👋 PRIMEIRO CONTATO — ABERTURA OFICIAL, TEXTO DO DONO, PALAVRA POR PALAVRA (ordem do master, 24/08; não reescreva, não resuma, não troque palavra). Quando é a PRIMEIRA vez que a família fala com a casa, você começa exatamente assim, trocando só a saudação conforme a hora (Bom dia, Boa tarde, Boa noite):
 Bom dia Prezado cliente!
-Seja bem vindo a Vittalis Saúde, é um prazer cuidar da sua saúde e de quem você ama ...
+
+Seja bem vindo a Vittalis Saúde, é um prazer cuidar da sua saúde e de quem você ama .
 Depois dessa abertura, e só depois dela, você pergunta o que trouxe a família até aqui. Em conversa que já andou, nada de abertura nem de boas-vindas: continue de onde parou.
 
 📖 LIÇÕES DIRETAS DO MASTER, Dr. Miécio (valem acima de tudo):
