@@ -1973,6 +1973,20 @@ export default function Inbox({ onUnreadChange }) {
                 <option value="gestao">👔 Gestão / Direção</option>
                 <option value="profissional_saude">🏥 Profissional da clínica</option>
               </select>
+              {/* 📌 FIXAR DENTRO DO PRÓPRIO CHAT (pedido do master, 24/08: "quero
+                  que elas possam fixar cada conversa dentro do próprio chat, não
+                  somente na listagem"). Mesmo botão, mesma cor dourada da lista,
+                  e o estado acompanha na hora. */}
+              <button onClick={() => toggleFix(sel)}
+                title={fixadasIds.has(sel.id)
+                  ? 'Desafixar esta conversa, ela volta pra lista geral'
+                  : 'Fixar esta conversa, ela sobe pra sua seção de fixadas (só no seu usuário)'}
+                className="btn btn-sm"
+                style={{ background:'linear-gradient(120deg,#f59e0b,#fcd34d)', color:'#78350f', border:'none',
+                  fontSize:11, padding:'4px 9px', fontWeight:900, whiteSpace:'nowrap', flexShrink:0,
+                  boxShadow:'0 1px 6px rgba(245,158,11,.5)' }}>
+                📌 {fixadasIds.has(sel.id) ? 'CONVERSA FIXADA' : 'FIXAR CONVERSA'}
+              </button>
               {/* 🔁 TRANSFERIR (pedido do master: "além do setor, transferir
                   para o atendente que quero") — o modal completo existia sem
                   botão; agora abre daqui, com a equipe da supervisora no topo
