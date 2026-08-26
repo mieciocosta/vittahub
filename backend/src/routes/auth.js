@@ -29,6 +29,35 @@ function limpaFalhasLogin(ip) { loginFalhas.delete(ip); }
 // limpeza periódica do mapa (evita crescer pra sempre)
 setInterval(() => { const now = Date.now(); for (const [k, v] of loginFalhas) if (v.until < now) loginFalhas.delete(k); }, 10 * 60 * 1000);
 
+/* 📍 DE ONDE ELA ENTROU (ordem do master, 24/08: "histórico de localização de
+   acesso de cada usuário, de cada dia"). O IP vira cidade e estado por um
+   serviço público de geolocalização, com CACHE no banco pra não consultar duas
+   vezes o mesmo endereço. É melhor esforço: falhou, o acesso é registrado do
+   mesmo jeito, só sem a cidade. IP de rede interna não tem cidade. */
+async function localizarIP(ip) {
+  const limpo = String(ip || '').trim();
+  if (!limpo || limpo === 'unknown' || /^(10\.|127\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|::1)/.test(limpo)) return null;
+  try {
+    const { rows: [cache] } = await query("SELECT valor FROM configuracoes WHERE chave = $1", [`geoip_${limpo}`]);
+    if (cache?.valor?.cidade || cache?.valor?.vazio) return cache.valor.vazio ? null : cache.valor;
+  } catch { /* sem cache, segue */ }
+  try {
+    const { default: fetch } = await import('node-fetch');
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 3500);
+    const r = await fetch(`http://ip-api.com/json/${encodeURIComponent(limpo)}?fields=status,country,regionName,city,isp,mobile&lang=pt-BR`, { signal: ctrl.signal });
+    clearTimeout(t);
+    const j = await r.json().catch(() => null);
+    const loc = j && j.status === 'success'
+      ? { cidade: j.city || null, estado: j.regionName || null, pais: j.country || null, provedor: String(j.isp || '').slice(0, 60), movel: !!j.mobile }
+      : null;
+    await query(`INSERT INTO configuracoes (chave, valor) VALUES ($1, $2::jsonb)
+                 ON CONFLICT (chave) DO UPDATE SET valor = $2::jsonb, updated_at = NOW()`,
+      [`geoip_${limpo}`, JSON.stringify(loc || { vazio: true })]).catch(() => {});
+    return loc;
+  } catch { return null; }
+}
+
 // Auditoria fire-and-forget — registra a ação SEM nunca lançar erro
 // (uma falha de log jamais pode derrubar o login).
 function logAudit(req, usuarioId, usuarioNome, acao, detalhes) {
@@ -82,7 +111,12 @@ r.post('/login', async (req, res) => {
         }
       }
     } catch { /* rastreio é melhor-esforço, nunca trava o login */ }
-    logAudit(req, u.id, u.nome, 'login', { metodo: 'cpf' });
+    // 📍 Registra o acesso COM a cidade de onde ela entrou (histórico por dia)
+    localizarIP(ip).then(loc => {
+      query(`INSERT INTO audit_logs (usuario_id, usuario_nome, acao, detalhes, ip, user_agent)
+             VALUES ($1,$2,'login',$3::jsonb,$4,$5)`,
+        [u.id, u.nome, JSON.stringify({ metodo: 'cpf', ...(loc || {}) }), ip, req.get('user-agent')?.slice(0, 300)]).catch(() => {});
+    }).catch(() => { logAudit(req, u.id, u.nome, 'login', { metodo: 'cpf' }); });
     res.json({ token, user: { id: u.id, nome: u.nome, email: u.email, cpf: u.cpf, role: u.role, cor: u.cor, avatar: u.avatar || null, setor: u.setor || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo, dono: ehDono(u) || u.pode_impersonar === true } });
   } catch (err) {
     console.error('Login error:', err.message); // detalhe só no log do servidor

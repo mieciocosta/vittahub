@@ -32,11 +32,14 @@ export default function Auditoria() {
   // 🔒 Tentativas de copiar telefone e capturas de tela (pedido do master)
   const [seg, setSeg] = useState(null);
   const [acessos, setAcessos] = useState(null);   // 🌐 logins por IP (senha compartilhada aparece)
+  const [locs, setLocs] = useState(null);        // 📍 histórico de localização, dia a dia e minuto a minuto
+  const [locAberto, setLocAberto] = useState(null);
   useEffect(() => {
     if (nivel !== 'seguranca') return;
     setSeg(null);
     api.get('/auditoria/seguranca?dias=30').then(setSeg).catch(e => setSeg({ erro: e.message }));
     api.get('/auditoria/acessos').then(setAcessos).catch(() => setAcessos(null));
+    api.get('/auditoria/localizacoes?dias=15').then(setLocs).catch(() => setLocs(null));
   }, [nivel]); // eslint-disable-line
   // 📸 Banco de prints: a reconstituição da tela de cada captura (30 dias)
   const [prints, setPrints] = useState([]);
@@ -239,6 +242,70 @@ export default function Auditoria() {
               <StatCard label="Pessoas envolvidas" valor={seg.resumo.pessoas} cor="var(--tq)" />
               <StatCard label="Período" valor={`${seg.dias}d`} cor="var(--muted)" />
             </div>
+
+            {/* 📍 HISTÓRICO DE LOCALIZAÇÃO (pedido do master, 24/08): de cada
+                usuária, de cada dia e de cada minuto — cidade, aparelho, rede e
+                a janela de trabalho do dia. */}
+            {locs?.itens?.length > 0 && (
+              <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: 16 }}>
+                <div style={{ padding: '12px 16px', background: 'var(--bg)', borderBottom: '1px solid var(--border)', fontWeight: 800, fontSize: 14 }}>
+                  📍 Histórico de localização por usuária
+                  <span style={{ fontWeight: 600, color: 'var(--muted)', fontSize: 11.5 }}> (últimos {locs.dias} dias, dia a dia e hora a hora)</span>
+                </div>
+                <div style={{ maxHeight: 460, overflowY: 'auto' }}>
+                  {locs.itens.map((u) => (
+                    <div key={u.usuario_id || u.nome} style={{ borderBottom: '1px solid var(--border)' }}>
+                      <button onClick={() => setLocAberto(locAberto === (u.usuario_id || u.nome) ? null : (u.usuario_id || u.nome))}
+                        style={{ width: '100%', textAlign: 'left', padding: '11px 16px', border: 'none', cursor: 'pointer',
+                          background: u.varias_cidades ? 'rgba(220,38,38,.05)' : 'transparent', display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
+                        <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--txt)' }}>{u.nome}</span>
+                        <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                          {u.cidades.length ? u.cidades.join(' · ') : 'cidade não identificada'}
+                        </span>
+                        {u.varias_cidades && (
+                          <span style={{ fontSize: 10, fontWeight: 800, background: '#fee2e2', color: '#dc2626', borderRadius: 8, padding: '2px 9px' }}>
+                            ⚠️ {u.cidades.length} cidades
+                          </span>
+                        )}
+                        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--muted)', fontWeight: 700 }}>
+                          {u.dias.length} dia(s) {locAberto === (u.usuario_id || u.nome) ? '▲' : '▼'}
+                        </span>
+                      </button>
+                      {locAberto === (u.usuario_id || u.nome) && (
+                        <div style={{ padding: '4px 16px 12px' }}>
+                          {u.dias.map(d => (
+                            <div key={d.dia} style={{ marginTop: 8, paddingLeft: 10, borderLeft: '3px solid var(--tq)' }}>
+                              <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--txt2)' }}>
+                                {d.dia.split('-').reverse().join('/')}
+                                {d.janela && (
+                                  <span style={{ fontWeight: 600, color: 'var(--muted)', fontSize: 11 }}>
+                                    {' '}· ativa das {new Date(new Date(d.janela.primeiro).getTime() - 3 * 3600 * 1000).toISOString().slice(11, 16)}
+                                    {' '}às {new Date(new Date(d.janela.ultimo).getTime() - 3 * 3600 * 1000).toISOString().slice(11, 16)}
+                                    {' '}({d.janela.acoes} ações)
+                                  </span>
+                                )}
+                              </div>
+                              {d.acessos.map((a, k) => (
+                                <div key={k} style={{ fontSize: 11.5, color: 'var(--muted)', display: 'flex', gap: 9, flexWrap: 'wrap', marginTop: 3 }}>
+                                  <b style={{ color: 'var(--txt2)', fontFamily: 'monospace' }}>{a.hora}</b>
+                                  <span>{a.cidade || 'cidade não identificada'}</span>
+                                  {a.provedor && <span style={{ opacity: .85 }}>{a.provedor}{a.movel ? ' (4G)' : ''}</span>}
+                                  <span style={{ fontFamily: 'monospace', opacity: .75 }}>{a.ip}</span>
+                                  {a.aparelho && <span style={{ opacity: .7, overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 220, whiteSpace: 'nowrap' }}>{a.aparelho}</span>}
+                                </div>
+                              ))}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <div style={{ padding: '8px 16px', fontSize: 11, color: 'var(--muted)', lineHeight: 1.5 }}>
+                  A cidade vem do endereço de rede do acesso, então ela mostra a região, não o endereço da casa. Rede móvel (4G) pode aparecer na cidade da operadora. Cada linha é um acesso, com a hora e o minuto.
+                </div>
+              </div>
+            )}
 
             {/* 🌐 ACESSOS POR LOCALIZAÇÃO (pedido do master): mesmo login em
                 endereços diferentes fica exposto aqui — e gera alerta no sino. */}
