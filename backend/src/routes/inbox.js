@@ -1450,6 +1450,45 @@ async function garantirProximoPasso(txt, conv) {
   return t;
 }
 
+/* 📸 PROVA SOCIAL — fonte única (IA, botão do protocolo e follow-up).
+   Junta até `max` fotos REAIS da Biblioteca do setor, manda em sequência e
+   fecha a última com o convite do Instagram. Muita foto da Biblioteca guarda
+   só a referência da mensagem de origem, por isso a busca varre bem mais
+   candidatas do que a quantidade pedida. */
+async function enviarProvaSocial({ conv, phone55, max = 10, legenda = '', autor = null, fromType = 'bot' }) {
+  const setorFoto = conv.setor === 'vacinas' ? 'vacinas' : 'terapias';
+  const { rows: cands } = await query(`
+    SELECT id, data, msg_id FROM biblioteca_midias
+     WHERE tipo IN ('foto', 'imagem', 'image') AND setor IN ($1, 'geral')
+     ORDER BY (setor = $1) DESC, random() LIMIT 60`, [setorFoto]).catch(() => ({ rows: [] }));
+  const fotos = [];
+  for (const f of cands) {
+    if (fotos.length >= max) break;
+    let d = f.data;
+    if (!d && f.msg_id) {
+      const { rows: [msgF] } = await query('SELECT content FROM mensagens WHERE id = $1', [f.msg_id]).catch(() => ({ rows: [] }));
+      const cF = String(msgF?.content || '');
+      if (cF.startsWith('data:')) d = cF;
+    }
+    if (d) fotos.push(String(d).startsWith('data:') ? d : `data:image/jpeg;base64,${d}`);
+  }
+  if (!fotos.length) return 0;
+  const insta = '📸 Veja mais momentos assim no nosso Instagram: https://www.instagram.com/vittalissaudeslz/';
+  let n = 0;
+  for (let i = 0; i < fotos.length; i++) {
+    const cap = [i === 0 ? String(legenda || '').slice(0, 300) : '', i === fotos.length - 1 ? insta : ''].filter(Boolean).join('\n\n');
+    const zr = await zapiCall('/send-image', 'POST', { phone: phone55, image: fotos[i], caption: cap });
+    if (!zr?.ok) continue;
+    n++;
+    const { rows: [fm] } = await query(
+      `INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, created_at)
+       VALUES ($1,$4,$3,'image',$2,NOW()) RETURNING *`,
+      [conv.id, fotos[i], autor, fromType]).catch(() => ({ rows: [null] }));
+    if (fm) socketEmit('new_message', { convId: conv.id, message: fm, conv });
+  }
+  return n;
+}
+
 async function vittaResponder(convId) {
   // Estado mais recente — o humano pode ter assumido (bot_ativo=false) nesse meio-tempo
   const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [convId]);
@@ -2255,51 +2294,14 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
       if (!jaFoto) {
         // Regra do master: conversa de VACINAS mostra fotos de vacinas;
         // consultas/terapias mostram as fotos das terapias.
-        const setorFoto = conv.setor === 'vacinas' ? 'vacinas' : 'terapias';
-        /* Robustez (master: "não estou vendo a IA enviar fotos"): 1) aceita
-           também as fotos do setor 'geral' como reserva; 2) resolve as fotos
-           que a Biblioteca só APONTA pra mensagem (data nula) buscando o
-           conteúdo original — antes essas eram sorteadas e morriam caladas. */
-        const { rows: fotosCand } = await query(`
-          SELECT id, titulo, data, msg_id FROM biblioteca_midias
-           WHERE tipo IN ('foto', 'imagem', 'image') AND setor IN ($1, 'geral')
-           ORDER BY (setor = $1) DESC, random() LIMIT 60`, [setorFoto]);
-        /* 📸 Prova social é CONJUNTO, não foto solta (cobrança do master, 24/08:
-           "está carregando só uma foto"): junta até 3 fotos reais da Biblioteca.
-           A busca varre bem mais candidatas do que antes, porque muita foto está
-           guardada só como referência de mensagem — se olhasse poucas, achava uma
-           utilizável e mandava sozinha. */
-        const fotosOk = [];
-        for (const f of fotosCand) {
-          if (fotosOk.length >= 10) break;   // conjunto de 10 (ordem do master, 24/08)
-          let d = f.data;
-          if (!d && f.msg_id) {
-            const { rows: [msgF] } = await query('SELECT content FROM mensagens WHERE id = $1', [f.msg_id]).catch(() => ({ rows: [] }));
-            const cF = String(msgF?.content || '');
-            if (cF.startsWith('data:')) d = cF;
-          }
-          if (d) fotosOk.push({ id: f.id, data: String(d).startsWith('data:') ? d : `data:image/jpeg;base64,${d}` });
-        }
-        if (fotosOk.length && zapiOk()) {
-          const legendaBase = String(toolFoto.input?.legenda || '').slice(0, 300);
-          const insta = '📸 Veja mais momentos assim no nosso Instagram: https://www.instagram.com/vittalissaudeslz/';
-          let n = 0;
-          for (let i = 0; i < fotosOk.length; i++) {
-            // Legenda só na primeira; o convite do Instagram fecha a última
-            const legenda = [i === 0 ? legendaBase : '', i === fotosOk.length - 1 ? insta : ''].filter(Boolean).join('\n\n');
-            const zrF = await zapiCall('/send-image', 'POST', { phone: `55${phoneNum}`, image: fotosOk[i].data, caption: legenda });
-            if (!zrF?.ok) continue;
-            n++;
-            const { rows: [fmsg] } = await query(
-              `INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, created_at)
-               VALUES ($1,'bot',$3,'image',$2,NOW()) RETURNING *`,
-              [convId, fotosOk[i].data, nomePersona]).catch(() => ({ rows: [null] }));
-            if (fmsg) socketEmit('new_message', { convId, message: fmsg, conv });
-          }
-          console.log(`VITTA conv=${convId}: prova social enviada (${n} foto(s) da biblioteca)`);
-        } else {
-          console.log(`VITTA conv=${convId}: pediu foto de prova social, mas a Biblioteca não tem nenhuma utilizável (setor ${setorFoto}/geral — ${fotosCand.length} candidatas sem dados)`);
-        }
+        /* 📸 Prova social é CONJUNTO (ordem do master): até 10 fotos reais, com
+           o Instagram fechando a última. Sai tudo pela fonte única. */
+        const nFotos = await enviarProvaSocial({
+          conv, phone55: `55${phoneNum}`, max: 10,
+          legenda: String(toolFoto.input?.legenda || '').slice(0, 300),
+          autor: nomePersona, fromType: 'bot',
+        });
+        console.log(`VITTA conv=${convId}: prova social enviada (${nFotos} foto(s))`);
       }
     } catch (e) { console.error('enviar_foto_terapias:', e.message); }
   }
@@ -9403,6 +9405,8 @@ async function gerarMensagemFollowup(conv, count, nomeFU = 'Equipe Vittalis') {
   if (!temIA() || !hist.length) return null;
 
   try {
+    // O texto sai junto de FOTOS reais da casa (regra do master): a mensagem
+    // pode convidar a olhar as fotos, sem prometer nada que não vá junto.
     const resumo = hist.map(m => {
       const quem = m.from_type === 'contact' ? 'Cliente' : nomeFU;
       const txt = m.type === 'document' ? `[enviou PDF: ${m.filename || 'proposta'}]`
@@ -9428,7 +9432,8 @@ async function gerarMensagemFollowup(conv, count, nomeFU = 'Equipe Vittalis') {
 
     const sys = `REGRAS DE ESTILO OBRIGATÓRIAS: nunca use travessão (— ou –) nem aspas; no lugar use vírgula, dois-pontos ou frase nova. Nunca diga preço ou valores: diga investimento. Termine com uma pergunta leve. Você é a ${nomeFU}, atendente carinhosa da Vittalis Saúde (pediatria, vacinas e terapias infantis — São Luís/MA) no WhatsApp; é assim que o cliente te conhece. O cliente parou de responder. Escreva UMA única mensagem curta (1 a 3 frases), calorosa e HUMANA, tratando por "${trato}", com 1 emoji de afeto (💙🥰😊✨).
 ${estrategia}
-REGRAS DA CASA: fale "investimento", nunca "preço/valor"; nunca soe cobrança nem desespero (somos uma clínica procurada); não repita literalmente nada que já foi dito; não invente valores nem promessas. Responda APENAS a mensagem, sem aspas.`;
+REGRAS DA CASA: fale "investimento", nunca "preço/valor"; nunca soe cobrança nem desespero (somos uma clínica procurada); não repita literalmente nada que já foi dito; não invente valores nem promessas. Responda APENAS a mensagem, sem aspas.
+ATENÇÃO, LEIA A CONVERSA INTEIRA ACIMA ANTES DE ESCREVER (ordem do dono da clínica): cite algo concreto que a família contou, o nome da criança, a queixa ou o serviço que ela buscou. Mensagem que não mostra leitura da conversa não serve. E logo depois da sua mensagem VÃO FOTOS REAIS do cuidado da nossa equipe, então pode convidar a família a dar uma olhadinha nelas, com naturalidade.`;
 
     const aiData = await openaiMessages({
       model: 'gpt-4o', max_tokens: 200, system: sys,
@@ -9516,6 +9521,13 @@ export async function rodarFollowups() {
 
         const msgAssinada = msg.trimStart().startsWith('*') ? msg : `*${nomeFU}:*\n${msg}`;
         const zr = await zapiCall('/send-text', 'POST', { phone: `55${phoneNum}`, message: msgAssinada });
+        /* 📸 REGRA DO MASTER (24/08): follow-up SEMPRE acompanhado de fotos.
+           A retomada com prova social converte muito mais que texto sozinho:
+           a família volta a ver o cuidado real da casa antes de decidir. */
+        if (zr?.ok) {
+          const nFU = await enviarProvaSocial({ conv, phone55: `55${phoneNum}`, max: 10, autor: nomeFU, fromType: 'bot' }).catch(() => 0);
+          if (nFU) console.log(`Follow-up conv=${conv.id}: ${nFU} foto(s) de prova social junto`);
+        }
         if (!zr?.ok) { console.error('Follow-up Z-API falhou:', conv.id, zr?.status); continue; }
 
         const { rows: [botMsg] } = await query(
