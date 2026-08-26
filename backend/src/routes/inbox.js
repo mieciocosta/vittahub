@@ -6130,7 +6130,7 @@ const AI_ASSIST_MODES = {
 }`,
   },
   resposta: {
-    instrucao: `Escreva a próxima mensagem perfeita para a atendente enviar a este cliente. Curta (1 a 4 frases), tom acolhedor e humano das melhores atendentes da clínica, no máximo uma pergunta, conduzindo para a próxima etapa. Sem emojis.`,
+    instrucao: `Escreva a próxima mensagem perfeita para a atendente enviar a este cliente. Curta (1 a 4 frases), tom acolhedor e humano das melhores atendentes da clínica, no máximo uma pergunta, conduzindo para a próxima etapa. NUNCA use travessão nem aspas, fale investimento e nunca preço, e não invente valor, data ou horário que não esteja na conversa ou no catálogo. Se a atendente disser o que ela quer dizer (campo PEDIDO DA ATENDENTE), escreva exatamente sobre isso, do jeito da casa.`,
     schema: `{
   "texto": "a mensagem pronta para enviar",
   "racional": "1 frase explicando por que essa abordagem"
@@ -6502,12 +6502,17 @@ r.post('/ai-chat', async (req, res) => {
       const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [convId]);
       if (conv) {
         const { rows: histRows } = await query(
-          `SELECT from_type, type, content, filename FROM mensagens
-           WHERE conversa_id = $1 AND type IN ('text','document') AND from_type NOT IN ('system','interno')
-           ORDER BY created_at DESC LIMIT 20`, [convId]);
+          `SELECT from_type, type, content, filename, transcricao FROM mensagens
+           WHERE conversa_id = $1 AND type IN ('text','document','audio','ptt','image','video')
+             AND from_type NOT IN ('system','interno')
+           ORDER BY created_at DESC LIMIT 300`, [convId]);   // conversa inteira (ordem do master)
         const transcript = histRows.reverse().map(m => {
           const quem = m.from_type === 'contact' ? (conv.contact_name || 'Cliente') : m.from_type === 'bot' ? 'Vitta' : 'Atendente';
-          const txt = m.type === 'document' ? `[PDF: ${m.filename || 'documento'}]` : String(m.content || '').slice(0, 300);
+          const txt = m.type === 'document' ? `[PDF: ${m.filename || 'documento'}]`
+            : (m.type === 'audio' || m.type === 'ptt') ? (m.transcricao ? `[áudio] ${String(m.transcricao).slice(0, 500)}` : '[áudio]')
+            : m.type === 'image' ? `[foto] ${String(m.content || '').replace('📷 Imagem', '').slice(0, 200)}`.trim()
+            : m.type === 'video' ? '[vídeo]'
+            : String(m.content || '').slice(0, 500);
           return `${quem}: ${txt}`;
         }).join('\n');
         contexto = `\n\nCONVERSA ABERTA NO MOMENTO (${conv.contact_name || 'cliente'}):\n${transcript}`;
@@ -6623,6 +6628,9 @@ r.post('/ai-assist', async (req, res) => {
     // ── Modo estruturado ──────────────────────────────────────────────────────
     const cfgMode = AI_ASSIST_MODES[mode];
     if (!cfgMode) return res.status(400).json({ error: 'Modo inválido' });
+    // ✍️ O que a atendente quer dizer (ordem do master, 24/08): o Copiloto
+    // escreve sobre o pedido dela, com a conversa inteira na mão.
+    const pedido = String(req.body?.pedido || '').trim().slice(0, 500);
     if (!convId) return res.status(400).json({ error: 'convId é obrigatório' });
     if (!temIA()) return res.status(503).json({ error: 'IA não configurada' });
 
@@ -6643,9 +6651,10 @@ r.post('/ai-assist', async (req, res) => {
 
     // Conversa em ordem cronológica (texto + documentos enviados)
     const { rows: histRows } = await query(
-      `SELECT from_type, type, content, filename, sender_nome, created_at FROM mensagens
-       WHERE conversa_id = $1 AND type IN ('text','document') AND from_type NOT IN ('system','interno')
-       ORDER BY created_at DESC LIMIT 40`, [convId]);
+      `SELECT from_type, type, content, filename, transcricao, sender_nome, created_at FROM mensagens
+       WHERE conversa_id = $1 AND type IN ('text','document','audio','ptt','image','video')
+         AND from_type NOT IN ('system','interno')
+       ORDER BY created_at DESC LIMIT 300`, [convId]);   // o Copiloto lê a conversa INTEIRA (ordem do master)
     const hist = histRows.reverse();
     if (!hist.length) return res.status(400).json({ error: 'Conversa sem mensagens para analisar' });
 
@@ -6703,9 +6712,9 @@ REGRAS DE SAÍDA (obrigatórias):
 
     const userPrompt = `${cfgMode.instrucao}
 
-CONVERSA (${conv.contact_name || 'cliente'}):
+CONVERSA COMPLETA (${conv.contact_name || 'cliente'}) — leia tudo antes de responder:
 ${transcript}
-
+${pedido ? `\nPEDIDO DA ATENDENTE (é isto que ela quer dizer ao cliente agora, escreva sobre isso):\n${pedido}\n` : ''}
 Devolva exatamente este JSON:
 ${cfgMode.schema}`;
 

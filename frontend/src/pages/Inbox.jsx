@@ -520,7 +520,20 @@ export default function Inbox({ onUnreadChange }) {
   const [sending, setSending] = useState(false); // guard: evita envios duplos
   const [recording, setRecording] = useState(false);
   const [recorder, setRecorder]   = useState(null);
-  const [showAI, setShowAI]     = useState(() => localStorage.getItem('vh_ia_aberta') !== 'off');
+  /* 🤖 Copiloto SEMPRE ABERTO ao lado de cada conversa (ordem do master,
+     24/08). Uma vez, o sistema reabre pra quem tinha fechado antes; a partir
+     daí ela pode fechar quando quiser e a escolha é respeitada. */
+  const [showAI, setShowAI]     = useState(() => {
+    try {
+      if (localStorage.getItem('vh_copiloto_destaque') !== 'v1') {
+        localStorage.setItem('vh_copiloto_destaque', 'v1');
+        localStorage.setItem('vh_ia_aberta', 'on');
+        return true;
+      }
+    } catch { /* ok */ }
+    return localStorage.getItem('vh_ia_aberta') !== 'off';
+  });
+  useEffect(() => { try { localStorage.setItem('vh_ia_aberta', showAI ? 'on' : 'off'); } catch { /* ok */ } }, [showAI]);
   const [agendarOpen, setAgendarOpen] = useState(false); // modal de agendamento
   const [iaAgendaBusy, setIaAgendaBusy] = useState(false); // IA sugerindo agendamento
   const [metaSetor, setMetaSetor] = useState(null);       // meta global do setor (banner no atendimento)

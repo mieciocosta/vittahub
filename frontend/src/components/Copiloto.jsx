@@ -145,6 +145,10 @@ function Skeleton() {
 
 export default function Copiloto({ conv, onUse, onClose }) {
   const [mode, setMode] = useState('resumo');
+  // ✍️ O que a atendente quer dizer (ordem do master, 24/08): ela escreve o
+  // pedido e o Copiloto redige a mensagem já no tom da casa, lendo a conversa.
+  const [pedido, setPedido] = useState('');
+  const pedidoRef = useRef('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [, force] = useState(0);
@@ -267,6 +271,8 @@ export default function Copiloto({ conv, onUse, onClose }) {
     }
   };
 
+  useEffect(() => { pedidoRef.current = pedido; }, [pedido]);
+
   const run = useCallback(async (m, fresh = false) => {
     if (!convId) return;
     if (m === 'chat') { setMode('chat'); setError(''); return; }
@@ -279,7 +285,7 @@ export default function Copiloto({ conv, onUse, onClose }) {
       const resp = await fetch(`${BASE}/api/inbox/ai-assist`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}` },
-        body: JSON.stringify({ convId, mode: m }),
+        body: JSON.stringify({ convId, mode: m, pedido: m === 'resposta' ? pedidoRef.current : undefined }),
       });
       const d = await resp.json();
       if (seq !== reqSeq.current) return; // resposta antiga, ignora
@@ -526,6 +532,19 @@ export default function Copiloto({ conv, onUse, onClose }) {
     if (mode === 'resposta') {
       return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {/* ✍️ Diga o que você quer dizer e o Copiloto escreve */}
+          <Card>
+            <Label>O que você quer responder?</Label>
+            <textarea value={pedido} onChange={e => setPedido(e.target.value)} rows={2}
+              placeholder="Ex.: explicar que a avaliação é o primeiro passo e oferecer quinta de manhã"
+              style={{ width: '100%', boxSizing: 'border-box', marginTop: 6, padding: '8px 10px', borderRadius: 9,
+                border: '1px solid rgba(255,255,255,.14)', background: 'rgba(255,255,255,.04)', color: P.txt,
+                fontSize: 12.5, lineHeight: 1.5, resize: 'vertical', fontFamily: 'inherit' }} />
+            <UseBtn onClick={() => run('resposta', true)}>{loading ? 'Escrevendo…' : '✍️ Escrever com meu pedido'}</UseBtn>
+            <div style={{ fontSize: 10.5, color: P.txt3, marginTop: 6, lineHeight: 1.45 }}>
+              Deixe em branco e ele escreve a próxima mensagem ideal sozinho, lendo a conversa inteira.
+            </div>
+          </Card>
           <Card style={{ borderLeft: `3px solid ${P.tq}` }}>
             <Label>Próxima mensagem</Label>
             <div style={{ fontSize: 13.5, color: P.txt, lineHeight: 1.65, marginBottom: 12, whiteSpace: 'pre-wrap' }}>{data.texto}</div>
