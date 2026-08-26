@@ -1450,6 +1450,37 @@ async function garantirProximoPasso(txt, conv) {
   return t;
 }
 
+/* 🧠 LEITURA OBRIGATÓRIA ANTES DE FALAR (ordem do master, 24/08: "ela só pode
+   mandar mensagem depois que fizer leitura de cada conversa").
+   Antes de escrever qualquer coisa, a IA faz uma passada de LEITURA da conversa
+   e devolve o retrato do atendimento: quem é o paciente, o que a família já
+   disse, o que já foi oferecido e qual é o passo pendente. Esse retrato entra
+   no prompt da resposta como âncora, e é o que impede a IA de repetir pergunta
+   já respondida ou de tratar cliente da casa como lead novo.
+   FAIL-CLOSED: se a leitura não sair, ela NÃO fala. Silêncio é melhor que
+   mensagem cega, e a vassoura tenta de novo em minutos. */
+async function lerConversaAntes(turns, conv) {
+  const dialogo = turns.map(t => `${t.role === 'user' ? 'CLIENTE' : 'NÓS'}: ${t.content}`).join('\n').slice(-9000);
+  if (!dialogo.trim()) return null;
+  try {
+    const r = await openaiMessages({
+      model: 'gpt-4o-mini', max_tokens: 500,
+      system: `Você é a atendente de uma clínica pediátrica e está RELENDO a conversa antes de responder ao cliente. Não escreva mensagem para o cliente. Devolva um retrato curto do atendimento, em tópicos de uma linha, no máximo 8 linhas:
+- PACIENTE: nome e idade da criança (ou adulto), se souber, e para quem é o atendimento.
+- RESPONSÁVEL: quem está falando e como tratar.
+- O QUE ELA QUER: o serviço ou a queixa, com as palavras dela.
+- JÁ RESPONDIDO: tudo que a família já informou e que é PROIBIDO perguntar de novo.
+- JÁ ENVIADO: o que a casa já ofereceu, mandou ou combinou (valores, PDF, fotos, horários).
+- ESTADO: como ela está (aflita, com pressa, em dúvida no investimento, fria).
+- PENDENTE: o próximo passo exato que falta para fechar.
+Se algum item não estiver na conversa, escreva "não informado". Sem inventar nada.`,
+      messages: [{ role: 'user', content: `Conversa completa:\n${dialogo}` }],
+    });
+    const txt = String(r?.content?.[0]?.text || r?.choices?.[0]?.message?.content || '').trim();
+    return txt.length > 20 ? txt.slice(0, 1800) : null;
+  } catch (e) { console.error('leitura da conversa:', e.message); return null; }
+}
+
 /* 📸 PROVA SOCIAL — fonte única (IA, botão do protocolo e follow-up).
    Junta até `max` fotos REAIS da Biblioteca do setor, manda em sequência e
    fecha a última com o convite do Instagram. Muita foto da Biblioteca guarda
@@ -1808,7 +1839,22 @@ Cliente atual: ${conv.contact_name || 'não identificado'}.${memoriaTexto ? `
 O QUE VOCÊ JÁ SABE DESTE CLIENTE (use com naturalidade, NÃO pergunte de novo):
 ${memoriaTexto}` : ''}`;
 
+  /* 🧠 ELA LÊ ANTES DE FALAR (ordem do master): a leitura acontece AGORA, e o
+     retrato entra como âncora da resposta. Sem leitura, sem mensagem. */
+  const leitura = await lerConversaAntes(turns, conv);
+  if (!leitura) {
+    console.log(`VITTA skip conv=${convId}: a leitura da conversa não saiu — não respondo no escuro (tenta de novo na próxima passada)`);
+    return;
+  }
+  console.log(`VITTA conv=${convId}: leitura feita antes de responder (${leitura.length} caracteres)`);
+
   let sysPrompt = ehConsulta ? sysPromptConsultas : sysPromptVacinas;
+  sysPrompt += `
+
+🧠 SUA LEITURA DESTA CONVERSA (você acabou de reler tudo, antes de escrever — esta é a verdade do atendimento):
+${leitura}
+
+COMO USAR A LEITURA (regra dura do dono da clínica): é PROIBIDO perguntar qualquer coisa que já esteja aí como respondida, PROIBIDO oferecer de novo o que já foi enviado e PROIBIDO recomeçar a conversa. Continue exatamente do item PENDENTE, citando com naturalidade algo que a família já contou, pra ela sentir que você leu.`;
 
   // Regras de humanização + honestidade sobre limites (valem pras duas IAs).
   sysPrompt += `
@@ -9430,10 +9476,16 @@ async function gerarMensagemFollowup(conv, count, nomeFU = 'Equipe Vittalis') {
         ? 'SEGUNDA retomada: NÃO repita a primeira. Agregue algo NOVO — um benefício que ainda não foi dito (atendimento sem pressa, domiciliar incluso nas terapias, Certificado de Coragem, parcelamento) conectado ao caso do cliente. Termine com um convite leve.'
         : 'TERCEIRA e última: elegância e porta aberta. Sem pedir resposta — apenas carinho genuíno pelo bem-estar da criança e a certeza de que a Vittalis está aqui quando precisarem. Uma despedida que dá vontade de voltar.';
 
+    /* 🧠 Também no follow-up: LÊ antes de escrever (ordem do master). Sem
+       leitura, não sai mensagem — o cliente não recebe retomada cega. */
+    const leituraFU = await lerConversaAntes(
+      hist.map(m => ({ role: m.from_type === 'contact' ? 'user' : 'assistant', content: String(m.transcricao || m.content || '') })), conv);
+    if (!leituraFU) { console.log(`Follow-up adiado conv=${conv.id}: leitura da conversa não saiu`); return null; }
+
     const sys = `REGRAS DE ESTILO OBRIGATÓRIAS: nunca use travessão (— ou –) nem aspas; no lugar use vírgula, dois-pontos ou frase nova. Nunca diga preço ou valores: diga investimento. Termine com uma pergunta leve. Você é a ${nomeFU}, atendente carinhosa da Vittalis Saúde (pediatria, vacinas e terapias infantis — São Luís/MA) no WhatsApp; é assim que o cliente te conhece. O cliente parou de responder. Escreva UMA única mensagem curta (1 a 3 frases), calorosa e HUMANA, tratando por "${trato}", com 1 emoji de afeto (💙🥰😊✨).
 ${estrategia}
 REGRAS DA CASA: fale "investimento", nunca "preço/valor"; nunca soe cobrança nem desespero (somos uma clínica procurada); não repita literalmente nada que já foi dito; não invente valores nem promessas. Responda APENAS a mensagem, sem aspas.
-ATENÇÃO, LEIA A CONVERSA INTEIRA ACIMA ANTES DE ESCREVER (ordem do dono da clínica): cite algo concreto que a família contou, o nome da criança, a queixa ou o serviço que ela buscou. Mensagem que não mostra leitura da conversa não serve. E logo depois da sua mensagem VÃO FOTOS REAIS do cuidado da nossa equipe, então pode convidar a família a dar uma olhadinha nelas, com naturalidade.`;
+ATENÇÃO, VOCÊ JÁ RELEU A CONVERSA (ordem do dono da clínica). Este é o retrato do atendimento, use-o e NUNCA pergunte o que já está respondido aqui:\n${leituraFU}\n\nCite algo concreto que a família contou, o nome da criança, a queixa ou o serviço que ela buscou. Mensagem que não mostra leitura da conversa não serve. E logo depois da sua mensagem VÃO FOTOS REAIS do cuidado da nossa equipe, então pode convidar a família a dar uma olhadinha nelas, com naturalidade.`;
 
     const aiData = await openaiMessages({
       model: 'gpt-4o', max_tokens: 200, system: sys,
