@@ -2756,6 +2756,35 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log(`🤖 IA por setor: ${offV} vacinas desligadas, ${onC} consultas/terapias ligadas`);
     }
 
+    /* 🛑 IA DESLIGADA EM TODA A CASA (ordem do master, 24/08: "desativa a IA em
+       todos, deixa ela desligada — vamos primeiro educar ela"). Desliga a IA
+       em TODAS as conversas e trava os interruptores gerais, pra nada religar
+       sozinho. O que NÃO é IA continua: a confirmação de véspera, as mensagens
+       que a atendente escreve e as que ela programa. */
+    const { rows: [flagOffIA] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_ia_off_geral_v1'");
+    if (!flagOffIA) {
+      const { rowCount: nOff } = await query(
+        `UPDATE conversas SET bot_ativo = false, bot_off_manual = true WHERE bot_ativo = true`
+      ).catch(() => ({ rowCount: 0 }));
+      // Interruptores gerais: bot, IA de consultas, IA de vacinas, follow-up e resgate
+      await query(`INSERT INTO configuracoes (chave, valor)
+        VALUES ('bot', '{"ativo":false,"consultaIA":false,"vacinasIA":false,"followup":false,"resgateIA":false}'::jsonb)
+        ON CONFLICT (chave) DO UPDATE SET valor = configuracoes.valor
+          || '{"ativo":false,"consultaIA":false,"vacinasIA":false,"followup":false,"resgateIA":false}'::jsonb,
+          updated_at = NOW()`).catch(() => {});
+      // Freio geral do automático (mantém a fila agendada e os lembretes de pé)
+      await query(`INSERT INTO configuracoes (chave, valor)
+        VALUES ('automacao_pausada', '{"ligado":{"bot":false,"followup":false,"lembretes":true,"agendadas":true},"por":"Dr. Miécio","em":null}'::jsonb)
+        ON CONFLICT (chave) DO UPDATE SET valor = configuracoes.valor
+          || '{"ligado":{"bot":false,"followup":false,"lembretes":true,"agendadas":true}}'::jsonb,
+          updated_at = NOW()`).catch(() => {});
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+        ['🛑 IA desligada em toda a casa',
+         `A IA foi desligada em ${nOff} conversa(s) e os interruptores gerais (bot, consultas, vacinas, follow-up e resgate) estão fechados. Nada responde sozinho ao cliente. Seguem funcionando: a confirmação de véspera dos agendamentos, as mensagens que a equipe escreve e as programadas por ela. Pra religar, é só ligar de volta em Assistente IA ou no botão de cada conversa.`]).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_ia_off_geral_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log(`🛑 IA desligada em ${nOff} conversa(s) + interruptores gerais fechados`);
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);
