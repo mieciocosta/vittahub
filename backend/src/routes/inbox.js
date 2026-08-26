@@ -1311,13 +1311,22 @@ async function triagemSetor(conv, texto, phoneNum) {
   // de repassar direto ao atendimento humano. Desligável em Configurações.
   const vacinasIAon = (cfgT?.valor?.vacinasIA ?? true) !== false;
   if (escolha === 'vacinas' && botGeralOn && vacinasIAon) {
-    await query('UPDATE conversas SET setor = $1, menu_enviado = true WHERE id = $2', ['vacinas', conv.id]).catch(() => {});
+    /* 💉 VACINAS NASCE COM A IA DESLIGADA (ordem do master, 24/08: "para vacinas
+       deixa o botão desativado e só liga quando elas quiserem"). O atendimento é
+       da equipe; se a atendente quiser a ajuda da IA, ela liga no botão da
+       conversa e aí a IA faz o papel dela: acolhe e entrega pra equipe. */
+    await query('UPDATE conversas SET setor = $1, menu_enviado = true, bot_ativo = false WHERE id = $2', ['vacinas', conv.id]).catch(() => {});
     const cachedV = convoCache.get(conv.id);
-    if (cachedV) cacheUpdate({ ...cachedV, setor: 'vacinas' });
-    conv.setor = 'vacinas'; // reflete na hora pra o agendarVitta disparar já nesta msg
-    // Rodízio continua definindo a dona da conversa; a Vitta responde por ela.
-    await distribuirSetor(conv.id, 'vacinas').catch(() => {});
-    return false; // a IA (agendarVitta) responde
+    if (cachedV) cacheUpdate({ ...cachedV, setor: 'vacinas', bot_ativo: false });
+    conv.setor = 'vacinas'; conv.bot_ativo = false;
+    socketEmit('bot_status', { convId: conv.id, bot_ativo: false });
+    // Rodízio define a dona da conversa e ela recebe o aviso pra assumir
+    const donaV = await distribuirSetor(conv.id, 'vacinas').catch(() => null);
+    await query(`INSERT INTO notificacoes (tipo, titulo, texto, conv_id) VALUES ('novo_lead',$1,$2,$3)`,
+      [`💉 Vacinas: ${conv.contact_name || phoneNum}`,
+       `Cliente de vacinas aguardando atendimento${donaV?.nome ? ` (${String(donaV.nome).split(' ')[0]})` : ''}. A IA fica desligada aqui até você ligar no botão da conversa.`,
+       conv.id]).catch(() => {});
+    return true;  // a equipe assume; a IA só entra se ligarem o botão
   }
 
   // ─── REGRA: só VACINA segue o fluxo determinístico. Tudo o que NÃO é vacina
@@ -1325,9 +1334,11 @@ async function triagemSetor(conv, texto, phoneNum) {
   // a conversa lendo o histórico. (cfg.consultaIA liga/desliga, padrão LIGADO.)
   if (escolha !== 'vacinas' && consultaIAon) {
     const setorIA = escolha === 'outros' ? 'consultas' : escolha; // "outros" usa a IA de consulta
-    await query('UPDATE conversas SET setor = $1, menu_enviado = true WHERE id = $2', [setorIA, conv.id]).catch(() => {});
+    // 🩺🧩 Consultas e terapias já nascem com a IA LIGADA (ordem do master)
+    await query('UPDATE conversas SET setor = $1, menu_enviado = true, bot_ativo = true WHERE id = $2', [setorIA, conv.id]).catch(() => {});
     const cachedC = convoCache.get(conv.id);
-    if (cachedC) cacheUpdate({ ...cachedC, setor: setorIA });
+    if (cachedC) cacheUpdate({ ...cachedC, setor: setorIA, bot_ativo: true });
+    conv.bot_ativo = true;
     conv.setor = setorIA; // reflete na hora pra o agendarVitta disparar já nesta msg
     return false; // a IA (agendarVitta) responde
   }
@@ -1595,6 +1606,10 @@ async function vittaResponder(convId) {
   // Os globais controlam só o AUTOMÁTICO: conversa nova nasce ligada?, menu de
   // triagem, religamento pós-24h e liga/desliga em massa. Nada se religa sozinho
   // com os globais desligados — só o master, conversa a conversa.
+  // ⏰ Fora da janela de 8h às 22h a IA não fala (ordem do master): a mensagem
+  // do cliente fica pendente e a vassoura responde assim que abrir o horário.
+  if (!janelaIA()) { console.log(`VITTA skip conv=${convId}: fora da janela de 08h às 22h`); return; }
+
   const ehConsulta = !!conv.setor && conv.setor !== 'vacinas';
 
   /* 💁‍♀️ PERSONA E CHAVE PESSOAL (pedido do master):
@@ -5480,6 +5495,12 @@ async function processarAgendadas() {
            regra vale também para o que for criado no futuro. Mensagem escrita
            ou agendada por uma atendente NÃO entra nesta trava: essa é dela. */
         const ehAutomaticaVitta = /^Vitta\s*·/.test(String(ag.criado_por || ''));
+        // ⏰ Automática fora da janela (8h às 22h) não sai: volta pra fila na abertura
+        if (ehAutomaticaVitta && !janelaIA()) {
+          await query(`UPDATE mensagens_agendadas SET status='pendente', enviar_em=$2 WHERE id=$1`,
+            [ag.id, proximaAberturaIA().toISOString()]).catch(() => {});
+          continue;
+        }
         const ehConfirmacaoVespera = String(ag.criado_por || '') === 'Vitta · Confirmação de agenda';
         if (ehAutomaticaVitta && !ehConfirmacaoVespera && String(conv.setor || 'vacinas') === 'vacinas') {
           await query(`UPDATE mensagens_agendadas SET status='cancelada', erro=$2 WHERE id=$1`,
@@ -9478,10 +9499,24 @@ r.post('/whatsapp/switch-number', masterOnly, async (req, res) => {
 const FOLLOWUP_MAX = 3;
 
 // Horário comercial de São Luís-MA (UTC-3, sem horário de verão): 8h às 20h
-function dentroDoHorarioComercial() {
-  const horaLocal = (new Date().getUTCHours() - 3 + 24) % 24;
-  return horaLocal >= 8 && horaLocal < 20;
+/* ⏰ JANELA DA IA (ordem do master, 24/08): a IA só fala com o cliente das
+   08:00 às 22:00, TODOS OS DIAS. Nada de madrugada — mensagem de clínica
+   chegando às 3 da manhã queima a marca e acorda a família. Fora da janela ela
+   segura a resposta e fala assim que abrir o horário. */
+export function janelaIA() {
+  const horaLocal = (new Date().getUTCHours() - 3 + 24) % 24;   // São Luís = UTC-3
+  return horaLocal >= 8 && horaLocal < 22;
 }
+// Próxima abertura da janela (8h de São Luís), para reagendar o que não pode sair agora
+export function proximaAberturaIA() {
+  const agoraSLZ = new Date(Date.now() - 3 * 3600 * 1000);
+  const h = agoraSLZ.getUTCHours();
+  const alvo = new Date(agoraSLZ);
+  if (h >= 22) alvo.setUTCDate(alvo.getUTCDate() + 1);
+  alvo.setUTCHours(8, 0, 0, 0);
+  return new Date(alvo.getTime() + 3 * 3600 * 1000);            // volta pra UTC
+}
+function dentroDoHorarioComercial() { return janelaIA(); }
 
 async function gerarMensagemFollowup(conv, count, nomeFU = 'Equipe Vittalis') {
   // Áudios transcritos entram no contexto — follow-up cego ao que foi FALADO

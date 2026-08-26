@@ -2732,6 +2732,30 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log('💸 Baixa supervisionada:', nJ);
     }
 
+    /* 🤖 ESTADO DA IA POR SETOR (ordem do master, 24/08): em VACINAS a IA nasce
+       DESLIGADA e só entra se a atendente ligar no botão da conversa; em
+       CONSULTAS e TERAPIAS ela já pode falar. Passada única sobre o que já
+       existe, sem mexer em conversa que alguém desligou na mão. */
+    const { rows: [flagIAsetor] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_ia_por_setor_v1'");
+    if (!flagIAsetor) {
+      const { rowCount: offV } = await query(
+        `UPDATE conversas SET bot_ativo = false WHERE COALESCE(setor,'vacinas') = 'vacinas' AND bot_ativo = true`
+      ).catch(() => ({ rowCount: 0 }));
+      const { rowCount: onC } = await query(
+        `UPDATE conversas SET bot_ativo = true
+          WHERE setor IN ('consultas','terapias') AND bot_ativo = false
+            AND COALESCE(bot_off_manual, false) = false
+            AND COALESCE(classificacao,'') NOT IN ('gestao','profissional_saude')
+            AND COALESCE(contact_id,'') NOT LIKE '%g.us%'
+            AND last_message_at > NOW() - INTERVAL '30 days'`
+      ).catch(() => ({ rowCount: 0 }));
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+        ['🤖 IA ajustada por setor',
+         `Vacinas: IA desligada em ${offV} conversa(s) — a equipe atende e liga o botão quando quiser a ajuda dela. Consultas e terapias: IA ligada em ${onC} conversa(s) ativa(s) dos últimos 30 dias. E a IA agora só fala com cliente das 08h às 22h, todos os dias.`]).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_ia_por_setor_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log(`🤖 IA por setor: ${offV} vacinas desligadas, ${onC} consultas/terapias ligadas`);
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);
