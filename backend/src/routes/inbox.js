@@ -5097,6 +5097,54 @@ r.patch('/conversations/:id/bot', async (req, res) => {
    montar a confirmação por conta própria. Assim a confirmação que a atendente
    manda pela agenda é IDÊNTICA à que a IA manda, com endereço, Maps,
    especialidade e Instagram, do jeito que o master ditou. */
+/* 🗓️ DOIS HORÁRIOS REAIS PRA OFERECER (assistente de vendas, ordem do master):
+   lê a disponibilidade dos profissionais do setor e devolve as próximas
+   janelas, já com a frase de fechamento por alternativa pronta pra enviar.
+   Sem inventar horário: sai do cadastro dos profissionais e respeita os 2 dias
+   de antecedência da casa. */
+r.get('/conversations/:id/horarios', async (req, res) => {
+  try {
+    const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso.' });
+    const setorProf = conv.setor === 'terapias' ? 'terapias' : 'consultas';
+    const { rows: profs } = await query(`SELECT nome, especialidade, disponibilidade FROM profissionais
+      WHERE ativo = true AND COALESCE(setor,'consultas') = $1 ORDER BY nome LIMIT 8`, [setorProf]).catch(() => ({ rows: [] }));
+    const DIAS_K = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab'];
+    const ROTULO = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
+    const opcoes = [];
+    for (const pf of profs) {
+      for (let d = 2; d <= 9 && opcoes.length < 6; d++) {
+        const dt = new Date(Date.now() - 3 * 3600 * 1000 + d * 86400000);
+        const disp = pf.disponibilidade?.[DIAS_K[dt.getUTCDay()]];
+        if (!disp?.inicio || !disp?.fim) continue;
+        // Já checa se aquele horário está livre na agenda
+        const dia = dt.toISOString().slice(0, 10);
+        const { rows: [ocupado] } = await query(`SELECT 1 FROM agenda_eventos
+          WHERE data = $1 AND hora = $2 AND LOWER(COALESCE(profissional,'')) = LOWER($3)
+            AND LOWER(COALESCE(status,'')) NOT LIKE 'cancel%' LIMIT 1`,
+          [dia, disp.inicio, pf.nome]).catch(() => ({ rows: [] }));
+        if (ocupado) continue;
+        opcoes.push({
+          profissional: pf.nome, especialidade: pf.especialidade || null,
+          data: dia, dia_semana: ROTULO[dt.getUTCDay()],
+          data_br: dia.split('-').reverse().join('/'), hora: disp.inicio,
+        });
+      }
+    }
+    const nomeCli = String(conv.contact_name || '').trim().split(/\s+/)[0] || '';
+    let frase = null;
+    if (opcoes.length >= 2) {
+      const [a, b] = opcoes;
+      frase = `${nomeCli ? `${nomeCli}, ` : ''}consegui dois horários bons pra vocês 💙 ${a.dia_semana} dia ${a.data_br} às ${a.hora}, ou ${b.dia_semana} dia ${b.data_br} às ${b.hora}. Qual fica melhor?`;
+    } else if (opcoes.length === 1) {
+      const a = opcoes[0];
+      frase = `${nomeCli ? `${nomeCli}, ` : ''}consegui um horário bom pra vocês 💙 ${a.dia_semana} dia ${a.data_br} às ${a.hora}. Posso reservar?`;
+    }
+    res.json({ opcoes, frase });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.post('/cartao-agendamento', async (req, res) => {
   try {
     const b = req.body || {};

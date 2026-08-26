@@ -163,6 +163,12 @@ export default function Copiloto({ conv, onUse, onClose }) {
   const [mode, setMode] = useState('resumo');
   // ✍️ O que a atendente quer dizer (ordem do master, 24/08): ela escreve o
   // pedido e o Copiloto redige a mensagem já no tom da casa, lendo a conversa.
+  /* ⚡ AÇÕES DE VENDA (ordem do master, 24/08: "que ajude de fato a vender").
+     O que a atendente mais precisa na hora, a um toque: mandar as fotos da
+     casa, oferecer dois horários REAIS da agenda e ver há quanto tempo o
+     cliente está esperando resposta. */
+  const [acaoBusy, setAcaoBusy] = useState('');
+  const [horarios, setHorarios] = useState(null);
   const [pedido, setPedido] = useState('');
   const pedidoRef = useRef('');
   const [loading, setLoading] = useState(false);
@@ -288,6 +294,48 @@ export default function Copiloto({ conv, onUse, onClose }) {
   };
 
   useEffect(() => { pedidoRef.current = pedido; }, [pedido]);
+
+  const chamar = async (caminho, metodo = 'GET', corpo = null) => {
+    const BASE = import.meta.env.VITE_API_URL || '';
+    const tk = localStorage.getItem('vh_token') || '';
+    const r = await fetch(`${BASE}/api/inbox${caminho}`, {
+      method: metodo,
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}` },
+      body: corpo ? JSON.stringify(corpo) : undefined,
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+    return d;
+  };
+
+  const mandarFotos = async () => {
+    if (!convId || acaoBusy) return;
+    setAcaoBusy('fotos');
+    try {
+      const d = await chamar(`/conversations/${convId}/prova-social`, 'POST', {});
+      window.alert(`${d.enviadas} foto(s) enviada(s) com o Instagram 💙`);
+    } catch (e) { window.alert('Não consegui enviar as fotos: ' + e.message); }
+    setAcaoBusy('');
+  };
+
+  const buscarHorarios = async () => {
+    if (!convId || acaoBusy) return;
+    setAcaoBusy('horarios');
+    try { setHorarios(await chamar(`/conversations/${convId}/horarios`)); }
+    catch (e) { window.alert('Não consegui ler a agenda: ' + e.message); }
+    setAcaoBusy('');
+  };
+
+  // ⏱️ Há quanto tempo o cliente está esperando (urgência real, não achismo)
+  const esperaTxt = (() => {
+    if (!conv?.last_message_at || conv?.last_from !== 'contact') return null;
+    const min = Math.floor((Date.now() - new Date(conv.last_message_at).getTime()) / 60000);
+    if (min < 1) return 'agora mesmo';
+    if (min < 60) return `${min} min`;
+    const h = Math.floor(min / 60);
+    if (h < 24) return `${h}h`;
+    return `${Math.floor(h / 24)}d`;
+  })();
 
   const run = useCallback(async (m, fresh = false) => {
     if (!convId) return;
@@ -670,6 +718,52 @@ export default function Copiloto({ conv, onUse, onClose }) {
       {/* dica da aba ativa: o assistente explica o que ele faz ali */}
       <div style={{ padding: '0 14px 8px', fontSize: 10.5, color: P.txt3, lineHeight: 1.4 }}>
         {MODES.find(m => m.k === mode)?.dica}
+      </div>
+
+      {/* ⚡ AÇÕES DE VENDA — o que fecha, a um toque */}
+      <div style={{ padding: '0 12px 10px' }}>
+        {esperaTxt && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8, padding: '7px 11px', borderRadius: 10,
+            background: 'rgba(240,180,41,.12)', border: '1px solid rgba(240,180,41,.35)' }}>
+            <span style={{ fontSize: 13 }}>⏱️</span>
+            <span style={{ fontSize: 11.5, color: '#ffe1a8', fontWeight: 700 }}>
+              Cliente esperando há {esperaTxt}
+            </span>
+          </div>
+        )}
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <button onClick={mandarFotos} disabled={!!acaoBusy} title="Envia agora o conjunto de fotos reais da casa com o Instagram"
+            style={{ flex: 1, minWidth: 132, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '9px 10px', borderRadius: 11, cursor: 'pointer',
+              border: `1px solid ${P.ouroBorda}`, background: 'linear-gradient(120deg,rgba(227,188,114,.18),rgba(227,188,114,.06))',
+              color: P.ouro, fontSize: 11.5, fontWeight: 800 }}>
+            {acaoBusy === 'fotos' ? 'Enviando…' : '📸 Mandar fotos'}
+          </button>
+          <button onClick={buscarHorarios} disabled={!!acaoBusy} title="Lê a agenda real e monta a frase com dois horários pra oferecer"
+            style={{ flex: 1, minWidth: 132, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '9px 10px', borderRadius: 11, cursor: 'pointer',
+              border: '1px solid rgba(0,184,192,.4)', background: 'linear-gradient(120deg,rgba(0,184,192,.18),rgba(0,184,192,.06))',
+              color: '#7ff0f5', fontSize: 11.5, fontWeight: 800 }}>
+            {acaoBusy === 'horarios' ? 'Lendo agenda…' : '🗓️ Oferecer horário'}
+          </button>
+        </div>
+        {horarios && (
+          <div style={{ marginTop: 8, padding: '11px 12px', borderRadius: 12, background: 'rgba(255,255,255,.05)', border: `1px solid ${P.cardBorder}` }}>
+            {horarios.frase ? (<>
+              <div style={{ fontSize: 12.5, color: P.txt, lineHeight: 1.6, marginBottom: 9 }}>{horarios.frase}</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <UseBtn onClick={() => { onUse?.(horarios.frase); setHorarios(null); }}>Usar esta</UseBtn>
+                <button onClick={() => setHorarios(null)}
+                  style={{ padding: '8px 12px', borderRadius: 10, border: `1px solid ${P.cardBorder}`, background: 'transparent', color: P.txt3, fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>Fechar</button>
+              </div>
+              <div style={{ fontSize: 10, color: P.txt3, marginTop: 7, lineHeight: 1.45 }}>
+                Horários lidos da agenda dos profissionais, já livres e com os 2 dias de antecedência da casa.
+              </div>
+            </>) : (
+              <div style={{ fontSize: 12, color: P.txt3, lineHeight: 1.5 }}>
+                Não achei janela livre nos próximos dias. Confira a disponibilidade dos profissionais em Profissionais.
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* body */}
