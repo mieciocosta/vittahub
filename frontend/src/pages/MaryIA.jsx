@@ -27,12 +27,15 @@ export default function MaryIA() {
   const [pausa, setPausa] = useState(null);
   const [equipe, setEquipe] = useState([]);
   const [conv, setConv] = useState(null);   // 📊 conversões da IA por semana
+  const [funil, setFunil] = useState(null); // 🎯 onde a venda escapa (funil da IA)
+  const [funilSetor, setFunilSetor] = useState('');
   useEffect(() => {
     if (!podeVer) return;
     api.get('/auth/me').then(setMe).catch(() => {});
     api.get('/inbox/automacao/pausa').then(setPausa).catch(() => {});
     if (master) api.get('/auth/ia-equipe').then(d => setEquipe(Array.isArray(d) ? d : [])).catch(() => {});
     if (master) api.get('/inbox/ia-conversao').then(setConv).catch(() => {});
+    if (master) api.get('/inbox/ia-funil?dias=30').then(setFunil).catch(() => {});
   }, []); // eslint-disable-line
 
   if (!podeVer) return <div style={{ padding: 40, color: 'var(--muted)' }}>🔒 O painel da Mary é de quem tem o botão da IA.</div>;
@@ -70,6 +73,60 @@ export default function MaryIA() {
           Treinada nos atendimentos que fecharam, ela conversa com o cliente <b>assinando o nome da atendente responsável</b> e conduz pelo protocolo das 7 etapas até o agendamento.
         </div>
       </div>
+
+      {/* 🎯 FUNIL DA IA (pedido do master: "vamos trabalhar com a conversão").
+          Mostra em que degrau a venda escapa — é o que a gente treina depois. */}
+      {master && funil && funil.atendidas > 0 && (() => {
+        const pct = (n) => funil.atendidas ? Math.round((n / funil.atendidas) * 100) : 0;
+        const passos = [
+          ['Conversas atendidas pela IA', funil.atendidas, '#7c3aed'],
+          ['Clientes que responderam', funil.responderam, '#6366f1'],
+          ['Receberam o investimento', funil.investimento, '#0ea5e9'],
+          ['Receberam oferta de horário', funil.ofereceu_horario, '#14b8a6'],
+          ['Agendaram', funil.agendaram, '#f59e0b'],
+          ['Viraram venda', funil.venderam, '#16a34a'],
+        ];
+        // Maior queda entre degraus seguidos: é ali que o treino rende mais
+        let pior = null;
+        for (let i = 1; i < passos.length; i++) {
+          const de = passos[i - 1][1] || 0, para = passos[i][1] || 0;
+          const perda = de - para;
+          if (de > 0 && (!pior || perda > pior.perda)) pior = { perda, de: passos[i - 1][0], para: passos[i][0] };
+        }
+        const trocar = (st) => { setFunilSetor(st); api.get(`/inbox/ia-funil?dias=30${st ? `&setor=${st}` : ''}`).then(setFunil).catch(() => {}); };
+        return (
+          <div className="card" style={{ padding: '17px 20px', marginBottom: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <div style={{ fontWeight: 800, fontSize: 15, flex: 1 }}>🎯 Máquina de vendas — funil da IA (30 dias)</div>
+              {[['', 'Tudo'], ['consultas', '🩺'], ['terapias', '🧩'], ['vacinas', '💉']].map(([v, l]) => (
+                <button key={v || 'all'} onClick={() => trocar(v)}
+                  style={{ padding: '3px 10px', borderRadius: 99, fontSize: 11, fontWeight: 800, cursor: 'pointer',
+                    border: `1.5px solid ${funilSetor === v ? 'var(--tq)' : 'var(--border)'}`,
+                    background: funilSetor === v ? 'var(--tq3)' : 'var(--card)', color: funilSetor === v ? 'var(--tq2)' : 'var(--muted)' }}>{l}</button>
+              ))}
+            </div>
+            <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 7 }}>
+              {passos.map(([rot, n, cor]) => (
+                <div key={rot} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 12, color: 'var(--txt2)', width: 190, flexShrink: 0 }}>{rot}</span>
+                  <span style={{ flex: 1, height: 12, borderRadius: 99, background: 'var(--border)', overflow: 'hidden' }}>
+                    <span style={{ display: 'block', height: '100%', width: `${pct(n)}%`, background: cor, borderRadius: 99 }} />
+                  </span>
+                  <b style={{ fontSize: 12.5, width: 74, textAlign: 'right', flexShrink: 0 }}>{n} · {pct(n)}%</b>
+                </div>
+              ))}
+            </div>
+            <div style={{ marginTop: 11, fontSize: 12, color: 'var(--muted)', lineHeight: 1.55 }}>
+              {pior && pior.perda > 0 && (
+                <>🔎 A maior queda está entre <b style={{ color: 'var(--txt2)' }}>{pior.de.toLowerCase()}</b> e <b style={{ color: 'var(--txt2)' }}>{pior.para.toLowerCase()}</b>: {pior.perda} cliente(s) ficaram pelo caminho. É esse degrau que vale treinar primeiro.<br /></>
+              )}
+              {funil.resposta_media_seg != null && (
+                <>⏱️ A IA responde em média em <b style={{ color: 'var(--txt2)' }}>{funil.resposta_media_seg < 60 ? `${funil.resposta_media_seg}s` : `${Math.round(funil.resposta_media_seg / 60)} min`}</b>. Velocidade converte: acima de 5 minutos o cliente já foi olhar outra clínica.</>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Chave pessoal — de cada usuária, sem conflito */}
       <div className="card" style={{ padding: '17px 20px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 14 }}>

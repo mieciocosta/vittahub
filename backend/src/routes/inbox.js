@@ -1418,6 +1418,38 @@ function montarConhecimentoVacinal() {
   return { calendario, pacotes, planos };
 }
 
+/* 🎯 TRAVA DE CONVERSÃO (ordem do master, 24/08: "quero que a IA se torne uma
+   verdadeira máquina de vendas"). A falha que mais custa venda no WhatsApp é
+   simples: a resposta acaba e a bola fica parada do nosso lado. Aqui, antes de
+   sair, o sistema confere se a mensagem termina puxando o próximo passo. Se não
+   termina, a própria IA reescreve o fecho, no mesmo tom e com os dados da
+   conversa. Se a reescrita falhar, a mensagem original segue intacta — nunca
+   entra frase genérica (ordem antiga do master). */
+async function garantirProximoPasso(txt, conv) {
+  const t = String(txt || '').trim();
+  if (!t || t.length < 25) return t;
+  // O cartão oficial de agendamento já é o fecho: não se mexe nele.
+  if (/Confirmação d[ao] sua|Agendamento de confirmação|Lembrete d[ao] sua/i.test(t)) return t;
+  // Já termina em pergunta (com ou sem emoji depois): a bola está com o cliente.
+  const fim = t.replace(/[\s\p{Extended_Pictographic}\uFE0F\u200D]+$/gu, '');
+  if (fim.endsWith('?')) return t;
+  try {
+    const nome = String(conv?.contact_name || '').trim().split(/\s+/)[0] || '';
+    const r = await openaiMessages({
+      model: 'gpt-4o-mini', max_tokens: 400,
+      system: `Você revisa mensagens de WhatsApp de uma clínica pediátrica em São Luís. Sua ÚNICA tarefa: devolver a MESMA mensagem, com o MESMO conteúdo e o MESMO tom, acrescentando no final uma pergunta curta que puxe o próximo passo do atendimento (escolher turno, escolher entre residência e clínica, confirmar nome do paciente, autorizar reservar o horário). Regras: não invente valor, data, horário ou serviço que não esteja na mensagem; não repita o que já foi dito; NUNCA use travessão nem aspas; no máximo uma pergunta; devolva SOMENTE a mensagem final, sem comentários.`,
+      messages: [{ role: 'user', content: `Cliente: ${nome || 'sem nome'}\n\nMensagem:\n${t}` }],
+    });
+    const nova = String(r?.content?.[0]?.text || r?.choices?.[0]?.message?.content || '').trim();
+    // Só aceita se veio coerente: mesma ordem de grandeza e terminando em pergunta
+    if (nova && nova.length >= t.length * 0.8 && nova.length < t.length + 400
+        && nova.replace(/[\s\p{Extended_Pictographic}\uFE0F\u200D]+$/gu, '').endsWith('?')) {
+      return nova;
+    }
+  } catch (e) { console.error('proximo passo:', e.message); }
+  return t;
+}
+
 async function vittaResponder(convId) {
   // Estado mais recente — o humano pode ter assumido (bot_ativo=false) nesse meio-tempo
   const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [convId]);
@@ -2325,7 +2357,7 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
     try { await zapiCall('/send-chat-state', 'POST', { phone: `55${phoneNum}`, chatState: 'composing' }); } catch {}
     await new Promise(r => setTimeout(r, Math.min(1200 + String(botReply).length * 30, 6000)));
     // Assinatura igual à das atendentes humanas: "*Nome:*" na primeira linha
-    botReply = semTravessao(botReply);
+    botReply = semTravessao(await garantirProximoPasso(botReply, conv));
     const msgSaida = botReply.trimStart().startsWith('*') ? botReply : `*${nomePersona}:*\n${botReply}`;
     await zapiCall('/send-text', 'POST', { phone: `55${phoneNum}`, message: msgSaida });
     const { rows: [botMsg] } = await query(
@@ -8034,6 +8066,58 @@ r.post('/conversations/:id/transcrever-audios', async (req, res) => {
 
 /* 📊 CONVERSÕES DA IA (gestão): a máquina em números — por semana, quantas
    conversas a IA atendeu, quantas viraram agendamento e quantas viraram venda. */
+/* 📊 FUNIL DA IA — onde a venda escapa (ordem do master, 24/08: "vamos
+   trabalhar com a conversão"). Dos últimos 30 dias, olha SÓ as conversas que a
+   IA atendeu e mostra quantas chegaram a cada degrau: qualificou o paciente,
+   apresentou o investimento, ofereceu horário, agendou, vendeu. O degrau onde
+   a queda é maior é exatamente o que a gente treina em seguida. */
+r.get('/ia-funil', async (req, res) => {
+  try {
+    if (!['master', 'supervisor'].includes(req.user.role)) return res.status(403).json({ error: 'Acesso restrito à gestão.' });
+    const dias = Math.min(Math.max(parseInt(req.query.dias) || 30, 7), 90);
+    const setor = ['consultas', 'terapias', 'vacinas'].includes(req.query.setor) ? req.query.setor : null;
+    const { rows } = await query(`
+      WITH atendidas AS (
+        SELECT c.id, MIN(m.created_at) primeira_ia
+          FROM conversas c JOIN mensagens m ON m.conversa_id = c.id AND m.from_type = 'bot'
+         WHERE m.created_at > NOW() - ($1 || ' days')::interval
+           AND COALESCE(c.simulacao, false) = false
+           AND ($2::text IS NULL OR COALESCE(c.setor,'vacinas') = $2)
+         GROUP BY c.id),
+      marcos AS (
+        SELECT a.id,
+          BOOL_OR(m.from_type = 'bot' AND m.content ILIKE '%R$%') investiu,
+          BOOL_OR(m.from_type = 'bot' AND (m.content ILIKE '%manhã ou%' OR m.content ILIKE '%tarde ou%'
+                  OR m.content ILIKE '%reservar o horário%' OR m.content ILIKE '%reservo o horário%'
+                  OR m.content ILIKE '%encaix%' OR m.content ILIKE '%que dia fica melhor%'
+                  OR m.content ILIKE '%residência ou%')) ofereceu,
+          BOOL_OR(m.from_type = 'contact' AND m.created_at > a.primeira_ia) respondeu
+          FROM atendidas a JOIN mensagens m ON m.conversa_id = a.id
+         GROUP BY a.id)
+      SELECT
+        (SELECT COUNT(*) FROM atendidas)::int atendidas,
+        (SELECT COUNT(*) FROM marcos WHERE respondeu)::int responderam,
+        (SELECT COUNT(*) FROM marcos WHERE investiu)::int investimento,
+        (SELECT COUNT(*) FROM marcos WHERE ofereceu)::int ofereceu_horario,
+        (SELECT COUNT(DISTINCT ag.conversa_id) FROM agenda_eventos ag JOIN atendidas a ON a.id = ag.conversa_id
+          WHERE ag.created_at >= a.primeira_ia AND ag.servico IS DISTINCT FROM 'Pós Vacinal')::int agendaram,
+        (SELECT COUNT(DISTINCT v.conversa_id) FROM vendas v JOIN atendidas a ON a.id = v.conversa_id
+          WHERE v.created_at >= a.primeira_ia)::int venderam
+    `, [dias, setor]);
+    const f = rows[0] || {};
+    // Tempo de resposta da IA (quanto mais rápido, mais converte)
+    const { rows: [t] } = await query(`
+      SELECT ROUND(AVG(EXTRACT(EPOCH FROM (b.created_at - c.created_at))))::int seg
+        FROM mensagens c
+        JOIN LATERAL (SELECT created_at FROM mensagens b
+                       WHERE b.conversa_id = c.conversa_id AND b.from_type = 'bot'
+                         AND b.created_at > c.created_at ORDER BY b.created_at LIMIT 1) b ON true
+       WHERE c.from_type = 'contact' AND c.created_at > NOW() - ($1 || ' days')::interval
+         AND b.created_at < c.created_at + interval '10 minutes'`, [dias]).catch(() => ({ rows: [{}] }));
+    res.json({ dias, setor, ...f, resposta_media_seg: t?.seg ?? null });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.get('/ia-conversao', async (req, res) => {
   try {
     if (!['master', 'supervisor'].includes(req.user.role)) return res.status(403).json({ error: 'Acesso restrito à gestão.' });
