@@ -9372,10 +9372,15 @@ function dentroDoHorarioComercial() {
 async function gerarMensagemFollowup(conv, count, nomeFU = 'Equipe Vittalis') {
   // Áudios transcritos entram no contexto — follow-up cego ao que foi FALADO
   // errava o assunto e soava robô
+  /* O follow-up VEM DEPOIS DA LEITURA (ordem do master, 24/08): antes de
+     escrever, ele lê a conversa inteira, do mesmo jeito que a IA lê para
+     responder — texto, documento, áudio com a transcrição, foto e vídeo com a
+     legenda. Follow-up que não leu vira mensagem genérica, e genérica não sai. */
   const { rows: histRows } = await query(
     `SELECT from_type, type, content, filename, transcricao FROM mensagens
-     WHERE conversa_id = $1 AND type IN ('text','document','audio') AND from_type NOT IN ('system','interno')
-     ORDER BY created_at DESC LIMIT 30`, [conv.id]
+     WHERE conversa_id = $1 AND type IN ('text','document','audio','ptt','image','video')
+       AND from_type NOT IN ('system','interno')
+     ORDER BY created_at DESC LIMIT 60`, [conv.id]
   );
   const hist = histRows.reverse();
   const enviouPdf = hist.some(m => m.from_type === 'bot' && m.type === 'document');
@@ -9401,8 +9406,10 @@ async function gerarMensagemFollowup(conv, count, nomeFU = 'Equipe Vittalis') {
     const resumo = hist.map(m => {
       const quem = m.from_type === 'contact' ? 'Cliente' : nomeFU;
       const txt = m.type === 'document' ? `[enviou PDF: ${m.filename || 'proposta'}]`
-        : m.type === 'audio' ? (String(m.transcricao || '').trim() ? `[áudio] ${String(m.transcricao).trim().slice(0, 200)}` : '[áudio]')
-        : String(m.content || '').slice(0, 200);
+        : (m.type === 'audio' || m.type === 'ptt') ? (String(m.transcricao || '').trim() ? `[áudio] ${String(m.transcricao).trim().slice(0, 400)}` : '[áudio]')
+        : m.type === 'image' ? `[foto] ${String(m.content || '').replace('📷 Imagem', '').slice(0, 200)}`.trim()
+        : m.type === 'video' ? '[vídeo]'
+        : String(m.content || '').slice(0, 400);
       return `${quem}: ${txt}`;
     }).join('\n');
     // A memória do cliente muda tudo: follow-up que cita o filho pelo nome e a
@@ -9460,9 +9467,21 @@ export async function rodarFollowups() {
       SELECT * FROM conversas
       WHERE ((bot_ativo = true AND last_from = 'bot')
           OR (responsavel_id IN (SELECT id FROM usuarios WHERE ia_consultas = true AND COALESCE(ia_ligada, true) = true AND ativo = true)
-              AND last_from IN ('bot','me')))
+              AND last_from IN ('bot','me'))
+          /* 💉 Em vacinas a IA sai de cena depois de receber, então a conversa
+             fica com o bot desligado. Mesmo assim ela entra no follow-up (com a
+             janela de 2 dias e sem agendamento, checada logo abaixo). */
+          OR (COALESCE(setor,'vacinas') = 'vacinas' AND last_from IN ('bot','me')))
         AND COALESCE(classificacao,'') NOT IN ('gestao','profissional_saude')
-        AND COALESCE(setor,'vacinas') <> 'vacinas'   -- vacinas: só a confirmação de véspera (ordem do master)
+        /* 💉 VACINAS entra no follow-up SÓ depois de 2 dias parada e SÓ se não
+           houver agendamento (ordem do master, 24/08). Consultas e terapias
+           seguem o ritmo normal da escada (2h, 1 dia, 3 dias). */
+        AND (COALESCE(setor,'vacinas') <> 'vacinas' OR (
+              last_message_at < NOW() - INTERVAL '2 days'
+              AND NOT EXISTS (SELECT 1 FROM agenda_eventos a
+                               WHERE a.conversa_id = conversas.id
+                                 AND a.servico IS DISTINCT FROM 'Pós Vacinal'
+                                 AND LOWER(COALESCE(a.status,'')) NOT LIKE 'cancel%')))
         AND COALESCE(followup_pausado, false) = false
         AND COALESCE(followup_count, 0) < $1
         AND phone IS NOT NULL AND phone <> ''
@@ -9628,10 +9647,12 @@ export async function rodarResgateIA() {
         if (phoneNum.startsWith('55') && phoneNum.length >= 12) phoneNum = phoneNum.slice(2);
         if (phoneNum.length < 10) continue;
 
+        // Resgate também lê a conversa inteira antes de escrever (ordem do master)
         const { rows: histRows } = await query(
-          `SELECT from_type, content FROM mensagens
-            WHERE conversa_id = $1 AND type IN ('text','document') AND from_type NOT IN ('system','interno')
-            ORDER BY created_at DESC LIMIT 24`, [conv.id]);
+          `SELECT from_type, type, content, filename, transcricao FROM mensagens
+            WHERE conversa_id = $1 AND type IN ('text','document','audio','ptt','image','video')
+              AND from_type NOT IN ('system','interno')
+            ORDER BY created_at DESC LIMIT 60`, [conv.id]);
         const hist = histRows.reverse();
         if (!hist.length) continue;                     // sem conversa não há o que resgatar
 
