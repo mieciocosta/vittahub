@@ -6,12 +6,15 @@ import { Sparkles, X, FileText, Target, Lightbulb, PenLine, RefreshCw, ArrowUpLe
    O backend monta todo o contexto (conversa + catálogo + lead) e devolve JSON
    estruturado por modo — aqui só renderizamos bonito. Cache por conversa+modo. */
 
+/* 🏆 ASSISTENTE VENDEDOR (ordem do master, 24/08: "quero que ele seja um
+   verdadeiro assistente vendedor"). Os nomes das abas falam a língua de quem
+   vende, não a de quem analisa: Raio-X, Termômetro, Como fechar, Escrever. */
 const MODES = [
-  { k: 'resumo',     l: 'Resumo',     Icon: FileText },
-  { k: 'score',      l: 'Score',      Icon: Target },
-  { k: 'estrategia', l: 'Estratégia', Icon: Lightbulb },
-  { k: 'resposta',   l: 'Resposta',   Icon: PenLine },
-  { k: 'chat',       l: 'Chat',       Icon: MessageCircle },
+  { k: 'resumo',     l: 'Raio-X',      Icon: FileText,      dica: 'Onde esta venda está e o que importa agora' },
+  { k: 'score',      l: 'Termômetro',  Icon: Target,        dica: 'Quente, morno ou frio, e por quê' },
+  { k: 'estrategia', l: 'Como fechar', Icon: Lightbulb,     dica: 'O caminho pro sim, passo a passo' },
+  { k: 'resposta',   l: 'Escrever',    Icon: PenLine,       dica: 'A mensagem pronta pra enviar agora' },
+  { k: 'chat',       l: 'Perguntar',   Icon: MessageCircle, dica: 'Fale com seu assistente sobre este cliente' },
 ];
 
 /* Reduz a imagem no navegador antes de enviar (carteiras fotografadas têm 3-5MB;
@@ -578,8 +581,8 @@ export default function Copiloto({ conv, onUse, onClose }) {
             <Sparkles size={13} color={P.tq} />
           </div>
           <div>
-            <div style={{ fontSize: 12.5, fontWeight: 800, color: '#fff', letterSpacing: .2 }}>Copiloto</div>
-            <div style={{ fontSize: 9.5, color: P.txt3, fontWeight: 600, letterSpacing: .6 }}>VITTALIS · GPT</div>
+            <div style={{ fontSize: 13, fontWeight: 900, color: '#fff', letterSpacing: .2 }}>Assistente de Vendas</div>
+            <div style={{ fontSize: 9.5, color: P.tq, fontWeight: 700, letterSpacing: .6 }}>VITTALIS · FECHA COM VOCÊ</div>
           </div>
         </div>
         <div style={{ display: 'flex', gap: 4 }}>
@@ -594,16 +597,24 @@ export default function Copiloto({ conv, onUse, onClose }) {
       </div>
 
       {/* tabs */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 4, padding: '10px 12px' }}>
-        {MODES.map(({ k, l, Icon }) => {
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, padding: '10px 12px 8px' }}>
+        {MODES.map(({ k, l, Icon, dica }) => {
           const active = mode === k;
           return (
-            <button key={k} onClick={() => run(k)} disabled={loading && active} className="cop-tab"
-              style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '8px 2px', borderRadius: 9, border: `1px solid ${active ? 'rgba(0,184,192,.45)' : 'transparent'}`, background: active ? P.tqDim : 'rgba(255,255,255,.035)', color: active ? P.tq : P.txt3, cursor: 'pointer', fontSize: 10, fontWeight: 700 }}>
-              <Icon size={14} />{l}
+            <button key={k} onClick={() => run(k)} disabled={loading && active} className="cop-tab" title={dica}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 99, cursor: 'pointer',
+                border: `1px solid ${active ? 'rgba(0,184,192,.55)' : 'rgba(255,255,255,.08)'}`,
+                background: active ? 'linear-gradient(120deg,rgba(0,184,192,.22),rgba(0,184,192,.10))' : 'rgba(255,255,255,.04)',
+                color: active ? '#7ff0f5' : P.txt3, fontSize: 11, fontWeight: 800,
+                boxShadow: active ? '0 2px 12px rgba(0,184,192,.25)' : 'none' }}>
+              <Icon size={13} />{l}
             </button>
           );
         })}
+      </div>
+      {/* dica da aba ativa: o assistente explica o que ele faz ali */}
+      <div style={{ padding: '0 14px 8px', fontSize: 10.5, color: P.txt3, lineHeight: 1.4 }}>
+        {MODES.find(m => m.k === mode)?.dica}
       </div>
 
       {/* body */}
