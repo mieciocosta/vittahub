@@ -16,6 +16,22 @@ export default function Configuracoes() {
   const [saved, setSaved] = useState(false);
   // edição de usuário (master): CPF, nova senha, ativo
   const [editUser, setEditUser] = useState(null); // { id, cpf, senha, ativo }
+  /* 🚫 Cancelar acesso 100% (ordem do master, 24/08): popup próprio, porque
+     window.confirm falha na webview do celular. Exige digitar CANCELAR. */
+  const [cancelUser, setCancelUser] = useState(null);
+  const [cancelTxt, setCancelTxt] = useState('');
+  const [cancelBusy, setCancelBusy] = useState(false);
+  const cancelarAcesso = async () => {
+    if (!cancelUser || cancelTxt.trim().toUpperCase() !== 'CANCELAR') return;
+    setCancelBusy(true);
+    try {
+      const d = await api.post(`/auth/usuarios/${cancelUser.id}/cancelar-acesso`, {});
+      setUsers(prev => prev.map(u => u.id === cancelUser.id ? { ...u, ativo: false, setor: null, lider: false, ia_consultas: false } : u));
+      window.alert(`Acesso de ${d.nome} cancelado. ${d.conversas_liberadas} conversa(s) voltaram pro time.`);
+      setCancelUser(null); setCancelTxt('');
+    } catch (e) { window.alert('Erro: ' + e.message); }
+    setCancelBusy(false);
+  };
   const [userErr, setUserErr] = useState('');
   const [novoUser, setNovoUser] = useState(null); // { nome, cpf, senha, role }
   const [killing, setKilling] = useState(false); // desligar todos os bots (precisa ficar antes do early-return de isMaster)
@@ -510,6 +526,13 @@ export default function Configuracoes() {
                     {editUser?.id===u.id?<X size={12}/>:<Pencil size={12}/>}
                   </button>
                 )}
+                {isMaster && u.role !== 'master' && u.ativo !== false && (
+                  <button onClick={()=>{ setCancelUser(u); setCancelTxt(''); }}
+                    title={`Cancelar 100% o acesso de ${u.nome}: não entra mais, nem com a senha antiga`}
+                    style={{ height:26, padding:'0 9px', borderRadius:8, border:'1.5px solid #fecaca', background:'#fef2f2', color:'#dc2626', cursor:'pointer', fontSize:10.5, fontWeight:800, flexShrink:0 }}>
+                    🚫 Cancelar acesso
+                  </button>
+                )}
                 {isMaster && ehDono && (
                   <button onClick={()=>entrarComo(u)} title={`Entrar como ${u.nome} — ver o sistema como este usuário`}
                     style={{ height:26, padding:'0 9px', borderRadius:8, border:'1.5px solid #c4b5fd', background:'#f5f3ff', color:'#7c3aed', cursor:'pointer', fontSize:10.5, fontWeight:800, flexShrink:0 }}>
@@ -674,6 +697,45 @@ export default function Configuracoes() {
           </div>
         </div>
       </div>
+
+      {/* 🚫 CONFIRMAÇÃO DE CANCELAMENTO — popup próprio (o confirm do navegador
+          falha na webview do celular) e com palavra de segurança. */}
+      {cancelUser && (
+        <div onClick={e => e.target === e.currentTarget && setCancelUser(null)}
+          style={{ position:'fixed', inset:0, background:'rgba(3,43,48,.65)', zIndex:900, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+          <div className="card" style={{ width:'100%', maxWidth:440, padding:0, overflow:'hidden' }}>
+            <div style={{ padding:'14px 18px', background:'linear-gradient(120deg,#7f1d1d,#dc2626)', color:'#fff' }}>
+              <div style={{ fontWeight:900, fontSize:15 }}>🚫 Cancelar acesso de {cancelUser.nome}</div>
+              <div style={{ fontSize:11.5, opacity:.92, marginTop:3 }}>Esta ação tira a pessoa do VittaHub por completo.</div>
+            </div>
+            <div style={{ padding:'16px 18px' }}>
+              <div style={{ fontSize:12.5, color:'var(--txt2)', lineHeight:1.6 }}>
+                O que acontece:<br />
+                • Não entra mais, nem com a senha antiga (a senha é embaralhada)<br />
+                • O CPF e o e-mail saem de circulação, então não dá login por eles<br />
+                • Todos os poderes são zerados (IA, liderança, ver tudo, baixa manual)<br />
+                • As conversas e os leads dela voltam para o time<br />
+                • Se estiver logada agora, a sessão cai na hora<br /><br />
+                O cadastro fica guardado sem acesso, porque as <b>vendas, o caixa e as metas antigas</b> apontam para ele. Apagar de vez quebraria o histórico da casa.
+              </div>
+              <div className="field" style={{ marginTop:14 }}>
+                <label>Para confirmar, digite CANCELAR</label>
+                <input value={cancelTxt} onChange={e => setCancelTxt(e.target.value)} placeholder="CANCELAR" autoFocus />
+              </div>
+              <div style={{ display:'flex', gap:8, marginTop:14, justifyContent:'flex-end' }}>
+                <button onClick={() => setCancelUser(null)} className="btn btn-sm"
+                  style={{ background:'var(--bg2)', color:'var(--muted)', border:'1.5px solid var(--border)' }}>Voltar</button>
+                <button onClick={cancelarAcesso} disabled={cancelBusy || cancelTxt.trim().toUpperCase() !== 'CANCELAR'} className="btn btn-sm"
+                  style={{ background:'#dc2626', color:'#fff', border:'none', fontWeight:800,
+                    opacity:(cancelBusy || cancelTxt.trim().toUpperCase() !== 'CANCELAR') ? .45 : 1 }}>
+                  {cancelBusy ? 'Cancelando…' : 'Cancelar acesso agora'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
+
   );
 }

@@ -317,6 +317,42 @@ r.post('/usuarios', auth, async (req, res) => {
 });
 
 // Editar usuário (master): cadastrar CPF, trocar senha, ativar/desativar, papel, cor
+/* 🚫 CANCELAR ACESSO 100% (ordem do master, 24/08). Um clique tira a pessoa do
+   VittaHub de vez: desativa, embaralha a senha (não entra nem com a antiga),
+   tira CPF e e-mail de circulação (não dá login pelo CPF), zera todos os
+   poderes e devolve as conversas e os leads dela pro time. O cadastro NÃO é
+   apagado de propósito: vendas, caixa e metas antigas apontam pra ele, e
+   apagar quebraria o histórico da casa. A sessão aberta cai na hora. */
+r.post('/usuarios/:id/cancelar-acesso', auth, async (req, res) => {
+  try {
+    if (req.user?.role !== 'master') return res.status(403).json({ error: 'Acesso restrito ao master.' });
+    const id = String(req.params.id);
+    const { rows: [u] } = await query('SELECT id, nome, role FROM usuarios WHERE id = $1', [id]);
+    if (!u) return res.status(404).json({ error: 'Usuário não encontrado.' });
+    if (u.role === 'master') return res.status(400).json({ error: 'O acesso do master não pode ser cancelado por aqui.' });
+
+    const r1 = await query('UPDATE conversas SET responsavel_id = NULL WHERE responsavel_id = $1', [id]).catch(() => null);
+    await query('UPDATE leads SET responsavel_id = NULL WHERE responsavel_id = $1', [id]).catch(() => {});
+    await query('UPDATE usuarios SET supervisor_id = NULL WHERE supervisor_id = $1', [id]).catch(() => {});
+    await query(`UPDATE usuarios SET
+         ativo = false,
+         senha = md5(random()::text || clock_timestamp()::text),
+         cpf = CASE WHEN cpf IS NULL OR cpf LIKE '%-off' THEN cpf ELSE cpf || '-off' END,
+         email = CASE WHEN email LIKE '%.off' THEN email ELSE COALESCE(email, id) || '.off' END,
+         ia_consultas = false, ia_ligada = false, lider = false,
+         ve_tudo = false, ve_geral = false, pode_impersonar = false,
+         baixa_supervisionada = false, supervisor_id = NULL,
+         setor = NULL, setores = '{}', updated_at = NOW()
+       WHERE id = $1`, [id]);
+    revogarAcesso(id);   // derruba a sessão aberta na hora
+    logAudit(req, req.user.id, req.user.nome, 'cancelar_acesso', { alvo: u.nome, conversas_liberadas: r1?.rowCount || 0 });
+    await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('alerta', $1, $2, true)`,
+      [`🚫 Acesso cancelado: ${u.nome}`,
+       `${u.nome} não entra mais no VittaHub: senha embaralhada, CPF e e-mail fora de circulação, poderes zerados e ${r1?.rowCount || 0} conversa(s) devolvida(s) pro time. O histórico de vendas dela continua guardado.`]).catch(() => {});
+    res.json({ ok: true, nome: u.nome, conversas_liberadas: r1?.rowCount || 0 });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.put('/usuarios/:id', auth, async (req, res) => {
   if (req.user.role !== 'master') return res.status(403).json({ error: 'Acesso negado' });
   try {
