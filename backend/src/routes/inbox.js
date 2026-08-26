@@ -1546,9 +1546,17 @@ async function vittaResponder(convId) {
   // que JÁ enviou um PDF para não oferecer de novo)
   // Leitura AMPLA (cobrança do master: "não estava lendo as conversas"):
   // 60 mensagens de contexto, pra nunca perder o fio de conversa longa
+  /* 🔎 A CONVERSA INTEIRA, NÃO SÓ O TEXTO (cobrança do master, 24/08: "mais uma
+     vez vi que a IA não está lendo cada conversa"). A causa era esta consulta:
+     ela trazia SÓ mensagens de texto e documento. Áudio, foto e vídeo ficavam de
+     FORA do histórico, então quando a mãe explicava tudo por áudio (o mais comum
+     no WhatsApp) ou mandava a foto da requisição, a IA respondia no escuro e
+     repetia pergunta já respondida. Agora entra tudo: áudio vai com a
+     transcrição real, foto e vídeo entram marcados pra ela saber que existiram. */
   const { rows: histRows } = await query(
-    `SELECT from_type, type, content, filename FROM mensagens
-     WHERE conversa_id = $1 AND type IN ('text','document') AND from_type NOT IN ('system','interno')
+    `SELECT from_type, type, content, filename, transcricao FROM mensagens
+     WHERE conversa_id = $1 AND type IN ('text','document','audio','ptt','image','video')
+       AND from_type NOT IN ('system','interno')
      ORDER BY created_at DESC LIMIT 60`,
     [convId]
   );
@@ -1579,13 +1587,28 @@ async function vittaResponder(convId) {
   const turns = [];
   for (const m of hist) {
     const role = m.from_type === 'contact' ? 'user' : 'assistant';
-    const txt = m.type === 'document'
-      ? `[Enviei o PDF: ${m.filename || m.content || 'documento'}]`
-      : String(m.content || '').slice(0, 600);
+    const dela = role === 'user';
+    let txt;
+    if (m.type === 'document') {
+      txt = dela ? `[Mandei um documento: ${m.filename || 'arquivo'}]` : `[Enviei o PDF: ${m.filename || m.content || 'documento'}]`;
+    } else if (m.type === 'audio' || m.type === 'ptt') {
+      // Áudio com transcrição é fala de verdade: entra como texto, não como aviso
+      txt = m.transcricao ? `${dela ? '' : ''}${String(m.transcricao).slice(0, 1500)}` : (dela ? '[Mandei um áudio]' : '[Mandei um áudio pra você]');
+    } else if (m.type === 'image' || m.type === 'video') {
+      // A legenda da foto costuma trazer o pedido inteiro: entra junto
+      const cap = String(m.content || '').trim();
+      const temCap = cap && !/^(📷 Imagem|🎥 Vídeo|🎵 Áudio|🎭 Sticker)$/.test(cap);
+      const oQue = m.type === 'image' ? 'foto' : 'vídeo';
+      txt = `${dela ? `[Mandei um${oQue === 'foto' ? 'a' : ''} ${oQue}]` : `[Enviei um${oQue === 'foto' ? 'a' : ''} ${oQue}]`}${temCap ? ` ${cap.slice(0, 600)}` : ''}`;
+    } else {
+      // Mensagem longa não pode ser cortada no meio: a mãe conta a história toda
+      txt = String(m.content || '').slice(0, 1500);
+    }
     if (!txt.trim()) continue;
     if (turns.length && turns[turns.length - 1].role === role) turns[turns.length - 1].content += '\n' + txt;
     else turns.push({ role, content: txt });
   }
+  console.log(`VITTA conv=${convId}: leu ${hist.length} mensagem(ns) da conversa (${hist.filter(m => m.type === 'audio').length} áudio, ${hist.filter(m => m.type === 'image').length} foto) em ${turns.length} turno(s)`);
   while (turns.length && turns[0].role !== 'user') turns.shift();
   if (!turns.length || turns[turns.length - 1].role !== 'user') return;
 
