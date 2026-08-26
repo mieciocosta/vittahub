@@ -1951,7 +1951,8 @@ export default function Inbox({ onUnreadChange }) {
                   ↺ Menu
                 </button>
               )}
-              {user?.role === 'master' && (
+              {/* 🤖 Ligar/desligar a IA aparece em TODA conversa (ordem do master, 24/08) */}
+              {(user?.role === 'master' || user?.ia_consultas === true) && (
                 <button onClick={toggleBot} title={sel.bot_ativo ? 'Bot ligado nesta conversa — clique para desligar' : 'Bot desligado nesta conversa — clique para ligar'}
                   className="btn btn-sm" style={{ background:sel.bot_ativo?'var(--ok2)':'var(--bg2)', color:sel.bot_ativo?'var(--ok)':'var(--muted)', border:`1.5px solid ${sel.bot_ativo?'var(--ok)':'var(--border)'}`, fontSize:11, padding:'4px 9px' }}>
                   <Bot size={10}/> {sel.bot_ativo ? 'Bot ON' : 'Bot OFF'}
@@ -2731,14 +2732,17 @@ export default function Inbox({ onUnreadChange }) {
               terapias com o bot desligado, um convite impossível de ignorar:
               um toque e a Vitta — treinada nas conversas que agendaram — assume
               e conduz pro fechamento. */}
-          {sel && sel.setor !== 'vacinas' && !sel.bot_ativo && (user?.ia_consultas === true || user?.role === 'master') && (
+          {/* Faixa da IA em TODA conversa, inclusive vacinas (ordem do master, 24/08) */}
+          {sel && !sel.bot_ativo && (user?.ia_consultas === true || user?.role === 'master') && (
             <div style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px', flexShrink:0,
               background:'linear-gradient(100deg,#4c1d95,#7c3aed 45%,#a855f7)', borderTop:'1px solid #7c3aed' }}>
               <style>{`@keyframes vhPulseIA{0%,100%{box-shadow:0 0 0 0 rgba(255,255,255,.55)}50%{box-shadow:0 0 0 9px rgba(255,255,255,0)}}`}</style>
               <span style={{ fontSize:20 }}>✨</span>
               <span style={{ flex:1, minWidth:0, color:'#fff', lineHeight:1.35 }}>
-                <b style={{ fontSize:12.5, display:'block' }}>Deixa a Vitta fechar com você!</b>
-                <span style={{ fontSize:11, opacity:.9 }}>Ela estudou os atendimentos que agendaram — um toque e ela assume esta conversa rumo ao agendamento.</span>
+<b style={{ fontSize:12.5, display:'block' }}>{sel.setor === 'vacinas' ? 'Deixa a Vitta receber por você!' : 'Deixa a Vitta fechar com você!'}</b>
+                <span style={{ fontSize:11, opacity:.9 }}>{sel.setor === 'vacinas'
+                  ? 'Em vacinas ela acolhe o cliente e avisa que a equipe assume, sem falar de valores nem agendar.'
+                  : 'Ela estudou os atendimentos que agendaram, um toque e ela assume esta conversa rumo ao agendamento.'}</span>
               </span>
               <button onClick={toggleBot}
                 style={{ flexShrink:0, display:'flex', alignItems:'center', gap:6, padding:'9px 16px', borderRadius:12, border:'none', cursor:'pointer',
@@ -2750,7 +2754,7 @@ export default function Inbox({ onUnreadChange }) {
           {/* 🟣 LETREIRO "VITTA AO VIVO" (pedido do master: bem atraente e
               visível quando a IA está respondendo) — gradiente roxo, ponto
               verde pulsando de transmissão e o desligar ali mesmo. */}
-          {sel && sel.setor !== 'vacinas' && sel.bot_ativo && (user?.ia_consultas === true || user?.role === 'master') && (
+          {sel && sel.bot_ativo && (user?.ia_consultas === true || user?.role === 'master') && (
             <div style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px', flexShrink:0, color:'#fff',
               background:'linear-gradient(100deg,#4c1d95,#7c3aed 55%,#a855f7)', borderTop:'1px solid #7c3aed' }}>
               <style>{`@keyframes vhVivoIA{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.7)}}`}</style>
