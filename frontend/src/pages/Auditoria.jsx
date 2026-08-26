@@ -52,6 +52,15 @@ export default function Auditoria() {
   };
   const [timeline, setTimeline] = useState(null);
   const [search, setSearch] = useState('');
+  // 📍 Histórico de localização de acesso (pedido do master)
+  const [locais, setLocais] = useState(null);
+  const [locDias, setLocDias] = useState(30);
+  const [locUser, setLocUser] = useState(null);
+  useEffect(() => {
+    if (nivel !== 'locais') return;
+    setLocais(null);
+    api.get(`/auditoria/localizacoes?dias=${locDias}`).then(setLocais).catch(e => setLocais({ erro: e.message }));
+  }, [nivel, locDias]); // eslint-disable-line
 
   useEffect(() => { api.get('/auditoria/stats').then(setStats).catch(() => {}); }, []); // eslint-disable-line
 
@@ -107,13 +116,13 @@ export default function Auditoria() {
           <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 2 }}>Presença, localização, atividades e ociosidade da equipe</p>
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
-          {['presenca', 'usuarios', 'seguranca'].map(n => (
+          {['presenca', 'usuarios', 'locais', 'seguranca'].map(n => (
             <button key={n} onClick={() => { setNivel(n); setSelUser(null); setSelDia(null); }}
               style={{ padding: '7px 15px', borderRadius: 10, fontSize: 12.5, fontWeight: 700, cursor: 'pointer',
                 border: `1.5px solid ${nivel === n || (n === 'usuarios' && ['dias', 'timeline'].includes(nivel)) ? 'var(--tq)' : 'var(--border)'}`,
                 background: nivel === n || (n === 'usuarios' && ['dias', 'timeline'].includes(nivel)) ? 'var(--tq)' : '#fff',
                 color: nivel === n || (n === 'usuarios' && ['dias', 'timeline'].includes(nivel)) ? '#fff' : 'var(--muted)' }}>
-              {n === 'presenca' ? '🟢 Tempo Real' : n === 'usuarios' ? '📊 Histórico' : '🔒 Segurança'}
+              {n === 'presenca' ? '🟢 Tempo Real' : n === 'usuarios' ? '📊 Histórico' : n === 'locais' ? '📍 Localizações' : '🔒 Segurança'}
             </button>
           ))}
         </div>
@@ -130,6 +139,95 @@ export default function Auditoria() {
 
       {/* ── Presença em tempo real ── */}
       {/* 🔒 SEGURANÇA — quem tentou copiar telefone e quem capturou a tela */}
+      {/* ── 📍 LOCALIZAÇÕES: de onde cada pessoa entrou no sistema ──────────
+             Duas fontes com confiabilidade bem diferente: GPS do navegador
+             (preciso, mas só existe com permissão) e IP (sempre existe, mas
+             diz rede, não endereço). A tela mostra as duas e diz qual é qual —
+             conclusão sobre gente não se tira de dado que finge precisão. */}
+      {nivel === 'locais' && (
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
+            <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Período:</div>
+            {[7, 30, 90].map(d => (
+              <button key={d} onClick={() => { setLocDias(d); setLocUser(null); }}
+                style={{ padding: '5px 12px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                  border: `1.5px solid ${locDias === d ? 'var(--tq)' : 'var(--border)'}`,
+                  background: locDias === d ? 'var(--tq)' : '#fff', color: locDias === d ? '#fff' : 'var(--muted)' }}>
+                {d} dias
+              </button>
+            ))}
+            {locUser && (
+              <button onClick={() => setLocUser(null)} style={{ marginLeft: 'auto', padding: '5px 12px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', border: '1.5px solid var(--border)', background: '#fff', color: 'var(--tq2)' }}>
+                ← Todos
+              </button>
+            )}
+          </div>
+
+          {locais?.erro && <div style={{ padding: 12, borderRadius: 10, background: 'var(--err2,#fdecec)', color: 'var(--err,#dc2626)', fontSize: 13 }}>{locais.erro}</div>}
+          {!locais && <div style={{ color: 'var(--muted)', fontSize: 13 }}>Carregando…</div>}
+
+          {locais && !locais.erro && !locUser && (
+            <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fill,minmax(270px,1fr))' }}>
+              {!locais.usuarios.length && <div style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum acesso registrado nesse período.</div>}
+              {locais.usuarios.map(u => {
+                const semLoc = u.eventos ? Math.round((u.sem_localizacao / u.eventos) * 100) : 0;
+                return (
+                  <div key={u.usuario_id} onClick={() => setLocUser(u)} className="card"
+                    style={{ padding: 14, cursor: 'pointer', borderLeft: `3px solid ${u.lugares > 3 ? '#d97706' : 'var(--tq)'}` }}>
+                    <div style={{ fontWeight: 700, fontSize: 14 }}>{u.usuario_nome || '—'}</div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6, lineHeight: 1.7 }}>
+                      <div><b style={{ color: 'var(--txt)' }}>{u.lugares}</b> {u.lugares === 1 ? 'lugar' : 'lugares'} · <b style={{ color: 'var(--txt)' }}>{u.ips}</b> {u.ips === 1 ? 'rede' : 'redes'}</div>
+                      <div>Último acesso: {new Date(u.ultimo).toLocaleString('pt-BR')}</div>
+                      {semLoc > 0 && (
+                        <div style={{ color: semLoc > 60 ? '#d97706' : 'var(--muted)' }}>
+                          {semLoc}% dos acessos sem localização {semLoc > 60 ? '— provavelmente negou a permissão' : ''}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {locais && !locais.erro && locUser && (
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 10 }}>{locUser.usuario_nome}</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {locais.lugares.filter(l => l.usuario_id === locUser.usuario_id).map((l, i) => (
+                  <div key={i} className="card" style={{ padding: 12, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+                    borderLeft: `3px solid ${l.sem_localizacao ? 'var(--light)' : 'var(--tq)'}` }}>
+                    <div style={{ flex: '1 1 220px', minWidth: 0 }}>
+                      {l.sem_localizacao ? (
+                        <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--muted)' }}>Sem localização — permissão não concedida</div>
+                      ) : (
+                        <a href={`https://www.google.com/maps?q=${l.latitude},${l.longitude}`} target="_blank" rel="noreferrer"
+                          style={{ fontWeight: 700, fontSize: 13, color: 'var(--tq2)', textDecoration: 'none' }}>
+                          📍 {l.latitude.toFixed(3)}, {l.longitude.toFixed(3)} — abrir no mapa
+                        </a>
+                      )}
+                      <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3 }}>
+                        {l.dispositivo === 'celular' ? '📱' : '🖥️'} {l.navegador} · rede {l.ip || '—'}
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 11.5, color: 'var(--muted)', textAlign: 'right' }}>
+                      <div>{new Date(l.primeiro).toLocaleDateString('pt-BR')} → {new Date(l.ultimo).toLocaleDateString('pt-BR')}</div>
+                      <div><b style={{ color: 'var(--txt)' }}>{l.dias}</b> {l.dias === 1 ? 'dia' : 'dias'} · {l.eventos} registros</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ marginTop: 14, padding: 12, borderRadius: 10, background: 'var(--bg2,#f8fafc)', fontSize: 12, color: 'var(--muted)', lineHeight: 1.65 }}>
+                <b style={{ color: 'var(--txt2)' }}>Como ler isso:</b> os pontos são agrupados num raio de ~110 m, então casa e clínica
+                aparecem separadas, mas duas salas do mesmo prédio não. A <b>rede</b> (IP) muda ao trocar de Wi-Fi para 4G sem a pessoa
+                sair do lugar — mudança de rede sozinha não quer dizer mudança de lugar. E acesso sem localização quase sempre é permissão
+                negada no navegador, não acesso escondido.
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {nivel === 'seguranca' && (
         <div>
           {!seg && <div className="card" style={{ padding: 26, color: 'var(--muted)' }}>Carregando…</div>}

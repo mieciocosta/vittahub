@@ -127,6 +127,93 @@ r.post('/heartbeat', async (req, res) => {
 
 // ═══ ENDPOINTS DE CONSULTA (master only) ════════════════════════════════════
 
+/* ═══ HISTÓRICO DE LOCALIZAÇÃO DE ACESSO ═══════════════════════════════════
+   De onde cada pessoa entrou no sistema, ao longo do tempo.
+
+   Duas fontes, e a diferença entre elas importa:
+   • GPS do navegador (latitude/longitude) — preciso, mas só existe se a
+     pessoa AUTORIZOU a localização no navegador. Negou, fica sem.
+   • IP — sempre existe, mas diz pouco: rede da clínica, 4G da operadora,
+     Wi-Fi de casa. Serve para ver MUDANÇA de rede, não endereço.
+
+   Os pontos são agrupados por coordenada arredondada em 3 casas (~110 m):
+   sem isso a lista viraria dez mil linhas do mesmo lugar, uma por heartbeat.
+   Acesso SEM localização não é escondido — vira uma linha própria dizendo
+   que não houve permissão, senão o histórico daria a entender que a pessoa
+   não acessou. */
+r.get('/localizacoes', onlyMaster, async (req, res) => {
+  try {
+    const dias = Math.min(365, Math.max(1, parseInt(req.query.dias, 10) || 30));
+    const usuarioId = req.query.usuario_id || null;
+
+    const params = [dias];
+    let filtro = '';
+    if (usuarioId) { params.push(usuarioId); filtro = `AND usuario_id = $${params.length}`; }
+
+    const { rows } = await query(`
+      SELECT usuario_id, usuario_nome,
+             ROUND(latitude::numeric, 3)  AS lat,
+             ROUND(longitude::numeric, 3) AS lng,
+             MIN(created_at) AS primeiro,
+             MAX(created_at) AS ultimo,
+             COUNT(*)::int   AS eventos,
+             COUNT(DISTINCT created_at::date)::int AS dias_distintos,
+             MODE() WITHIN GROUP (ORDER BY ip) AS ip,
+             MODE() WITHIN GROUP (ORDER BY user_agent) AS user_agent
+        FROM audit_logs
+       WHERE created_at > NOW() - ($1 || ' days')::interval
+         AND usuario_id IS NOT NULL
+         ${filtro}
+       GROUP BY usuario_id, usuario_nome,
+                ROUND(latitude::numeric, 3), ROUND(longitude::numeric, 3)
+       ORDER BY usuario_nome, MAX(created_at) DESC
+       LIMIT 800`, params);
+
+    const lugares = rows.map(x => {
+      const ua = x.user_agent || '';
+      return {
+        usuario_id: x.usuario_id, usuario_nome: x.usuario_nome,
+        latitude: x.lat === null ? null : Number(x.lat),
+        longitude: x.lng === null ? null : Number(x.lng),
+        sem_localizacao: x.lat === null || x.lng === null,
+        primeiro: x.primeiro, ultimo: x.ultimo,
+        eventos: x.eventos, dias: x.dias_distintos, ip: x.ip,
+        dispositivo: (ua.includes('Mobile') || ua.includes('Android') || ua.includes('iPhone')) ? 'celular' : 'computador',
+        navegador: ua.includes('Edg/') ? 'Edge' : ua.includes('Chrome/') ? 'Chrome'
+                 : ua.includes('Firefox/') ? 'Firefox' : ua.includes('Safari') ? 'Safari' : '—',
+      };
+    });
+
+    // Um resumo por pessoa: quantos lugares distintos, quantas redes, e quanto
+    // do acesso ficou sem localização. É o que responde "isso aqui está
+    // confiável?" antes de qualquer conclusão sobre alguém.
+    const porUsuario = new Map();
+    for (const l of lugares) {
+      if (!porUsuario.has(l.usuario_id)) {
+        porUsuario.set(l.usuario_id, {
+          usuario_id: l.usuario_id, usuario_nome: l.usuario_nome,
+          lugares: 0, sem_localizacao: 0, eventos: 0, ips: new Set(), ultimo: l.ultimo,
+        });
+      }
+      const u = porUsuario.get(l.usuario_id);
+      u.eventos += l.eventos;
+      if (l.sem_localizacao) u.sem_localizacao += l.eventos; else u.lugares++;
+      if (l.ip) u.ips.add(l.ip);
+      if (new Date(l.ultimo) > new Date(u.ultimo)) u.ultimo = l.ultimo;
+    }
+
+    res.json({
+      dias,
+      usuarios: [...porUsuario.values()]
+        .map(u => ({ ...u, ips: u.ips.size }))
+        .sort((a, b) => new Date(b.ultimo) - new Date(a.ultimo)),
+      lugares,
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+
+
 // Stats globais
 r.get('/stats', onlyMaster, async (req, res) => {
   try {
