@@ -1459,13 +1459,37 @@ async function garantirProximoPasso(txt, conv) {
    já respondida ou de tratar cliente da casa como lead novo.
    FAIL-CLOSED: se a leitura não sair, ela NÃO fala. Silêncio é melhor que
    mensagem cega, e a vassoura tenta de novo em minutos. */
-async function lerConversaAntes(turns, conv) {
-  const dialogo = turns.map(t => `${t.role === 'user' ? 'CLIENTE' : 'NÓS'}: ${t.content}`).join('\n').slice(-9000);
-  if (!dialogo.trim()) return null;
+async function lerConversaAntes(conv, turnsRecentes = []) {
+  /* TODA a conversa, do primeiro "oi" até agora (ordem do master, 24/08:
+     "quero que ela leia toda a conversa"). Busca o histórico inteiro, sem a
+     janela de 60 mensagens que existia antes. Conversa muito longa é lida em
+     partes, uma depois da outra, e as leituras se somam — nada fica de fora. */
+  let linhas = [];
   try {
-    const r = await openaiMessages({
-      model: 'gpt-4o-mini', max_tokens: 500,
-      system: `Você é a atendente de uma clínica pediátrica e está RELENDO a conversa antes de responder ao cliente. Não escreva mensagem para o cliente. Devolva um retrato curto do atendimento, em tópicos de uma linha, no máximo 8 linhas:
+    const { rows } = await query(
+      `SELECT from_type, type, content, filename, transcricao, created_at FROM mensagens
+        WHERE conversa_id = $1 AND type IN ('text','document','audio','ptt','image','video')
+          AND from_type NOT IN ('system','interno')
+        ORDER BY created_at ASC LIMIT 2000`, [conv.id]);
+    linhas = rows.map(m => {
+      const quem = m.from_type === 'contact' ? 'CLIENTE' : 'NÓS';
+      const dia = new Date(m.created_at).toLocaleDateString('pt-BR');
+      let txt;
+      if (m.type === 'document') txt = `[documento: ${m.filename || 'arquivo'}]`;
+      else if (m.type === 'audio' || m.type === 'ptt') txt = m.transcricao ? `[áudio] ${String(m.transcricao).slice(0, 1200)}` : '[áudio]';
+      else if (m.type === 'image') txt = `[foto] ${String(m.content || '').replace('📷 Imagem', '').slice(0, 200)}`.trim();
+      else if (m.type === 'video') txt = '[vídeo]';
+      else txt = String(m.content || '').slice(0, 1200);
+      return `(${dia}) ${quem}: ${txt}`;
+    }).filter(l => l.length > 12);
+  } catch (e) { console.error('carregar conversa completa:', e.message); }
+  // Rede de segurança: se a busca falhar, lê pelo menos o que já está em mãos
+  if (!linhas.length && turnsRecentes.length) {
+    linhas = turnsRecentes.map(t => `${t.role === 'user' ? 'CLIENTE' : 'NÓS'}: ${t.content}`);
+  }
+  if (!linhas.length) return null;
+
+  const SISTEMA = `Você é a atendente de uma clínica pediátrica e está RELENDO a conversa antes de responder ao cliente. Não escreva mensagem para o cliente. Devolva um retrato curto do atendimento, em tópicos de uma linha, no máximo 8 linhas:
 - PACIENTE: nome e idade da criança (ou adulto), se souber, e para quem é o atendimento.
 - RESPONSÁVEL: quem está falando e como tratar.
 - O QUE ELA QUER: o serviço ou a queixa, com as palavras dela.
@@ -1473,12 +1497,35 @@ async function lerConversaAntes(turns, conv) {
 - JÁ ENVIADO: o que a casa já ofereceu, mandou ou combinou (valores, PDF, fotos, horários).
 - ESTADO: como ela está (aflita, com pressa, em dúvida no investimento, fria).
 - PENDENTE: o próximo passo exato que falta para fechar.
-Se algum item não estiver na conversa, escreva "não informado". Sem inventar nada.`,
-      messages: [{ role: 'user', content: `Conversa completa:\n${dialogo}` }],
-    });
-    const txt = String(r?.content?.[0]?.text || r?.choices?.[0]?.message?.content || '').trim();
-    return txt.length > 20 ? txt.slice(0, 1800) : null;
-  } catch (e) { console.error('leitura da conversa:', e.message); return null; }
+Se algum item não estiver na conversa, escreva "não informado". Sem inventar nada.`;
+
+  // Fatia a conversa em partes de ~18 mil caracteres e lê uma a uma, em ordem
+  const PEDACO = 18000;
+  const partes = [];
+  let atual = '';
+  for (const l of linhas) {
+    if (atual.length + l.length > PEDACO && atual) { partes.push(atual); atual = ''; }
+    atual += l + '\n';
+  }
+  if (atual.trim()) partes.push(atual);
+
+  let leitura = null;
+  try {
+    for (let i = 0; i < Math.min(partes.length, 6); i++) {
+      const r = await openaiMessages({
+        model: 'gpt-4o-mini', max_tokens: 600,
+        system: SISTEMA + (partes.length > 1
+          ? `\n\nEsta é a parte ${i + 1} de ${Math.min(partes.length, 6)} de uma conversa longa. Atualize o retrato juntando o que você já tinha lido com o que aparece agora, sem perder nada do começo.`
+          : ''),
+        messages: [{ role: 'user', content: `${leitura ? `Retrato até aqui:\n${leitura}\n\n` : ''}Trecho da conversa:\n${partes[i]}` }],
+      });
+      const txt = String(r?.content?.[0]?.text || r?.choices?.[0]?.message?.content || '').trim();
+      if (txt.length > 20) leitura = txt.slice(0, 2200);
+    }
+    if (partes.length > 6) console.log(`VITTA conv=${conv.id}: conversa muito longa (${partes.length} partes), leu as 6 primeiras`);
+    console.log(`VITTA conv=${conv.id}: leu a conversa inteira — ${linhas.length} mensagem(ns) em ${Math.min(partes.length, 6)} parte(s)`);
+  } catch (e) { console.error('leitura da conversa:', e.message); }
+  return leitura;
 }
 
 /* 📸 PROVA SOCIAL — fonte única (IA, botão do protocolo e follow-up).
@@ -1841,7 +1888,7 @@ ${memoriaTexto}` : ''}`;
 
   /* 🧠 ELA LÊ ANTES DE FALAR (ordem do master): a leitura acontece AGORA, e o
      retrato entra como âncora da resposta. Sem leitura, sem mensagem. */
-  const leitura = await lerConversaAntes(turns, conv);
+  const leitura = await lerConversaAntes(conv, turns);
   if (!leitura) {
     console.log(`VITTA skip conv=${convId}: a leitura da conversa não saiu — não respondo no escuro (tenta de novo na próxima passada)`);
     return;
@@ -9478,8 +9525,8 @@ async function gerarMensagemFollowup(conv, count, nomeFU = 'Equipe Vittalis') {
 
     /* 🧠 Também no follow-up: LÊ antes de escrever (ordem do master). Sem
        leitura, não sai mensagem — o cliente não recebe retomada cega. */
-    const leituraFU = await lerConversaAntes(
-      hist.map(m => ({ role: m.from_type === 'contact' ? 'user' : 'assistant', content: String(m.transcricao || m.content || '') })), conv);
+    const leituraFU = await lerConversaAntes(conv,
+      hist.map(m => ({ role: m.from_type === 'contact' ? 'user' : 'assistant', content: String(m.transcricao || m.content || '') })));
     if (!leituraFU) { console.log(`Follow-up adiado conv=${conv.id}: leitura da conversa não saiu`); return null; }
 
     const sys = `REGRAS DE ESTILO OBRIGATÓRIAS: nunca use travessão (— ou –) nem aspas; no lugar use vírgula, dois-pontos ou frase nova. Nunca diga preço ou valores: diga investimento. Termine com uma pergunta leve. Você é a ${nomeFU}, atendente carinhosa da Vittalis Saúde (pediatria, vacinas e terapias infantis — São Luís/MA) no WhatsApp; é assim que o cliente te conhece. O cliente parou de responder. Escreva UMA única mensagem curta (1 a 3 frases), calorosa e HUMANA, tratando por "${trato}", com 1 emoji de afeto (💙🥰😊✨).
