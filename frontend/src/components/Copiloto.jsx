@@ -84,10 +84,13 @@ const ESTAGIO_LABEL = {
 };
 
 /* paleta do painel (petróleo profundo da marca) */
+/* 🎩 Paleta chique (ordem do master, 24/08): petróleo profundo com brilho de
+   vidro e o DOURADO da casa nos detalhes. Nada de cinza chapado. */
 const P = {
-  bg: '#032B30', card: 'rgba(255,255,255,.045)', cardBorder: 'rgba(255,255,255,.07)',
-  txt: 'rgba(255,255,255,.88)', txt2: 'rgba(255,255,255,.6)', txt3: 'rgba(255,255,255,.38)',
+  bg: '#04222b', card: 'rgba(255,255,255,.055)', cardBorder: 'rgba(255,255,255,.09)',
+  txt: 'rgba(255,255,255,.92)', txt2: 'rgba(255,255,255,.66)', txt3: 'rgba(255,255,255,.42)',
   tq: '#00B8C0', tqDim: 'rgba(0,184,192,.16)',
+  ouro: '#E3BC72', ouroDim: 'rgba(227,188,114,.14)', ouroBorda: 'rgba(227,188,114,.38)',
 };
 
 function scoreColor(v) { return v >= 7 ? '#2dd4a8' : v >= 4 ? '#f0b429' : '#f87171'; }
@@ -121,16 +124,26 @@ function ScoreGauge({ value }) {
 
 /* blocos reutilizáveis */
 const Label = ({ children }) => (
-  <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: 1.1, textTransform: 'uppercase', color: P.txt3, marginBottom: 6 }}>{children}</div>
+  <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: 1.3, textTransform: 'uppercase', color: P.ouro, marginBottom: 7, opacity: .95 }}>{children}</div>
 );
 const Card = ({ children, style }) => (
-  <div style={{ background: P.card, border: `1px solid ${P.cardBorder}`, borderRadius: 12, padding: '12px 13px', ...style }}>{children}</div>
+  <div style={{
+    background: 'linear-gradient(160deg, rgba(255,255,255,.075), rgba(255,255,255,.03))',
+    border: `1px solid ${P.cardBorder}`, borderRadius: 14, padding: '13px 14px',
+    boxShadow: '0 6px 20px rgba(0,0,0,.22), inset 0 1px 0 rgba(255,255,255,.06)',
+    backdropFilter: 'blur(6px)', ...style,
+  }}>{children}</div>
 );
 const Chip = ({ children, color = P.tq, dim }) => (
   <span style={{ display: 'inline-flex', alignItems: 'center', padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: dim || `${color}1f`, color, border: `1px solid ${color}40` }}>{children}</span>
 );
 const UseBtn = ({ onClick, children }) => (
-  <button onClick={onClick} className="cop-use" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 9, background: P.tq, color: 'var(--txt)', fontSize: 12, fontWeight: 800, border: 'none', cursor: 'pointer', transition: 'transform .1s, box-shadow .15s' }}>
+  <button onClick={onClick} className="cop-use" style={{
+    display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 15px', borderRadius: 10,
+    background: 'linear-gradient(120deg,#E3BC72,#f5d79a)', color: '#40300f',
+    fontSize: 12, fontWeight: 900, letterSpacing: .2, border: 'none', cursor: 'pointer',
+    boxShadow: '0 3px 14px rgba(227,188,114,.32)', transition: 'transform .1s, box-shadow .15s',
+  }}>
     <ArrowUpLeft size={13} /> {children}
   </button>
 );
@@ -477,9 +490,9 @@ export default function Copiloto({ conv, onUse, onClose }) {
             </div>
           )}
           {data.proximo_passo && (
-            <Card style={{ background: P.tqDim, borderColor: 'rgba(0,184,192,.3)' }}>
+            <Card style={{ background: 'linear-gradient(140deg, rgba(227,188,114,.20), rgba(227,188,114,.06))', borderColor: P.ouroBorda, boxShadow: '0 6px 22px rgba(227,188,114,.18)' }}>
               <Label>Próximo passo</Label>
-              <div style={{ fontSize: 13, color: '#bdf3f5', fontWeight: 600, lineHeight: 1.55 }}>{data.proximo_passo}</div>
+              <div style={{ fontSize: 13.5, color: '#ffeccb', fontWeight: 700, lineHeight: 1.55 }}>{data.proximo_passo}</div>
             </Card>
           )}
         </div>
@@ -601,7 +614,9 @@ export default function Copiloto({ conv, onUse, onClose }) {
   };
 
   return (
-    <div className="cop-slide" style={{ width: 332, flexShrink: 0, display: 'flex', flexDirection: 'column', background: `linear-gradient(168deg, ${P.bg} 0%, #0a2a3d 100%)`, borderLeft: '1px solid rgba(0,184,192,.18)', overflow: 'hidden' }}>
+    <div className="cop-slide" style={{ width: 342, flexShrink: 0, display: 'flex', flexDirection: 'column',
+      background: `radial-gradient(120% 60% at 100% 0%, rgba(227,188,114,.10) 0%, transparent 55%), linear-gradient(168deg, ${P.bg} 0%, #07293a 60%, #062231 100%)`,
+      borderLeft: `1px solid ${P.ouroBorda}`, boxShadow: 'inset 1px 0 0 rgba(255,255,255,.04)', overflow: 'hidden' }}>
       <style>{`
         .cop-slide{animation:copIn .22s cubic-bezier(.2,.8,.3,1)}
         @keyframes copIn{from{transform:translateX(24px);opacity:0}to{transform:translateX(0);opacity:1}}
@@ -613,14 +628,16 @@ export default function Copiloto({ conv, onUse, onClose }) {
       `}</style>
 
       {/* header */}
-      <div style={{ padding: '13px 14px 11px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,.06)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ width: 26, height: 26, borderRadius: 8, background: P.tqDim, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Sparkles size={13} color={P.tq} />
+      <div style={{ padding: '15px 15px 13px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        borderBottom: `1px solid ${P.ouroBorda}`, background: 'linear-gradient(120deg, rgba(227,188,114,.10), rgba(0,184,192,.06) 60%, transparent)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 30, height: 30, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: 'linear-gradient(140deg,#E3BC72,#b8892f)', boxShadow: '0 3px 12px rgba(227,188,114,.35)' }}>
+            <Sparkles size={15} color="#2a2007" />
           </div>
           <div>
             <div style={{ fontSize: 13, fontWeight: 900, color: '#fff', letterSpacing: .2 }}>Assistente de Vendas</div>
-            <div style={{ fontSize: 9.5, color: P.tq, fontWeight: 700, letterSpacing: .6 }}>VITTALIS · FECHA COM VOCÊ</div>
+            <div style={{ fontSize: 9.5, color: P.ouro, fontWeight: 700, letterSpacing: .8, opacity: .9 }}>VITTALIS · FECHA COM VOCÊ</div>
           </div>
         </div>
         <div style={{ display: 'flex', gap: 4 }}>
@@ -641,10 +658,10 @@ export default function Copiloto({ conv, onUse, onClose }) {
           return (
             <button key={k} onClick={() => run(k)} disabled={loading && active} className="cop-tab" title={dica}
               style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 99, cursor: 'pointer',
-                border: `1px solid ${active ? 'rgba(0,184,192,.55)' : 'rgba(255,255,255,.08)'}`,
-                background: active ? 'linear-gradient(120deg,rgba(0,184,192,.22),rgba(0,184,192,.10))' : 'rgba(255,255,255,.04)',
-                color: active ? '#7ff0f5' : P.txt3, fontSize: 11, fontWeight: 800,
-                boxShadow: active ? '0 2px 12px rgba(0,184,192,.25)' : 'none' }}>
+                border: `1px solid ${active ? P.ouroBorda : 'rgba(255,255,255,.08)'}`,
+                background: active ? 'linear-gradient(120deg,rgba(227,188,114,.22),rgba(227,188,114,.08))' : 'rgba(255,255,255,.045)',
+                color: active ? P.ouro : P.txt3, fontSize: 11, fontWeight: 800, letterSpacing: .2,
+                boxShadow: active ? '0 3px 14px rgba(227,188,114,.22)' : 'none' }}>
               <Icon size={13} />{l}
             </button>
           );
