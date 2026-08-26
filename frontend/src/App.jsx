@@ -134,9 +134,30 @@ function Heartbeat({ userId }) {
     if (!userId || started.current) return;
     started.current = true;
     let lat = null, lng = null;
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(p => { lat = p.coords.latitude; lng = p.coords.longitude; }, () => {}, { enableHighAccuracy: false, timeout: 10000 });
-    }
+    /* A posição é RELIDA de tempos em tempos, não uma vez só por sessão.
+       Lendo uma vez, quem abriu o sistema em casa e foi pra clínica aparecia
+       a manhã inteira em casa — e quem negou a permissão no primeiro segundo
+       ficava sem localização até deslogar. */
+    const lerPosicao = () => {
+      if (!navigator.geolocation) return;
+      navigator.geolocation.getCurrentPosition(
+        p => { lat = p.coords.latitude; lng = p.coords.longitude; },
+        () => {}, { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 });
+    };
+    lerPosicao();
+    const releitura = setInterval(lerPosicao, 10 * 60 * 1000);
+
+    /* O ACESSO em si vira um registro próprio. Sem isso o histórico só tinha
+       navegação: dava pra ver onde a pessoa clicou, não de onde ela entrou —
+       que é justamente a pergunta. Vai com 12s de atraso porque a permissão
+       de GPS demora a ser respondida, e login sem local não serve de nada. */
+    const marcarAcesso = setTimeout(() => {
+      fetch(`${import.meta.env.VITE_API_URL || ''}/api/auditoria/log`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('vh_token') || ''}` },
+        body: JSON.stringify({ acao: 'acesso', detalhes: { entrada: true }, latitude: lat, longitude: lng }),
+      }).catch(() => {});
+    }, 12000);
     const tk = () => localStorage.getItem('vh_token') || '';
     const BASE = import.meta.env.VITE_API_URL || '';
     const beat = () => {
@@ -151,7 +172,7 @@ function Heartbeat({ userId }) {
     };
     beat();
     const hb = setInterval(beat, 30000);
-    return () => { clearInterval(hb); delete window.__auditLog; started.current = false; };
+    return () => { clearInterval(hb); clearInterval(releitura); clearTimeout(marcarAcesso); delete window.__auditLog; started.current = false; };
   }, [userId]); // eslint-disable-line
 
   // Navegação: registra CADA página que o atendente abre (passo a passo).
