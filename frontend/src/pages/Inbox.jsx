@@ -520,20 +520,11 @@ export default function Inbox({ onUnreadChange }) {
   const [sending, setSending] = useState(false); // guard: evita envios duplos
   const [recording, setRecording] = useState(false);
   const [recorder, setRecorder]   = useState(null);
-  /* 🤖 Copiloto SEMPRE ABERTO ao lado de cada conversa (ordem do master,
-     24/08). Uma vez, o sistema reabre pra quem tinha fechado antes; a partir
-     daí ela pode fechar quando quiser e a escolha é respeitada. */
-  const [showAI, setShowAI]     = useState(() => {
-    try {
-      if (localStorage.getItem('vh_copiloto_destaque') !== 'v1') {
-        localStorage.setItem('vh_copiloto_destaque', 'v1');
-        localStorage.setItem('vh_ia_aberta', 'on');
-        return true;
-      }
-    } catch { /* ok */ }
-    return localStorage.getItem('vh_ia_aberta') !== 'off';
-  });
-  useEffect(() => { try { localStorage.setItem('vh_ia_aberta', showAI ? 'on' : 'off'); } catch { /* ok */ } }, [showAI]);
+  /* 🤖 ASSISTENTE DE VENDAS SEMPRE ABERTA (ordem do master, 24/08: "quero que
+     essa assistente fique sempre aberta"). Ela nasce aberta e REABRE em toda
+     conversa que a atendente abrir. O X continua ali pra dar espaço num
+     momento pontual, mas na próxima conversa ela volta sozinha. */
+  const [showAI, setShowAI]     = useState(true);
   const [agendarOpen, setAgendarOpen] = useState(false); // modal de agendamento
   const [iaAgendaBusy, setIaAgendaBusy] = useState(false); // IA sugerindo agendamento
   const [metaSetor, setMetaSetor] = useState(null);       // meta global do setor (banner no atendimento)
@@ -555,6 +546,8 @@ export default function Inbox({ onUnreadChange }) {
   const hojeISO = new Date().toISOString().slice(0,10);
   const [agForm, setAgForm] = useState({ data: hojeISO, hora: '', servico: '', valor: '', observacoes: '', setor: 'consultas' });
   const [showInfo, setShowInfo] = useState(false);
+  // Fechou o painel de Dados? A assistente volta sozinha pro lado da conversa.
+  useEffect(() => { if (!showInfo) setShowAI(true); }, [showInfo]);   // eslint-disable-line
   const [showEmoji, setShowEmoji] = useState(false);
   const [showProntas, setShowProntas] = useState(false); // 📝 mensagens prontas (pra quem não usa a IA)
   const [encOpen, setEncOpen] = useState(false);         // 📤 encaminhar conversa pra outro canal
@@ -1147,6 +1140,7 @@ export default function Inbox({ onUnreadChange }) {
        conversa" voltar direto pra cá com o orçamento já escrito na caixa. */
     try { sessionStorage.setItem('vh_ultima_conversa', JSON.stringify({ id: c.id, nome: c.contact_name || '' })); } catch { /* ok */ }
     setSel(c); setMsgs([]); setMsgsHasMore(false); setMsgsTotal(0);
+    setShowAI(true);   // a assistente abre junto com a conversa, sempre
     // ✅ Protocolo: carrega sozinho ao abrir a conversa e já destaca o que faltou
     setProto(null);   // a barra respeita o que a atendente escolheu (aberta/baixada)
     api.get(`/inbox/conversations/${c.id}/protocolo`).then(setProto).catch(() => {});
