@@ -2806,6 +2806,45 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log(`📋 Lista de equipe enviada ao sino do master (${eq.length} usuário(s))`);
     }
 
+    /* 🚫 CANCELAMENTO TOTAL DE ACESSO (ordem do master, 24/08): Beatriz, Steicy e
+       Fabiane saem 100% do VittaHub. Desativa, EMBARALHA A SENHA (não entra nem
+       com a senha antiga), tira o CPF e o e-mail de circulação (não dá login
+       nem pelo CPF), zera qualquer poder que tivessem e devolve as conversas
+       delas pro time. O cadastro em si NÃO é apagado de propósito: vendas,
+       caixa e metas do passado apontam pra ele, e apagar quebraria o histórico
+       da casa. Sessão aberta cai em até 15 segundos (o sistema relê os
+       desativados nesse intervalo). */
+    const { rows: [flagCancel] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_cancelar_acesso_v1'");
+    if (!flagCancel) {
+      const ALVO = `(nome ILIKE 'beatriz%' OR nome ILIKE 'steicy%' OR nome ILIKE 'steise%' OR nome ILIKE 'fabiane%'
+                     OR cpf = '02607997348' OR email = 'fabiane@vittahub.local')`;
+      const { rows: alvos } = await query(`SELECT id, nome FROM usuarios WHERE ${ALVO}`).catch(() => ({ rows: [] }));
+      let conversasSoltas = 0;
+      if (alvos.length) {
+        const ids = alvos.map(a => a.id);
+        const r1 = await query('UPDATE conversas SET responsavel_id = NULL WHERE responsavel_id = ANY($1::text[])', [ids]).catch(() => null);
+        conversasSoltas = r1?.rowCount || 0;
+        await query('UPDATE leads SET responsavel_id = NULL WHERE responsavel_id = ANY($1::text[])', [ids]).catch(() => {});
+        await query(`UPDATE usuarios SET
+             ativo = false,
+             senha = md5(random()::text || clock_timestamp()::text),
+             cpf = CASE WHEN cpf IS NULL THEN NULL ELSE cpf || '-off' END,
+             email = COALESCE(email, id) || '.off',
+             ia_consultas = false, ia_ligada = false, lider = false,
+             ve_tudo = false, ve_geral = false, pode_impersonar = false,
+             baixa_supervisionada = false, supervisor_id = NULL,
+             setor = NULL, setores = '{}', updated_at = NOW()
+           WHERE id = ANY($1::text[])`, [ids]).catch((e) => console.error('cancelar acesso:', e.message));
+      }
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('alerta', $1, $2, true)`,
+        ['🚫 Acesso cancelado: Beatriz, Steicy e Fabiane',
+         alvos.length
+           ? `Cancelei o acesso de ${alvos.length} usuária(s): ${alvos.map(a => a.nome).join(', ')}. Senha embaralhada, CPF e e-mail fora de circulação, todos os poderes zerados e ${conversasSoltas} conversa(s) devolvida(s) pro time. Sessão aberta cai em segundos. O cadastro fica guardado (sem acesso) porque vendas, caixa e metas antigas apontam pra ele.`
+           : 'Não encontrei nenhuma usuária com esses nomes no cadastro. Se elas aparecem com outro nome, me diga qual que eu cancelo.']).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_cancelar_acesso_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log(`🚫 Acesso cancelado para ${alvos.length} usuária(s); ${conversasSoltas} conversa(s) liberadas`);
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);
