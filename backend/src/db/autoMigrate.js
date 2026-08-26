@@ -2785,6 +2785,27 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log(`🛑 IA desligada em ${nOff} conversa(s) + interruptores gerais fechados`);
     }
 
+    /* 📋 LISTA DA EQUIPE NO SINO (pedido do master, 24/08: "me manda a lista que
+       consta no banco de dados"). Passada única: lê os usuários cadastrados e
+       manda o retrato pro sino do master, com papel, setor e situação. */
+    const { rows: [flagListaEq] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_lista_equipe_v1'");
+    if (!flagListaEq) {
+      const { rows: eq } = await query(
+        `SELECT nome, role, COALESCE(setor,'-') setor, ativo, cpf,
+                (SELECT COUNT(*)::int FROM conversas c WHERE c.responsavel_id = u.id) convs
+           FROM usuarios u ORDER BY ativo DESC, role, nome`).catch(() => ({ rows: [] }));
+      const linha = (u) => `${u.ativo ? '✅' : '⛔'} ${u.nome} · ${u.role}${u.setor && u.setor !== '-' ? ` · ${u.setor}` : ''} · ${u.convs} conversa(s)${u.cpf ? ` · CPF ${String(u.cpf).slice(0, 3)}***` : ''}`;
+      const ativos = eq.filter(u => u.ativo), inativos = eq.filter(u => !u.ativo);
+      const texto = [
+        `EQUIPE ATIVA (${ativos.length}):`, ...ativos.map(linha),
+        inativos.length ? `\nDESATIVADOS (${inativos.length}):` : '', ...inativos.map(linha),
+      ].filter(Boolean).join('\n').slice(0, 3500);
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+        ['📋 Lista de usuários do VittaHub', texto || 'Não consegui ler a lista de usuários.']).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_lista_equipe_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log(`📋 Lista de equipe enviada ao sino do master (${eq.length} usuário(s))`);
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);
