@@ -1494,6 +1494,54 @@ async function vittaResponder(convId) {
   }
   if (!nomePersona) nomePersona = await nomeAssinatura(conv);
 
+  /* 💉 VACINAS: A IA SÓ RECEBE E ENTREGA (ordem do master, 24/08: "já para
+     vacinas esteja somente para receber e dizer que passará para a equipe
+     responsável"). Nada de vender, cotar, agendar ou desenvolver a conversa:
+     ela acolhe pelo nome, avisa que a equipe de vacinas assume, chama a equipe
+     e SAI DE CENA (bot desliga, o atendimento vira humano). Uma vez por
+     conversa — se a família escrever de novo, quem responde é a atendente. */
+  if (String(conv.setor || '') === 'vacinas') {
+    try {
+      const nomeCli = String(conv.contact_name || '').trim().split(/\s+/)[0] || '';
+      const trato = nomeCli && !/^\d+$/.test(nomeCli) ? nomeCli : '';
+      let recepcao = null;
+      try {
+        const rr = await openaiMessages({
+          model: 'gpt-4o-mini', max_tokens: 300,
+          system: `Você é a ${nomePersona}, da Vittalis Saúde (clínica de pediatria e vacinação em São Luís). Escreva UMA mensagem curta de WhatsApp, calorosa, de 2 frases no máximo: acolha a família pelo nome quando houver, diga que já está passando o atendimento para a equipe de vacinação, que responde por aqui em seguida. NÃO fale de valores, vacinas específicas, horários nem agendamento. NUNCA use travessão nem aspas. Pode usar no máximo um emoji. Devolva só a mensagem.`,
+          messages: [{ role: 'user', content: `Cliente: ${trato || 'sem nome'}\nÚltima mensagem dele: ${String(conv.last_message || '').slice(0, 300)}` }],
+        });
+        recepcao = String(rr?.content?.[0]?.text || rr?.choices?.[0]?.message?.content || '').trim() || null;
+      } catch (e) { console.error('recepcao vacinas:', e.message); }
+      if (!recepcao) {
+        recepcao = `Oi${trato ? `, ${trato}` : ''}! 💙 Que bom falar com você. Já estou passando seu atendimento para a nossa equipe de vacinação, que continua com você por aqui em instantes.`;
+      }
+      recepcao = semTravessao(recepcao);
+      let phoneRec = String(conv.phone || '').replace(/\D/g, '');
+      if (phoneRec.startsWith('55') && phoneRec.length >= 12) phoneRec = phoneRec.slice(2);
+      if (phoneRec) await zapiCall('/send-text', 'POST', { phone: `55${phoneRec}`, message: `*${nomePersona}:*\n${recepcao}` });
+      const { rows: [recMsg] } = await query(
+        `INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome)
+         VALUES ($1,'bot','text',$2,$3) RETURNING *`, [convId, recepcao, nomePersona]).catch(() => ({ rows: [null] }));
+      // Sai de cena: o atendimento de vacinas é da equipe, não da IA
+      await query("UPDATE conversas SET bot_ativo = false, last_message = $2, last_from = 'bot', last_message_at = NOW() WHERE id = $1",
+        [convId, recepcao.slice(0, 100)]).catch(() => {});
+      await query(
+        `INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, created_at)
+         VALUES ($1,'system','Sistema','text',$2,NOW())`,
+        [convId, '🔔 Cliente de vacinas recebido pela IA e entregue à equipe responsável.']).catch(() => {});
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, conv_id) VALUES ('novo_lead', $1, $2, $3)`,
+        [`💉 Vacinas: ${conv.contact_name || 'cliente'} aguardando atendimento`,
+         'A IA recebeu e avisou que a equipe assume. O atendimento agora é de vocês.', convId]).catch(() => {});
+      socketEmit('bot_status', { convId, bot_ativo: false });
+      const cVac = convoCache.get(convId);
+      if (cVac) cacheUpdate({ ...cVac, bot_ativo: false, last_message: recepcao.slice(0, 100), last_from: 'bot', last_message_at: new Date().toISOString() });
+      if (recMsg) { socketEmit('new_message', { convId, message: recMsg, conv }); notifyWaiters(convId, recMsg); }
+      console.log(`VITTA conv=${convId}: vacinas — recebeu e entregou pra equipe`);
+    } catch (e) { console.error('vacinas recepcao:', e.message); }
+    return;
+  }
+
   // Histórico em ordem cronológica: textos + documentos (a Vitta precisa saber
   // que JÁ enviou um PDF para não oferecer de novo)
   // Leitura AMPLA (cobrança do master: "não estava lendo as conversas"):
