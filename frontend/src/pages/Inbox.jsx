@@ -1759,20 +1759,33 @@ export default function Inbox({ onUnreadChange }) {
         )}
 
         {/* 📌 SEÇÃO FIXADAS — sem limite, por usuário; rola sozinha se crescer */}
+        {/* 📌 FIXADAS EM DESTAQUE (ordem do master, 24/08): faixa dourada, fundo
+            próprio e borda de ouro — as conversas que ela escolheu não se
+            perdem no meio da lista geral. */}
         {fixadas.length > 0 && modo !== 'fixadas' && (
-          <div style={{ flexShrink:0, maxHeight:'38%', overflowY:'auto', borderBottom:'2px solid var(--tq)' }}>
-            <div style={{ padding:'5px 13px', fontSize:10, fontWeight:800, letterSpacing:.8, textTransform:'uppercase',
-              color:'var(--tq2)', background:'var(--tq4,#e8f7f8)', position:'sticky', top:0, zIndex:2, display:'flex', justifyContent:'space-between' }}>
-              <span>📌 Fixadas</span><span>{fixadas.length}</span>
+          <div style={{ flexShrink:0, maxHeight:'42%', overflowY:'auto',
+            background:'linear-gradient(180deg, rgba(196,151,59,.10), rgba(196,151,59,.03))',
+            borderTop:'2px solid #C4973B', borderBottom:'2px solid #C4973B',
+            boxShadow:'inset 0 0 0 1px rgba(196,151,59,.18)' }}>
+            <div style={{ padding:'7px 13px', fontSize:10.5, fontWeight:900, letterSpacing:.9, textTransform:'uppercase',
+              color:'#8a6417', background:'linear-gradient(120deg,#fdf0d5,#fdf6e7)', position:'sticky', top:0, zIndex:2,
+              display:'flex', alignItems:'center', justifyContent:'space-between', borderBottom:'1px solid rgba(196,151,59,.35)' }}>
+              <span style={{ display:'flex', alignItems:'center', gap:6 }}>
+                📌 Fixadas
+                <span style={{ textTransform:'none', fontWeight:700, fontSize:9.5, opacity:.75 }}>suas conversas de prioridade</span>
+              </span>
+              <span style={{ background:'#C4973B', color:'#fff', borderRadius:99, padding:'1px 9px', fontSize:10, fontWeight:900 }}>{fixadas.length}</span>
             </div>
             {fixadas.map(c => (
-              <ConvoRow key={c.id} conv={c} selected={sel?.id === c.id} onSelect={openConvo} usersById={usersById}
-                fixada onToggleFix={toggleFix} />
+              <div key={c.id} style={{ borderLeft:'3px solid #C4973B' }}>
+                <ConvoRow conv={c} selected={sel?.id === c.id} onSelect={openConvo} usersById={usersById}
+                  fixada onToggleFix={toggleFix} />
+              </div>
             ))}
           </div>
         )}
         {fixadas.length > 0 && modo !== 'fixadas' && (
-          <div style={{ flexShrink:0, padding:'5px 13px', fontSize:10, fontWeight:800, letterSpacing:.8, textTransform:'uppercase', color:'var(--muted)', background:'var(--bg2)' }}>
+          <div style={{ flexShrink:0, padding:'6px 13px', fontSize:10, fontWeight:800, letterSpacing:.8, textTransform:'uppercase', color:'var(--muted)', background:'var(--bg2)', borderBottom:'1px solid var(--border)' }}>
             💬 Geral
           </div>
         )}
