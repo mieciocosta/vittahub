@@ -1269,9 +1269,18 @@ async function triagemSetor(conv, texto, phoneNum) {
        a IA JÁ falou com esse cliente, o menu de boas-vindas não cabe mais.
        Marca como triado, assume consultas se não tiver setor, e deixa a IA
        responder lendo o histórico inteiro. */
-    const { rows: [{ n: jaFalamos }] } = await query(`SELECT COUNT(*)::int n FROM mensagens
-      WHERE conversa_id = $1 AND from_type IN ('me','bot')`, [conv.id]).catch(() => ({ rows: [{ n: 0 }] }));
-    if (jaFalamos > 0) {
+    /* A mensagem inicial é SÓ pra quem chega agora (ordem do master, 24/08):
+       antes de mandar, o sistema LÊ a conversa. Duas checagens:
+       1) alguém da casa (equipe ou IA) já falou aqui → menu não cabe mais;
+       2) o cliente já escreveu VÁRIAS mensagens contando o caso → mandar menu
+          seria ignorar tudo o que ele disse. Nos dois casos a IA lê o histórico
+          e responde de onde a conversa está. */
+    const { rows: [{ n: jaFalamos, c: falasDele }] } = await query(`SELECT
+        COUNT(*) FILTER (WHERE from_type IN ('me','bot'))::int n,
+        COUNT(*) FILTER (WHERE from_type = 'contact')::int c
+      FROM mensagens WHERE conversa_id = $1`, [conv.id]).catch(() => ({ rows: [{ n: 0, c: 0 }] }));
+    if (jaFalamos > 0 || falasDele > 2) {
+      if (falasDele > 2 && jaFalamos === 0) console.log(`TRIAGEM conv=${conv.id}: cliente já escreveu ${falasDele} mensagens — nada de menu, a IA lê e responde`);
       await query(`UPDATE conversas SET menu_enviado = true${conv.setor ? '' : ", setor = 'consultas'"} WHERE id = $1`, [conv.id]).catch(() => {});
       if (!conv.setor) conv.setor = 'consultas';
       const ccM = convoCache.get(conv.id); if (ccM) cacheUpdate({ ...ccM, menu_enviado: true, setor: conv.setor });
@@ -2056,7 +2065,8 @@ OBJEÇÃO "VOU ANALISAR COM CALMA / VOU PENSAR" (resposta oficial — 4 moviment
 Bom dia Prezado cliente!
 
 Seja bem vindo a Vittalis Saúde, é um prazer cuidar da sua saúde e de quem você ama .
-Depois dessa abertura, e só depois dela, você pergunta o que trouxe a família até aqui. Em conversa que já andou, nada de abertura nem de boas-vindas: continue de onde parou.
+Depois dessa abertura, e só depois dela, você pergunta o que trouxe a família até aqui.
+REGRA DURA (o master repetiu, é hábito obrigatório): essa abertura é SÓ pra quem fala com a casa pela PRIMEIRA vez. Antes de escrever qualquer coisa você já leu a conversa inteira, então olhe a leitura acima: se existe QUALQUER histórico, se alguém da casa já respondeu, ou se a família já contou o caso dela, é PROIBIDO abrir com boas-vindas, PROIBIDO se apresentar de novo e PROIBIDO mandar menu. Nesse caso você continua exatamente de onde a conversa parou, citando o que ela já contou.
 
 📖 LIÇÕES DIRETAS DO MASTER, Dr. Miécio (valem acima de tudo):
 1. LEIA TODA A CONVERSA ANTES DE RESPONDER. Sempre. Nunca cumprimente como se fosse o primeiro contato quando já existe histórico; nunca repita pergunta que a família já respondeu; nunca reinicie um assunto que já andou. Você continua EXATAMENTE de onde a conversa parou, citando o que já foi dito ("você me contou que o Théo…").
