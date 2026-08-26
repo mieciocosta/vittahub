@@ -1734,7 +1734,7 @@ Nossos profissionais são BEM REQUISITADOS e nossas terapias BEM PROCURADAS — 
 - Nunca implore, nunca corra atrás parecendo desespero: quem tem qualidade tem procura.
 EQUILÍBRIO FINO: requisitada ≠ fria. O acolhimento caloroso continua sendo a alma — a procura é só a moldura de valor. E seja sempre VERDADEIRA: fale da procura sem inventar números ou falsas filas.
 
-📷 PROVA SOCIAL EM FOTO — REGRA OBRIGATÓRIA (cobrança do master: a IA não estava enviando): em TODA conversa de consultas/terapias em que a família demonstrou interesse (perguntou de serviço, investimento ou agenda) e você ainda NÃO enviou foto, você DEVE usar a ferramenta enviar_foto_terapias ANTES de apresentar o investimento — sem esperar a mãe pedir. É parte do fluxo, como perguntar o nome: apresentação sem prova social é apresentação pela metade. A ferramenta manda foto REAL da Biblioteca (autorização de imagem ok) com o Instagram junto na legenda. Momentos que também pedem foto: medo/insegurança ("será que ele vai se adaptar?"), pedir pra conhecer o espaço. Legenda curta conectando à dor dela. Exatamente UMA por conversa, nunca na primeira mensagem — e nunca ZERO numa conversa que avançou.
+📷 PROVA SOCIAL EM FOTO — REGRA OBRIGATÓRIA (cobrança do master: a IA não estava enviando): em TODA conversa de consultas/terapias em que a família demonstrou interesse (perguntou de serviço, investimento ou agenda) e você ainda NÃO enviou foto, você DEVE usar a ferramenta enviar_foto_terapias ANTES de apresentar o investimento — sem esperar a mãe pedir. É parte do fluxo, como perguntar o nome: apresentação sem prova social é apresentação pela metade. A ferramenta manda foto REAL da Biblioteca (autorização de imagem ok) com o Instagram junto na legenda. Momentos que também pedem foto: medo/insegurança ("será que ele vai se adaptar?"), pedir pra conhecer o espaço. Legenda curta conectando à dor dela. A ferramenta manda um CONJUNTO de até 3 fotos de uma vez (prova social é álbum, não foto solta), com o Instagram fechando a última. Use a ferramenta UMA VEZ por conversa, nunca na primeira mensagem, e nunca ZERO numa conversa que avançou.
 
 🎁 ENCANTAMENTO DA CASA (conte às famílias — é real e é nosso diferencial):
 Depois da consulta, cada criança recebe um PRESENTE e o *Certificado de Coragem* 🏅 — cada etapa vencida vira um momento de celebração. Use no fechamento ("e o seu pequeno ainda sai com o Certificado de Coragem dele 🏅") e no pós-venda ("ele mereceu o certificado hoje!"). Isso transforma medo de consultório em conquista — as mães amam.
@@ -2031,7 +2031,7 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
     },
   }, {
     name: 'enviar_foto_terapias',
-    description: 'Envia UMA foto real da clínica (da Biblioteca oficial, com autorização de imagem) como prova social — a foto certa pro setor da conversa (vacinas ou terapias) é escolhida sozinha. Use no MOMENTO CERTO: quando a mãe demonstra medo/insegurança ("será que ele se adapta?"), pede pra conhecer o espaço, ou junto da apresentação do plano. NUNCA mais de uma foto por conversa.',
+    description: 'Envia um conjunto de até 3 fotos reais da clínica (da Biblioteca oficial, com autorização de imagem) como prova social — a foto certa pro setor da conversa (vacinas ou terapias) é escolhida sozinha. Use no MOMENTO CERTO: quando a mãe demonstra medo/insegurança ("será que ele se adapta?"), pede pra conhecer o espaço, ou junto da apresentação do plano. Use esta ferramenta uma única vez por conversa (ela já manda o conjunto todo).',
     input_schema: {
       type: 'object',
       properties: {
@@ -2192,30 +2192,41 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
         const { rows: fotosCand } = await query(`
           SELECT id, titulo, data, msg_id FROM biblioteca_midias
            WHERE tipo IN ('foto', 'imagem', 'image') AND setor IN ($1, 'geral')
-           ORDER BY (setor = $1) DESC, random() LIMIT 5`, [setorFoto]);
-        let foto = null;
+           ORDER BY (setor = $1) DESC, random() LIMIT 30`, [setorFoto]);
+        /* 📸 Prova social é CONJUNTO, não foto solta (cobrança do master, 24/08:
+           "está carregando só uma foto"): junta até 3 fotos reais da Biblioteca.
+           A busca varre bem mais candidatas do que antes, porque muita foto está
+           guardada só como referência de mensagem — se olhasse poucas, achava uma
+           utilizável e mandava sozinha. */
+        const fotosOk = [];
         for (const f of fotosCand) {
-          if (f.data) { foto = f; break; }
-          if (f.msg_id) {
+          if (fotosOk.length >= 3) break;
+          let d = f.data;
+          if (!d && f.msg_id) {
             const { rows: [msgF] } = await query('SELECT content FROM mensagens WHERE id = $1', [f.msg_id]).catch(() => ({ rows: [] }));
             const cF = String(msgF?.content || '');
-            if (cF.startsWith('data:')) { foto = { ...f, data: cF }; break; }
+            if (cF.startsWith('data:')) d = cF;
           }
+          if (d) fotosOk.push({ id: f.id, data: String(d).startsWith('data:') ? d : `data:image/jpeg;base64,${d}` });
         }
-        if (foto?.data && zapiOk()) {
-          const legenda = String(toolFoto.input?.legenda || '').slice(0, 300)
-            + '\n\n📸 Veja mais momentos assim no nosso Instagram: https://www.instagram.com/vittalissaudeslz/';
-          const imgEnvio = String(foto.data).startsWith('data:') ? foto.data : `data:image/jpeg;base64,${foto.data}`;
-          const zrF = await zapiCall('/send-image', 'POST', { phone: `55${phoneNum}`, image: imgEnvio, caption: legenda });
-          if (zrF?.ok) {
+        if (fotosOk.length && zapiOk()) {
+          const legendaBase = String(toolFoto.input?.legenda || '').slice(0, 300);
+          const insta = '📸 Veja mais momentos assim no nosso Instagram: https://www.instagram.com/vittalissaudeslz/';
+          let n = 0;
+          for (let i = 0; i < fotosOk.length; i++) {
+            // Legenda só na primeira; o convite do Instagram fecha a última
+            const legenda = [i === 0 ? legendaBase : '', i === fotosOk.length - 1 ? insta : ''].filter(Boolean).join('\n\n');
+            const zrF = await zapiCall('/send-image', 'POST', { phone: `55${phoneNum}`, image: fotosOk[i].data, caption: legenda });
+            if (!zrF?.ok) continue;
+            n++;
             const { rows: [fmsg] } = await query(
               `INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, created_at)
                VALUES ($1,'bot',$3,'image',$2,NOW()) RETURNING *`,
-              [convId, imgEnvio, nomePersona]).catch(() => ({ rows: [null] }));
+              [convId, fotosOk[i].data, nomePersona]).catch(() => ({ rows: [null] }));
             if (fmsg) socketEmit('new_message', { convId, message: fmsg, conv });
-            console.log(`VITTA conv=${convId}: foto de terapias enviada (biblioteca #${foto.id})`);
           }
-        } else if (!foto) {
+          console.log(`VITTA conv=${convId}: prova social enviada (${n} foto(s) da biblioteca)`);
+        } else {
           console.log(`VITTA conv=${convId}: pediu foto de prova social, mas a Biblioteca não tem nenhuma utilizável (setor ${setorFoto}/geral — ${fotosCand.length} candidatas sem dados)`);
         }
       }
@@ -6706,7 +6717,7 @@ r.post('/conversations/:id/prova-social', async (req, res) => {
     const { rows: cands } = await query(`
       SELECT id, titulo, data, msg_id FROM biblioteca_midias
        WHERE tipo IN ('foto', 'imagem', 'image') AND setor IN ($1, 'geral')
-       ORDER BY (setor = $1) DESC, random() LIMIT 8`, [setorFoto]);
+       ORDER BY (setor = $1) DESC, random() LIMIT 30`, [setorFoto]);   // varre mais candidatas: muita foto guarda só a referência da mensagem
     const prontas = [];
     for (const f of cands) {
       if (prontas.length >= 3) break;
