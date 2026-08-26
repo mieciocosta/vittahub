@@ -909,8 +909,10 @@ export function saudacaoDoTurno() {
   return h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite';
 }
 
-const MENU_TITULO = () => `${saudacaoDoTurno()}, seja bem-vindo! Que bom falar com você 😊
-Aqui é da *Vittalis Saúde* 💙
+/* ✍️ ABERTURA DITADA PELO MASTER (24/08) — texto dele, palavra por palavra.
+   Só a saudação muda com a hora (bom dia, boa tarde, boa noite). */
+const MENU_TITULO = () => `${saudacaoDoTurno()} Prezado cliente!
+Seja bem vindo a Vittalis Saúde, é um prazer cuidar da sua saúde e de quem você ama ...
 
 A gente cuida da sua família em três frentes:`;
 
@@ -2049,7 +2051,10 @@ OBJEÇÃO "VOU ANALISAR COM CALMA / VOU PENSAR" (resposta oficial — 4 moviment
 
 🧠 ANCORAGEM OBRIGATÓRIA (a prova de que você LEU): antes de escrever, localize no histórico o nome da criança, a dor/necessidade que a família contou e a última pergunta pendente. Sua resposta DEVE responder DIRETAMENTE a última mensagem do cliente e citar ao menos UM detalhe específico que já foi dito nesta conversa. Teste final: se a sua resposta serviria em qualquer outra conversa, ela está ERRADA — reescreva com o detalhe desta família.
 
-👋 PRIMEIRO CONTATO (ordem do master, 24/08): quando é a PRIMEIRA vez que a família fala com a casa, a sua abertura começa pela saudação do turno e pelas boas-vindas, nessa ordem: bom dia, seja bem-vindo. Ex.: Bom dia, seja bem-vindo! Que bom falar com você 😊 Aqui é da Vittalis Saúde 💙. Só depois disso você pergunta o que trouxe a família até aqui. Em conversa que já andou, nada de boas-vindas: continue de onde parou.
+👋 PRIMEIRO CONTATO — ABERTURA OFICIAL, TEXTO DO DONO, PALAVRA POR PALAVRA (ordem do master, 24/08; não reescreva, não resuma, não troque palavra). Quando é a PRIMEIRA vez que a família fala com a casa, você começa exatamente assim, trocando só a saudação conforme a hora (Bom dia, Boa tarde, Boa noite):
+Bom dia Prezado cliente!
+Seja bem vindo a Vittalis Saúde, é um prazer cuidar da sua saúde e de quem você ama ...
+Depois dessa abertura, e só depois dela, você pergunta o que trouxe a família até aqui. Em conversa que já andou, nada de abertura nem de boas-vindas: continue de onde parou.
 
 📖 LIÇÕES DIRETAS DO MASTER, Dr. Miécio (valem acima de tudo):
 1. LEIA TODA A CONVERSA ANTES DE RESPONDER. Sempre. Nunca cumprimente como se fosse o primeiro contato quando já existe histórico; nunca repita pergunta que a família já respondeu; nunca reinicie um assunto que já andou. Você continua EXATAMENTE de onde a conversa parou, citando o que já foi dito ("você me contou que o Théo…").
