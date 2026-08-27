@@ -3968,7 +3968,6 @@ function FaixaContexto({ sel, leadInfo, setLeadInfo, api, scoreChip, setScoreChi
   );
 
   const abrir = (campo, valorAtual) => { setRascunho(valorAtual || ''); setEditando(campo); };
-  const SETORES_FAIXA = [['vacinas','💉 Vacinas'], ['consultas','🩺 Consultas'], ['terapias','🧩 Terapias']];
   const codigoTxt = sel?.codigo ? `VT-${String(sel.codigo).padStart(4, '0')}` : null;
 
   return (
@@ -4025,28 +4024,9 @@ function FaixaContexto({ sel, leadInfo, setLeadInfo, api, scoreChip, setScoreChi
         )}
       </Cartao>
 
-      {/* 4 · Setor — de quem é o atendimento na casa */}
-      <Cartao ic="🏥" label="Setor" editavel aberto={editando === 'setor'}
-        onAbrir={() => setEditando('setor')}
-        valor={sel?.setor ? sel.setor.charAt(0).toUpperCase() + sel.setor.slice(1) : 'Sem setor'}>
-        {editando === 'setor' && (
-          <select autoFocus value={sel?.setor || ''} style={campoSt} onBlur={() => setEditando(null)}
-            onChange={async e => {
-              const novo = e.target.value; setEditando(null);
-              if (!novo) return;
-              try {
-                await api.patch(`/inbox/conversations/${sel.id}/setor`, { setor: novo });
-                setSel(p => ({ ...p, setor: novo }));
-                setConvos(p => p.map(c => c.id === sel.id ? { ...c, setor: novo } : c));
-                Toast.show(`Atendimento agora é de ${novo} 🏥`, 'success');
-              } catch (err) { Toast.show(err.message, 'error'); }
-            }}>
-            <option value="">—</option>
-            {SETORES_FAIXA.map(([v, r2]) => <option key={v} value={v}>{r2}</option>)}
-          </select>
-        )}
-      </Cartao>
-
+      {/* 🧹 SETOR SAIU DO PAINEL (ordem do master, 27/08): o setor já vem da
+          classificação da conversa e da carteira de quem atende — repetir aqui
+          só ocupava espaço. A troca continua possível pela classificação. */}
       {/* 5 · Responsável pelo atendimento — quem responde a família */}
       <Cartao ic="👤" label="Responsável" editavel aberto={editando === 'resp'}
         onAbrir={() => setEditando('resp')} valor={resp || 'Sem responsável'}>
