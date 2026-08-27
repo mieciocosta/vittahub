@@ -561,22 +561,17 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
       overflow:'hidden',
     }}>
 
-      {/* Logo / Brand — vertical branca oficial, clicável pro Dashboard */}
-      <div style={{ padding: collapsed ? '14px 0' : '18px 14px 14px', borderBottom:'1px solid rgba(255,255,255,.16)', flexShrink:0 }}>
-        <NavLink to="/" title="Ir para o Resumo" className="brand-link" style={{ textDecoration:'none', display:'block' }}>
-          {collapsed ? (
-            <img src="/logos/logo-icon-white.png" alt="Vittalis Saúde" style={{ height:28, objectFit:'contain', display:'block', margin:'0 auto' }} />
-          ) : (
-            <>
-              <img src="/logos/logo-v-white.png" alt="Vittalis Saúde" style={{ width:'72%', maxWidth:152, height:'auto', objectFit:'contain', display:'block', margin:'0 auto' }} />
-              <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:5, marginTop:9 }}>
-                <div style={{ width:5, height:5, borderRadius:'50%', background:'var(--tq)', boxShadow:'0 0 6px var(--tq)' }}/>
-                <span style={{ fontSize:10, fontWeight:700, letterSpacing:1.8, color:'rgba(255,255,255,.62)', textTransform:'uppercase' }}>VittaHub CRM</span>
-              </div>
-            </>
-          )}
-        </NavLink>
-      </div>
+      {/* 🎨 A LOGO GRANDE SAIU DO TOPO (ordem do master, 24/08: "tira essa parte
+          da logomarca e deixa o perfil"). Ela ocupava a primeira dobra inteira
+          e o senhor já sabe em que sistema está. Recolhido, sobra só o ícone,
+          que também é o atalho pro Resumo. */}
+      {collapsed && (
+        <div style={{ padding:'12px 0 6px', flexShrink:0 }}>
+          <NavLink to="/" title="Ir para o Resumo" className="brand-link" style={{ textDecoration:'none', display:'block' }}>
+            <img src="/logos/logo-icon-white.png" alt="Vittalis Saúde" style={{ height:24, objectFit:'contain', display:'block', margin:'0 auto', opacity:.9 }} />
+          </NavLink>
+        </div>
+      )}
 
       {/* Perfil — no TOPO (pedido do master): foto, nome, papel e atalhos */}
       <div style={{ padding: collapsed ? '10px 6px 2px' : '12px 10px 4px', flexShrink:0 }}>
@@ -601,7 +596,8 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
           /* UX (master, 24/08: "ainda está poluído"): o cartão virou uma LINHA —
              avatar menor, nome, papel discreto. Sem moldura dourada, sem selos
              coloridos, sem sombra pesada. O menu começa logo abaixo. */
-          <div style={{ display:'flex', alignItems:'center', gap:10, padding:'2px 2px 0' }}>
+          <div style={{ display:'flex', flexDirection:'column', gap:2, padding:'2px 2px 0' }}>
+           <div style={{ display:'flex', alignItems:'center', gap:10, width:'100%' }}>
             <button onClick={()=>setShowAvatarBuilder(true)} title="Foto de perfil (foto própria ou avatar)"
               style={{ background:'none', border:'none', cursor:'pointer', padding:0, borderRadius:'50%', lineHeight:0, position:'relative',
                 boxShadow:'0 0 0 2px rgba(255,255,255,.35)' }}>
@@ -612,7 +608,8 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
             <div style={{ flex:1, minWidth:0 }}>
               {/* Nome COMPLETO, sem corte: quebra em até 2 linhas se precisar */}
               <button onClick={editarNome} title="Editar meu nome" style={{ background:'none', border:'none', padding:0, cursor:'pointer', display:'flex', alignItems:'flex-start', gap:4, maxWidth:'100%', textAlign:'left' }}>
-                <span style={{ color:'#fff', fontSize:13.5, fontWeight:800, lineHeight:1.2, letterSpacing:.1 }}>{user?.nome}</span>
+                <span style={{ color:'#fff', fontSize:13.5, fontWeight:800, lineHeight:1.2, letterSpacing:.1,
+                  overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:170 }}>{user?.nome}</span>
                 <Pencil size={10} color="rgba(255,255,255,.55)" style={{ flexShrink:0, marginTop:3 }} />
               </button>
               {nomeOpen && (
@@ -636,6 +633,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                 {user?.role === 'master' ? 'Master' : tituloUsuario(user)}
               </div>
             </div>
+           </div>
             {/* ☀️ O bloco pessoal do dia — redesenhado (pedido do master:
                 "melhore a visualização"). O que mudou: caixas dentro de caixas
                 viraram UM bloco com fios separadores; o versículo ficou curto e
