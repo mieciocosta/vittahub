@@ -5753,7 +5753,7 @@ r.post('/conversations/:id/send', async (req, res) => {
        gestão — atendente nunca assina no nome de colega. */
     let nomeGravar = usuariosNome.get(String(req.user.id)) || req.user.nome;
     const assinarComo = String(req.body?.assinarComo || '').trim().slice(0, 40);
-    if (assinarComo && ehGestao(req.user)) nomeGravar = primeiroNomeUtil(assinarComo) || assinarComo;
+    if (assinarComo && req.user?.role === 'master') nomeGravar = primeiroNomeUtil(assinarComo) || assinarComo;
     const { rows: [msg] } = await query(`
       INSERT INTO mensagens (conversa_id, from_type, type, content, sender_id, sender_nome, status)
       VALUES ($1, 'me', $2, $3, $4, $5, 'sent')
@@ -6892,7 +6892,9 @@ r.delete('/conversations/:id', async (req, res) => {
    limitação: mensagem entregue não se reescreve no aparelho dele. */
 r.patch('/conversations/:id/messages/:msgId/remetente', async (req, res) => {
   try {
-    if (!ehGestao(req.user)) return res.status(403).json({ error: 'Só a gestão troca o remetente de uma mensagem.' });
+    // 👤 Só o MASTER troca assinatura (ordem do master, 27/08: "deixa essa opção
+    // só pra mim, dentro de cada mensagem enviada").
+    if (req.user?.role !== 'master') return res.status(403).json({ error: 'Só o Dr. Miécio troca o remetente de uma mensagem.' });
     const nome = String(req.body?.nome || '').trim().slice(0, 40);
     if (!nome) return res.status(400).json({ error: 'Informe o nome da atendente.' });
     const primeiro = primeiroNomeUtil(nome) || nome;
@@ -6916,7 +6918,7 @@ r.patch('/conversations/:id/messages/:msgId/remetente', async (req, res) => {
    nome. Só gestão. Não mexe no que o cliente recebeu — muda a assinatura. */
 r.patch('/conversations/:id/remetente-recentes', async (req, res) => {
   try {
-    if (!ehGestao(req.user)) return res.status(403).json({ error: 'Só a gestão troca o remetente.' });
+    if (req.user?.role !== 'master') return res.status(403).json({ error: 'Só o Dr. Miécio troca o remetente.' });
     const para = String(req.body?.para || '').trim().slice(0, 40);
     if (!para) return res.status(400).json({ error: 'Escolha para quem passar a assinatura.' });
     const de = String(req.body?.de || '').trim().slice(0, 40);       // vazio = qualquer assinatura

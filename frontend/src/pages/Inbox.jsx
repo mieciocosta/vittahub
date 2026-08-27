@@ -2219,7 +2219,7 @@ export default function Inbox({ onUnreadChange }) {
                         </button>
                         {/* 👥 Quando várias mensagens saíram assinadas errado, trocar
                             uma por uma não resolve — aqui vai tudo de uma vez. */}
-                        {gestaoUser && sel && (
+                        {user?.role === 'master' && sel && (
                           <button style={itemMenu} onClick={()=>{ fecharMais();
                             setTrocaRemet({ varias: true });
                             if (!atendentes.length) api.get('/inbox/atendentes').then(d => setAtendentes(Array.isArray(d) ? d : [])).catch(()=>{});
@@ -2285,7 +2285,7 @@ export default function Inbox({ onUnreadChange }) {
               )}
               {msgs.map((m, i) => (
                 <MsgItem key={m.id||i} m={m} prevMsg={msgs[i-1] || null} contactName={sel.contact_name} channel={sel.channel} onLightbox={abrirOuSelecionar} token={token} onEditar={editarMensagem} onApagar={apagarMensagem}
-                  onTrocarRemetente={gestaoUser ? trocarRemetente : null} fotoSel={!!fotosSel[m.id]}/>
+                  onTrocarRemetente={user?.role === 'master' ? trocarRemetente : null} fotoSel={!!fotosSel[m.id]}/>
               ))}
               <div ref={endRef}/>
             </div>
@@ -2989,7 +2989,7 @@ export default function Inbox({ onUnreadChange }) {
           {(() => {
             const dona = sel?.responsavel_nome;
             const donaId = sel?.responsavel_id;
-            if (!dona || !donaId || String(donaId) === String(user?.id) || !gestaoUser) return null;
+            if (!dona || !donaId || String(donaId) === String(user?.id) || user?.role !== 'master') return null;
             const primeiro = String(dona).replace(/^(Dra?\.|Sra?\.|Enf\.|Prof\.)\s*/i, '').split(' ')[0];
             const assinando = assinarComo === dona;
             return (
