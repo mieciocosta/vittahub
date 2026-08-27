@@ -18,6 +18,17 @@ const ENDERECO = [
 const INSTAGRAM = '📸 Acompanhe momentos de cuidado no nosso Instagram: https://www.instagram.com/vittalissaudeslz/';
 
 export const ehEmCasa = (txt) => /resid|casa|domic/i.test(String(txt || ''));
+/* 🏥 O endereço da clínica só entra quando o atendimento é AQUI. A regra antiga
+   era "se não for em casa, manda o endereço" — e aí um cartão com "Local: Parque
+   Vitória" saía com o endereço da Renascença embaixo, mandando a família pro
+   lugar errado (cobrança do master, 27/08). Agora a pergunta certa: o local diz
+   que é na clínica? Só então o endereço e o Maps entram. */
+export const ehNaClinica = (txt) => {
+  const t = String(txt || '').trim();
+  if (!t) return true;                       // sem local informado = na clínica
+  if (ehEmCasa(t)) return false;
+  return /cl[íi]nica|vittalis|renascen|consult[óo]rio|business center|colares moreira/i.test(t);
+};
 
 /* O título diz do que se trata: vacinação, consulta ou sessão de terapia
    (ordem do master, 24/08: "melhora o título para que fique conforme o
@@ -69,7 +80,7 @@ export async function cartaoAgendamento(dados = {}, opts = {}) {
   linhas.push(`📍 Local: ${localTxt.slice(0, 80)}`);
   linhas.push(`📌 Serviço: ${String(dados.servico || 'Atendimento').slice(0, 80)}`);
 
-  if (!ehEmCasa(localTxt)) { linhas.push(''); linhas.push(...ENDERECO); }
+  if (ehNaClinica(localTxt)) { linhas.push(''); linhas.push(...ENDERECO); }
   linhas.push('');
   linhas.push(`Parabéns ${trat ? trat + ' ' : ''}pelo investimento na saúde do seu Baby 🩵`);
   linhas.push('');
@@ -90,6 +101,12 @@ export async function cartaoDoEvento(ev = {}, opts = {}) {
     profissional: ev.profissional,
     setor: ev.setor,
     servico: ev.servico || (ev.setor === 'terapias' ? 'Sessão de terapia' : ev.setor === 'consultas' ? 'Consulta' : 'Vacinação'),
-    local: emCasa ? 'Em sua residência' : 'Na Clínica Vittalis Saúde (Renascença)',
+    /* Visita em casa mostra ONDE (bairro/endereço curto): a família confere que
+       marcamos no lugar certo. Sem endereço cadastrado, fica só "residência". */
+    local: emCasa
+      ? (String(ev.endereco || '').trim()
+          ? `Em sua residência — ${String(ev.endereco).trim().slice(0, 48)}`
+          : 'Em sua residência')
+      : 'Na Clínica Vittalis Saúde (Renascença)',
   }, opts);
 }
