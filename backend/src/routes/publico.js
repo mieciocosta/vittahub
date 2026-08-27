@@ -18,6 +18,27 @@ const HORARIOS = ['08:00', '09:00', '10:00', '11:00', '14:00', '15:00', '16:00',
 const SETORES = { vacinas: '💉 Vacinação', consultas: '🩺 Consulta', terapias: '🧩 Terapia' };
 const cut = (v, n) => String(v ?? '').trim().slice(0, n);
 
+/* 💟 FIGURINHA COMO ARQUIVO (cobrança do master, 27/08: "está demorando pra
+   carregar e nem todas carregam"). O painel puxava CADA figurinha por uma
+   chamada de API que devolvia base64 dentro de um JSON — 65 chamadas, sem
+   cache, e as que estavam fora da primeira tela só carregavam se o mouse
+   passasse por cima (no celular, nunca). Servindo como arquivo, o próprio
+   navegador faz preguiçoso e guarda em cache; a segunda abertura é instantânea.
+   Só serve tipo 'figurinha': é arte da marca, não tem dado de cliente. */
+r.get('/figurinha/:id', async (req, res) => {
+  try {
+    const { rows: [m] } = await query(
+      `SELECT data, mime FROM biblioteca_midias WHERE id = $1 AND tipo = 'figurinha' LIMIT 1`,
+      [String(req.params.id).slice(0, 64)]);
+    if (!m || !m.data) return res.status(404).end();
+    const buf = Buffer.from(m.data, 'base64');
+    res.set('Content-Type', m.mime || 'image/webp');
+    res.set('Content-Length', buf.length);
+    res.set('Cache-Control', 'public, max-age=31536000, immutable');
+    res.send(buf);
+  } catch { res.status(500).end(); }
+});
+
 // Anti-spam: no máx. 5 pedidos por IP a cada hora
 const porIP = new Map();
 setInterval(() => { const agora = Date.now(); for (const [k, v] of porIP) if (agora - v.inicio > 3600000) porIP.delete(k); }, 600000).unref?.();
