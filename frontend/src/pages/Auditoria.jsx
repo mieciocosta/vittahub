@@ -250,23 +250,48 @@ export default function Auditoria() {
                           🚨 uso simultâneo
                         </span>
                       )}
-                      {/* 📍 Os LUGARES daquele dia, cada um abre no mapa */}
-                      <div style={{ flexBasis: '100%', display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 2 }}>
-                        {(d.coords || []).length === 0 && (
-                          <span style={{ fontSize: 11, color: 'var(--muted)' }}>Sem localização neste dia (permissão não concedida)</span>
-                        )}
-                        {(d.coords || []).map((c, k) => (
-                          <a key={k} href={`https://www.google.com/maps?q=${c.lat},${c.lng}`} target="_blank" rel="noreferrer"
-                            style={{ fontSize: 11, fontWeight: 700, color: 'var(--tq2)', textDecoration: 'none',
-                              border: '1px solid var(--border)', borderRadius: 8, padding: '2px 9px', background: 'var(--bg2)' }}>
-                            📍 {c.lat.toFixed(3)}, {c.lng.toFixed(3)}
-                          </a>
-                        ))}
-                        {(d.ips || []).map((ip, k) => (
-                          <span key={`ip${k}`} style={{ fontSize: 10.5, color: 'var(--muted)', fontFamily: 'monospace',
-                            border: '1px dashed var(--border)', borderRadius: 8, padding: '2px 8px' }}>{ip}</span>
-                        ))}
-                      </div>
+
+                      {/* 🕵️ Por que este dia merece atenção */}
+                      {(d.sinais || []).length > 0 && (
+                        <div style={{ flexBasis: '100%', display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+                          {(d.sinais || []).map((sg, k) => (
+                            <span key={k} style={{ fontSize: 10.5, fontWeight: 800, borderRadius: 8, padding: '2px 9px',
+                              background: sg.grave ? '#fee2e2' : '#fef3c7', color: sg.grave ? '#b91c1c' : '#92400e' }}>
+                              {sg.tipo === 'print' ? '📸' : sg.tipo === 'copia' ? '📋' : sg.tipo === 'varredura' ? '🔎' : sg.tipo === 'madrugada' ? '🌙' : '📈'} {sg.txt}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* 🚨 A hora exata do uso simultâneo, com as duas redes */}
+                      {(d.episodios || []).length > 0 && (
+                        <div style={{ flexBasis: '100%', marginTop: 5, padding: '7px 10px', borderRadius: 9, background: 'rgba(220,38,38,.07)', border: '1px solid rgba(220,38,38,.3)' }}>
+                          {(d.episodios || []).map((ep, k) => (
+                            <div key={k} style={{ fontSize: 11.5, color: '#b91c1c', display: 'flex', gap: 9, flexWrap: 'wrap' }}>
+                              <b>🚨 {ep.hora}</b>
+                              <span style={{ fontFamily: 'monospace' }}>{ep.ips.join('  e  ')}</span>
+                              <span style={{ color: 'var(--muted)' }}>ativas ao mesmo tempo · {ep.eventos} ações</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* 🌐 Cada rede daquele dia, com horário, cidade e aparelho */}
+                      {(d.redes_detalhe || []).length > 0 && (
+                        <div style={{ flexBasis: '100%', marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          {(d.redes_detalhe || []).map((rd, k) => (
+                            <div key={k} style={{ display: 'flex', gap: 9, flexWrap: 'wrap', alignItems: 'center', fontSize: 11.5,
+                              padding: '5px 9px', borderRadius: 8, background: 'var(--bg2)', border: '1px solid var(--border)' }}>
+                              <span style={{ fontFamily: 'monospace', fontWeight: 700, color: 'var(--txt2)' }}>🌐 {rd.ip}</span>
+                              <span style={{ color: 'var(--muted)' }}>das {rd.de} às {rd.ate}</span>
+                              <span style={{ color: 'var(--muted)' }}>{rd.acoes} ações</span>
+                              <span style={{ color: 'var(--muted)' }}>{rd.aparelho === 'celular' ? '📱 celular' : '🖥️ computador'}{rd.navegador ? ` · ${rd.navegador}` : ''}</span>
+                              {rd.cidade && <span style={{ color: 'var(--tq2)', fontWeight: 700 }}>📍 {rd.cidade}</span>}
+                              {rd.provedor && <span style={{ color: 'var(--muted)' }}>{rd.provedor}{rd.movel ? ' (rede móvel)' : ''}</span>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )); })()}
                 </div>

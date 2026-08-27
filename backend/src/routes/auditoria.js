@@ -249,11 +249,88 @@ r.get('/localizacoes', onlyMaster, async (req, res) => {
     const alertaPorUser = {};
     for (const e of simultaneos) alertaPorUser[e.usuario_id] = (alertaPorUser[e.usuario_id] || 0) + 1;
 
+    /* 🌐 DETALHE DE CADA REDE EM CADA DIA (ordem do master, 24/08: "mais
+       detalhado e claro"): por rede, de que horas a que horas ela esteve
+       ativa, quantas ações, em que aparelho e — quando conhecemos o IP — a
+       cidade e o provedor. É o que transforma um número solto em explicação. */
+    const { rows: redesRows } = await query(`
+      SELECT usuario_id,
+             to_char((created_at - interval '3 hours')::date, 'YYYY-MM-DD') dia, ip,
+             MIN(created_at) de, MAX(created_at) ate, COUNT(*)::int n,
+             MODE() WITHIN GROUP (ORDER BY user_agent) ua
+        FROM audit_logs
+       WHERE created_at > NOW() - ($1 || ' days')::interval
+         AND usuario_id IS NOT NULL AND ip IS NOT NULL ${filtro}
+       GROUP BY 1, 2, 3 ORDER BY 2 DESC, 4`, params).catch(() => ({ rows: [] }));
+
+    // Cidade e provedor vêm do cache de geolocalização gravado no login
+    const ipsUnicos = [...new Set(redesRows.map(r2 => r2.ip))].slice(0, 400);
+    const geo = {};
+    if (ipsUnicos.length) {
+      const { rows: geoRows } = await query(
+        `SELECT chave, valor FROM configuracoes WHERE chave = ANY($1::text[])`,
+        [ipsUnicos.map(ip => `geoip_${ip}`)]).catch(() => ({ rows: [] }));
+      for (const g of geoRows) geo[String(g.chave).replace('geoip_', '')] = g.valor || {};
+    }
+    const hhmm = (t) => new Date(new Date(t).getTime() - 3 * 3600 * 1000).toISOString().slice(11, 16);
+    const redesPorDia = {};
+    for (const r2 of redesRows) {
+      const ua = String(r2.ua || '');
+      const g = geo[r2.ip] || {};
+      (redesPorDia[`${r2.usuario_id}|${r2.dia}`] ||= []).push({
+        ip: r2.ip, de: hhmm(r2.de), ate: hhmm(r2.ate), acoes: r2.n,
+        cidade: g.cidade ? `${g.cidade}${g.estado ? ` / ${g.estado}` : ''}` : null,
+        provedor: g.provedor || null, movel: !!g.movel,
+        aparelho: /Mobile|Android|iPhone/.test(ua) ? 'celular' : 'computador',
+        navegador: ua.includes('Edg/') ? 'Edge' : ua.includes('Chrome/') ? 'Chrome'
+                 : ua.includes('Firefox/') ? 'Firefox' : ua.includes('Safari') ? 'Safari' : null,
+      });
+    }
+
+    /* 🕵️ SINAIS DE VAZAMENTO POR DIA (o intuito do master, 24/08: "descobrir se
+       está tendo vazamento de dados"). Em vez de mostrar só onde a pessoa
+       estava, o painel diz POR QUE aquele dia merece atenção: print de tela,
+       cópia de telefone bloqueada, varredura de conversas, acesso de
+       madrugada e volume muito acima do normal dela. */
+    const { rows: sinaisRows } = await query(`
+      SELECT usuario_id, to_char((created_at - interval '3 hours')::date, 'YYYY-MM-DD') dia,
+             COUNT(*) FILTER (WHERE acao = 'captura_tela')::int prints,
+             COUNT(*) FILTER (WHERE acao = 'copia_telefone_bloqueada')::int copias,
+             COUNT(*) FILTER (WHERE acao = 'alerta_varredura')::int varreduras,
+             COUNT(*) FILTER (WHERE EXTRACT(HOUR FROM (created_at - interval '3 hours')) < 6)::int madrugada
+        FROM audit_logs
+       WHERE created_at > NOW() - ($1 || ' days')::interval AND usuario_id IS NOT NULL ${filtro}
+       GROUP BY 1, 2`, params).catch(() => ({ rows: [] }));
+    const sinaisPorDia = {};
+    for (const x of sinaisRows) sinaisPorDia[`${x.usuario_id}|${x.dia}`] = x;
+
+    // Média de ações por dia de cada pessoa — pra flagrar o dia fora da curva
+    const mediaUser = {};
+    for (const d of porDiaRows) {
+      (mediaUser[d.usuario_id] ||= { soma: 0, dias: 0 });
+      mediaUser[d.usuario_id].soma += d.eventos; mediaUser[d.usuario_id].dias++;
+    }
+
     const porDia = porDiaRows.map(d => ({
       usuario_id: d.usuario_id, usuario_nome: d.usuario_nome, dia: d.dia,
       primeiro: d.primeiro, ultimo: d.ultimo, eventos: d.eventos,
       redes: d.redes, ips: d.ips || [], lugares: d.lugares || 0,
       coords: (d.coords || []).map(c => { const [la, lo] = String(c).split(','); return { lat: Number(la), lng: Number(lo) }; }),
+      redes_detalhe: redesPorDia[`${d.usuario_id}|${d.dia}`] || [],
+      episodios: simultaneos.filter(x => x.usuario_id === d.usuario_id && x.dia === d.dia)
+        .map(x => ({ hora: x.hora, ips: x.ips, eventos: x.eventos })),
+      sinais: (() => {
+        const sg = sinaisPorDia[`${d.usuario_id}|${d.dia}`] || {};
+        const m = mediaUser[d.usuario_id];
+        const media = m && m.dias ? m.soma / m.dias : 0;
+        const lista = [];
+        if (sg.prints) lista.push({ tipo: 'print', txt: `${sg.prints} captura(s) de tela`, grave: true });
+        if (sg.copias) lista.push({ tipo: 'copia', txt: `${sg.copias} tentativa(s) de copiar telefone`, grave: true });
+        if (sg.varreduras) lista.push({ tipo: 'varredura', txt: `${sg.varreduras} varredura(s) de conversas`, grave: true });
+        if (sg.madrugada) lista.push({ tipo: 'madrugada', txt: `${sg.madrugada} ação(ões) entre 00h e 06h`, grave: true });
+        if (media > 20 && d.eventos > media * 2) lista.push({ tipo: 'volume', txt: `volume ${Math.round(d.eventos / media)}x acima do normal dela`, grave: false });
+        return lista;
+      })(),
       simultaneo: simultaneos.some(x => x.usuario_id === d.usuario_id && x.dia === d.dia),
     }));
 
