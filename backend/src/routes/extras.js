@@ -783,7 +783,30 @@ r.get('/ranking', async (req, res) => {
        agendamento REALIZADO, pelo dia do atendimento — só trabalho terminado. */
     const porConcluido = req.query.metrica === 'concluidos';
     const porVenda = req.query.metrica === 'vendas';
-    const { rows } = porConcluido
+    /* 🏅 % DA META ALCANÇADA (ordem do master, 24/08: "faz conforme a sua meta
+       alcançada"). É o critério JUSTO entre setores: quem vende plano de
+       milhares e quem vende consulta de R$ 350 correm cada uma contra o
+       próprio alvo, e ganha quem está mais perto de bater a sua. E continua
+       respeitando a regra dos valores: na tela aparece o PERCENTUAL, nunca o
+       dinheiro de ninguém. Sempre no mês, porque a meta é mensal. */
+    const porMeta = req.query.metrica === 'meta';
+    const { rows } = porMeta
+      ? await query(
+        `SELECT COALESCE(u.setor,'vacinas') setor, u.id aid, u.nome, u.avatar, u.cor,
+                CASE WHEN COALESCE(u.meta_individual,0) > 0
+                     THEN LEAST(999, ROUND((COALESCE(vv.total,0) / u.meta_individual) * 100))::int
+                     ELSE 0 END n,
+                COALESCE(vh.hoje_pct, 0)::int hoje
+           FROM usuarios u
+           LEFT JOIN (SELECT atendente_id, SUM(COALESCE(valor,0)) total FROM vendas v
+                       WHERE to_char(v.data_venda,'YYYY-MM') = to_char($2::date,'YYYY-MM')
+                       GROUP BY 1) vv ON vv.atendente_id = u.id
+           LEFT JOIN (SELECT atendente_id, COUNT(*)::int hoje_pct FROM vendas v
+                       WHERE v.data_venda = $2::date GROUP BY 1) vh ON vh.atendente_id = u.id
+          WHERE u.ativo = true AND u.role IN ('atendente','supervisor')
+            AND COALESCE(u.setor,'vacinas') = ANY($1)
+          ORDER BY n DESC, u.nome ASC`, [meus, hojeSLZ])
+      : porConcluido
       ? await query(
         `SELECT COALESCE(a.setor,'vacinas') setor,
                 COALESCE(a.responsavel_id,'') aid,

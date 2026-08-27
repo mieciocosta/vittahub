@@ -50,7 +50,7 @@ export default function Ranking() {
   // Equipe toda no mesmo pódio é o padrão (pedido do master); por setor é opção
   const [visao, setVisao] = useState('equipe');
   // Pódio por AGENDAMENTO (ordem do master) — é o trabalho que a equipe controla
-  const [metrica, setMetrica] = useState('agendamentos');
+  const [metrica, setMetrica] = useState('meta');   // 🏅 padrão: % da meta (ordem do master, 24/08)
   const [dados, setDados] = useState(null);
   const [erro, setErro] = useState('');
   const [carregando, setCarregando] = useState(true);
@@ -82,7 +82,9 @@ export default function Ranking() {
         <div style={{ flex: 1, minWidth: 220 }}>
           <h1 style={{ fontSize: 21, fontWeight: 900, margin: 0 }}>Ranking da equipe</h1>
           <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>
-            Por <b>quantidade de {metrica === 'vendas' ? 'vendas fechadas' : metrica === 'concluidos' ? 'atendimentos concluídos (Realizado na agenda)' : 'agendamentos'}</b> — sem valores. {rotuloPeriodo}.
+            {metrica === 'meta'
+              ? <>Por <b>percentual da meta alcançada</b> — cada uma corre contra o próprio alvo, então vacinas e consultas disputam de igual pra igual. Sem mostrar o dinheiro de ninguém. Mês atual.</>
+              : <>Por <b>quantidade de {metrica === 'vendas' ? 'vendas fechadas' : metrica === 'concluidos' ? 'atendimentos concluídos (Realizado na agenda)' : 'agendamentos'}</b> — sem valores. {rotuloPeriodo}.</>}
           </div>
         </div>
         <button onClick={() => carregar()} className="btn btn-sm" title="Atualizar agora"
@@ -93,7 +95,7 @@ export default function Ranking() {
 
       {/* O que conta no pódio */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-        {[['agendamentos', '📅 Agendamentos'], ['concluidos', '🧾 Concluídos'], ['vendas', '💰 Vendas fechadas']].map(([k, rot]) => (
+        {[['meta', '🏅 % da meta'], ['agendamentos', '📅 Agendamentos'], ['concluidos', '🧾 Concluídos'], ['vendas', '💰 Vendas fechadas']].map(([k, rot]) => (
           <button key={k} onClick={() => setMetrica(k)}
             style={{ padding: '6px 13px', borderRadius: 20, fontSize: 12, fontWeight: 800, cursor: 'pointer',
               border: `1.5px solid ${metrica === k ? 'var(--tq)' : 'var(--border)'}`,
@@ -163,14 +165,16 @@ export default function Ranking() {
               <span style={{ fontSize: 17 }}>{info.emoji}</span>
               <span style={{ fontWeight: 900, fontSize: 16 }}>{info.rotulo}</span>
               <span style={{ fontSize: 11.5, fontWeight: 800, color: '#fff', background: info.cor, borderRadius: 20, padding: '3px 11px' }}>
-                {bloco.total} {metrica === 'vendas' ? (bloco.total === 1 ? 'venda' : 'vendas') : (bloco.total === 1 ? 'agendamento' : 'agendamentos')} no período
+                {metrica === 'meta' ? 'Cada uma contra a própria meta do mês' : `${bloco.total} ${metrica === 'vendas' ? (bloco.total === 1 ? 'venda' : 'vendas') : (bloco.total === 1 ? 'agendamento' : 'agendamentos')} no período`}
               </span>
               {/* A frase que faz correr: quanto falta pra passar a líder */}
               {bloco.minhaPos && (
                 <span style={{ fontSize: 12, fontWeight: 800, color: bloco.minhaPos === 1 ? 'var(--ok,#16a34a)' : 'var(--txt2)' }}>
                   {bloco.minhaPos === 1
                     ? '👑 Você está em 1º — segura a liderança!'
-                    : `Você está em ${bloco.minhaPos}º · faltam ${bloco.paraLiderar} ${metrica === 'vendas' ? 'venda' : 'agendamento'}${bloco.paraLiderar === 1 ? '' : 's'} pra liderar 🔥`}
+                    : metrica === 'meta'
+                      ? `Você está em ${bloco.minhaPos}º · faltam ${bloco.paraLiderar} pontos percentuais pra liderar 🔥`
+                      : `Você está em ${bloco.minhaPos}º · faltam ${bloco.paraLiderar} ${metrica === 'vendas' ? 'venda' : 'agendamento'}${bloco.paraLiderar === 1 ? '' : 's'} pra liderar 🔥`}
                 </span>
               )}
             </div>
@@ -222,7 +226,7 @@ export default function Ranking() {
                           boxShadow: '0 -3px 14px rgba(0,0,0,.14)', color: '#3b2a00' }}>
                           <div style={{ fontSize: ouro ? 30 : lugar <= 3 ? 24 : 20, fontWeight: 900, lineHeight: 1 }}>{p.n}</div>
                           <div style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: .5 }}>
-                            {metrica === 'vendas' ? `venda${p.n === 1 ? '' : 's'}` : `agend.${p.n === 1 ? '' : 's'}`}
+                            {metrica === 'meta' ? '% da meta' : metrica === 'vendas' ? `venda${p.n === 1 ? '' : 's'}` : `agend.${p.n === 1 ? '' : 's'}`}
                           </div>
                         </div>
                       </div>
