@@ -125,6 +125,10 @@ export default async function runMigrate() {
     // Add profile_pic column if not exists (for existing databases)
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS profile_pic TEXT`).catch(() => {});
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS status_atend TEXT DEFAULT 'aberto'`).catch(() => {});
+    /* 🗄️ ARQUIVAR (ordem do master, 24/08): contato que NÃO é cliente — banco,
+       fornecedor, consultor — sai do atendimento geral sem apagar nada. O
+       histórico fica intacto e volta com um clique. */
+    await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS arquivada BOOLEAN DEFAULT false`).catch(() => {});
     // 🧪 Conversa de SIMULAÇÃO (treino/avaliação da IA): nada dela vai pro WhatsApp
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS simulacao BOOLEAN DEFAULT false`).catch(() => {});
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS provider TEXT DEFAULT 'zapi'`).catch(() => {});
@@ -2889,6 +2893,30 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
           ['💛 Carteira de Fidelidade', 'Não encontrei usuária ativa com nome Poliana pra receber a carteira de Fidelidade. Me diga o nome certo do cadastro.']).catch(() => {});
       }
       await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_fidelidade_para_poliana_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+    }
+
+    /* 🗄️ CONSULTOR ITAÚ FORA DO ATENDIMENTO (ordem do master, 24/08). Não é
+       cliente: sai da lista geral, vira contato interno (a IA nunca age nele)
+       e o histórico continua guardado. */
+    const { rows: [flagItau] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_arquivar_consultor_itau_v1'");
+    if (!flagItau) {
+      const { rows: achados } = await query(
+        `SELECT id, contact_name FROM conversas
+          WHERE contact_name ILIKE '%consultor%ita%' OR contact_name ILIKE '%ita[uú]%consultor%'`).catch(() => ({ rows: [] }));
+      let n = 0;
+      if (achados.length) {
+        const ids = achados.map(a => a.id);
+        const r = await query(
+          `UPDATE conversas SET arquivada = true, bot_ativo = false, classificacao = 'gestao'
+            WHERE id = ANY($1::text[])`, [ids]).catch(() => null);
+        n = r?.rowCount || 0;
+      }
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+        ['🗄️ Consultor Itaú arquivado',
+         n > 0 ? `${n} conversa(s) do consultor do Itaú saíram do atendimento geral: viraram contato interno, a IA não age nelas e o histórico continua guardado. Pra trazer de volta, é só desarquivar na conversa.`
+               : 'Não encontrei conversa com esse nome pra arquivar. Me diga o nome exato como aparece no VittaHub que eu tiro do atendimento.']).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_arquivar_consultor_itau_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🗄️ Consultor Itaú arquivado:', n);
     }
 
     console.log('✅ Auto-migrate complete');

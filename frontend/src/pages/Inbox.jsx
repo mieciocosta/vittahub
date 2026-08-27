@@ -1994,6 +1994,25 @@ export default function Inbox({ onUnreadChange }) {
                 <option value="gestao">👔 Gestão / Direção</option>
                 <option value="profissional_saude">🏥 Profissional da clínica</option>
               </select>
+              {/* 🗄️ TIRAR DO ATENDIMENTO (ordem do master, 24/08): contato que não é
+                  cliente sai da lista sem perder o histórico. Só gestão. */}
+              {['master','supervisor'].includes(user?.role) && (
+                <button onClick={async () => {
+                  const arquivar = !sel.arquivada;
+                  if (arquivar && !window.confirm(`Tirar ${sel.contact_name || 'este contato'} do atendimento geral?\n\nEle sai da lista, a IA para de agir nele e o histórico continua guardado. Dá pra trazer de volta quando quiser.`)) return;
+                  try {
+                    await api.patch(`/inbox/conversations/${sel.id}/arquivar`, { arquivada: arquivar });
+                    Toast.show(arquivar ? 'Contato fora do atendimento geral 🗄️' : 'Contato de volta ao atendimento', 'success');
+                    setSel(p => ({ ...p, arquivada: arquivar }));
+                    setConvos(p => p.filter(c => c.id !== sel.id));
+                    if (arquivar) setSel(null);
+                  } catch (e) { Toast.show(e.message, 'error'); }
+                }}
+                  title={sel.arquivada ? 'Trazer este contato de volta ao atendimento' : 'Tirar este contato do atendimento geral (não é cliente)'}
+                  className="btn btn-sm" style={{ background:'#2b2b2b', color:'#e5e5e5', border:'1.5px solid #4b5563', fontSize:11, padding:'4px 9px', fontWeight:700 }}>
+                  🗄️ {sel.arquivada ? 'Desarquivar' : 'Tirar do atendimento'}
+                </button>
+              )}
               {/* 📌 FIXAR DENTRO DO PRÓPRIO CHAT (pedido do master, 24/08: "quero
                   que elas possam fixar cada conversa dentro do próprio chat, não
                   somente na listagem"). Mesmo botão, mesma cor dourada da lista,

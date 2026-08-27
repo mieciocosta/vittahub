@@ -407,10 +407,13 @@ export function podeVerSetor(viewer, conv) {
   return ef === null || ef === viewerSetor;
 }
 
-function cacheGetList({ channel, search, unread_only, waiting, minhas, responsavel, grupos, setor, categoria, classificacao, page = 1, limit = 100, extraIds = null, viewer = null }) {
+function cacheGetList({ channel, search, unread_only, waiting, minhas, responsavel, grupos, setor, categoria, classificacao, arquivadas, page = 1, limit = 100, extraIds = null, viewer = null }) {
   let list = Array.from(convoCache.values())
     .sort((a, b) => new Date(b.last_message_at || 0) - new Date(a.last_message_at || 0));
   if (channel && channel !== 'all') list = list.filter(c => c.channel === channel);
+  /* 🗄️ Arquivadas ficam FORA do atendimento geral (contato que não é cliente).
+     Só aparecem quando alguém pede de propósito (?arquivadas=true). */
+  list = arquivadas === 'true' ? list.filter(c => c.arquivada === true) : list.filter(c => c.arquivada !== true);
   // Pastas de organização: com ?categoria=fidelidade|banco_dados mostra só a pasta;
   // sem categoria, o inbox normal ESCONDE quem já foi movido pra uma pasta — EXCETO
   // quando se pede uma classificação específica (páginas Planos/Vacinação/Consultas/
@@ -4644,6 +4647,24 @@ r.post('/conversations/:id/followup', async (req, res) => {
        WHERE id = $3`, [data, motivo, leadId]).catch(() => {});
     socketEmit('funil_update', { tipo: 'lead', leadId });
     res.json({ ok: true, data, lead_id: leadId });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* 🗄️ ARQUIVAR / DESARQUIVAR (ordem do master, 24/08: "esse contato precisa ser
+   retirado do atendimento em geral"). Contato que não é cliente — banco,
+   fornecedor, consultor — sai da lista sem apagar nada, e volta com um clique.
+   É a alternativa honesta ao excluir, que continua proibido nesta casa. */
+r.patch('/conversations/:id/arquivar', async (req, res) => {
+  try {
+    if (!ehGestao(req.user)) return res.status(403).json({ error: 'Só a gestão tira um contato do atendimento.' });
+    const arquivar = req.body?.arquivada !== false;
+    const { rows: [c] } = await query(
+      `UPDATE conversas SET arquivada = $1${arquivar ? ", bot_ativo = false" : ''} WHERE id = $2 RETURNING *`,
+      [arquivar, req.params.id]);
+    if (!c) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    cacheUpdate(c);
+    socketEmit('conv_arquivada', { convId: c.id, arquivada: arquivar });
+    res.json({ ok: true, arquivada: arquivar });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
