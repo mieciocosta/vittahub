@@ -4,7 +4,7 @@ import {
   UserPlus, Hash, Bot, FileText, Volume2, File, Tag,
   Smile, PanelLeftClose, PanelLeftOpen, Play, ChevronUp, Loader2, Zap, Plus,
   CheckCircle2, Clock, MessageCircle, Phone, Image,
-  MailOpen, VolumeX, CalendarDays, Bell, Trash2, Sticker, MessageSquare } from 'lucide-react';
+  MailOpen, VolumeX, CalendarDays, Bell, Trash2, Sticker, MessageSquare, ChevronLeft } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { useSearchParams } from 'react-router-dom';
 import { fmt, openWA, avatarGrad } from '../hooks/utils.js';
@@ -1704,13 +1704,14 @@ export default function Inbox({ onUnreadChange }) {
 
   /* ─────────────────── RENDER ──────────────────────────────────────────────── */
   return (
-    <div style={{ display:'flex', height:'100vh', overflow:'hidden' }}
+    <div className="vh-inbox-wrap" style={{ display:'flex', height:'100vh', overflow:'hidden' }}
       onMouseMove={e => { if (resizing.current) { const w=Math.min(500,Math.max(220,e.clientX-230)); setListWidth(w); } }}
       onMouseUp={() => { resizing.current=false; document.body.style.cursor=''; }}
       onMouseLeave={() => { resizing.current=false; document.body.style.cursor=''; }}>
 
       {/* ── LISTA DE CONVERSAS ─────────────────────────────────────────────── */}
-      <div style={{ width:listCollapsed?0:listWidth, flexShrink:0, background:'var(--card,#fff)',
+      <div className={`vh-inbox-list${sel ? ' hidden' : ''}`}
+        style={{ width:listCollapsed?0:listWidth, flexShrink:0, background:'var(--card,#fff)',
         display:'flex', flexDirection:'column', borderRight:'1px solid var(--border)',
         overflow:'hidden', transition:'width .2s ease' }}>
         {/* Header */}
@@ -1843,10 +1844,14 @@ export default function Inbox({ onUnreadChange }) {
           <p style={{ color:'var(--light)', fontSize:11.5, marginTop:4 }}>{total.toLocaleString()} conversas · {totalUnread} não lidas</p>
         </div>
       ) : (
-        <div style={{ flex:1, display:'flex', flexDirection:'column', minWidth:0 }}>
+        <div className="vh-inbox-chat" style={{ flex:1, display:'flex', flexDirection:'column', minWidth:0 }}>
 
           {/* Header do chat */}
-          <div className="chat-header" style={{ background:'var(--card,#fff)', padding:'11px 14px', display:'flex', alignItems:'center', gap:9, rowGap:8, flexWrap:'wrap', flexShrink:0 }}>
+          <div className="chat-header vh-chat-header" style={{ background:'var(--card,#fff)', padding:'11px 14px', display:'flex', alignItems:'center', gap:9, rowGap:8, flexWrap:'wrap', flexShrink:0 }}>
+            {/* ⬅️ No celular: volta pra lista de conversas (ordem do master, 24/08) */}
+            <button className="vh-back-btn" onClick={()=>{ setSel(null); setShowInfo(false); setShowAI(false); }} title="Voltar para a lista de conversas">
+              <ChevronLeft size={17}/>
+            </button>
             {listCollapsed && (
               <button onClick={()=>setListCollapsed(false)} style={{ padding:'5px 7px', borderRadius:8, background:'var(--bg2)', border:'1.5px solid var(--border)', cursor:'pointer', color:'var(--muted)', display:'flex', alignItems:'center', flexShrink:0 }}>
                 <PanelLeftOpen size={13}/>

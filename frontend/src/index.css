@@ -488,6 +488,17 @@ h1 { letter-spacing: -0.7px; }
   .vh-page-pad { padding: 16px !important; }
   /* Modais: full width */
   .vh-modal-box { max-width: 96vw !important; margin: 8px !important; }
+
+  /* 📱 CELULAR: FOCO NO CHAT (ordem do master, 24/08). O ☰ é fixo no canto
+     superior esquerdo — o cabeçalho da conversa abre espaço pra ele, senão o
+     avatar e o nome do cliente cobriam o menu. */
+  .vh-chat-header { padding-left: 56px !important; }
+  /* Sem conversa aberta, o ☰ divide o topo com a busca da lista */
+  .vh-inbox-list .vh-inbox-topo { padding-left: 50px !important; }
+  /* A assistente, quando aberta, vira tela cheia: nunca espreme o chat */
+  .cop-slide { position: fixed !important; inset: 0 !important; width: 100% !important; z-index: 190 !important; }
+  /* Faixa de contexto e barra de ações não roubam altura da conversa */
+  .vh-faixa { display: none !important; }
 }
 
 /* ── Tablet ── */
