@@ -598,19 +598,21 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
             </button>
           </div>
         ) : (
-          <div style={{ display:'flex', flexWrap:'wrap', alignItems:'center', gap:9, padding:'12px 11px', borderRadius:16,
-            background:'linear-gradient(160deg, rgba(255,255,255,.20), rgba(255,255,255,.07))',
-            border:'1px solid rgba(255,255,255,.24)', boxShadow:'0 8px 24px rgba(0,0,0,.22), inset 0 1px 0 rgba(255,255,255,.18)' }}>
-            {/* Foto maior (pedido do master) — é o rosto da pessoa no sistema */}
+          /* UX (master, 24/08: "ainda está poluído"): o cartão virou uma LINHA —
+             avatar menor, nome, papel discreto. Sem moldura dourada, sem selos
+             coloridos, sem sombra pesada. O menu começa logo abaixo. */
+          <div style={{ display:'flex', alignItems:'center', gap:10, padding:'2px 2px 0' }}>
             <button onClick={()=>setShowAvatarBuilder(true)} title="Foto de perfil (foto própria ou avatar)"
-              style={{ background:'none', border:'none', cursor:'pointer', padding:0, borderRadius:'50%', lineHeight:0,
-                boxShadow:'0 0 0 2px rgba(255,255,255,.9), 0 0 0 5px rgba(212,175,55,.45), 0 6px 18px rgba(0,0,0,.35)' }}>
-              <UserAvatar size={76} />
+              style={{ background:'none', border:'none', cursor:'pointer', padding:0, borderRadius:'50%', lineHeight:0, position:'relative',
+                boxShadow:'0 0 0 2px rgba(255,255,255,.35)' }}>
+              <UserAvatar size={40} />
+              <span title="Online" style={{ position:'absolute', right:1, bottom:1, width:9, height:9, borderRadius:'50%',
+                background:'#3ef58f', border:'2px solid #12233d' }} />
             </button>
             <div style={{ flex:1, minWidth:0 }}>
               {/* Nome COMPLETO, sem corte: quebra em até 2 linhas se precisar */}
               <button onClick={editarNome} title="Editar meu nome" style={{ background:'none', border:'none', padding:0, cursor:'pointer', display:'flex', alignItems:'flex-start', gap:4, maxWidth:'100%', textAlign:'left' }}>
-                <span style={{ color:'#fff', fontSize:14.5, fontWeight:800, lineHeight:1.25, letterSpacing:.2, textShadow:'0 1px 4px rgba(0,0,0,.3)' }}>{user?.nome}</span>
+                <span style={{ color:'#fff', fontSize:13.5, fontWeight:800, lineHeight:1.2, letterSpacing:.1 }}>{user?.nome}</span>
                 <Pencil size={10} color="rgba(255,255,255,.55)" style={{ flexShrink:0, marginTop:3 }} />
               </button>
               {nomeOpen && (
@@ -630,13 +632,8 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                   <div style={{ fontSize:10, color:'var(--muted, #9ca3af)', marginTop:7, lineHeight:1.4 }}>Muda na hora, em todo o sistema.</div>
                 </div>
               )}
-              <div style={{ display:'flex', flexWrap:'wrap', gap:4, marginTop:4, alignItems:'center' }}>
-                <span style={{ fontSize:9.5, fontWeight:800, color:'#ffe9b0', background:'rgba(212,175,55,.22)', border:'1px solid rgba(212,175,55,.4)', borderRadius:20, padding:'2px 8px', letterSpacing:.3 }}>
-                  {user?.role === 'master' ? '◆ Master' : `${user?.role === 'supervisor' ? '◆ ' : ''}${tituloUsuario(user)}`}
-                </span>
-                <span style={{ fontSize:9.5, fontWeight:800, color:'#a7f3d0', background:'rgba(62,245,143,.14)', border:'1px solid rgba(62,245,143,.35)', borderRadius:20, padding:'2px 8px' }}>
-                  <span style={{ display:'inline-block', width:5, height:5, borderRadius:'50%', background:'#3ef58f', marginRight:4, verticalAlign:'1px', boxShadow:'0 0 6px rgba(62,245,143,.9)' }}/>Online
-                </span>
+              <div style={{ fontSize:10.5, fontWeight:700, color:'rgba(255,255,255,.55)', marginTop:1, letterSpacing:.2 }}>
+                {user?.role === 'master' ? 'Master' : tituloUsuario(user)}
               </div>
             </div>
             {/* ☀️ O bloco pessoal do dia — redesenhado (pedido do master:
@@ -649,11 +646,11 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
             {/* Linha fina: só o que precisa estar sempre à vista */}
             <button onClick={alternarPerfil}
               title={perfilAberto ? 'Recolher meu dia' : 'Ver meu dia: versículo, frase e metas'}
-              style={{ width:'100%', marginTop:6, display:'flex', alignItems:'center', gap:7,
-                padding:'6px 10px', borderRadius:11, cursor:'pointer',
-                background:'rgba(255,255,255,.08)', border:'1px solid rgba(255,255,255,.16)', color:'#fff' }}>
+              style={{ width:'100%', marginTop:8, display:'flex', alignItems:'center', gap:7,
+                padding:'5px 2px', borderRadius:9, cursor:'pointer',
+                background:'transparent', border:'none', borderTop:'1px solid rgba(255,255,255,.10)', color:'#fff' }}>
               <span style={{ fontSize:12 }}>{perfilAberto ? '▾' : '▸'}</span>
-              <span style={{ flex:1, textAlign:'left', fontSize:11.5, fontWeight:800, letterSpacing:.2, opacity:.92 }}>Meu dia</span>
+              <span style={{ flex:1, textAlign:'left', fontSize:11, fontWeight:700, letterSpacing:.3, opacity:.6, textTransform:'uppercase' }}>Meu dia</span>
               {(() => {
                 /* A única cor forte que fica sempre à vista é a da META (ordem
                    do master: "tira as cores vibrantes, exceto da meta"). */
@@ -837,12 +834,14 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
         {/* 👥 ENTRAR COMO — antes era só um ícone de 13px perdido na fileira de
             botõezinhos, e o master não achava. Agora é uma faixa com legenda,
             logo abaixo do nome. Só o dono enxerga. */}
-        {podeTrocar && !collapsed && (
+        {/* Só aparece com o "Meu dia" aberto: é ferramenta do dono, usada de vez
+            em quando, não precisa ocupar a primeira dobra todo dia. */}
+        {podeTrocar && !collapsed && perfilAberto && (
           <button onClick={abrirTroca}
-            style={{ width:'100%', marginTop:8, padding:'8px 10px', borderRadius:10, cursor:'pointer',
-              border:'1px solid rgba(255,255,255,.28)', background:'rgba(255,255,255,.13)', color:'#fff',
-              fontWeight:800, fontSize:12, display:'flex', alignItems:'center', justifyContent:'center', gap:7 }}>
-            <Users size={14} /> {trocaOpen ? 'Fechar' : 'Entrar como…'}
+            style={{ width:'100%', marginTop:8, padding:'7px 10px', borderRadius:10, cursor:'pointer',
+              border:'1px solid rgba(255,255,255,.18)', background:'rgba(255,255,255,.08)', color:'rgba(255,255,255,.85)',
+              fontWeight:700, fontSize:11.5, display:'flex', alignItems:'center', justifyContent:'center', gap:7 }}>
+            <Users size={13} /> {trocaOpen ? 'Fechar' : 'Entrar como…'}
           </button>
         )}
 
