@@ -2919,28 +2919,44 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log('🗄️ Consultor Itaú arquivado:', n);
     }
 
-    /* 👤 CONVERSA DA SRA. JESSICA RIBEIRO É DA POLIANA (ordem do master, 24/08:
-       "é a Poliana que está falando com ela"). Ajusta a responsável para a
-       assinatura das próximas mensagens sair com o nome certo. */
-    const { rows: [flagJR] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_jessica_ribeiro_poliana_v1'");
+    /* 👤 CONVERSA DA JÉSSICA RIBEIRO: O CRÉDITO É DA POLIANA (ordem do master,
+       24/08: "está que a Dra. mandou pois esqueci de mudar o usuário antes").
+       Faz três coisas: passa a conversa pra Poliana, troca o REMETENTE das
+       mensagens que saíram no nome errado e corrige a assinatura escrita no
+       texto, pra o histórico contar a verdade de quem atendeu. */
+    const { rows: [flagJR] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_jessica_ribeiro_poliana_v2'");
     if (!flagJR) {
       const { rows: [pol2] } = await query(
         "SELECT id, nome FROM usuarios WHERE ativo = true AND nome ILIKE 'poliana%' ORDER BY nome LIMIT 1").catch(() => ({ rows: [] }));
       const { rows: convsJR } = await query(
-        `SELECT id, contact_name FROM conversas WHERE contact_name ILIKE '%jessica%ribeiro%' OR contact_name ILIKE '%jéssica%ribeiro%'`
-      ).catch(() => ({ rows: [] }));
-      let n = 0;
+        `SELECT id, contact_name FROM conversas
+          WHERE contact_name ILIKE '%jessica%ribeiro%' OR contact_name ILIKE '%jéssica%ribeiro%'`).catch(() => ({ rows: [] }));
+      let nConv = 0, nMsg = 0;
       if (pol2 && convsJR.length) {
-        const r = await query('UPDATE conversas SET responsavel_id = $1 WHERE id = ANY($2::text[])',
-          [pol2.id, convsJR.map(c => c.id)]).catch(() => null);
-        n = r?.rowCount || 0;
+        const ids = convsJR.map(c => c.id);
+        const nome1 = String(pol2.nome).trim().split(/\s+/)[0];
+        const rc = await query('UPDATE conversas SET responsavel_id = $1 WHERE id = ANY($2::text[])', [pol2.id, ids]).catch(() => null);
+        nConv = rc?.rowCount || 0;
+        // Mensagens NOSSAS dos últimos 7 dias que saíram com título (Dra./Dr.) ou sem nome
+        const rm = await query(
+          `UPDATE mensagens
+              SET sender_nome = $1,
+                  content = regexp_replace(content, '^\\*(Dra?\\.?|Sra?\\.?)[^\\n]*:\\*', '*' || $1 || ':*')
+            WHERE conversa_id = ANY($2::text[])
+              AND from_type IN ('me','bot')
+              AND created_at > NOW() - interval '7 days'
+              AND (sender_nome IS NULL OR sender_nome ~* '^(dra?|sra?)\\.?$' OR sender_nome ILIKE 'dra%' OR sender_nome ILIKE 'dr.%'
+                   OR content ~ '^\\*(Dra?\\.?|Sra?\\.?)[^\\n]*:\\*')`,
+          [nome1, ids]).catch((e) => { console.error('corrige remetente:', e.message); return null; });
+        nMsg = rm?.rowCount || 0;
       }
       await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
-        ['👤 Conversa da Sra. Jessica Ribeiro',
-         n > 0 ? `A conversa passou para a ${String(pol2.nome).split(' ')[0]} — as próximas mensagens saem assinadas com o nome dela. As mensagens já enviadas podem ser corrigidas na própria conversa, no botão de editar.`
-               : 'Não achei a conversa da Jessica Ribeiro (ou a Poliana no cadastro) pra ajustar a responsável. Me diga como o nome aparece na tela que eu acerto.']).catch(() => {});
-      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_jessica_ribeiro_poliana_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
-      console.log('👤 Jessica Ribeiro → Poliana:', n);
+        ['👤 Conversa da Jéssica Ribeiro ajustada',
+         pol2 && convsJR.length
+           ? `A conversa passou para a ${String(pol2.nome).split(' ')[0]} (${nConv} conversa) e ${nMsg} mensagem(ns) dos últimos 7 dias tiveram o remetente corrigido para o nome dela, inclusive a assinatura escrita no texto. Lembrando: o que a cliente já recebeu no WhatsApp continua como foi enviado; aqui dentro o histórico agora mostra a atendente certa.`
+           : 'Não encontrei a conversa da Jéssica Ribeiro ou a Poliana no cadastro. Me diga como o nome aparece na tela que eu acerto.']).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_jessica_ribeiro_poliana_v2','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log(`👤 Jéssica Ribeiro → Poliana: ${nConv} conversa(s), ${nMsg} mensagem(ns)`);
     }
 
     console.log('✅ Auto-migrate complete');

@@ -6324,6 +6324,30 @@ r.delete('/conversations/:id', async (req, res) => {
   return res.status(403).json({ error: 'Excluir conversas foi desativado por ordem do Dr. Miécio — o histórico do cliente é permanente.' });
 });
 
+/* 👤 TROCAR QUEM APARECE COMO REMETENTE (ordem do master, 24/08: "esqueci de
+   mudar o usuário antes"). Corrige o crédito da mensagem no histórico: o nome
+   no balão e a assinatura escrita no texto passam a ser da atendente certa.
+   O que o cliente já recebeu no WhatsApp não muda — isso é honestidade, não
+   limitação: mensagem entregue não se reescreve no aparelho dele. */
+r.patch('/conversations/:id/messages/:msgId/remetente', async (req, res) => {
+  try {
+    if (!ehGestao(req.user)) return res.status(403).json({ error: 'Só a gestão troca o remetente de uma mensagem.' });
+    const nome = String(req.body?.nome || '').trim().slice(0, 40);
+    if (!nome) return res.status(400).json({ error: 'Informe o nome da atendente.' });
+    const primeiro = primeiroNomeUtil(nome) || nome;
+    const { rows: [m] } = await query(
+      `UPDATE mensagens
+          SET sender_nome = $1,
+              content = regexp_replace(COALESCE(content,''), '^\\*[^\\n]*:\\*', '*' || $1 || ':*')
+        WHERE id = $2 AND conversa_id = $3 AND from_type IN ('me','bot')
+        RETURNING id, sender_nome, content`,
+      [primeiro, req.params.msgId, req.params.id]);
+    if (!m) return res.status(404).json({ error: 'Mensagem não encontrada (ou é do cliente).' });
+    socketEmit('msg_editada', { convId: req.params.id, msgId: m.id, content: m.content, sender_nome: m.sender_nome });
+    res.json({ ok: true, sender_nome: m.sender_nome, content: m.content });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.delete('/conversations/:id/messages/:msgId', async (req, res) => {
   try {
     const { rows: [m] } = await query('SELECT * FROM mensagens WHERE id = $1 AND conversa_id = $2', [req.params.msgId, req.params.id]);
