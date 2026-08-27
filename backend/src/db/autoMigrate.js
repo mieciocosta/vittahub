@@ -3013,7 +3013,8 @@ async function carregarFigurinhas() {
         agradecimento: 'Agradecimento', vacinas: 'Vacinas', consultas: 'Consultas',
         terapias: 'Terapias', psvacinal: 'Pós-vacinal', posvacinal: 'Pós-vacinal',
         datascomemorativas: 'Datas comemorativas', indicaes: 'Indicações',
-        posagendamento: 'Pós-agendamento', frases: 'Frases carinhosas', vittalis: 'Vittalis' };
+        posagendamento: 'Pós-agendamento', frases: 'Frases carinhosas',
+        vitta: 'Vittalis Premium', vittalis: 'Vittalis' };
       const arquivos = fsFig.readdirSync(dirFig).filter(x => x.endsWith('.webp') && x.includes('__'));
       let novas = 0;
       for (const f of arquivos) {
