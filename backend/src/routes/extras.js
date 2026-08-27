@@ -3504,10 +3504,10 @@ r.get('/biblioteca', async (req, res) => {
     const limite = Math.min(200, Math.max(12, parseInt(req.query.limite) || 60));
     const pulo = Math.max(0, parseInt(req.query.pulo) || 0);
     const { rows } = await query(
-      `SELECT id, titulo, tipo, setor, categoria, origem, mime,
+      `SELECT id, titulo, tipo, setor, categoria, origem, mime, COALESCE(ordem, 999) AS ordem,
               COALESCE(octet_length(data), 0) tamanho, created_at
          FROM biblioteca_midias ${where}
-        ORDER BY created_at DESC LIMIT ${limite + 1} OFFSET ${pulo}`, params);
+        ORDER BY COALESCE(ordem, 999) ASC, created_at DESC LIMIT ${limite + 1} OFFSET ${pulo}`, params);
     const tem_mais = rows.length > limite;
     res.json({ itens: rows.slice(0, limite), tem_mais, pulo, limite });
   } catch (err) { res.status(500).json({ error: err.message }); }

@@ -6529,10 +6529,15 @@ r.post('/conversations/:id/send-midia', async (req, res) => {
       console.error('send-midia falhou:', zr?.status, corpo.slice(0, 150));
       return res.status(502).json({ error: 'O WhatsApp recusou o envio. Tente de novo.' });
     }
+    /* 👁 A mídia vai no `content` (ordem do master, 27/08: "quando enviar as
+       figurinhas, que apareçam também para a atendente"). Toda a casa lê mídia
+       do content — era por isso que a figurinha saía no WhatsApp do cliente mas
+       ficava um vazio na tela de quem enviou. O texto amigável fica só na
+       prévia da lista de conversas. */
     const { rows: [pm] } = await query(
       `INSERT INTO mensagens (conversa_id, from_type, sender_id, sender_nome, type, content, media_data, status, created_at)
        VALUES ($1,'me',$2,$3,$4,$5,$6,'delivered',NOW()) RETURNING *`,
-      [conv.id, req.user?.id || null, req.user?.nome || 'Atendente', tipoMsg, preview, dataUrl]);
+      [conv.id, req.user?.id || null, req.user?.nome || 'Atendente', tipoMsg, dataUrl, dataUrl]);
     await query("UPDATE conversas SET last_message = $1, last_from = 'me', last_message_at = NOW() WHERE id = $2", [preview, conv.id]);
     const cached = convoCache.get(conv.id);
     if (cached) cacheUpdate({ ...cached, last_message: preview, last_from: 'me', last_message_at: new Date().toISOString() });

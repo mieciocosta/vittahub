@@ -141,6 +141,8 @@ export default async function runMigrate() {
        equipe inteira, passando por cima de setor, carteira e pasta — inclusive
        da carteira fechada da Fidelidade. É exceção, não regra: só o master liga. */
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS visivel_todos BOOLEAN DEFAULT false`).catch(() => {});
+    // 🔢 Ordem de exibição na Biblioteca/aba de figurinhas (menor = mais em cima)
+    await query(`ALTER TABLE biblioteca_midias ADD COLUMN IF NOT EXISTS ordem INT DEFAULT 999`).catch(() => {});
     // 🧪 Conversa de SIMULAÇÃO (treino/avaliação da IA): nada dela vai pro WhatsApp
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS simulacao BOOLEAN DEFAULT false`).catch(() => {});
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS provider TEXT DEFAULT 'zapi'`).catch(() => {});
@@ -3031,8 +3033,14 @@ async function carregarFigurinhas() {
       const arquivos = fsFig.readdirSync(dirFig).filter(x => x.endsWith('.webp') && x.includes('__'));
       let novas = 0;
       for (const f of arquivos) {
-        const [catArq, nomeArq] = f.replace('.webp', '').split('__');
+        const [catArq, bruto] = f.replace('.webp', '').split('__');
         const categoria = CATS[catArq] || 'Vittalis';
+        /* 🔢 O número no começo do arquivo é a ORDEM na aba do chat (ordem do
+           master: "as mais importantes em cima"). Ele manda na fila e NÃO entra
+           no título — "010-bom-dia" vira "Vitta · Bom dia", posição 10. */
+        const mOrd = /^(\d+)-(.+)$/.exec(bruto);
+        const ordem = mOrd ? parseInt(mOrd[1], 10) : 999;
+        const nomeArq = mOrd ? mOrd[2] : bruto;
         const titulo = `Vitta · ${nomeArq.replace(/-/g, ' ').replace(/^./, c => c.toUpperCase())}`;
         const b64 = fsFig.readFileSync(pathFig.join(dirFig, f)).toString('base64');
         /* Se a figurinha JÁ existe mas o arquivo mudou, atualiza a imagem em vez
@@ -3041,12 +3049,13 @@ async function carregarFigurinhas() {
         const { rows: [ja] } = await query(
           `SELECT id FROM biblioteca_midias WHERE titulo = $1 AND tipo = 'figurinha' LIMIT 1`, [titulo]).catch(() => ({ rows: [1] }));
         if (ja) {
-          if (ja.id) await query(`UPDATE biblioteca_midias SET data = $2, mime = 'image/webp', categoria = $3
-                                   WHERE id = $1 AND data IS DISTINCT FROM $2`, [ja.id, b64, categoria]).catch(() => {});
+          if (ja.id) await query(`UPDATE biblioteca_midias SET data = $2, mime = 'image/webp', categoria = $3, ordem = $4
+                                   WHERE id = $1 AND (data IS DISTINCT FROM $2 OR ordem IS DISTINCT FROM $4)`,
+                                 [ja.id, b64, categoria, ordem]).catch(() => {});
           continue;
         }
-        await query(`INSERT INTO biblioteca_midias (titulo, tipo, setor, categoria, mime, data)
-                     VALUES ($1, 'figurinha', 'geral', $3, 'image/webp', $2)`, [titulo, b64, categoria]).catch(() => {});
+        await query(`INSERT INTO biblioteca_midias (titulo, tipo, setor, categoria, mime, data, ordem)
+                     VALUES ($1, 'figurinha', 'geral', $3, 'image/webp', $2, $4)`, [titulo, b64, categoria, ordem]).catch(() => {});
         novas++;
       }
       if (novas) {
