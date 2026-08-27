@@ -129,6 +129,13 @@ export default async function runMigrate() {
        fornecedor, consultor — sai do atendimento geral sem apagar nada. O
        histórico fica intacto e volta com um clique. */
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS arquivada BOOLEAN DEFAULT false`).catch(() => {});
+    /* 🔁 QUEM TRANSFERIU NÃO VÊ MAIS (ordem do master, 24 e 27/08: "quando
+       transferir, quero que desapareça para a outra pessoa que transferiu").
+       Guarda os ids de quem passou o atendimento adiante. Some da lista dessa
+       pessoa mesmo que ela seja supervisora ou tenha ve_tudo — era por aí que a
+       conversa voltava a aparecer no recarregamento. Se um dia a conversa
+       voltar pra ela, o id sai do array e ela enxerga de novo. */
+    await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS transferida_por TEXT[] DEFAULT '{}'`).catch(() => {});
     // 🧪 Conversa de SIMULAÇÃO (treino/avaliação da IA): nada dela vai pro WhatsApp
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS simulacao BOOLEAN DEFAULT false`).catch(() => {});
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS provider TEXT DEFAULT 'zapi'`).catch(() => {});

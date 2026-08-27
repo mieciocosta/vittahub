@@ -855,10 +855,18 @@ export default function Inbox({ onUnreadChange }) {
       socket.on('venda_registrada', () => {
         api.get('/extras/meta-setor').then(setMetaSetor).catch(() => {});
       });
-      socket.on('conv_transferida', ({ convId, para_id, para_nome }) => {
-        const me = userRef.current?.id;
-        // Sou atendente e a conversa saiu de mim → some da minha lista
-        if (me && para_id !== me && userRef.current?.role === 'atendente') {
+      socket.on('conv_transferida', ({ convId, para_id, de_id }) => {
+        const u = userRef.current;
+        const me = u?.id;
+        if (!me || String(para_id) === String(me)) {          // recebi: continua comigo
+          setConvos(prev => prev.map(c => c.id === convId ? { ...c, responsavel_id: para_id } : c));
+          return;
+        }
+        /* 🔁 Sai da lista de QUEM TRANSFERIU (ordem do master, 27/08) — vale
+           também pra supervisora e pra quem tem ve_tudo. E segue saindo de
+           quem era o dono anterior. O master continua vendo tudo. */
+        const euTransferi = de_id && String(de_id) === String(me);
+        if ((euTransferi && u?.role !== 'master') || u?.role === 'atendente') {
           setConvos(prev => prev.filter(c => c.id !== convId));
           setSel(prev => prev?.id === convId ? null : prev);
         } else {

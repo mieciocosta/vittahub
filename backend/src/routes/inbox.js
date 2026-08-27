@@ -369,6 +369,15 @@ function setorEfetivo(conv) {
 }
 export function podeVerSetor(viewer, conv) {
   if (!viewer || viewer.role === 'master') return true;
+  /* 🔁 QUEM PASSOU ADIANTE NÃO VÊ MAIS (ordem do master, 27/08: "quando
+     transferir quero que desapareça para a outra pessoa que transferiu").
+     Vale pra TODO MUNDO menos o master — inclusive supervisora e quem tem
+     ve_tudo, que era exatamente por onde a conversa voltava a aparecer no
+     recarregamento (na tela ela sumia, no F5 ressuscitava). Se o atendimento
+     voltar pra ela um dia, o id sai da lista e ela enxerga de novo. */
+  if (Array.isArray(conv.transferida_por) && conv.transferida_por.length
+      && conv.transferida_por.map(String).includes(String(viewer.id))
+      && String(conv.responsavel_id || '') !== String(viewer.id)) return false;
   /* 🏠 HOME OFFICE POR PRODUÇÃO (pedido do master): quem tem so_carteira só
      enxerga o que foi TRANSFERIDO pra ela — nem o pool sem dono. Vem antes de
      qualquer outra regra (inclusive ve_tudo): é o contrato desse perfil.
@@ -4492,11 +4501,19 @@ r.patch('/conversations/:id/assign', async (req, res) => {
     const respId = req.body.responsavel_id || null;
     // Quem era o dono ANTES (pra saber se o cliente já conhece outro nome)
     const { rows: [antesConv] } = await query('SELECT responsavel_id, phone FROM conversas WHERE id = $1', [req.params.id]).catch(() => ({ rows: [] }));
-    await query('UPDATE conversas SET responsavel_id = $1 WHERE id = $2', [respId, req.params.id]);
+    /* 🔁 A marca de "quem transferiu" acompanha o dono: quem RECEBE sai da
+       lista, e quando o atendimento VOLTA PRO POOL (sem dono) a lista é zerada
+       — é uma nova rodada de distribuição, todo mundo do setor vê de novo. */
+    const { rows: [convUp] } = await query(
+      `UPDATE conversas SET responsavel_id = $1,
+              transferida_por = CASE WHEN $1::text IS NULL THEN ARRAY[]::text[]
+                ELSE ARRAY(SELECT x FROM unnest(COALESCE(transferida_por, ARRAY[]::text[])) AS x WHERE x <> $1::text) END
+       WHERE id = $2 RETURNING *`, [respId, req.params.id]);
     // O lead vinculado herda a carteira (responsável) — pra bater com a pasta/lista
     await query('UPDATE leads SET responsavel_id = $1 WHERE id = (SELECT lead_id FROM conversas WHERE id = $2 AND lead_id IS NOT NULL)', [respId, req.params.id]).catch(() => {});
     const cached = convoCache.get(req.params.id);
-    if (cached) cacheUpdate({ ...cached, responsavel_id: respId });
+    if (convUp) cacheUpdate(convUp);
+    else if (cached) cacheUpdate({ ...cached, responsavel_id: respId });
     const { rows: [conv] } = await query(`
       SELECT c.id, c.responsavel_id, u.nome AS responsavel_nome, u.cor AS responsavel_cor
       FROM conversas c LEFT JOIN usuarios u ON u.id = c.responsavel_id WHERE c.id = $1`, [req.params.id]);
@@ -5083,10 +5100,17 @@ r.patch('/conversations/:id/transferir', async (req, res) => {
        quem recebeu (pedido do master: Danielle recebe todos e transfere).
        A IA só desliga quando a destinatária não tem o botão da Vitta ligado. */
     const mantemBot = dest.ia_consultas === true && dest.ia_ligada !== false;
+    /* Marca quem passou o atendimento adiante: a conversa some da lista dessa
+       pessoa (ordem do master). O id de quem RECEBE sai da lista — assim, se um
+       dia voltar pra ela, volta a aparecer normalmente. */
     const { rows: [conv] } = await query(
-      `UPDATE conversas SET responsavel_id = $1${mantemBot ? '' : ', bot_ativo = false'} ${novoSetor ? ', setor = $3' : ''}
+      `UPDATE conversas SET responsavel_id = $1${mantemBot ? '' : ', bot_ativo = false'}${novoSetor ? ', setor = $4' : ''},
+              transferida_por = ARRAY(
+                SELECT DISTINCT x FROM unnest(array_append(COALESCE(transferida_por, ARRAY[]::text[]), $3::text)) AS x
+                 WHERE x IS NOT NULL AND x <> '' AND x <> $1::text)
        WHERE id = $2 RETURNING *`,
-      novoSetor ? [paraId, req.params.id, novoSetor] : [paraId, req.params.id]);
+      novoSetor ? [paraId, req.params.id, String(req.user?.id || ''), novoSetor]
+                : [paraId, req.params.id, String(req.user?.id || '')]);
     if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
     cacheUpdate(conv);
     const de = req.user?.nome || 'a equipe';
