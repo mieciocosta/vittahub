@@ -3026,12 +3026,17 @@ async function carregarFigurinhas() {
     const { fileURLToPath: fu } = await import('url');
     const dirFig = pathFig.join(pathFig.dirname(fu(import.meta.url)), '../assets/figurinhas');
     if (fsFig.existsSync(dirFig)) {
+      /* As abas do painel de figurinhas (ordem do master, 27/08: dez modelos
+         por categoria). O prefixo do arquivo é a categoria. */
       const CATS = { bomdia: 'Bom dia', boatarde: 'Boa tarde', boanoite: 'Boa noite',
+        carinhosos: 'Carinhosos', abencoados: 'Abençoados',
+        agvacinas: 'Agendamento de vacinação', agconsultas: 'Agendamento de consultas',
+        confirmacao: 'Confirmação de agendamento', posvacinal: 'Pós-vacinal',
+        terapias: 'Terapias', datas: 'Parabéns e datas',
         agradecimento: 'Agradecimento', vacinas: 'Vacinas', consultas: 'Consultas',
-        terapias: 'Terapias', psvacinal: 'Pós-vacinal', posvacinal: 'Pós-vacinal',
-        datascomemorativas: 'Datas comemorativas', indicaes: 'Indicações',
-        posagendamento: 'Pós-agendamento', frases: 'Frases carinhosas',
-        vitta: 'Vittalis Premium', vittalis: 'Vittalis' };
+        psvacinal: 'Pós-vacinal', datascomemorativas: 'Datas comemorativas',
+        indicaes: 'Indicações', posagendamento: 'Pós-agendamento',
+        frases: 'Frases carinhosas', vitta: 'Vittalis Premium', vittalis: 'Vittalis' };
       const arquivos = fsFig.readdirSync(dirFig).filter(x => x.endsWith('.webp') && x.includes('__'));
       /* 🧹 LIMPA O QUE NÃO EXISTE MAIS (cobrança do master, 27/08: a aba abriu
          com 200 figurinhas). Cada leva antiga deixava as anteriores no banco —
