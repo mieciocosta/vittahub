@@ -44,6 +44,11 @@ export default function Agenda() {
     const q = new URLSearchParams(location.search);
     if (q.get('aba') === 'relatorio') setAba('relatorio');
     setRelLider(q.get('individual') === '1');
+    /* 🗓️ ?data=YYYY-MM-DD abre a agenda JÁ no dia certo (ordem do master,
+       27/08: "depois de agendar, ir direto pra agenda"). Sem isto a tela abria
+       em hoje e o compromisso recém-criado parecia não ter entrado. */
+    const d = q.get('data');
+    if (/^\d{4}-\d{2}-\d{2}$/.test(d || '')) setData(d);
   }, [location.search]);
   const [celebra, setCelebra] = useState(null);     // 🎉 parabéns + direcionamento de venda
   // Recarrega o relatório (sem piscar a tela quando já tem dados na mão)

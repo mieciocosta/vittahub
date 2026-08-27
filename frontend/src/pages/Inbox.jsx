@@ -6,7 +6,7 @@ import {
   CheckCircle2, Clock, MessageCircle, Phone, Image,
   MailOpen, VolumeX, CalendarDays, Bell, Trash2, Sticker, MessageSquare, ChevronLeft } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { fmt, openWA, avatarGrad } from '../hooks/utils.js';
 import { Toast } from '../hooks/toast.js';
 
@@ -515,6 +515,7 @@ export default function Inbox({ onUnreadChange }) {
     try { const v = parseInt(localStorage.getItem('vh_lista_largura')); if (v >= 240 && v <= 620) return v; } catch { /* ok */ }
     return 380;
   });
+  const nav                           = useNavigate();
   const resizing                      = useRef(false);
   const [provaEnviando, setProvaEnviando] = useState(false);   // 📸 envio do conjunto de fotos
   const [cartaoBusy, setCartaoBusy] = useState(false);         // 🗓️ montando o cartão de agendamento
@@ -1755,6 +1756,10 @@ export default function Inbox({ onUnreadChange }) {
       window.__auditLog?.('agendar', 'agenda', sel.id, { nome: sel.contact_name, data: agForm.data, hora: agForm.hora, setor: agForm.setor });
       Toast.show(`Agendado! ✅ Abatido da meta de ${agForm.setor} 🎯`, 'success');
       setAgendarOpen(false);
+      /* 🗓️ Vai direto pra agenda, no dia marcado (ordem do master, 27/08).
+         A atendente vê o compromisso na grade e confere na hora se bateu com
+         outro horário — antes ela ficava no chat sem saber se entrou. */
+      nav(`/agenda?data=${agForm.data}`);
     } catch (e) { Toast.show(e.message || 'Não foi possível agendar', 'error'); }
     setAgSaving(false);
   };
