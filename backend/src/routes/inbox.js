@@ -386,6 +386,7 @@ export function podeVerSetor(viewer, conv) {
        grade principal dela"). Assim a carteira dela cresce pelo trabalho da
        equipe, sem abrir a casa inteira. */
     return String(conv.categoria || '') === 'fidelidade'
+        || String(conv.classificacao || '') === 'fidelidade'
         || String(conv.responsavel_id || '') === String(viewer.id);
   }
   if (viewer.ve_tudo) return true;
@@ -7356,6 +7357,97 @@ r.post('/conversations/:id/carteira/agendar', async (req, res) => {
    Este resumo devolve, de uma vez só, a PRÓXIMA etapa de cada um, se já está
    agendado e há quantos dias está parado — o suficiente pra lista se ordenar
    por urgência e a equipe trabalhar de cima pra baixo.                       */
+/* 👶 FIDELIDADE DO MÊS (ordem do master, 24/08: "são bebês que precisam ser
+   agendados mensalmente"). O painel responde a única pergunta que importa
+   nesse setor: quem já tem horário este mês e quem ainda falta. Cada bebê vem
+   com a idade, o dia em que costuma vacinar, o próximo horário marcado e o
+   status do mês, pra atendente trabalhar a lista de cima pra baixo. */
+r.get('/fidelidade/mes', async (req, res) => {
+  try {
+    const mesRef = /^\d{4}-\d{2}$/.test(req.query.mes || '')
+      ? req.query.mes
+      : new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 7);
+    const hoje = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+    const diaHoje = parseInt(hoje.slice(8, 10), 10);
+
+    const { rows: convs } = await query(`
+      SELECT c.id, c.contact_name, c.phone, c.pasta_dia, c.responsavel_id, c.lead_id,
+             c.last_message_at, TO_CHAR(l.nascimento,'YYYY-MM-DD') nascimento
+        FROM conversas c LEFT JOIN leads l ON l.id = c.lead_id
+       WHERE (COALESCE(c.categoria,'') = 'fidelidade' OR COALESCE(c.classificacao,'') = 'fidelidade')
+         AND COALESCE(c.simulacao, false) = false
+       ORDER BY COALESCE(c.pasta_dia, 99), c.contact_name
+       LIMIT 500`).catch(() => ({ rows: [] }));
+    if (!convs.length) return res.json({ mes: mesRef, itens: [], resumo: { total: 0, agendados: 0, atendidos: 0, faltam: 0, atrasados: 0 } });
+
+    const ids = convs.map(c => c.id);
+    const [{ rows: futuros }, { rows: feitos }, { rows: vendasMes }] = await Promise.all([
+      // Próximo horário marcado (de hoje em diante)
+      query(`SELECT conversa_id, MIN(data)::text proxima, MIN(hora) hora FROM agenda_eventos
+              WHERE conversa_id = ANY($1) AND data >= $2::date
+                AND LOWER(COALESCE(status,'')) NOT LIKE 'cancel%'
+                AND servico IS DISTINCT FROM 'Pós Vacinal'
+              GROUP BY conversa_id`, [ids, hoje]).catch(() => ({ rows: [] })),
+      // Já atendido DENTRO do mês de referência
+      query(`SELECT conversa_id, MAX(data)::text quando FROM agenda_eventos
+              WHERE conversa_id = ANY($1) AND to_char(data,'YYYY-MM') = $2
+                AND status = 'Realizado' AND servico IS DISTINCT FROM 'Pós Vacinal'
+              GROUP BY conversa_id`, [ids, mesRef]).catch(() => ({ rows: [] })),
+      query(`SELECT conversa_id, COALESCE(SUM(valor),0)::float total FROM vendas
+              WHERE conversa_id = ANY($1) AND to_char(data_venda,'YYYY-MM') = $2
+              GROUP BY conversa_id`, [ids, mesRef]).catch(() => ({ rows: [] })),
+    ]);
+    const mapa = (rows, k = 'conversa_id') => Object.fromEntries(rows.map(r2 => [r2[k], r2]));
+    const fut = mapa(futuros), fei = mapa(feitos), vnd = mapa(vendasMes);
+
+    const idadeMeses = (nasc) => {
+      if (!nasc) return null;
+      const n = new Date(nasc + 'T12:00:00'), h = new Date(hoje + 'T12:00:00');
+      let m = (h.getFullYear() - n.getFullYear()) * 12 + (h.getMonth() - n.getMonth());
+      if (h.getDate() < n.getDate()) m--;
+      return Math.max(0, m);
+    };
+
+    const itens = convs.map(c => {
+      const proxima = fut[c.id]?.proxima || null;
+      const atendido = fei[c.id]?.quando || null;
+      const noMes = proxima && String(proxima).slice(0, 7) === mesRef;
+      const dia = c.pasta_dia ? parseInt(c.pasta_dia, 10) : null;
+      // Atrasado: passou do dia habitual dele e ninguém agendou nem atendeu
+      const atrasado = !atendido && !noMes && dia != null && diaHoje > dia;
+      return {
+        id: c.id, nome: c.contact_name || c.phone || 'Cliente',
+        telefone: c.phone, dia_mes: dia,
+        idade_meses: idadeMeses(c.nascimento),
+        nascimento: c.nascimento || null,
+        proxima, hora: fut[c.id]?.hora || null,
+        atendido_em: atendido,
+        vendeu_mes: vnd[c.id]?.total || 0,
+        ultima_conversa: c.last_message_at,
+        status: atendido ? 'atendido' : noMes ? 'agendado' : atrasado ? 'atrasado' : 'falta',
+      };
+    });
+    // Ordem de trabalho: atrasado primeiro, depois quem falta, depois o resto
+    const peso = { atrasado: 0, falta: 1, agendado: 2, atendido: 3 };
+    itens.sort((a, b) => peso[a.status] - peso[b.status]
+      || (a.dia_mes ?? 99) - (b.dia_mes ?? 99)
+      || String(a.nome).localeCompare(String(b.nome)));
+
+    res.json({
+      mes: mesRef,
+      itens,
+      resumo: {
+        total: itens.length,
+        atendidos: itens.filter(i => i.status === 'atendido').length,
+        agendados: itens.filter(i => i.status === 'agendado').length,
+        atrasados: itens.filter(i => i.status === 'atrasado').length,
+        faltam: itens.filter(i => i.status === 'falta' || i.status === 'atrasado').length,
+        faturado_mes: itens.reduce((t, i) => t + (i.vendeu_mes || 0), 0),
+      },
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.get('/fidelidade/resumo', async (req, res) => {
   try {
     const { rows: convs } = await query(`

@@ -29,6 +29,7 @@ const Ranking = React.lazy(() => import('./pages/Ranking.jsx'));
 const TabelaPrecos = React.lazy(() => import('./pages/TabelaPrecos.jsx'));
 const MaryIA = React.lazy(() => import('./pages/MaryIA.jsx'));
 const SimuladorIA = React.lazy(() => import('./pages/SimuladorIA.jsx'));
+const FidelidadeMes = React.lazy(() => import('./pages/FidelidadeMes.jsx'));
 const Indicacoes = lazy(() => import('./pages/Indicacoes.jsx'));
 const PastaClientes = lazy(() => import('./pages/PastaClientes.jsx'));
 const Classificar = lazy(() => import('./pages/Classificar.jsx'));
@@ -526,7 +527,8 @@ export default function App() {
         <ErrorBoundary>
         <Suspense fallback={<div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'70vh' }}><span className="spin" style={{ width:26, height:26, borderColor:'rgba(0,184,192,0.2)', borderTopColor:'var(--tq)' }} /></div>}>
         <Routes>
-          <Route path="/"             element={<Dashboard />} />
+          {/* 👶 Quem cuida só da carteira Fidelidade entra direto no painel do mês */}
+          <Route path="/"             element={user.so_fidelidade ? <Navigate to="/fidelidade-mes" replace /> : <Dashboard />} />
           <Route path="/inbox"        element={<Inbox onUnreadChange={setUnread} />} />
           <Route path="/leads"        element={<Leads />} />
           <Route path="/funil"        element={<Funil />} />
@@ -541,6 +543,7 @@ export default function App() {
           <Route path="/tabela-precos" element={<TabelaPrecos />} />
           <Route path="/mary" element={<MaryIA />} />
           <Route path="/simulador-ia" element={<SimuladorIA />} />
+          <Route path="/fidelidade-mes" element={<FidelidadeMes />} />
           <Route path="/profissionais" element={(['master','supervisor'].includes(user.role) || user.setor === 'consultas') ? <Profissionais /> : <Navigate to="/" />} />
           <Route path="/metas" element={<Metas />} />
           <Route path="/plano-terapias" element={<Terapias />} />

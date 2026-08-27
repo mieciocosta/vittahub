@@ -6,7 +6,7 @@ import {
   CalendarClock, CalendarDays, Bell, CheckCheck, UserPlus, Shield,
   Gift, Bot, Image, FileText, Smile, Phone, Star, Database, Stethoscope, Target, Puzzle,
   Trophy, GraduationCap, Rocket, Wallet, Palette, Gamepad2, BookOpen, LayoutGrid, Pencil, Flame, FileSearch,
-  BellRing, Syringe, ExternalLink, ClipboardList, FileSignature, Search, X,
+  BellRing, Syringe, ExternalLink, ClipboardList, FileSignature, Search, X, Heart,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useApi } from '../context/AuthContext.jsx';
@@ -47,6 +47,9 @@ const SETORES_MENU = [
    `grupo` desenha o título da seção; não muda permissão nem rota. */
 const NAV = [
   { grupo:'Meu dia' },
+  /* 👶 Painel do mês da carteira Fidelidade — a primeira parada de quem
+     cuida dos mensalistas (ordem do master, 24/08). */
+  { to:'/fidelidade-mes', icon:Heart, label:'Fidelidade do mês', cor:'#00B8C0' },
   { to:'/inbox',      icon:MessageSquare,   label:'Chat',     unread:true, cor:'#25D366' },
   // 🏆 Logo abaixo do Chat (pedido do master): cada case vira uma aula de
   // vendas gerada pela IA — estudar quem fechou fica a um clique da conversa.
