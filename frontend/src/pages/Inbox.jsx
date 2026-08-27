@@ -1593,12 +1593,17 @@ export default function Inbox({ onUnreadChange }) {
         setor: d.setor || p.setor,
         endereco: d.endereco || p.endereco,
         profissional: d.profissional || p.profissional,
+        // Valor vem do flyer de orçamento quando a equipe mandou por imagem
+        valor: d.valor ? String(d.valor) : p.valor,
         observacoes: (d.paciente && d.paciente !== (sel.contact_name || '') ? `Paciente: ${d.paciente}. ` : '')
-          + (d.bonus ? `Bônus: ${d.bonus}. ` : ''),
+          + (d.bonus ? `Bônus: ${d.bonus}. ` : '')
+          + (d.orcamento?.idade ? `Faixa: ${d.orcamento.idade}. ` : ''),
       }));
-      Toast.show(d.origem === 'cartao'
-        ? '🗓️ Puxei os dados do cartão da conversa — confira e confirme.'
-        : '🗓️ Achei uma data na conversa — confira antes de confirmar.', 'success');
+      Toast.show(d.orcamento
+        ? '🗓️ Puxei da conversa e do flyer de orçamento — confira e confirme.'
+        : d.origem === 'cartao'
+          ? '🗓️ Puxei os dados do cartão da conversa — confira e confirme.'
+          : '🗓️ Achei uma data na conversa — confira antes de confirmar.', 'success');
     }).catch(()=>{});
   };
   // IA lê a conversa, extrai o pedido de agendamento e pré-preenche o Agendar

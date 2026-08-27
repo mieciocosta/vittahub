@@ -5231,6 +5231,71 @@ r.patch('/conversations/:id/bot', async (req, res) => {
    janelas, já com a frase de fechamento por alternativa pronta pra enviar.
    Sem inventar horário: sai do cadastro dos profissionais e respeita os 2 dias
    de antecedência da casa. */
+/* 🖼️ LER O FLYER DE ORÇAMENTO (ordem do master, 27/08: "foi mandado também um
+   flyer sobre orçamento, quero que leia ele"). A equipe manda o orçamento como
+   IMAGEM, então o que está combinado com a família não aparece em texto nenhum
+   — nem serviço, nem bônus, nem valor. Aqui a IA olha a imagem e devolve isso
+   em campos, pra completar o agendamento.
+
+   Cuidados: lê no máximo UMA imagem (a mais recente enviada pela casa), guarda
+   o resultado na memória da conversa e nunca lê a mesma imagem duas vezes —
+   leitura de imagem é o que custa caro. Sem IA configurada, devolve null e o
+   resto do sistema segue igual. */
+async function lerFlyerOrcamento(convId, conv) {
+  const mem = (conv && conv.memoria) || {};
+  const { rows: [img] } = await query(
+    `SELECT id, content FROM mensagens
+      WHERE conversa_id = $1 AND type = 'image' AND from_type IN ('me','bot')
+        AND content LIKE 'data:image/%'
+      ORDER BY created_at DESC LIMIT 1`, [convId]).catch(() => ({ rows: [] }));
+  if (!img) return mem.orcamento || null;
+  // Já lida antes? Devolve o que está guardado, sem gastar nada.
+  if (mem.orcamento && mem.orcamento.msg_id === img.id) return mem.orcamento;
+  if (!temIA() || !usaClaude()) return mem.orcamento || null;   // visão = Claude
+
+  const m = /^data:([^;]+);base64,(.+)$/s.exec(String(img.content));
+  if (!m) return mem.orcamento || null;
+
+  const sys = 'Você lê flyers de orçamento de uma clínica de pediatria e vacinação (Vittalis Saúde) e responde APENAS um JSON válido, em português do Brasil, sem markdown. Se a imagem não for um orçamento, retorne eh_orcamento=false.';
+  const prompt = `Extraia deste flyer exatamente:
+{"eh_orcamento":true,"servico":"o que está sendo orçado, em uma linha","vacinas":["nome de cada vacina"],"idade":"faixa etária citada ou null","valor_avista":0,"valor_credito":0,"parcelas":0,"bonus":"bônus/cortesia citada ou null"}
+Não invente: campo que não aparecer na imagem vai como null ou 0.`;
+  try {
+    const client = await anthropicClient();
+    const resp = await client.messages.create({
+      model: CLAUDE_MODEL_MINI(), max_tokens: 700,
+      system: sys,
+      messages: [{ role: 'user', content: [
+        { type: 'image', source: { type: 'base64', media_type: m[1], data: m[2].replace(/\s/g, '') } },
+        { type: 'text', text: prompt },
+      ] }],
+    });
+    const txt = (resp.content || []).filter(b => b.type === 'text').map(b => b.text).join('')
+      .replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+    const par = JSON.parse(txt || '{}');
+    if (!par || par.eh_orcamento === false) return null;
+    const dado = {
+      msg_id: img.id,
+      servico: String(par.servico || '').slice(0, 90),
+      vacinas: Array.isArray(par.vacinas) ? par.vacinas.slice(0, 6).map(v => String(v).slice(0, 40)) : [],
+      idade: par.idade ? String(par.idade).slice(0, 40) : null,
+      valor_avista: parseFloat(par.valor_avista) || 0,
+      valor_credito: parseFloat(par.valor_credito) || 0,
+      parcelas: parseInt(par.parcelas) || 0,
+      bonus: par.bonus ? String(par.bonus).slice(0, 90) : null,
+      lido_em: new Date().toISOString(),
+    };
+    // Guarda na memória da conversa: da próxima vez sai de graça
+    await query(`UPDATE conversas SET memoria = COALESCE(memoria,'{}'::jsonb) || $2::jsonb WHERE id = $1`,
+      [convId, JSON.stringify({ orcamento: dado })]).catch(() => {});
+    console.log(`ORÇAMENTO conv=${convId}: flyer lido (${dado.servico})`);
+    return dado;
+  } catch (e) {
+    console.error('ler flyer de orçamento:', e.message);
+    return mem.orcamento || null;
+  }
+}
+
 /* 🔎 PISTAS DA CONVERSA (cobrança do master, 27/08: "ele só pegou a data e não
    as outras informações — como vacinas e local"). Quando o cartão não existe, a
    data até aparece, mas serviço e local ficavam vazios. Aqui a gente lê as
@@ -5281,11 +5346,25 @@ async function pistasDaConversa(convId, conv) {
     .exec(rows.map(r => r.content).join('\n'));
   if (mEnd) endereco = mEnd[1].trim();
 
+  /* 🖼️ Se nem o texto nem o cartão disserem o serviço, o orçamento pode estar
+     num FLYER (imagem). Aí vale pagar a leitura da imagem — uma vez só. */
+  let orcamento = null;
+  if (!servico) {
+    orcamento = await lerFlyerOrcamento(convId, conv).catch(() => null);
+    if (orcamento) {
+      servico = orcamento.servico
+        || (orcamento.vacinas?.length ? `Vacina ${orcamento.vacinas.slice(0, 3).join(' + ')}` : '');
+    }
+  }
+
   return {
     servico,
     emCasa: emCasa && !naClinica,
     naClinica,
     endereco,
+    orcamento,
+    bonus: orcamento?.bonus || '',
+    valor: orcamento?.valor_avista || 0,
     paciente: String(mem.paciente || '').trim(),
     responsavel: String(mem.responsavel || '').trim(),
   };
@@ -5339,7 +5418,7 @@ r.post('/conversations/:id/montar-cartao', async (req, res) => {
       servico: (ev ? ev.servico : lido.servico) || pistas.servico
         || (conv.setor === 'terapias' ? 'Sessão de terapia' : conv.setor === 'consultas' ? 'Consulta' : 'Vacinação'),
       setor: conv.setor,
-      bonus: ev ? '' : (lido.bonus || ''),
+      bonus: ev ? '' : (lido.bonus || pistas.bonus || ''),
       local: emCasa
         ? (enderecoCasa && !/resid/i.test(enderecoCasa) ? `Em sua residência — ${enderecoCasa.slice(0, 48)}` : 'Em sua residência')
         : 'Na Clínica Vittalis Saúde (Renascença)',
@@ -5384,6 +5463,10 @@ r.get('/conversations/:id/agenda-da-conversa', async (req, res) => {
           : /terapia|fono|psico/i.test(servico) ? 'terapias' : 'consultas'),
       endereco: emCasa ? (enderecoCartao || pistas.endereco || '') : '',
       emCasa,
+      // Vindos do flyer de orçamento, quando a equipe mandou o valor por imagem
+      valor: pistas.valor || 0,
+      bonus: lido.bonus || pistas.bonus || '',
+      orcamento: pistas.orcamento || null,
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
