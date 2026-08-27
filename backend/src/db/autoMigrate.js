@@ -3011,6 +3011,7 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
   try { await metasPoliana(); } catch (e) { console.error('metas poliana:', e.message); }
   try { await nagilaParaTodos(); } catch (e) { console.error('nagila para todos:', e.message); }
   try { await mensagensProntas(); } catch (e) { console.error('mensagens prontas:', e.message); }
+  try { await consertarAssinaturas(); } catch (e) { console.error('assinaturas:', e.message); }
 }
 
 
@@ -3097,6 +3098,50 @@ async function carregarFigurinhas() {
    equipe inteira no botão de mensagens prontas do chat. Entram só se ainda não
    existirem: se alguém melhorar o texto na tela, a melhoria não é desfeita no
    próximo deploy. Sem asterisco e sem travessão, no tom da casa. */
+/* ✍️ CONSERTA A ASSINATURA DO QUE JÁ FOI ENVIADO (ordem do master, 27/08: ele
+   atendeu dois clientes esquecendo de trocar o usuário, e as mensagens saíram
+   assinadas "Dra."). Duas passadas, as duas idempotentes:
+
+   1) Nos atendimentos do Eleutério e da Fran, tudo que a equipe mandou assinado
+      com pronome de tratamento passa a ser da Stefany, que é a responsável.
+   2) Em TODA a base, nome de remetente que começa com Dr./Dra./Sr./Sra./Enf./
+      Prof. passa a guardar o primeiro nome de verdade. "Dra. Nágila Maria" vira
+      "Nágila" — a pessoa continua a mesma, só para de aparecer como "Dra.".
+
+   Nada disso toca no que o cliente recebeu no WhatsApp: é a assinatura interna. */
+async function consertarAssinaturas() {
+  const SEM_ACENTO = "'áàâãäéèêëíìîïóòôõöúùûüç','aaaaaeeeeiiiiooooouuuuc'";
+  const TRATAMENTO = "^(dr|dra|sr|sra|enf|prof|profa)\\.?\\s";
+
+  // 1) Os dois atendimentos que o master apontou → Stefany
+  const { rows: [ja] } = await query(
+    `SELECT 1 FROM configuracoes WHERE chave = 'fix_assinatura_stefany_v1'`).catch(() => ({ rows: [1] }));
+  if (!ja) {
+    const { rowCount } = await query(
+      `UPDATE mensagens m SET sender_nome = 'Stefany'
+        WHERE m.from_type = 'me'
+          AND COALESCE(m.sender_nome,'') ~* $1
+          AND EXISTS (
+            SELECT 1 FROM conversas c
+             WHERE c.id = m.conversa_id
+               AND (lower(translate(COALESCE(c.contact_name,''), ${SEM_ACENTO})) LIKE '%eleuterio%'
+                 OR lower(COALESCE(c.contact_name,'')) = 'fran'))`, [TRATAMENTO]).catch(() => ({ rowCount: 0 }));
+    await query(`INSERT INTO configuracoes (chave, valor) VALUES ('fix_assinatura_stefany_v1','{"ok":true}')
+                 ON CONFLICT DO NOTHING`).catch(() => {});
+    console.log(`✍️  Assinatura corrigida para Stefany em ${rowCount} mensagem(ns) (Eleutério e Fran)`);
+  }
+
+  /* 2) Ninguém mais assina como "Dra.". Roda todo boot: mensagem nova gravada
+        com nome completo é normalizada na próxima subida, sem depender de flag. */
+  const { rowCount: normalizadas } = await query(
+    `UPDATE mensagens
+        SET sender_nome = regexp_replace(sender_nome, $1, '', 'i')
+      WHERE from_type IN ('me','bot')
+        AND sender_nome ~* $1
+        AND length(regexp_replace(sender_nome, $1, '', 'i')) > 1`, [TRATAMENTO]).catch(() => ({ rowCount: 0 }));
+  if (normalizadas) console.log(`✍️  ${normalizadas} assinatura(s) sem o pronome de tratamento`);
+}
+
 async function mensagensProntas() {
   const MAPS = 'https://share.google/cJwx0T5DVaCxZyc6I';
   const ENDERECO = 'Ed. Business Center, Térreo, Av. Cel. Colares Moreira, 3A, Renascença, São Luís/MA';
