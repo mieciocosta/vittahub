@@ -390,6 +390,13 @@ export function podeVerSetor(viewer, conv) {
         || String(conv.responsavel_id || '') === String(viewer.id);
   }
   if (viewer.ve_tudo) return true;
+  /* 🎯 CONVERSA COM DONA É SÓ DELA (ordem do master, 24/08: "ao transferir para
+     uma pessoa específica, desapareça para a outra que transferiu"). Atendente
+     comum vê o POOL sem dono do seu setor e a própria carteira; conversa já
+     atribuída a outra pessoa sai da lista dela. Gestão (master, supervisora e
+     quem tem ve_tudo) continua enxergando tudo, senão ninguém supervisiona. */
+  if (viewer.role !== 'supervisor' && conv.responsavel_id
+      && String(conv.responsavel_id) !== String(viewer.id)) return false;
   // Acesso MULTI-SETOR (ex.: Danielle vê vacinas E consultas). Lista vinda do
   // token ou do cache (id → setores). Vê o setor exato da lista, ou indefinido.
   const extras = (Array.isArray(viewer.setores) && viewer.setores.length ? viewer.setores : usuariosSetores.get(String(viewer.id))) || null;
