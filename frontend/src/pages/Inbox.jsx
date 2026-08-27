@@ -2970,6 +2970,20 @@ export default function Inbox({ onUnreadChange }) {
                 placeholder="Mensagem… (Enter envia · Shift+Enter pula linha)" rows={2}
                 style={{ flex:1, padding:'8px 12px', border:'1.5px solid var(--border)', borderRadius:10, fontSize:13, resize:'none', outline:'none', minHeight:44, maxHeight:170, overflowY:'auto', lineHeight:1.55, fontFamily:'DM Sans, sans-serif', transition:'border-color .15s', background:'var(--card,#fff)', color:'var(--txt)' }}
                 onFocus={e=>{ e.target.style.borderColor='var(--tq)'; setShowEmoji(false); setShowProntas(false); }} onBlur={e=>e.target.style.borderColor='var(--border)'}/>
+              {/* 🗓️ AGENDAR EM DESTAQUE (ordem do master, 27/08: "quero que ele
+                  apareça embaixo também, em destaque, meio dourado"). É o botão
+                  que fecha venda: lê a conversa e escreve o cartão na caixa.
+                  Fica colado no enviar, dourado, impossível de não ver. */}
+              <button onClick={montarCartaoAgenda} disabled={cartaoBusy}
+                title="Lê a conversa e monta a mensagem de agendamento"
+                style={{ display:'flex', alignItems:'center', gap:6, flexShrink:0, border:'none',
+                  padding:'9px 15px', borderRadius:10, cursor: cartaoBusy ? 'wait' : 'pointer',
+                  background:'linear-gradient(135deg,#E3B95C,#C4973B)', color:'#fff',
+                  fontSize:12.5, fontWeight:800, letterSpacing:-.2,
+                  boxShadow:'0 3px 12px rgba(196,151,59,.42)', opacity: cartaoBusy ? .65 : 1 }}>
+                {cartaoBusy ? <Loader2 size={15} className="spin"/> : <CalendarDays size={15} strokeWidth={2.4}/>}
+                <span className="vh-so-desktop">Agendar</span>
+              </button>
               <button onClick={recording?stopRec:startRec} className="btn btn-ico" style={{ background:recording?'var(--err2)':'var(--bg2)', color:recording?'var(--err)':'var(--muted)', borderRadius:8, animation:recording?'pulse 1.2s infinite':'none' }}>
                 {recording?<MicOff size={15}/>:<Mic size={15}/>}
               </button>
