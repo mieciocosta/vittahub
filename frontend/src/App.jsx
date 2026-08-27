@@ -53,6 +53,8 @@ const Modelos = lazy(() => import('./pages/Modelos.jsx'));
 const Ligacoes = lazy(() => import('./pages/Ligacoes.jsx'));
 const IAssistente = lazy(() => import('./pages/IAssistente.jsx'));
 const Auditoria = lazy(() => import('./pages/Auditoria.jsx'));
+/* 📊 Carteira de Leads (pedido do José via master, 27/08) — só o master. */
+const LeadsRelatorio = lazy(() => import('./pages/LeadsRelatorio.jsx'));
 const WhatsApp = lazy(() => import('./pages/WhatsApp.jsx'));
 
 /* ─── Cor do dia ──────────────────────────────────────────────────────────────
@@ -570,6 +572,7 @@ export default function App() {
           <Route path="/modelos" element={<Modelos />} />
           <Route path="/ligacoes" element={<Ligacoes />} />
           <Route path="/ia" element={<IAssistente />} />
+          <Route path="/carteira-leads" element={user.role === 'master' ? <LeadsRelatorio /> : <Navigate to="/" />} />
           <Route path="/auditoria" element={user.role === 'master' ? <Auditoria /> : <Navigate to="/" />} />
           <Route path="/whatsapp"     element={user.role === 'master' ? <WhatsApp /> : <Navigate to="/" />} />
           <Route path="/configuracoes" element={<Configuracoes />} />

@@ -118,6 +118,9 @@ const NAV_FERRAMENTAS = [
 ];
 
 const NAV_ADMIN = [
+  /* 📊 Carteira de Leads: mede se o marketing converte (pedido do José,
+     27/08). Master only por enquanto — ordem do master. */
+  { to:'/carteira-leads', icon:BarChart2, label:'Carteira de Leads', masterOnly:true, cor:'#0ea5e9' },
   { to:'/auditoria', icon:Shield, label:'Auditoria', masterOnly:true, cor:'#ef4444' },
 ];
 

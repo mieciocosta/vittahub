@@ -247,4 +247,235 @@ r.get('/pdf-data', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   📊 RELATÓRIO DE LEADS NOVOS — pedido do José, repassado pelo master (27/08):
+   "todos os nossos Leads juntos em uma única carteira, com filtro por mês e
+   por dia; quero medir se o marketing realmente está convertendo lead".
+
+   REGRA DA CASA pra este relatório (a lógica precisa ser à prova de discussão):
+   · LEAD NOVO = a PRIMEIRA mensagem que o cliente mandou pra gente naquela
+     conversa. A data dessa mensagem é a data de chegada — é ela que define o
+     mês e o dia do lead. Conversa nenhuma entra duas vezes.
+   · Quem NÓS chamamos primeiro (prospecção, retorno de base) não é lead de
+     marketing. Vem marcado e sai da conta por padrão (?entrada=0 traz todos).
+   · CONVERSÃO só conta o que veio DEPOIS da chegada: agendamento criado depois
+     e venda registrada depois. Agenda velha do mesmo telefone não vira mérito
+     da campanha do mês.
+   · Fuso São Luís (UTC-3) em TUDO: o dia do lead é o dia de quem estava aqui,
+     não o do servidor. Mensagem das 21h30 é de hoje, não de amanhã.
+   Só o master enxerga (ordem do master: "deixa somente o master ver por
+   enquanto"). ═════════════════════════════════════════════════════════════ */
+r.get('/leads-novos', async (req, res) => {
+  if (req.user.role !== 'master') return res.status(403).json({ error: 'Relatório restrito ao master' });
+  try {
+    // Janela de análise (meses). Validada — nunca interpola entrada crua.
+    const meses = Math.min(24, Math.max(1, parseInt(req.query.meses) || 12));
+    const soEntrada = String(req.query.entrada ?? '1') !== '0';
+    const fMes    = /^\d{4}-\d{2}$/.test(req.query.mes || '') ? req.query.mes : '';
+    const fDia    = /^\d{4}-\d{2}-\d{2}$/.test(req.query.dia || '') ? req.query.dia : '';
+    const fDow    = /^[0-6]$/.test(String(req.query.dow ?? '')) ? parseInt(req.query.dow) : null;
+    const fSetor  = String(req.query.setor  || '').slice(0, 30);
+    const fOrigem = String(req.query.origem || '').slice(0, 40);
+
+    // Início da janela: 1º dia do mês, hora de São Luís, convertido pro instante real.
+    const INICIO = `(date_trunc('month', NOW() - interval '3 hours') - interval '${meses - 1} months' + interval '3 hours')`;
+    const SLZ = (col) => `to_char(${col} - interval '3 hours', 'YYYY-MM-DD HH24:MI')`;
+
+    const [base, agenda, vendas] = await Promise.all([
+      /* Chegada de cada conversa: primeira mensagem DO CLIENTE (pin) e primeira
+         nossa (pout). Uma varredura só em mensagens, agrupada por conversa. */
+      query(`
+        WITH agg AS (
+          SELECT conversa_id,
+                 MIN(created_at) FILTER (WHERE from_type = 'contact')  AS pin,   -- chegada do lead
+                 MIN(created_at) FILTER (WHERE from_type IN ('me','bot')) AS pout,
+                 MAX(created_at) FILTER (WHERE from_type IN ('me','bot')) AS pout_fim,
+                 COUNT(*) FILTER (WHERE from_type = 'contact')::int    AS msgs_cliente
+            FROM mensagens
+           GROUP BY conversa_id
+        )
+        SELECT c.id, c.contact_name AS nome, c.phone, c.setor, c.categoria, c.classificacao,
+               c.status_atend, COALESCE(c.perdido,false) AS perdido, c.lead_score, c.lead_id,
+               u.nome AS responsavel,
+               COALESCE(NULLIF(l.origem, ''), 'WhatsApp') AS origem,
+               ${SLZ('a.pin')}  AS chegou,
+               ${SLZ('a.pout')} AS respondeu,
+               (a.pout IS NOT NULL AND a.pout >= a.pin) AS respondido_apos,
+               (a.pout_fim IS NOT NULL AND a.pout_fim >= a.pin) AS teve_resposta,
+               (a.pout IS NOT NULL AND a.pout < a.pin) AS nos_chamamos,
+               EXTRACT(EPOCH FROM (a.pout - a.pin))/60 AS resp_min,
+               a.msgs_cliente,
+               right(regexp_replace(COALESCE(c.phone, ''), '\\D', '', 'g'), 8) AS tel8
+          FROM agg a
+          JOIN conversas c ON c.id = a.conversa_id
+          LEFT JOIN usuarios u ON u.id = c.responsavel_id
+          LEFT JOIN leads    l ON l.id = c.lead_id
+         WHERE a.pin IS NOT NULL
+           AND a.pin >= ${INICIO}
+           AND COALESCE(c.simulacao, false) = false
+           AND COALESCE(c.arquivada,  false) = false
+         ORDER BY a.pin DESC
+         LIMIT 20000`),
+      // Agendamentos criados dentro da janela (casam por conversa OU por telefone)
+      query(`SELECT conversa_id, data, ${SLZ('created_at')} AS criado,
+                    right(regexp_replace(COALESCE(telefone,''), '\\D', '', 'g'), 8) AS tel8
+               FROM agenda_eventos
+              WHERE created_at >= ${INICIO}`),
+      // Vendas registradas dentro da janela
+      query(`SELECT conversa_id, lead_id, COALESCE(valor,0) AS valor, data_venda,
+                    ${SLZ('created_at')} AS criado
+               FROM vendas
+              WHERE created_at >= ${INICIO}`),
+    ]);
+
+    /* Índices de conversão. Guardo LISTA por chave (não só o primeiro) porque o
+       mesmo telefone pode ter agendamento antigo e outro depois da campanha —
+       e só o que veio DEPOIS da chegada é conversão. */
+    const push = (mapa, chave, item) => {
+      if (!chave) return;
+      const arr = mapa.get(chave); if (arr) arr.push(item); else mapa.set(chave, [item]);
+    };
+    const agConv = new Map(), agTel = new Map();
+    for (const a of agenda.rows) {
+      const it = { criado: a.criado, data: a.data };
+      push(agConv, a.conversa_id, it);
+      if (a.tel8 && a.tel8.length === 8) push(agTel, a.tel8, it);
+    }
+    const vdConv = new Map();
+    for (const v of vendas.rows) {
+      const it = { criado: v.criado, valor: parseFloat(v.valor) || 0, data: v.data_venda };
+      push(vdConv, v.conversa_id, it);
+      push(vdConv, v.lead_id, it);
+    }
+
+    const dataISO = (d) => (d instanceof Date ? d.toISOString().slice(0, 10) : (d ? String(d).slice(0, 10) : null));
+    const DOW = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+
+    // ── Monta o lead: chegada + o que aconteceu DEPOIS dela ──────────────────
+    const leads = base.rows.map(c => {
+      const chegou = c.chegou;                       // 'YYYY-MM-DD HH:MM' (São Luís)
+      const dia = chegou.slice(0, 10), mes = chegou.slice(0, 7);
+      const [Y, M, D] = dia.split('-').map(Number);
+      const dow = new Date(Y, M - 1, D).getDay();
+      const depois = (x) => x.criado >= chegou;      // string ISO compara igual a data
+
+      const ags = [...(agConv.get(c.id) || []), ...(c.tel8 && c.tel8.length === 8 ? (agTel.get(c.tel8) || []) : [])]
+        .filter(depois).sort((a, b) => a.criado.localeCompare(b.criado));
+      const vds = [...new Set([...(vdConv.get(c.id) || []), ...(c.lead_id ? (vdConv.get(c.lead_id) || []) : [])])]
+        .filter(depois).sort((a, b) => a.criado.localeCompare(b.criado));
+      const valor = vds.reduce((s, v) => s + v.valor, 0);
+
+      return {
+        id: c.id, nome: c.nome || 'Contato', telefone: c.phone,
+        setor: c.setor || 'sem setor', origem: c.origem,
+        responsavel: c.responsavel || null,
+        categoria: c.categoria, classificacao: c.classificacao,
+        status: c.status_atend, perdido: c.perdido, temperatura: c.lead_score,
+        chegou, dia, mes, dow, dowNome: DOW[dow], hora: parseInt(chegou.slice(11, 13), 10),
+        nosChamamos: c.nos_chamamos === true,
+        respondido: c.teve_resposta === true,
+        respMin: c.respondido_apos && c.resp_min != null ? Math.round(Number(c.resp_min)) : null,
+        msgsCliente: c.msgs_cliente || 0,
+        agendou: ags.length > 0, agendouEm: ags[0]?.criado || null, agendaData: dataISO(ags[0]?.data),
+        agendamentos: ags.length,
+        vendeu: vds.length > 0, vendeuEm: vds[0]?.criado || null, valor,
+      };
+    });
+
+    // Universo de marketing: por padrão só quem NOS PROCUROU primeiro.
+    const universo = leads.filter(l => (soEntrada ? !l.nosChamamos : true));
+
+    // ── Agregadores ─────────────────────────────────────────────────────────
+    const zero = () => ({ leads: 0, respondidos: 0, agendados: 0, vendas: 0, valor: 0 });
+    const somar = (acc, l) => {
+      acc.leads++;
+      if (l.respondido) acc.respondidos++;
+      if (l.agendou) acc.agendados++;
+      if (l.vendeu) { acc.vendas++; acc.valor += l.valor; }
+      return acc;
+    };
+    const taxas = (o) => ({
+      ...o,
+      valor: Math.round(o.valor * 100) / 100,
+      txResposta: o.leads ? Math.round((o.respondidos / o.leads) * 1000) / 10 : 0,
+      txAgenda:   o.leads ? Math.round((o.agendados  / o.leads) * 1000) / 10 : 0,
+      txVenda:    o.leads ? Math.round((o.vendas     / o.leads) * 1000) / 10 : 0,
+      ticket:     o.vendas ? Math.round((o.valor / o.vendas) * 100) / 100 : 0,
+    });
+    const agrupar = (arr, chave) => {
+      const m = new Map();
+      for (const l of arr) {
+        const k = chave(l); if (k == null) continue;
+        if (!m.has(k)) m.set(k, { chave: k, ...zero() });
+        somar(m.get(k), l);
+      }
+      return [...m.values()].map(o => taxas(o));
+    };
+
+    // Linha do tempo por MÊS: sempre a janela inteira (é o menu de meses da tela)
+    const nomesMes = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+    const mapaMes = new Map();
+    for (const l of universo) {
+      if (!mapaMes.has(l.mes)) mapaMes.set(l.mes, { chave: l.mes, ...zero() });
+      somar(mapaMes.get(l.mes), l);
+    }
+    const mesesLista = [...mapaMes.values()].sort((a, b) => b.chave.localeCompare(a.chave)).map(o => taxas({
+      ...o, label: `${nomesMes[parseInt(o.chave.slice(5), 10) - 1]}/${o.chave.slice(2, 4)}`,
+    }));
+
+    /* Recorte escolhido (mês → dia da semana → dia exato → setor → origem).
+       Os filtros se somam: "agosto + segunda" responde exatamente o exemplo do
+       José ("os leads que nos mandaram mensagem na segunda, em agosto"). */
+    const recorte = universo.filter(l =>
+      (!fMes    || l.mes === fMes) &&
+      (!fDia    || l.dia === fDia) &&
+      (fDow === null || l.dow === fDow) &&
+      (!fSetor  || l.setor === fSetor) &&
+      (!fOrigem || l.origem === fOrigem)
+    );
+
+    // Dias do mês escolhido (ou da janela toda, se nenhum mês foi clicado)
+    const paraDias = universo.filter(l =>
+      (!fMes || l.mes === fMes) && (!fSetor || l.setor === fSetor) && (!fOrigem || l.origem === fOrigem)
+    );
+    const dias = agrupar(paraDias, l => l.dia)
+      .map(o => { const [Y, M, D] = o.chave.split('-').map(Number); const dw = new Date(Y, M - 1, D).getDay();
+        return { ...o, dia: o.chave, dow: dw, dowNome: DOW[dw], label: `${String(D).padStart(2, '0')}/${String(M).padStart(2, '0')}` }; })
+      .sort((a, b) => a.chave.localeCompare(b.chave));
+
+    // Dia da semana (o "filtro por dia" do exemplo do José) — dentro do mês escolhido
+    const semana = [0, 1, 2, 3, 4, 5, 6].map(d => {
+      const o = paraDias.filter(l => l.dow === d).reduce(somar, zero());
+      return taxas({ ...o, chave: d, dow: d, label: DOW[d] });
+    });
+
+    const tot = recorte.reduce(somar, zero());
+    const temposResp = recorte.map(l => l.respMin).filter(v => v != null && v >= 0).sort((a, b) => a - b);
+    const mediana = temposResp.length ? temposResp[Math.floor(temposResp.length / 2)] : null;
+
+    res.json({
+      janela: { meses, inicio: mesesLista[mesesLista.length - 1]?.chave || null, entradaSomente: soEntrada },
+      filtros: { mes: fMes, dia: fDia, dow: fDow, setor: fSetor, origem: fOrigem },
+      totais: {
+        ...taxas(tot),
+        semResposta: recorte.filter(l => !l.respondido).length,
+        semAgenda:   recorte.filter(l => !l.agendou).length,
+        prospeccao:  leads.filter(l => l.nosChamamos).length,
+        respostaMediana: mediana,
+        respostaAte5min: temposResp.filter(v => v <= 5).length,
+      },
+      meses: mesesLista,
+      dias, semana,
+      origens:  agrupar(recorte, l => l.origem).sort((a, b) => b.leads - a.leads),
+      setores:  agrupar(recorte, l => l.setor).sort((a, b) => b.leads - a.leads),
+      equipe:   agrupar(recorte, l => l.responsavel || 'sem dono').sort((a, b) => b.leads - a.leads),
+      lista: recorte.slice(0, 600),
+      truncada: recorte.length > 600 ? recorte.length : 0,
+    });
+  } catch (err) {
+    console.error('leads-novos error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default r;
