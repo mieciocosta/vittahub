@@ -2983,62 +2983,81 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log('👀 Gestão na pasta Fidelidade:', nG);
     }
 
-    /* 🎯 AS TRÊS METAS DA POLIANA (ordem do master, 24/08): R$ 100 mil no mês,
-       5 agendamentos por dia e 10 planos vacinais no mês. Resultado, ritmo e
-       crescimento da carteira — as três aparecem no painel dela. */
-    const { rows: [flagMP] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_meta_poliana_3metas_v1'");
-    if (!flagMP) {
-      const { rowCount: nM } = await query(
-        `UPDATE usuarios SET meta_tipo = 'valor', meta_individual = 100000,
-                             meta_qtd_dia = 5, meta_dias_uteis = 26, meta_planos_mes = 10, updated_at = NOW()
-          WHERE ativo = true AND nome ILIKE 'poliana%'`).catch(() => ({ rowCount: 0 }));
-      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
-        ['🎯 As três metas da Poliana',
-         nM > 0 ? 'R$ 100 mil no mês, 5 agendamentos por dia e 10 planos vacinais no mês. As três aparecem no topo do painel Fidelidade do mês, que é a tela de entrada dela.'
-                : 'Não encontrei a Poliana ativa no cadastro pra ajustar as metas. Me diga o nome exato que eu acerto.']).catch(() => {});
-      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_meta_poliana_3metas_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
-      console.log('🎯 Metas Poliana (100k + 5/dia + 10 planos):', nM);
-    }
-
-    /* 💟 FIGURINHAS ENTRAM SOZINHAS (cobrança do master, 24/08: "e as
-       figurinhas?"). A cada deploy, toda figurinha nova do repositório entra
-       na Biblioteca com a categoria certa. Idempotente: nunca duplica. */
-    try {
-      const fsFig = await import('fs');
-      const pathFig = await import('path');
-      const { fileURLToPath: fu } = await import('url');
-      const dirFig = pathFig.join(pathFig.dirname(fu(import.meta.url)), '../assets/figurinhas');
-      if (fsFig.existsSync(dirFig)) {
-        const CATS = { bomdia: 'Bom dia', boatarde: 'Boa tarde', boanoite: 'Boa noite',
-          agradecimento: 'Agradecimento', vacinas: 'Vacinas', consultas: 'Consultas',
-          terapias: 'Terapias', psvacinal: 'Pós-vacinal', posvacinal: 'Pós-vacinal',
-          datascomemorativas: 'Datas comemorativas', indicaes: 'Indicações',
-          posagendamento: 'Pós-agendamento', frases: 'Frases carinhosas', vittalis: 'Vittalis' };
-        const arquivos = fsFig.readdirSync(dirFig).filter(x => x.endsWith('.webp') && x.includes('__'));
-        let novas = 0;
-        for (const f of arquivos) {
-          const [catArq, nomeArq] = f.replace('.webp', '').split('__');
-          const categoria = CATS[catArq] || 'Vittalis';
-          const titulo = `Vitta · ${nomeArq.replace(/-/g, ' ').replace(/^./, c => c.toUpperCase())}`;
-          const { rows: [ja] } = await query(
-            `SELECT 1 FROM biblioteca_midias WHERE titulo = $1 AND tipo = 'figurinha' LIMIT 1`, [titulo]).catch(() => ({ rows: [1] }));
-          if (ja) continue;
-          const b64 = fsFig.readFileSync(pathFig.join(dirFig, f)).toString('base64');
-          await query(`INSERT INTO biblioteca_midias (titulo, tipo, setor, categoria, mime, data)
-                       VALUES ($1, 'figurinha', 'geral', $3, 'image/webp', $2)`, [titulo, b64, categoria]).catch(() => {});
-          novas++;
-        }
-        if (novas) {
-          await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
-            ['💟 Figurinhas novas na Biblioteca',
-             `${novas} figurinha(s) entraram sozinhas, já separadas por categoria (Frases carinhosas, Pós-agendamento, Vacinas, Datas comemorativas e outras). A equipe manda pelo ícone de figurinha, ao lado do emoji.`]).catch(() => {});
-          console.log(`💟 Figurinhas carregadas: ${novas} nova(s) de ${arquivos.length}`);
-        }
-      }
-    } catch (e) { console.error('figurinhas auto:', e.message); }
-
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);
   }
+
+  /* 🛟 SEGUNDA PASSADA (lição do master, 24/08: "as figurinhas e as metas não
+     apareceram"). O bloco acima é um try ÚNICO: se um seed lá no meio falha,
+     tudo o que vem depois é pulado em silêncio — foi exatamente o que aconteceu
+     com as figurinhas e as metas, que ficavam no fim da fila. Estes dois agora
+     rodam por fora, cada um protegido, então nada mais os impede. */
+  try { await carregarFigurinhas(); } catch (e) { console.error('figurinhas:', e.message); }
+  try { await metasPoliana(); } catch (e) { console.error('metas poliana:', e.message); }
+}
+
+
+/* 💟 Carrega as figurinhas do repositório na Biblioteca (idempotente). */
+async function carregarFigurinhas() {
+    /* 💟 FIGURINHAS ENTRAM SOZINHAS (cobrança do master, 24/08: "e as
+     figurinhas?"). A cada deploy, toda figurinha nova do repositório entra
+     na Biblioteca com a categoria certa. Idempotente: nunca duplica. */
+  try {
+    const fsFig = await import('fs');
+    const pathFig = await import('path');
+    const { fileURLToPath: fu } = await import('url');
+    const dirFig = pathFig.join(pathFig.dirname(fu(import.meta.url)), '../assets/figurinhas');
+    if (fsFig.existsSync(dirFig)) {
+      const CATS = { bomdia: 'Bom dia', boatarde: 'Boa tarde', boanoite: 'Boa noite',
+        agradecimento: 'Agradecimento', vacinas: 'Vacinas', consultas: 'Consultas',
+        terapias: 'Terapias', psvacinal: 'Pós-vacinal', posvacinal: 'Pós-vacinal',
+        datascomemorativas: 'Datas comemorativas', indicaes: 'Indicações',
+        posagendamento: 'Pós-agendamento', frases: 'Frases carinhosas', vittalis: 'Vittalis' };
+      const arquivos = fsFig.readdirSync(dirFig).filter(x => x.endsWith('.webp') && x.includes('__'));
+      let novas = 0;
+      for (const f of arquivos) {
+        const [catArq, nomeArq] = f.replace('.webp', '').split('__');
+        const categoria = CATS[catArq] || 'Vittalis';
+        const titulo = `Vitta · ${nomeArq.replace(/-/g, ' ').replace(/^./, c => c.toUpperCase())}`;
+        const { rows: [ja] } = await query(
+          `SELECT 1 FROM biblioteca_midias WHERE titulo = $1 AND tipo = 'figurinha' LIMIT 1`, [titulo]).catch(() => ({ rows: [1] }));
+        if (ja) continue;
+        const b64 = fsFig.readFileSync(pathFig.join(dirFig, f)).toString('base64');
+        await query(`INSERT INTO biblioteca_midias (titulo, tipo, setor, categoria, mime, data)
+                     VALUES ($1, 'figurinha', 'geral', $3, 'image/webp', $2)`, [titulo, b64, categoria]).catch(() => {});
+        novas++;
+      }
+      if (novas) {
+        await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+          ['💟 Figurinhas novas na Biblioteca',
+           `${novas} figurinha(s) entraram sozinhas, já separadas por categoria (Frases carinhosas, Pós-agendamento, Vacinas, Datas comemorativas e outras). A equipe manda pelo ícone de figurinha, ao lado do emoji.`]).catch(() => {});
+        console.log(`💟 Figurinhas carregadas: ${novas} nova(s) de ${arquivos.length}`);
+      }
+    }
+  } catch (e) { console.error('figurinhas auto:', e.message); }
+
+
+}
+
+/* 🎯 As três metas da carteira Fidelidade. */
+async function metasPoliana() {
+    /* 🎯 AS TRÊS METAS DA POLIANA (ordem do master, 24/08): R$ 100 mil no mês,
+     5 agendamentos por dia e 10 planos vacinais no mês. Resultado, ritmo e
+     crescimento da carteira — as três aparecem no painel dela. */
+  const { rows: [flagMP] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_meta_poliana_3metas_v1'");
+  if (!flagMP) {
+    const { rowCount: nM } = await query(
+      `UPDATE usuarios SET meta_tipo = 'valor', meta_individual = 100000,
+                           meta_qtd_dia = 5, meta_dias_uteis = 26, meta_planos_mes = 10, updated_at = NOW()
+        WHERE ativo = true AND nome ILIKE 'poliana%'`).catch(() => ({ rowCount: 0 }));
+    await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+      ['🎯 As três metas da Poliana',
+       nM > 0 ? 'R$ 100 mil no mês, 5 agendamentos por dia e 10 planos vacinais no mês. As três aparecem no topo do painel Fidelidade do mês, que é a tela de entrada dela.'
+              : 'Não encontrei a Poliana ativa no cadastro pra ajustar as metas. Me diga o nome exato que eu acerto.']).catch(() => {});
+    await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_meta_poliana_3metas_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+    console.log('🎯 Metas Poliana (100k + 5/dia + 10 planos):', nM);
+  }
+
+
 }
