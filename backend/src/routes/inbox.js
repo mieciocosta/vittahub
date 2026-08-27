@@ -6909,6 +6909,39 @@ r.patch('/conversations/:id/messages/:msgId/remetente', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* 👥 TROCAR QUEM ASSINOU AS ÚLTIMAS MENSAGENS (ordem do master, 27/08: mandou
+   várias mensagens no nome dele numa conversa da Stefany). Trocar uma por uma
+   não resolve quando foram três ou quatro. Aqui vai tudo de uma vez: as últimas
+   N mensagens da equipe naquela conversa, opcionalmente só as assinadas por um
+   nome. Só gestão. Não mexe no que o cliente recebeu — muda a assinatura. */
+r.patch('/conversations/:id/remetente-recentes', async (req, res) => {
+  try {
+    if (!ehGestao(req.user)) return res.status(403).json({ error: 'Só a gestão troca o remetente.' });
+    const para = String(req.body?.para || '').trim().slice(0, 40);
+    if (!para) return res.status(400).json({ error: 'Escolha para quem passar a assinatura.' });
+    const de = String(req.body?.de || '').trim().slice(0, 40);       // vazio = qualquer assinatura
+    const limite = Math.min(50, Math.max(1, parseInt(req.body?.limite) || 10));
+    const novo = primeiroNomeUtil(para) || para;
+
+    const { rows } = await query(
+      `SELECT id FROM mensagens
+        WHERE conversa_id = $1 AND from_type IN ('me','bot')
+          AND status IS DISTINCT FROM 'deleted'
+          AND ($2 = '' OR COALESCE(sender_nome,'') ILIKE $2 || '%')
+        ORDER BY created_at DESC LIMIT $3`, [req.params.id, de, limite]);
+    if (!rows.length) return res.json({ ok: true, trocadas: 0 });
+
+    const ids = rows.map(r2 => r2.id);
+    const { rowCount } = await query(
+      `UPDATE mensagens
+          SET sender_nome = $1,
+              content = regexp_replace(COALESCE(content,''), '^\\*[^\\n]*:\\*', '*' || $1 || ':*')
+        WHERE id = ANY($2)`, [novo, ids]);
+    socketEmit('remetente_trocado', { convId: req.params.id, ids, sender_nome: novo });
+    res.json({ ok: true, trocadas: rowCount || 0, sender_nome: novo, ids });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.delete('/conversations/:id/messages/:msgId', async (req, res) => {
   try {
     const { rows: [m] } = await query('SELECT * FROM mensagens WHERE id = $1 AND conversa_id = $2', [req.params.msgId, req.params.id]);

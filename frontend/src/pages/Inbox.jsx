@@ -273,6 +273,16 @@ function SearchBar({ value, onChange, filter, setFilter, totalUnread, unreadOnly
   );
 }
 
+/* 🏷️ Primeiro nome DE VERDADE: "Dra. Nágila Maria" mostra "Nágila", não "Dra."
+   (cobrança do master, 27/08 — as mensagens antigas apareciam assinadas como
+   "Dra."). Vale só pra exibir; o que está gravado não muda. */
+const primeiroNomeUtil = (nome) => {
+  const partes = String(nome || '').trim().split(/\s+/).filter(Boolean);
+  const trat = /^(dr|dra|sr|sra|enf|prof|profa|dr\.|dra\.|sr\.|sra\.|enf\.|prof\.)$/i;
+  const util = partes.find(p => !trat.test(p.replace(/\.$/, '')));
+  return util || partes[0] || '';
+};
+
 /* ── LazyMedia: carrega base64 sob demanda via endpoint ─────────────────────── */
 function LazyMedia({ msgId, type, filename, token, onLightbox, fotoSel }) {
   const [src, setSrc]     = useState(null);
@@ -449,7 +459,7 @@ const MsgItem = React.memo(function MsgItem({ m, prevMsg, contactName, channel, 
                 {/* Rótulo da bolha: só o nome assinado (Mary ou o da responsável).
                     SEM selo "IA" — ordem do master; quem diz que a IA está na
                     conversa é o letreiro roxo, não a bolha. */}
-                {isBot ? (m.sender_nome?.split(' ')[0] || 'Mary') : m.sender_nome?.split(' ')[0]}
+                {isBot ? (primeiroNomeUtil(m.sender_nome) || 'Mary') : primeiroNomeUtil(m.sender_nome)}
               </div>
             )}
             {isLazy && <LazyMedia msgId={lazyId} type={m.type} filename={m.filename} token={token} onLightbox={onLightbox} fotoSel={fotoSel}/>}
@@ -1760,12 +1770,21 @@ export default function Inbox({ onUnreadChange }) {
     if (!atendentes.length) api.get('/inbox/atendentes').then(d => setAtendentes(Array.isArray(d) ? d : [])).catch(()=>{});
   };
   const confirmarTrocaRemetente = async (nome) => {
-    const m = trocaRemet?.msg;
-    if (!m) return;
+    const alvo = trocaRemet?.msg;
     try {
-      const r = await api.patch(`/inbox/conversations/${sel.id}/messages/${m.id}/remetente`, { nome });
-      setMsgs(p => p.map(x => x.id === m.id ? { ...x, sender_nome: r.sender_nome, content: r.content ?? x.content } : x));
-      Toast.show(`Mensagem agora aparece como ${r.sender_nome} 👤`, 'success');
+      if (trocaRemet?.varias) {
+        // Todas as últimas mensagens da equipe nesta conversa
+        const r = await api.patch(`/inbox/conversations/${sel.id}/remetente-recentes`, { para: nome, limite: 15 });
+        const ids = new Set(r.ids || []);
+        setMsgs(p => p.map(x => ids.has(x.id) ? { ...x, sender_nome: r.sender_nome } : x));
+        Toast.show(r.trocadas
+          ? `${r.trocadas} mensagem(ns) agora aparecem como ${r.sender_nome} 👤`
+          : 'Não havia mensagem da equipe pra trocar', r.trocadas ? 'success' : 'info');
+      } else if (alvo) {
+        const r = await api.patch(`/inbox/conversations/${sel.id}/messages/${alvo.id}/remetente`, { nome });
+        setMsgs(p => p.map(x => x.id === alvo.id ? { ...x, sender_nome: r.sender_nome, content: r.content ?? x.content } : x));
+        Toast.show(`Mensagem agora aparece como ${r.sender_nome} 👤`, 'success');
+      }
     } catch (e) { Toast.show(e.message || 'Não consegui trocar', 'error'); }
     setTrocaRemet(null);
   };
@@ -2198,6 +2217,16 @@ export default function Inbox({ onUnreadChange }) {
                           catch(e){ Toast.show(e.message, 'error'); } }}>
                           ↺ <span>Reiniciar boas-vindas</span>
                         </button>
+                        {/* 👥 Quando várias mensagens saíram assinadas errado, trocar
+                            uma por uma não resolve — aqui vai tudo de uma vez. */}
+                        {gestaoUser && sel && (
+                          <button style={itemMenu} onClick={()=>{ fecharMais();
+                            setTrocaRemet({ varias: true });
+                            if (!atendentes.length) api.get('/inbox/atendentes').then(d => setAtendentes(Array.isArray(d) ? d : [])).catch(()=>{});
+                          }}>
+                            👥 <span>Trocar quem assinou as últimas</span>
+                          </button>
+                        )}
                         {/* 👁 Abrir a conversa pra casa toda (só master). Nasceu da Dra.
                             Nágila Maria (27/08): mesmo em carteira fechada, a equipe vê. */}
                         {user?.role === 'master' && sel && (
@@ -3070,9 +3099,13 @@ export default function Inbox({ onUnreadChange }) {
         <div className="modal-bg" onClick={()=>setTrocaRemet(null)}>
           <div className="card" onClick={e=>e.stopPropagation()} style={{ width:'100%', maxWidth:380, padding:0, overflow:'hidden' }}>
             <div style={{ padding:'14px 16px 10px', borderBottom:'1px solid var(--border)' }}>
-              <div style={{ fontSize:14.5, fontWeight:800, color:'var(--txt)' }}>👤 Quem enviou esta mensagem?</div>
+              <div style={{ fontSize:14.5, fontWeight:800, color:'var(--txt)' }}>
+                {trocaRemet.varias ? '👥 Quem assinou as últimas mensagens?' : '👤 Quem enviou esta mensagem?'}
+              </div>
               <div style={{ fontSize:11.5, color:'var(--muted)', marginTop:3 }}>
-                Troca só o nome que aparece. A mensagem no WhatsApp do cliente não muda.
+                {trocaRemet.varias
+                  ? 'Passa a assinatura das últimas 15 mensagens da equipe nesta conversa.'
+                  : 'Troca só o nome que aparece.'} A mensagem no WhatsApp do cliente não muda.
               </div>
             </div>
             <div style={{ maxHeight:300, overflowY:'auto', padding:'8px 10px 12px' }}>
