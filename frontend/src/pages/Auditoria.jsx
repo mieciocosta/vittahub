@@ -226,9 +226,15 @@ export default function Auditoria() {
                   <div style={{ padding: '10px 14px', background: 'var(--bg)', borderBottom: '1px solid var(--border)', fontWeight: 800, fontSize: 13 }}>
                     📅 Dia a dia
                   </div>
-                  {(locais.por_dia || []).filter(d => d.usuario_id === locUser.usuario_id).map((d, i) => (
-                    <div key={i} style={{ padding: '9px 14px', borderBottom: '1px solid var(--border)',
+                  {(() => {
+                    const dias = (locais.por_dia || []).filter(d => d.usuario_id === locUser.usuario_id);
+                    const total = dias.length;
+                    return dias.map((d, i) => (
+                    <div key={i} style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)',
                       background: d.simultaneo ? 'rgba(220,38,38,.05)' : 'transparent', display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+                      <span style={{ fontSize: 10, fontWeight: 900, color: '#fff', background: 'var(--tq)', borderRadius: 8, padding: '2px 8px', minWidth: 46, textAlign: 'center' }}>
+                        Dia {total - i}
+                      </span>
                       <b style={{ fontSize: 12.5, minWidth: 86 }}>{d.dia.split('-').reverse().join('/')}</b>
                       <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>
                         {new Date(new Date(d.primeiro).getTime() - 3 * 3600 * 1000).toISOString().slice(11, 16)}
@@ -239,14 +245,30 @@ export default function Auditoria() {
                       <span style={{ fontSize: 11.5, fontWeight: 700, color: d.redes > 1 ? '#d97706' : 'var(--muted)' }}>
                         {d.redes} rede{d.redes > 1 ? 's' : ''}
                       </span>
-                      {d.lugares > 0 && <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>📍 {d.lugares} lugar(es)</span>}
                       {d.simultaneo && (
                         <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 900, background: '#fee2e2', color: '#dc2626', borderRadius: 8, padding: '2px 8px' }}>
                           🚨 uso simultâneo
                         </span>
                       )}
+                      {/* 📍 Os LUGARES daquele dia, cada um abre no mapa */}
+                      <div style={{ flexBasis: '100%', display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 2 }}>
+                        {(d.coords || []).length === 0 && (
+                          <span style={{ fontSize: 11, color: 'var(--muted)' }}>Sem localização neste dia (permissão não concedida)</span>
+                        )}
+                        {(d.coords || []).map((c, k) => (
+                          <a key={k} href={`https://www.google.com/maps?q=${c.lat},${c.lng}`} target="_blank" rel="noreferrer"
+                            style={{ fontSize: 11, fontWeight: 700, color: 'var(--tq2)', textDecoration: 'none',
+                              border: '1px solid var(--border)', borderRadius: 8, padding: '2px 9px', background: 'var(--bg2)' }}>
+                            📍 {c.lat.toFixed(3)}, {c.lng.toFixed(3)}
+                          </a>
+                        ))}
+                        {(d.ips || []).map((ip, k) => (
+                          <span key={`ip${k}`} style={{ fontSize: 10.5, color: 'var(--muted)', fontFamily: 'monospace',
+                            border: '1px dashed var(--border)', borderRadius: 8, padding: '2px 8px' }}>{ip}</span>
+                        ))}
+                      </div>
                     </div>
-                  ))}
+                  )); })()}
                 </div>
               )}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

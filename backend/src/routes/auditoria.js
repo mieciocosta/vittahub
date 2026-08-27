@@ -211,7 +211,11 @@ r.get('/localizacoes', onlyMaster, async (req, res) => {
              COUNT(DISTINCT ip)::int redes,
              ARRAY_AGG(DISTINCT ip) FILTER (WHERE ip IS NOT NULL) ips,
              COUNT(DISTINCT (ROUND(latitude::numeric,3) || ',' || ROUND(longitude::numeric,3)))
-               FILTER (WHERE latitude IS NOT NULL)::int lugares
+               FILTER (WHERE latitude IS NOT NULL)::int lugares,
+             /* os LUGARES daquele dia, não só a contagem (ordem do master, 24/08):
+                cada ponto vira link de mapa no painel */
+             ARRAY_AGG(DISTINCT (ROUND(latitude::numeric,3) || ',' || ROUND(longitude::numeric,3)))
+               FILTER (WHERE latitude IS NOT NULL) coords
         FROM audit_logs
        WHERE created_at > NOW() - ($1 || ' days')::interval AND usuario_id IS NOT NULL ${filtro}
        GROUP BY 1, 2, 3 ORDER BY 3 DESC, 2`, params).catch(() => ({ rows: [] }));
@@ -249,6 +253,7 @@ r.get('/localizacoes', onlyMaster, async (req, res) => {
       usuario_id: d.usuario_id, usuario_nome: d.usuario_nome, dia: d.dia,
       primeiro: d.primeiro, ultimo: d.ultimo, eventos: d.eventos,
       redes: d.redes, ips: d.ips || [], lugares: d.lugares || 0,
+      coords: (d.coords || []).map(c => { const [la, lo] = String(c).split(','); return { lat: Number(la), lng: Number(lo) }; }),
       simultaneo: simultaneos.some(x => x.usuario_id === d.usuario_id && x.dia === d.dia),
     }));
 
