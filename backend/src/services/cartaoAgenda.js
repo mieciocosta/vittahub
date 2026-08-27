@@ -9,15 +9,15 @@ const DIAS_SEM = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Q
 
 // Endereço da clínica + Google Maps — só entra quando o atendimento é aqui.
 /* Bloco do endereço EXATAMENTE como o master ditou (27/08): as quatro linhas
-   do endereço, uma linha em branco, e só então o mapa — com o rótulo dele
-   ("Nosso endereço", não "Como chegar"). Texto do dono é lei: não reescrever. */
+   do endereço, uma linha em branco, e só então o mapa, com o rótulo dele:
+   "Nosso endereço pelo Google Maps". Texto do dono é lei: não reescrever. */
 const ENDERECO = [
   '🏥 Nosso endereço, Clínica Vittalis Saúde:',
   'Ed. Business Center, Térreo',
   'Av. Cel. Colares Moreira, 3A, Renascença',
   'São Luís/MA',
   '',
-  '🗺️ Nosso endereço: https://share.google/cJwx0T5DVaCxZyc6I',
+  '🗺️ Nosso endereço pelo Google Maps: https://share.google/cJwx0T5DVaCxZyc6I',
 ];
 const INSTAGRAM = '📸 Acompanhe momentos de cuidado no nosso Instagram: https://www.instagram.com/vittalissaudeslz/';
 
