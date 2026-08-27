@@ -32,14 +32,11 @@ export default function Auditoria() {
   // 🔒 Tentativas de copiar telefone e capturas de tela (pedido do master)
   const [seg, setSeg] = useState(null);
   const [acessos, setAcessos] = useState(null);   // 🌐 logins por IP (senha compartilhada aparece)
-  const [locs, setLocs] = useState(null);        // 📍 histórico de localização, dia a dia e minuto a minuto
-  const [locAberto, setLocAberto] = useState(null);
   useEffect(() => {
     if (nivel !== 'seguranca') return;
     setSeg(null);
     api.get('/auditoria/seguranca?dias=30').then(setSeg).catch(e => setSeg({ erro: e.message }));
     api.get('/auditoria/acessos').then(setAcessos).catch(() => setAcessos(null));
-    api.get('/auditoria/localizacoes?dias=15').then(setLocs).catch(() => setLocs(null));
   }, [nivel]); // eslint-disable-line
   // 📸 Banco de prints: a reconstituição da tela de cada captura (30 dias)
   const [prints, setPrints] = useState([]);
@@ -176,8 +173,17 @@ export default function Auditoria() {
                 const semLoc = u.eventos ? Math.round((u.sem_localizacao / u.eventos) * 100) : 0;
                 return (
                   <div key={u.usuario_id} onClick={() => setLocUser(u)} className="card"
-                    style={{ padding: 14, cursor: 'pointer', borderLeft: `3px solid ${u.lugares > 3 ? '#d97706' : 'var(--tq)'}` }}>
-                    <div style={{ fontWeight: 700, fontSize: 14 }}>{u.usuario_nome || '—'}</div>
+                    style={{ padding: 14, cursor: 'pointer',
+                      borderLeft: `3px solid ${u.alertas_simultaneos ? '#dc2626' : u.lugares > 3 ? '#d97706' : 'var(--tq)'}`,
+                      background: u.alertas_simultaneos ? 'rgba(220,38,38,.05)' : undefined }}>
+                    <div style={{ fontWeight: 700, fontSize: 14, display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+                      {u.usuario_nome || '—'}
+                      {u.alertas_simultaneos > 0 && (
+                        <span style={{ fontSize: 10, fontWeight: 900, background: '#fee2e2', color: '#dc2626', borderRadius: 8, padding: '2px 8px' }}>
+                          🚨 {u.alertas_simultaneos}x em 2 lugares ao mesmo tempo
+                        </span>
+                      )}
+                    </div>
                     <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6, lineHeight: 1.7 }}>
                       <div><b style={{ color: 'var(--txt)' }}>{u.lugares}</b> {u.lugares === 1 ? 'lugar' : 'lugares'} · <b style={{ color: 'var(--txt)' }}>{u.ips}</b> {u.ips === 1 ? 'rede' : 'redes'}</div>
                       <div>Último acesso: {new Date(u.ultimo).toLocaleString('pt-BR')}</div>
@@ -196,6 +202,53 @@ export default function Auditoria() {
           {locais && !locais.erro && locUser && (
             <div>
               <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 10 }}>{locUser.usuario_nome}</div>
+
+              {/* 🚨 MESMO LOGIN, DOIS LUGARES, MESMA HORA (senha emprestada) */}
+              {(locais.simultaneos || []).filter(e => e.usuario_id === locUser.usuario_id).length > 0 && (
+                <div className="card" style={{ padding: 14, marginBottom: 12, borderLeft: '3px solid #dc2626', background: 'rgba(220,38,38,.05)' }}>
+                  <div style={{ fontWeight: 800, fontSize: 13.5, color: '#dc2626' }}>🚨 Login usado em dois lugares ao mesmo tempo</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)', margin: '4px 0 9px', lineHeight: 1.5 }}>
+                    Duas redes diferentes ativas no mesmo intervalo de 10 minutos. Isso não é troca de Wi-Fi para 4G, é o mesmo acesso sendo usado por mais de uma pessoa.
+                  </div>
+                  {(locais.simultaneos || []).filter(e => e.usuario_id === locUser.usuario_id).map((e, i) => (
+                    <div key={i} style={{ fontSize: 12, color: 'var(--txt2)', display: 'flex', gap: 10, flexWrap: 'wrap', padding: '4px 0', borderTop: i ? '1px solid var(--border)' : 'none' }}>
+                      <b>{e.dia.split('-').reverse().join('/')} às {e.hora}</b>
+                      <span style={{ fontFamily: 'monospace', color: '#dc2626' }}>{e.ips.join('  ×  ')}</span>
+                      <span style={{ color: 'var(--muted)' }}>{e.eventos} ações</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* 📅 DIA A DIA */}
+              {(locais.por_dia || []).filter(d => d.usuario_id === locUser.usuario_id).length > 0 && (
+                <div className="card" style={{ padding: 0, marginBottom: 12, overflow: 'hidden' }}>
+                  <div style={{ padding: '10px 14px', background: 'var(--bg)', borderBottom: '1px solid var(--border)', fontWeight: 800, fontSize: 13 }}>
+                    📅 Dia a dia
+                  </div>
+                  {(locais.por_dia || []).filter(d => d.usuario_id === locUser.usuario_id).map((d, i) => (
+                    <div key={i} style={{ padding: '9px 14px', borderBottom: '1px solid var(--border)',
+                      background: d.simultaneo ? 'rgba(220,38,38,.05)' : 'transparent', display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+                      <b style={{ fontSize: 12.5, minWidth: 86 }}>{d.dia.split('-').reverse().join('/')}</b>
+                      <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                        {new Date(new Date(d.primeiro).getTime() - 3 * 3600 * 1000).toISOString().slice(11, 16)}
+                        {' às '}
+                        {new Date(new Date(d.ultimo).getTime() - 3 * 3600 * 1000).toISOString().slice(11, 16)}
+                      </span>
+                      <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{d.eventos} ações</span>
+                      <span style={{ fontSize: 11.5, fontWeight: 700, color: d.redes > 1 ? '#d97706' : 'var(--muted)' }}>
+                        {d.redes} rede{d.redes > 1 ? 's' : ''}
+                      </span>
+                      {d.lugares > 0 && <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>📍 {d.lugares} lugar(es)</span>}
+                      {d.simultaneo && (
+                        <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 900, background: '#fee2e2', color: '#dc2626', borderRadius: 8, padding: '2px 8px' }}>
+                          🚨 uso simultâneo
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {locais.lugares.filter(l => l.usuario_id === locUser.usuario_id).map((l, i) => (
                   <div key={i} className="card" style={{ padding: 12, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
@@ -242,70 +295,6 @@ export default function Auditoria() {
               <StatCard label="Pessoas envolvidas" valor={seg.resumo.pessoas} cor="var(--tq)" />
               <StatCard label="Período" valor={`${seg.dias}d`} cor="var(--muted)" />
             </div>
-
-            {/* 📍 HISTÓRICO DE LOCALIZAÇÃO (pedido do master, 24/08): de cada
-                usuária, de cada dia e de cada minuto — cidade, aparelho, rede e
-                a janela de trabalho do dia. */}
-            {locs?.itens?.length > 0 && (
-              <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: 16 }}>
-                <div style={{ padding: '12px 16px', background: 'var(--bg)', borderBottom: '1px solid var(--border)', fontWeight: 800, fontSize: 14 }}>
-                  📍 Histórico de localização por usuária
-                  <span style={{ fontWeight: 600, color: 'var(--muted)', fontSize: 11.5 }}> (últimos {locs.dias} dias, dia a dia e hora a hora)</span>
-                </div>
-                <div style={{ maxHeight: 460, overflowY: 'auto' }}>
-                  {locs.itens.map((u) => (
-                    <div key={u.usuario_id || u.nome} style={{ borderBottom: '1px solid var(--border)' }}>
-                      <button onClick={() => setLocAberto(locAberto === (u.usuario_id || u.nome) ? null : (u.usuario_id || u.nome))}
-                        style={{ width: '100%', textAlign: 'left', padding: '11px 16px', border: 'none', cursor: 'pointer',
-                          background: u.varias_cidades ? 'rgba(220,38,38,.05)' : 'transparent', display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
-                        <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--txt)' }}>{u.nome}</span>
-                        <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>
-                          {u.cidades.length ? u.cidades.join(' · ') : 'cidade não identificada'}
-                        </span>
-                        {u.varias_cidades && (
-                          <span style={{ fontSize: 10, fontWeight: 800, background: '#fee2e2', color: '#dc2626', borderRadius: 8, padding: '2px 9px' }}>
-                            ⚠️ {u.cidades.length} cidades
-                          </span>
-                        )}
-                        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--muted)', fontWeight: 700 }}>
-                          {u.dias.length} dia(s) {locAberto === (u.usuario_id || u.nome) ? '▲' : '▼'}
-                        </span>
-                      </button>
-                      {locAberto === (u.usuario_id || u.nome) && (
-                        <div style={{ padding: '4px 16px 12px' }}>
-                          {u.dias.map(d => (
-                            <div key={d.dia} style={{ marginTop: 8, paddingLeft: 10, borderLeft: '3px solid var(--tq)' }}>
-                              <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--txt2)' }}>
-                                {d.dia.split('-').reverse().join('/')}
-                                {d.janela && (
-                                  <span style={{ fontWeight: 600, color: 'var(--muted)', fontSize: 11 }}>
-                                    {' '}· ativa das {new Date(new Date(d.janela.primeiro).getTime() - 3 * 3600 * 1000).toISOString().slice(11, 16)}
-                                    {' '}às {new Date(new Date(d.janela.ultimo).getTime() - 3 * 3600 * 1000).toISOString().slice(11, 16)}
-                                    {' '}({d.janela.acoes} ações)
-                                  </span>
-                                )}
-                              </div>
-                              {d.acessos.map((a, k) => (
-                                <div key={k} style={{ fontSize: 11.5, color: 'var(--muted)', display: 'flex', gap: 9, flexWrap: 'wrap', marginTop: 3 }}>
-                                  <b style={{ color: 'var(--txt2)', fontFamily: 'monospace' }}>{a.hora}</b>
-                                  <span>{a.cidade || 'cidade não identificada'}</span>
-                                  {a.provedor && <span style={{ opacity: .85 }}>{a.provedor}{a.movel ? ' (4G)' : ''}</span>}
-                                  <span style={{ fontFamily: 'monospace', opacity: .75 }}>{a.ip}</span>
-                                  {a.aparelho && <span style={{ opacity: .7, overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 220, whiteSpace: 'nowrap' }}>{a.aparelho}</span>}
-                                </div>
-                              ))}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-                <div style={{ padding: '8px 16px', fontSize: 11, color: 'var(--muted)', lineHeight: 1.5 }}>
-                  A cidade vem do endereço de rede do acesso, então ela mostra a região, não o endereço da casa. Rede móvel (4G) pode aparecer na cidade da operadora. Cada linha é um acesso, com a hora e o minuto.
-                </div>
-              </div>
-            )}
 
             {/* 🌐 ACESSOS POR LOCALIZAÇÃO (pedido do master): mesmo login em
                 endereços diferentes fica exposto aqui — e gera alerta no sino. */}

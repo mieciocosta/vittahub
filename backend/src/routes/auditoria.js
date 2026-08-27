@@ -96,58 +96,6 @@ r.get('/acessos', onlyMaster, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-/* 📍 HISTÓRICO DE LOCALIZAÇÃO DE ACESSO (ordem do master, 24/08: "de cada
-   usuário, de cada dia e cada minuto"). Devolve TODOS os acessos, com a hora
-   exata (hora:minuto), a cidade de onde entrou, o aparelho e o endereço de
-   rede — agrupados por usuária e por dia. Mostra também a janela de trabalho
-   do dia: o primeiro e o último registro de atividade dela no sistema. */
-r.get('/localizacoes', onlyMaster, async (req, res) => {
-  try {
-    const dias = Math.min(Math.max(parseInt(req.query.dias) || 15, 1), 90);
-    const usuario = String(req.query.usuario || '').trim() || null;
-    const { rows: acessos } = await query(`
-      SELECT usuario_id, COALESCE(usuario_nome,'(desconhecido)') nome, ip, user_agent, detalhes, created_at
-        FROM audit_logs
-       WHERE acao = 'login' AND created_at > NOW() - ($1 || ' days')::interval
-         AND ($2::text IS NULL OR usuario_id = $2)
-       ORDER BY created_at DESC LIMIT 3000`, [dias, usuario]);
-    // Janela de trabalho por dia (primeiro e último registro de qualquer ação)
-    const { rows: janelas } = await query(`
-      SELECT usuario_id, to_char((created_at - interval '3 hours')::date, 'YYYY-MM-DD') dia,
-             MIN(created_at) primeiro, MAX(created_at) ultimo, COUNT(*)::int acoes
-        FROM audit_logs
-       WHERE created_at > NOW() - ($1 || ' days')::interval
-         AND ($2::text IS NULL OR usuario_id = $2)
-       GROUP BY 1, 2`, [dias, usuario]).catch(() => ({ rows: [] }));
-    const chaveJanela = {};
-    for (const j of janelas) chaveJanela[`${j.usuario_id}|${j.dia}`] = j;
-
-    const porUser = {};
-    for (const a of acessos) {
-      const uid = a.usuario_id || a.nome;
-      const u = (porUser[uid] ||= { usuario_id: a.usuario_id, nome: a.nome, dias: {}, cidades: new Set() });
-      // Dia no fuso de São Luís (UTC-3): depois das 21h o dia UTC já virou
-      const dia = new Date(new Date(a.created_at).getTime() - 3 * 3600 * 1000).toISOString().slice(0, 10);
-      const d = a.detalhes || {};
-      const cidade = d.cidade ? `${d.cidade}${d.estado ? ` / ${d.estado}` : ''}` : null;
-      if (cidade) u.cidades.add(cidade);
-      const bloco = (u.dias[dia] ||= { dia, acessos: [], janela: chaveJanela[`${a.usuario_id}|${dia}`] || null });
-      bloco.acessos.push({
-        hora: new Date(new Date(a.created_at).getTime() - 3 * 3600 * 1000).toISOString().slice(11, 16),
-        quando: a.created_at, ip: a.ip, cidade, provedor: d.provedor || null, movel: !!d.movel,
-        aparelho: String(a.user_agent || '').replace(/^Mozilla\/[\d.]+\s*/, '').slice(0, 90),
-      });
-    }
-    const itens = Object.values(porUser).map(u => ({
-      usuario_id: u.usuario_id, nome: u.nome,
-      cidades: Array.from(u.cidades),
-      varias_cidades: u.cidades.size > 1,
-      dias: Object.values(u.dias).sort((a, b) => b.dia.localeCompare(a.dia)),
-    })).sort((a, b) => a.nome.localeCompare(b.nome));
-    res.json({ dias, itens });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
 r.get('/prints', onlyMaster, async (req, res) => {
   try {
     const { rows } = await query(`SELECT id, usuario_nome, tela, conversa, created_at FROM capturas_print ORDER BY created_at DESC LIMIT 100`);
@@ -254,12 +202,64 @@ r.get('/localizacoes', onlyMaster, async (req, res) => {
       if (new Date(l.ultimo) > new Date(u.ultimo)) u.ultimo = l.ultimo;
     }
 
+    /* 📅 POR DIA (ordem do master, 24/08: "organizada por dia") — cada dia com
+       as redes usadas, os lugares e a janela de trabalho. */
+    const { rows: porDiaRows } = await query(`
+      SELECT usuario_id, usuario_nome,
+             to_char((created_at - interval '3 hours')::date, 'YYYY-MM-DD') dia,
+             MIN(created_at) primeiro, MAX(created_at) ultimo, COUNT(*)::int eventos,
+             COUNT(DISTINCT ip)::int redes,
+             ARRAY_AGG(DISTINCT ip) FILTER (WHERE ip IS NOT NULL) ips,
+             COUNT(DISTINCT (ROUND(latitude::numeric,3) || ',' || ROUND(longitude::numeric,3)))
+               FILTER (WHERE latitude IS NOT NULL)::int lugares
+        FROM audit_logs
+       WHERE created_at > NOW() - ($1 || ' days')::interval AND usuario_id IS NOT NULL ${filtro}
+       GROUP BY 1, 2, 3 ORDER BY 3 DESC, 2`, params).catch(() => ({ rows: [] }));
+
+    /* 🚨 MESMO LOGIN EM DOIS LUGARES AO MESMO TEMPO (ordem do master): senha
+       emprestada aparece aqui. Fatiamos o dia em blocos de 10 minutos e
+       procuramos o mesmo usuário ativo de DUAS redes diferentes no MESMO bloco.
+       Rede diferente no mesmo minuto não é troca de Wi-Fi para 4G: é gente
+       diferente usando o mesmo acesso. */
+    const { rows: simultRows } = await query(`
+      SELECT usuario_id, usuario_nome,
+             to_char(bloco - interval '3 hours', 'YYYY-MM-DD') dia,
+             to_char(bloco - interval '3 hours', 'HH24:MI') hora,
+             ARRAY_AGG(DISTINCT ip) ips, SUM(n)::int eventos
+        FROM (
+          SELECT usuario_id, usuario_nome, ip,
+                 to_timestamp(floor(extract(epoch FROM created_at) / 600) * 600) bloco,
+                 COUNT(*)::int n
+            FROM audit_logs
+           WHERE created_at > NOW() - ($1 || ' days')::interval
+             AND usuario_id IS NOT NULL AND ip IS NOT NULL ${filtro}
+           GROUP BY 1, 2, 3, 4) t
+       GROUP BY 1, 2, 3, 4
+      HAVING COUNT(DISTINCT ip) > 1
+       ORDER BY dia DESC, hora DESC LIMIT 200`, params).catch(() => ({ rows: [] }));
+
+    const simultaneos = simultRows.map(r2 => ({
+      usuario_id: r2.usuario_id, usuario_nome: r2.usuario_nome,
+      dia: r2.dia, hora: r2.hora, ips: r2.ips || [], eventos: r2.eventos,
+    }));
+    const alertaPorUser = {};
+    for (const e of simultaneos) alertaPorUser[e.usuario_id] = (alertaPorUser[e.usuario_id] || 0) + 1;
+
+    const porDia = porDiaRows.map(d => ({
+      usuario_id: d.usuario_id, usuario_nome: d.usuario_nome, dia: d.dia,
+      primeiro: d.primeiro, ultimo: d.ultimo, eventos: d.eventos,
+      redes: d.redes, ips: d.ips || [], lugares: d.lugares || 0,
+      simultaneo: simultaneos.some(x => x.usuario_id === d.usuario_id && x.dia === d.dia),
+    }));
+
     res.json({
       dias,
       usuarios: [...porUsuario.values()]
-        .map(u => ({ ...u, ips: u.ips.size }))
-        .sort((a, b) => new Date(b.ultimo) - new Date(a.ultimo)),
+        .map(u => ({ ...u, ips: u.ips.size, alertas_simultaneos: alertaPorUser[u.usuario_id] || 0 }))
+        .sort((a, b) => (b.alertas_simultaneos - a.alertas_simultaneos) || (new Date(b.ultimo) - new Date(a.ultimo))),
       lugares,
+      por_dia: porDia,
+      simultaneos,
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
