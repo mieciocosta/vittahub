@@ -5315,11 +5315,14 @@ r.post('/cartao-agendamento', async (req, res) => {
    texto. Devolve null quando não dá pra ter certeza — palpite errado na agenda é
    pior do que campo vazio. */
 export function lerAgendamentoDoTexto(txt) {
-  const t = String(txt || '');
+  /* Na prática a equipe digita o cartão na mão, com *negrito* e às vezes sem os
+     dois-pontos ("Horário15:30"). Tira o asterisco e aceita o rótulo colado —
+     senão o agendamento do dia a dia nunca seria lido. */
+  const t = String(txt || '').replace(/\*/g, '');
   if (!t) return null;
   const pega = (rotulo) => {
-    const m = new RegExp(`${rotulo}\\s*:\\s*(.+)`, 'i').exec(t);
-    return m ? m[1].trim() : '';
+    const m = new RegExp(`${rotulo}\\s*:?\\s*(.+)`, 'i').exec(t);
+    return m ? m[1].replace(/\s+$/, '').trim() : '';
   };
   const dataBR = /(\d{1,2})\/(\d{1,2})\/(\d{2,4})/.exec(pega('Data'));
   const horaTxt = pega('Hor[áa]rio') || pega('Hora');

@@ -76,7 +76,10 @@ export async function cartaoAgendamento(dados = {}, opts = {}) {
   if (opts.frase) { linhas.push(''); linhas.push(String(opts.frase)); }
   linhas.push('');
   linhas.push(`📁 Cliente: ${String(dados.cliente || 'Cliente').slice(0, 60)}`);
-  linhas.push(`${adulto ? '🧑🏻' : '👶🏻'} Paciente: ${String(dados.paciente || '').slice(0, 60)}`);
+  // Sem nome do paciente a linha some: "Paciente:" vazio parece cartão quebrado
+  if (String(dados.paciente || '').trim()) {
+    linhas.push(`${adulto ? '🧑🏻' : '👶🏻'} Paciente: ${String(dados.paciente).trim().slice(0, 60)}`);
+  }
   linhas.push(`📅 Data: ${dataBR}${dSem ? ` ${dSem}` : ''}`);
   linhas.push(`🕓 Horário: ${hora}hs`);
 
