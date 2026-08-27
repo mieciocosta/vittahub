@@ -573,3 +573,7 @@ input::placeholder, textarea::placeholder { color: var(--light); }
 
 /* 📊 Carteira de Leads: no celular os dois blocos do topo empilham */
 @media (max-width: 900px) { .vh-leads-topo { grid-template-columns: 1fr !important; } }
+
+/* No celular o botão dourado de Agendar fica só com o ícone: o campo de
+   escrever é mais importante que a palavra (ordem do master, 27/08). */
+@media (max-width: 768px) { .vh-so-desktop { display: none !important; } }
