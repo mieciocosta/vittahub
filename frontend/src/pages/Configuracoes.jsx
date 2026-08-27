@@ -673,8 +673,8 @@ export default function Configuracoes() {
                     <span>
                       <span style={{ display:'block' }}>💛 Só a carteira de Fidelidade</span>
                       <span style={{ fontSize:11, color:'var(--muted)', fontWeight:500 }}>
-                        O funil principal dela passa a ser a pasta Fidelidade: só essas conversas aparecem na lista, na busca e ao abrir.
-                        Nenhuma outra carteira da casa fica visível.
+                        O funil principal dela passa a ser a pasta Fidelidade. Além dela, aparecem também os atendimentos que a equipe
+                        transferir pra ela, que entram direto na grade principal. Nenhuma outra carteira da casa fica visível.
                       </span>
                     </span>
                   </label>

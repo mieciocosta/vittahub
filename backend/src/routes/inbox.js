@@ -381,7 +381,12 @@ export function podeVerSetor(viewer, conv) {
      apenas esse"). Quem tem esse perfil enxerga SÓ as conversas da pasta
      Fidelidade — na lista, na busca e ao abrir. Vem antes de setor e ve_tudo. */
   if (viewer.so_fidelidade === true || usuariosSoFidelidade.has(String(viewer.id))) {
-    return String(conv.categoria || '') === 'fidelidade';
+    /* Além da pasta, entra TUDO que for transferido pra ela (ordem do master,
+       24/08: "na medida que transferirem cada atendimento para ela, aparece na
+       grade principal dela"). Assim a carteira dela cresce pelo trabalho da
+       equipe, sem abrir a casa inteira. */
+    return String(conv.categoria || '') === 'fidelidade'
+        || String(conv.responsavel_id || '') === String(viewer.id);
   }
   if (viewer.ve_tudo) return true;
   // Acesso MULTI-SETOR (ex.: Danielle vê vacinas E consultas). Lista vinda do
