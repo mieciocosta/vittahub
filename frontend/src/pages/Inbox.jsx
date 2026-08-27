@@ -171,7 +171,6 @@ const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect, usersB
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
           <span style={{ fontWeight: hasUnread ? 800 : 600, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, marginRight: 6 }}>
-            {conv.lead_score === 'quente' && <span title="Lead quente" style={{ marginRight: 3 }}>🔥</span>}
             {conv.contact_name || fmt.phone(conv.phone) || '…'}
           </span>
           {/* ⏱ Cronômetro vermelho saiu da lista (pedido do master) — o tempo
@@ -3682,9 +3681,7 @@ function FaixaContexto({ sel, leadInfo, setLeadInfo, api, scoreChip, setScoreChi
       <Editavel ic="👶" label="Paciente" campo="nome" valor={leadInfo?.nome || sel?.contact_name} />
       <Editavel ic="👧" label="Outros filhos" campo="filhos" valor={leadInfo?.filhos} />
       <Editavel ic="📋" label="Etapa" campo="status" valor={leadInfo?.status || (sel?.lead_id ? '' : 'Sem lead')} opcoes={etapas} />
-      {SCORE_CFG[sel?.lead_score] && (
-        <Item ic={SCORE_CFG[sel.lead_score].emoji} label="Temperatura" valor={SCORE_CFG[sel.lead_score].label} />
-      )}
+      {/* 🌡️ Temperatura RETIRADA de dentro do chat (ordem do master, 24/08) */}
       {(() => {
         const linhas = memoriaLinhas(sel?.memoria);
         if (!linhas.length) return null;
