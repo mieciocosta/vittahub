@@ -4601,6 +4601,21 @@ const CLASSIFICACOES = {
 };
 // Toda rotina automática filtra por isto: interno não é lead
 const CLS_INTERNAS = ['gestao', 'profissional_saude'];
+/* 🏥 TROCAR O SETOR DA CONVERSA pela faixa de contexto (ordem do master, 27/08:
+   o painel do topo precisa ter o setor). Só os três setores da casa. */
+r.patch('/conversations/:id/setor', async (req, res) => {
+  try {
+    const setor = ['vacinas', 'consultas', 'terapias'].includes(req.body?.setor) ? req.body.setor : null;
+    if (!setor) return res.status(400).json({ error: 'Setor inválido.' });
+    const { rows: [conv] } = await query(
+      'UPDATE conversas SET setor = $1 WHERE id = $2 RETURNING *', [setor, req.params.id]);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    cacheUpdate(conv);
+    socketEmit('conv_setor', { convId: conv.id, setor });
+    res.json({ ok: true, setor });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.patch('/conversations/:id/classificar', async (req, res) => {
   try {
     const cls = req.body.classificacao;

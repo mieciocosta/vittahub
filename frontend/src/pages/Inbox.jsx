@@ -3937,81 +3937,138 @@ function FaixaContexto({ sel, leadInfo, setLeadInfo, api, scoreChip, setScoreChi
   const valorSt = { fontSize:12, fontWeight:700, color:'var(--txt)', maxWidth:140, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' };
   const campoSt = { fontSize:12, fontWeight:700, padding:'2px 6px', borderRadius:7, border:'1.5px solid var(--tq)', background:'var(--card)', color:'var(--txt)', maxWidth:150 };
 
-  const Item = ({ ic, label, valor }) => (
-    <div style={caixa}><span style={{ fontSize:14 }}>{ic}</span>
-      <div><div style={rotulo}>{label}</div><div style={valorSt}>{valor || '—'}</div></div>
+  /* 🎴 PAINEL DE CONTEXTO (ordem do master, 27/08: "melhora esse painel, deixa
+     mais bonito e organizado"). Seis cartões, na ordem que a atendente lê:
+     o que a família quer, quem é o cliente, quem é o paciente, de que setor é,
+     quem atende e o código. Editar é clicar no cartão. Etapa e memória viram
+     selos discretos no fim, pra não competir com o que importa. */
+  const Cartao = ({ ic, label, valor, editavel, aberto, onAbrir, children, aoClicar, dica }) => (
+    <div onClick={aoClicar || (editavel && !aberto ? onAbrir : undefined)}
+      title={dica || (editavel ? `Clique para alterar ${label.toLowerCase()}` : label)}
+      style={{ display:'flex', alignItems:'center', gap:9, padding:'7px 12px', borderRadius:12,
+        background:'var(--card)', border:`1px solid ${aberto ? 'var(--tq)' : 'var(--border)'}`,
+        boxShadow:'var(--s1)', flexShrink:0, minWidth:132,
+        cursor:(editavel || aoClicar) ? 'pointer' : 'default', transition:'border-color .15s' }}>
+      <span style={{ width:28, height:28, borderRadius:9, background:'var(--tq4)', display:'flex',
+        alignItems:'center', justifyContent:'center', fontSize:14, flexShrink:0 }}>{ic}</span>
+      <div style={{ minWidth:0 }}>
+        <div style={rotulo}>{label}{editavel && <span style={{ opacity:.5 }}> ✎</span>}</div>
+        {children || <div style={valorSt}>{valor || '—'}</div>}
+      </div>
     </div>
   );
 
-  // Campo clicável: vira <select> (lista fixa) ou <input> (texto livre)
-  const Editavel = ({ ic, label, valor, campo, opcoes }) => {
-    const aberto = editando === campo;
-    return (
-      <div style={{ ...caixa, cursor:'pointer' }} title={`Clique para alterar ${label.toLowerCase()}`}
-        onClick={() => { if (!aberto) { setRascunho(valor || ''); setEditando(campo); } }}>
-        <span style={{ fontSize:14 }}>{ic}</span>
-        <div>
-          <div style={rotulo}>{label} <span style={{ opacity:.55 }}>✎</span></div>
-          {!aberto ? (
-            <div style={valorSt}>{valor || '—'}</div>
-          ) : opcoes ? (
-            <select autoFocus value={valor || ''} style={campoSt}
-              onChange={e => salvarLead(campo, e.target.value)} onBlur={() => setEditando(null)}>
-              <option value="">—</option>
-              {opcoes.map(o => <option key={o} value={o}>{o}</option>)}
-            </select>
-          ) : (
-            <input autoFocus value={rascunho} style={campoSt}
-              onChange={e => setRascunho(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') salvarLead(campo, rascunho.trim()); if (e.key === 'Escape') setEditando(null); }}
-              onBlur={() => salvarLead(campo, rascunho.trim())} />
-          )}
-        </div>
-      </div>
-    );
-  };
+  const abrir = (campo, valorAtual) => { setRascunho(valorAtual || ''); setEditando(campo); };
+  const SETORES_FAIXA = [['vacinas','💉 Vacinas'], ['consultas','🩺 Consultas'], ['terapias','🧩 Terapias']];
+  const codigoTxt = sel?.codigo ? `VT-${String(sel.codigo).padStart(4, '0')}` : null;
 
   return (
-    <div style={{ display:'flex', alignItems:'center', padding:'7px 6px', background:'var(--tq4)', borderBottom:'1px solid var(--tq3)', overflowX:'auto', flexShrink:0 }}>
-      <Editavel ic="💉" label="Interesse" campo="interesse" valor={leadInfo?.interesse || sel?.setor} opcoes={INTERESSES_FAIXA} />
+    <div style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 12px', background:'var(--bg)',
+      borderBottom:'1px solid var(--border)', overflowX:'auto', flexShrink:0 }}>
 
-      {/* Responsável é da CONVERSA (não do lead) — quem atende é quem responde */}
-      <div style={{ ...caixa, cursor:'pointer' }} title="Clique para trocar o responsável"
-        onClick={() => { if (editando !== 'resp') setEditando('resp'); }}>
-        <span style={{ fontSize:14 }}>👤</span>
-        <div>
-          <div style={rotulo}>Responsável <span style={{ opacity:.55 }}>✎</span></div>
-          {editando === 'resp' ? (
-            <select autoFocus value={sel?.responsavel_id || ''} style={campoSt}
-              onChange={e => { changeResp(e.target.value || null); setEditando(null); }} onBlur={() => setEditando(null)}>
-              <option value="">Sem responsável</option>
-              {Object.values(usersById || {}).filter(u => u?.ativo !== false)
-                .map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}
-            </select>
-          ) : <div style={valorSt}>{resp || 'Sem responsável'}</div>}
-        </div>
-      </div>
+      {/* 1 · Interesse — o que a família procura */}
+      <Cartao ic="💉" label="Interesse" editavel aberto={editando === 'interesse'}
+        onAbrir={() => abrir('interesse', leadInfo?.interesse || sel?.setor)}
+        valor={leadInfo?.interesse || sel?.setor}>
+        {editando === 'interesse' && (
+          <select autoFocus value={leadInfo?.interesse || ''} style={campoSt}
+            onChange={e => salvarLead('interesse', e.target.value)} onBlur={() => setEditando(null)}>
+            <option value="">—</option>
+            {INTERESSES_FAIXA.map(o => <option key={o} value={o}>{o}</option>)}
+          </select>
+        )}
+      </Cartao>
 
-      <Editavel ic="👶" label="Paciente" campo="nome" valor={leadInfo?.nome || sel?.contact_name} />
-      <Editavel ic="👧" label="Outros filhos" campo="filhos" valor={leadInfo?.filhos} />
-      <Editavel ic="📋" label="Etapa" campo="status" valor={leadInfo?.status || (sel?.lead_id ? '' : 'Sem lead')} opcoes={etapas} />
-      {/* 🌡️ Temperatura RETIRADA de dentro do chat (ordem do master, 24/08) */}
+      {/* 2 · Cliente — quem fala com a gente (o nome do contato) */}
+      <Cartao ic="🧑" label="Cliente" editavel aberto={editando === 'cliente'}
+        onAbrir={() => abrir('cliente', sel?.contact_name)} valor={sel?.contact_name}>
+        {editando === 'cliente' && (
+          <input autoFocus value={rascunho} style={campoSt}
+            onChange={e => setRascunho(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') setEditando(null); }}
+            onBlur={async () => {
+              const novo = rascunho.trim(); setEditando(null);
+              if (!novo || novo === sel?.contact_name) return;
+              try {
+                await api.patch(`/inbox/conversations/${sel.id}/contato`, { nome: novo });
+                setSel(p => ({ ...p, contact_name: novo }));
+                setConvos(p => p.map(c => c.id === sel.id ? { ...c, contact_name: novo } : c));
+              } catch (err) { Toast.show(err.message, 'error'); }
+            }} />
+        )}
+      </Cartao>
+
+      {/* 3 · Paciente — a criança que vai ser atendida */}
+      <Cartao ic="👶" label="Paciente" editavel aberto={editando === 'nome'}
+        onAbrir={() => abrir('nome', leadInfo?.nome || sel?.memoria?.paciente)}
+        valor={leadInfo?.nome || sel?.memoria?.paciente}>
+        {editando === 'nome' && (
+          <input autoFocus value={rascunho} style={campoSt}
+            onChange={e => setRascunho(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') salvarLead('nome', rascunho.trim()); if (e.key === 'Escape') setEditando(null); }}
+            onBlur={() => salvarLead('nome', rascunho.trim())} />
+        )}
+      </Cartao>
+
+      {/* 4 · Setor — de quem é o atendimento na casa */}
+      <Cartao ic="🏥" label="Setor" editavel aberto={editando === 'setor'}
+        onAbrir={() => setEditando('setor')}
+        valor={sel?.setor ? sel.setor.charAt(0).toUpperCase() + sel.setor.slice(1) : 'Sem setor'}>
+        {editando === 'setor' && (
+          <select autoFocus value={sel?.setor || ''} style={campoSt} onBlur={() => setEditando(null)}
+            onChange={async e => {
+              const novo = e.target.value; setEditando(null);
+              if (!novo) return;
+              try {
+                await api.patch(`/inbox/conversations/${sel.id}/setor`, { setor: novo });
+                setSel(p => ({ ...p, setor: novo }));
+                setConvos(p => p.map(c => c.id === sel.id ? { ...c, setor: novo } : c));
+                Toast.show(`Atendimento agora é de ${novo} 🏥`, 'success');
+              } catch (err) { Toast.show(err.message, 'error'); }
+            }}>
+            <option value="">—</option>
+            {SETORES_FAIXA.map(([v, r2]) => <option key={v} value={v}>{r2}</option>)}
+          </select>
+        )}
+      </Cartao>
+
+      {/* 5 · Responsável pelo atendimento — quem responde a família */}
+      <Cartao ic="👤" label="Responsável" editavel aberto={editando === 'resp'}
+        onAbrir={() => setEditando('resp')} valor={resp || 'Sem responsável'}>
+        {editando === 'resp' && (
+          <select autoFocus value={sel?.responsavel_id || ''} style={campoSt}
+            onChange={e => { changeResp(e.target.value || null); setEditando(null); }} onBlur={() => setEditando(null)}>
+            <option value="">Sem responsável</option>
+            {Object.values(usersById || {}).filter(u => u?.ativo !== false)
+              .map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}
+          </select>
+        )}
+      </Cartao>
+
+      {/* 6 · Código do cliente — clique copia, é assim que a casa se acha */}
+      <Cartao ic="🆔" label="Código do cliente" valor={codigoTxt || '—'}
+        dica={codigoTxt ? 'Clique para copiar o código' : 'O código nasce quando a conversa é classificada'}
+        aoClicar={codigoTxt ? () => {
+          try { navigator.clipboard.writeText(codigoTxt); Toast.show('Código copiado! 🆔', 'success'); }
+          catch { /* webview sem área de transferência */ }
+        } : undefined} />
+
+      {/* Selos discretos: etapa do funil e o que a IA lembrou */}
+      {leadInfo?.status && (
+        <span style={{ flexShrink:0, fontSize:10.5, fontWeight:800, padding:'4px 10px', borderRadius:99,
+          background:'var(--bg2)', color:'var(--muted)' }} title="Etapa no funil">📋 {leadInfo.status}</span>
+      )}
       {(() => {
         const linhas = memoriaLinhas(sel?.memoria);
         if (!linhas.length) return null;
-        const resumo = [sel.memoria.paciente, sel.memoria.idade].filter(Boolean).join(' · ');
         return (
-          <div title={linhas.join('\n')} style={{ display:'flex', alignItems:'center', gap:8, padding:'0 14px', borderRight:'1px solid var(--tq3)', cursor:'help' }}>
-            <span style={{ fontSize:14 }}>🧠</span>
-            <div>
-              <div style={{ fontSize:9.5, fontWeight:800, color:'var(--tq2)', textTransform:'uppercase', letterSpacing:.4 }}>Memória</div>
-              <div style={{ fontSize:12, fontWeight:700, color:'var(--txt)', maxWidth:200, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                {resumo || `${linhas.length} fato${linhas.length===1?'':'s'} lembrado${linhas.length===1?'':'s'}`}
-              </div>
-            </div>
-          </div>
+          <span title={linhas.join('\n')} style={{ flexShrink:0, fontSize:10.5, fontWeight:800, padding:'4px 10px',
+            borderRadius:99, background:'var(--tq3)', color:'var(--tq2)', cursor:'help' }}>
+            🧠 {linhas.length} fato{linhas.length === 1 ? '' : 's'}
+          </span>
         );
       })()}
+
       {/* Faixa de meta escondida por enquanto (a pedido) — trocar 'false' por 'true' pra reativar */}
       {false && metaSetor && metaSetor.metaGlobal > 0 && (() => {
         // Multi-setor: mostra a meta do setor DESTA conversa (ex.: atendendo consulta → meta consultas)
