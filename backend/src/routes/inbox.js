@@ -4657,6 +4657,17 @@ r.patch('/conversations/:id/categoria', async (req, res) => {
          categoria_em = CASE WHEN $1::text IS NOT NULL THEN NOW() ELSE categoria_em END
        WHERE id = $2 RETURNING *`, [cat, req.params.id]);
     if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    /* 💛 Entrou na pasta Fidelidade → cai direto na carteira de quem cuida da
+       fidelidade (ordem do master, 24/08: "puxa todos da carteira fidelidade
+       pra ela, no funil principal"). Só quando existe UMA dona do perfil, pra
+       não escolher no lugar do master. */
+    if (cat === 'fidelidade' && !conv.responsavel_id) {
+      const donas = [...usuariosSoFidelidade];
+      if (donas.length === 1) {
+        const { rows: [c2] } = await query('UPDATE conversas SET responsavel_id = $1 WHERE id = $2 RETURNING *', [donas[0], conv.id]).catch(() => ({ rows: [] }));
+        if (c2) { cacheUpdate(c2); socketEmit('conv_assigned', { convId: c2.id, responsavel_id: donas[0], responsavel_nome: usuariosNome.get(donas[0]) || null }); }
+      }
+    }
     cacheUpdate(conv);
     socketEmit('conv_categoria', { convId: conv.id, categoria: cat });
     res.json({ ok: true, categoria: cat });

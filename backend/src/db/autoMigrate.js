@@ -2862,6 +2862,35 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log('💛 Poliana só Fidelidade:', nP);
     }
 
+    /* 💛 PUXA A CARTEIRA DE FIDELIDADE PRA POLIANA (ordem do master, 24/08:
+       "puxa todos da carteira fidelidade pra ela, pro funil principal — ela só
+       terá a visão desses"). Passada única: toda conversa e todo lead da pasta
+       Fidelidade passam a ter a Poliana como responsável, então caem na grade
+       principal dela. */
+    const { rows: [flagPuxa] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_fidelidade_para_poliana_v1'");
+    if (!flagPuxa) {
+      const { rows: [pol] } = await query(
+        "SELECT id, nome FROM usuarios WHERE ativo = true AND nome ILIKE 'poliana%' ORDER BY nome LIMIT 1").catch(() => ({ rows: [] }));
+      if (pol) {
+        const { rowCount: nC } = await query(
+          `UPDATE conversas SET responsavel_id = $1
+            WHERE COALESCE(categoria,'') = 'fidelidade'
+              AND COALESCE(responsavel_id,'') IS DISTINCT FROM $1`, [pol.id]).catch(() => ({ rowCount: 0 }));
+        const { rowCount: nL } = await query(
+          `UPDATE leads SET responsavel_id = $1
+            WHERE id IN (SELECT lead_id FROM conversas WHERE COALESCE(categoria,'') = 'fidelidade' AND lead_id IS NOT NULL)`,
+          [pol.id]).catch(() => ({ rowCount: 0 }));
+        await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+          ['💛 Carteira de Fidelidade com a Poliana',
+           `${nC} conversa(s) e ${nL} lead(s) da pasta Fidelidade foram para a carteira da ${String(pol.nome).split(' ')[0]} — é o funil principal dela agora. Daqui pra frente, toda conversa que entrar na pasta Fidelidade sem dona já cai com ela, e o que a equipe transferir também aparece na grade dela.`]).catch(() => {});
+        console.log(`💛 Fidelidade → Poliana: ${nC} conversa(s), ${nL} lead(s)`);
+      } else {
+        await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+          ['💛 Carteira de Fidelidade', 'Não encontrei usuária ativa com nome Poliana pra receber a carteira de Fidelidade. Me diga o nome certo do cadastro.']).catch(() => {});
+      }
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_fidelidade_para_poliana_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);
