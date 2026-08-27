@@ -570,3 +570,6 @@ input::placeholder, textarea::placeholder { color: var(--light); }
 [data-theme="dark"] select, [data-theme="dark"] textarea {
   background: var(--card); color: var(--txt); border-color: var(--border);
 }
+
+/* 📊 Carteira de Leads: no celular os dois blocos do topo empilham */
+@media (max-width: 900px) { .vh-leads-topo { grid-template-columns: 1fr !important; } }

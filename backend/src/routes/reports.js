@@ -249,48 +249,83 @@ r.get('/pdf-data', async (req, res) => {
 
 /* ═══════════════════════════════════════════════════════════════════════════
    📊 RELATÓRIO DE LEADS NOVOS — pedido do José, repassado pelo master (27/08):
-   "todos os nossos Leads juntos em uma única carteira, com filtro por mês e
-   por dia; quero medir se o marketing realmente está convertendo lead".
+   "todos os nossos Leads juntos numa única carteira, com filtro por mês e por
+   dia; quero medir se o marketing realmente está convertendo lead". Refinado no
+   mesmo dia: "precisa pegar NAS MENSAGENS se realmente o cliente fechou".
 
-   REGRA DA CASA pra este relatório (a lógica precisa ser à prova de discussão):
-   · LEAD NOVO = a PRIMEIRA mensagem que o cliente mandou pra gente naquela
-     conversa. A data dessa mensagem é a data de chegada — é ela que define o
-     mês e o dia do lead. Conversa nenhuma entra duas vezes.
-   · Quem NÓS chamamos primeiro (prospecção, retorno de base) não é lead de
-     marketing. Vem marcado e sai da conta por padrão (?entrada=0 traz todos).
-   · CONVERSÃO só conta o que veio DEPOIS da chegada: agendamento criado depois
-     e venda registrada depois. Agenda velha do mesmo telefone não vira mérito
-     da campanha do mês.
-   · Fuso São Luís (UTC-3) em TUDO: o dia do lead é o dia de quem estava aqui,
-     não o do servidor. Mensagem das 21h30 é de hoje, não de amanhã.
+   REGRA DA CASA deste relatório (a lógica tem que ser à prova de discussão):
+   · LEAD = cliente NOVO no primeiro contato. A data do lead é a da PRIMEIRA
+     mensagem que ele nos mandou naquela conversa. Cada conversa conta uma vez.
+   · Quem NÓS chamamos primeiro (prospecção, base antiga) não é lead de
+     marketing: vem marcado e sai da conta por padrão (?entrada=0 traz todos).
+   · AGENDOU = evento na agenda OU o cartão oficial de confirmação saiu na
+     conversa (o cartão só sai quando existe horário marcado de verdade).
+   · FECHOU = venda registrada no caixa OU o próprio cliente confirmou o
+     pagamento na conversa (comprovante, "fiz o pix", "paguei"). É a leitura
+     das MENSAGENS que o master pediu: muita venda fecha no WhatsApp antes de
+     alguém lançar no sistema.
+   · Conversão só conta o que aconteceu DEPOIS da chegada. Agenda velha do mesmo
+     telefone não vira mérito da campanha do mês.
+   · Fuso São Luís (UTC-3) em tudo, sem depender do fuso do servidor: mensagem
+     das 21h30 é de hoje, não de amanhã.
    Só o master enxerga (ordem do master: "deixa somente o master ver por
    enquanto"). ═════════════════════════════════════════════════════════════ */
+
+/* Sinais de fechamento lidos no texto da conversa. Ficam aqui em cima, num
+   lugar só, porque é a régua que o relatório inteiro usa pra dizer "fechou". */
+const SINAL_CONFIRMACAO = // nós/IA confirmando o horário (cartão oficial e variações)
+  '(confirmad|agendamento realizado|seu hor[aá]rio|est[aá] agendad|te esperamos|nos vemos (dia|amanh))';
+const SINAL_PAGAMENTO =  // o cliente dizendo que pagou
+  '(comprovante|acabei de pagar|j[aá] paguei|paguei|fiz o pix|pix (feito|enviado|realizado)|segue o (pix|comprovante|pagamento)|transferi|pagamento (feito|realizado|enviado)|efetuei o pagamento)';
+const SINAL_ACEITE =     // o cliente fechando o combinado
+  '(pode (agendar|marcar|confirmar)|quero (agendar|marcar|fechar)|vamos (marcar|agendar|fechar)|pode deixar marcad|fechad[oa]|confirmo|confirmad[oa]|combinado|estarei|estaremos|vou levar|pode ser (esse|nesse|assim))';
+const SINAL_OBJECAO =    // o cliente recuando (marketing caro / lead frio)
+  '(n[aã]o (vou|quero|posso|tenho interesse)|desisti|muito caro|caro demais|vou pensar|depois eu (vejo|falo|retorno)|deixa pra depois|achei caro|t[aá] caro)';
+
 r.get('/leads-novos', async (req, res) => {
   if (req.user.role !== 'master') return res.status(403).json({ error: 'Relatório restrito ao master' });
   try {
-    // Janela de análise (meses). Validada — nunca interpola entrada crua.
-    const meses = Math.min(24, Math.max(1, parseInt(req.query.meses) || 12));
+    const meses    = Math.min(24, Math.max(1, parseInt(req.query.meses) || 6));
     const soEntrada = String(req.query.entrada ?? '1') !== '0';
+    const dt = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(v || '') ? v : '');
     const fMes    = /^\d{4}-\d{2}$/.test(req.query.mes || '') ? req.query.mes : '';
-    const fDia    = /^\d{4}-\d{2}-\d{2}$/.test(req.query.dia || '') ? req.query.dia : '';
+    const fDia    = dt(req.query.dia);
     const fDow    = /^[0-6]$/.test(String(req.query.dow ?? '')) ? parseInt(req.query.dow) : null;
     const fSetor  = String(req.query.setor  || '').slice(0, 30);
     const fOrigem = String(req.query.origem || '').slice(0, 40);
 
-    // Início da janela: 1º dia do mês, hora de São Luís, convertido pro instante real.
-    const INICIO = `(date_trunc('month', NOW() - interval '3 hours') - interval '${meses - 1} months' + interval '3 hours')`;
-    const SLZ = (col) => `to_char(${col} - interval '3 hours', 'YYYY-MM-DD HH24:MI')`;
+    /* Janela: período escolhido à mão (de/até) ou os últimos N meses. Calculada
+       aqui em JS já no horário de São Luís e mandada como data literal — assim
+       o recorte não muda se o fuso do banco mudar. */
+    const hojeSLZ = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+    let de = dt(req.query.de), ate = dt(req.query.ate);
+    if (!de) {
+      const [Y, M] = hojeSLZ.split('-').map(Number);
+      const d0 = new Date(Date.UTC(Y, M - 1 - (meses - 1), 1));
+      de = d0.toISOString().slice(0, 10);
+    }
+    if (ate && ate < de) [de, ate] = [ate, de];
+    const periodoManual = !!dt(req.query.de);
 
-    const [base, agenda, vendas] = await Promise.all([
+    /* Toda data vira "relógio de São Luís" de forma determinista: tira 3h e lê
+       como UTC. Sem isso o relatório dependeria do TimeZone da sessão do banco. */
+    const SLZ  = (col) => `((${col} - interval '3 hours') AT TIME ZONE 'UTC')`;
+    const TXT  = (col) => `to_char(${SLZ(col)}, 'YYYY-MM-DD HH24:MI')`;
+    const DEPOIS_DE = (col) => `${SLZ(col)} >= TIMESTAMP '${de} 00:00:00'`;
+    // A chegada respeita o fim do período; a CONVERSÃO não (lead de agosto pode
+    // fechar em setembro — e isso continua sendo mérito da campanha de agosto).
+    const ATE_FIM = ate ? ` AND ${SLZ('a.pin')} < TIMESTAMP '${ate} 00:00:00' + interval '1 day'` : '';
+
+    const [base, agenda, vendas, sinais] = await Promise.all([
       /* Chegada de cada conversa: primeira mensagem DO CLIENTE (pin) e primeira
          nossa (pout). Uma varredura só em mensagens, agrupada por conversa. */
       query(`
         WITH agg AS (
           SELECT conversa_id,
-                 MIN(created_at) FILTER (WHERE from_type = 'contact')  AS pin,   -- chegada do lead
+                 MIN(created_at) FILTER (WHERE from_type = 'contact')     AS pin,   -- chegada do lead
                  MIN(created_at) FILTER (WHERE from_type IN ('me','bot')) AS pout,
                  MAX(created_at) FILTER (WHERE from_type IN ('me','bot')) AS pout_fim,
-                 COUNT(*) FILTER (WHERE from_type = 'contact')::int    AS msgs_cliente
+                 COUNT(*) FILTER (WHERE from_type = 'contact')::int       AS msgs_cliente
             FROM mensagens
            GROUP BY conversa_id
         )
@@ -298,8 +333,8 @@ r.get('/leads-novos', async (req, res) => {
                c.status_atend, COALESCE(c.perdido,false) AS perdido, c.lead_score, c.lead_id,
                u.nome AS responsavel,
                COALESCE(NULLIF(l.origem, ''), 'WhatsApp') AS origem,
-               ${SLZ('a.pin')}  AS chegou,
-               ${SLZ('a.pout')} AS respondeu,
+               ${TXT('a.pin')}  AS chegou,
+               ${TXT('a.pout')} AS respondeu,
                (a.pout IS NOT NULL AND a.pout >= a.pin) AS respondido_apos,
                (a.pout_fim IS NOT NULL AND a.pout_fim >= a.pin) AS teve_resposta,
                (a.pout IS NOT NULL AND a.pout < a.pin) AS nos_chamamos,
@@ -311,21 +346,30 @@ r.get('/leads-novos', async (req, res) => {
           LEFT JOIN usuarios u ON u.id = c.responsavel_id
           LEFT JOIN leads    l ON l.id = c.lead_id
          WHERE a.pin IS NOT NULL
-           AND a.pin >= ${INICIO}
+           AND ${DEPOIS_DE('a.pin')}${ATE_FIM}
            AND COALESCE(c.simulacao, false) = false
            AND COALESCE(c.arquivada,  false) = false
          ORDER BY a.pin DESC
          LIMIT 20000`),
-      // Agendamentos criados dentro da janela (casam por conversa OU por telefone)
-      query(`SELECT conversa_id, data, ${SLZ('created_at')} AS criado,
+      // Agendamentos criados na janela (casam por conversa OU por telefone)
+      query(`SELECT conversa_id, data, ${TXT('created_at')} AS criado,
                     right(regexp_replace(COALESCE(telefone,''), '\\D', '', 'g'), 8) AS tel8
-               FROM agenda_eventos
-              WHERE created_at >= ${INICIO}`),
-      // Vendas registradas dentro da janela
+               FROM agenda_eventos WHERE ${DEPOIS_DE('created_at')}`),
+      // Vendas lançadas no caixa
       query(`SELECT conversa_id, lead_id, COALESCE(valor,0) AS valor, data_venda,
-                    ${SLZ('created_at')} AS criado
-               FROM vendas
-              WHERE created_at >= ${INICIO}`),
+                    ${TXT('created_at')} AS criado
+               FROM vendas WHERE ${DEPOIS_DE('created_at')}`),
+      /* 💬 O QUE A CONVERSA DIZ (pedido do master): o fechamento real aparece no
+         texto antes de virar lançamento. Pego a PRIMEIRA vez que cada sinal
+         apareceu — depois comparo com a chegada do lead. */
+      query(`SELECT conversa_id,
+               ${TXT(`MIN(created_at) FILTER (WHERE from_type IN ('me','bot') AND content ~* '${SINAL_CONFIRMACAO}')`)} AS t_conf,
+               ${TXT(`MIN(created_at) FILTER (WHERE from_type = 'contact' AND content ~* '${SINAL_PAGAMENTO}')`)}      AS t_pago,
+               ${TXT(`MIN(created_at) FILTER (WHERE from_type = 'contact' AND content ~* '${SINAL_ACEITE}')`)}         AS t_ok,
+               ${TXT(`MIN(created_at) FILTER (WHERE from_type = 'contact' AND content ~* '${SINAL_OBJECAO}')`)}        AS t_obj
+             FROM mensagens
+            WHERE ${DEPOIS_DE('created_at')} AND content IS NOT NULL
+            GROUP BY conversa_id`),
     ]);
 
     /* Índices de conversão. Guardo LISTA por chave (não só o primeiro) porque o
@@ -347,23 +391,39 @@ r.get('/leads-novos', async (req, res) => {
       push(vdConv, v.conversa_id, it);
       push(vdConv, v.lead_id, it);
     }
+    const sinalDe = new Map(sinais.rows.map(s => [s.conversa_id, s]));
 
     const dataISO = (d) => (d instanceof Date ? d.toISOString().slice(0, 10) : (d ? String(d).slice(0, 10) : null));
     const DOW = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 
-    // ── Monta o lead: chegada + o que aconteceu DEPOIS dela ──────────────────
+    // ── Monta o lead: chegada + tudo que aconteceu DEPOIS dela ───────────────
     const leads = base.rows.map(c => {
       const chegou = c.chegou;                       // 'YYYY-MM-DD HH:MM' (São Luís)
       const dia = chegou.slice(0, 10), mes = chegou.slice(0, 7);
       const [Y, M, D] = dia.split('-').map(Number);
       const dow = new Date(Y, M - 1, D).getDay();
-      const depois = (x) => x.criado >= chegou;      // string ISO compara igual a data
+      const depois = (x) => !!x && x >= chegou;      // texto ISO compara igual a data
 
       const ags = [...(agConv.get(c.id) || []), ...(c.tel8 && c.tel8.length === 8 ? (agTel.get(c.tel8) || []) : [])]
-        .filter(depois).sort((a, b) => a.criado.localeCompare(b.criado));
+        .filter(a => depois(a.criado)).sort((a, b) => a.criado.localeCompare(b.criado));
       const vds = [...new Set([...(vdConv.get(c.id) || []), ...(c.lead_id ? (vdConv.get(c.lead_id) || []) : [])])]
-        .filter(depois).sort((a, b) => a.criado.localeCompare(b.criado));
+        .filter(v => depois(v.criado)).sort((a, b) => a.criado.localeCompare(b.criado));
       const valor = vds.reduce((s, v) => s + v.valor, 0);
+
+      // O que a CONVERSA conta (só o que veio depois da chegada)
+      const s = sinalDe.get(c.id) || {};
+      const confMsg = depois(s.t_conf), pagoMsg = depois(s.t_pago);
+      const okMsg = depois(s.t_ok), objecao = depois(s.t_obj);
+
+      const agendou = ags.length > 0 || confMsg;
+      const fechou  = vds.length > 0 || pagoMsg;
+      const prova = vds.length ? 'venda lançada no caixa'
+                  : pagoMsg   ? 'cliente confirmou o pagamento na conversa'
+                  : ags.length ? 'agendamento na agenda'
+                  : confMsg   ? 'confirmação enviada na conversa'
+                  : okMsg     ? 'cliente disse que quer fechar'
+                  : objecao   ? 'cliente recuou (preço/depois)'
+                  : null;
 
       return {
         id: c.id, nome: c.nome || 'Contato', telefone: c.phone,
@@ -371,14 +431,16 @@ r.get('/leads-novos', async (req, res) => {
         responsavel: c.responsavel || null,
         categoria: c.categoria, classificacao: c.classificacao,
         status: c.status_atend, perdido: c.perdido, temperatura: c.lead_score,
-        chegou, dia, mes, dow, dowNome: DOW[dow], hora: parseInt(chegou.slice(11, 13), 10),
+        chegou, dia, mes, dow, dowNome: DOW[dow],
         nosChamamos: c.nos_chamamos === true,
         respondido: c.teve_resposta === true,
         respMin: c.respondido_apos && c.resp_min != null ? Math.round(Number(c.resp_min)) : null,
         msgsCliente: c.msgs_cliente || 0,
-        agendou: ags.length > 0, agendouEm: ags[0]?.criado || null, agendaData: dataISO(ags[0]?.data),
-        agendamentos: ags.length,
-        vendeu: vds.length > 0, vendeuEm: vds[0]?.criado || null, valor,
+        agendou, agendouEm: ags[0]?.criado || (confMsg ? s.t_conf : null), agendaData: dataISO(ags[0]?.data),
+        fechou, fechouEm: vds[0]?.criado || (pagoMsg ? s.t_pago : null),
+        valor, temVenda: vds.length > 0, pagouNaConversa: pagoMsg && !vds.length,
+        querFechar: okMsg && !fechou, objecao: objecao && !fechou,
+        prova,
       };
     });
 
@@ -386,12 +448,12 @@ r.get('/leads-novos', async (req, res) => {
     const universo = leads.filter(l => (soEntrada ? !l.nosChamamos : true));
 
     // ── Agregadores ─────────────────────────────────────────────────────────
-    const zero = () => ({ leads: 0, respondidos: 0, agendados: 0, vendas: 0, valor: 0 });
+    const zero = () => ({ leads: 0, respondidos: 0, agendados: 0, fechados: 0, comValor: 0, valor: 0 });
     const somar = (acc, l) => {
       acc.leads++;
       if (l.respondido) acc.respondidos++;
       if (l.agendou) acc.agendados++;
-      if (l.vendeu) { acc.vendas++; acc.valor += l.valor; }
+      if (l.fechou) { acc.fechados++; acc.valor += l.valor; if (l.valor > 0) acc.comValor++; }
       return acc;
     };
     const taxas = (o) => ({
@@ -399,8 +461,8 @@ r.get('/leads-novos', async (req, res) => {
       valor: Math.round(o.valor * 100) / 100,
       txResposta: o.leads ? Math.round((o.respondidos / o.leads) * 1000) / 10 : 0,
       txAgenda:   o.leads ? Math.round((o.agendados  / o.leads) * 1000) / 10 : 0,
-      txVenda:    o.leads ? Math.round((o.vendas     / o.leads) * 1000) / 10 : 0,
-      ticket:     o.vendas ? Math.round((o.valor / o.vendas) * 100) / 100 : 0,
+      txFechou:   o.leads ? Math.round((o.fechados   / o.leads) * 1000) / 10 : 0,
+      ticket:     o.comValor ? Math.round((o.valor / o.comValor) * 100) / 100 : 0,
     });
     const agrupar = (arr, chave) => {
       const m = new Map();
@@ -414,14 +476,9 @@ r.get('/leads-novos', async (req, res) => {
 
     // Linha do tempo por MÊS: sempre a janela inteira (é o menu de meses da tela)
     const nomesMes = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
-    const mapaMes = new Map();
-    for (const l of universo) {
-      if (!mapaMes.has(l.mes)) mapaMes.set(l.mes, { chave: l.mes, ...zero() });
-      somar(mapaMes.get(l.mes), l);
-    }
-    const mesesLista = [...mapaMes.values()].sort((a, b) => b.chave.localeCompare(a.chave)).map(o => taxas({
-      ...o, label: `${nomesMes[parseInt(o.chave.slice(5), 10) - 1]}/${o.chave.slice(2, 4)}`,
-    }));
+    const mesesLista = agrupar(universo, l => l.mes)
+      .sort((a, b) => b.chave.localeCompare(a.chave))
+      .map(o => ({ ...o, label: `${nomesMes[parseInt(o.chave.slice(5), 10) - 1]}/${o.chave.slice(2, 4)}` }));
 
     /* Recorte escolhido (mês → dia da semana → dia exato → setor → origem).
        Os filtros se somam: "agosto + segunda" responde exatamente o exemplo do
@@ -454,21 +511,26 @@ r.get('/leads-novos', async (req, res) => {
     const mediana = temposResp.length ? temposResp[Math.floor(temposResp.length / 2)] : null;
 
     res.json({
-      janela: { meses, inicio: mesesLista[mesesLista.length - 1]?.chave || null, entradaSomente: soEntrada },
+      janela: { de, ate: ate || hojeSLZ, meses, manual: periodoManual, entradaSomente: soEntrada },
       filtros: { mes: fMes, dia: fDia, dow: fDow, setor: fSetor, origem: fOrigem },
       totais: {
         ...taxas(tot),
         semResposta: recorte.filter(l => !l.respondido).length,
         semAgenda:   recorte.filter(l => !l.agendou).length,
         prospeccao:  leads.filter(l => l.nosChamamos).length,
+        // Fechamento provado pela conversa x lançado no caixa (o master quer ver os dois)
+        fechadosCaixa:   recorte.filter(l => l.temVenda).length,
+        fechadosConversa: recorte.filter(l => l.pagouNaConversa).length,
+        querFechar:  recorte.filter(l => l.querFechar).length,
+        objecoes:    recorte.filter(l => l.objecao).length,
         respostaMediana: mediana,
         respostaAte5min: temposResp.filter(v => v <= 5).length,
       },
       meses: mesesLista,
       dias, semana,
-      origens:  agrupar(recorte, l => l.origem).sort((a, b) => b.leads - a.leads),
-      setores:  agrupar(recorte, l => l.setor).sort((a, b) => b.leads - a.leads),
-      equipe:   agrupar(recorte, l => l.responsavel || 'sem dono').sort((a, b) => b.leads - a.leads),
+      origens: agrupar(recorte, l => l.origem).sort((a, b) => b.leads - a.leads),
+      setores: agrupar(recorte, l => l.setor).sort((a, b) => b.leads - a.leads),
+      equipe:  agrupar(recorte, l => l.responsavel || 'sem dono').sort((a, b) => b.leads - a.leads),
       lista: recorte.slice(0, 600),
       truncada: recorte.length > 600 ? recorte.length : 0,
     });

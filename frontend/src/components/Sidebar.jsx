@@ -46,68 +46,68 @@ const SETORES_MENU = [
    de dia na frente da que gera venda.
    `grupo` desenha o título da seção; não muda permissão nem rota. */
 const NAV = [
+  /* 🧹 MENU ENXUTO (ordem do master, 27/08: "esses menus estão confusos, deixa
+     relatórios somente relatórios e assim com as demais funcionalidades").
+     Cada seção guarda UM tipo de coisa:
+       Meu dia    = o que se abre de manhã e fica aberto o dia todo
+       Vender     = o que faz dinheiro entrar
+       Relatórios = SÓ relatório (nada de operação misturada)
+       Operação   = cadastro, caixa, bastidor
+       Equipe     = gente, treino e motivação
+     Nada foi apagado do sistema: só saiu do menu o que estava repetido. */
   { grupo:'Meu dia' },
-  /* 👶 Painel do mês da carteira Fidelidade — a primeira parada de quem
-     cuida dos mensalistas (ordem do master, 24/08). */
-  { to:'/fidelidade-mes', icon:Heart, label:'Fidelidade do mês', cor:'#00B8C0' },
   { to:'/inbox',      icon:MessageSquare,   label:'Chat',     unread:true, cor:'#25D366' },
-  // 🏆 Logo abaixo do Chat (pedido do master): cada case vira uma aula de
-  // vendas gerada pela IA — estudar quem fechou fica a um clique da conversa.
-  { to:'/cases-sucesso', icon:Trophy,       label:'Cases de Sucesso', cor:'#eab308' },
-  // 💲 Visível PRA TODOS (pedido do master) — qualquer atendente consulta
-  // valores e monta orçamento sem sair da conversa.
-  { to:'/tabela-precos', icon:FileText,     label:'Tabela de Preços', cor:'#0ea5e9' },
-  // 🤖 Painel da Mary — só pra quem tem o botão da IA (e o master)
-  { to:'/mary', icon:Bot, label:'Assistente IA', iaBotao:true, cor:'#a855f7' },
-  /* 🧪 Simulador: o master (e quem tem o botão da IA) conversa com a IA fazendo
-     o papel do cliente, pra AVALIAR o atendimento dela sem risco nenhum. */
-  { to:'/simulador-ia', icon:Bot, label:'Simulador da IA', iaBotao:true, cor:'#f472b6' },
-  // Quem agenda consulta vive alternando entre a conversa e a grade dos profissionais.
-  // Aberto pra clínica toda: virou o quadro de 3 colunas (vacinas/consultas/terapias)
-  /* Profissionais é de CONSULTAS/TERAPIAS (cobrança do master, 22/08:
-     aparecia pros usuários de vacinas). Master e quem não tem setor veem. */
-  { to:'/profissionais', icon:Stethoscope,  label:'Profissionais', consultasOuTerapias:true, cor:'#22d3ee' },
   { to:'/agenda',     icon:CalendarDays,    label:'Agenda', cor:'#f59e0b' },
+  /* 👶 Painel do mês da carteira Fidelidade — primeira parada de quem cuida
+     dos mensalistas (ordem do master, 24/08). */
+  { to:'/fidelidade-mes', icon:Heart, label:'Fidelidade do mês', cor:'#00B8C0' },
+  // 💲 Visível PRA TODOS (pedido do master): orçamento sem sair da conversa.
+  { to:'/tabela-precos', icon:FileText,     label:'Tabela de Preços', cor:'#0ea5e9' },
 
   { grupo:'Vender' },
   { to:'/plano-vacinal', icon:Syringe, label:'Plano Vacinal', vacinas:true, cor:'#22c55e', destaque:true },
   { to:'/plano-terapias', icon:Puzzle,      label:'Plano de Terapias', terapias:true, destaque:true, cor:'#a855f7' },
+  { to:'/minha-carteira', icon:Wallet,      label:'Minha Carteira', cor:'#2dd4bf' },
+  { to:'/leads',      icon:Users,           label:'Clientes', cor:'#a78bfa' },
   { to:'/retornos',   icon:Bell,            label:'Follow-up',  retornos:true, cor:'#fb7185' },
   { to:'/recuperacao',icon:Flame,           label:'Recuperação', cor:'#f97316' },
-  // Pódio por QUANTIDADE de vendas (pedido do master) — fica em "Vender"
-  // de propósito: ranking é combustível de venda, não relatório de fim de dia.
-  { to:'/ranking',    icon:Trophy,          label:'Ranking', cor:'#f59e0b', destaque:true },
-  { to:'/minha-carteira', icon:Wallet,     label:'Minha Carteira', cor:'#2dd4bf' },
-  { to:'/leads',      icon:Users,           label:'Clientes', cor:'#a78bfa' },
   { to:'/lembretes',  icon:BellRing,        label:'Lembretes', cor:'#facc15' },
+  // Pódio por quantidade de vendas: combustível de venda, não relatório.
+  { to:'/ranking',    icon:Trophy,          label:'Ranking', cor:'#f59e0b', destaque:true },
 
-  { grupo:'Fim do dia' },
-  /* 🧹 Auditoria: "Meu Relatório" saiu do menu — era a MESMA página do
-     Relatório do Dia com um parâmetro; dois itens pro mesmo destino só
-     engordavam a lista. O individual é uma aba dentro da página. */
+  /* 📊 RELATÓRIOS = SÓ RELATÓRIO. Tudo que se LÊ pra decidir mora aqui; o que
+     se FAZ mora nas outras seções. Era isso que estava embaralhado. */
+  { grupo:'Relatórios' },
+  { to:'/',           icon:LayoutDashboard, label:'Resumo do dia', cor:'#38bdf8' },
   { to:'/agenda?aba=relatorio', icon:ClipboardList, label:'Relatório do Dia', cor:'#0ea5e9', destaque:true },
-  { to:'/caixa',      icon:Wallet,          label:'Caixa', cor:'#34d399' },
+  // Carteira de Leads: mede se o marketing converte (pedido do José, 27/08).
+  { to:'/carteira-leads', icon:UserPlus,    label:'Carteira de Leads', masterOnly:true, cor:'#7c5cbf' },
+  { to:'/relatorios', icon:BarChart2,       label:'Relatório Comercial', cor:'#60a5fa' },
   { to:'/metas',      icon:Target,          label:'Metas', gestao:true, cor:'#e879f9' },
 
   { grupo:'Operação' },
-  { to:'/vacinas-solicitacao', icon:Syringe, label:'Solicitar Vacinas', vacinas:true, cor:'#8b5cf6' },
+  { to:'/caixa',      icon:Wallet,          label:'Caixa', cor:'#34d399' },
   { to:'/funil',      icon:Kanban,          label:'Funil', cor:'#2dd4bf' },
-  { to:'/relatorios', icon:BarChart2,       label:'Relatórios', cor:'#60a5fa' },
+  /* Profissionais é de CONSULTAS/TERAPIAS (cobrança do master, 22/08:
+     aparecia pros usuários de vacinas). */
+  { to:'/profissionais', icon:Stethoscope,  label:'Profissionais', consultasOuTerapias:true, cor:'#22d3ee' },
+  { to:'/vacinas-solicitacao', icon:Syringe, label:'Solicitar Vacinas', vacinas:true, cor:'#8b5cf6' },
   { to:'/banco-dados',icon:Database,        label:'Banco de Dados', cor:'#94a3b8' },
+  /* 🤖 Os DOIS itens de IA ficam juntos aqui. O antigo "IA Assistente" saiu do
+     menu: era um segundo caminho pra mesma coisa e só confundia. */
+  { to:'/mary', icon:Bot, label:'Assistente IA', iaBotao:true, cor:'#a855f7' },
+  { to:'/simulador-ia', icon:Bot, label:'Simulador da IA', iaBotao:true, cor:'#f472b6' },
 
   { grupo:'Equipe' },
   { to:'/equipe',     icon:Users,           label:'Chat da Equipe', equipe:true, cor:'#4ade80' },
   { to:'/meu-painel', icon:LayoutGrid,      label:'Meu Painel', cor:'#c084fc' },
-  { to:'/amigo',      icon:BookOpen,        label:'Meu Devocional', cor:'#fbbf24' },
-  { to:'/planejamento', icon:Rocket,        label:'Planejamento', lider:true, plan:true, cor:'#fb923c' },
+  { to:'/cases-sucesso', icon:Trophy,       label:'Cases de Sucesso', cor:'#eab308' },
   { to:'/quiz',       icon:Gamepad2,        label:'Quiz de Vendas', cor:'#f472b6' },
-  // Estudos fica na Equipe; os Cases subiram pra perto da Tabela de Preços.
-  { to:'/estudos',       icon:FileSearch,   label:'Estudos', cor:'#C4973B' },
+  { to:'/estudos',    icon:FileSearch,      label:'Estudos', cor:'#C4973B' },
   { to:'/cursos',     icon:GraduationCap,   label:'Cursos', cor:'#818cf8' },
   { to:'/indicacoes', icon:Gift,            label:'Indicações', cor:'#f43f5e' },
-  { to:'/ia',         icon:Bot,             label:'IA Assistente', cor:'#10b981' },
-  // Resumo desceu pro fim do menu (pedido do master)
-  { to:'/',           icon:LayoutDashboard, label:'Resumo', cor:'#38bdf8' },
+  { to:'/planejamento', icon:Rocket,        label:'Planejamento', lider:true, plan:true, cor:'#fb923c' },
+  { to:'/amigo',      icon:BookOpen,        label:'Meu Devocional', cor:'#fbbf24' },
 ];
 
 const NAV_FERRAMENTAS = [
@@ -118,9 +118,6 @@ const NAV_FERRAMENTAS = [
 ];
 
 const NAV_ADMIN = [
-  /* 📊 Carteira de Leads: mede se o marketing converte (pedido do José,
-     27/08). Master only por enquanto — ordem do master. */
-  { to:'/carteira-leads', icon:BarChart2, label:'Carteira de Leads', masterOnly:true, cor:'#0ea5e9' },
   { to:'/auditoria', icon:Shield, label:'Auditoria', masterOnly:true, cor:'#ef4444' },
 ];
 
@@ -227,12 +224,12 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
   const TODOS_GRUPOS = React.useMemo(() => NAV.filter(n => n.grupo).map(n => n.grupo), []);
   const [gruposFechados, setGruposFechados] = useState(() => {
     try {
-      const salvo = localStorage.getItem('vh_menu_fechados');
+      const salvo = localStorage.getItem('vh_menu_fechados_v2');
       if (salvo) return JSON.parse(salvo);
     } catch { /* primeira vez */ }
     return NAV.filter(n => n.grupo).map(n => n.grupo);   // tudo fechado no primeiro acesso
   });
-  useEffect(() => { try { localStorage.setItem('vh_menu_fechados', JSON.stringify(gruposFechados)); } catch {} }, [gruposFechados]);
+  useEffect(() => { try { localStorage.setItem('vh_menu_fechados_v2', JSON.stringify(gruposFechados)); } catch {} }, [gruposFechados]);
   /* 🔎 Lupa do menu (pedido do master): digitou, o menu vira só o que bate —
      sem acento, sem caixa, atravessando grupos fechados. */
   const [buscaMenu, setBuscaMenu] = useState('');
