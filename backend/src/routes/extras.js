@@ -3398,15 +3398,31 @@ r.post('/figurinhas/seed', async (req, res) => {
       'excelente-semana': 'Vitta · Excelente semana', 'abencoado-mes': 'Vitta · Abençoado mês',
       'agendamento-confirmado': 'Vitta · Agendamento confirmado', 'princesa': 'Vitta · Princesa linda e protegida',
       'principe': 'Vitta · Príncipe lindo e protegido', 'consulta-confirmada': 'Vitta · Consulta confirmada' };
+    /* Figurinhas novas (24/08) vêm nomeadas como "categoria__frase.webp": a
+       categoria do arquivo vira a categoria da Biblioteca, e o nome vira o
+       título legível. As antigas continuam pelo mapa acima. */
+    const CATS = { bomdia: 'Bom dia', boatarde: 'Boa tarde', boanoite: 'Boa noite',
+      agradecimento: 'Agradecimento', vacinas: 'Vacinas', consultas: 'Consultas',
+      terapias: 'Terapias', psvacinal: 'Pós-vacinal', posvacinal: 'Pós-vacinal',
+      datascomemorativas: 'Datas comemorativas', indicaes: 'Indicações', indicacoes: 'Indicações',
+      vittalis: 'Vittalis' };
     const arquivos = fs.readdirSync(dirFig).filter(x => x.endsWith('.webp'));
     let inseridas = 0, existiam = 0;
     for (const f of arquivos) {
-      const titulo = NOMES[f.replace('.webp', '')] || `Vitta · ${f}`;
+      const base = f.replace('.webp', '');
+      let categoria = 'Vittalis';
+      let titulo = NOMES[base];
+      if (!titulo && base.includes('__')) {
+        const [catArq, nomeArq] = base.split('__');
+        categoria = CATS[catArq] || 'Vittalis';
+        titulo = `Vitta · ${nomeArq.replace(/-/g, ' ').replace(/\b\w/, c => c.toUpperCase())}`;
+      }
+      if (!titulo) titulo = `Vitta · ${base}`;
       const { rows: [ja] } = await query(`SELECT 1 FROM biblioteca_midias WHERE titulo = $1 AND tipo = 'figurinha' LIMIT 1`, [titulo]);
       if (ja) { existiam++; continue; }
       const b64 = fs.readFileSync(path.join(dirFig, f)).toString('base64');
       await query(`INSERT INTO biblioteca_midias (titulo, tipo, setor, categoria, mime, data)
-                   VALUES ($1, 'figurinha', 'geral', 'Vittalis', 'image/webp', $2)`, [titulo, b64]);
+                   VALUES ($1, 'figurinha', 'geral', $3, 'image/webp', $2)`, [titulo, b64, categoria]);
       inseridas++;
     }
     res.json({ ok: true, arquivos: arquivos.length, inseridas, existiam });
