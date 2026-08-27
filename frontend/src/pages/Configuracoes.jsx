@@ -101,6 +101,7 @@ export default function Configuracoes() {
       const payload = { cpf: cpfDig, ativo: editUser.ativo, setor: editUser.setor || null, setores: (editUser.setores || []).length ? editUser.setores : null, lider: !!editUser.lider,
         pode_impersonar: !!editUser.pode_impersonar,
         so_carteira: !!editUser.so_carteira,
+        so_fidelidade: !!editUser.so_fidelidade,
         ia_consultas: !!editUser.ia_consultas,
         supervisor_id: editUser.supervisor_id || null,
         meta_individual: parseFloat(editUser.meta_individual) || 0,
@@ -521,7 +522,7 @@ export default function Configuracoes() {
                   {tituloUsuario(u)}
                 </span>
                 {isMaster && (
-                  <button onClick={()=>{setUserErr('');setEditUser(editUser?.id===u.id?null:{ id:u.id, cpf:maskCpf(u.cpf||''), senha:'', ativo:u.ativo, setor:u.setor||'', setores:Array.isArray(u.setores)?u.setores:[], lider:!!u.lider, pode_impersonar:!!u.pode_impersonar, so_carteira:!!u.so_carteira, ia_consultas:!!u.ia_consultas, supervisor_id:u.supervisor_id||'', meta_individual:u.meta_individual||'', meta_tipo:u.meta_tipo||'valor', meta_qtd_dia:u.meta_qtd_dia||'', meta_dias_uteis:u.meta_dias_uteis||26 });}}
+                  <button onClick={()=>{setUserErr('');setEditUser(editUser?.id===u.id?null:{ id:u.id, cpf:maskCpf(u.cpf||''), senha:'', ativo:u.ativo, setor:u.setor||'', setores:Array.isArray(u.setores)?u.setores:[], lider:!!u.lider, pode_impersonar:!!u.pode_impersonar, so_carteira:!!u.so_carteira, so_fidelidade:!!u.so_fidelidade, ia_consultas:!!u.ia_consultas, supervisor_id:u.supervisor_id||'', meta_individual:u.meta_individual||'', meta_tipo:u.meta_tipo||'valor', meta_qtd_dia:u.meta_qtd_dia||'', meta_dias_uteis:u.meta_dias_uteis||26 });}}
                     style={{ width:26, height:26, borderRadius:8, border:'1.5px solid var(--border)', background:'var(--card)', color:'var(--muted)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
                     {editUser?.id===u.id?<X size={12}/>:<Pencil size={12}/>}
                   </button>
@@ -662,6 +663,18 @@ export default function Configuracoes() {
                       <span style={{ fontSize:11, color:'var(--muted)', fontWeight:500 }}>
                         Vê apenas os leads e conversas que a gestão transferir pra ela (botão ⇄ na conversa ou no lead).
                         Não enxerga o pool de leads novos nem as conversas das colegas — ideal pra quem trabalha por produção.
+                      </span>
+                    </span>
+                  </label>
+                  {/* 💛 Carteira de Fidelidade (pedido do master, 24/08): o funil
+                      principal dela é a pasta Fidelidade, e só ela. */}
+                  <label style={{ display:'flex', alignItems:'flex-start', gap:7, fontSize:12.5, fontWeight:600, color:'var(--txt2)', cursor:'pointer', background:'#fdf6e7', border:'1px solid #C4973B', padding:'9px 11px', borderRadius:10 }}>
+                    <input type="checkbox" checked={!!editUser.so_fidelidade} onChange={e=>setEditUser({...editUser, so_fidelidade:e.target.checked})} style={{ width:15, height:15, accentColor:'#C4973B', marginTop:1 }} />
+                    <span>
+                      <span style={{ display:'block' }}>💛 Só a carteira de Fidelidade</span>
+                      <span style={{ fontSize:11, color:'var(--muted)', fontWeight:500 }}>
+                        O funil principal dela passa a ser a pasta Fidelidade: só essas conversas aparecem na lista, na busca e ao abrir.
+                        Nenhuma outra carteira da casa fica visível.
                       </span>
                     </span>
                   </label>

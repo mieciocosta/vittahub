@@ -2845,6 +2845,23 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log(`🚫 Acesso cancelado para ${alvos.length} usuária(s); ${conversasSoltas} conversa(s) liberadas`);
     }
 
+    /* 💛 CARTEIRA DE FIDELIDADE (ordem do master, 24/08): a Poliana enxerga
+       SOMENTE a pasta Fidelidade — o funil principal dela é essa carteira.
+       Perfil reaproveitável: basta marcar so_fidelidade em quem precisar. */
+    await query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS so_fidelidade BOOLEAN DEFAULT false`).catch(() => {});
+    const { rows: [flagFid] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_poliana_fidelidade_v1'");
+    if (!flagFid) {
+      const { rowCount: nP } = await query(
+        `UPDATE usuarios SET so_fidelidade = true, updated_at = NOW()
+          WHERE ativo = true AND nome ILIKE 'poliana%'`).catch(() => ({ rowCount: 0 }));
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+        ['💛 Poliana na carteira de Fidelidade',
+         nP > 0 ? 'O usuário da Poliana agora enxerga somente a pasta Fidelidade: é o funil principal dela, na lista, na busca e ao abrir conversa. Pra voltar atrás, é só desmarcar em Configurações → Usuários.'
+                : 'Não encontrei usuária ativa com nome Poliana pra aplicar a visão só de Fidelidade. Confira o nome no cadastro e me avise.']).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_poliana_fidelidade_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('💛 Poliana só Fidelidade:', nP);
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);

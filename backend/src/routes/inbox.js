@@ -322,15 +322,21 @@ let usuariosSetor = new Map();
 let usuariosSetores = new Map(); // id → setores extras (acesso multi-setor, ex.: Danielle)
 let usuariosNome = new Map();    // id → nome ATUAL (assinatura sempre com o nome vigente)
 let usuariosSoCarteira = new Set(); // 🏠 home office por produção: só vê o que foi transferido
+let usuariosSoFidelidade = new Set(); // 💛 vê SOMENTE a carteira de Fidelidade (ordem do master, 24/08)
 async function carregarUsuariosSetor() {
   try {
     let rows;
-    try { ({ rows } = await query('SELECT id, setor, setores, nome, so_carteira FROM usuarios')); }
-    catch { ({ rows } = await query('SELECT id, setor, nome FROM usuarios')); } // colunas novas ainda não existem
+    // Cada tentativa cobre um banco mais antigo que o anterior
+    try { ({ rows } = await query('SELECT id, setor, setores, nome, so_carteira, so_fidelidade FROM usuarios')); }
+    catch {
+      try { ({ rows } = await query('SELECT id, setor, setores, nome, so_carteira FROM usuarios')); }
+      catch { ({ rows } = await query('SELECT id, setor, nome FROM usuarios')); }
+    }
     usuariosSetor = new Map(rows.map(u => [String(u.id), u.setor || null]));
     usuariosSetores = new Map(rows.filter(u => Array.isArray(u.setores) && u.setores.length).map(u => [String(u.id), u.setores]));
     usuariosNome = new Map(rows.map(u => [String(u.id), u.nome || null]));
     usuariosSoCarteira = new Set(rows.filter(u => u.so_carteira === true).map(u => String(u.id)));
+    usuariosSoFidelidade = new Set(rows.filter(u => u.so_fidelidade === true).map(u => String(u.id)));
   } catch { /* banco ainda não pronto — tenta de novo no próximo tick */ }
 }
 carregarUsuariosSetor();
@@ -369,6 +375,13 @@ export function podeVerSetor(viewer, conv) {
      O flag vale pelo token OU pelo cache (token antigo não fura a regra). */
   if (viewer.so_carteira === true || usuariosSoCarteira.has(String(viewer.id))) {
     return String(conv.responsavel_id || '') === String(viewer.id);
+  }
+  /* 💛 CARTEIRA DE FIDELIDADE (ordem do master, 24/08: "o usuário da Poliana
+     tem a visão apenas da carteira do Fidelidade... coloca no funil principal
+     apenas esse"). Quem tem esse perfil enxerga SÓ as conversas da pasta
+     Fidelidade — na lista, na busca e ao abrir. Vem antes de setor e ve_tudo. */
+  if (viewer.so_fidelidade === true || usuariosSoFidelidade.has(String(viewer.id))) {
+    return String(conv.categoria || '') === 'fidelidade';
   }
   if (viewer.ve_tudo) return true;
   // Acesso MULTI-SETOR (ex.: Danielle vê vacinas E consultas). Lista vinda do

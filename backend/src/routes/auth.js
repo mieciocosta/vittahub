@@ -91,7 +91,7 @@ r.post('/login', async (req, res) => {
     const ok = await bcrypt.compare(senha, u.senha);
     if (!ok) { registraFalhaLogin(ip); logAudit(req, null, id, 'login_falha', { motivo: 'Senha incorreta' }); return res.status(401).json({ error: 'Senha incorreta' }); }
     limpaFalhasLogin(ip);
-    const token = jwt.sign({ id: u.id, nome: u.nome, email: u.email, role: u.role, cor: u.cor, setor: u.setor || null, setores: u.setores || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo, ve_geral: !!u.ve_geral, so_carteira: !!u.so_carteira }, SECRET, { expiresIn: u.role === 'master' ? '30d' : '16h' }); // equipe: sessão morre no mesmo dia; master mantém 30d
+    const token = jwt.sign({ id: u.id, nome: u.nome, email: u.email, role: u.role, cor: u.cor, setor: u.setor || null, setores: u.setores || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo, ve_geral: !!u.ve_geral, so_carteira: !!u.so_carteira, so_fidelidade: !!u.so_fidelidade }, SECRET, { expiresIn: u.role === 'master' ? '30d' : '16h' }); // equipe: sessão morre no mesmo dia; master mantém 30d
     /* 🌐 RASTREIO DE LOCALIZAÇÃO (ordem do master, 22/08): mesmo login usado
        em ENDEREÇOS (IPs) diferentes num curto intervalo = alerta na hora pro
        master. É o sinal clássico de senha compartilhada. */
@@ -126,7 +126,7 @@ r.post('/login', async (req, res) => {
 
 r.get('/me', auth, async (req, res) => {
   try {
-    const { rows } = await query('SELECT id,nome,email,cpf,role,cor,avatar,setor,setores,lider,ve_tudo,ve_geral,so_carteira,ia_consultas,ia_ligada,pode_impersonar,baixa_supervisionada FROM usuarios WHERE id=$1', [req.user.id]);
+    const { rows } = await query('SELECT id,nome,email,cpf,role,cor,avatar,setor,setores,lider,ve_tudo,ve_geral,so_carteira,so_fidelidade,ia_consultas,ia_ligada,pode_impersonar,baixa_supervisionada FROM usuarios WHERE id=$1', [req.user.id]);
     if (!rows[0]) return res.status(404).json({ error: 'Não encontrado' });
     res.json({ ...rows[0], dono: ehDono(rows[0]) || rows[0].pode_impersonar === true });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -178,7 +178,7 @@ r.patch('/me/nome', auth, async (req, res) => {
       'UPDATE usuarios SET nome = $1, updated_at = NOW() WHERE id = $2 RETURNING id, nome, email, cpf, role, cor, avatar, setor, setores, lider, ve_tudo, ve_geral',
       [nome, req.user.id]);
     if (!u) return res.status(404).json({ error: 'Usuário não encontrado.' });
-    const token = jwt.sign({ id: u.id, nome: u.nome, email: u.email, role: u.role, cor: u.cor, setor: u.setor || null, setores: u.setores || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo, ve_geral: !!u.ve_geral, so_carteira: !!u.so_carteira }, SECRET, { expiresIn: u.role === 'master' ? '30d' : '16h' }); // equipe: sessão morre no mesmo dia; master mantém 30d
+    const token = jwt.sign({ id: u.id, nome: u.nome, email: u.email, role: u.role, cor: u.cor, setor: u.setor || null, setores: u.setores || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo, ve_geral: !!u.ve_geral, so_carteira: !!u.so_carteira, so_fidelidade: !!u.so_fidelidade }, SECRET, { expiresIn: u.role === 'master' ? '30d' : '16h' }); // equipe: sessão morre no mesmo dia; master mantém 30d
     res.json({ ok: true, token, user: { id: u.id, nome: u.nome, email: u.email, cpf: u.cpf, role: u.role, cor: u.cor, avatar: u.avatar || null, setor: u.setor || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo, dono: ehDono(u) || u.pode_impersonar === true } });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -257,7 +257,7 @@ r.post('/impersonar/:id', auth, async (req, res) => {
 r.get('/usuarios', auth, async (req, res) => {
   if (req.user.role !== 'master') return res.status(403).json({ error: 'Acesso negado' });
   try {
-    const { rows } = await query("SELECT id,nome,email,cpf,role,cor,ativo,avatar,setor,setores,lider,ve_tudo,ve_geral,so_carteira,ia_consultas,ia_ligada,supervisor_id,meta_individual,meta_tipo,meta_qtd_dia,meta_dias_uteis,pode_impersonar FROM usuarios WHERE role!='bot' ORDER BY nome");
+    const { rows } = await query("SELECT id,nome,email,cpf,role,cor,ativo,avatar,setor,setores,lider,ve_tudo,ve_geral,so_carteira,so_fidelidade,ia_consultas,ia_ligada,supervisor_id,meta_individual,meta_tipo,meta_qtd_dia,meta_dias_uteis,pode_impersonar FROM usuarios WHERE role!='bot' ORDER BY nome");
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -370,6 +370,8 @@ r.put('/usuarios/:id', auth, async (req, res) => {
     if (req.body.ve_geral !== undefined && req.user.role === 'master') set('ve_geral', req.body.ve_geral === true);
     // Home office por produção: só carteira transferida (gestão marca)
     if (req.body.so_carteira !== undefined) set('so_carteira', req.body.so_carteira === true);
+    // 💛 Só a pasta Fidelidade (perfil da Poliana) — ligável pela tela de Usuários
+    if (req.body.so_fidelidade !== undefined) set('so_fidelidade', req.body.so_fidelidade === true);
     if (req.body.setores !== undefined) {
       const ss = Array.isArray(req.body.setores) ? req.body.setores.filter(s => ['vacinas','consultas','terapias'].includes(s)) : [];
       set('setores', ss.length ? ss : null);
@@ -396,7 +398,7 @@ r.put('/usuarios/:id', auth, async (req, res) => {
     if (!updates.length) return res.status(400).json({ error: 'Nada para atualizar' });
     params.push(req.params.id);
     const { rows } = await query(
-      `UPDATE usuarios SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${pi} RETURNING id,nome,email,cpf,role,cor,ativo,setor,setores,lider,ve_tudo,ve_geral,so_carteira,ia_consultas,ia_ligada,supervisor_id,meta_individual,meta_tipo,meta_qtd_dia,meta_dias_uteis,pode_impersonar`,
+      `UPDATE usuarios SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${pi} RETURNING id,nome,email,cpf,role,cor,ativo,setor,setores,lider,ve_tudo,ve_geral,so_carteira,so_fidelidade,ia_consultas,ia_ligada,supervisor_id,meta_individual,meta_tipo,meta_qtd_dia,meta_dias_uteis,pode_impersonar`,
       params
     );
     if (!rows[0]) return res.status(404).json({ error: 'Usuário não encontrado' });
