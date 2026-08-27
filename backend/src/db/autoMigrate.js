@@ -2978,66 +2978,22 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log('👀 Gestão na pasta Fidelidade:', nG);
     }
 
-    /* 🎯 META DA POLIANA: 3 AGENDAMENTOS POR DIA (ordem do master, 24/08). No
-       setor Fidelidade o que vale não é faturamento, é bebê agendado: cada
-       família mensalista de volta na agenda. 3 por dia × dias úteis do mês. */
-    const { rows: [flagMP] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_meta_poliana_3dia_v1'");
+    /* 🎯 META DA POLIANA (ordem do master, 24/08): R$ 100 mil no mês E o ritmo
+       de 5 agendamentos por dia. Uma é o resultado, a outra é o caminho — o
+       painel mostra as duas juntas. */
+    const { rows: [flagMP] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_meta_poliana_100k_5dia_v1'");
     if (!flagMP) {
       const { rowCount: nM } = await query(
-        `UPDATE usuarios SET meta_tipo = 'consultas', meta_qtd_dia = 3, meta_dias_uteis = 26,
-                             meta_individual = 0, updated_at = NOW()
+        `UPDATE usuarios SET meta_tipo = 'valor', meta_individual = 100000,
+                             meta_qtd_dia = 5, meta_dias_uteis = 26, updated_at = NOW()
           WHERE ativo = true AND nome ILIKE 'poliana%'`).catch(() => ({ rowCount: 0 }));
       await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
-        ['🎯 Meta da Poliana ajustada',
-         nM > 0 ? 'A meta dela agora é por AGENDAMENTO: 3 por dia, 78 no mês (26 dias úteis). O placar e o Caminho da Meta passam a contar agendamentos, não faturamento.'
+        ['🎯 Meta da Poliana: R$ 100 mil e 5 por dia',
+         nM > 0 ? 'O painel dela agora mostra as duas metas: R$ 100 mil no mês e o ritmo de 5 agendamentos por dia (130 no mês). O quanto já fez de cada uma aparece embaixo da barra.'
                 : 'Não encontrei a Poliana ativa no cadastro pra ajustar a meta. Me diga o nome exato que eu acerto.']).catch(() => {});
-      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_meta_poliana_3dia_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
-      console.log('🎯 Meta Poliana 3/dia:', nM);
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_meta_poliana_100k_5dia_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🎯 Meta Poliana: 100k + 5/dia →', nM);
     }
-
-    /* 💟 FIGURINHAS ENTRAM SOZINHAS (cobrança do master, 24/08: "e as
-       figurinhas?"). Antes dependia de alguém clicar em "Carregar" na
-       Biblioteca. Agora, a cada deploy, toda figurinha nova do repositório é
-       inserida — idempotente, nunca duplica, e as antigas ficam como estão. */
-    try {
-      const fsFig = await import('fs');
-      const pathFig = await import('path');
-      const { fileURLToPath: fu } = await import('url');
-      const dirFig = pathFig.join(pathFig.dirname(fu(import.meta.url)), '../assets/figurinhas');
-      if (fsFig.existsSync(dirFig)) {
-        const CATS = { bomdia: 'Bom dia', boatarde: 'Boa tarde', boanoite: 'Boa noite',
-          agradecimento: 'Agradecimento', vacinas: 'Vacinas', consultas: 'Consultas',
-          terapias: 'Terapias', psvacinal: 'Pós-vacinal', posvacinal: 'Pós-vacinal',
-          datascomemorativas: 'Datas comemorativas', indicaes: 'Indicações',
-          posagendamento: 'Pós-agendamento', vittalis: 'Vittalis' };
-        const arquivos = fsFig.readdirSync(dirFig).filter(x => x.endsWith('.webp'));
-        let novas = 0;
-        for (const f of arquivos) {
-          const base = f.replace('.webp', '');
-          let categoria = 'Vittalis', titulo;
-          if (base.includes('__')) {
-            const [catArq, nomeArq] = base.split('__');
-            categoria = CATS[catArq] || 'Vittalis';
-            titulo = `Vitta · ${nomeArq.replace(/-/g, ' ').replace(/\b\w/, c => c.toUpperCase())}`;
-          } else {
-            titulo = `Vitta · ${base.replace(/-/g, ' ').replace(/\b\w/, c => c.toUpperCase())}`;
-          }
-          const { rows: [ja] } = await query(
-            `SELECT 1 FROM biblioteca_midias WHERE titulo = $1 AND tipo = 'figurinha' LIMIT 1`, [titulo]).catch(() => ({ rows: [1] }));
-          if (ja) continue;
-          const b64 = fsFig.readFileSync(pathFig.join(dirFig, f)).toString('base64');
-          await query(`INSERT INTO biblioteca_midias (titulo, tipo, setor, categoria, mime, data)
-                       VALUES ($1, 'figurinha', 'geral', $3, 'image/webp', $2)`, [titulo, b64, categoria]).catch(() => {});
-          novas++;
-        }
-        if (novas) {
-          await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
-            ['💟 Figurinhas novas na Biblioteca',
-             `${novas} figurinha(s) da Vittalis entraram sozinhas, já separadas por categoria (Pós-agendamento, Vacinas, Bom dia, Datas comemorativas e outras). A equipe manda pelo ícone de figurinha, ao lado do emoji, dentro da conversa.`]).catch(() => {});
-          console.log(`💟 Figurinhas carregadas: ${novas} nova(s) de ${arquivos.length}`);
-        }
-      }
-    } catch (e) { console.error('figurinhas auto:', e.message); }
 
     console.log('✅ Auto-migrate complete');
   } catch (err) {

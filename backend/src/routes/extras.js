@@ -238,6 +238,27 @@ r.get('/minha-producao', async (req, res) => {
         falta_mes: Math.max(u.meta - confMes, 0),
         pct_mes: +((confMes / u.meta) * 100).toFixed(1),
       } : null;
+      /* 🎯 AS DUAS METAS JUNTAS (ordem do master, 24/08: "que apareça a meta de
+         100 mil e diga que a meta são 5 agendamentos por dia"). Uma é o
+         resultado do mês, a outra é o ritmo do dia — e é o ritmo que faz o
+         resultado acontecer. */
+      if (u.meta_qtd_dia > 0) {
+        const [cDia2, cMes2] = await Promise.all([
+          consultasCriadas(hoje, hoje),
+          consultasCriadas(`${mes}-01`, hoje),
+        ]);
+        const fDia = cDia2.rows[0]?.n || 0, fMes = cMes2.rows[0]?.n || 0;
+        const alvoMes2 = u.meta_qtd_dia * (u.meta_dias_uteis || 26);
+        metaBloco = { ...(metaBloco || { tipo: 'valor', unidade: 'R$' }),
+          agenda: {
+            alvo_dia: u.meta_qtd_dia, feito_dia: fDia,
+            falta_dia: Math.max(u.meta_qtd_dia - fDia, 0),
+            pct_dia: +((fDia / u.meta_qtd_dia) * 100).toFixed(0),
+            alvo_mes: alvoMes2, feito_mes: fMes,
+            pct_mes: +((fMes / alvoMes2) * 100).toFixed(0),
+            dias_uteis: u.meta_dias_uteis || 26,
+          } };
+      }
     }
 
     res.json({

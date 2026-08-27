@@ -846,6 +846,22 @@ export default function Dashboard() {
                           No mês: {m.feito_mes} de {m.alvo_mes} ({m.pct_mes || 0}%)
                         </div>
                       )}
+                      {/* 🎯 Ritmo do dia junto da meta do mês (ordem do master) */}
+                      {!porConsulta && m.agenda && (
+                        <div style={{ marginTop: 7, paddingTop: 7, borderTop: '1px dashed var(--border)' }}>
+                          <div style={{ fontWeight: 800, color: 'var(--txt2)' }}>
+                            🎯 Ritmo do dia: {m.agenda.alvo_dia} agendamentos
+                          </div>
+                          <div style={{ marginTop: 2 }}>
+                            {(m.agenda.pct_dia || 0) >= 100
+                              ? <>🏆 Ritmo batido hoje! {m.agenda.feito_dia} de {m.agenda.alvo_dia}</>
+                              : <>Hoje: {m.agenda.feito_dia} de {m.agenda.alvo_dia} · faltam <b>{m.agenda.falta_dia}</b></>}
+                          </div>
+                          <div style={{ marginTop: 2 }}>
+                            No mês: {m.agenda.feito_mes} de {m.agenda.alvo_mes} agendamentos ({m.agenda.pct_mes || 0}%)
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </>
                 );
