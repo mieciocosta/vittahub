@@ -2995,6 +2995,50 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log('🎯 Meta Poliana 3/dia:', nM);
     }
 
+    /* 💟 FIGURINHAS ENTRAM SOZINHAS (cobrança do master, 24/08: "e as
+       figurinhas?"). Antes dependia de alguém clicar em "Carregar" na
+       Biblioteca. Agora, a cada deploy, toda figurinha nova do repositório é
+       inserida — idempotente, nunca duplica, e as antigas ficam como estão. */
+    try {
+      const fsFig = await import('fs');
+      const pathFig = await import('path');
+      const { fileURLToPath: fu } = await import('url');
+      const dirFig = pathFig.join(pathFig.dirname(fu(import.meta.url)), '../assets/figurinhas');
+      if (fsFig.existsSync(dirFig)) {
+        const CATS = { bomdia: 'Bom dia', boatarde: 'Boa tarde', boanoite: 'Boa noite',
+          agradecimento: 'Agradecimento', vacinas: 'Vacinas', consultas: 'Consultas',
+          terapias: 'Terapias', psvacinal: 'Pós-vacinal', posvacinal: 'Pós-vacinal',
+          datascomemorativas: 'Datas comemorativas', indicaes: 'Indicações',
+          posagendamento: 'Pós-agendamento', vittalis: 'Vittalis' };
+        const arquivos = fsFig.readdirSync(dirFig).filter(x => x.endsWith('.webp'));
+        let novas = 0;
+        for (const f of arquivos) {
+          const base = f.replace('.webp', '');
+          let categoria = 'Vittalis', titulo;
+          if (base.includes('__')) {
+            const [catArq, nomeArq] = base.split('__');
+            categoria = CATS[catArq] || 'Vittalis';
+            titulo = `Vitta · ${nomeArq.replace(/-/g, ' ').replace(/\b\w/, c => c.toUpperCase())}`;
+          } else {
+            titulo = `Vitta · ${base.replace(/-/g, ' ').replace(/\b\w/, c => c.toUpperCase())}`;
+          }
+          const { rows: [ja] } = await query(
+            `SELECT 1 FROM biblioteca_midias WHERE titulo = $1 AND tipo = 'figurinha' LIMIT 1`, [titulo]).catch(() => ({ rows: [1] }));
+          if (ja) continue;
+          const b64 = fsFig.readFileSync(pathFig.join(dirFig, f)).toString('base64');
+          await query(`INSERT INTO biblioteca_midias (titulo, tipo, setor, categoria, mime, data)
+                       VALUES ($1, 'figurinha', 'geral', $3, 'image/webp', $2)`, [titulo, b64, categoria]).catch(() => {});
+          novas++;
+        }
+        if (novas) {
+          await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+            ['💟 Figurinhas novas na Biblioteca',
+             `${novas} figurinha(s) da Vittalis entraram sozinhas, já separadas por categoria (Pós-agendamento, Vacinas, Bom dia, Datas comemorativas e outras). A equipe manda pelo ícone de figurinha, ao lado do emoji, dentro da conversa.`]).catch(() => {});
+          console.log(`💟 Figurinhas carregadas: ${novas} nova(s) de ${arquivos.length}`);
+        }
+      }
+    } catch (e) { console.error('figurinhas auto:', e.message); }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);
