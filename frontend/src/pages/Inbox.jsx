@@ -548,6 +548,10 @@ export default function Inbox({ onUnreadChange }) {
   const [showEmoji, setShowEmoji] = useState(false);
   // 💟 Aba própria das figurinhas, ao lado dos emojis (ordem do master, 24/08)
   const [showFigus, setShowFigus] = useState(false);
+  /* 🎨 UX (ordem do master, 24/08: "a tela está visualmente poluída"). Os botões
+     de ação do cabeçalho passam a ter UM visual calmo; cor forte fica reservada
+     pra meta. E o que não é do dia a dia sai da barra e vai pro menu "Mais". */
+  const [maisAberto, setMaisAberto] = useState(false);
   const [showProntas, setShowProntas] = useState(false); // 📝 mensagens prontas (pra quem não usa a IA)
   const [encOpen, setEncOpen] = useState(false);         // 📤 encaminhar conversa pra outro canal
   const [encForm, setEncForm] = useState({ destino: '', mensagens: 20, observacao: '' });
@@ -1985,130 +1989,112 @@ export default function Inbox({ onUnreadChange }) {
                   ↺ Menu
                 </button>
               )}
-              {/* 🤖 Ligar/desligar a IA aparece em TODA conversa (ordem do master, 24/08) */}
-              {(user?.role === 'master' || user?.ia_consultas === true) && (
-                <button onClick={toggleBot} title={sel.bot_ativo ? 'Bot ligado nesta conversa — clique para desligar' : 'Bot desligado nesta conversa — clique para ligar'}
-                  className="btn btn-sm" style={{ background:sel.bot_ativo?'var(--ok2)':'var(--bg2)', color:sel.bot_ativo?'var(--ok)':'var(--muted)', border:`1.5px solid ${sel.bot_ativo?'var(--ok)':'var(--border)'}`, fontSize:11, padding:'4px 9px' }}>
-                  <Bot size={10}/> {sel.bot_ativo ? 'Bot ON' : 'Bot OFF'}
-                </button>
-              )}
+              {/* ═══ AÇÕES DO ATENDIMENTO ═══════════════════════════════════
+                  UX (ordem do master, 24/08): na barra ficam só as ações do dia
+                  a dia, num visual calmo. Todo o resto foi pro menu "Mais",
+                  que abre ali do lado. Antes eram 15 botões coloridos brigando
+                  entre si; agora são 5 e um menu. */}
+              {(() => {
+                const calmo = (ativo = false) => ({
+                  fontSize: 11.5, padding: '5px 11px', fontWeight: 700, borderRadius: 9, cursor: 'pointer',
+                  border: `1px solid ${ativo ? 'var(--tq)' : 'var(--border)'}`,
+                  background: ativo ? 'var(--tq4,#e8f7f8)' : 'var(--bg2)',
+                  color: ativo ? 'var(--tq2)' : 'var(--txt2)',
+                  display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap',
+                });
+                const itemMenu = {
+                  display: 'flex', alignItems: 'center', gap: 9, width: '100%', textAlign: 'left',
+                  padding: '9px 13px', border: 'none', background: 'transparent', cursor: 'pointer',
+                  fontSize: 12.5, color: 'var(--txt2)', fontWeight: 600,
+                };
+                const fecharMais = () => setMaisAberto(false);
+                return (<>
+                  <button onClick={abrirAgendar} title="Agendar este atendimento (conta na meta do mês)" style={calmo()}>
+                    <CalendarDays size={12}/> Agendar
+                  </button>
+                  <button onClick={abrirVenda} title="Registrar uma venda deste atendimento (entra na meta)" style={calmo()}>
+                    💰 Venda
+                  </button>
+                  <button onClick={abrirTransferir} title="Transferir este atendimento para outra atendente" style={calmo()}>
+                    🔁 Transferir
+                  </button>
+                  {(user?.role === 'master' || user?.ia_consultas === true) && (
+                    <button onClick={toggleBot} style={calmo(sel.bot_ativo)}
+                      title={sel.bot_ativo ? 'A IA está respondendo nesta conversa — clique para desligar' : 'Ligar a IA nesta conversa'}>
+                      <Sparkles size={12}/> {sel.bot_ativo ? 'IA ligada' : 'IA'}
+                    </button>
+                  )}
+                  <button onClick={()=>{setShowInfo(p=>!p);setShowAI(false);}} style={calmo(showInfo)} title="Dados do cliente, anotações e histórico">
+                    <Tag size={12}/> Dados
+                  </button>
+                  <button onClick={()=>toggleFix(sel)} style={{ ...calmo(fixadasIds.has(sel.id)),
+                    borderColor: fixadasIds.has(sel.id) ? '#C4973B' : 'var(--border)',
+                    background: fixadasIds.has(sel.id) ? '#fdf6e7' : 'var(--bg2)',
+                    color: fixadasIds.has(sel.id) ? '#8a6417' : 'var(--txt2)' }}
+                    title={fixadasIds.has(sel.id) ? 'Desafixar esta conversa' : 'Fixar esta conversa no topo da sua lista'}>
+                    📌 {fixadasIds.has(sel.id) ? 'Fixada' : 'Fixar'}
+                  </button>
 
-              <select value={sel.classificacao || ''} onChange={e=>e.target.value && classificarSetor(e.target.value)}
-                title="Classificar este atendimento — depois ele aparece só pro time responsável"
-                className="btn btn-sm" style={{ fontSize:11, padding:'4px 9px', fontWeight:700, cursor:'pointer',
-                  background: sel.classificacao ? 'var(--tq3)' : '#fff7ed', color: sel.classificacao ? 'var(--tq2)' : '#b45309',
-                  border:`1.5px solid ${sel.classificacao ? 'var(--tq)' : '#fcd34d'}` }}>
-                <option value="">🏷️ Classificar…</option>
-                <option value="vacinacao">💉 Vacinação</option>
-                <option value="planos_vacinais">📋 Planos Vacinais</option>
-                <option value="fidelidade">⭐ Fidelidade</option>
-                <option value="consultas">🩺 Consultas</option>
-                <option value="terapias">🧩 Terapias</option>
-                {/* 👔 Contatos internos (pedido do master): a IA não age com eles */}
-                <option value="gestao">👔 Gestão / Direção</option>
-                <option value="profissional_saude">🏥 Profissional da clínica</option>
-              </select>
-              {/* 🗄️ TIRAR DO ATENDIMENTO (ordem do master, 24/08): contato que não é
-                  cliente sai da lista sem perder o histórico. Só gestão. */}
-              {['master','supervisor'].includes(user?.role) && (
-                <button onClick={async () => {
-                  const arquivar = !sel.arquivada;
-                  if (arquivar && !window.confirm(`Tirar ${sel.contact_name || 'este contato'} do atendimento geral?\n\nEle sai da lista, a IA para de agir nele e o histórico continua guardado. Dá pra trazer de volta quando quiser.`)) return;
-                  try {
-                    await api.patch(`/inbox/conversations/${sel.id}/arquivar`, { arquivada: arquivar });
-                    Toast.show(arquivar ? 'Contato fora do atendimento geral 🗄️' : 'Contato de volta ao atendimento', 'success');
-                    setSel(p => ({ ...p, arquivada: arquivar }));
-                    setConvos(p => p.filter(c => c.id !== sel.id));
-                    if (arquivar) setSel(null);
-                  } catch (e) { Toast.show(e.message, 'error'); }
-                }}
-                  title={sel.arquivada ? 'Trazer este contato de volta ao atendimento' : 'Tirar este contato do atendimento geral (não é cliente)'}
-                  className="btn btn-sm" style={{ background:'#2b2b2b', color:'#e5e5e5', border:'1.5px solid #4b5563', fontSize:11, padding:'4px 9px', fontWeight:700 }}>
-                  🗄️ {sel.arquivada ? 'Desarquivar' : 'Tirar do atendimento'}
-                </button>
-              )}
-              {/* 📌 FIXAR DENTRO DO PRÓPRIO CHAT (pedido do master, 24/08: "quero
-                  que elas possam fixar cada conversa dentro do próprio chat, não
-                  somente na listagem"). Mesmo botão, mesma cor dourada da lista,
-                  e o estado acompanha na hora. */}
-              <button onClick={() => toggleFix(sel)}
-                title={fixadasIds.has(sel.id)
-                  ? 'Desafixar esta conversa, ela volta pra lista geral'
-                  : 'Fixar esta conversa, ela sobe pra sua seção de fixadas (só no seu usuário)'}
-                className="btn btn-sm"
-                style={{ background:'linear-gradient(120deg,#f59e0b,#fcd34d)', color:'#78350f', border:'none',
-                  fontSize:11, padding:'4px 9px', fontWeight:900, whiteSpace:'nowrap', flexShrink:0,
-                  boxShadow:'0 1px 6px rgba(245,158,11,.5)' }}>
-                📌 {fixadasIds.has(sel.id) ? 'CONVERSA FIXADA' : 'FIXAR CONVERSA'}
-              </button>
-              {/* 🔁 TRANSFERIR (pedido do master: "além do setor, transferir
-                  para o atendente que quero") — o modal completo existia sem
-                  botão; agora abre daqui, com a equipe da supervisora no topo
-                  e aviso pra quem recebe. */}
-              <button onClick={abrirTransferir} title="Transferir este atendimento para a atendente que você escolher (ela recebe o aviso e assume a conversa)"
-                className="btn btn-sm" style={{ background:'#0e7490', color:'#a5f3fc', border:'1.5px solid #06b6d4', fontSize:11, padding:'4px 9px', fontWeight:700 }}>
-                🔁 Transferir
-              </button>
-              {/* 📤 Encaminhar pra outro canal (pedido do master): manda o
-                  histórico pro WhatsApp do setor com o link do cliente no fim */}
-              <button onClick={()=>{ setEncForm({ destino: '', mensagens: 20, observacao: '' }); setEncOpen(true); api.get('/inbox/encaminhar-destino').then(setEncDestino).catch(()=>setEncDestino(null)); }}
-                title="Encaminhar o histórico desta conversa pro WhatsApp de outro setor/canal, com o link do cliente pronto pra chamar"
-                className="btn btn-sm" style={{ background:'#4a044e', color:'#f0abfc', border:'1.5px solid #c026d3', fontSize:11, padding:'4px 9px', fontWeight:700 }}>
-                📤 Encaminhar
-              </button>
-              <button onClick={abrirAgendar} title="Agendar este atendimento (conta na meta do mês)"
-                className="btn btn-sm" style={{ background:'#1e3a5f', color:'#7cc4ff', border:'1.5px solid #2563eb', fontSize:11, padding:'4px 9px', fontWeight:700 }}>
-                <CalendarDays size={10}/> Agendar
-              </button>
-              {/* 🗑️ Botão "Agendar IA" REMOVIDO (pedido do master, 22/08: "tem
-                  muitos botões aqui que não servem de nada") — a IA já
-                  pré-agenda sozinha na conversa pela tool pre_agendar. */}
-              <button onClick={async () => {
-                  setResumoLoad(true); setResumo(null);
-                  try { setResumo(await api.get(`/inbox/conversations/${sel.id}/resumo`)); }
-                  catch (e) { setResumo({ erro: e.message }); }
-                  setResumoLoad(false);
-                }} disabled={resumoLoad} title="Raio-X: resumo da conversa + avaliação do atendimento"
-                className="btn btn-sm" style={{ background:'#0f766e', color:'#ccfbf1', border:'1.5px solid #14b8a6', fontSize:11, padding:'4px 9px', fontWeight:700 }}>
-                {resumoLoad ? <span className="spin" style={{width:10,height:10}}/> : '📋'} Resumo
-              </button>
-              {/* 🔒 Botão Excluir REMOVIDO por ordem do master ("ninguém pode
-                  excluir conversa") — o histórico do cliente é permanente.
-                  O endpoint no backend também foi trancado. */}
-              {['master','supervisor'].includes(user?.role) && (
-                <button onClick={()=>setFotosModo(f=>!f)} title="Exportar fotos desta conversa pra Biblioteca: ligue, toque nas fotos pra selecionar e escolha o setor"
-                  className="btn btn-sm" style={{ background: fotosModo ? '#0e7490' : 'var(--tq4)', color: fotosModo ? '#fff' : 'var(--tq2)', border:'1.5px solid var(--tq3)', fontSize:11, padding:'4px 9px', fontWeight:700 }}>
-                  🖼️ {fotosModo ? 'Selecionando…' : 'Fotos'}
-                </button>
-              )}
-              <button onClick={estudarConversa} disabled={estudoBusy} title="Guardar esta conversa em Estudos — pra equipe aprender com ela depois (serve tanto a que deu certo quanto a que travou)"
-                className="btn btn-sm" style={{ background:'#422006', color:'#fcd34d', border:'1.5px solid #C4973B', fontSize:11, padding:'4px 9px', fontWeight:700 }}>
-                {estudoBusy ? <span className="spin" style={{width:10,height:10}}/> : '📚'} Estudar
-              </button>
-              {/* 🔁 REPIQUE (pedido do master): cliente que "vai ver com o marido",
-                  vai dar retorno etc. — a atendente coloca no repique DENTRO da
-                  conversa e ele cai no painel de Retornos pra ninguém esquecer. */}
-              <button onClick={abrirFollow} title="Colocar no repique: cliente que vai dar retorno, ver com o marido… Agenda a recobrança e aparece no painel de Retornos"
-                className="btn btn-sm" style={{ background:'#3b2564', color:'#d8b4fe', border:'1.5px solid #8b5cf6', fontSize:11, padding:'4px 9px', fontWeight:700 }}>
-                🔁 Repique
-              </button>
-              <button onClick={abrirVenda} title="Registrar uma venda deste atendimento (entra na meta)"
-                className="btn btn-sm" style={{ background:'#14432a', color:'#7ee0a8', border:'1.5px solid #16a34a', fontSize:11, padding:'4px 9px', fontWeight:700 }}>
-                💰 Venda
-              </button>
-              {estudoAviso && (
-                <div style={{ flexBasis:'100%', marginTop:6, fontSize:11.5, fontWeight:600, padding:'6px 9px', borderRadius:8,
-                  background: estudoAviso.ok ? '#14432a' : 'var(--err2,#fdecec)',
-                  color: estudoAviso.ok ? '#7ee0a8' : 'var(--err,#dc2626)' }}>
-                  {estudoAviso.ok ? '📚 ' : '⚠ '}{estudoAviso.texto}
-                </div>
-              )}
-              <button onClick={()=>{setShowAI(p=>!p);setShowInfo(false);}} className="btn btn-sm" style={{ background:showAI?'#032B30':'var(--bg2)', color:showAI?'#00B8C0':'var(--muted)', border:`1.5px solid ${showAI?'rgba(0,184,192,.4)':'var(--border)'}`, fontSize:11, padding:'4px 9px' }}>
-                <Sparkles size={10}/> IA
-              </button>
-              <button onClick={()=>{setShowInfo(p=>!p);setShowAI(false);}} className="btn btn-sm" style={{ background:showInfo?'var(--tq3)':'var(--bg2)', color:showInfo?'var(--tq2)':'var(--muted)', border:`1.5px solid ${showInfo?'var(--tq)':'var(--border)'}`, fontSize:11, padding:'4px 9px' }}>
-                <Tag size={10}/> Info
-              </button>
+                  {/* ⋯ Mais: tudo o que não é do dia a dia */}
+                  <div style={{ position: 'relative' }}>
+                    <button onClick={()=>setMaisAberto(v=>!v)} style={calmo(maisAberto)} title="Mais ações deste atendimento">
+                      ⋯ Mais
+                    </button>
+                    {maisAberto && (<>
+                      <div onClick={fecharMais} style={{ position:'fixed', inset:0, zIndex:40 }} />
+                      <div style={{ position:'absolute', right:0, top:'calc(100% + 6px)', zIndex:41, width:236,
+                        background:'var(--card,#fff)', border:'1px solid var(--border)', borderRadius:12,
+                        boxShadow:'0 12px 34px rgba(0,0,0,.22)', overflow:'hidden', padding:'5px 0' }}>
+
+                        <button style={itemMenu} onClick={()=>{ fecharMais(); setShowAI(true); setShowInfo(false); }}>
+                          ✨ <span>Assistente de vendas</span>
+                        </button>
+                        <button style={itemMenu} onClick={async ()=>{ fecharMais(); setResumoLoad(true); setResumo(null);
+                          try { setResumo(await api.get(`/inbox/conversations/${sel.id}/resumo`)); }
+                          catch (e) { setResumo({ erro: e.message }); } setResumoLoad(false); }}>
+                          📋 <span>Raio-X da conversa</span>
+                        </button>
+                        <button style={itemMenu} onClick={()=>{ fecharMais(); abrirFollow(); }}>
+                          🔁 <span>Colocar no repique</span>
+                        </button>
+                        <button style={itemMenu} onClick={()=>{ fecharMais(); setEncForm({ destino: '', mensagens: 20, observacao: '' }); setEncOpen(true); api.get('/inbox/encaminhar-destino').then(setEncDestino).catch(()=>setEncDestino(null)); }}>
+                          📤 <span>Encaminhar conversa</span>
+                        </button>
+                        <button style={itemMenu} onClick={()=>{ fecharMais(); estudarConversa(); }} disabled={estudoBusy}>
+                          📚 <span>Guardar em Estudos</span>
+                        </button>
+
+                        <div style={{ height:1, background:'var(--border)', margin:'5px 0' }} />
+
+                        {['master','supervisor'].includes(user?.role) && (
+                          <button style={itemMenu} onClick={()=>{ fecharMais(); setFotosModo(f=>!f); }}>
+                            🖼️ <span>{fotosModo ? 'Parar de selecionar fotos' : 'Exportar fotos'}</span>
+                          </button>
+                        )}
+                        <button style={itemMenu} onClick={async ()=>{ fecharMais();
+                          try { await api.post(`/inbox/conversations/${sel.id}/reset-triagem`); Toast.show('Triagem reiniciada — o próximo "oi" recebe as boas-vindas 💎', 'success'); }
+                          catch(e){ Toast.show(e.message, 'error'); } }}>
+                          ↺ <span>Reiniciar boas-vindas</span>
+                        </button>
+                        {['master','supervisor'].includes(user?.role) && sel && (
+                          <button style={{ ...itemMenu, color:'var(--err,#dc2626)' }} onClick={async ()=>{ fecharMais();
+                            const arquivar = !sel.arquivada;
+                            if (arquivar && !window.confirm(`Tirar ${sel.contact_name || 'este contato'} do atendimento geral?\n\nEle sai da lista, a IA para de agir nele e o histórico continua guardado.`)) return;
+                            try {
+                              await api.patch(`/inbox/conversations/${sel.id}/arquivar`, { arquivada: arquivar });
+                              Toast.show(arquivar ? 'Contato fora do atendimento geral 🗄️' : 'Contato de volta ao atendimento', 'success');
+                              setConvos(p => p.filter(c => c.id !== sel.id));
+                              if (arquivar) setSel(null);
+                            } catch (e) { Toast.show(e.message, 'error'); }
+                          }}>
+                            🗄️ <span>{sel.arquivada ? 'Trazer de volta' : 'Tirar do atendimento'}</span>
+                          </button>
+                        )}
+                      </div>
+                    </>)}
+                  </div>
+                </>);
+              })()}
             </div>
             </div>
           </div>
@@ -2526,7 +2512,10 @@ export default function Inbox({ onUnreadChange }) {
           {/* 🗺️ FUNIL DE VENDA — o protocolo de 7 etapas do master, vivo: o
               sistema detecta a etapa pela conversa/venda/agenda e mostra o
               GATILHO que destrava o avanço. Prospecção → Pós-venda. */}
-          {proto?.funil && (
+          {/* 🎨 UX: o funil de 7 etapas agora acompanha a barra do protocolo (o
+              mesmo toque abre os dois). Antes eram TRÊS faixas empilhadas
+              disputando a tela com a conversa. */}
+          {proto?.funil && protoAberto && (
             <div style={{ flexShrink:0, borderTop:'1px solid var(--border)', background:'var(--card)', padding:'7px 14px 6px' }}>
               <div style={{ display:'flex', alignItems:'center', gap:5, overflowX:'auto', paddingBottom:2 }}>
                 {proto.funil.etapas.map((e, i) => {
@@ -2574,7 +2563,7 @@ export default function Inbox({ onUnreadChange }) {
           {/* 🩺 PERGUNTAS A REALIZAR (lista do master) — a anamnese de ouro da
               qualificação de consultas/terapias. Clicou na pergunta, ela já
               cai escrita na caixa: é só ajustar e enviar. */}
-          {sel && sel.setor !== 'vacinas' && (
+          {sel && sel.setor !== 'vacinas' && protoAberto && (
             <div style={{ flexShrink:0, borderTop:'1px solid var(--border)', background:'var(--card)' }}>
               <button onClick={() => setPerguntasOpen(a => !a)}
                 style={{ width:'100%', display:'flex', alignItems:'center', gap:8, padding:'6px 14px', border:'none', cursor:'pointer', background:'transparent', textAlign:'left' }}>
@@ -2801,45 +2790,9 @@ export default function Inbox({ onUnreadChange }) {
               terapias com o bot desligado, um convite impossível de ignorar:
               um toque e a Vitta — treinada nas conversas que agendaram — assume
               e conduz pro fechamento. */}
-          {/* Faixa da IA em TODA conversa, inclusive vacinas (ordem do master, 24/08) */}
-          {sel && !sel.bot_ativo && (user?.ia_consultas === true || user?.role === 'master') && (
-            <div style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px', flexShrink:0,
-              background:'linear-gradient(100deg,#4c1d95,#7c3aed 45%,#a855f7)', borderTop:'1px solid #7c3aed' }}>
-              <style>{`@keyframes vhPulseIA{0%,100%{box-shadow:0 0 0 0 rgba(255,255,255,.55)}50%{box-shadow:0 0 0 9px rgba(255,255,255,0)}}`}</style>
-              <span style={{ fontSize:20 }}>✨</span>
-              <span style={{ flex:1, minWidth:0, color:'#fff', lineHeight:1.35 }}>
-<b style={{ fontSize:12.5, display:'block' }}>{sel.setor === 'vacinas' ? 'Deixa a Vitta receber por você!' : 'Deixa a Vitta fechar com você!'}</b>
-                <span style={{ fontSize:11, opacity:.9 }}>{sel.setor === 'vacinas'
-                  ? 'Em vacinas ela acolhe o cliente e avisa que a equipe assume, sem falar de valores nem agendar.'
-                  : 'Ela estudou os atendimentos que agendaram, um toque e ela assume esta conversa rumo ao agendamento.'}</span>
-              </span>
-              <button onClick={toggleBot}
-                style={{ flexShrink:0, display:'flex', alignItems:'center', gap:6, padding:'9px 16px', borderRadius:12, border:'none', cursor:'pointer',
-                  background:'#fff', color:'#6d28d9', fontWeight:900, fontSize:12.5, animation:'vhPulseIA 1.6s ease-in-out infinite' }}>
-                🤖 Ativar a Vitta
-              </button>
-            </div>
-          )}
-          {/* 🟣 LETREIRO "VITTA AO VIVO" (pedido do master: bem atraente e
-              visível quando a IA está respondendo) — gradiente roxo, ponto
-              verde pulsando de transmissão e o desligar ali mesmo. */}
-          {sel && sel.bot_ativo && (user?.ia_consultas === true || user?.role === 'master') && (
-            <div style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px', flexShrink:0, color:'#fff',
-              background:'linear-gradient(100deg,#4c1d95,#7c3aed 55%,#a855f7)', borderTop:'1px solid #7c3aed' }}>
-              <style>{`@keyframes vhVivoIA{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.7)}}`}</style>
-              <span style={{ width:10, height:10, borderRadius:'50%', flexShrink:0, background:'#4ade80',
-                boxShadow:'0 0 8px rgba(74,222,128,.9)', animation:'vhVivoIA 1.1s ease-in-out infinite' }} />
-              <span style={{ flex:1, minWidth:0, lineHeight:1.3 }}>
-                <b style={{ fontSize:13, display:'block' }}>🤖 Vitta respondendo AO VIVO nesta conversa</b>
-                <span style={{ fontSize:10.5, opacity:.88 }}>Treinada nos atendimentos que fecharam — se você escrever, ela sai de cena na hora.</span>
-              </span>
-              <button onClick={toggleBot}
-                style={{ flexShrink:0, padding:'7px 14px', borderRadius:10, border:'none', cursor:'pointer',
-                  background:'#fff', color:'#6d28d9', fontWeight:900, fontSize:11.5 }}>
-                ⏸️ Desligar
-              </button>
-            </div>
-          )}
+          {/* 🎨 As duas faixas roxas da IA saíram (ordem do master, 24/08): o
+              estado da IA agora vive no botão do cabeçalho, que acende quando
+              ela está ligada. Mesma informação, sem tomar a tela de quem atende. */}
 
           {/* Input bar */}
           <div className="chat-input-bar" style={{ background:'var(--card,#fff)', padding:'9px 12px', borderTop:'1px solid var(--border)', flexShrink:0 }}>
@@ -3703,8 +3656,11 @@ function FaixaContexto({ sel, leadInfo, setLeadInfo, api, scoreChip, setScoreChi
     catch (e) { Toast.show(e.message, 'error'); api.get(`/leads/${sel.lead_id}`).then(setLeadInfo).catch(() => {}); }
   };
 
-  const caixa = { display:'flex', alignItems:'center', gap:8, padding:'0 14px', borderRight:'1px solid var(--tq3)' };
-  const rotulo = { fontSize:9.5, fontWeight:800, color:'var(--tq2)', textTransform:'uppercase', letterSpacing:.4 };
+  /* 🎨 Faixa de contexto em tom neutro (ordem do master, 24/08): os rótulos
+     eram turquesa forte em cinco caixas seguidas e competiam com a conversa.
+     Agora informam sem gritar; cor forte só na meta. */
+  const caixa = { display:'flex', alignItems:'center', gap:8, padding:'0 14px', borderRight:'1px solid var(--border)' };
+  const rotulo = { fontSize:9.5, fontWeight:800, color:'var(--muted)', textTransform:'uppercase', letterSpacing:.4 };
   const valorSt = { fontSize:12, fontWeight:700, color:'var(--txt)', maxWidth:140, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' };
   const campoSt = { fontSize:12, fontWeight:700, padding:'2px 6px', borderRadius:7, border:'1.5px solid var(--tq)', background:'var(--card)', color:'var(--txt)', maxWidth:150 };
 

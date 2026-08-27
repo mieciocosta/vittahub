@@ -355,6 +355,19 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
   }, []); // eslint-disable-line
 
   const VERS_DIA = versiculoDoDia();
+  /* 🎨 UX (ordem do master, 24/08: "tira esse perfil e bota em outro lugar,
+     quero ter acesso às opções de menu melhor e mais fácil"). O bloco pessoal
+     (versículo, frase e atalhos) nasce RECOLHIDO: fica uma linha fina com o
+     essencial, e o menu sobe pra primeira dobra. Um toque abre tudo de volta,
+     e a escolha fica guardada. */
+  const [perfilAberto, setPerfilAberto] = useState(() => {
+    try { return localStorage.getItem('vh_perfil_aberto') === '1'; } catch { return false; }
+  });
+  const alternarPerfil = () => setPerfilAberto(a => {
+    const nova = !a;
+    try { localStorage.setItem('vh_perfil_aberto', nova ? '1' : '0'); } catch { /* ok */ }
+    return nova;
+  });
   const saudDia = (() => { const h = new Date().getHours(); return h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite'; })();
   /* 🔥 Frase de VENDAS do dia (pedido do master: em destaque, abaixo do
      versículo). Gira pelo dia do ano — nunca repete em dias seguidos. Curtas de
@@ -633,7 +646,36 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                 frase dourada é a única com cor própria (é o destaque); e as
                 metas são duas linhas varridas num olhar, com a barra por
                 último. Menos moldura, mais leitura. */}
-            <div style={{ width:'100%', marginTop:6, borderRadius:13, overflow:'hidden',
+            {/* Linha fina: só o que precisa estar sempre à vista */}
+            <button onClick={alternarPerfil}
+              title={perfilAberto ? 'Recolher meu dia' : 'Ver meu dia: versículo, frase e metas'}
+              style={{ width:'100%', marginTop:6, display:'flex', alignItems:'center', gap:7,
+                padding:'6px 10px', borderRadius:11, cursor:'pointer',
+                background:'rgba(255,255,255,.08)', border:'1px solid rgba(255,255,255,.16)', color:'#fff' }}>
+              <span style={{ fontSize:12 }}>{perfilAberto ? '▾' : '▸'}</span>
+              <span style={{ flex:1, textAlign:'left', fontSize:11.5, fontWeight:800, letterSpacing:.2, opacity:.92 }}>Meu dia</span>
+              {(() => {
+                /* A única cor forte que fica sempre à vista é a da META (ordem
+                   do master: "tira as cores vibrantes, exceto da meta"). */
+                if (!metaMini?.metaGlobal) return null;
+                const lista = (metaMini.porSetor && metaMini.porSetor.length) ? metaMini.porSetor : [metaMini];
+                const ind = (metaMini.individual && metaMini.individual.meta > 0) ? metaMini.individual : null;
+                const alvo = ind ? ind.meta : lista.reduce((a3, x) => a3 + (x.metaMinima || 0), 0);
+                const feito = ind ? (ind.confirmado || 0) : lista.reduce((a3, x) => a3 + (x.confirmado || 0), 0);
+                if (!alvo) return null;
+                const pct = Math.min(100, Math.round((feito / alvo) * 100));
+                return (
+                  <span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
+                    <span style={{ width:52, height:6, borderRadius:99, background:'rgba(255,255,255,.18)', overflow:'hidden' }}>
+                      <span style={{ display:'block', height:'100%', width:`${pct}%`, borderRadius:99,
+                        background: pct >= 100 ? '#3ef58f' : 'linear-gradient(90deg,#fcd34d,#fde68a)' }} />
+                    </span>
+                    <span style={{ fontSize:10.5, fontWeight:900, color: pct >= 100 ? '#a7f3d0' : '#ffe9b0' }}>{pct}%</span>
+                  </span>
+                );
+              })()}
+            </button>
+            {perfilAberto && <div style={{ width:'100%', marginTop:6, borderRadius:13, overflow:'hidden',
               background:'linear-gradient(180deg, rgba(0,0,0,.22), rgba(0,0,0,.10))', border:'1.5px solid rgba(252,211,77,.55)', boxShadow:'0 0 18px rgba(252,211,77,.18), inset 0 1px 0 rgba(255,255,255,.10)' }}>
 
               {/* Saudação + versículo */}
@@ -716,8 +758,8 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                   </div>
                 );
               })()}
-            </div>
-            <div style={{ width:'100%', display:'flex', alignItems:'center', gap:6, justifyContent:'flex-end', flexWrap:'wrap', marginTop:4 }}>
+            </div>}
+            {perfilAberto && <div style={{ width:'100%', display:'flex', alignItems:'center', gap:6, justifyContent:'flex-end', flexWrap:'wrap', marginTop:4 }}>
             {podeTrocar && (
               <button onClick={abrirTroca} title="Trocar de usuário (entrar como)" style={{ padding:8, background: trocaOpen ? 'rgba(255,255,255,.3)' : 'rgba(255,255,255,.14)', color:'#fff', borderRadius:9, cursor:'pointer', border:'1px solid rgba(255,255,255,.22)' }}>
                 <Users size={16} />
@@ -788,7 +830,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
               onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,.62)'}>
               <LogOut size={16} />
             </button>
-            </div>
+            </div>}
           </div>
         )}
 
