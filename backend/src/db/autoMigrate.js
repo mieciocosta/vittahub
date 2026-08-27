@@ -2978,6 +2978,23 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log('👀 Gestão na pasta Fidelidade:', nG);
     }
 
+    /* 🎯 META DA POLIANA: 3 AGENDAMENTOS POR DIA (ordem do master, 24/08). No
+       setor Fidelidade o que vale não é faturamento, é bebê agendado: cada
+       família mensalista de volta na agenda. 3 por dia × dias úteis do mês. */
+    const { rows: [flagMP] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_meta_poliana_3dia_v1'");
+    if (!flagMP) {
+      const { rowCount: nM } = await query(
+        `UPDATE usuarios SET meta_tipo = 'consultas', meta_qtd_dia = 3, meta_dias_uteis = 26,
+                             meta_individual = 0, updated_at = NOW()
+          WHERE ativo = true AND nome ILIKE 'poliana%'`).catch(() => ({ rowCount: 0 }));
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+        ['🎯 Meta da Poliana ajustada',
+         nM > 0 ? 'A meta dela agora é por AGENDAMENTO: 3 por dia, 78 no mês (26 dias úteis). O placar e o Caminho da Meta passam a contar agendamentos, não faturamento.'
+                : 'Não encontrei a Poliana ativa no cadastro pra ajustar a meta. Me diga o nome exato que eu acerto.']).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_meta_poliana_3dia_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🎯 Meta Poliana 3/dia:', nM);
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);
