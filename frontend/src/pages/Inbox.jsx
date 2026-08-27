@@ -526,6 +526,7 @@ export default function Inbox({ onUnreadChange }) {
   const resizing                      = useRef(false);
   const [provaEnviando, setProvaEnviando] = useState(false);   // 📸 envio do conjunto de fotos
   const [cartaoBusy, setCartaoBusy] = useState(false);         // 🗓️ montando o cartão de agendamento
+  const [assinarComo, setAssinarComo] = useState('');          // ✍️ gestão escrevendo no nome da dona
   const [total, setTotal]             = useState(0);
   const [page, setPage]               = useState(1);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -1182,6 +1183,7 @@ export default function Inbox({ onUnreadChange }) {
        conversa" voltar direto pra cá com o orçamento já escrito na caixa. */
     try { sessionStorage.setItem('vh_ultima_conversa', JSON.stringify({ id: c.id, nome: c.contact_name || '' })); } catch { /* ok */ }
     setSel(c); setMsgs([]); setMsgsHasMore(false); setMsgsTotal(0);
+    setAssinarComo('');   // ✍️ a assinatura escolhida vale só na conversa aberta
     // ✅ Protocolo: carrega sozinho ao abrir a conversa e já destaca o que faltou
     setProto(null);   // a barra respeita o que a atendente escolheu (aberta/baixada)
     api.get(`/inbox/conversations/${c.id}/protocolo`).then(setProto).catch(() => {});
@@ -1293,7 +1295,8 @@ export default function Inbox({ onUnreadChange }) {
     setMsgs(p => [...p, tmp]);
     setConvos(p => p.map(c => c.id===sel.id ? {...c, last_message:t, last_message_at:now} : c));
     try {
-      const r = await api.post(`/inbox/conversations/${sel.id}/send`, { content:t });
+      const r = await api.post(`/inbox/conversations/${sel.id}/send`,
+        assinarComo ? { content:t, assinarComo } : { content:t });
       window.__auditLog?.('responder', 'conversa', sel.id, { nome: sel.contact_name, trecho: t.slice(0, 60) });
       // Responsável automático: regra das 2 respostas (vem do backend)
       if (r?.autoAssign?.responsavel_id) {
@@ -2949,6 +2952,35 @@ export default function Inbox({ onUnreadChange }) {
           {/* 🎨 As duas faixas roxas da IA saíram (ordem do master, 24/08): o
               estado da IA agora vive no botão do cabeçalho, que acende quando
               ela está ligada. Mesma informação, sem tomar a tela de quem atende. */}
+
+          {/* ✍️ QUEM ESTÁ ASSINANDO (ordem do master, 27/08: mandou mensagem no
+              nome dele numa conversa da Stefany e só viu depois). Se a conversa
+              tem dona e quem escreve é outra pessoa da gestão, o aviso aparece
+              ANTES de enviar, com um clique pra assinar no nome dela. */}
+          {(() => {
+            const dona = sel?.responsavel_nome;
+            const donaId = sel?.responsavel_id;
+            if (!dona || !donaId || String(donaId) === String(user?.id) || !gestaoUser) return null;
+            const primeiro = String(dona).replace(/^(Dra?\.|Sra?\.|Enf\.|Prof\.)\s*/i, '').split(' ')[0];
+            const assinando = assinarComo === dona;
+            return (
+              <div style={{ display:'flex', alignItems:'center', gap:9, padding:'6px 12px', flexShrink:0,
+                background: assinando ? 'var(--tq4)' : 'var(--warn2,#fef8eb)',
+                borderTop:`1px solid ${assinando ? 'var(--tq3)' : '#fde68a'}`, fontSize:11.5 }}>
+                <span style={{ fontSize:13 }}>{assinando ? '✍️' : '⚠️'}</span>
+                <span style={{ flex:1, minWidth:0, color: assinando ? 'var(--tq2)' : '#92400e', fontWeight:700 }}>
+                  {assinando
+                    ? `Escrevendo como ${primeiro} — o cliente vê o nome dela.`
+                    : `Este atendimento é da ${primeiro}. Do seu jeito, vai sair no SEU nome.`}
+                </span>
+                <button onClick={()=>setAssinarComo(assinando ? '' : dona)}
+                  style={{ flexShrink:0, border:'none', borderRadius:8, padding:'4px 11px', cursor:'pointer', fontWeight:800, fontSize:11,
+                    background: assinando ? 'var(--bg2)' : '#d97706', color: assinando ? 'var(--muted)' : '#fff' }}>
+                  {assinando ? 'Voltar ao meu nome' : `Assinar como ${primeiro}`}
+                </button>
+              </div>
+            );
+          })()}
 
           {/* Input bar */}
           <div className="chat-input-bar" style={{ background:'var(--card,#fff)', padding:'9px 12px', borderTop:'1px solid var(--border)', flexShrink:0 }}>

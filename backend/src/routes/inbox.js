@@ -5746,8 +5746,14 @@ r.post('/conversations/:id/send', async (req, res) => {
     if (!conv) return res.status(404).json({ error: 'Não encontrado' });
     if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso: esta conversa é de outro setor.' });
 
-    // Nome gravado no rótulo = nome ATUAL do banco (reflete rename sem relogar).
-    const nomeGravar = usuariosNome.get(String(req.user.id)) || req.user.nome;
+    /* Nome gravado no rótulo = nome ATUAL do banco (reflete rename sem relogar).
+       ✍️ ASSINAR COMO OUTRA PESSOA (ordem do master, 27/08, depois de mandar
+       mensagem no nome dele numa conversa da Stefany): a gestão pode escrever
+       assinando por quem é dona do atendimento, sem precisar impersonar. Só
+       gestão — atendente nunca assina no nome de colega. */
+    let nomeGravar = usuariosNome.get(String(req.user.id)) || req.user.nome;
+    const assinarComo = String(req.body?.assinarComo || '').trim().slice(0, 40);
+    if (assinarComo && ehGestao(req.user)) nomeGravar = primeiroNomeUtil(assinarComo) || assinarComo;
     const { rows: [msg] } = await query(`
       INSERT INTO mensagens (conversa_id, from_type, type, content, sender_id, sender_nome, status)
       VALUES ($1, 'me', $2, $3, $4, $5, 'sent')
