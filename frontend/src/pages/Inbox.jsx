@@ -1263,14 +1263,25 @@ export default function Inbox({ onUnreadChange }) {
   // ── Arquivo ───────────────────────────────────────────────────────────────
   // Colar imagem (Ctrl+V / print screen) direto no composer
   // Editar mensagem enviada (WhatsApp permite até ~15 min)
-  const editarMensagem = async (m) => {
-    const novo = window.prompt('Editar mensagem (o cliente verá como editada):', m.content);
-    if (novo == null || !novo.trim() || novo.trim() === m.content) return;
+  /* ✏️ EDITAR MENSAGEM em caixa de verdade (ordem do master, 24/08). A janelinha
+     do navegador é de UMA linha: ela achatava o cartão de agendamento inteiro
+     numa tira só e ainda falha no celular. Agora é um editor com quebra de
+     linha preservada, contador e visão do texto inteiro. */
+  const [editMsg, setEditMsg] = useState(null);      // { id, original }
+  const [editTxt, setEditTxt] = useState('');
+  const [editBusy, setEditBusy] = useState(false);
+  const editarMensagem = (m) => { setEditMsg({ id: m.id, original: m.content || '' }); setEditTxt(m.content || ''); };
+  const salvarEdicao = async () => {
+    const novo = editTxt.replace(/\s+$/, '');
+    if (!editMsg || !novo.trim() || novo === editMsg.original) { setEditMsg(null); return; }
+    setEditBusy(true);
     try {
-      await api.put(`/inbox/conversations/${sel.id}/messages/${m.id}`, { content: novo.trim() });
-      setMsgs(prev => prev.map(x => x.id === m.id ? { ...x, content: novo.trim(), editada: true } : x));
-      window.__auditLog?.('editar_mensagem', 'mensagens', String(m.id));
+      await api.put(`/inbox/conversations/${sel.id}/messages/${editMsg.id}`, { content: novo });
+      setMsgs(prev => prev.map(x => x.id === editMsg.id ? { ...x, content: novo, editada: true } : x));
+      window.__auditLog?.('editar_mensagem', 'mensagens', String(editMsg.id));
+      setEditMsg(null);
     } catch (e) { Toast.show(e.message, 'error'); }
+    setEditBusy(false);
   };
 
   // Apagar pra todos
@@ -3046,6 +3057,36 @@ export default function Inbox({ onUnreadChange }) {
                 </>)}
 
               </>)}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ✏️ EDITOR DA MENSAGEM — caixa grande, com as linhas preservadas */}
+      {editMsg && (
+        <div onClick={e => e.target === e.currentTarget && setEditMsg(null)}
+          style={{ position:'fixed', inset:0, background:'rgba(3,43,48,.6)', zIndex:700, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+          <div className="card" style={{ width:'100%', maxWidth:560, padding:0, overflow:'hidden', display:'flex', flexDirection:'column', maxHeight:'88vh' }}>
+            <div style={{ padding:'13px 18px', background:'var(--bg)', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', gap:9 }}>
+              <span style={{ fontSize:16 }}>✏️</span>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontWeight:800, fontSize:14 }}>Editar mensagem</div>
+                <div style={{ fontSize:11, color:'var(--muted)' }}>O cliente vê a mensagem marcada como editada.</div>
+              </div>
+              <button onClick={()=>setEditMsg(null)} style={{ border:'none', background:'none', cursor:'pointer', color:'var(--muted)', fontSize:16 }}>✕</button>
+            </div>
+            <textarea value={editTxt} onChange={e=>setEditTxt(e.target.value)} autoFocus
+              onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) salvarEdicao(); }}
+              style={{ flex:1, minHeight:260, margin:0, padding:'14px 18px', border:'none', outline:'none', resize:'vertical',
+                background:'var(--card)', color:'var(--txt)', fontSize:13.5, lineHeight:1.65, fontFamily:'inherit', whiteSpace:'pre-wrap' }} />
+            <div style={{ padding:'11px 18px', borderTop:'1px solid var(--border)', display:'flex', alignItems:'center', gap:9, flexWrap:'wrap' }}>
+              <span style={{ fontSize:11, color:'var(--muted)' }}>
+                {editTxt.split('\n').length} linha(s) · {editTxt.length} caracteres · Ctrl+Enter salva
+              </span>
+              <button onClick={()=>setEditTxt(editMsg.original)} className="btn btn-sm"
+                style={{ marginLeft:'auto', background:'var(--bg2)', color:'var(--muted)', border:'1.5px solid var(--border)' }}>↺ Voltar ao original</button>
+              <button onClick={salvarEdicao} disabled={editBusy || !editTxt.trim()} className="btn btn-p btn-sm"
+                style={{ fontWeight:800, opacity:(editBusy || !editTxt.trim())?.5:1 }}>{editBusy ? 'Salvando…' : 'Salvar'}</button>
             </div>
           </div>
         </div>
