@@ -151,6 +151,8 @@ export default async function runMigrate() {
        cobradas em R$ no mês, outras em QUANTIDADE de consultas por dia. Misturar
        as duas num campo só faria "10" virar dez reais. */
     await query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS meta_tipo TEXT DEFAULT 'valor'`).catch(() => {});
+    // 💉 Meta de PLANOS VACINAIS fechados no mês (ordem do master, 24/08)
+    await query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS meta_planos_mes INT DEFAULT 0`).catch(() => {});
     await query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS meta_qtd_dia INT DEFAULT 0`).catch(() => {});
     await query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS meta_dias_uteis INT DEFAULT 26`).catch(() => {});
     // LIMPEZA (one-time, idempotente): conversas fantasma criadas pelo sync com
@@ -2978,21 +2980,21 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log('👀 Gestão na pasta Fidelidade:', nG);
     }
 
-    /* 🎯 META DA POLIANA (ordem do master, 24/08): R$ 100 mil no mês E o ritmo
-       de 5 agendamentos por dia. Uma é o resultado, a outra é o caminho — o
-       painel mostra as duas juntas. */
-    const { rows: [flagMP] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_meta_poliana_100k_5dia_v1'");
+    /* 🎯 AS TRÊS METAS DA POLIANA (ordem do master, 24/08): R$ 100 mil no mês,
+       5 agendamentos por dia e 10 planos vacinais no mês. Resultado, ritmo e
+       crescimento da carteira — as três aparecem no painel dela. */
+    const { rows: [flagMP] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_meta_poliana_3metas_v1'");
     if (!flagMP) {
       const { rowCount: nM } = await query(
         `UPDATE usuarios SET meta_tipo = 'valor', meta_individual = 100000,
-                             meta_qtd_dia = 5, meta_dias_uteis = 26, updated_at = NOW()
+                             meta_qtd_dia = 5, meta_dias_uteis = 26, meta_planos_mes = 10, updated_at = NOW()
           WHERE ativo = true AND nome ILIKE 'poliana%'`).catch(() => ({ rowCount: 0 }));
       await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
-        ['🎯 Meta da Poliana: R$ 100 mil e 5 por dia',
-         nM > 0 ? 'O painel dela agora mostra as duas metas: R$ 100 mil no mês e o ritmo de 5 agendamentos por dia (130 no mês). O quanto já fez de cada uma aparece embaixo da barra.'
-                : 'Não encontrei a Poliana ativa no cadastro pra ajustar a meta. Me diga o nome exato que eu acerto.']).catch(() => {});
-      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_meta_poliana_100k_5dia_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
-      console.log('🎯 Meta Poliana: 100k + 5/dia →', nM);
+        ['🎯 As três metas da Poliana',
+         nM > 0 ? 'R$ 100 mil no mês, 5 agendamentos por dia e 10 planos vacinais no mês. As três aparecem no topo do painel Fidelidade do mês, que é a tela de entrada dela.'
+                : 'Não encontrei a Poliana ativa no cadastro pra ajustar as metas. Me diga o nome exato que eu acerto.']).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_meta_poliana_3metas_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('🎯 Metas Poliana (100k + 5/dia + 10 planos):', nM);
     }
 
     console.log('✅ Auto-migrate complete');

@@ -7499,9 +7499,47 @@ r.get('/fidelidade/mes', async (req, res) => {
       || (a.dia_mes ?? 99) - (b.dia_mes ?? 99)
       || String(a.nome).localeCompare(String(b.nome)));
 
+    /* 🎯 AS METAS DE QUEM ESTÁ OLHANDO (ordem do master, 24/08: "ainda não
+       aparece"). A dona da carteira entra direto neste painel, então as metas
+       dela precisam estar AQUI, não no Dashboard: o resultado do mês, o ritmo
+       de agendamentos por dia e os planos vacinais fechados. */
+    let metas = null;
+    try {
+      const { rows: [u] } = await query(
+        `SELECT COALESCE(meta_individual,0)::float valor, COALESCE(meta_qtd_dia,0)::int dia,
+                COALESCE(meta_dias_uteis,26)::int dias, COALESCE(meta_planos_mes,0)::int planos
+           FROM usuarios WHERE id = $1`, [req.user.id]).catch(() => ({ rows: [] }));
+      if (u && (u.valor > 0 || u.dia > 0 || u.planos > 0)) {
+        const [{ rows: [fat] }, { rows: [agD] }, { rows: [agM] }, { rows: [pl] }] = await Promise.all([
+          query(`SELECT COALESCE(SUM(valor),0)::float t FROM vendas
+                  WHERE atendente_id = $1 AND to_char(data_venda,'YYYY-MM') = $2`, [req.user.id, mesRef]).catch(() => ({ rows: [{ t: 0 }] })),
+          query(`SELECT COUNT(*)::int n FROM agenda_eventos
+                  WHERE responsavel_id = $1 AND (created_at - interval '3 hours')::date = $2::date
+                    AND LOWER(COALESCE(status,'')) NOT LIKE 'cancel%' AND servico IS DISTINCT FROM 'Pós Vacinal'`,
+            [req.user.id, hoje]).catch(() => ({ rows: [{ n: 0 }] })),
+          query(`SELECT COUNT(*)::int n FROM agenda_eventos
+                  WHERE responsavel_id = $1 AND to_char(created_at - interval '3 hours','YYYY-MM') = $2
+                    AND LOWER(COALESCE(status,'')) NOT LIKE 'cancel%' AND servico IS DISTINCT FROM 'Pós Vacinal'`,
+            [req.user.id, mesRef]).catch(() => ({ rows: [{ n: 0 }] })),
+          query(`SELECT COUNT(*)::int n FROM vendas
+                  WHERE atendente_id = $1 AND to_char(data_venda,'YYYY-MM') = $2
+                    AND (COALESCE(servico,'') ILIKE '%plano%' OR COALESCE(categoria,'') ILIKE '%plano%'
+                         OR COALESCE(categoria,'') = 'planos_vacinais')`, [req.user.id, mesRef]).catch(() => ({ rows: [{ n: 0 }] })),
+        ]);
+        const pcts = (f, a) => (a > 0 ? Math.min(999, Math.round((f / a) * 100)) : 0);
+        metas = {
+          valor: u.valor > 0 ? { alvo: u.valor, feito: fat.t, pct: pcts(fat.t, u.valor) } : null,
+          agenda: u.dia > 0 ? { alvo_dia: u.dia, feito_dia: agD.n, falta_dia: Math.max(u.dia - agD.n, 0),
+            pct_dia: pcts(agD.n, u.dia), alvo_mes: u.dia * u.dias, feito_mes: agM.n, pct_mes: pcts(agM.n, u.dia * u.dias) } : null,
+          planos: u.planos > 0 ? { alvo_mes: u.planos, feito_mes: pl.n, falta: Math.max(u.planos - pl.n, 0), pct: pcts(pl.n, u.planos) } : null,
+        };
+      }
+    } catch (e) { console.error('metas do painel fidelidade:', e.message); }
+
     res.json({
       mes: mesRef,
       itens,
+      metas,
       resumo: {
         total: itens.length,
         atendidos: itens.filter(i => i.status === 'atendido').length,

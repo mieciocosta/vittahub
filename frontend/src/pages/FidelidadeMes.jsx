@@ -92,6 +92,63 @@ export default function FidelidadeMes() {
       {!dados && !erro && <div className="card" style={{ padding: 26, color: 'var(--muted)' }}>Carregando a carteira…</div>}
 
       {dados && !erro && (<>
+        {/* 🎯 MINHAS METAS (ordem do master, 24/08): resultado do mês, ritmo do
+            dia e planos vacinais — na tela em que ela entra, não no Dashboard. */}
+        {dados.metas && (dados.metas.valor || dados.metas.agenda || dados.metas.planos) && (
+          <div className="card" style={{ padding: '16px 18px', marginTop: 14,
+            background: 'linear-gradient(150deg, rgba(0,184,192,.10), transparent)', border: '1px solid rgba(0,184,192,.35)' }}>
+            <div style={{ fontWeight: 900, fontSize: 14.5, marginBottom: 12 }}>🎯 Minhas metas</div>
+            <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit,minmax(210px,1fr))' }}>
+
+              {dados.metas.valor && (() => { const m = dados.metas.valor; return (
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--txt2)' }}>💰 Faturamento do mês</div>
+                  <div style={{ fontSize: 19, fontWeight: 900, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>{fmt.brl(m.alvo)}</div>
+                  <span style={{ display: 'block', height: 9, borderRadius: 99, background: 'var(--border)', overflow: 'hidden', margin: '7px 0 5px' }}>
+                    <span style={{ display: 'block', height: '100%', width: `${Math.min(m.pct, 100)}%`, borderRadius: 99,
+                      background: m.pct >= 100 ? 'var(--ok,#16a34a)' : 'linear-gradient(90deg,#0E8C96,#00B8C0)' }} />
+                  </span>
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                    {m.pct >= 100 ? <>🏆 Meta batida! {fmt.brl(m.feito)}</> : <>{fmt.brl(m.feito)} feitos · {m.pct}%</>}
+                  </div>
+                </div>
+              ); })()}
+
+              {dados.metas.agenda && (() => { const m = dados.metas.agenda; return (
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--txt2)' }}>📅 Ritmo do dia</div>
+                  <div style={{ fontSize: 19, fontWeight: 900, marginTop: 2 }}>{m.alvo_dia} agendamentos por dia</div>
+                  <span style={{ display: 'block', height: 9, borderRadius: 99, background: 'var(--border)', overflow: 'hidden', margin: '7px 0 5px' }}>
+                    <span style={{ display: 'block', height: '100%', width: `${Math.min(m.pct_dia, 100)}%`, borderRadius: 99,
+                      background: m.pct_dia >= 100 ? 'var(--ok,#16a34a)' : '#f59e0b' }} />
+                  </span>
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                    {m.pct_dia >= 100
+                      ? <>🏆 Ritmo batido hoje! {m.feito_dia} de {m.alvo_dia}</>
+                      : <>Hoje: {m.feito_dia} de {m.alvo_dia} · faltam <b>{m.falta_dia}</b></>}
+                    <div>No mês: {m.feito_mes} de {m.alvo_mes} ({m.pct_mes}%)</div>
+                  </div>
+                </div>
+              ); })()}
+
+              {dados.metas.planos && (() => { const m = dados.metas.planos; return (
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--txt2)' }}>💉 Planos vacinais no mês</div>
+                  <div style={{ fontSize: 19, fontWeight: 900, marginTop: 2 }}>{m.alvo_mes} planos</div>
+                  <span style={{ display: 'block', height: 9, borderRadius: 99, background: 'var(--border)', overflow: 'hidden', margin: '7px 0 5px' }}>
+                    <span style={{ display: 'block', height: '100%', width: `${Math.min(m.pct, 100)}%`, borderRadius: 99,
+                      background: m.pct >= 100 ? 'var(--ok,#16a34a)' : '#a855f7' }} />
+                  </span>
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                    {m.pct >= 100 ? <>🏆 Meta batida! {m.feito_mes} planos</> : <>{m.feito_mes} fechados · faltam <b>{m.falta}</b></>}
+                  </div>
+                </div>
+              ); })()}
+
+            </div>
+          </div>
+        )}
+
         {/* Placar do mês */}
         <div className="card" style={{ padding: '16px 18px', marginTop: 14, marginBottom: 14 }}>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
