@@ -2268,7 +2268,7 @@ export default function Inbox({ onUnreadChange }) {
           {/* Faixa de contexto: Interesse · Responsável · Etapa · Meta do setor */}
           <FaixaContexto sel={sel} leadInfo={leadInfo} setLeadInfo={setLeadInfo} api={api}
             scoreChip={scoreChip} setScoreChip={setScoreChip} usersById={usersById} metaSetor={metaSetor}
-            changeResp={changeResp} />
+            changeResp={changeResp} setSel={setSel} setConvos={setConvos} onTransferir={abrirTransferir} />
 
           {/* Área de mensagens + info panel */}
           <div style={{ flex:1, display:'flex', minHeight:0, overflow:'hidden' }}>
@@ -3891,7 +3891,7 @@ function BibliotecaPicker({ convId, setor, api, onClose, abaInicial = 'foto' }) 
 
 
 /* ── Faixa de contexto sob o header (Interesse · Responsável · Etapa · Score) ── */
-function FaixaContexto({ sel, leadInfo, setLeadInfo, api, scoreChip, setScoreChip, usersById, metaSetor, changeResp }) {
+function FaixaContexto({ sel, leadInfo, setLeadInfo, api, scoreChip, setScoreChip, usersById, metaSetor, changeResp, setSel, setConvos, onTransferir }) {
   React.useEffect(() => {
     setLeadInfo(null); setScoreChip(null);
     if (!sel?.lead_id) return;
@@ -3978,6 +3978,12 @@ function FaixaContexto({ sel, leadInfo, setLeadInfo, api, scoreChip, setScoreChi
           </select>
         )}
       </Cartao>
+
+      {/* 🔁 Transferir logo depois do Interesse (ordem do master, 27/08): passar
+          o atendimento adiante é decisão que se toma olhando pro interesse. */}
+      <Cartao ic="🔁" label="Transferir" valor="Passar adiante"
+        dica="Passar este atendimento para outra pessoa"
+        aoClicar={() => onTransferir?.()} />
 
       {/* 2 · Cliente — quem fala com a gente (o nome do contato) */}
       <Cartao ic="🧑" label="Cliente" editavel aberto={editando === 'cliente'}
