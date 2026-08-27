@@ -416,7 +416,7 @@ const MsgItem = React.memo(function MsgItem({ m, prevMsg, contactName, channel, 
             </span>
             );
           })()}
-          <div className={m.type==='sticker' ? '' : bubClass} style={{ maxWidth:'72%',
+          <div className={m.type==='sticker' ? '' : bubClass} style={{ maxWidth:'90%',
             borderRadius:isMe||isBot?'16px 16px 4px 16px':'16px 16px 16px 4px',
             padding: m.type==='sticker' ? '2px' : '8px 11px',
             background: m.type==='sticker' ? 'transparent' : undefined,
@@ -1734,6 +1734,17 @@ export default function Inbox({ onUnreadChange }) {
     [convos, quentesPrimeiro, fixadasIds, modo, fixadas]
   );
 
+  /* ✍️ A CAIXA DE DIGITAR CRESCE COM O TEXTO (ordem do master, 27/08: "aumenta
+     o chat, é muito curto"). Ela nascia com UMA linha e nunca crescia: quem
+     escrevia uma proposta longa via só um filete e tinha que rolar dentro da
+     caixinha. Agora ela sobe até 170px e só então rola. */
+  useEffect(() => {
+    const el = textRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(170, Math.max(44, el.scrollHeight))}px`;
+  }, [input]);
+
   /* ─────────────────── RENDER ──────────────────────────────────────────────── */
   return (
     <div className="vh-inbox-wrap" style={{ display:'flex', height:'100vh', overflow:'hidden' }}
@@ -2892,8 +2903,8 @@ export default function Inbox({ onUnreadChange }) {
               <input ref={fileRef} type="file" accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.gif" style={{ display:'none' }} onChange={handleFile}/>
               <textarea ref={textRef} onPaste={handlePaste} spellCheck lang="pt-BR" value={input} onChange={e=>setInput(e.target.value)}
                 onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}}}
-                placeholder="Mensagem… (Enter envia)" rows={1}
-                style={{ flex:1, padding:'8px 12px', border:'1.5px solid var(--border)', borderRadius:10, fontSize:13, resize:'none', outline:'none', maxHeight:100, overflowY:'auto', lineHeight:1.55, fontFamily:'DM Sans, sans-serif', transition:'border-color .15s', background:'var(--card,#fff)', color:'var(--txt)' }}
+                placeholder="Mensagem… (Enter envia · Shift+Enter pula linha)" rows={2}
+                style={{ flex:1, padding:'8px 12px', border:'1.5px solid var(--border)', borderRadius:10, fontSize:13, resize:'none', outline:'none', minHeight:44, maxHeight:170, overflowY:'auto', lineHeight:1.55, fontFamily:'DM Sans, sans-serif', transition:'border-color .15s', background:'var(--card,#fff)', color:'var(--txt)' }}
                 onFocus={e=>{ e.target.style.borderColor='var(--tq)'; setShowEmoji(false); setShowProntas(false); }} onBlur={e=>e.target.style.borderColor='var(--border)'}/>
               <button onClick={recording?stopRec:startRec} className="btn btn-ico" style={{ background:recording?'var(--err2)':'var(--bg2)', color:recording?'var(--err)':'var(--muted)', borderRadius:8, animation:recording?'pulse 1.2s infinite':'none' }}>
                 {recording?<MicOff size={15}/>:<Mic size={15}/>}
