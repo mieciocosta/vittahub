@@ -500,6 +500,7 @@ export default function Inbox({ onUnreadChange }) {
     return 380;
   });
   const resizing                      = useRef(false);
+  const [provaEnviando, setProvaEnviando] = useState(false);   // 📸 envio do conjunto de fotos
   const [total, setTotal]             = useState(0);
   const [page, setPage]               = useState(1);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -2315,6 +2316,27 @@ export default function Inbox({ onUnreadChange }) {
                 <button onClick={()=>setQrNovo(p => p ? null : { titulo:'', texto:'' })}
                   style={{ padding:'4px 11px', borderRadius:8, background: qrNovo ? 'var(--tq)' : 'var(--card,#fff)', color: qrNovo ? '#fff' : 'var(--tq2)', border:'1.5px dashed var(--tq)', fontSize:12, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}>
                   <Plus size={11}/> Cadastrar mensagem
+                </button>
+                {/* 📸 PROVA SOCIAL (ordem do master, 27/08: "coloca uma também de
+                    prova social com fotos, onde carregue as fotos"). Não é texto:
+                    um toque manda o conjunto de fotos reais da casa, escolhidas
+                    pelo setor da conversa. Fica fixa aqui, ninguém apaga sem querer. */}
+                <button onClick={async ()=>{
+                    if (!sel || provaEnviando) return;
+                    setProvaEnviando(true);
+                    try {
+                      const r = await api.post(`/inbox/conversations/${sel.id}/prova-social`, {});
+                      Toast.show(r?.enviadas ? `${r.enviadas} fotos enviadas 📸` : 'Fotos enviadas 📸', 'success');
+                      setShowQR(false);
+                    } catch (e) { Toast.show(e.message || 'Não consegui enviar as fotos', 'error'); }
+                    setProvaEnviando(false);
+                  }}
+                  disabled={provaEnviando}
+                  title="Envia o conjunto de fotos reais de atendimento (prova social)"
+                  style={{ padding:'4px 11px', borderRadius:8, background:'var(--gold2,#fdf5e8)', color:'var(--gold,#C4973B)',
+                    border:'1.5px solid var(--gold,#C4973B)', fontSize:12, fontWeight:700,
+                    cursor: provaEnviando ? 'wait' : 'pointer', opacity: provaEnviando ? .6 : 1 }}>
+                  📸 {provaEnviando ? 'Enviando fotos…' : 'Fotos de prova social'}
                 </button>
                 {qr.map(q=>{
                   const podeExcluir = q.minha || (gestaoUser && q.global) || q.minha === undefined;

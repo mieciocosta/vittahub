@@ -3010,6 +3010,7 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
   try { await carregarFigurinhas(); } catch (e) { console.error('figurinhas:', e.message); }
   try { await metasPoliana(); } catch (e) { console.error('metas poliana:', e.message); }
   try { await nagilaParaTodos(); } catch (e) { console.error('nagila para todos:', e.message); }
+  try { await mensagensProntas(); } catch (e) { console.error('mensagens prontas:', e.message); }
 }
 
 
@@ -3075,6 +3076,70 @@ async function carregarFigurinhas() {
    na pasta Fidelidade (a Poliana precisa dela ali), mas a trava da carteira não
    se aplica: a casa inteira enxerga. Roda todo boot e é idempotente — se um dia
    a conversa for recriada com outro id, a marca volta sozinha. */
+/* 💬 MENSAGENS PRONTAS DA CASA (ordem do master, 27/08). Ficam disponíveis pra
+   equipe inteira no botão de mensagens prontas do chat. Entram só se ainda não
+   existirem: se alguém melhorar o texto na tela, a melhoria não é desfeita no
+   próximo deploy. Sem asterisco e sem travessão, no tom da casa. */
+async function mensagensProntas() {
+  const MAPS = 'https://share.google/cJwx0T5DVaCxZyc6I';
+  const ENDERECO = 'Ed. Business Center, Térreo, Av. Cel. Colares Moreira, 3A, Renascença, São Luís/MA';
+  const PRONTAS = [
+    ['Vacinação na clínica',
+`Oi! 💙 Aqui é da Vittalis Saúde 😊
+
+A vacinação na nossa clínica é feita por enfermeiras especializadas em bebês e crianças. Sala preparada só pra isso, aplicação humanizada e todo o cuidado pra deixar o pequeno tranquilo do começo ao fim.
+
+📍 ${ENDERECO}
+🗺️ Como chegar: ${MAPS}
+
+Me conta a idade do bebê e quais vacinas você procura que eu já separo os melhores horários 🩵`],
+
+    ['Vacinação a domicílio',
+`Oi! 💙 Aqui é da Vittalis Saúde 😊
+
+Na vacinação a domicílio a enfermeira vai até a sua casa com tudo o que precisa. O bebê é vacinado no colinho de vocês, sem fila, sem sala de espera e sem contato com outras crianças doentes.
+
+Você escolhe o dia e o horário, e a gente cuida do resto 🩵
+
+Me diz a idade do bebê, o bairro e o melhor dia pra vocês que eu já vejo a agenda 😍`],
+
+    ['Consulta na clínica',
+`Oi! 💙 Aqui é da Vittalis Saúde 😊
+
+A consulta na nossa clínica é sem correria: tempo pra examinar com calma, tirar todas as dúvidas e orientar sobre sono, alimentação e desenvolvimento do seu pequeno.
+
+📍 ${ENDERECO}
+🗺️ Como chegar: ${MAPS}
+
+Me conta a idade do bebê e o que está te preocupando que eu já vejo os horários disponíveis 🩵`],
+
+    ['Consulta a domicílio',
+`Oi! 💙 Aqui é da Vittalis Saúde 😊
+
+Na consulta a domicílio o profissional vai até vocês. O bebê é atendido no ambiente dele, calmo e seguro, e você recebe as orientações ali mesmo, sem precisar sair de casa com o pequeno.
+
+Me diz a idade do bebê, o bairro e o melhor dia pra vocês que eu já vejo a agenda 🩵`],
+
+    ['Instagram e vídeo',
+`Dá uma olhadinha no nosso dia a dia cuidando dos pequenos 🩵
+
+📸 Instagram: https://www.instagram.com/vittalissaudeslz/
+🎥 Vídeo: https://www.youtube.com/watch?v=KiGCiT1hmDc
+
+Qualquer dúvida é só me chamar por aqui 😊`],
+  ];
+  let novas = 0;
+  for (const [titulo, texto] of PRONTAS) {
+    const { rows: [ja] } = await query(
+      `SELECT 1 FROM respostas_rapidas WHERE titulo = $1 LIMIT 1`, [titulo]).catch(() => ({ rows: [1] }));
+    if (ja) continue;
+    await query(`INSERT INTO respostas_rapidas (titulo, texto, usuario_id) VALUES ($1, $2, NULL)`,
+      [titulo, texto]).catch(() => {});
+    novas++;
+  }
+  if (novas) console.log(`💬 Mensagens prontas da casa cadastradas (${novas})`);
+}
+
 async function nagilaParaTodos() {
   const SEM_ACENTO = "'áàâãäéèêëíìîïóòôõöúùûüç','aaaaaeeeeiiiiooooouuuuc'";
   const { rowCount } = await query(
