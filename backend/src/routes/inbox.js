@@ -398,6 +398,20 @@ export function podeVerSetor(viewer, conv) {
         || String(conv.classificacao || '') === 'fidelidade'
         || String(conv.responsavel_id || '') === String(viewer.id);
   }
+  /* 💛 A CARTEIRA DA FIDELIDADE É SÓ DELA (ordem do master, 27/08: "todos os
+     clientes da Poliana não aparecem para os demais"). Fecha a carteira dos
+     dois lados: antes o perfil dela só limitava o que ELA via — os outros
+     continuavam enxergando os bebês do plano. Agora a pasta Fidelidade (e tudo
+     que estiver na mão de quem tem esse perfil) some pra supervisora, pra quem
+     tem ve_tudo e pra colega do mesmo setor. Ficam vendo: o master, quem tem o
+     perfil de fidelidade e quem for a responsável direta daquela conversa —
+     senão alguém perderia um atendimento que está na mão dela. */
+  const donoEhFidelidade = conv.responsavel_id && usuariosSoFidelidade.has(String(conv.responsavel_id));
+  if ((String(conv.categoria || '') === 'fidelidade'
+       || String(conv.classificacao || '') === 'fidelidade'
+       || donoEhFidelidade)
+      && String(conv.responsavel_id || '') !== String(viewer.id)) return false;
+
   if (viewer.ve_tudo) return true;
   /* 🎯 CONVERSA COM DONA É SÓ DELA (ordem do master, 24/08: "ao transferir para
      uma pessoa específica, desapareça para a outra que transferiu"). Atendente
@@ -4169,11 +4183,14 @@ r.get('/conversations/buscar', async (req, res) => {
     const mCod = q.toLowerCase().match(/^vt-?0*(\d{1,8})$/) || (/^\d{1,8}$/.test(q) ? [null, q] : null);
     const codB = mCod ? parseInt(mCod[1]) : null;
     const { rows } = await query(
-      `SELECT id, contact_name, phone, categoria, classificacao, codigo FROM conversas
+      `SELECT id, contact_name, phone, categoria, classificacao, codigo, responsavel_id, setor FROM conversas
        WHERE unaccent(lower(COALESCE(contact_name,''))) ILIKE unaccent(lower($1)) OR phone ILIKE $1
           OR ($2::int IS NOT NULL AND codigo = $2::int)
-       ORDER BY last_message_at DESC NULLS LAST LIMIT 20`, [like, codB]);
-    res.json(mascararLista(rows, req.user));
+       ORDER BY last_message_at DESC NULLS LAST LIMIT 40`, [like, codB]);
+    /* 🔒 A lupa obedece às MESMAS regras da lista (buraco achado em 27/08 ao
+       fechar a carteira da Fidelidade: aqui a busca entregava qualquer conversa
+       pelo nome, inclusive de outro setor e da carteira da Poliana). */
+    res.json(mascararLista(rows.filter(c => podeVerSetor(req.user, c)).slice(0, 20), req.user));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

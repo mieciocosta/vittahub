@@ -551,7 +551,12 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
     <>
       {!collapsed && <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:1.6, color:'rgba(255,255,255,.62)', padding:'10px 12px 5px', textTransform:'uppercase' }}>Setores</div>}
       {setorItem('/classificar', '#94a3b8', 'Novos a classificar', setorCount.sem_classificacao)}
-      {SETORES_MENU.filter(s => podeSetor(s.setor))
+      {SETORES_MENU
+        /* 💛 A pasta Fidelidade é da Poliana (ordem do master, 27/08: "todos os
+           clientes da Poliana não aparecem para os demais"). Pra quem não é da
+           carteira ela abriria vazia — então nem aparece no menu. */
+        .filter(s => s.cls !== 'fidelidade' || user?.role === 'master' || user?.so_fidelidade === true)
+        .filter(s => podeSetor(s.setor))
         .map(s => setorItem(s.to || `/inbox?cls=${s.cls}`, s.cor, s.label, setorCount[s.cls]))}
     </>
   );
