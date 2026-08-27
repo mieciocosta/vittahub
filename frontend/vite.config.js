@@ -1,7 +1,13 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
+/* 🩺 CARIMBO DA VERSÃO (27/08): o master perguntou várias vezes "não está
+   subindo?". Agora a hora do build entra dentro do próprio bundle — se a tela
+   mostra uma hora antiga, o problema é o deploy, não o código. */
+const BUILD_AT = new Date().toISOString();
+
 export default defineConfig({
+  define: { __VH_BUILD__: JSON.stringify(BUILD_AT) },
   plugins: [react()],
   server: {
     host: '0.0.0.0',

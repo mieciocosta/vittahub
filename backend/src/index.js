@@ -64,6 +64,23 @@ app.get('/inbox', (req, res) => {
   res.redirect(302, front + req.originalUrl);
 });
 
+/* 🩺 QUAL VERSÃO ESTÁ NO AR — sem login, pra abrir direto no navegador:
+   <backend>/api/versao. Mostra o commit que o Railway subiu e há quanto tempo
+   este processo está de pé. Se o commit não for o último do GitHub, o deploy
+   não passou — e a resposta deixa isso escrito, sem adivinhação. */
+app.get('/api/versao', (req, res) => {
+  const sha = (process.env.RAILWAY_GIT_COMMIT_SHA || '').slice(0, 7) || null;
+  res.json({
+    commit: sha,
+    mensagem: process.env.RAILWAY_GIT_COMMIT_MESSAGE || null,
+    branch: process.env.RAILWAY_GIT_BRANCH || null,
+    deploy: process.env.RAILWAY_DEPLOYMENT_ID || null,
+    no_ar_desde: new Date(Date.now() - process.uptime() * 1000).toISOString(),
+    minutos_no_ar: Math.round(process.uptime() / 60),
+    agora: new Date().toISOString(),
+  });
+});
+
 app.use('/api/auth',    authRouter);
 app.use('/api/leads',   leadsRouter);
 app.use('/api/reports', reportsRouter);

@@ -121,6 +121,26 @@ const NAV_ADMIN = [
   { to:'/auditoria', icon:Shield, label:'Auditoria', masterOnly:true, cor:'#ef4444' },
 ];
 
+/* 🩺 Carimbo de versão: build do front (injetado pelo Vite) x commit do back. */
+function CarimboVersao() {
+  const api = useApi();
+  const [back, setBack] = useState(null);
+  useEffect(() => { api.get('/versao').then(setBack).catch(() => {}); }, []); // eslint-disable-line
+  const hora = (iso) => {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  };
+  const build = typeof __VH_BUILD__ !== 'undefined' ? __VH_BUILD__ : null;
+  return (
+    <div style={{ padding:'6px 12px 2px', fontSize:9.5, lineHeight:1.5, color:'rgba(255,255,255,.55)' }}>
+      <div>Tela publicada: <b style={{ color:'rgba(255,255,255,.8)' }}>{hora(build)}</b></div>
+      <div>Servidor: <b style={{ color:'rgba(255,255,255,.8)' }}>{back?.commit || '—'}</b>
+        {back ? ` · no ar há ${back.minutos_no_ar} min` : ''}</div>
+    </div>
+  );
+}
+
 /* ── Sino de notificações (novo lead, lead qualificado pela Vitta etc.) ────── */
 function BellPanel({ collapsed }) {
   const api = useApi();
@@ -1063,6 +1083,12 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
           </NavLink>
         )}
       </nav>
+
+      {/* 🩺 CARIMBO DA VERSÃO (só master) — nasceu das vezes em que o master
+          perguntou "não está subindo?". Mostra a hora do build DESTA tela e o
+          commit que o backend está rodando. Se a hora estiver velha, o deploy
+          não passou; se estiver na hora certa, a correção está no ar mesmo. */}
+      {isMaster && !collapsed && <CarimboVersao />}
 
       {/* User + toggle */}
       <div style={{ padding: collapsed ? '10px 6px 14px' : '12px 10px 16px', borderTop:'1px solid rgba(255,255,255,.16)', flexShrink:0 }}>
