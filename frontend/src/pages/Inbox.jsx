@@ -2084,6 +2084,21 @@ export default function Inbox({ onUnreadChange }) {
                           catch(e){ Toast.show(e.message, 'error'); } }}>
                           ↺ <span>Reiniciar boas-vindas</span>
                         </button>
+                        {/* 👁 Abrir a conversa pra casa toda (só master). Nasceu da Dra.
+                            Nágila Maria (27/08): mesmo em carteira fechada, a equipe vê. */}
+                        {user?.role === 'master' && sel && (
+                          <button style={itemMenu} onClick={async ()=>{ fecharMais();
+                            const abrir = !sel.visivel_todos;
+                            try {
+                              await api.patch(`/inbox/conversations/${sel.id}/visivel-todos`, { visivel: abrir });
+                              setSel(p => p ? { ...p, visivel_todos: abrir } : p);
+                              setConvos(p => p.map(c => c.id === sel.id ? { ...c, visivel_todos: abrir } : c));
+                              Toast.show(abrir ? 'Agora a equipe inteira enxerga esta conversa 👁' : 'Conversa voltou às regras normais', 'success');
+                            } catch (e) { Toast.show(e.message, 'error'); }
+                          }}>
+                            👁 <span>{sel.visivel_todos ? 'Voltar às regras normais' : 'Mostrar pra equipe toda'}</span>
+                          </button>
+                        )}
                         {['master','supervisor'].includes(user?.role) && sel && (
                           <button style={{ ...itemMenu, color:'var(--err,#dc2626)' }} onClick={async ()=>{ fecharMais();
                             const arquivar = !sel.arquivada;

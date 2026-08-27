@@ -369,6 +369,11 @@ function setorEfetivo(conv) {
 }
 export function podeVerSetor(viewer, conv) {
   if (!viewer || viewer.role === 'master') return true;
+  /* 👁 EXCEÇÃO DA CASA (ordem do master, 27/08: "quero que Nágila Maria apareça
+     para todos"): conversa marcada como visível pra todos passa por cima de
+     setor, carteira e pasta — inclusive da carteira fechada da Fidelidade.
+     Vem antes de tudo porque é uma decisão do dono, caso a caso. */
+  if (conv.visivel_todos === true) return true;
   /* 🔁 QUEM PASSOU ADIANTE NÃO VÊ MAIS (ordem do master, 27/08: "quando
      transferir quero que desapareça para a outra pessoa que transferiu").
      Vale pra TODO MUNDO menos o master — inclusive supervisora e quem tem
@@ -5155,6 +5160,21 @@ r.patch('/conversations/:id/transferir', async (req, res) => {
     socketEmit('conv_transferida', { convId: conv.id, para_id: paraId, para_nome: dest.nome, de_id: req.user?.id });
     if (sysMsg) socketEmit('new_message', { convId: conv.id, message: sysMsg, conv });
     res.json({ ok: true, responsavel_id: paraId, responsavel_nome: dest.nome, setor: conv.setor });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* 👁 ABRIR/FECHAR uma conversa pra casa toda (só master). Nasceu da Dra. Nágila
+   Maria (27/08), mas serve pra qualquer caso em que o dono queira que TODA a
+   equipe enxergue um atendimento, mesmo estando em carteira fechada. */
+r.patch('/conversations/:id/visivel-todos', masterOnly, async (req, res) => {
+  try {
+    const ligar = req.body.visivel !== false;
+    const { rows: [conv] } = await query(
+      'UPDATE conversas SET visivel_todos = $1 WHERE id = $2 RETURNING *', [ligar, req.params.id]);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    cacheUpdate(conv);
+    socketEmit('conv_visivel_todos', { convId: conv.id, visivel: ligar });
+    res.json({ ok: true, visivel_todos: ligar });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

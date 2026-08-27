@@ -136,6 +136,11 @@ export default async function runMigrate() {
        conversa voltava a aparecer no recarregamento. Se um dia a conversa
        voltar pra ela, o id sai do array e ela enxerga de novo. */
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS transferida_por TEXT[] DEFAULT '{}'`).catch(() => {});
+    /* 👁 CONVERSA ABERTA PRA CASA TODA (ordem do master, 27/08: "quero que
+       Nágila Maria apareça para todos"). Marca uma conversa como visível pra
+       equipe inteira, passando por cima de setor, carteira e pasta — inclusive
+       da carteira fechada da Fidelidade. É exceção, não regra: só o master liga. */
+    await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS visivel_todos BOOLEAN DEFAULT false`).catch(() => {});
     // 🧪 Conversa de SIMULAÇÃO (treino/avaliação da IA): nada dela vai pro WhatsApp
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS simulacao BOOLEAN DEFAULT false`).catch(() => {});
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS provider TEXT DEFAULT 'zapi'`).catch(() => {});
@@ -3002,6 +3007,7 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
      rodam por fora, cada um protegido, então nada mais os impede. */
   try { await carregarFigurinhas(); } catch (e) { console.error('figurinhas:', e.message); }
   try { await metasPoliana(); } catch (e) { console.error('metas poliana:', e.message); }
+  try { await nagilaParaTodos(); } catch (e) { console.error('nagila para todos:', e.message); }
 }
 
 
@@ -3049,6 +3055,19 @@ async function carregarFigurinhas() {
 }
 
 /* 🎯 As três metas da carteira Fidelidade. */
+/* 👁 Dra. Nágila Maria aparece PRA TODOS (ordem do master, 27/08). Ela continua
+   na pasta Fidelidade (a Poliana precisa dela ali), mas a trava da carteira não
+   se aplica: a casa inteira enxerga. Roda todo boot e é idempotente — se um dia
+   a conversa for recriada com outro id, a marca volta sozinha. */
+async function nagilaParaTodos() {
+  const SEM_ACENTO = "'áàâãäéèêëíìîïóòôõöúùûüç','aaaaaeeeeiiiiooooouuuuc'";
+  const { rowCount } = await query(
+    `UPDATE conversas SET visivel_todos = true
+      WHERE lower(translate(COALESCE(contact_name,''), ${SEM_ACENTO})) LIKE '%nagila%'
+        AND COALESCE(visivel_todos,false) = false`);
+  if (rowCount) console.log(`👁 Nágila Maria liberada para toda a equipe (${rowCount})`);
+}
+
 async function metasPoliana() {
     /* 🎯 AS TRÊS METAS DA POLIANA (ordem do master, 24/08): R$ 100 mil no mês,
      5 agendamentos por dia e 10 planos vacinais no mês. Resultado, ritmo e
