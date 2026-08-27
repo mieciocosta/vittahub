@@ -1556,11 +1556,33 @@ export default function Inbox({ onUnreadChange }) {
   };
 
   const [profsAgenda, setProfsAgenda] = useState([]);
+  /* 🗓️ AGENDAR JÁ PUXANDO A CONVERSA (ordem do master, 27/08: "quando eu
+     clicar em agendar, ele puxa tudo de dentro da conversa"). Lê o cartão que
+     já foi enviado (data, hora, paciente, serviço, local) e chega com o
+     formulário preenchido. Sem IA e sem custo: o cartão é estruturado. Se não
+     achar nada, abre em branco como antes — chute na agenda é pior que vazio. */
   const abrirAgendar = () => {
     const s = ['vacinas','consultas','terapias'].includes(sel.setor) ? sel.setor : 'consultas';
     setAgForm({ data: hojeISO, hora: '', servico: '', valor: '', observacoes: '', setor: s, forma_pagamento: '', endereco: '', local_link: '', profissional: '' });
     setAgendarOpen(true);
     api.get('/extras/profissionais').then(d => setProfsAgenda(Array.isArray(d) ? d.filter(p => p.ativo) : [])).catch(()=>setProfsAgenda([]));
+    api.get(`/inbox/conversations/${sel.id}/agenda-da-conversa`).then(d => {
+      if (!d?.achou) return;
+      setAgForm(p => ({
+        ...p,
+        data: d.data || p.data,
+        hora: d.hora || p.hora,
+        servico: d.servico || p.servico,
+        setor: d.setor || p.setor,
+        endereco: d.endereco || p.endereco,
+        profissional: d.profissional || p.profissional,
+        observacoes: (d.paciente && d.paciente !== (sel.contact_name || '') ? `Paciente: ${d.paciente}. ` : '')
+          + (d.bonus ? `Bônus: ${d.bonus}. ` : ''),
+      }));
+      Toast.show(d.origem === 'cartao'
+        ? '🗓️ Puxei os dados do cartão da conversa — confira e confirme.'
+        : '🗓️ Achei uma data na conversa — confira antes de confirmar.', 'success');
+    }).catch(()=>{});
   };
   // IA lê a conversa, extrai o pedido de agendamento e pré-preenche o Agendar
   const sugerirAgendaIA = async () => {

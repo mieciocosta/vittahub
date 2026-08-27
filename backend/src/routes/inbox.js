@@ -5231,6 +5231,24 @@ r.patch('/conversations/:id/bot', async (req, res) => {
    janelas, já com a frase de fechamento por alternativa pronta pra enviar.
    Sem inventar horário: sai do cadastro dos profissionais e respeita os 2 dias
    de antecedência da casa. */
+r.get('/conversations/:id/agenda-da-conversa', async (req, res) => {
+  try {
+    const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso.' });
+    const lido = await agendamentoDaConversa(req.params.id);
+    if (!lido) return res.json({ achou: false });
+    const emCasa = /resid|casa|domic/i.test(lido.local || '');
+    res.json({
+      achou: true, ...lido,
+      setor: ['vacinas', 'consultas', 'terapias'].includes(conv.setor) ? conv.setor
+        : (/vacin|imuniz|dose/i.test(lido.servico) ? 'vacinas'
+          : /terapia|fono|psico/i.test(lido.servico) ? 'terapias' : 'consultas'),
+      endereco: emCasa ? (lido.local || '').replace(/^em sua resid[êe]ncia\s*[—-]?\s*/i, '') : '',
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.get('/conversations/:id/horarios', async (req, res) => {
   try {
     const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
@@ -5288,6 +5306,74 @@ r.post('/cartao-agendamento', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* 🗓️ LER O AGENDAMENTO QUE JÁ ESTÁ NA CONVERSA (ordem do master, 27/08: "quando
+   eu clicar em Agendar, ele puxa tudo de dentro da conversa; mandamos a mensagem
+   de agendamento, então que já vá pra agenda").
+
+   Não usa IA: o cartão oficial é estruturado, então dá pra ler linha por linha,
+   de graça e na hora. Se não houver cartão, tenta um "dia 31/08 às 10h" solto no
+   texto. Devolve null quando não dá pra ter certeza — palpite errado na agenda é
+   pior do que campo vazio. */
+export function lerAgendamentoDoTexto(txt) {
+  const t = String(txt || '');
+  if (!t) return null;
+  const pega = (rotulo) => {
+    const m = new RegExp(`${rotulo}\\s*:\\s*(.+)`, 'i').exec(t);
+    return m ? m[1].trim() : '';
+  };
+  const dataBR = /(\d{1,2})\/(\d{1,2})\/(\d{2,4})/.exec(pega('Data'));
+  const horaTxt = pega('Hor[áa]rio') || pega('Hora');
+  const mHora = /(\d{1,2})[:h](\d{2})/.exec(horaTxt) || /(\d{1,2})\s*h\b/i.exec(horaTxt);
+  if (dataBR && mHora) {
+    const ano = dataBR[3].length === 2 ? `20${dataBR[3]}` : dataBR[3];
+    const prof = pega('Profissional').replace(/\s*\(.*\)\s*$/, '').trim();
+    return {
+      origem: 'cartao',
+      data: `${ano}-${dataBR[2].padStart(2, '0')}-${dataBR[1].padStart(2, '0')}`,
+      hora: `${mHora[1].padStart(2, '0')}:${(mHora[2] || '00').padStart(2, '0')}`,
+      paciente: pega('Paciente'),
+      cliente: pega('Cliente'),
+      servico: pega('Servi[çc]o'),
+      local: pega('Local'),
+      profissional: prof,
+      bonus: pega('B[ôóo]nus'),
+    };
+  }
+  // Sem cartão: procura "dia 31/08 às 10h" / "31/08 10:30" no texto corrido
+  const solto = /(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?[^\d]{0,14}?(\d{1,2})(?:[:h](\d{2}))?\s*h?/i.exec(t);
+  if (solto) {
+    const hoje = new Date(Date.now() - 3 * 3600 * 1000);
+    const ano = solto[3] ? (solto[3].length === 2 ? `20${solto[3]}` : solto[3]) : String(hoje.getFullYear());
+    const h = parseInt(solto[4], 10);
+    if (h >= 6 && h <= 21) {
+      return {
+        origem: 'texto',
+        data: `${ano}-${solto[2].padStart(2, '0')}-${solto[1].padStart(2, '0')}`,
+        hora: `${String(h).padStart(2, '0')}:${(solto[5] || '00').padStart(2, '0')}`,
+        paciente: '', cliente: '', servico: '', local: '', profissional: '', bonus: '',
+      };
+    }
+  }
+  return null;
+}
+
+/* Varre as últimas mensagens da conversa e devolve o agendamento mais recente
+   que der pra ler. O cartão manda; texto solto só se não houver cartão. */
+async function agendamentoDaConversa(convId) {
+  const { rows } = await query(
+    `SELECT from_type, content, created_at FROM mensagens
+      WHERE conversa_id = $1 AND type = 'text' AND content IS NOT NULL
+      ORDER BY created_at DESC LIMIT 60`, [convId]).catch(() => ({ rows: [] }));
+  let reserva = null;
+  for (const m of rows) {
+    const lido = lerAgendamentoDoTexto(m.content);
+    if (!lido) continue;
+    if (lido.origem === 'cartao') return lido;      // achou o cartão: é esse
+    if (!reserva && ['me', 'bot'].includes(m.from_type)) reserva = lido;
+  }
+  return reserva;
+}
+
 r.post('/conversations/:id/send', async (req, res) => {
   try {
     const { content, type = 'text' } = req.body;
@@ -5314,6 +5400,42 @@ r.post('/conversations/:id/send', async (req, res) => {
         const fichaEq = extrairFicha(content);
         if (fichaEq) salvarFichaNoLead(conv, fichaEq, 'equipe');
       } catch (e) { console.error('Ficha automática (equipe):', e.message); }
+    }
+
+    /* 🗓️ MANDOU O CARTÃO, ENTROU NA AGENDA (ordem do master, 27/08: "mandamos a
+       mensagem de agendamento, então que já vá automaticamente pra agenda").
+       Só o cartão oficial dispara — data e hora soltas no meio da conversa não
+       viram compromisso. Nunca duplica: se já existe evento nessa conversa no
+       mesmo dia e hora, não faz nada. E nunca derruba o envio da mensagem. */
+    if (type === 'text' && typeof content === 'string' && !conv.simulacao) {
+      try {
+        const ag = lerAgendamentoDoTexto(content);
+        if (ag && ag.origem === 'cartao') {
+          const { rows: [existe] } = await query(
+            `SELECT 1 FROM agenda_eventos WHERE conversa_id = $1 AND data = $2 AND hora = $3 LIMIT 1`,
+            [conv.id, ag.data, ag.hora]).catch(() => ({ rows: [1] }));
+          if (!existe) {
+            const emCasa = /resid|casa|domic/i.test(ag.local || '');
+            const setorEv = ['vacinas', 'consultas', 'terapias'].includes(conv.setor) ? conv.setor
+              : (/vacin|imuniz|dose/i.test(ag.servico) ? 'vacinas'
+                : /terapia|fono|psico/i.test(ag.servico) ? 'terapias' : 'consultas');
+            await query(`INSERT INTO agenda_eventos
+              (paciente, responsavel_nome, servico, data, hora, profissional, telefone, endereco,
+               observacoes, status, setor, responsavel_id, conversa_id)
+              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'Agendado',$10,$11,$12)`,
+              [String(ag.paciente || conv.contact_name || 'Paciente').slice(0, 80),
+               String(ag.cliente || conv.contact_name || '').slice(0, 80),
+               String(ag.servico || 'Atendimento').slice(0, 80), ag.data, ag.hora,
+               String(ag.profissional || '').slice(0, 80),
+               String(conv.phone || '').replace(/\D/g, ''),
+               emCasa ? String(ag.local || '').replace(/^em sua resid[êe]ncia\s*[—-]?\s*/i, '').slice(0, 120) : null,
+               `🗓️ Entrou pelo cartão enviado por ${nomeGravar}${ag.bonus ? ` · Bônus: ${ag.bonus}` : ''}`,
+               setorEv, req.user.id, conv.id]);
+            socketEmit('agenda_update', { convId: conv.id });
+            console.log(`AGENDA conv=${conv.id}: cartão virou evento ${ag.data} ${ag.hora}`);
+          }
+        }
+      } catch (e) { console.error('Cartão → agenda:', e.message); }
     }
 
     // 📝 Transcreve o áudio da ATENDENTE em segundo plano (aparece embaixo do
