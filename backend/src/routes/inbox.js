@@ -5437,15 +5437,27 @@ function semTravessao(t) {
    1) responsável da conversa; 2) sem dona ainda: Danielle pra consultas e
    terapias, Raylane pra vacinas; 3) último recurso: Equipe Vittalis.
    NUNCA Mary. */
+/* ✍️ PRIMEIRO NOME DE VERDADE (cobrança do master, 24/08: a mensagem saiu
+   assinada como "Dra."). Cadastro com título na frente — Dr., Dra., Sr., Sra.,
+   Enf. — fazia o sistema pegar o TÍTULO como primeiro nome. Aqui os títulos
+   são pulados e, quando o nome é só o título, ele volta junto do nome seguinte
+   (ex.: "Dra. Nágila" vira Nágila). */
+export function primeiroNomeUtil(nomeCompleto) {
+  const partes = String(nomeCompleto || '').trim().split(/\s+/).filter(Boolean);
+  const titulos = /^(dr|dra|sr|sra|srta|enf|prof|profa|me|dr\.|dra\.|sr\.|sra\.)\.?$/i;
+  const util = partes.find(p => !titulos.test(p));
+  return util || partes[0] || '';
+}
+
 async function nomeAssinatura(conv) {
   try {
     if (conv?.responsavel_id) {
       const { rows: [u] } = await query('SELECT nome FROM usuarios WHERE id = $1 AND ativo = true', [conv.responsavel_id]);
-      if (u?.nome) return String(u.nome).trim().split(/\s+/)[0];
+      if (u?.nome) return primeiroNomeUtil(u.nome);
     }
     const alvoN = conv?.setor === 'vacinas' ? 'raylane' : 'danielle';
     const { rows: [f] } = await query(`SELECT nome FROM usuarios WHERE ativo = true AND nome ILIKE $1 || '%' ORDER BY nome LIMIT 1`, [alvoN]);
-    if (f?.nome) return String(f.nome).trim().split(/\s+/)[0];
+    if (f?.nome) return primeiroNomeUtil(f.nome);
   } catch { /* segue pro fallback */ }
   return 'Equipe Vittalis';
 }

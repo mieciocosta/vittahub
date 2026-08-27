@@ -2919,6 +2919,30 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log('🗄️ Consultor Itaú arquivado:', n);
     }
 
+    /* 👤 CONVERSA DA SRA. JESSICA RIBEIRO É DA POLIANA (ordem do master, 24/08:
+       "é a Poliana que está falando com ela"). Ajusta a responsável para a
+       assinatura das próximas mensagens sair com o nome certo. */
+    const { rows: [flagJR] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_jessica_ribeiro_poliana_v1'");
+    if (!flagJR) {
+      const { rows: [pol2] } = await query(
+        "SELECT id, nome FROM usuarios WHERE ativo = true AND nome ILIKE 'poliana%' ORDER BY nome LIMIT 1").catch(() => ({ rows: [] }));
+      const { rows: convsJR } = await query(
+        `SELECT id, contact_name FROM conversas WHERE contact_name ILIKE '%jessica%ribeiro%' OR contact_name ILIKE '%jéssica%ribeiro%'`
+      ).catch(() => ({ rows: [] }));
+      let n = 0;
+      if (pol2 && convsJR.length) {
+        const r = await query('UPDATE conversas SET responsavel_id = $1 WHERE id = ANY($2::text[])',
+          [pol2.id, convsJR.map(c => c.id)]).catch(() => null);
+        n = r?.rowCount || 0;
+      }
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+        ['👤 Conversa da Sra. Jessica Ribeiro',
+         n > 0 ? `A conversa passou para a ${String(pol2.nome).split(' ')[0]} — as próximas mensagens saem assinadas com o nome dela. As mensagens já enviadas podem ser corrigidas na própria conversa, no botão de editar.`
+               : 'Não achei a conversa da Jessica Ribeiro (ou a Poliana no cadastro) pra ajustar a responsável. Me diga como o nome aparece na tela que eu acerto.']).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_jessica_ribeiro_poliana_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('👤 Jessica Ribeiro → Poliana:', n);
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);
