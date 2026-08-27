@@ -218,9 +218,16 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
      ("quero que deixe aberto todos"). O clique continua funcionando pra quem
      quiser recolher uma seção — mas agora o que fica guardado é a lista de
      FECHADAS, e ela nasce vazia. A seção da tela atual nunca fecha. */
+  /* 📚 O menu nasce RECOLHIDO (ordem do master, 24/08: "já carregar
+     recolhidos"). Só a seção da tela em que a pessoa está fica aberta, então a
+     primeira dobra mostra as seções inteiras em vez de meia dúzia de itens. */
+  const TODOS_GRUPOS = React.useMemo(() => NAV.filter(n => n.grupo).map(n => n.grupo), []);
   const [gruposFechados, setGruposFechados] = useState(() => {
-    try { const g = JSON.parse(localStorage.getItem('vh_menu_fechados') || 'null'); if (Array.isArray(g)) return g; } catch {}
-    return [];
+    try {
+      const salvo = localStorage.getItem('vh_menu_fechados');
+      if (salvo) return JSON.parse(salvo);
+    } catch { /* primeira vez */ }
+    return NAV.filter(n => n.grupo).map(n => n.grupo);   // tudo fechado no primeiro acesso
   });
   useEffect(() => { try { localStorage.setItem('vh_menu_fechados', JSON.stringify(gruposFechados)); } catch {} }, [gruposFechados]);
   /* 🔎 Lupa do menu (pedido do master): digitou, o menu vira só o que bate —
@@ -302,7 +309,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
         <a key={p2.k} href={p2.url} target="_blank" rel="noreferrer" title={`Abrir o ${p2.nome}`}
           className="vh-nav"
           style={{ display:'flex', alignItems:'center', gap: collapsed ? 0 : 10,
-            padding: collapsed ? '8px 0' : '8px 12px', justifyContent: collapsed ? 'center' : 'flex-start',
+            padding: collapsed ? '7px 0' : '7px 10px', justifyContent: collapsed ? 'center' : 'flex-start',
             borderRadius:12, textDecoration:'none', color:'rgba(255,255,255,.88)', fontSize:13, fontWeight:500 }}>
           <span className="vh-chip" style={{ width:25, height:25, borderRadius:8, flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center',
             background:p2.cor, boxShadow:`0 2px 8px ${p2.sombra}` }}>
@@ -579,7 +586,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
         {collapsed ? (
           <div style={{ display:'flex', flexDirection:'column', gap:6, alignItems:'center' }}>
             <button onClick={()=>setShowAvatarBuilder(true)} title="Foto de perfil (foto própria ou avatar)" style={{ background:'none', border:'none', cursor:'pointer', padding:0 }}>
-              <UserAvatar size={40} />
+              <UserAvatar size={52} />
             </button>
             <button onClick={onToggleTheme} title={theme === 'dark' ? 'Modo claro' : 'Modo escuro'} style={{ padding:5, background:'none', color:'rgba(255,255,255,.62)', borderRadius:6, cursor:'pointer', border:'none' }}
               onMouseEnter={e=>e.currentTarget.style.color='#ffffff'}
@@ -597,17 +604,17 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
              avatar menor, nome, papel discreto. Sem moldura dourada, sem selos
              coloridos, sem sombra pesada. O menu começa logo abaixo. */
           <div style={{ display:'flex', flexDirection:'column', gap:2, padding:'2px 2px 0' }}>
-           <div style={{ display:'flex', alignItems:'center', gap:10, width:'100%' }}>
+           <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:6, width:'100%', textAlign:'center' }}>
             <button onClick={()=>setShowAvatarBuilder(true)} title="Foto de perfil (foto própria ou avatar)"
               style={{ background:'none', border:'none', cursor:'pointer', padding:0, borderRadius:'50%', lineHeight:0, position:'relative',
                 boxShadow:'0 0 0 2px rgba(255,255,255,.35)' }}>
-              <UserAvatar size={40} />
+              <UserAvatar size={52} />
               <span title="Online" style={{ position:'absolute', right:1, bottom:1, width:9, height:9, borderRadius:'50%',
                 background:'#3ef58f', border:'2px solid #12233d' }} />
             </button>
-            <div style={{ flex:1, minWidth:0 }}>
-              {/* Nome COMPLETO, sem corte: quebra em até 2 linhas se precisar */}
-              <button onClick={editarNome} title="Editar meu nome" style={{ background:'none', border:'none', padding:0, cursor:'pointer', display:'flex', alignItems:'flex-start', gap:4, maxWidth:'100%', textAlign:'left' }}>
+            <div style={{ minWidth:0, display:'flex', flexDirection:'column', alignItems:'center' }}>
+              {/* Nome numa linha, centralizado */}
+              <button onClick={editarNome} title="Editar meu nome" style={{ background:'none', border:'none', padding:0, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:4, maxWidth:'100%' }}>
                 <span style={{ color:'#fff', fontSize:13.5, fontWeight:800, lineHeight:1.2, letterSpacing:.1,
                   overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:170 }}>{user?.nome}</span>
                 <Pencil size={10} color="rgba(255,255,255,.55)" style={{ flexShrink:0, marginTop:3 }} />
@@ -629,7 +636,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                   <div style={{ fontSize:10, color:'var(--muted, #9ca3af)', marginTop:7, lineHeight:1.4 }}>Muda na hora, em todo o sistema.</div>
                 </div>
               )}
-              <div style={{ fontSize:10.5, fontWeight:700, color:'rgba(255,255,255,.55)', marginTop:1, letterSpacing:.2 }}>
+              <div style={{ fontSize:10.5, fontWeight:700, color:'rgba(255,255,255,.55)', marginTop:1, letterSpacing:.2, textAlign:'center' }}>
                 {user?.role === 'master' ? 'Master' : tituloUsuario(user)}
               </div>
             </div>
@@ -851,13 +858,10 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
       <nav onClick={() => onCloseMobile?.()} style={{ flex:1, padding: collapsed ? '14px 6px' : '14px 10px', display:'flex', flexDirection:'column', gap:3, overflowY:'auto', overflowX:'hidden' }}>
         {!collapsed && <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:1.6, color:'rgba(255,255,255,.62)', padding:'0 12px 6px', textTransform:'uppercase' }}>Menu</div>}
         {!collapsed && (
-          <div onClick={e => e.stopPropagation()} style={{ display:'flex', alignItems:'center', gap:6, margin:'0 4px 8px', padding:'6px 10px',
-            borderRadius:10, background:'rgba(255,255,255,.12)', border:'1px solid rgba(255,255,255,.2)' }}>
-            <Search size={13} color="rgba(255,255,255,.75)" style={{ flexShrink:0 }} />
-            <input value={buscaMenu} onChange={e => setBuscaMenu(e.target.value)} placeholder="Buscar no menu…"
-              style={{ flex:1, minWidth:0, border:'none', outline:'none', background:'transparent', color:'#fff', fontSize:12.5, fontWeight:600 }} />
-            {buscaAtiva && <button onClick={() => setBuscaMenu('')} style={{ background:'none', border:'none', cursor:'pointer', color:'rgba(255,255,255,.8)', padding:0, display:'flex' }}><X size={13} /></button>}
-          </div>
+          {/* 🔎 A busca do menu SAIU (ordem do master, 24/08: "não entendi a
+              diferença... melhor deixar só a geral"). Dois campos de busca lado
+              a lado confundiam: agora existe UMA busca, a Pesquisa geral, que
+              acha página, cliente e mensagem no mesmo lugar. */}
         )}
         {/* 🔎 PESQUISA GERAL (pedido do master: "onde aparece pra mim?") —
             porta de entrada VISÍVEL pra busca global, que antes só abria com
@@ -902,9 +906,9 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                 <button key={`g-${n.grupo}`} onClick={() => alternarGrupo(n.grupo)}
                   title={on ? 'Recolher esta seção' : 'Abrir esta seção'}
                   style={{ display:'flex', alignItems:'center', gap:6, width:'100%', cursor:'pointer',
-                    fontSize:9.5, fontWeight:800, letterSpacing:1.4, textTransform:'uppercase',
-                    color: daTela ? 'rgba(255,255,255,.92)' : 'rgba(255,255,255,.55)',
-                    padding:'11px 10px 5px', background:'none', border:'none', textAlign:'left' }}>
+                    fontSize:10, fontWeight:800, letterSpacing:1.2, textTransform:'uppercase',
+                    color: daTela ? 'rgba(255,255,255,.92)' : 'rgba(255,255,255,.5)',
+                    padding:'9px 10px 4px', background:'none', border:'none', textAlign:'left' }}>
                   {/* A setinha diz o estado sem precisar ler nada */}
                   <span style={{ display:'inline-block', transition:'transform .18s', transform: on ? 'rotate(90deg)' : 'rotate(0deg)', fontSize:8, opacity:.8 }}>▶</span>
                   <span style={{ flex:1 }}>{n.grupo}</span>
@@ -922,22 +926,23 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
             className={({ isActive }) => `vh-nav${isActive ? ' ativo' : ''}`}
             style={({ isActive }) => ({
             display:'flex', alignItems:'center', gap: collapsed ? 0 : 10,
-            padding: collapsed ? '8px 0' : '8px 12px',
+            padding: collapsed ? '7px 0' : '7px 10px',
             justifyContent: collapsed ? 'center' : 'flex-start',
-            borderRadius:12, textDecoration:'none',
-            color: isActive ? 'var(--tq2)' : (destaque ? '#ffd166' : 'rgba(255,255,255,.88)'),
-            background: isActive ? '#ffffff' : 'transparent',
-            boxShadow: isActive ? `0 6px 18px rgba(3,43,48,.28), inset 3px 0 0 ${cor || 'var(--tq)'}` : 'none',
-            fontWeight: (isActive || destaque) ? 700 : 500, fontSize:13.5,
+            borderRadius:10, textDecoration:'none',
+            /* Item selecionado marca com um fio da cor e um fundo leve — antes
+               era uma pílula branca gigante que parecia outro componente. */
+            color: isActive ? '#fff' : (destaque ? '#ffd166' : 'rgba(255,255,255,.86)'),
+            background: isActive ? 'rgba(255,255,255,.12)' : 'transparent',
+            boxShadow: isActive ? `inset 3px 0 0 ${cor || 'var(--tq)'}` : 'none',
+            fontWeight: isActive ? 700 : 500, fontSize:12.5,
             transition: 'all .15s',
             position:'relative',
           })}>
             {/* Chip colorido — cada botão com a sua cor (menu vivo e moderno) */}
-            <span className="vh-chip" style={{ width:27, height:27, borderRadius:9, flexShrink:0,
+            <span className="vh-chip" style={{ width:22, height:22, borderRadius:7, flexShrink:0,
               display:'flex', alignItems:'center', justifyContent:'center',
-              background: `linear-gradient(135deg, ${cor || '#64748b'}, ${cor || '#64748b'}cc)`,
-              boxShadow: `0 2px 8px ${cor || '#64748b'}55` }}>
-              <Icon size={15} strokeWidth={2} color="#fff" />
+              background: `${cor || '#64748b'}22`, border:`1px solid ${cor || '#64748b'}55` }}>
+              <Icon size={13} strokeWidth={2} color={cor || '#cbd5e1'} />
             </span>
             {!collapsed && <span style={{ flex:1 }}>{label}</span>}
             {!collapsed && showU && unread > 0 && (
