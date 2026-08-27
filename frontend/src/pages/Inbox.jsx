@@ -29,6 +29,7 @@ import PropostaModal from '../components/PropostaModal.jsx';
 import TerapiaOrcamentoModal from '../components/TerapiaOrcamentoModal.jsx';
 import Calculadora from '../components/Calculadora.jsx';
 import Copiloto from '../components/Copiloto.jsx';
+import FigurinhasPainel from '../components/FigurinhasPainel.jsx';
 
 /* ── Icons ──────────────────────────────────────────────────────────────────── */
 const WA = ({s=13})=><svg width={s} height={s} viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.124.556 4.118 1.523 5.847L0 24l6.302-1.496A11.934 11.934 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.818a9.807 9.807 0 01-5.032-1.388l-.361-.214-3.741.888.948-3.651-.235-.374A9.786 9.786 0 012.182 12C2.182 6.58 6.58 2.182 12 2.182S21.818 6.58 21.818 12 17.42 21.818 12 21.818z"/></svg>;
@@ -545,6 +546,8 @@ export default function Inbox({ onUnreadChange }) {
   const [agForm, setAgForm] = useState({ data: hojeISO, hora: '', servico: '', valor: '', observacoes: '', setor: 'consultas' });
   const [showInfo, setShowInfo] = useState(false);
   const [showEmoji, setShowEmoji] = useState(false);
+  // 💟 Aba própria das figurinhas, ao lado dos emojis (ordem do master, 24/08)
+  const [showFigus, setShowFigus] = useState(false);
   const [showProntas, setShowProntas] = useState(false); // 📝 mensagens prontas (pra quem não usa a IA)
   const [encOpen, setEncOpen] = useState(false);         // 📤 encaminhar conversa pra outro canal
   const [encForm, setEncForm] = useState({ destino: '', mensagens: 20, observacao: '' });
@@ -2469,13 +2472,19 @@ export default function Inbox({ onUnreadChange }) {
           })()}
 
           {/* Emoji picker */}
+          {/* 💟 ABA DAS FIGURINHAS — vive no chat, fora da Biblioteca */}
+          {showFigus && sel && (
+            <FigurinhasPainel convId={sel.id} api={api} onClose={()=>setShowFigus(false)}
+              onEnviada={()=>Toast.show('Figurinha enviada 💟', 'success')} />
+          )}
+
           {showEmoji && (
             <div style={{ background:'var(--card,#fff)', borderTop:'1px solid var(--border)', padding:'9px 12px', flexShrink:0, maxHeight:185, overflowY:'auto', position:'relative' }}>
               {/* ✕ sempre à vista (cobrança do master: "o menu de emoji não some") */}
               <div style={{ position:'sticky', top:0, zIndex:2, display:'flex', gap:6, justifyContent:'flex-end', marginBottom:4 }}>
                 {/* 💟 FIGURINHAS AO LADO DOS EMOJIS (ordem do master, 24/08):
                     o mesmo toque que abre carinha abre figurinha. */}
-                <button onClick={()=>{ setBibAba('figurinha'); setShowBib(true); setShowEmoji(false); }}
+                <button onClick={()=>{ setShowFigus(true); setShowEmoji(false); }}
                   title="Abrir as figurinhas da Vittalis"
                   style={{ border:'none', borderRadius:8, padding:'3px 11px', cursor:'pointer',
                     background:'linear-gradient(120deg,#0E8C96,#00B8C0)', color:'#fff', fontSize:11, fontWeight:900 }}>
@@ -2864,8 +2873,8 @@ export default function Inbox({ onUnreadChange }) {
                 <button onClick={()=>{setShowEmoji(p=>!p);setShowQR(false);setShowProntas(false);}} title="Emojis"
                   className={`tb-ico-color${showEmoji?' tb-on':''}`} style={{ '--ic':'#f59e0b' }}><Smile size={18} strokeWidth={2.3}/></button>
                 {/* 💟 Figurinhas coladas nos emojis (ordem do master, 24/08) */}
-                <button onClick={()=>{ setBibAba('figurinha'); setShowBib(true); setShowEmoji(false); }} title="Figurinhas da Vittalis"
-                  className="tb-ico-color" style={{ '--ic':'#00B8C0' }}><Sticker size={18} strokeWidth={2.3}/></button>
+                <button onClick={()=>{setShowFigus(p=>!p);setShowEmoji(false);setShowQR(false);setShowProntas(false);}} title="Figurinhas da Vittalis"
+                  className={`tb-ico-color${showFigus?' tb-on':''}`} style={{ '--ic':'#00B8C0' }}><Sticker size={18} strokeWidth={2.3}/></button>
                 {/* 📝 MENSAGENS PRONTAS (pedido do master: tem atendente que não
                     usa a IA cem por cento) — os textos oficiais da casa em 1 toque */}
                 <button onClick={()=>{setShowProntas(p=>!p);setShowEmoji(false);setShowQR(false);}} title="📝 Mensagens prontas da casa: boas-vindas, endereço, cartões de agendamento…"
