@@ -857,12 +857,10 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
       {/* Nav */}
       <nav onClick={() => onCloseMobile?.()} style={{ flex:1, padding: collapsed ? '14px 6px' : '14px 10px', display:'flex', flexDirection:'column', gap:3, overflowY:'auto', overflowX:'hidden' }}>
         {!collapsed && <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:1.6, color:'rgba(255,255,255,.62)', padding:'0 12px 6px', textTransform:'uppercase' }}>Menu</div>}
-        {!collapsed && (
-          {/* 🔎 A busca do menu SAIU (ordem do master, 24/08: "não entendi a
-              diferença... melhor deixar só a geral"). Dois campos de busca lado
-              a lado confundiam: agora existe UMA busca, a Pesquisa geral, que
-              acha página, cliente e mensagem no mesmo lugar. */}
-        )}
+        {/* 🔎 A busca do menu SAIU (ordem do master, 24/08: "não entendi a
+            diferença, melhor deixar só a geral"). Dois campos de busca lado a
+            lado confundiam: agora existe UMA busca, a Pesquisa geral, que acha
+            página, cliente e mensagem no mesmo lugar. */}
         {/* 🔎 PESQUISA GERAL (pedido do master: "onde aparece pra mim?") —
             porta de entrada VISÍVEL pra busca global, que antes só abria com
             Ctrl+K (impossível no celular). Se já digitou algo na caixinha do
