@@ -24,10 +24,10 @@ export const ehEmCasa = (txt) => /resid|casa|domic/i.test(String(txt || ''));
    conteúdo da mensagem"). Lê o serviço e, se faltar, o setor do evento. */
 function assuntoDoCartao({ servico, setor, profissional } = {}) {
   const t = `${servico || ''} ${setor || ''}`.toLowerCase();
-  if (/vacin|imuniz|dose/.test(t)) return { nome: 'vacinação', artigo: 'da sua' };
-  if (/terapia|fono|psico|ocupacional|psicomotric|nutri|\baba\b|sess/.test(t)) return { nome: 'sessão de terapia', artigo: 'da sua' };
-  if (/consulta|avalia|pediatr|retorno/.test(t) || profissional) return { nome: 'consulta', artigo: 'da sua' };
-  return { nome: 'atendimento', artigo: 'do seu' };
+  if (/vacin|imuniz|dose/.test(t)) return { nome: 'vacinação', artigo: 'da sua', posse: 'Sua', fem: true };
+  if (/terapia|fono|psico|ocupacional|psicomotric|nutri|\baba\b|sess/.test(t)) return { nome: 'sessão de terapia', artigo: 'da sua', posse: 'Sua', fem: true };
+  if (/consulta|avalia|pediatr|retorno/.test(t) || profissional) return { nome: 'consulta', artigo: 'da sua', posse: 'Sua', fem: true };
+  return { nome: 'atendimento', artigo: 'do seu', posse: 'Seu', fem: false };
 }
 
 /* dados: { cliente, paciente, data 'YYYY-MM-DD', hora, profissional, especialidade,
@@ -35,9 +35,12 @@ function assuntoDoCartao({ servico, setor, profissional } = {}) {
    opts:  { titulo, frase } — o resto do cartão nunca muda. */
 export async function cartaoAgendamento(dados = {}, opts = {}) {
   const assunto = assuntoDoCartao({ servico: dados.servico, setor: dados.setor, profissional: dados.profissional });
+  /* Título AFIRMATIVO (ordem do master, 24/08): a família não recebe um aviso
+     burocrático, recebe a certeza de que está tudo reservado. Confirmação vira
+     "Vacinação confirmada"; o lembrete vira "Sua vacinação é amanhã". */
   const titulo = opts.titulo || (opts.lembrete
-    ? `🔔 Lembrete ${assunto.artigo} ${assunto.nome}`
-    : `✅ Confirmação ${assunto.artigo} ${assunto.nome}`);
+    ? `🔔 ${assunto.posse} ${assunto.nome} é amanhã`
+    : `✅ ${assunto.nome.charAt(0).toUpperCase() + assunto.nome.slice(1)} confirmad${assunto.fem ? 'a' : 'o'}`);
   const dataISO = String(dados.data || '').slice(0, 10);
   const dSem = /^\d{4}-\d{2}-\d{2}$/.test(dataISO) ? (DIAS_SEM[new Date(dataISO + 'T12:00:00Z').getUTCDay()] || '') : '';
   const dataBR = dataISO ? dataISO.split('-').reverse().join('/') : '';
