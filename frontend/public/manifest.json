@@ -5,12 +5,77 @@
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "orientation": "portrait",
+  "orientation": "any",
   "background_color": "#0E8C96",
   "theme_color": "#0E8C96",
   "lang": "pt-BR",
   "icons": [
-    { "src": "/logos/icone-color.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "/logos/icone-color.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+    {
+      "src": "/logos/icone-color.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/logos/icone-color.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "display_override": [
+    "standalone",
+    "minimal-ui"
+  ],
+  "categories": [
+    "business",
+    "medical",
+    "productivity"
+  ],
+  "shortcuts": [
+    {
+      "name": "Chat",
+      "short_name": "Chat",
+      "url": "/inbox",
+      "icons": [
+        {
+          "src": "/logos/icone-color.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Agenda",
+      "short_name": "Agenda",
+      "url": "/agenda",
+      "icons": [
+        {
+          "src": "/logos/icone-color.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Caixa",
+      "short_name": "Caixa",
+      "url": "/caixa",
+      "icons": [
+        {
+          "src": "/logos/icone-color.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Agenda de hoje",
+      "short_name": "Hoje",
+      "url": "/",
+      "icons": [
+        {
+          "src": "/logos/icone-color.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
   ]
 }
