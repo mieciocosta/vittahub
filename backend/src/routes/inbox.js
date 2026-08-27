@@ -3952,6 +3952,16 @@ r.get('/conversations', async (req, res) => {
           ? `(${grupoVac} = 'vacinas' OR ${grupoVac} IS NULL)`
           : `(${grupoVac} <> 'vacinas' OR ${grupoVac} IS NULL)`);
       }
+      /* 💛 A carteira da Fidelidade também fica fora AQUI (ordem do master,
+         27/08). Esta é a rota de emergência que roda enquanto o cache não
+         carregou — sem isso, nos primeiros segundos do deploy a equipe veria
+         os clientes da Poliana. */
+      if (req.user && req.user.role !== 'master' && !(req.user.so_fidelidade === true)) {
+        conditions.push(`(c.responsavel_id = $${pi} OR (COALESCE(c.categoria,'') <> 'fidelidade'
+              AND COALESCE(c.classificacao,'') <> 'fidelidade'
+              AND NOT EXISTS (SELECT 1 FROM usuarios uf WHERE uf.id = c.responsavel_id AND uf.so_fidelidade = true)))`);
+        params.push(req.user.id); pi++;
+      }
       if (search) {
         conditions.push(`(unaccent(lower(c.contact_name)) ILIKE unaccent(lower($${pi})) OR c.phone ILIKE $${pi})`);
         params.push(`%${search}%`); pi++;

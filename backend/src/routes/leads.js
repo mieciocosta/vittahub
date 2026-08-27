@@ -4,6 +4,21 @@ import { auth, masterOnly } from '../middleware/auth.js';
 import { socketEmit } from '../socketServer.js';
 
 const r = express.Router();
+
+/* 💛 A CARTEIRA DA FIDELIDADE É DA POLIANA (ordem do master, 27/08: "todos os
+   clientes de Poliana não aparecem para as demais"). O bloqueio das CONVERSAS
+   mora em podeVerSetor (inbox.js); aqui vale a mesma regra para as telas que
+   leem a tabela `leads`: Clientes, Funil, Retornos e Recuperação. Fica de fora
+   só o master e a própria dona do lead — nem supervisora, nem ve_tudo.
+   `id` é o id do usuário que está olhando (já sanitizado pelo chamador). */
+const foraDaFidelidade = (uid) => `AND (l.responsavel_id = '${uid}' OR (
+    NOT EXISTS (SELECT 1 FROM usuarios uf WHERE uf.id = l.responsavel_id AND uf.so_fidelidade = true)
+    AND NOT EXISTS (SELECT 1 FROM conversas cf WHERE cf.lead_id = l.id
+                      AND (cf.categoria = 'fidelidade' OR cf.classificacao = 'fidelidade'))))`;
+const foraDaFidelidadeConv = (uid) => `AND (c.responsavel_id = '${uid}' OR (
+    COALESCE(c.categoria,'') <> 'fidelidade' AND COALESCE(c.classificacao,'') <> 'fidelidade'
+    AND NOT EXISTS (SELECT 1 FROM usuarios uf WHERE uf.id = c.responsavel_id AND uf.so_fidelidade = true)))`;
+
 r.use(auth);
 
 // Helper: hide financial data from non-master
@@ -88,6 +103,10 @@ r.get('/', async (req, res) => {
       conditions.push(`l.responsavel_id = $${pi++}`);
       params.push(req.user.id);
     }
+    // 💛 A carteira da Fidelidade não aparece pra mais ninguém (ordem do master)
+    if (req.user.role !== 'master') {
+      conditions.push(foraDaFidelidade(String(req.user.id).replace(/[^a-zA-Z0-9-]/g, '')).replace(/^AND /, ''));
+    }
 
     const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
 
@@ -132,7 +151,8 @@ r.get('/meta', async (req, res) => {
 r.get('/retornos', async (req, res) => {
   try {
     const uid = String(req.user.id).replace(/[^a-zA-Z0-9-]/g, ''); // anti-injection
-    const uFilter = (['master','supervisor'].includes(req.user.role) || req.user.ve_tudo) ? '' : ` AND l.responsavel_id = '${uid}'`;
+    let uFilter = (['master','supervisor'].includes(req.user.role) || req.user.ve_tudo) ? '' : ` AND l.responsavel_id = '${uid}'`;
+    if (req.user.role !== 'master') uFilter += ' ' + foraDaFidelidade(uid);   // 💛 carteira da Poliana fora
     const { rows } = await query(`
       SELECT l.*, u.nome AS responsavel_nome, u.cor AS responsavel_cor,
         CASE
@@ -154,8 +174,9 @@ r.get('/retornos', async (req, res) => {
        retorno já marcado. É a fila de recuperação — mostra quem a IA está
        trabalhando (responsável com o botão da Vitta ligado) e quem depende
        de contato humano. */
-    const uFilterConv = (['master', 'supervisor'].includes(req.user.role) || req.user.ve_tudo)
+    let uFilterConv = (['master', 'supervisor'].includes(req.user.role) || req.user.ve_tudo)
       ? '' : ` AND c.responsavel_id = '${uid}'`;
+    if (req.user.role !== 'master') uFilterConv += ' ' + foraDaFidelidadeConv(uid);   // 💛 idem
     const { rows: semAg } = await query(`
       SELECT c.id AS conv_id, c.contact_name AS nome, c.phone AS telefone, c.setor,
              c.last_message_at, c.last_from, u.nome AS responsavel_nome, u.cor AS responsavel_cor,
