@@ -2959,6 +2959,25 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log(`👤 Jéssica Ribeiro → Poliana: ${nConv} conversa(s), ${nMsg} mensagem(ns)`);
     }
 
+    /* 👀 GESTÃO SEMPRE À VISTA DA POLIANA (ordem do master, 24/08): as conversas
+       do Dr. Miécio e da Dra. Nágila entram na pasta Fidelidade, que é o que a
+       Poliana enxerga. Ficam marcadas como contato interno: a IA não age nelas
+       e elas NÃO entram na fila de bebês do mês. */
+    const { rows: [flagGest] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_gestao_na_pasta_fidelidade_v1'");
+    if (!flagGest) {
+      const { rowCount: nG } = await query(
+        `UPDATE conversas
+            SET categoria = 'fidelidade', classificacao = 'gestao', bot_ativo = false
+          WHERE contact_name ILIKE '%nágila%' OR contact_name ILIKE '%nagila%'
+             OR contact_name ILIKE '%miécio%' OR contact_name ILIKE '%miecio%'`).catch(() => ({ rowCount: 0 }));
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+        ['👀 Gestão na pasta Fidelidade',
+         nG > 0 ? `${nG} conversa(s) da Dra. Nágila e do Dr. Miécio entraram na pasta Fidelidade, então aparecem sempre pra Poliana. Elas ficam como contato interno: a IA não age e não entram na fila de bebês do mês.`
+                : 'Não encontrei conversas com esses nomes pra colocar na pasta Fidelidade. Me diga como aparecem na tela que eu ajusto.']).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_gestao_na_pasta_fidelidade_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log('👀 Gestão na pasta Fidelidade:', nG);
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);

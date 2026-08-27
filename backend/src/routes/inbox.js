@@ -7440,6 +7440,8 @@ r.get('/fidelidade/mes', async (req, res) => {
         FROM conversas c LEFT JOIN leads l ON l.id = c.lead_id
        WHERE (COALESCE(c.categoria,'') = 'fidelidade' OR COALESCE(c.classificacao,'') = 'fidelidade')
          AND COALESCE(c.simulacao, false) = false
+         -- contato interno (gestão, profissional da casa) fica de fora da fila de bebês
+         AND COALESCE(c.classificacao,'') NOT IN ('gestao','profissional_saude')
        ORDER BY COALESCE(c.pasta_dia, 99), c.contact_name
        LIMIT 500`).catch(() => ({ rows: [] }));
     if (!convs.length) return res.json({ mes: mesRef, itens: [], resumo: { total: 0, agendados: 0, atendidos: 0, faltam: 0, atrasados: 0 } });

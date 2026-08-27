@@ -2472,10 +2472,20 @@ export default function Inbox({ onUnreadChange }) {
           {showEmoji && (
             <div style={{ background:'var(--card,#fff)', borderTop:'1px solid var(--border)', padding:'9px 12px', flexShrink:0, maxHeight:185, overflowY:'auto', position:'relative' }}>
               {/* ✕ sempre à vista (cobrança do master: "o menu de emoji não some") */}
-              <button onClick={()=>setShowEmoji(false)}
-                style={{ position:'sticky', top:0, float:'right', zIndex:2, border:'none', borderRadius:8, padding:'3px 10px', cursor:'pointer', background:'var(--err2,#fde8e8)', color:'var(--err,#dc2626)', fontSize:11, fontWeight:900 }}>
-                ✕ Fechar
-              </button>
+              <div style={{ position:'sticky', top:0, zIndex:2, display:'flex', gap:6, justifyContent:'flex-end', marginBottom:4 }}>
+                {/* 💟 FIGURINHAS AO LADO DOS EMOJIS (ordem do master, 24/08):
+                    o mesmo toque que abre carinha abre figurinha. */}
+                <button onClick={()=>{ setBibAba('figurinha'); setShowBib(true); setShowEmoji(false); }}
+                  title="Abrir as figurinhas da Vittalis"
+                  style={{ border:'none', borderRadius:8, padding:'3px 11px', cursor:'pointer',
+                    background:'linear-gradient(120deg,#0E8C96,#00B8C0)', color:'#fff', fontSize:11, fontWeight:900 }}>
+                  💟 Figurinhas
+                </button>
+                <button onClick={()=>setShowEmoji(false)}
+                  style={{ border:'none', borderRadius:8, padding:'3px 10px', cursor:'pointer', background:'var(--err2,#fde8e8)', color:'var(--err,#dc2626)', fontSize:11, fontWeight:900 }}>
+                  ✕ Fechar
+                </button>
+              </div>
               {/* Ampliado por grupos (pedido do master: "não tem corações de
                   diversas cores e formas — melhore, amplia") */}
               {[
@@ -2836,8 +2846,6 @@ export default function Inbox({ onUnreadChange }) {
                 </button>
                 <button onClick={()=>{setShowQR(p=>!p);setShowEmoji(false);}} title="Mensagens automáticas"
                   className={`tb-ico-color${showQR?' tb-on':''}`} style={{ '--ic':'#06b6d4' }}><Zap size={18} strokeWidth={2.3}/></button>
-                <button onClick={()=>{setBibAba('figurinha');setShowBib(true);}} title="Figurinhas da Vittalis"
-                  className="tb-ico-color" style={{ '--ic':'#eab308' }}><Sticker size={18} strokeWidth={2.3}/></button>
                 <button onClick={()=>{setShowDocs(p=>!p);setShowQR(false);setShowEmoji(false);}} title="Banco de documentos — envie os principais em 1 clique"
                   className={`tb-ico-color${showDocs?' tb-on':''}`} style={{ '--ic':'#10b981' }}><FileText size={18} strokeWidth={2.3}/></button>
                 <button onClick={()=>setShowAgendarMsg(true)} title="⏰ Agendar mensagem — escolha o dia e a hora pra disparar pro cliente"
@@ -2855,6 +2863,9 @@ export default function Inbox({ onUnreadChange }) {
                   className="tb-ico-color" style={{ '--ic':'#d946ef' }}><Image size={18} strokeWidth={2.3}/></button>
                 <button onClick={()=>{setShowEmoji(p=>!p);setShowQR(false);setShowProntas(false);}} title="Emojis"
                   className={`tb-ico-color${showEmoji?' tb-on':''}`} style={{ '--ic':'#f59e0b' }}><Smile size={18} strokeWidth={2.3}/></button>
+                {/* 💟 Figurinhas coladas nos emojis (ordem do master, 24/08) */}
+                <button onClick={()=>{ setBibAba('figurinha'); setShowBib(true); setShowEmoji(false); }} title="Figurinhas da Vittalis"
+                  className="tb-ico-color" style={{ '--ic':'#00B8C0' }}><Sticker size={18} strokeWidth={2.3}/></button>
                 {/* 📝 MENSAGENS PRONTAS (pedido do master: tem atendente que não
                     usa a IA cem por cento) — os textos oficiais da casa em 1 toque */}
                 <button onClick={()=>{setShowProntas(p=>!p);setShowEmoji(false);setShowQR(false);}} title="📝 Mensagens prontas da casa: boas-vindas, endereço, cartões de agendamento…"
