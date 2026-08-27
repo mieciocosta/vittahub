@@ -34,8 +34,11 @@ function Figurinha({ item, api, enviando, onEnviar, ansiosa }) {
 
   return (
     <button onClick={() => onEnviar(item)} title={nome}
-      style={{ position: 'relative', aspectRatio: '1', border: '1px solid var(--border)', borderRadius: 13,
-        cursor: 'pointer', background: 'var(--bg2)', padding: 4, overflow: 'hidden',
+      /* 📐 Altura FIXA por quadrado. Com aspect-ratio a célula colapsava e as
+         figurinhas apareciam empilhadas umas sobre as outras (print do master,
+         27/08). Altura fixa + contain resolve em qualquer navegador. */
+      style={{ position: 'relative', height: 92, border: '1px solid var(--border)', borderRadius: 13,
+        cursor: 'pointer', background: 'var(--bg2)', padding: 5, overflow: 'hidden',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         opacity: enviando ? .5 : 1, transition: 'transform .1s' }}
       onMouseDown={e => { e.currentTarget.style.transform = 'scale(.94)'; }}
@@ -47,8 +50,8 @@ function Figurinha({ item, api, enviando, onEnviar, ansiosa }) {
       </span>
       <img src={src} alt={nome} decoding="async" loading={ansiosa ? 'eager' : 'lazy'}
         onLoad={() => setOk(true)} onError={planoB}
-        style={{ position: 'relative', width: '100%', height: '100%', objectFit: 'contain',
-          borderRadius: 10, opacity: ok ? 1 : 0, transition: 'opacity .18s' }} />
+        style={{ position: 'relative', maxWidth: '100%', maxHeight: '100%', width: 'auto', height: 'auto',
+          objectFit: 'contain', borderRadius: 10, opacity: ok ? 1 : 0, transition: 'opacity .18s' }} />
     </button>
   );
 }
@@ -142,7 +145,8 @@ export default function FigurinhasPainel({ convId, api, onClose, onEnviada }) {
       {erro && <div style={{ padding: '6px 12px', fontSize: 11.5, color: 'var(--err)' }}>{erro}</div>}
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '0 12px 12px',
-        display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(84px, 1fr))', gap: 8 }}>
+        display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(92px, 1fr))',
+        gridAutoRows: '92px', alignContent: 'start', gap: 8 }}>
         {!itens.length && !erro && (
           <div style={{ gridColumn: '1/-1', padding: '22px 4px', textAlign: 'center', color: 'var(--muted)', fontSize: 12.5 }}>
             Carregando as figurinhas da casa…

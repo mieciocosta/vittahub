@@ -3032,6 +3032,23 @@ async function carregarFigurinhas() {
         posagendamento: 'Pós-agendamento', frases: 'Frases carinhosas',
         vitta: 'Vittalis Premium', vittalis: 'Vittalis' };
       const arquivos = fsFig.readdirSync(dirFig).filter(x => x.endsWith('.webp') && x.includes('__'));
+      /* 🧹 LIMPA O QUE NÃO EXISTE MAIS (cobrança do master, 27/08: a aba abriu
+         com 200 figurinhas). Cada leva antiga deixava as anteriores no banco —
+         figurinha cujo arquivo saiu do repositório continuava na Biblioteca pra
+         sempre. Só apaga o que a casa gerou (título "Vitta · …"); o que alguém
+         subiu pela Biblioteca não é tocado. */
+      const titulosAtuais = arquivos.map(f => {
+        const bruto = f.replace('.webp', '').split('__')[1] || '';
+        const nome = (/^(\d+)-(.+)$/.exec(bruto) || [null, null, bruto])[2];
+        return `Vitta · ${nome.replace(/-/g, ' ').replace(/^./, c => c.toUpperCase())}`;
+      });
+      if (titulosAtuais.length) {
+        const { rowCount: apagadas } = await query(
+          `DELETE FROM biblioteca_midias
+            WHERE tipo = 'figurinha' AND titulo LIKE 'Vitta · %' AND NOT (titulo = ANY($1))`,
+          [titulosAtuais]).catch(() => ({ rowCount: 0 }));
+        if (apagadas) console.log(`🧹 ${apagadas} figurinha(s) fora de uso removidas da Biblioteca`);
+      }
       let novas = 0;
       for (const f of arquivos) {
         const [catArq, bruto] = f.replace('.webp', '').split('__');

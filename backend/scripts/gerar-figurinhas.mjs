@@ -28,7 +28,10 @@ const P = {
 };
 
 let n = 0;
-const F = (emoji, frase, nome, cor) => ({ ordem: (n += 10), emoji, frase, nome, cor });
+/* O grupo vira o PREFIXO do arquivo e, no painel, a aba de cima (ordem do
+   master, 27/08: "deixa um botão lá em cima só pra figuras de consultas e
+   terapias"). vitta = Vittalis Premium (as do dia a dia). */
+const F = (emoji, frase, nome, cor, grupo = 'vitta') => ({ ordem: (n += 10), emoji, frase, nome, cor, grupo });
 
 /* ── A FILA (de cima pra baixo na aba do chat) ─────────────────────────────
    1º os cumprimentos do dia a dia, depois bênção e parabéns, depois família,
@@ -60,38 +63,38 @@ const FIGS = [
   F('✝️','Mês abençoado','mes-abencoado','fund'),
   F('🕯️','Paz no seu lar','paz-no-lar','noite'),
   F('🤗','Seja muito bem-vindo!','bem-vindo','tq'),
-  F('✅','Agendamento confirmado','agendamento-confirmado','verde'),
-  F('🗓️','Horário reservado','horario-reservado','pet'),
-  F('💙','Te esperamos!','te-esperamos','tq'),
-  F('🔔','Confirmamos na véspera','confirmamos-vespera','tq'),
-  F('📝','Anota na agenda','anota-na-agenda','pet'),
-  F('⏰','Contagem regressiva','contagem-regressiva','ceu'),
-  F('⏳','Até o grande dia','ate-o-grande-dia','ceu'),
-  F('🕘','Chegue 10 min antes','chegue-antes','pet'),
-  F('📘','Leve a caderneta','leve-a-caderneta','pet'),
-  F('📗','Caderneta em dia','caderneta-em-dia','verde'),
-  F('👌','Tá tudo certo!','ta-tudo-certo','verde'),
-  F('🏠','Vamos até você','vamos-ate-voce','tq'),
-  F('🔄','Imprevisto? A gente remarca','imprevisto-remarca','pet'),
-  F('🩺','Consulta confirmada','consulta-confirmada','pet'),
-  F('👩‍⚕️','Dia da consulta','dia-da-consulta','pet'),
-  F('👶','Primeira consulta do bebê','primeira-consulta','ceu'),
-  F('🧾','Leve os exames','leve-os-exames','pet'),
-  F('🔁','Retorno marcado','retorno-marcado','pet'),
-  F('📄','Receita enviada','receita-enviada','verde'),
-  F('📏','Peso e altura em dia','peso-e-altura','verde'),
-  F('💬','Dúvida? Chama a gente','duvida-chama','tq'),
-  F('🧠','Cada fase tem seu cuidado','cada-fase-cuidado','pet'),
-  F('💉','Dia de proteger','dia-de-proteger','tq'),
-  F('🛡️','Protegidinho!','protegidinho','verde'),
-  F('🦸','Dia de herói','dia-de-heroi','ceu'),
-  F('🦸‍♀️','Dia de heroína','dia-de-heroina','rosa'),
-  F('🏅','Certificado de coragem','certificado-coragem','ouro'),
-  F('🐝','Com Buzzy dói menos','buzzy','ouro'),
-  F('🌱','Crescendo forte','crescendo-forte','verde'),
-  F('📈','Que evolução!','orgulho-evolucao','verde'),
-  F('🧩','Cada sessão, uma evolução','cada-sessao-evolucao','pet'),
-  F('🔎','Avaliar é cuidar','avaliar-e-cuidar','pet'),
+  F('✅','Agendamento confirmado','agendamento-confirmado','verde','posagendamento'),
+  F('🗓️','Horário reservado','horario-reservado','pet','posagendamento'),
+  F('💙','Te esperamos!','te-esperamos','tq','posagendamento'),
+  F('🔔','Confirmamos na véspera','confirmamos-vespera','tq','posagendamento'),
+  F('📝','Anota na agenda','anota-na-agenda','pet','posagendamento'),
+  F('⏰','Contagem regressiva','contagem-regressiva','ceu','posagendamento'),
+  F('⏳','Até o grande dia','ate-o-grande-dia','ceu','posagendamento'),
+  F('🕘','Chegue 10 min antes','chegue-antes','pet','posagendamento'),
+  F('📘','Leve a caderneta','leve-a-caderneta','pet','vacinas'),
+  F('📗','Caderneta em dia','caderneta-em-dia','verde','vacinas'),
+  F('👌','Tá tudo certo!','ta-tudo-certo','verde','posagendamento'),
+  F('🏠','Vamos até você','vamos-ate-voce','tq','vacinas'),
+  F('🔄','Imprevisto? A gente remarca','imprevisto-remarca','pet','posagendamento'),
+  F('🩺','Consulta confirmada','consulta-confirmada','pet','consultas'),
+  F('👩‍⚕️','Dia da consulta','dia-da-consulta','pet','consultas'),
+  F('👶','Primeira consulta do bebê','primeira-consulta','ceu','consultas'),
+  F('🧾','Leve os exames','leve-os-exames','pet','consultas'),
+  F('🔁','Retorno marcado','retorno-marcado','pet','consultas'),
+  F('📄','Receita enviada','receita-enviada','verde','consultas'),
+  F('📏','Peso e altura em dia','peso-e-altura','verde','consultas'),
+  F('💬','Dúvida? Chama a gente','duvida-chama','tq','consultas'),
+  F('🧠','Cada fase tem seu cuidado','cada-fase-cuidado','pet','consultas'),
+  F('💉','Dia de proteger','dia-de-proteger','tq','vacinas'),
+  F('🛡️','Protegidinho!','protegidinho','verde','vacinas'),
+  F('🦸','Dia de herói','dia-de-heroi','ceu','vacinas'),
+  F('🦸‍♀️','Dia de heroína','dia-de-heroina','rosa','vacinas'),
+  F('🏅','Certificado de coragem','certificado-coragem','ouro','vacinas'),
+  F('🐝','Com Buzzy dói menos','buzzy','ouro','vacinas'),
+  F('🌱','Crescendo forte','crescendo-forte','verde','vacinas'),
+  F('📈','Que evolução!','orgulho-evolucao','verde','terapias'),
+  F('🧩','Cada sessão, uma evolução','cada-sessao-evolucao','pet','terapias'),
+  F('🔎','Avaliar é cuidar','avaliar-e-cuidar','pet','terapias'),
   F('👨‍👩‍👧','Saúde pra família toda','saude-para-familia','tq'),
   F('👩‍⚕️','Equipe pronta','equipe-pronta','tq'),
   F('🤝','Estamos aqui','estamos-aqui','tq'),
@@ -140,7 +143,10 @@ const pagina = (f) => {
 };
 
 // Limpa a leva anterior (os nomes mudam de posição a cada ajuste de ordem)
-for (const f of fs.readdirSync(SAIDA)) if (f.startsWith('vitta__')) fs.unlinkSync(path.join(SAIDA, f));
+const GRUPOS = ['vitta', 'consultas', 'terapias', 'vacinas', 'posagendamento'];
+for (const f of fs.readdirSync(SAIDA)) {
+  if (GRUPOS.some(g => f.startsWith(`${g}__`))) fs.unlinkSync(path.join(SAIDA, f));
+}
 
 const b = await puppeteer.launch({
   executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
@@ -151,7 +157,7 @@ await pg.setViewport({ width: 512, height: 512, deviceScaleFactor: 1 });
 for (const f of FIGS) {
   await pg.setContent(pagina(f), { waitUntil: 'load' });
   const buf = await pg.screenshot({ type: 'webp', quality: 92, omitBackground: true });
-  fs.writeFileSync(path.join(SAIDA, `vitta__${String(f.ordem).padStart(3, '0')}-${f.nome}.webp`), buf);
+  fs.writeFileSync(path.join(SAIDA, `${f.grupo}__${String(f.ordem).padStart(3, '0')}-${f.nome}.webp`), buf);
 }
 await b.close();
 console.log('figurinhas geradas:', FIGS.length);
