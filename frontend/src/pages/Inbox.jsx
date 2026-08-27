@@ -501,6 +501,7 @@ export default function Inbox({ onUnreadChange }) {
   });
   const resizing                      = useRef(false);
   const [provaEnviando, setProvaEnviando] = useState(false);   // 📸 envio do conjunto de fotos
+  const [cartaoBusy, setCartaoBusy] = useState(false);         // 🗓️ montando o cartão de agendamento
   const [total, setTotal]             = useState(0);
   const [page, setPage]               = useState(1);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -1701,6 +1702,23 @@ export default function Inbox({ onUnreadChange }) {
     } catch (e) { Toast.show(e.message || 'Não foi possível transferir', 'error'); }
     setTransfSaving(false);
   };
+  /* 🗓️ Lê a conversa e escreve o cartão oficial na caixa de mensagem. O texto
+     vem do MESMO modelo do sistema, então nunca sai um cartão diferente do
+     outro. A atendente revisa e manda — e ao mandar, o evento entra na agenda. */
+  const montarCartaoAgenda = async () => {
+    if (!sel || cartaoBusy) return;
+    setCartaoBusy(true);
+    try {
+      const d = await api.post(`/inbox/conversations/${sel.id}/montar-cartao`, {});
+      if (!d?.achou) { Toast.show(d?.aviso || 'Não achei data e hora na conversa', 'error'); return; }
+      setInput(d.texto);
+      textRef.current?.focus();
+      const falta = (d.faltando || []).length ? ` Confira: ${d.faltando.join(' e ')}.` : '';
+      Toast.show(`🗓️ Cartão montado (${d.resumo}).${falta}`, 'success');
+    } catch (e) { Toast.show(e.message || 'Não consegui montar o cartão', 'error'); }
+    finally { setCartaoBusy(false); }
+  };
+
   const salvarAgendamento = async () => {
     if (!agForm.hora) { Toast.show('Informe o horário', 'error'); return; }
     if (agForm.local_link && !/^https?:\/\//i.test(agForm.local_link.trim())) { Toast.show('O link do endereço precisa começar com http:// ou https://', 'error'); return; }
@@ -2895,6 +2913,14 @@ export default function Inbox({ onUnreadChange }) {
                   className={`tb-ico-color${showQR?' tb-on':''}`} style={{ '--ic':'#06b6d4' }}><Zap size={18} strokeWidth={2.3}/></button>
                 <button onClick={()=>{setShowDocs(p=>!p);setShowQR(false);setShowEmoji(false);}} title="Banco de documentos — envie os principais em 1 clique"
                   className={`tb-ico-color${showDocs?' tb-on':''}`} style={{ '--ic':'#10b981' }}><FileText size={18} strokeWidth={2.3}/></button>
+                {/* 🗓️ MONTAR AGENDAMENTO (ordem do master, 27/08): lê a conversa
+                    inteira e escreve o cartão oficial na caixa, pronto pra revisar
+                    e mandar. Não envia sozinho — quem manda é a atendente. */}
+                <button onClick={montarCartaoAgenda} disabled={cartaoBusy}
+                  title="🗓️ Montar mensagem de agendamento lendo a conversa"
+                  className="tb-ico-color" style={{ '--ic':'#0ea5e9', opacity: cartaoBusy ? .5 : 1 }}>
+                  {cartaoBusy ? <Loader2 size={18} className="spin"/> : <CalendarDays size={18} strokeWidth={2.3}/>}
+                </button>
                 <button onClick={()=>setShowAgendarMsg(true)} title="⏰ Agendar mensagem — escolha o dia e a hora pra disparar pro cliente"
                   className="tb-ico-color" style={{ '--ic':'#6366f1' }}><Clock size={18} strokeWidth={2.3}/></button>
                 <Calculadora />

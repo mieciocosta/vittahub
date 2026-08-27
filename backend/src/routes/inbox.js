@@ -5231,6 +5231,76 @@ r.patch('/conversations/:id/bot', async (req, res) => {
    janelas, já com a frase de fechamento por alternativa pronta pra enviar.
    Sem inventar horário: sai do cadastro dos profissionais e respeita os 2 dias
    de antecedência da casa. */
+/* 🗓️ MONTAR O CARTÃO DE AGENDAMENTO LENDO A CONVERSA (ordem do master, 27/08:
+   "um botão que leia toda a conversa e monte já a mensagem de agendamento
+   conforme os modelos que já temos"). A ordem de confiança é:
+     1. evento já marcado na agenda desta conversa (é o dado mais firme);
+     2. cartão que já foi enviado no chat (inclusive digitado na mão);
+     3. uma data e hora soltas no texto — aí vem marcado como palpite.
+   O texto sai SEMPRE pelo cartaoAgendamento: modelo único da casa. Não envia
+   nada: devolve pronto pra atendente ler, ajustar e mandar. */
+r.post('/conversations/:id/montar-cartao', async (req, res) => {
+  try {
+    const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso.' });
+
+    const hojeSLZ = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+    const mem = conv.memoria || {};
+
+    // 1) A agenda manda: evento futuro (ou de hoje) desta conversa
+    const { rows: [ev] } = await query(
+      `SELECT * FROM agenda_eventos
+        WHERE conversa_id = $1 AND data >= $2 AND LOWER(COALESCE(status,'')) NOT LIKE 'cancel%'
+          AND servico IS DISTINCT FROM 'Pós Vacinal'
+        ORDER BY data ASC, hora ASC LIMIT 1`, [conv.id, hojeSLZ]).catch(() => ({ rows: [] }));
+
+    // 2) O cartão que já circulou na conversa
+    const lido = ev ? null : await agendamentoDaConversa(conv.id);
+
+    if (!ev && !lido) {
+      return res.json({ achou: false,
+        aviso: 'Não achei data e hora na conversa. Combine o horário com o cliente e clique de novo.' });
+    }
+
+    const emCasa = ev
+      ? (!!String(ev.endereco || '').trim() || /resid|casa|domic/i.test(String(ev.servico || '')))
+      : /resid|casa|domic/i.test(String(lido.local || ''));
+    const enderecoCasa = ev ? String(ev.endereco || '').trim()
+      : String(lido.local || '').replace(/^em sua resid[êe]ncia\s*[—-]?\s*/i, '').trim();
+
+    const dados = {
+      cliente: (ev ? ev.responsavel_nome : lido.cliente) || mem.responsavel || conv.contact_name || 'Cliente',
+      paciente: (ev ? ev.paciente : lido.paciente) || mem.paciente || '',
+      data: ev ? String(ev.data).slice(0, 10) : lido.data,
+      hora: ev ? ev.hora : lido.hora,
+      profissional: (ev ? ev.profissional : lido.profissional) || '',
+      servico: (ev ? ev.servico : lido.servico)
+        || (conv.setor === 'terapias' ? 'Sessão de terapia' : conv.setor === 'consultas' ? 'Consulta' : 'Vacinação'),
+      setor: conv.setor,
+      bonus: ev ? '' : (lido.bonus || ''),
+      local: emCasa
+        ? (enderecoCasa && !/resid/i.test(enderecoCasa) ? `Em sua residência — ${enderecoCasa.slice(0, 48)}` : 'Em sua residência')
+        : 'Na Clínica Vittalis Saúde (Renascença)',
+      tratamento: ['mamãe', 'papai'].includes(String(mem.tratamento || '')) ? mem.tratamento : '',
+    };
+
+    const texto = await cartaoAgendamento(dados);
+    const faltando = [];
+    if (!dados.paciente) faltando.push('nome do paciente');
+    if (!ev && lido.origem !== 'cartao') faltando.push('confirmar a data e a hora com o cliente');
+    res.json({
+      achou: true,
+      origem: ev ? 'agenda' : lido.origem,
+      texto, faltando,
+      resumo: `${String(dados.data).split('-').reverse().join('/')} às ${dados.hora} · ${dados.servico}`,
+    });
+  } catch (err) {
+    console.error('montar-cartao:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 r.get('/conversations/:id/agenda-da-conversa', async (req, res) => {
   try {
     const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
