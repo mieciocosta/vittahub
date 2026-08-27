@@ -368,7 +368,7 @@ if (typeof document !== 'undefined' && !document.getElementById('msg-acoes-css')
   const st = document.createElement('style'); st.id = 'msg-acoes-css'; st.textContent = estiloAcoesMsg; document.head.appendChild(st);
 }
 
-const MsgItem = React.memo(function MsgItem({ m, prevMsg, contactName, channel, onLightbox, token, onEditar, onApagar, fotoSel }) {
+const MsgItem = React.memo(function MsgItem({ m, prevMsg, contactName, channel, onLightbox, token, onEditar, onApagar, onTrocarRemetente, fotoSel }) {
   const isMe = m.from_type==='me', isBot=m.from_type==='bot', isSys=m.from_type==='system';
   // Usa prevMsg em vez do array msgs inteiro — React.memo agora é eficaz
   const showDate = !prevMsg || new Date(prevMsg.created_at).toDateString() !== new Date(m.created_at).toDateString();
@@ -428,6 +428,13 @@ const MsgItem = React.memo(function MsgItem({ m, prevMsg, contactName, channel, 
               {onApagar && (
                 <button onClick={() => onApagar(m)} title="Apagar pra todos"
                   style={{ width:24, height:24, borderRadius:8, border:'1px solid var(--border)', background:'var(--card,#fff)', color:'var(--err)', cursor:'pointer', fontSize:11, display:'flex', alignItems:'center', justifyContent:'center' }}>🗑</button>
+              )}
+              {/* 👤 TROCAR QUEM ASSINA (ordem do master, 27/08: "esqueci de mudar
+                  o usuário na hora de enviar"). Só gestão vê. Muda o nome de quem
+                  aparece como remetente sem apagar e mandar de novo. */}
+              {onTrocarRemetente && (
+                <button onClick={() => onTrocarRemetente(m)} title="Trocar quem enviou esta mensagem"
+                  style={{ width:24, height:24, borderRadius:8, border:'1px solid var(--border)', background:'var(--card,#fff)', color:'var(--tq2)', cursor:'pointer', fontSize:11, display:'flex', alignItems:'center', justifyContent:'center' }}>👤</button>
               )}
             </span>
             );
@@ -1741,6 +1748,25 @@ export default function Inbox({ onUnreadChange }) {
     finally { setCartaoBusy(false); }
   };
 
+  /* 👤 Trocar quem assina uma mensagem já enviada (só gestão). Nasceu do
+     "esqueci de mudar o usuário na hora de enviar": em vez de apagar e mandar
+     de novo (o cliente vê o apagado), troca só o nome de quem aparece. */
+  const [trocaRemet, setTrocaRemet] = useState(null);   // { msg }
+  const trocarRemetente = (m) => {
+    setTrocaRemet({ msg: m });
+    if (!atendentes.length) api.get('/inbox/atendentes').then(d => setAtendentes(Array.isArray(d) ? d : [])).catch(()=>{});
+  };
+  const confirmarTrocaRemetente = async (nome) => {
+    const m = trocaRemet?.msg;
+    if (!m) return;
+    try {
+      const r = await api.patch(`/inbox/conversations/${sel.id}/messages/${m.id}/remetente`, { nome });
+      setMsgs(p => p.map(x => x.id === m.id ? { ...x, sender_nome: r.sender_nome, content: r.content ?? x.content } : x));
+      Toast.show(`Mensagem agora aparece como ${r.sender_nome} 👤`, 'success');
+    } catch (e) { Toast.show(e.message || 'Não consegui trocar', 'error'); }
+    setTrocaRemet(null);
+  };
+
   const salvarAgendamento = async () => {
     if (!agForm.hora) { Toast.show('Informe o horário', 'error'); return; }
     if (agForm.local_link && !/^https?:\/\//i.test(agForm.local_link.trim())) { Toast.show('O link do endereço precisa começar com http:// ou https://', 'error'); return; }
@@ -2226,7 +2252,8 @@ export default function Inbox({ onUnreadChange }) {
                 </div>
               )}
               {msgs.map((m, i) => (
-                <MsgItem key={m.id||i} m={m} prevMsg={msgs[i-1] || null} contactName={sel.contact_name} channel={sel.channel} onLightbox={abrirOuSelecionar} token={token} onEditar={editarMensagem} onApagar={apagarMensagem} fotoSel={!!fotosSel[m.id]}/>
+                <MsgItem key={m.id||i} m={m} prevMsg={msgs[i-1] || null} contactName={sel.contact_name} channel={sel.channel} onLightbox={abrirOuSelecionar} token={token} onEditar={editarMensagem} onApagar={apagarMensagem}
+                  onTrocarRemetente={gestaoUser ? trocarRemetente : null} fotoSel={!!fotosSel[m.id]}/>
               ))}
               <div ref={endRef}/>
             </div>
@@ -3002,6 +3029,36 @@ export default function Inbox({ onUnreadChange }) {
               </button>
             </div>
             {recording&&<div style={{ textAlign:'center', marginTop:5, fontSize:11, color:'var(--err)', fontWeight:600 }}>🔴 Gravando… clique para parar</div>}
+          </div>
+        </div>
+      )}
+
+      {/* 👤 Trocar quem assina a mensagem (gestão) */}
+      {trocaRemet && (
+        <div className="modal-bg" onClick={()=>setTrocaRemet(null)}>
+          <div className="card" onClick={e=>e.stopPropagation()} style={{ width:'100%', maxWidth:380, padding:0, overflow:'hidden' }}>
+            <div style={{ padding:'14px 16px 10px', borderBottom:'1px solid var(--border)' }}>
+              <div style={{ fontSize:14.5, fontWeight:800, color:'var(--txt)' }}>👤 Quem enviou esta mensagem?</div>
+              <div style={{ fontSize:11.5, color:'var(--muted)', marginTop:3 }}>
+                Troca só o nome que aparece. A mensagem no WhatsApp do cliente não muda.
+              </div>
+            </div>
+            <div style={{ maxHeight:300, overflowY:'auto', padding:'8px 10px 12px' }}>
+              {atendentes.map(a2 => (
+                <button key={a2.id} onClick={()=>confirmarTrocaRemetente(a2.nome)}
+                  style={{ width:'100%', textAlign:'left', display:'flex', alignItems:'center', gap:9, padding:'9px 10px',
+                    borderRadius:9, border:'none', background:'transparent', cursor:'pointer', fontSize:13, color:'var(--txt)' }}
+                  onMouseEnter={e=>e.currentTarget.style.background='var(--bg)'}
+                  onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                  <span style={{ width:26, height:26, borderRadius:'50%', background:a2.cor||'var(--tq)', color:'#fff',
+                    display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:800 }}>
+                    {fmt.initials(a2.nome)}
+                  </span>
+                  {a2.nome}
+                </button>
+              ))}
+              {!atendentes.length && <div style={{ padding:'14px 8px', fontSize:12.5, color:'var(--muted)' }}>Carregando a equipe…</div>}
+            </div>
           </div>
         </div>
       )}

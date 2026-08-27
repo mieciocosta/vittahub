@@ -5231,6 +5231,115 @@ r.patch('/conversations/:id/bot', async (req, res) => {
    janelas, já com a frase de fechamento por alternativa pronta pra enviar.
    Sem inventar horário: sai do cadastro dos profissionais e respeita os 2 dias
    de antecedência da casa. */
+/* 🧠 ANÁLISE DA CONVERSA PRA AGENDAR (cobrança do master, 27/08, depois de
+   testar: "ele pegou o nome Influenza, sendo que a Influenza era só um BÔNUS e
+   não o serviço; era um pacote de vacinas. Também não pegou valores. A maior
+   dificuldade é ele conseguir ler as IMAGENS que estão na conversa").
+
+   Antes eu catava palavra-chave, e palavra-chave não entende contexto: se a
+   Influenza aparece como cortesia, ela vira "serviço". Aqui a IA lê a conversa
+   INTEIRA — texto e os flyers de orçamento (imagens) — e devolve o combinado em
+   campos separados: o que foi vendido, o que é bônus, e por quanto.
+
+   Regras que a IA obedece (as mesmas da casa):
+   · bônus e cortesia NUNCA entram no serviço;
+   · duas ou mais vacinas pagas = "Pacote de vacinas", com os nomes;
+   · valor só se estiver combinado (no texto ou no flyer) — não se inventa.
+
+   Custo: uma leitura por conversa. O resultado fica guardado na memória e só é
+   refeito quando chega mensagem nova. */
+async function analisarConversaParaAgenda(conv) {
+  const convId = conv.id;
+  const mem = conv.memoria || {};
+
+  const { rows: msgs } = await query(
+    `SELECT id, from_type, type, content, transcricao, created_at FROM mensagens
+      WHERE conversa_id = $1 AND status IS DISTINCT FROM 'deleted'
+      ORDER BY created_at DESC LIMIT 70`, [convId]).catch(() => ({ rows: [] }));
+  if (!msgs.length) return null;
+
+  // Já analisado e nada novo chegou? Devolve o guardado, de graça.
+  const ultimaId = msgs[0].id;
+  if (mem.analise_agenda && mem.analise_agenda.ate_msg === ultimaId) return mem.analise_agenda;
+  if (!temIA() || !usaClaude()) return null;
+
+  const emOrdem = [...msgs].reverse();
+  const linhas = [];
+  const imagens = [];
+  for (const m of emOrdem) {
+    const quem = m.from_type === 'contact' ? 'CLIENTE' : m.from_type === 'bot' ? 'VITTA' : 'ATENDENTE';
+    if (m.type === 'text' && m.content) {
+      linhas.push(`${quem}: ${String(m.content).replace(/\s+/g, ' ').slice(0, 400)}`);
+    } else if (m.type === 'image' && String(m.content || '').startsWith('data:image/')) {
+      linhas.push(`${quem}: [enviou uma imagem — veja as imagens anexadas]`);
+      imagens.push(m.content);
+    } else if (m.transcricao) {
+      linhas.push(`${quem} (áudio): ${String(m.transcricao).slice(0, 300)}`);
+    }
+  }
+  // As 3 imagens mais RECENTES: o orçamento vigente é o último que circulou
+  const anexos = imagens.slice(-3).map(d => {
+    const mm = /^data:([^;]+);base64,(.+)$/s.exec(d);
+    return mm ? { type: 'image', source: { type: 'base64', media_type: mm[1], data: mm[2].replace(/\s/g, '') } } : null;
+  }).filter(Boolean);
+
+  const hoje = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+  const sys = `Você é a assistente da Vittalis Saúde (clínica de pediatria e vacinação em São Luís/MA). Leia a conversa inteira e as imagens (flyers de orçamento) e devolva APENAS um JSON válido, sem markdown, em português do Brasil.`;
+  const prompt = `Hoje é ${hoje} (horário de São Luís).
+
+CONVERSA (do mais antigo para o mais novo):
+${linhas.join('\n').slice(0, 14000)}
+
+Devolva exatamente este JSON:
+{"tem_agendamento":true,"data":"YYYY-MM-DD ou null","hora":"HH:MM ou null","paciente":"nome do paciente ou null","responsavel":"quem fala com a gente ou null","servico":"o que foi FECHADO, em uma linha","vacinas":["nome de cada vacina paga"],"bonus":"cortesia/brinde combinado ou null","valor_avista":0,"valor_credito":0,"parcelas":0,"local":"clinica ou domicilio ou null","endereco":"endereço/bairro/condomínio citado ou null","confianca":"alta ou media ou baixa","resumo":"1 frase do que ficou combinado"}
+
+REGRAS OBRIGATÓRIAS:
+1. BÔNUS NUNCA ENTRA NO SERVIÇO. Vacina ou benefício dado de cortesia (isenção de taxa, dose grátis, brinde) vai SÓ no campo bonus. Exemplo: se foi vendido um pacote e a Influenza entrou de brinde, servico NÃO pode citar Influenza.
+2. DUAS OU MAIS VACINAS PAGAS = PACOTE. Escreva servico assim: "Pacote de vacinas (Nome + Nome)". Uma vacina só: "Vacina Nome".
+3. VALORES: use o que foi combinado no texto ou no flyer da imagem. Se o flyer traz à vista e crédito, preencha os dois e as parcelas. Não invente número nenhum.
+4. DATA E HORA: só o que foi combinado. Converta "amanhã", "segunda", "dia 31" usando a data de hoje. Se não ficou combinado, use null.
+5. Se a conversa não chegou a fechar agendamento, devolva tem_agendamento=false e o resto null.
+6. Não invente nada que não esteja na conversa ou nas imagens.`;
+
+  try {
+    const client = await anthropicClient();
+    const resp = await client.messages.create({
+      model: CLAUDE_MODEL(), max_tokens: 900, system: sys,
+      messages: [{ role: 'user', content: [...anexos, { type: 'text', text: prompt }] }],
+    });
+    const txt = (resp.content || []).filter(b => b.type === 'text').map(b => b.text).join('')
+      .replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+    const par = JSON.parse(txt || '{}');
+    const dado = {
+      ate_msg: ultimaId,
+      tem_agendamento: par.tem_agendamento !== false,
+      data: /^\d{4}-\d{2}-\d{2}$/.test(par.data || '') ? par.data : null,
+      hora: /^\d{1,2}:\d{2}$/.test(par.hora || '') ? String(par.hora).padStart(5, '0') : null,
+      paciente: par.paciente ? String(par.paciente).slice(0, 60) : '',
+      responsavel: par.responsavel ? String(par.responsavel).slice(0, 60) : '',
+      servico: par.servico ? String(par.servico).slice(0, 90) : '',
+      vacinas: Array.isArray(par.vacinas) ? par.vacinas.slice(0, 8).map(v => String(v).slice(0, 40)) : [],
+      bonus: par.bonus ? String(par.bonus).slice(0, 90) : '',
+      valor_avista: parseFloat(par.valor_avista) || 0,
+      valor_credito: parseFloat(par.valor_credito) || 0,
+      parcelas: parseInt(par.parcelas) || 0,
+      local: ['clinica', 'domicilio'].includes(par.local) ? par.local : null,
+      endereco: par.endereco ? String(par.endereco).slice(0, 90) : '',
+      confianca: ['alta', 'media', 'baixa'].includes(par.confianca) ? par.confianca : 'media',
+      resumo: par.resumo ? String(par.resumo).slice(0, 200) : '',
+      imagens_lidas: anexos.length,
+      lido_em: new Date().toISOString(),
+    };
+    await query(`UPDATE conversas SET memoria = COALESCE(memoria,'{}'::jsonb) || $2::jsonb WHERE id = $1`,
+      [convId, JSON.stringify({ analise_agenda: dado })]).catch(() => {});
+    console.log(`AGENDA-IA conv=${convId}: ${dado.servico || 'sem serviço'} | ${dado.data || 's/data'} ${dado.hora || ''} | ${anexos.length} imagem(ns)`);
+    return dado;
+  } catch (e) {
+    console.error('analisar conversa p/ agendar:', e.message);
+    return mem.analise_agenda || null;
+  }
+}
+
 /* 🖼️ LER O FLYER DE ORÇAMENTO (ordem do master, 27/08: "foi mandado também um
    flyer sobre orçamento, quero que leia ele"). A equipe manda o orçamento como
    IMAGEM, então o que está combinado com a família não aparece em texto nenhum
@@ -5396,8 +5505,12 @@ r.post('/conversations/:id/montar-cartao', async (req, res) => {
 
     // 2) O cartão que já circulou na conversa
     const lido = ev ? null : await agendamentoDaConversa(conv.id);
+    /* 3) E a leitura da conversa inteira pela IA (texto + flyers de orçamento):
+       é ela que sabe separar o pacote vendido do bônus de cortesia. */
+    const ia = (ev || (lido && lido.origem === 'cartao')) ? null
+      : await analisarConversaParaAgenda(conv).catch(() => null);
 
-    if (!ev && !lido) {
+    if (!ev && !lido && !(ia && ia.tem_agendamento && ia.data && ia.hora)) {
       return res.json({ achou: false,
         aviso: 'Não achei data e hora na conversa. Combine o horário com o cliente e clique de novo.' });
     }
@@ -5405,20 +5518,24 @@ r.post('/conversations/:id/montar-cartao', async (req, res) => {
     const pistas = await pistasDaConversa(conv.id, conv).catch(() => ({}));
     const emCasa = ev
       ? (!!String(ev.endereco || '').trim() || /resid|casa|domic/i.test(String(ev.servico || '')))
-      : (/resid|casa|domic/i.test(String(lido.local || '')) || (!lido.local && pistas.emCasa));
+      : (/resid|casa|domic/i.test(String((lido && lido.local) || ''))
+        || (ia && ia.local === 'domicilio')
+        || (!lido && !ia && pistas.emCasa));
     const enderecoCasa = ev ? String(ev.endereco || '').trim()
-      : (String(lido.local || '').replace(/^em sua resid[êe]ncia\s*[—-]?\s*/i, '').trim() || pistas.endereco || '');
+      : (String((lido && lido.local) || '').replace(/^em sua resid[êe]ncia\s*[—-]?\s*/i, '').trim()
+        || (ia && ia.endereco) || pistas.endereco || '');
 
     const dados = {
-      cliente: (ev ? ev.responsavel_nome : lido.cliente) || mem.responsavel || conv.contact_name || 'Cliente',
-      paciente: (ev ? ev.paciente : lido.paciente) || pistas.paciente || mem.paciente || '',
-      data: ev ? String(ev.data).slice(0, 10) : lido.data,
-      hora: ev ? ev.hora : lido.hora,
-      profissional: (ev ? ev.profissional : lido.profissional) || '',
-      servico: (ev ? ev.servico : lido.servico) || pistas.servico
+      cliente: (ev ? ev.responsavel_nome : (lido && lido.cliente)) || (ia && ia.responsavel)
+        || mem.responsavel || conv.contact_name || 'Cliente',
+      paciente: (ev ? ev.paciente : (lido && lido.paciente)) || (ia && ia.paciente) || pistas.paciente || mem.paciente || '',
+      data: ev ? String(ev.data).slice(0, 10) : ((lido && lido.data) || (ia && ia.data)),
+      hora: ev ? ev.hora : ((lido && lido.hora) || (ia && ia.hora)),
+      profissional: (ev ? ev.profissional : (lido && lido.profissional)) || '',
+      servico: (ev ? ev.servico : (lido && lido.servico)) || (ia && ia.servico) || pistas.servico
         || (conv.setor === 'terapias' ? 'Sessão de terapia' : conv.setor === 'consultas' ? 'Consulta' : 'Vacinação'),
       setor: conv.setor,
-      bonus: ev ? '' : (lido.bonus || pistas.bonus || ''),
+      bonus: ev ? '' : ((lido && lido.bonus) || (ia && ia.bonus) || pistas.bonus || ''),
       local: emCasa
         ? (enderecoCasa && !/resid/i.test(enderecoCasa) ? `Em sua residência — ${enderecoCasa.slice(0, 48)}` : 'Em sua residência')
         : 'Na Clínica Vittalis Saúde (Renascença)',
@@ -5428,11 +5545,16 @@ r.post('/conversations/:id/montar-cartao', async (req, res) => {
     const texto = await cartaoAgendamento(dados);
     const faltando = [];
     if (!dados.paciente) faltando.push('nome do paciente');
-    if (!ev && lido.origem !== 'cartao') faltando.push('confirmar a data e a hora com o cliente');
+    if (!ev && !(lido && lido.origem === 'cartao') && !(ia && ia.confianca === 'alta')) {
+      faltando.push('confirmar a data e a hora com o cliente');
+    }
     res.json({
       achou: true,
-      origem: ev ? 'agenda' : lido.origem,
+      origem: ev ? 'agenda' : (lido ? lido.origem : 'ia'),
       texto, faltando,
+      leuImagens: ia ? ia.imagens_lidas : 0,
+      // 💰 Valores vão pra tela da equipe (nunca pro cartão do cliente)
+      valor: (ia && (ia.valor_avista || ia.valor_credito)) || 0,
       resumo: `${String(dados.data).split('-').reverse().join('/')} às ${dados.hora} · ${dados.servico}`,
     });
   } catch (err) {
@@ -5447,25 +5569,40 @@ r.get('/conversations/:id/agenda-da-conversa', async (req, res) => {
     if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
     if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso.' });
     const lido = await agendamentoDaConversa(req.params.id);
-    if (!lido) return res.json({ achou: false });
-    /* O cartão manda no que ele traz; o que faltar (serviço, local, paciente)
-       vem das pistas da conversa — era isso que ficava vazio no formulário. */
+    /* 🧠 A IA lê a conversa inteira (texto + flyers) — é ela que separa o que
+       foi VENDIDO do que é BÔNUS e traz os valores. As palavras-chave viram
+       apenas rede de segurança pra quando não houver IA disponível. */
+    const ia = await analisarConversaParaAgenda(conv).catch(() => null);
     const pistas = await pistasDaConversa(req.params.id, conv).catch(() => ({}));
-    const servico = lido.servico || pistas.servico || '';
-    const emCasa = /resid|casa|domic/i.test(lido.local || '') || (!lido.local && pistas.emCasa);
-    const enderecoCartao = (lido.local || '').replace(/^em sua resid[êe]ncia\s*[—-]?\s*/i, '').trim();
+    if (!lido && !(ia && ia.tem_agendamento && ia.data)) return res.json({ achou: false });
+
+    const servico = (lido && lido.servico) || (ia && ia.servico) || pistas.servico || '';
+    const emCasa = /resid|casa|domic/i.test((lido && lido.local) || '')
+      || (ia && ia.local === 'domicilio')
+      || (!(lido && lido.local) && !ia && pistas.emCasa);
+    const enderecoCartao = ((lido && lido.local) || '').replace(/^em sua resid[êe]ncia\s*[—-]?\s*/i, '').trim();
     res.json({
-      achou: true, ...lido,
+      achou: true,
+      ...(lido || {}),
+      origem: lido ? lido.origem : 'ia',
+      data: (lido && lido.data) || (ia && ia.data) || '',
+      hora: (lido && lido.hora) || (ia && ia.hora) || '',
       servico,
-      paciente: lido.paciente || pistas.paciente || '',
+      paciente: (lido && lido.paciente) || (ia && ia.paciente) || pistas.paciente || '',
       setor: ['vacinas', 'consultas', 'terapias'].includes(conv.setor) ? conv.setor
-        : (/vacin|imuniz|dose/i.test(servico) ? 'vacinas'
+        : (/vacin|imuniz|dose|pacote/i.test(servico) ? 'vacinas'
           : /terapia|fono|psico/i.test(servico) ? 'terapias' : 'consultas'),
-      endereco: emCasa ? (enderecoCartao || pistas.endereco || '') : '',
+      endereco: emCasa ? (enderecoCartao || (ia && ia.endereco) || pistas.endereco || '') : '',
       emCasa,
-      // Vindos do flyer de orçamento, quando a equipe mandou o valor por imagem
-      valor: pistas.valor || 0,
-      bonus: lido.bonus || pistas.bonus || '',
+      // 💰 Valores combinados entram na AGENDA (no cartão do cliente, nunca)
+      valor: (ia && (ia.valor_avista || ia.valor_credito)) || pistas.valor || 0,
+      valor_credito: (ia && ia.valor_credito) || 0,
+      parcelas: (ia && ia.parcelas) || 0,
+      bonus: (lido && lido.bonus) || (ia && ia.bonus) || pistas.bonus || '',
+      vacinas: (ia && ia.vacinas) || [],
+      resumo: (ia && ia.resumo) || '',
+      confianca: ia ? ia.confianca : (lido && lido.origem === 'cartao' ? 'alta' : 'baixa'),
+      leuImagens: ia ? ia.imagens_lidas : 0,
       orcamento: pistas.orcamento || null,
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
