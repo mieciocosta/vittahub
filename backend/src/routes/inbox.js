@@ -5281,9 +5281,9 @@ r.post('/cartao-agendamento', async (req, res) => {
     const texto = await cartaoAgendamento({
       cliente: b.cliente, paciente: b.paciente, data: b.data, hora: b.hora,
       profissional: b.profissional, especialidade: b.especialidade,
-      servico: b.servico, tratamento: b.tratamento,
+      servico: b.servico, tratamento: b.tratamento, bonus: b.bonus,
       local: emCasa ? 'Em sua residência' : 'Na Clínica Vittalis Saúde (Renascença)',
-    });
+    }, { preAgendado: b.pre_agendado === true });
     res.json({ texto });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

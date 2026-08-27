@@ -49,9 +49,14 @@ export async function cartaoAgendamento(dados = {}, opts = {}) {
   /* Título AFIRMATIVO (ordem do master, 24/08): a família não recebe um aviso
      burocrático, recebe a certeza de que está tudo reservado. Confirmação vira
      "Vacinação confirmada"; o lembrete vira "Sua vacinação é amanhã". */
+  /* 📌 PRÉ-AGENDADO é diferente de confirmado: o horário está reservado, mas
+     ainda depende do sim da família. Dizer "confirmada" nessa hora é prometer o
+     que não foi combinado (caso da Sra. Isabel, 27/08). */
   const titulo = opts.titulo || (opts.lembrete
     ? `🔔 ${assunto.posse} ${assunto.nome} é amanhã`
-    : `✅ ${assunto.nome.charAt(0).toUpperCase() + assunto.nome.slice(1)} confirmad${assunto.fem ? 'a' : 'o'}`);
+    : opts.preAgendado
+      ? `📌 ${assunto.nome.charAt(0).toUpperCase() + assunto.nome.slice(1)} pré-agendada`
+      : `✅ ${assunto.nome.charAt(0).toUpperCase() + assunto.nome.slice(1)} confirmad${assunto.fem ? 'a' : 'o'}`);
   const dataISO = String(dados.data || '').slice(0, 10);
   const dSem = /^\d{4}-\d{2}-\d{2}$/.test(dataISO) ? (DIAS_SEM[new Date(dataISO + 'T12:00:00Z').getUTCDay()] || '') : '';
   const dataBR = dataISO ? dataISO.split('-').reverse().join('/') : '';
@@ -59,11 +64,19 @@ export async function cartaoAgendamento(dados = {}, opts = {}) {
   const localTxt = String(dados.local || '').trim() || 'Na Clínica Vittalis Saúde (Renascença)';
   const trat = ['papai', 'mamãe'].includes(String(dados.tratamento || '')) ? dados.tratamento : '';
 
+  /* 🧑 NEM TODO PACIENTE É BEBÊ. A casa também vacina adulto (HPV, Influenza) —
+     e o cartão fechava dizendo "seu Baby" pra uma senhora tomando HPV nela
+     mesma (caso da Sra. Isabel, 27/08). Quando paciente e cliente são a mesma
+     pessoa (ou vem marcado adulto), o ícone e a frase final mudam. */
+  const soLetras = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[^a-z ]/g, '').trim();
+  const adulto = dados.adulto === true
+    || (!!dados.paciente && !!dados.cliente && soLetras(dados.paciente) === soLetras(dados.cliente));
+
   const linhas = [titulo];
   if (opts.frase) { linhas.push(''); linhas.push(String(opts.frase)); }
   linhas.push('');
   linhas.push(`📁 Cliente: ${String(dados.cliente || 'Cliente').slice(0, 60)}`);
-  linhas.push(`👶🏻 Paciente: ${String(dados.paciente || '').slice(0, 60)}`);
+  linhas.push(`${adulto ? '🧑🏻' : '👶🏻'} Paciente: ${String(dados.paciente || '').slice(0, 60)}`);
   linhas.push(`📅 Data: ${dataBR}${dSem ? ` ${dSem}` : ''}`);
   linhas.push(`🕓 Horário: ${hora}hs`);
 
@@ -79,10 +92,19 @@ export async function cartaoAgendamento(dados = {}, opts = {}) {
   }
   linhas.push(`📍 Local: ${localTxt.slice(0, 80)}`);
   linhas.push(`📌 Serviço: ${String(dados.servico || 'Atendimento').slice(0, 80)}`);
+  // 🎁 Bônus (isenção da taxa domiciliar, vacina de cortesia): só aparece quando
+  // existe de verdade. É benefício, não valor — valor nunca entra neste cartão.
+  if (dados.bonus) linhas.push(`🎁 Bônus: ${String(dados.bonus).slice(0, 90)}`);
 
   if (ehNaClinica(localTxt)) { linhas.push(''); linhas.push(...ENDERECO); }
   linhas.push('');
-  linhas.push(`Parabéns ${trat ? trat + ' ' : ''}pelo investimento na saúde do seu Baby 🩵`);
+  if (opts.preAgendado) {
+    linhas.push('Este horário fica reservado para você. Me confirma que está bom que eu fecho na agenda 💙');
+    linhas.push('');
+  }
+  linhas.push(adulto
+    ? 'Parabéns pelo cuidado com a sua saúde 🩵'
+    : `Parabéns ${trat ? trat + ' ' : ''}pelo investimento na saúde do seu Baby 🩵`);
   linhas.push('');
   linhas.push(INSTAGRAM);
   return linhas.join('\n');
