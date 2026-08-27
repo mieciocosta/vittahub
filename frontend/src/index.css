@@ -506,7 +506,7 @@ h1 { letter-spacing: -0.7px; }
   :root { --sw: 64px !important; }
   .vh-sidebar { width: 64px !important; }
   .vh-dash-grid-3 { grid-template-columns: 1fr 1fr !important; }
-  .vh-inbox-list { width: 260px !important; min-width: 260px !important; }
+  .vh-inbox-list { width: 320px !important; min-width: 320px !important; }   /* lista mais larga (ordem do master) */
   .vh-inbox-info { width: 260px !important; min-width: 260px !important; }
   .vh-page-pad { padding: 20px !important; }
 }

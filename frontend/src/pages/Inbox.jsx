@@ -493,7 +493,12 @@ export default function Inbox({ onUnreadChange }) {
 
   // ── Lista ──────────────────────────────────────────────────────────────────
   const [convos, setConvos]           = useState([]);
-  const [listWidth, setListWidth]     = useState(300);
+  const [listWidth, setListWidth]     = useState(() => {
+    /* 📏 Largura da lista de conversas: começa larga (o master pediu) e LEMBRA
+       do ajuste de cada um — antes voltava pros 300px a cada abertura. */
+    try { const v = parseInt(localStorage.getItem('vh_lista_largura')); if (v >= 240 && v <= 620) return v; } catch { /* ok */ }
+    return 380;
+  });
   const resizing                      = useRef(false);
   const [total, setTotal]             = useState(0);
   const [page, setPage]               = useState(1);
@@ -1731,8 +1736,9 @@ export default function Inbox({ onUnreadChange }) {
   /* ─────────────────── RENDER ──────────────────────────────────────────────── */
   return (
     <div className="vh-inbox-wrap" style={{ display:'flex', height:'100vh', overflow:'hidden' }}
-      onMouseMove={e => { if (resizing.current) { const w=Math.min(500,Math.max(220,e.clientX-230)); setListWidth(w); } }}
-      onMouseUp={() => { resizing.current=false; document.body.style.cursor=''; }}
+      onMouseMove={e => { if (resizing.current) { const w=Math.min(620,Math.max(260,e.clientX-230)); setListWidth(w); } }}
+      onMouseUp={() => { if (resizing.current) { try { localStorage.setItem('vh_lista_largura', String(listWidth)); } catch { /* ok */ } }
+        resizing.current=false; document.body.style.cursor=''; }}
       onMouseLeave={() => { resizing.current=false; document.body.style.cursor=''; }}>
 
       {/* ── LISTA DE CONVERSAS ─────────────────────────────────────────────── */}
@@ -1852,9 +1858,10 @@ export default function Inbox({ onUnreadChange }) {
       {/* Resize handle */}
       {!listCollapsed && (
         <div onMouseDown={()=>{resizing.current=true;document.body.style.cursor='col-resize';}}
-          style={{ width:4, flexShrink:0, cursor:'col-resize', background:'transparent', transition:'background .15s', zIndex:10 }}
+          title="Arraste para deixar a lista mais larga ou mais estreita"
+          style={{ width:6, flexShrink:0, cursor:'col-resize', background:'var(--border)', transition:'background .15s', zIndex:10 }}
           onMouseEnter={e=>e.currentTarget.style.background='var(--tq)'}
-          onMouseLeave={e=>{if(!resizing.current)e.currentTarget.style.background='transparent';}}/>
+          onMouseLeave={e=>{if(!resizing.current)e.currentTarget.style.background='var(--border)';}}/>
       )}
 
       {/* ── CHAT ───────────────────────────────────────────────────────────── */}
