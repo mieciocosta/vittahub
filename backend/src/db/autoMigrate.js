@@ -3034,10 +3034,17 @@ async function carregarFigurinhas() {
         const [catArq, nomeArq] = f.replace('.webp', '').split('__');
         const categoria = CATS[catArq] || 'Vittalis';
         const titulo = `Vitta · ${nomeArq.replace(/-/g, ' ').replace(/^./, c => c.toUpperCase())}`;
-        const { rows: [ja] } = await query(
-          `SELECT 1 FROM biblioteca_midias WHERE titulo = $1 AND tipo = 'figurinha' LIMIT 1`, [titulo]).catch(() => ({ rows: [1] }));
-        if (ja) continue;
         const b64 = fsFig.readFileSync(pathFig.join(dirFig, f)).toString('base64');
+        /* Se a figurinha JÁ existe mas o arquivo mudou, atualiza a imagem em vez
+           de ignorar (senão a troca da logomarca — 27/08 — nunca chegaria na
+           Biblioteca: o título continua o mesmo, só a arte muda). */
+        const { rows: [ja] } = await query(
+          `SELECT id FROM biblioteca_midias WHERE titulo = $1 AND tipo = 'figurinha' LIMIT 1`, [titulo]).catch(() => ({ rows: [1] }));
+        if (ja) {
+          if (ja.id) await query(`UPDATE biblioteca_midias SET data = $2, mime = 'image/webp', categoria = $3
+                                   WHERE id = $1 AND data IS DISTINCT FROM $2`, [ja.id, b64, categoria]).catch(() => {});
+          continue;
+        }
         await query(`INSERT INTO biblioteca_midias (titulo, tipo, setor, categoria, mime, data)
                      VALUES ($1, 'figurinha', 'geral', $3, 'image/webp', $2)`, [titulo, b64, categoria]).catch(() => {});
         novas++;
