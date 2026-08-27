@@ -5231,6 +5231,66 @@ r.patch('/conversations/:id/bot', async (req, res) => {
    janelas, já com a frase de fechamento por alternativa pronta pra enviar.
    Sem inventar horário: sai do cadastro dos profissionais e respeita os 2 dias
    de antecedência da casa. */
+/* 🔎 PISTAS DA CONVERSA (cobrança do master, 27/08: "ele só pegou a data e não
+   as outras informações — como vacinas e local"). Quando o cartão não existe, a
+   data até aparece, mas serviço e local ficavam vazios. Aqui a gente lê as
+   últimas mensagens e deduz o que dá: qual serviço está sendo tratado e se o
+   atendimento é em casa ou na clínica. Tudo por palavra-chave, sem IA. */
+const VACINAS_CONHECIDAS = [
+  ['meningoc', 'Meningocócica'], ['hexavalente', 'Hexavalente'], ['pentavalente', 'Pentavalente'],
+  ['hpv', 'HPV'], ['influenza', 'Influenza'], ['gripe', 'Influenza'], ['rotav', 'Rotavírus'],
+  ['pneumo', 'Pneumocócica'], ['varicela', 'Varicela'], ['catapora', 'Varicela'],
+  ['hepatite', 'Hepatite'], ['tríplice', 'Tríplice'], ['triplice', 'Tríplice'],
+  ['tetra', 'Tetraviral'], ['febre amarela', 'Febre Amarela'], ['dtpa', 'dTpa'],
+  ['bcg', 'BCG'], ['covid', 'Covid'], ['denv', 'Dengue'], ['dengue', 'Dengue'],
+];
+async function pistasDaConversa(convId, conv) {
+  const { rows } = await query(
+    `SELECT content FROM mensagens
+      WHERE conversa_id = $1 AND type = 'text' AND content IS NOT NULL
+      ORDER BY created_at DESC LIMIT 40`, [convId]).catch(() => ({ rows: [] }));
+  const txt = rows.map(r => r.content).join('\n').toLowerCase();
+  const mem = (conv && conv.memoria) || {};
+
+  // Serviço: plano na frente das doses avulsas; depois consulta e terapia
+  let servico = '';
+  if (/plano vacinal|plano de vacina|plano fidelidade/.test(txt)) {
+    const faixa = /(\d{1,2})\s*(?:a|até)\s*(\d{1,2})\s*meses/.exec(txt);
+    servico = `Plano Vacinal${faixa ? ` de ${faixa[1]} a ${faixa[2]} meses` : ''}`;
+  } else {
+    const achadas = [];
+    for (const [chave, nome] of VACINAS_CONHECIDAS) {
+      if (txt.includes(chave) && !achadas.includes(nome)) achadas.push(nome);
+    }
+    if (achadas.length) servico = `Vacina ${achadas.slice(0, 3).join(' + ')}`;
+    else if (/vacin|imuniz|dose/.test(txt)) servico = 'Vacinação';
+    else if (/terapia|fono|psico|ocupacional|psicomotric/.test(txt)) servico = 'Sessão de terapia';
+    else if (/consulta|pediatr|avalia[çc][ãa]o|retorno/.test(txt)) servico = 'Consulta';
+  }
+  if (/furo humanizado|furo de orelha|furar a orelha/.test(txt)) {
+    servico = servico ? `${servico} + Furo Humanizado` : 'Furo Humanizado';
+  }
+
+  // Local: casa x clínica. "Vamos até você", "em domicílio", "aqui em casa"…
+  const emCasa = /domic[íi]lio|em casa|na minha casa|minha resid|sua resid|vamos at[ée] voc|vou at[ée] voc|atendimento em casa/.test(txt);
+  const naClinica = /na cl[íi]nica|a[íi] na cl[íi]nica|vou a[íi]|levo (ele|ela) a[íi]|renascen/.test(txt);
+
+  // Endereço: rua/avenida/condomínio citados pelo cliente
+  let endereco = '';
+  const mEnd = /((?:rua|av\.?|avenida|condom[íi]nio|cond\.?|residencial|trav\.?|travessa)[^\n,;]{4,60})/i
+    .exec(rows.map(r => r.content).join('\n'));
+  if (mEnd) endereco = mEnd[1].trim();
+
+  return {
+    servico,
+    emCasa: emCasa && !naClinica,
+    naClinica,
+    endereco,
+    paciente: String(mem.paciente || '').trim(),
+    responsavel: String(mem.responsavel || '').trim(),
+  };
+}
+
 /* 🗓️ MONTAR O CARTÃO DE AGENDAMENTO LENDO A CONVERSA (ordem do master, 27/08:
    "um botão que leia toda a conversa e monte já a mensagem de agendamento
    conforme os modelos que já temos"). A ordem de confiança é:
@@ -5263,19 +5323,20 @@ r.post('/conversations/:id/montar-cartao', async (req, res) => {
         aviso: 'Não achei data e hora na conversa. Combine o horário com o cliente e clique de novo.' });
     }
 
+    const pistas = await pistasDaConversa(conv.id, conv).catch(() => ({}));
     const emCasa = ev
       ? (!!String(ev.endereco || '').trim() || /resid|casa|domic/i.test(String(ev.servico || '')))
-      : /resid|casa|domic/i.test(String(lido.local || ''));
+      : (/resid|casa|domic/i.test(String(lido.local || '')) || (!lido.local && pistas.emCasa));
     const enderecoCasa = ev ? String(ev.endereco || '').trim()
-      : String(lido.local || '').replace(/^em sua resid[êe]ncia\s*[—-]?\s*/i, '').trim();
+      : (String(lido.local || '').replace(/^em sua resid[êe]ncia\s*[—-]?\s*/i, '').trim() || pistas.endereco || '');
 
     const dados = {
       cliente: (ev ? ev.responsavel_nome : lido.cliente) || mem.responsavel || conv.contact_name || 'Cliente',
-      paciente: (ev ? ev.paciente : lido.paciente) || mem.paciente || '',
+      paciente: (ev ? ev.paciente : lido.paciente) || pistas.paciente || mem.paciente || '',
       data: ev ? String(ev.data).slice(0, 10) : lido.data,
       hora: ev ? ev.hora : lido.hora,
       profissional: (ev ? ev.profissional : lido.profissional) || '',
-      servico: (ev ? ev.servico : lido.servico)
+      servico: (ev ? ev.servico : lido.servico) || pistas.servico
         || (conv.setor === 'terapias' ? 'Sessão de terapia' : conv.setor === 'consultas' ? 'Consulta' : 'Vacinação'),
       setor: conv.setor,
       bonus: ev ? '' : (lido.bonus || ''),
@@ -5308,13 +5369,21 @@ r.get('/conversations/:id/agenda-da-conversa', async (req, res) => {
     if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso.' });
     const lido = await agendamentoDaConversa(req.params.id);
     if (!lido) return res.json({ achou: false });
-    const emCasa = /resid|casa|domic/i.test(lido.local || '');
+    /* O cartão manda no que ele traz; o que faltar (serviço, local, paciente)
+       vem das pistas da conversa — era isso que ficava vazio no formulário. */
+    const pistas = await pistasDaConversa(req.params.id, conv).catch(() => ({}));
+    const servico = lido.servico || pistas.servico || '';
+    const emCasa = /resid|casa|domic/i.test(lido.local || '') || (!lido.local && pistas.emCasa);
+    const enderecoCartao = (lido.local || '').replace(/^em sua resid[êe]ncia\s*[—-]?\s*/i, '').trim();
     res.json({
       achou: true, ...lido,
+      servico,
+      paciente: lido.paciente || pistas.paciente || '',
       setor: ['vacinas', 'consultas', 'terapias'].includes(conv.setor) ? conv.setor
-        : (/vacin|imuniz|dose/i.test(lido.servico) ? 'vacinas'
-          : /terapia|fono|psico/i.test(lido.servico) ? 'terapias' : 'consultas'),
-      endereco: emCasa ? (lido.local || '').replace(/^em sua resid[êe]ncia\s*[—-]?\s*/i, '') : '',
+        : (/vacin|imuniz|dose/i.test(servico) ? 'vacinas'
+          : /terapia|fono|psico/i.test(servico) ? 'terapias' : 'consultas'),
+      endereco: emCasa ? (enderecoCartao || pistas.endereco || '') : '',
+      emCasa,
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
