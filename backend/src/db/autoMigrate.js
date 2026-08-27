@@ -165,6 +165,10 @@ export default async function runMigrate() {
        cobradas em R$ no mês, outras em QUANTIDADE de consultas por dia. Misturar
        as duas num campo só faria "10" virar dez reais. */
     await query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS meta_tipo TEXT DEFAULT 'valor'`).catch(() => {});
+    /* 🏷️ TÍTULO DA PESSOA na lista de transferência (ordem do master, 27/08):
+       "Poliana: Fidelidade, Raylane: Planos Vacinais…". A equipe passa o
+       atendimento pra carteira certa sem precisar decorar quem faz o quê. */
+    await query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS titulo TEXT`).catch(() => {});
     // 💉 Meta de PLANOS VACINAIS fechados no mês (ordem do master, 24/08)
     await query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS meta_planos_mes INT DEFAULT 0`).catch(() => {});
     await query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS meta_qtd_dia INT DEFAULT 0`).catch(() => {});
@@ -3012,6 +3016,7 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
   try { await nagilaParaTodos(); } catch (e) { console.error('nagila para todos:', e.message); }
   try { await mensagensProntas(); } catch (e) { console.error('mensagens prontas:', e.message); }
   try { await consertarAssinaturas(); } catch (e) { console.error('assinaturas:', e.message); }
+  try { await titulosDaEquipe(); } catch (e) { console.error('titulos da equipe:', e.message); }
 }
 
 
@@ -3114,6 +3119,32 @@ async function carregarFigurinhas() {
       "Nágila" — a pessoa continua a mesma, só para de aparecer como "Dra.".
 
    Nada disso toca no que o cliente recebeu no WhatsApp: é a assinatura interna. */
+/* 🏷️ TÍTULOS DA EQUIPE (ordem do master, 27/08). Aparecem na lista de
+   transferência e no seletor de responsável, pra ninguém precisar decorar quem
+   cuida de quê. Roda todo boot e só escreve quando mudou — se o master trocar
+   alguém de carteira, é aqui que se ajusta. */
+async function titulosDaEquipe() {
+  const TITULOS = [
+    ['poliana',  'Fidelidade'],
+    ['raylane',  'Planos Vacinais'],
+    ['stefany',  'Vacinas em Geral'],
+    ['danielle', 'Terapias'],
+    ['suellen',  'Consultas'],
+    ['mayara',   'Terapia Ativos'],
+    ['yasmin',   'Plano Vacinal Ativos'],
+  ];
+  const SEM_ACENTO = "'áàâãäéèêëíìîïóòôõöúùûüç','aaaaaeeeeiiiiooooouuuuc'";
+  let n = 0;
+  for (const [chave, titulo] of TITULOS) {
+    const { rowCount } = await query(
+      `UPDATE usuarios SET titulo = $1
+        WHERE lower(translate(COALESCE(nome,''), ${SEM_ACENTO})) LIKE '%' || $2 || '%'
+          AND COALESCE(titulo,'') IS DISTINCT FROM $1`, [titulo, chave]).catch(() => ({ rowCount: 0 }));
+    n += rowCount || 0;
+  }
+  if (n) console.log(`🏷️  ${n} título(s) de carteira atualizados na equipe`);
+}
+
 async function consertarAssinaturas() {
   const SEM_ACENTO = "'áàâãäéèêëíìîïóòôõöúùûüç','aaaaaeeeeiiiiooooouuuuc'";
   const TRATAMENTO = "^(dr|dra|sr|sra|enf|prof|profa)\\.?\\s";

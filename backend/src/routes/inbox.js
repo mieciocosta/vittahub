@@ -5128,7 +5128,7 @@ r.post('/sincronizar-chats', async (req, res) => {
 r.get('/atendentes', async (req, res) => {
   try {
     const { rows } = await query(
-      `SELECT id, nome, setor, cor, avatar, supervisor_id FROM usuarios
+      `SELECT id, nome, setor, cor, avatar, supervisor_id, titulo FROM usuarios
        WHERE ativo = true AND role IN ('atendente','supervisor','master') ORDER BY nome`);
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }

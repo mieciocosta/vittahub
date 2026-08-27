@@ -3119,7 +3119,10 @@ export default function Inbox({ onUnreadChange }) {
                     display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:800 }}>
                     {fmt.initials(a2.nome)}
                   </span>
-                  {a2.nome}
+                  <span style={{ minWidth:0 }}>
+                    {a2.nome}
+                    {a2.titulo && <span style={{ display:'block', fontSize:10.5, color:'var(--muted)', fontWeight:700 }}>{a2.titulo}</span>}
+                  </span>
                 </button>
               ))}
               {!atendentes.length && <div style={{ padding:'14px 8px', fontSize:12.5, color:'var(--muted)' }}>Carregando a equipe…</div>}
@@ -3567,7 +3570,13 @@ export default function Inbox({ onUnreadChange }) {
                     <div style={{ fontWeight:800, fontSize:13.5, color: minha ? '#fff' : 'var(--txt)' }}>
                       {a.nome}{minha && <span style={{ fontSize:9.5, fontWeight:900, background:'rgba(255,255,255,.25)', color:'#fff', borderRadius:7, padding:'1.5px 7px', marginLeft:7 }}>👥 MINHA EQUIPE</span>}
                     </div>
-                    {a.setor && <div style={{ fontSize:11, fontWeight:700, color: minha ? 'rgba(255,255,255,.85)' : 'var(--muted)', textTransform:'capitalize' }}>{a.setor}</div>}
+                    {/* 🏷️ O TÍTULO da carteira manda (ordem do master, 27/08:
+                        "Poliana: Fidelidade, Raylane: Planos Vacinais…"); sem
+                        título cadastrado, cai no setor como antes. */}
+                    {(a.titulo || a.setor) && (
+                      <div style={{ fontSize:11, fontWeight:700, color: minha ? 'rgba(255,255,255,.85)' : 'var(--muted)',
+                        textTransform: a.titulo ? 'none' : 'capitalize' }}>{a.titulo || a.setor}</div>
+                    )}
                   </div>
                   <span style={{ fontSize:15, color: minha ? '#fff' : 'var(--tq2)', flexShrink:0 }}>➜</span>
                 </button>
