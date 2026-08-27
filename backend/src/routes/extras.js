@@ -3426,7 +3426,7 @@ r.post('/figurinhas/seed', async (req, res) => {
       agradecimento: 'Agradecimento', vacinas: 'Vacinas', consultas: 'Consultas',
       terapias: 'Terapias', psvacinal: 'Pós-vacinal', posvacinal: 'Pós-vacinal',
       datascomemorativas: 'Datas comemorativas', indicaes: 'Indicações', indicacoes: 'Indicações',
-      posagendamento: 'Pós-agendamento',
+      posagendamento: 'Pós-agendamento', frases: 'Frases carinhosas',
       vittalis: 'Vittalis' };
     const arquivos = fs.readdirSync(dirFig).filter(x => x.endsWith('.webp'));
     let inseridas = 0, existiam = 0;
