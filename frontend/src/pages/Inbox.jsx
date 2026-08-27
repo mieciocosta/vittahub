@@ -301,6 +301,22 @@ function LazyMedia({ msgId, type, filename, token, onLightbox, fotoSel }) {
     setLoading(false);
   }, [msgId, src, loading]);
 
+  /* 💟 FIGURINHA (e gif) CARREGAM SOZINHOS (cobrança do master, 27/08: "as
+     figurinhas não abrem para o atendente"). Elas caíam aqui e, por não terem
+     tratamento próprio, iam parar no fim da função e apareciam como
+     "Documento · clique para baixar". São leves: abrem na hora, como no
+     WhatsApp, sem clique nenhum. */
+  useEffect(() => { if ((type === 'sticker' || type === 'gif') && !src && !loading) load(); }, [type]); // eslint-disable-line
+
+  if (type === 'sticker' || type === 'gif') {
+    if (!src) return (
+      <div style={{ width:120, height:120, display:'flex', alignItems:'center', justifyContent:'center' }}>
+        <Loader2 size={18} style={{animation:'spin 1s linear infinite'}} color="var(--muted)"/>
+      </div>
+    );
+    return <img src={src} alt="figurinha" onClick={()=>onLightbox(src)} className="msg-sticker" style={{ cursor:'pointer' }}/>;
+  }
+
   if (type === 'image') {
     if (!src) return (
       <div onClick={load} style={{ width:160, height:100, background:'var(--bg2)', borderRadius:8, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:6, cursor:'pointer' }}>
