@@ -2109,8 +2109,8 @@ export default function Inbox({ onUnreadChange }) {
                   fontSize: 12.5, color: 'var(--txt2)', fontWeight: 600,
                 };
                 const fecharMais = () => setMaisAberto(false);
-                /* 🎯 TRÊS AÇÕES, SÓ (ordem do master, 28/08: "quero deixar de
-                   fato registrar venda, agendar e resumo da conversa"). O resto
+                /* 🎯 DUAS AÇÕES NA BARRA (ordem do master, 28/08: primeiro
+                   as três, depois "retira o resumo da conversa"). O resto
                    — IA, Dados, Fixar, Transferir, reiniciar boas-vindas — foi
                    pro menu Mais. Transferir também está no painel de contexto. */
                 return (<>
@@ -2120,12 +2120,6 @@ export default function Inbox({ onUnreadChange }) {
                   </button>
                   <button onClick={abrirAgendar} title="Agendar este atendimento (conta na meta do mês)" style={calmo()}>
                     <CalendarDays size={12}/> Agendar
-                  </button>
-                  <button onClick={async ()=>{ setResumoLoad(true); setResumo(null);
-                    try { setResumo(await api.get(`/inbox/conversations/${sel.id}/resumo`)); }
-                    catch (e) { setResumo({ erro: e.message }); } setResumoLoad(false); }}
-                    title="Resumo do que já foi conversado com esta família" style={calmo()}>
-                    📋 Resumo da conversa
                   </button>
 
                   {/* ⋯ Mais: tudo o que não é do dia a dia */}
@@ -2139,6 +2133,11 @@ export default function Inbox({ onUnreadChange }) {
                         background:'var(--card,#fff)', border:'1px solid var(--border)', borderRadius:12,
                         boxShadow:'0 12px 34px rgba(0,0,0,.22)', overflow:'hidden', padding:'5px 0' }}>
 
+                        <button style={itemMenu} onClick={async ()=>{ fecharMais(); setResumoLoad(true); setResumo(null);
+                          try { setResumo(await api.get(`/inbox/conversations/${sel.id}/resumo`)); }
+                          catch (e) { setResumo({ erro: e.message }); } setResumoLoad(false); }}>
+                          📋 <span>Resumo da conversa</span>
+                        </button>
                         <button style={itemMenu} onClick={()=>{ fecharMais(); abrirTransferir(); }}>
                           🔁 <span>Transferir atendimento</span>
                         </button>
