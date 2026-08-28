@@ -1070,8 +1070,16 @@ r.get('/faturamento-setores', async (req, res) => {
     if (req.user.role !== 'master') return res.status(403).json({ error: 'Visão da clínica inteira é do master.' });
     const HOJE = "(NOW() - interval '3 hours')::date";
     const MES  = "to_char(NOW() - interval '3 hours','YYYY-MM')";
+    /* Venda antiga podia ficar sem setor. Em vez de cair num limbo, o setor é
+       deduzido da CATEGORIA — que é obrigatória no registro. Sem isso, consulta
+       e terapia sumiam do painel (cobrança do master, 28/08). */
+    const SETOR_VENDA = `COALESCE(NULLIF(setor,''),
+      CASE WHEN categoria = 'Consulta' THEN 'consultas'
+           WHEN categoria = 'Terapia'  THEN 'terapias'
+           WHEN categoria IN ('Vacinação Geral','Plano Vacinal','Fidelidade Mensal') THEN 'vacinas'
+      END, 'sem setor')`;
     const { rows } = await query(`
-      SELECT COALESCE(NULLIF(setor,''),'sem setor') AS setor,
+      SELECT ${SETOR_VENDA} AS setor,
              COALESCE(SUM(valor) FILTER (WHERE data_venda = ${HOJE}), 0)::float AS hoje,
              COALESCE(SUM(valor) FILTER (WHERE to_char(data_venda,'YYYY-MM') = ${MES}), 0)::float AS mes,
              COALESCE(SUM(valor) FILTER (WHERE to_char(data_venda,'YYYY-MM') = ${MES}
@@ -1080,15 +1088,37 @@ r.get('/faturamento-setores', async (req, res) => {
         FROM vendas
        WHERE data_venda >= (${HOJE} - 40)
        GROUP BY 1 ORDER BY mes DESC`);
+
+    /* 🗓️ E o que foi cobrado direto na AGENDA (consulta e terapia costumam ser
+       lançadas ali, no atendimento) — sem isso o painel dizia zero mesmo com a
+       casa faturando. Vem numa coluna própria, NUNCA somado às vendas: quem
+       lançou nos dois lugares não conta duas vezes. */
+    const { rows: ag } = await query(`
+      SELECT COALESCE(NULLIF(setor,''),'sem setor') AS setor,
+             COALESCE(SUM(valor) FILTER (WHERE data = ${HOJE}), 0)::float AS hoje,
+             COALESCE(SUM(valor) FILTER (WHERE to_char(data,'YYYY-MM') = ${MES}), 0)::float AS mes,
+             COUNT(*) FILTER (WHERE to_char(data,'YYYY-MM') = ${MES} AND COALESCE(valor,0) > 0)::int AS n
+        FROM agenda_eventos
+       WHERE data >= (${HOJE} - 40) AND COALESCE(valor,0) > 0
+         AND LOWER(COALESCE(status,'')) NOT LIKE 'cancel%'
+       GROUP BY 1`).catch(() => ({ rows: [] }));
     const ordem = ['vacinas', 'consultas', 'terapias'];
-    const setores = ordem.map(s => rows.find(r2 => r2.setor === s)
-      || { setor: s, hoje: 0, mes: 0, recebido: 0, vendas_mes: 0 });
-    // Setor fora dos três (venda antiga sem setor) não some do total
-    for (const r2 of rows) if (!ordem.includes(r2.setor)) setores.push(r2);
+    const daAgenda = (setor) => ag.find(x => x.setor === setor) || { hoje: 0, mes: 0, n: 0 };
+    const montar = (base) => ({
+      ...base,
+      agenda_mes: daAgenda(base.setor).mes || 0,
+      agenda_hoje: daAgenda(base.setor).hoje || 0,
+      agenda_n: daAgenda(base.setor).n || 0,
+    });
+    const setores = ordem.map(s => montar(rows.find(r2 => r2.setor === s)
+      || { setor: s, hoje: 0, mes: 0, recebido: 0, vendas_mes: 0 }));
+    // Setor fora dos três (dado antigo) não some do total
+    for (const r2 of rows) if (!ordem.includes(r2.setor)) setores.push(montar(r2));
     const soma = (c) => setores.reduce((t, x) => t + (x[c] || 0), 0);
     res.json({
       setores,
-      total: { hoje: soma('hoje'), mes: soma('mes'), recebido: soma('recebido'), vendas_mes: soma('vendas_mes') },
+      total: { hoje: soma('hoje'), mes: soma('mes'), recebido: soma('recebido'),
+               vendas_mes: soma('vendas_mes'), agenda_mes: soma('agenda_mes') },
       mes_ref: new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 7),
     });
   } catch (err) { res.status(500).json({ error: err.message }); }

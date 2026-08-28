@@ -100,8 +100,20 @@ function FaturamentoSetores() {
                   <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>no mês</div>
                 </div>
                 <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ok,#0fb07a)' }}>{fmt.brl(s.recebido)}</div>
-                  <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>já recebido</div>
+                  {/* Consulta e terapia costumam ser cobradas direto na agenda:
+                      mostro esse dinheiro à parte, sem somar, pra não contar
+                      duas vezes quem lançou nos dois lugares. */}
+                  {s.mes > 0 || !s.agenda_mes ? (
+                    <>
+                      <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ok,#0fb07a)' }}>{fmt.brl(s.recebido)}</div>
+                      <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>já recebido</div>
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--gold,#C4973B)' }}>{fmt.brl(s.agenda_mes)}</div>
+                      <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>na agenda</div>
+                    </>
+                  )}
                 </div>
               </div>
             ))}
@@ -123,6 +135,15 @@ function FaturamentoSetores() {
               <div style={{ fontSize: 15, fontWeight: 800 }}>{fmt.brl(d.total?.hoje)}</div>
             </div>
           </div>
+
+          {/* Aviso honesto: dinheiro que está SÓ na agenda, sem passar pelo caixa */}
+          {d.total?.agenda_mes > 0 && (
+            <div style={{ marginTop: 8, fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+              🗓️ Além disso, <b style={{ color: 'var(--gold,#C4973B)' }}>{fmt.brl(d.total.agenda_mes)}</b> foram
+              lançados direto na agenda este mês e ainda não passaram pelo caixa. Esse valor não entra no total acima
+              pra não contar duas vezes.
+            </div>
+          )}
         </>
       )}
     </div>
