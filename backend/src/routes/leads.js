@@ -103,8 +103,9 @@ r.get('/', async (req, res) => {
       conditions.push(`l.responsavel_id = $${pi++}`);
       params.push(req.user.id);
     }
-    // 💛 A carteira da Fidelidade não aparece pra mais ninguém (ordem do master)
-    if (req.user.role !== 'master') {
+    /* 💛 Carteira da Fidelidade: só a dona e a GESTÃO (ordem do master, 28/08:
+       "os clientes da Poliana aparecem somente para ela e gestão"). */
+    if (!['master', 'supervisor'].includes(req.user.role) && !req.user.ve_tudo) {
       conditions.push(foraDaFidelidade(String(req.user.id).replace(/[^a-zA-Z0-9-]/g, '')).replace(/^AND /, ''));
     }
 
@@ -152,7 +153,7 @@ r.get('/retornos', async (req, res) => {
   try {
     const uid = String(req.user.id).replace(/[^a-zA-Z0-9-]/g, ''); // anti-injection
     let uFilter = (['master','supervisor'].includes(req.user.role) || req.user.ve_tudo) ? '' : ` AND l.responsavel_id = '${uid}'`;
-    if (req.user.role !== 'master') uFilter += ' ' + foraDaFidelidade(uid);   // 💛 carteira da Poliana fora
+    if (!['master','supervisor'].includes(req.user.role) && !req.user.ve_tudo) uFilter += ' ' + foraDaFidelidade(uid);
     const { rows } = await query(`
       SELECT l.*, u.nome AS responsavel_nome, u.cor AS responsavel_cor,
         CASE
@@ -176,7 +177,7 @@ r.get('/retornos', async (req, res) => {
        de contato humano. */
     let uFilterConv = (['master', 'supervisor'].includes(req.user.role) || req.user.ve_tudo)
       ? '' : ` AND c.responsavel_id = '${uid}'`;
-    if (req.user.role !== 'master') uFilterConv += ' ' + foraDaFidelidadeConv(uid);   // 💛 idem
+    if (!['master','supervisor'].includes(req.user.role) && !req.user.ve_tudo) uFilterConv += ' ' + foraDaFidelidadeConv(uid);
     const { rows: semAg } = await query(`
       SELECT c.id AS conv_id, c.contact_name AS nome, c.phone AS telefone, c.setor,
              c.last_message_at, c.last_from, u.nome AS responsavel_nome, u.cor AS responsavel_cor,

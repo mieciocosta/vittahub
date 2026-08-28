@@ -575,7 +575,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
         /* 💛 A pasta Fidelidade é da Poliana (ordem do master, 27/08: "todos os
            clientes da Poliana não aparecem para os demais"). Pra quem não é da
            carteira ela abriria vazia — então nem aparece no menu. */
-        .filter(s => s.cls !== 'fidelidade' || user?.role === 'master' || user?.so_fidelidade === true)
+        .filter(s => s.cls !== 'fidelidade' || ['master','supervisor'].includes(user?.role) || user?.ve_tudo || user?.so_fidelidade === true)
         .filter(s => podeSetor(s.setor))
         .map(s => setorItem(s.to || `/inbox?cls=${s.cls}`, s.cor, s.label, setorCount[s.cls]))}
     </>

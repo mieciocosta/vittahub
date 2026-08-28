@@ -415,7 +415,8 @@ export function podeVerSetor(viewer, conv) {
   if ((String(conv.categoria || '') === 'fidelidade'
        || String(conv.classificacao || '') === 'fidelidade'
        || donoEhFidelidade)
-      && String(conv.responsavel_id || '') !== String(viewer.id)) return false;
+      && String(conv.responsavel_id || '') !== String(viewer.id)
+      && !ehGestao(viewer)) return false;   // 28/08: "só ela e a gestão" (master, supervisora, ve_tudo)
 
   if (viewer.ve_tudo) return true;
   /* 🎯 CONVERSA COM DONA É SÓ DELA (ordem do master, 24/08: "ao transferir para
@@ -3961,7 +3962,7 @@ r.get('/conversations', async (req, res) => {
          27/08). Esta é a rota de emergência que roda enquanto o cache não
          carregou — sem isso, nos primeiros segundos do deploy a equipe veria
          os clientes da Poliana. */
-      if (req.user && req.user.role !== 'master' && !(req.user.so_fidelidade === true)) {
+      if (req.user && !ehGestao(req.user) && !(req.user.so_fidelidade === true)) {
         conditions.push(`(c.responsavel_id = $${pi} OR (COALESCE(c.categoria,'') <> 'fidelidade'
               AND COALESCE(c.classificacao,'') <> 'fidelidade'
               AND NOT EXISTS (SELECT 1 FROM usuarios uf WHERE uf.id = c.responsavel_id AND uf.so_fidelidade = true)))`);
