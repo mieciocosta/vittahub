@@ -141,6 +141,12 @@ export default async function runMigrate() {
        equipe inteira, passando por cima de setor, carteira e pasta — inclusive
        da carteira fechada da Fidelidade. É exceção, não regra: só o master liga. */
     await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS visivel_todos BOOLEAN DEFAULT false`).catch(() => {});
+    /* ✍️ NOME ESCRITO PELA EQUIPE É SAGRADO (cobrança do master, 28/08: "o nome
+       das clientes não está salvando"). A sincronização do WhatsApp reescrevia
+       todo nome curto com o apelido do perfil — "Fran" e "Maria Júlia" viravam
+       o que estivesse no celular do cliente. Com esta marca, o que a equipe
+       digitou nunca mais é sobrescrito. */
+    await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS nome_manual BOOLEAN DEFAULT false`).catch(() => {});
     // 🔢 Ordem de exibição na Biblioteca/aba de figurinhas (menor = mais em cima)
     await query(`ALTER TABLE biblioteca_midias ADD COLUMN IF NOT EXISTS ordem INT DEFAULT 999`).catch(() => {});
     // 🧪 Conversa de SIMULAÇÃO (treino/avaliação da IA): nada dela vai pro WhatsApp

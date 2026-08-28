@@ -4120,6 +4120,8 @@ function AgendarMsgModal({ sel, api, textoInicial, onClose }) {
   const agendar = async () => {
     if (!texto.trim() && !anexo) { setErro('Escreva a mensagem ou anexe um arquivo.'); return; }
     if (!quando) { setErro('Escolha a data e a hora.'); return; }
+    // A hora escolhida é a daqui; se já passou, o envio nunca aconteceria
+    if (new Date(quando).getTime() < Date.now() - 60000) { setErro('Essa data e hora já passaram — escolha um horário à frente.'); return; }
     setSalvando(true); setErro('');
     try {
       await api.post(`/inbox/conversations/${sel.id}/agendar`, {

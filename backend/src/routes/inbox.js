@@ -1177,7 +1177,8 @@ async function capturaDados(conv, texto, phoneNum) {
     const nome = t.replace(/\s+/g, ' ').slice(0, 80);
     const leadId = await garanteLead(conv);
     if (leadId) await query('UPDATE leads SET responsavel_cliente = $1 WHERE id = $2 AND (responsavel_cliente IS NULL OR responsavel_cliente = \'\')', [nome, leadId]).catch(() => {});
-    await query(`UPDATE conversas SET contact_name = CASE WHEN contact_name IS NULL OR contact_name = phone THEN $1 ELSE contact_name END WHERE id = $2`, [nome, conv.id]).catch(() => {});
+    await query(`UPDATE conversas SET contact_name = CASE WHEN (contact_name IS NULL OR contact_name = phone)
+                   AND COALESCE(nome_manual,false) = false THEN $1 ELSE contact_name END WHERE id = $2`, [nome, conv.id]).catch(() => {});
     await responde(`Obrigada, *${nome.split(' ')[0]}*! 😊\n\nE qual é o nome do paciente (quem vai receber o atendimento)?`, 'paciente');
     return true;
   }
@@ -4252,7 +4253,11 @@ r.get('/buscar-mensagens', async (req, res) => {
 r.patch('/conversations/:id/contato', async (req, res) => {
   try {
     const sets = [], params = []; let i = 1;
-    if (req.body.nome !== undefined) { sets.push(`contact_name = $${i++}`); params.push(String(req.body.nome).trim().slice(0, 80) || null); }
+    // Nome digitado pela equipe ganha a marca: a sincronização não mexe mais nele
+    if (req.body.nome !== undefined) {
+      sets.push(`contact_name = $${i++}`); params.push(String(req.body.nome).trim().slice(0, 80) || null);
+      sets.push('nome_manual = true');
+    }
     if (req.body.phone !== undefined) { sets.push(`phone = $${i++}`); params.push(String(req.body.phone).replace(/\D/g, '').slice(0, 15) || null); }
     if (!sets.length) return res.status(400).json({ error: 'Nada para atualizar.' });
     params.push(req.params.id);
@@ -6162,7 +6167,12 @@ r.post('/automacao/pausa', masterOnly, async (req, res) => {
 
 async function processarAgendadas() {
   if (agendadorRodando) return;
-  if (await automacaoPausada('agendadas')) return;   // ⏸️ freio da fila agendada
+  /* ⏸️ O freio da fila agendada vale só pro que é AUTOMÁTICO (cobrança do
+     master, 28/08: "não está indo quando agenda"). Com a automação desligada,
+     a fila inteira parava — inclusive a mensagem que a atendente programou na
+     mão, que não tem nada a ver com o bot. Agora o freio é aplicado mensagem a
+     mensagem, lá embaixo: automática espera, escrita por gente sai. */
+  const filaAutomaticaPausada = await automacaoPausada('agendadas');
   agendadorRodando = true;
   try {
     const { rows } = await query(`SELECT * FROM mensagens_agendadas WHERE status = 'pendente' AND enviar_em <= NOW() ORDER BY enviar_em LIMIT 20`).catch(() => ({ rows: [] }));
@@ -6189,7 +6199,13 @@ async function processarAgendadas() {
            do cuidado…) é cancelada aqui, no funil por onde tudo passa — assim a
            regra vale também para o que for criado no futuro. Mensagem escrita
            ou agendada por uma atendente NÃO entra nesta trava: essa é dela. */
-        const ehAutomaticaVitta = /^Vitta\s*·/.test(String(ag.criado_por || ''));
+        const ehAutomaticaVitta = /^Vitta\s*·/.test(String(ag.criado_por || ''))
+          || /^Campanha\s*·/.test(String(ag.criado_por || ''));
+        // Automação pausada segura só o que é da máquina; o da equipe passa
+        if (ehAutomaticaVitta && filaAutomaticaPausada) {
+          await query(`UPDATE mensagens_agendadas SET status='pendente' WHERE id=$1`, [ag.id]).catch(() => {});
+          continue;
+        }
         // ⏰ Automática fora da janela (8h às 22h) não sai: volta pra fila na abertura
         if (ehAutomaticaVitta && !janelaIA()) {
           await query(`UPDATE mensagens_agendadas SET status='pendente', enviar_em=$2 WHERE id=$1`,
@@ -9666,7 +9682,8 @@ r.post('/whatsapp/update-contacts', masterOnly, async (req, res) => {
             if (name && name.length > 2) {
               const { rowCount } = await query(
                 `UPDATE conversas SET contact_name = $1
-                 WHERE contact_id = $2 AND (length(contact_name) <= 11 OR contact_name = phone)`,
+                 WHERE contact_id = $2 AND COALESCE(nome_manual,false) = false
+                   AND (length(contact_name) <= 11 OR contact_name = phone)`,
                 [name, jid]
               );
               namesUpdated += rowCount || 0;
