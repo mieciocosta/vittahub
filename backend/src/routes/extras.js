@@ -380,11 +380,18 @@ r.post('/agenda/:id/comprovante', async (req, res) => {
     const m = data.match(/^data:([\w.+-]+\/[\w.+-]+);base64,/);
     if (!m) return res.status(400).json({ error: 'Arquivo inválido.' });
     if (data.length > 9_000_000) return res.status(400).json({ error: 'Arquivo muito grande (máx ~6MB).' });
-    const { rows: [ev] } = await query('SELECT id FROM agenda_eventos WHERE id = $1', [req.params.id]);
+    const { rows: [ev] } = await query('SELECT id, setor FROM agenda_eventos WHERE id = $1', [req.params.id]);
     if (!ev) return res.status(404).json({ error: 'Agendamento não encontrado.' });
     await query(`INSERT INTO agenda_comprovantes (evento_id, nome, mime, data, autor_nome)
                  VALUES ($1,$2,$3,$4,$5)`,
       [ev.id, cut(String(req.body?.nome || 'comprovante'), 120), m[1], data, req.user.nome]);
+    // 👏 Comprovante no agendamento também dá festa (ordem do master, 28/08)
+    socketEmit('celebracao', {
+      tipo: 'setor', setor: ev.setor || 'geral', festa: 'palmas',
+      userId: req.user?.id, quem: req.user?.nome,
+      titulo: '🧾 Pagamento comprovado!',
+      texto: `${String(req.user?.nome || 'A equipe').split(' ')[0]} anexou o comprovante do atendimento`,
+    });
     res.status(201).json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -2611,6 +2618,19 @@ r.post('/vendas/:id/comprovantes', async (req, res) => {
     const { rows: [c] } = await query(
       `INSERT INTO venda_comprovantes (venda_id, data_url, nome, tipo, criado_por) VALUES ($1,$2,$3,$4,$5) RETURNING id, nome, tipo, created_at`,
       [req.params.id, b.comprovante, cut(b.filename, 160), cut(b.mimetype, 80), req.user.nome]);
+    /* 👏 FESTA TAMBÉM NO COMPROVANTE (ordem do master, 28/08). Dinheiro
+       comprovado é a venda de verdade — merece a mesma comemoração. */
+    try {
+      const { rows: [vd] } = await query('SELECT setor, valor, atendente_nome FROM vendas WHERE id = $1', [req.params.id]);
+      const val = parseFloat(vd?.valor) || 0;
+      socketEmit('celebracao', {
+        tipo: 'setor', setor: vd?.setor || 'geral', festa: 'palmas',
+        userId: req.user?.id, quem: vd?.atendente_nome || req.user?.nome,
+        valorTxt: val > 0 ? val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '',
+        titulo: '🧾 Pagamento comprovado!',
+        texto: `${String(vd?.atendente_nome || req.user?.nome || 'A equipe').split(' ')[0]} anexou o comprovante`,
+      });
+    } catch (e) { console.error('celebracao comprovante:', e.message); }
     res.status(201).json(c);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
