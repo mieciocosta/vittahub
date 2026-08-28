@@ -1060,6 +1060,40 @@ r.get('/minha-equipe', async (req, res) => {
 
 // Meta GLOBAL do setor do mês — visível pra TODA a equipe (clima de time). Cada
 // um vê a meta do seu setor; master/sem setor vê a geral (todos os setores).
+/* 💰 FATURAMENTO DOS TRÊS SETORES + TOTAL (ordem do master, 28/08: "no meu
+   painel quero o faturamento de todos os setores e também o total").
+   Visão da clínica inteira = SÓ MASTER (regra da casa; supervisora vê o setor
+   dela em /meta-setor). Traz hoje e o mês, e separa o que já foi recebido do
+   que está a receber — dinheiro na conta é diferente de venda fechada. */
+r.get('/faturamento-setores', async (req, res) => {
+  try {
+    if (req.user.role !== 'master') return res.status(403).json({ error: 'Visão da clínica inteira é do master.' });
+    const HOJE = "(NOW() - interval '3 hours')::date";
+    const MES  = "to_char(NOW() - interval '3 hours','YYYY-MM')";
+    const { rows } = await query(`
+      SELECT COALESCE(NULLIF(setor,''),'sem setor') AS setor,
+             COALESCE(SUM(valor) FILTER (WHERE data_venda = ${HOJE}), 0)::float AS hoje,
+             COALESCE(SUM(valor) FILTER (WHERE to_char(data_venda,'YYYY-MM') = ${MES}), 0)::float AS mes,
+             COALESCE(SUM(valor) FILTER (WHERE to_char(data_venda,'YYYY-MM') = ${MES}
+                        AND status_pagamento IN ('pago','cortesia')), 0)::float AS recebido,
+             COUNT(*) FILTER (WHERE to_char(data_venda,'YYYY-MM') = ${MES})::int AS vendas_mes
+        FROM vendas
+       WHERE data_venda >= (${HOJE} - 40)
+       GROUP BY 1 ORDER BY mes DESC`);
+    const ordem = ['vacinas', 'consultas', 'terapias'];
+    const setores = ordem.map(s => rows.find(r2 => r2.setor === s)
+      || { setor: s, hoje: 0, mes: 0, recebido: 0, vendas_mes: 0 });
+    // Setor fora dos três (venda antiga sem setor) não some do total
+    for (const r2 of rows) if (!ordem.includes(r2.setor)) setores.push(r2);
+    const soma = (c) => setores.reduce((t, x) => t + (x[c] || 0), 0);
+    res.json({
+      setores,
+      total: { hoje: soma('hoje'), mes: soma('mes'), recebido: soma('recebido'), vendas_mes: soma('vendas_mes') },
+      mes_ref: new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 7),
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.get('/meta-setor', async (req, res) => {
   try {
     const { rows: cfg } = await query("SELECT valor FROM configuracoes WHERE chave = 'metas'");

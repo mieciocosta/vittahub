@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { LayoutGrid, StickyNote, CheckSquare, Square, Paperclip, FileText, Download, Trash2, Plus, X, Check, Pencil, UserPlus, Search, MessageSquare, Flame, Send, Copy, RefreshCw } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
+import { fmt } from '../hooks/utils.js';   // 💰 formata o dinheiro em reais
 
 /* MEU PAINEL — o painel de trabalho da atendente.
    Em cima, as OPORTUNIDADES do dia (pedido do master: painel que ajude a
@@ -42,6 +43,91 @@ Senti falta ${pac ? `do(a) ${pac}` : 'de vocês'} por aqui! Nessa fase cada sema
 
 Consegui abrir horário na agenda dessa semana. Quer que eu reserve pra vocês? 😊`,
 };
+
+/* 💰 FATURAMENTO DOS SETORES (ordem do master, 28/08: "no meu painel quero o
+   faturamento de todos os setores e também o total"). Só o master enxerga —
+   número da clínica inteira é visão dele (regra da casa). Mostra o mês de cada
+   setor, quanto já entrou de fato, e o TOTAL em destaque. */
+function FaturamentoSetores() {
+  const api = useApi();
+  const { user } = useAuth();
+  const [d, setD] = useState(null);
+  const [erro, setErro] = useState('');
+
+  useEffect(() => {
+    if (user?.role !== 'master') return;
+    api.get('/extras/faturamento-setores').then(setD).catch(e => setErro(e.message));
+  }, [user]); // eslint-disable-line
+
+  if (user?.role !== 'master') return null;
+
+  const ICONE = { vacinas: '💉', consultas: '🩺', terapias: '🧩' };
+  const rotulo = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+  const maior = Math.max(1, ...((d?.setores || []).map(s => s.mes || 0)));
+  const mesTxt = d?.mes_ref
+    ? new Date(`${d.mes_ref}-02T12:00:00Z`).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+    : '';
+
+  return (
+    <div className="card" style={{ padding: '16px 18px', marginBottom: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3, flexWrap: 'wrap' }}>
+        <span style={{ fontWeight: 800, fontSize: 15 }}>💰 Faturamento por setor</span>
+        <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 700, textTransform: 'capitalize' }}>{mesTxt}</span>
+        <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 800, color: 'var(--muted)',
+          background: 'var(--bg2)', borderRadius: 99, padding: '2px 9px' }}>SÓ O MASTER VÊ</span>
+      </div>
+      {erro && <div style={{ fontSize: 12.5, color: 'var(--err)' }}>{erro}</div>}
+      {!d && !erro && <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '10px 0' }}>Somando as vendas…</div>}
+
+      {d && (
+        <>
+          <div style={{ marginTop: 10 }}>
+            {(d.setores || []).map(s => (
+              <div key={s.setor} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 120px 104px',
+                alignItems: 'center', gap: 10, padding: '9px 2px', borderTop: '1px solid var(--border)' }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--txt)' }}>
+                    {ICONE[s.setor] || '•'} {rotulo(s.setor)}
+                    <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}> · {s.vendas_mes} venda{s.vendas_mes === 1 ? '' : 's'}</span>
+                  </div>
+                  <div style={{ height: 6, background: 'var(--bg2)', borderRadius: 99, marginTop: 5, overflow: 'hidden' }}>
+                    <div style={{ width: `${Math.round((s.mes / maior) * 100)}%`, height: '100%', borderRadius: 99,
+                      background: 'linear-gradient(90deg, var(--tq), var(--pet))' }} />
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: 14.5, fontWeight: 800, color: 'var(--txt)' }}>{fmt.brl(s.mes)}</div>
+                  <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>no mês</div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ok,#0fb07a)' }}>{fmt.brl(s.recebido)}</div>
+                  <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>já recebido</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* O TOTAL, que é o que o master quer bater o olho */}
+          <div style={{ marginTop: 12, borderRadius: 14, padding: '13px 16px', color: '#fff',
+            background: 'linear-gradient(135deg,#06424A,#0E8C96)', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, minWidth: 150 }}>
+              <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: .6, opacity: .8, textTransform: 'uppercase' }}>Total da clínica no mês</div>
+              <div style={{ fontSize: 25, fontWeight: 900, letterSpacing: -.8 }}>{fmt.brl(d.total?.mes)}</div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: 10.5, opacity: .8, fontWeight: 700 }}>JÁ RECEBIDO</div>
+              <div style={{ fontSize: 15, fontWeight: 800 }}>{fmt.brl(d.total?.recebido)}</div>
+            </div>
+            <div style={{ textAlign: 'right', borderLeft: '1px solid rgba(255,255,255,.25)', paddingLeft: 12 }}>
+              <div style={{ fontSize: 10.5, opacity: .8, fontWeight: 700 }}>HOJE</div>
+              <div style={{ fontSize: 15, fontWeight: 800 }}>{fmt.brl(d.total?.hoje)}</div>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 export default function MeuPainel() {
   const api = useApi();
@@ -127,6 +213,9 @@ export default function MeuPainel() {
         </div>
       </div>
       {erro && <div style={{ fontSize: 13, color: 'var(--err)', fontWeight: 600, marginBottom: 12 }}>{erro}</div>}
+
+      {/* 💰 Faturamento dos setores + total — o primeiro olhar do master */}
+      <FaturamentoSetores />
 
       {/* 🔥 OPORTUNIDADES — o coração do painel: para quem falar HOJE */}
       <Oportunidades />
