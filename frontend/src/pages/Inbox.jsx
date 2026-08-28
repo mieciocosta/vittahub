@@ -2123,13 +2123,6 @@ export default function Inbox({ onUnreadChange }) {
             </div>
 
             <div style={{ display:'flex', gap:4, flexWrap:'wrap' }}>
-              {user?.role !== 'atendente' && (
-                <button onClick={async ()=>{ try { await api.post(`/inbox/conversations/${sel.id}/reset-triagem`); Toast.show('Triagem reiniciada — o próximo "oi" do cliente recebe o menu de boas-vindas 💎', 'success'); } catch(e){ Toast.show(e.message, 'error'); } }}
-                  title="Reiniciar boas-vindas: a próxima mensagem do cliente recebe o menu com botões"
-                  className="btn btn-sm" style={{ background:'var(--bg2)', color:'var(--muted)', border:'1.5px solid var(--border)', fontSize:11, padding:'4px 9px' }}>
-                  ↺ Menu
-                </button>
-              )}
               {/* ═══ AÇÕES DO ATENDIMENTO ═══════════════════════════════════
                   UX (ordem do master, 24/08): na barra ficam só as ações do dia
                   a dia, num visual calmo. Todo o resto foi pro menu "Mais",
@@ -2149,31 +2142,23 @@ export default function Inbox({ onUnreadChange }) {
                   fontSize: 12.5, color: 'var(--txt2)', fontWeight: 600,
                 };
                 const fecharMais = () => setMaisAberto(false);
+                /* 🎯 TRÊS AÇÕES, SÓ (ordem do master, 28/08: "quero deixar de
+                   fato registrar venda, agendar e resumo da conversa"). O resto
+                   — IA, Dados, Fixar, Transferir, reiniciar boas-vindas — foi
+                   pro menu Mais. Transferir também está no painel de contexto. */
                 return (<>
+                  <button onClick={abrirVenda} title="Registrar uma venda deste atendimento (entra na meta)"
+                    style={{ ...calmo(), borderColor:'#C4973B', background:'#fdf6e7', color:'#8a6417', fontWeight:800 }}>
+                    💰 Registrar venda
+                  </button>
                   <button onClick={abrirAgendar} title="Agendar este atendimento (conta na meta do mês)" style={calmo()}>
                     <CalendarDays size={12}/> Agendar
                   </button>
-                  <button onClick={abrirVenda} title="Registrar uma venda deste atendimento (entra na meta)" style={calmo()}>
-                    💰 Venda
-                  </button>
-                  <button onClick={abrirTransferir} title="Transferir este atendimento para outra atendente" style={calmo()}>
-                    🔁 Transferir
-                  </button>
-                  {(user?.role === 'master' || user?.ia_consultas === true) && (
-                    <button onClick={toggleBot} style={calmo(sel.bot_ativo)}
-                      title={sel.bot_ativo ? 'A IA está respondendo nesta conversa — clique para desligar' : 'Ligar a IA nesta conversa'}>
-                      <Sparkles size={12}/> {sel.bot_ativo ? 'IA ligada' : 'IA'}
-                    </button>
-                  )}
-                  <button onClick={()=>{setShowInfo(p=>!p);setShowAI(false);}} style={calmo(showInfo)} title="Dados do cliente, anotações e histórico">
-                    <Tag size={12}/> Dados
-                  </button>
-                  <button onClick={()=>toggleFix(sel)} style={{ ...calmo(fixadasIds.has(sel.id)),
-                    borderColor: fixadasIds.has(sel.id) ? '#C4973B' : 'var(--border)',
-                    background: fixadasIds.has(sel.id) ? '#fdf6e7' : 'var(--bg2)',
-                    color: fixadasIds.has(sel.id) ? '#8a6417' : 'var(--txt2)' }}
-                    title={fixadasIds.has(sel.id) ? 'Desafixar esta conversa' : 'Fixar esta conversa no topo da sua lista'}>
-                    📌 {fixadasIds.has(sel.id) ? 'Fixada' : 'Fixar'}
+                  <button onClick={async ()=>{ setResumoLoad(true); setResumo(null);
+                    try { setResumo(await api.get(`/inbox/conversations/${sel.id}/resumo`)); }
+                    catch (e) { setResumo({ erro: e.message }); } setResumoLoad(false); }}
+                    title="Resumo do que já foi conversado com esta família" style={calmo()}>
+                    📋 Resumo da conversa
                   </button>
 
                   {/* ⋯ Mais: tudo o que não é do dia a dia */}
@@ -2187,13 +2172,22 @@ export default function Inbox({ onUnreadChange }) {
                         background:'var(--card,#fff)', border:'1px solid var(--border)', borderRadius:12,
                         boxShadow:'0 12px 34px rgba(0,0,0,.22)', overflow:'hidden', padding:'5px 0' }}>
 
+                        <button style={itemMenu} onClick={()=>{ fecharMais(); abrirTransferir(); }}>
+                          🔁 <span>Transferir atendimento</span>
+                        </button>
+                        <button style={itemMenu} onClick={()=>{ fecharMais(); setShowInfo(p=>!p); setShowAI(false); }}>
+                          🏷️ <span>Dados do cliente</span>
+                        </button>
+                        <button style={itemMenu} onClick={()=>{ fecharMais(); toggleFix(sel); }}>
+                          📌 <span>{fixadasIds.has(sel.id) ? 'Desafixar conversa' : 'Fixar no topo da lista'}</span>
+                        </button>
+                        {(user?.role === 'master' || user?.ia_consultas === true) && (
+                          <button style={itemMenu} onClick={()=>{ fecharMais(); toggleBot(); }}>
+                            ✨ <span>{sel.bot_ativo ? 'Desligar a IA nesta conversa' : 'Ligar a IA nesta conversa'}</span>
+                          </button>
+                        )}
                         <button style={itemMenu} onClick={()=>{ fecharMais(); setShowAI(true); setShowInfo(false); }}>
                           ✨ <span>Assistente de vendas</span>
-                        </button>
-                        <button style={itemMenu} onClick={async ()=>{ fecharMais(); setResumoLoad(true); setResumo(null);
-                          try { setResumo(await api.get(`/inbox/conversations/${sel.id}/resumo`)); }
-                          catch (e) { setResumo({ erro: e.message }); } setResumoLoad(false); }}>
-                          📋 <span>Raio-X da conversa</span>
                         </button>
                         <button style={itemMenu} onClick={()=>{ fecharMais(); abrirFollow(); }}>
                           🔁 <span>Colocar no repique</span>
