@@ -368,6 +368,18 @@ r.post('/agenda', async (req, res) => {
 
     socketEmit('agenda_update', { id: ev.id });
     socketEmit('vacinas_solicitacao', { agenda_id: ev.id });
+    /* 👏 FESTA NO AGENDAMENTO (ordem do master, 28/08: "sempre que clicar no
+       botão agendar também"). Horário marcado é venda encaminhada — o time vê
+       o personagem bater palma na hora. Pós-vacinal não conta: é tarefa
+       interna, não conquista com a família. */
+    if (String(b.servico || '') !== 'Pós Vacinal') {
+      socketEmit('celebracao', {
+        tipo: 'setor', setor, festa: 'palmas',
+        userId: req.user?.id, quem: req.user?.nome,
+        titulo: '🗓️ Agendamento fechado!',
+        texto: `${String(req.user?.nome || 'A equipe').split(' ')[0]} marcou ${paciente || 'mais um atendimento'}`,
+      });
+    }
     res.status(201).json(ev);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
