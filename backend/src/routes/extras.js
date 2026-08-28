@@ -529,6 +529,17 @@ r.post('/vendas', async (req, res) => {
        /^\d{4}-\d{2}-\d{2}$/.test(b.data_atendimento || '') ? b.data_atendimento : null,
        cut(b.origem, 40), cut(b.observacao, 300), !!b.ligou]);
     socketEmit('venda_registrada', { id: v.id, setor, valor });
+    /* 👏 FESTA NA TELA (ordem do master, 28/08: "toda vez que a equipe registrar
+       uma venda, um personagem aparece e dá palmas"). Vai pro SETOR: quem
+       vendeu comemora e as colegas veem — é o que faz o time correr junto.
+       O valor entra formatado; o personagem é sorteado na tela. */
+    socketEmit('celebracao', {
+      tipo: 'setor', setor, festa: 'palmas',
+      userId: atendenteId, quem: atendenteNome,
+      valorTxt: valor > 0 ? valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '',
+      titulo: '🎉 Venda registrada!',
+      texto: `${String(atendenteNome || 'A equipe').split(' ')[0]} fechou mais uma em ${setor}`,
+    });
     console.log(`VENDA OK: ${categoria} R$${valor} (id=${v.id})`);
 
     // ── 🔁 PRÓXIMA DOSE (recompra automática de vacinas) ─────────────────────

@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { io } from 'socket.io-client';
 import { useAuth } from '../context/AuthContext.jsx';
+import MascoteAplaudindo from './MascoteAplaudindo.jsx';
 
 /* ─── Celebração global (gamificação) ────────────────────────────────────────
    Ouve o evento 'celebracao' do servidor e mostra confete + mensagem:
@@ -58,7 +59,7 @@ export default function CelebracaoGlobal() {
       if (c.tipo === 'setor' && user.role === 'atendente' && user.setor && user.setor !== c.setor) return;
       setFesta(c);
       clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => setFesta(null), c.tipo === 'marco' ? 4200 : 2800);
+      timerRef.current = setTimeout(() => setFesta(null), c.tipo === 'marco' ? 4200 : c.festa === 'palmas' ? 4600 : 2800);
     });
 
     return () => { socket.disconnect(); clearTimeout(timerRef.current); };
@@ -70,6 +71,8 @@ export default function CelebracaoGlobal() {
   return (
     <>
       <Confetes grande={grande} />
+      {/* 👏 A Vitinha aparece batendo palma quando é venda (ordem do master, 28/08) */}
+      {festa.festa === 'palmas' && <MascoteAplaudindo nome={festa.quem} valor={festa.valorTxt} />}
       <div style={{ position: 'fixed', top: 70, left: '50%', transform: 'translateX(-50%)', zIndex: 1000,
         animation: 'vh-pop .35s cubic-bezier(.3,1.6,.5,1)' }}>
         <div style={{ background: 'var(--card)', borderRadius: 18, padding: '16px 26px', textAlign: 'center',
