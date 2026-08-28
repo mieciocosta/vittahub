@@ -1812,12 +1812,6 @@ export default function Inbox({ onUnreadChange }) {
     setAgSaving(false);
   };
 
-  const changeStatus = async (status) => {
-    await api.patch(`/inbox/conversations/${sel.id}/status`, { status });
-    setSel(p => ({ ...p, status_atend:status }));
-    setConvos(p => p.map(c => c.id===sel.id ? {...c, status_atend:status} : c));
-  };
-
   const totalUnread = useMemo(() => convos.reduce((s, c) => s + (c.unread||0), 0), [convos]);
   const totalQuentes = useMemo(() => convos.filter(c => c.lead_score === 'quente').length, [convos]);
   // Ordena por temperatura quando o modo "quentes primeiro" está ligado (sort estável preserva a recência dentro de cada faixa)
@@ -2092,36 +2086,9 @@ export default function Inbox({ onUnreadChange }) {
 
             {/* Ferramentas do atendimento — agrupadas com quebra automática (não cortam ao dar zoom) */}
             <div style={{ display:'flex', alignItems:'center', gap:6, rowGap:6, flexWrap:'wrap', minWidth:0 }}>
-            {/* Responsável pela conversa */}
-            <div style={{ display:'flex', alignItems:'center', gap:5, flexShrink:0 }}>
-              <span title={sel.responsavel_nome ? `Responsável: ${sel.responsavel_nome}` : 'Sem responsável'}
-                style={{ width:22, height:22, borderRadius:'50%', background:sel.responsavel_cor||'var(--bord2)', color:'#fff', fontSize:9, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center' }}>
-                {sel.responsavel_nome ? fmt.initials(sel.responsavel_nome) : '—'}
-              </span>
-              <select value={sel.responsavel_id || ''} onChange={e=>changeResp(e.target.value)} title="Responsável pela conversa"
-                style={{ padding:'4px 22px 4px 8px', borderRadius:20, fontSize:11, fontWeight:700, cursor:'pointer',
-                  border:'1.5px solid var(--border)', background:'var(--bg2)', color:'var(--txt2)',
-                  outline:'none', appearance:'none', maxWidth:120, overflow:'hidden', textOverflow:'ellipsis' }}>
-                <option value="">Sem responsável</option>
-                {users.map(u => <option key={u.id} value={u.id}>{u.nome.split(' ')[0]}</option>)}
-              </select>
-            </div>
-
-            {/* Status de atendimento */}
-            <div style={{ display:'flex', alignItems:'center', gap:4, position:'relative' }}>
-              <select value={sel.status_atend||'aberto'} onChange={e=>changeStatus(e.target.value)}
-                style={{ padding:'4px 8px', borderRadius:20, fontSize:11, fontWeight:700, cursor:'pointer', border:'1.5px solid',
-                  borderColor: STATUS_CFG[sel.status_atend||'aberto']?.color,
-                  background: STATUS_CFG[sel.status_atend||'aberto']?.bg,
-                  color: STATUS_CFG[sel.status_atend||'aberto']?.color,
-                  outline:'none', appearance:'none', paddingRight:24, minWidth:100
-                }}>
-                <option value="aberto">🟢 Aberto</option>
-                <option value="em_atendimento">🔵 Em atend.</option>
-                <option value="resolvido">⚫ Resolvido</option>
-              </select>
-            </div>
-
+            {/* 🧹 Responsável e status SAÍRAM da barra (ordem do master, 28/08):
+                aqui ficam só as três ações. Responsável já é cartão no painel de
+                contexto e o status virou cartão lá também — nada se perdeu. */}
             <div style={{ display:'flex', gap:4, flexWrap:'wrap' }}>
               {/* ═══ AÇÕES DO ATENDIMENTO ═══════════════════════════════════
                   UX (ordem do master, 24/08): na barra ficam só as ações do dia
@@ -4034,7 +4001,28 @@ function FaixaContexto({ sel, leadInfo, setLeadInfo, api, scoreChip, setScoreChi
         )}
       </Cartao>
 
-      {/* 6 · Código do cliente — clique copia, é assim que a casa se acha */}
+      {/* 6 · Situação do atendimento — veio da barra de cima (ordem do master) */}
+      <Cartao ic="🟢" label="Situação" editavel aberto={editando === 'situacao'}
+        onAbrir={() => setEditando('situacao')}
+        valor={{ aberto:'Aberto', em_atendimento:'Em atendimento', resolvido:'Resolvido' }[sel?.status_atend || 'aberto']}>
+        {editando === 'situacao' && (
+          <select autoFocus value={sel?.status_atend || 'aberto'} style={campoSt} onBlur={() => setEditando(null)}
+            onChange={async e => {
+              const novo = e.target.value; setEditando(null);
+              try {
+                await api.patch(`/inbox/conversations/${sel.id}/status`, { status: novo });
+                setSel(p => ({ ...p, status_atend: novo }));
+                setConvos(p => p.map(c => c.id === sel.id ? { ...c, status_atend: novo } : c));
+              } catch (err) { Toast.show(err.message, 'error'); }
+            }}>
+            <option value="aberto">🟢 Aberto</option>
+            <option value="em_atendimento">🔵 Em atendimento</option>
+            <option value="resolvido">⚫ Resolvido</option>
+          </select>
+        )}
+      </Cartao>
+
+      {/* 7 · Código do cliente — clique copia, é assim que a casa se acha */}
       <Cartao ic="🆔" label="Código do cliente" valor={codigoTxt || '—'}
         dica={codigoTxt ? 'Clique para copiar o código' : 'O código nasce quando a conversa é classificada'}
         aoClicar={codigoTxt ? () => {
