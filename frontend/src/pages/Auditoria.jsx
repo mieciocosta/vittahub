@@ -286,8 +286,26 @@ export default function Auditoria() {
                               <span style={{ color: 'var(--muted)' }}>das {rd.de} às {rd.ate}</span>
                               <span style={{ color: 'var(--muted)' }}>{rd.acoes} ações</span>
                               <span style={{ color: 'var(--muted)' }}>{rd.aparelho === 'celular' ? '📱 celular' : '🖥️ computador'}{rd.navegador ? ` · ${rd.navegador}` : ''}</span>
-                              {rd.cidade && <span style={{ color: 'var(--tq2)', fontWeight: 700 }}>📍 {rd.cidade}</span>}
+                              {/* 📍 Bairro na frente da cidade (ordem do master, 28/08).
+                                  Em rede móvel o bairro costuma vir vazio — aí fica a cidade. */}
+                              {(rd.bairro || rd.cidade) && (
+                                <span style={{ color: 'var(--tq2)', fontWeight: 700 }}>
+                                  📍 {[rd.bairro, rd.cidade].filter(Boolean).join(' · ')}
+                                </span>
+                              )}
                               {rd.provedor && <span style={{ color: 'var(--muted)' }}>{rd.provedor}{rd.movel ? ' (rede móvel)' : ''}</span>}
+                              {/* 🗺️ Abrir a localização: usa a coordenada da rede; sem ela,
+                                  cai na busca pelo bairro/cidade, que já ajuda muito. */}
+                              <a href={rd.lat && rd.lng
+                                  ? `https://www.google.com/maps/search/?api=1&query=${rd.lat},${rd.lng}`
+                                  : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([rd.bairro, rd.cidade].filter(Boolean).join(' '))}`}
+                                target="_blank" rel="noreferrer"
+                                title={rd.lat ? 'Abrir esta localização no mapa' : 'Abrir a região no mapa (sem coordenada exata)'}
+                                style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 4,
+                                  fontSize: 11, fontWeight: 800, textDecoration: 'none', padding: '3px 9px', borderRadius: 8,
+                                  background: 'var(--tq3)', color: 'var(--tq2)', border: '1px solid var(--tq)' }}>
+                                🗺️ Abrir localização
+                              </a>
                             </div>
                           ))}
                         </div>

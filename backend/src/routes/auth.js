@@ -39,17 +39,26 @@ async function localizarIP(ip) {
   if (!limpo || limpo === 'unknown' || /^(10\.|127\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|::1)/.test(limpo)) return null;
   try {
     const { rows: [cache] } = await query("SELECT valor FROM configuracoes WHERE chave = $1", [`geoip_${limpo}`]);
-    if (cache?.valor?.cidade || cache?.valor?.vazio) return cache.valor.vazio ? null : cache.valor;
+    /* Cache antigo não tem bairro nem coordenada: refaz uma vez pra completar
+       (senão o painel ficaria pra sempre sem o bairro dos IPs já conhecidos). */
+    if (cache?.valor?.vazio) return null;
+    if (cache?.valor?.cidade && cache.valor.lat !== undefined) return cache.valor;
   } catch { /* sem cache, segue */ }
   try {
     const { default: fetch } = await import('node-fetch');
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 3500);
-    const r = await fetch(`http://ip-api.com/json/${encodeURIComponent(limpo)}?fields=status,country,regionName,city,isp,mobile&lang=pt-BR`, { signal: ctrl.signal });
+    /* Pede também BAIRRO, CEP e coordenadas (ordem do master, 28/08: "quero o
+       bairro na descrição e a opção de abrir a localização"). É melhor esforço:
+       em rede móvel o bairro costuma vir vazio, e aí o painel mostra a cidade. */
+    const r = await fetch(`http://ip-api.com/json/${encodeURIComponent(limpo)}?fields=status,country,regionName,city,district,zip,lat,lon,isp,mobile&lang=pt-BR`, { signal: ctrl.signal });
     clearTimeout(t);
     const j = await r.json().catch(() => null);
     const loc = j && j.status === 'success'
-      ? { cidade: j.city || null, estado: j.regionName || null, pais: j.country || null, provedor: String(j.isp || '').slice(0, 60), movel: !!j.mobile }
+      ? { cidade: j.city || null, estado: j.regionName || null, pais: j.country || null,
+          bairro: j.district || null, cep: j.zip || null,
+          lat: typeof j.lat === 'number' ? j.lat : null, lng: typeof j.lon === 'number' ? j.lon : null,
+          provedor: String(j.isp || '').slice(0, 60), movel: !!j.mobile }
       : null;
     await query(`INSERT INTO configuracoes (chave, valor) VALUES ($1, $2::jsonb)
                  ON CONFLICT (chave) DO UPDATE SET valor = $2::jsonb, updated_at = NOW()`,

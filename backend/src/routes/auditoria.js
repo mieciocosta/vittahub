@@ -280,6 +280,9 @@ r.get('/localizacoes', onlyMaster, async (req, res) => {
       (redesPorDia[`${r2.usuario_id}|${r2.dia}`] ||= []).push({
         ip: r2.ip, de: hhmm(r2.de), ate: hhmm(r2.ate), acoes: r2.n,
         cidade: g.cidade ? `${g.cidade}${g.estado ? ` / ${g.estado}` : ''}` : null,
+        bairro: g.bairro || null, cep: g.cep || null,
+        // Coordenada da rede: é o que abre o mapa no painel
+        lat: g.lat ?? null, lng: g.lng ?? null,
         provedor: g.provedor || null, movel: !!g.movel,
         aparelho: /Mobile|Android|iPhone/.test(ua) ? 'celular' : 'computador',
         navegador: ua.includes('Edg/') ? 'Edge' : ua.includes('Chrome/') ? 'Chrome'
