@@ -19,6 +19,119 @@ const ACOES = {
 };
 const CRIT = ['excluir', 'editar_lead', 'apagar_mensagem', 'editar_mensagem', 'login_falha'];
 
+/* 📄 RELATÓRIO COMPLETO DE ACESSOS (ordem do master, 28/08: "quero um relatório
+   mais completo e onde eu possa abrir pelo Google Maps"). Abre a folha pronta
+   pra imprimir ou salvar em PDF, com tudo o que o painel mostra: resumo de cada
+   pessoa, o dia a dia, as redes com bairro e provedor, os episódios de uso
+   simultâneo, os sinais de risco e os LINKS do Google Maps de cada ponto. */
+function relatorioAcessos(locais, dias, alvo) {
+  const esc = (t) => String(t ?? '').replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+  const usuarios = alvo ? locais.usuarios.filter(u => u.usuario_id === alvo.usuario_id) : locais.usuarios;
+  const hhmm = (t) => new Date(new Date(t).getTime() - 3 * 3600 * 1000).toISOString().slice(11, 16);
+  const dataBR = (d) => String(d).split('-').reverse().join('/');
+  const maps = (c) => `https://www.google.com/maps/search/?api=1&query=${c.lat},${c.lng}`;
+
+  const blocoDia = (d) => `
+    <div class="dia">
+      <div class="dh">
+        <b>${dataBR(d.dia)}</b>
+        <span>${hhmm(d.primeiro)} às ${hhmm(d.ultimo)}</span>
+        <span>${d.eventos} ações</span>
+        <span>${d.redes} rede${d.redes > 1 ? 's' : ''}</span>
+        ${d.simultaneo ? '<span class="bad">USO SIMULTÂNEO</span>' : ''}
+      </div>
+      ${(d.sinais || []).length ? `<div class="sin">${d.sinais.map(sg => `<span class="${sg.grave ? 'g' : 'a'}">${esc(sg.txt)}</span>`).join('')}</div>` : ''}
+      ${(d.episodios || []).length ? `<div class="epi">${d.episodios.map(e =>
+        `<div>🚨 <b>${esc(e.hora)}</b> — ${esc((e.ips || []).join(' e '))} ativas ao mesmo tempo (${e.eventos} ações)</div>`).join('')}</div>` : ''}
+      <table class="redes">
+        <tr><th>Rede (IP)</th><th>Horário</th><th>Ações</th><th>Aparelho</th><th>Onde</th><th>Provedor</th><th>Mapa</th></tr>
+        ${(d.redes_detalhe || []).map(rd => `<tr>
+          <td class="mono">${esc(rd.ip)}</td>
+          <td>${esc(rd.de)} às ${esc(rd.ate)}</td>
+          <td class="n">${rd.acoes}</td>
+          <td>${rd.aparelho === 'celular' ? 'Celular' : 'Computador'}${rd.navegador ? ` · ${esc(rd.navegador)}` : ''}</td>
+          <td>${esc([rd.bairro, rd.cidade].filter(Boolean).join(' · ') || '—')}</td>
+          <td>${esc(rd.provedor || '—')}${rd.movel ? ' (móvel)' : ''}</td>
+          <td>${rd.lat && rd.lng
+            ? `<a href="https://www.google.com/maps/search/?api=1&query=${rd.lat},${rd.lng}">abrir</a>`
+            : (rd.cidade ? `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([rd.bairro, rd.cidade].filter(Boolean).join(' '))}">região</a>` : '—')}</td>
+        </tr>`).join('')}
+      </table>
+      ${(d.coords || []).length ? `<div class="pts"><b>Onde esteve (aparelho):</b> ${(d.coords || []).map((c, i) =>
+        `<a href="${maps(c)}">📍 Ponto ${i + 1} (${c.lat}, ${c.lng})</a>`).join(' · ')}
+        ${(d.coords || []).length > 1 ? ` · <a href="https://www.google.com/maps/dir/${d.coords.map(c => `${c.lat},${c.lng}`).join('/')}">ver trajeto</a>` : ''}</div>` : ''}
+    </div>`;
+
+  const blocoUsuario = (u) => {
+    const meus = (locais.por_dia || []).filter(d => d.usuario_id === u.usuario_id);
+    const totalAcoes = meus.reduce((t, d) => t + d.eventos, 0);
+    const redes = new Set(); meus.forEach(d => (d.ips || []).forEach(i => redes.add(i)));
+    const alertas = (locais.simultaneos || []).filter(e => e.usuario_id === u.usuario_id).length;
+    return `
+      <div class="user">
+        <h2>${esc(u.usuario_nome)}</h2>
+        <div class="kpis">
+          <div class="k"><b>${meus.length}</b><span>dias com acesso</span></div>
+          <div class="k"><b>${totalAcoes}</b><span>ações no período</span></div>
+          <div class="k"><b>${redes.size}</b><span>redes diferentes</span></div>
+          <div class="k"><b>${u.lugares || 0}</b><span>lugares</span></div>
+          <div class="k ${alertas ? 'bad' : ''}"><b>${alertas}</b><span>uso simultâneo</span></div>
+        </div>
+        ${meus.map(blocoDia).join('')}
+      </div>`;
+  };
+
+  const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"/>
+<title>Relatório de acessos — Vittalis Saúde</title><style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',Arial,sans-serif;color:#0a1520;background:#fff}
+.faixa{height:7px;background:linear-gradient(90deg,#00B8C0,#0E8C96)}
+.pg{padding:26px 32px}
+.cab{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.cab img{height:66px}
+.cab .t{text-align:right}.cab h1{font-size:20px;color:#06424A}
+.cab .s{font-size:12px;color:#5a7285;margin-top:3px}
+.cab .p{display:inline-block;margin-top:6px;background:#e5f8f9;color:#007d83;padding:3px 11px;border-radius:20px;font-size:10.5px;font-weight:700}
+.hr{height:1.5px;background:#e3ebf1;margin:14px 0 18px}
+.user{margin-bottom:26px;page-break-inside:avoid}
+.user h2{font-size:15px;color:#06424A;border-left:4px solid #00B8C0;padding-left:9px;margin-bottom:9px}
+.kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:9px;margin-bottom:12px}
+.k{border:1px solid #e3ebf1;border-radius:10px;padding:8px 10px;background:#f8fbfc}
+.k b{display:block;font-size:17px;color:#06424A}.k span{font-size:9.5px;color:#5a7285;font-weight:700;text-transform:uppercase}
+.k.bad b{color:#b91c1c}
+.dia{border:1px solid #e3ebf1;border-radius:10px;padding:9px 11px;margin-bottom:9px;page-break-inside:avoid}
+.dh{display:flex;gap:11px;align-items:center;font-size:11.5px;color:#5a7285;flex-wrap:wrap}
+.dh b{font-size:13px;color:#0a1520}
+.dh .bad,.sin .g{background:#fee2e2;color:#b91c1c;border-radius:6px;padding:1px 7px;font-size:9.5px;font-weight:800}
+.sin{margin-top:5px;display:flex;gap:5px;flex-wrap:wrap}
+.sin .a{background:#fef3c7;color:#92400e;border-radius:6px;padding:1px 7px;font-size:9.5px;font-weight:800}
+.epi{margin-top:5px;background:#fff5f5;border:1px solid #fecaca;border-radius:8px;padding:6px 9px;font-size:10.5px;color:#b91c1c}
+table.redes{width:100%;border-collapse:collapse;margin-top:7px}
+table.redes th{background:#06424A;color:#fff;font-size:9px;text-transform:uppercase;padding:4px 7px;text-align:left}
+table.redes td{font-size:10.5px;padding:4px 7px;border-top:1px solid #eef3f7}
+td.mono{font-family:monospace}td.n{text-align:right;font-weight:700}
+a{color:#0e7490}
+.pts{margin-top:6px;font-size:10.5px;color:#5a7285}
+.rod{margin-top:16px;border-top:1px solid #e3ebf1;padding-top:9px;font-size:9.5px;color:#8fa3b3;line-height:1.55}
+@page{size:A4;margin:11mm}
+</style></head><body><div class="faixa"></div><div class="pg">
+<div class="cab">
+  <img src="${window.location.origin}/logos/logo-v-color.png" alt="Vittalis Saúde"/>
+  <div class="t"><h1>Relatório de acessos</h1>
+  <div class="s">Onde, quando e de qual rede cada pessoa entrou no VittaHub</div>
+  <div class="p">Últimos ${dias} dias${alvo ? ` · ${esc(alvo.usuario_nome)}` : ' · equipe toda'}</div></div>
+</div><div class="hr"></div>
+${usuarios.map(blocoUsuario).join('')}
+<div class="rod">Como ler: a localização por IP é aproximada — mostra a região do provedor, não o endereço exato; em rede móvel o bairro costuma vir vazio.
+Os pontos em "Onde esteve" vêm do aparelho e são precisos. "Uso simultâneo" é o mesmo login ativo de duas redes diferentes no mesmo bloco de 10 minutos,
+o sinal clássico de senha emprestada. Gerado em ${new Date().toLocaleString('pt-BR')} · Vittalis Saúde · documento interno.</div>
+</div></body></html>`;
+  const w = window.open('', '_blank');
+  if (!w) return;
+  w.document.write(html); w.document.close();
+  setTimeout(() => w.print(), 700);
+}
+
 export default function Auditoria() {
   const api = useApi();
   const { isMaster } = useAuth();
@@ -163,6 +276,17 @@ export default function Auditoria() {
             )}
           </div>
 
+          {locais && !locais.erro && (locais.usuarios || []).length > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
+              <button onClick={() => relatorioAcessos(locais, locDias, locUser)}
+                title="Abre a folha pronta pra imprimir ou salvar em PDF, com os links do Google Maps"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: '1px solid var(--border)',
+                  background: 'var(--card)', color: 'var(--txt2)', borderRadius: 9, padding: '6px 13px',
+                  fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>
+                📄 Relatório completo{locUser ? ` de ${String(locUser.usuario_nome).split(' ')[0]}` : ' da equipe'}
+              </button>
+            </div>
+          )}
           {locais?.erro && <div style={{ padding: 12, borderRadius: 10, background: 'var(--err2,#fdecec)', color: 'var(--err,#dc2626)', fontSize: 13 }}>{locais.erro}</div>}
           {!locais && <div style={{ color: 'var(--muted)', fontSize: 13 }}>Carregando…</div>}
 
@@ -276,6 +400,37 @@ export default function Auditoria() {
                         </div>
                       )}
 
+                      {/* 📍 OS PONTOS DE VERDADE (ordem do master, 28/08: "quero
+                          abrir pelo Google Maps"). São as coordenadas que o
+                          aparelho enviou — bem mais precisas que o IP. Cada uma
+                          abre o mapa; nunca eram mostradas na tela até agora. */}
+                      {(d.coords || []).length > 0 && (
+                        <div style={{ flexBasis: '100%', marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                          <span style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5 }}>
+                            Onde esteve
+                          </span>
+                          {(d.coords || []).map((c, k) => (
+                            <a key={k} href={`https://www.google.com/maps/search/?api=1&query=${c.lat},${c.lng}`}
+                              target="_blank" rel="noreferrer"
+                              title={`Abrir no Google Maps: ${c.lat}, ${c.lng}`}
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 800,
+                                textDecoration: 'none', padding: '3px 10px', borderRadius: 99,
+                                background: 'var(--tq3)', color: 'var(--tq2)', border: '1px solid var(--tq)' }}>
+                              📍 Ponto {k + 1}
+                            </a>
+                          ))}
+                          {(d.coords || []).length > 1 && (
+                            <a href={`https://www.google.com/maps/dir/${(d.coords || []).map(c => `${c.lat},${c.lng}`).join('/')}`}
+                              target="_blank" rel="noreferrer"
+                              title="Ver o trajeto do dia no Google Maps"
+                              style={{ fontSize: 11, fontWeight: 800, textDecoration: 'none', padding: '3px 10px', borderRadius: 99,
+                                background: 'var(--gold2,#fdf5e8)', color: 'var(--gold,#C4973B)', border: '1px solid var(--gold,#C4973B)' }}>
+                              🗺️ Ver trajeto do dia
+                            </a>
+                          )}
+                        </div>
+                      )}
+
                       {/* 🌐 Cada rede daquele dia, com horário, cidade e aparelho */}
                       {(d.redes_detalhe || []).length > 0 && (
                         <div style={{ flexBasis: '100%', marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -286,26 +441,21 @@ export default function Auditoria() {
                               <span style={{ color: 'var(--muted)' }}>das {rd.de} às {rd.ate}</span>
                               <span style={{ color: 'var(--muted)' }}>{rd.acoes} ações</span>
                               <span style={{ color: 'var(--muted)' }}>{rd.aparelho === 'celular' ? '📱 celular' : '🖥️ computador'}{rd.navegador ? ` · ${rd.navegador}` : ''}</span>
-                              {/* 📍 Bairro na frente da cidade (ordem do master, 28/08).
-                                  Em rede móvel o bairro costuma vir vazio — aí fica a cidade. */}
+                              {/* 📍 O ENDEREÇO É O PRÓPRIO LINK (ordem do master, 28/08:
+                                  "que eu possa acessar o endereço clicando em um link").
+                                  Clicou no bairro/cidade, abriu o Google Maps. Em rede
+                                  móvel o bairro costuma vir vazio — aí fica a cidade. */}
                               {(rd.bairro || rd.cidade) && (
-                                <span style={{ color: 'var(--tq2)', fontWeight: 700 }}>
-                                  📍 {[rd.bairro, rd.cidade].filter(Boolean).join(' · ')}
-                                </span>
+                                <a href={rd.lat && rd.lng
+                                    ? `https://www.google.com/maps/search/?api=1&query=${rd.lat},${rd.lng}`
+                                    : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([rd.bairro, rd.cidade].filter(Boolean).join(' '))}`}
+                                  target="_blank" rel="noreferrer"
+                                  title={rd.lat ? 'Abrir esta localização no Google Maps' : 'Abrir a região no Google Maps (sem coordenada exata)'}
+                                  style={{ color: 'var(--tq2)', fontWeight: 800, textDecoration: 'underline', textUnderlineOffset: 2 }}>
+                                  📍 {[rd.bairro, rd.cidade].filter(Boolean).join(' · ')} 🗺️
+                                </a>
                               )}
                               {rd.provedor && <span style={{ color: 'var(--muted)' }}>{rd.provedor}{rd.movel ? ' (rede móvel)' : ''}</span>}
-                              {/* 🗺️ Abrir a localização: usa a coordenada da rede; sem ela,
-                                  cai na busca pelo bairro/cidade, que já ajuda muito. */}
-                              <a href={rd.lat && rd.lng
-                                  ? `https://www.google.com/maps/search/?api=1&query=${rd.lat},${rd.lng}`
-                                  : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([rd.bairro, rd.cidade].filter(Boolean).join(' '))}`}
-                                target="_blank" rel="noreferrer"
-                                title={rd.lat ? 'Abrir esta localização no mapa' : 'Abrir a região no mapa (sem coordenada exata)'}
-                                style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 4,
-                                  fontSize: 11, fontWeight: 800, textDecoration: 'none', padding: '3px 9px', borderRadius: 8,
-                                  background: 'var(--tq3)', color: 'var(--tq2)', border: '1px solid var(--tq)' }}>
-                                🗺️ Abrir localização
-                              </a>
                             </div>
                           ))}
                         </div>
