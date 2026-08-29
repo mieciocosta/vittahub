@@ -132,10 +132,16 @@ export async function cartaoDoEvento(ev = {}, opts = {}) {
     servico: ev.servico || (ev.setor === 'terapias' ? 'Sessão de terapia' : ev.setor === 'consultas' ? 'Consulta' : 'Vacinação'),
     /* Visita em casa mostra ONDE (bairro/endereço curto): a família confere que
        marcamos no lugar certo. Sem endereço cadastrado, fica só "residência". */
+    /* Cuidado com a repetição: se o endereço cadastrado JÁ diz "residência"
+       (a equipe escreve isso direto), não repete o prefixo — saía "Em sua
+       residência. Em sua Residência" (cobrança do master, 28/08). */
     local: emCasa
-      ? (String(ev.endereco || '').trim()
-          ? `Em sua residência — ${String(ev.endereco).trim().slice(0, 48)}`
-          : 'Em sua residência')
+      ? (() => {
+          const end = String(ev.endereco || '').trim().replace(/^[.\s—-]+|[.\s]+$/g, '');
+          if (!end) return 'Em sua residência';
+          if (/resid[êe]ncia|em casa|domic[íi]lio/i.test(end)) return end.slice(0, 70);
+          return `Em sua residência — ${end.slice(0, 60)}`;
+        })()
       : 'Na Clínica Vittalis Saúde (Renascença)',
   }, opts);
 }

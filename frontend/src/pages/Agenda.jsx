@@ -274,7 +274,7 @@ export default function Agenda() {
       </div>
 
       <div style={{ display: 'flex', gap: 7, marginBottom: 12, flexWrap: 'wrap' }}>
-        {[['lista', '📅 Agenda do dia'], ...(podeVerVittaMed ? [['vittamed', '🏥 VittaMed']] : []), ['relatorio', '📋 Relatório e produtividade']].map(([k, l]) => (
+        {[['lista', '📅 Agenda do dia'], ...(podeVerVittaMed ? [['vittamed', '🏥 VittaMed']] : []), ['logistica', '🚚 Logística'], ['relatorio', '📋 Relatório e produtividade']].map(([k, l]) => (
           <button key={k} onClick={() => { setAba(k); if (k === 'relatorio') { setRel({ carregando: true }); api.get(`/extras/agenda/relatorio-dia?data=${data}`).then(setRel).catch(e => setRel({ erro: e.message })); } }}
             style={{ padding: '7px 15px', borderRadius: 10, fontSize: 12.5, fontWeight: 800, cursor: 'pointer',
               border: `1.5px solid ${aba === k ? 'var(--tq)' : 'var(--border)'}`,
@@ -283,6 +283,7 @@ export default function Agenda() {
       </div>
 
       {aba === 'vittamed' ? <AgendaVittaMed vmed={vmed} setor={vmedSetor} setSetor={setVmedSetor} rotuloDia={rotuloDia} onRecarregar={loadVmed} ehMaster={user?.role === 'master'} /> :
+       aba === 'logistica' ? <Logistica eventos={eventos} data={data} rotuloDia={rotuloDia} /> :
        aba === 'relatorio' ? <RelatorioDia rel={rel} data={data} rotuloDia={rotuloDia} onLider={() => setRelLider(true)} /> : (<>
       {/* ⬆️ AGENDA DE AGENDAMENTOS — as visitas e atendimentos do dia */}
       <div className="card" style={{ padding: 0, overflow: 'hidden', background: 'var(--card)' }}>
@@ -712,6 +713,145 @@ function AgendaVittaMed({ vmed, setor, setSetor, rotuloDia, onRecarregar, ehMast
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/* 🚚 LOGÍSTICA DO DIA (ordem do master, 28/08: "preciso mandar para a logística
+   organizado, com o link do Google Maps — coloca uma aba Logística onde eu
+   possa enviar todos pra ele").
+
+   Pega os agendamentos DO DIA que são visita em casa, põe na ordem do horário e
+   monta o roteiro: quem, onde, a que horas, o que vai ser feito e o telefone da
+   família. Cada endereço é link do Maps, e o botão da rota abre o caminho
+   inteiro no Google Maps, na ordem das visitas. Dá pra mandar no WhatsApp em um
+   toque ou copiar o texto. Nada é enviado sozinho: quem manda é o master. */
+function Logistica({ eventos, data, rotuloDia }) {
+  const [copiado, setCopiado] = React.useState(false);
+
+  const ehVisita = (e) => {
+    const end = String(e.endereco || '').trim();
+    // Endereço que só diz "residência" não serve pra rota: é visita sem rua
+    return !!end || /domic|em casa|resid/i.test(String(e.servico || ''));
+  };
+  const semRua = (e) => /^[.\s]*(em\s+sua\s+)?resid[êe]ncia[.\s]*$/i.test(String(e.endereco || '').trim());
+
+  const visitas = (eventos || [])
+    .filter(e => e.status !== 'Cancelado' && e.servico !== 'Pós Vacinal' && ehVisita(e))
+    .sort((a, b) => String(a.hora || '').localeCompare(String(b.hora || '')));
+
+  const enderecoDe = (e) => String(e.endereco || '').trim();
+  const mapsDe = (e) => (e.local_link && /^https?:\/\//i.test(e.local_link))
+    ? e.local_link
+    : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${enderecoDe(e)}, São Luís, MA`)}`;
+
+  // Rota completa: sai da clínica e passa por cada casa, na ordem do horário
+  const CLINICA = 'Av. Cel. Colares Moreira, 3A, Renascença, São Luís, MA';
+  const comRua = visitas.filter(v => enderecoDe(v) && !semRua(v));
+  const rota = comRua.length
+    ? `https://www.google.com/maps/dir/${encodeURIComponent(CLINICA)}/${comRua.map(v => encodeURIComponent(`${enderecoDe(v)}, São Luís, MA`)).join('/')}`
+    : null;
+
+  const texto = [
+    `🚚 ROTEIRO DE VISITAS — ${rotuloDia}`,
+    '',
+    ...visitas.map((v, i) => [
+      `${i + 1}) ${v.hora || '--:--'} · ${v.paciente || 'Paciente'}`,
+      `📍 ${enderecoDe(v) || 'Endereço a confirmar com a família'}`,
+      v.servico ? `💉 ${v.servico}` : null,
+      v.telefone ? `📞 ${v.telefone}` : null,
+      enderecoDe(v) && !semRua(v) ? `🗺️ ${mapsDe(v)}` : null,
+      '',
+    ].filter(Boolean).join('\n')),
+    rota ? `🗺️ Rota completa (saindo da clínica):\n${rota}` : '',
+  ].join('\n').trim();
+
+  const copiar = async () => {
+    /* Sem área de transferência (webview do celular costuma bloquear), o texto
+       do roteiro está logo abaixo pra selecionar e copiar na mão. */
+    try { await navigator.clipboard.writeText(texto); setCopiado(true); setTimeout(() => setCopiado(false), 2500); }
+    catch { setCopiado('erro'); setTimeout(() => setCopiado(false), 3500); }
+  };
+
+  const btn = (cor) => ({ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 15px', borderRadius: 10,
+    fontSize: 12.5, fontWeight: 800, cursor: 'pointer', textDecoration: 'none', border: 'none',
+    background: cor, color: '#fff', boxShadow: '0 3px 10px rgba(0,0,0,.14)' });
+
+  return (
+    <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+      <div style={{ padding: '13px 20px', background: 'linear-gradient(90deg,#C4973B,#a97c25)', color: '#fff',
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+        <span style={{ fontWeight: 800, fontSize: 14, textTransform: 'capitalize' }}>🚚 Logística · {rotuloDia}</span>
+        <span style={{ fontSize: 11.5, fontWeight: 700, opacity: .95 }}>
+          {visitas.length} visita{visitas.length === 1 ? '' : 's'} em casa
+        </span>
+      </div>
+
+      {visitas.length === 0 ? (
+        <div style={{ padding: '44px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: 13.5 }}>
+          Nenhuma visita em casa neste dia. Atendimento na clínica não entra no roteiro.
+        </div>
+      ) : (
+        <>
+          <div style={{ display: 'flex', gap: 8, padding: '13px 18px', flexWrap: 'wrap', borderBottom: '1px solid var(--border)' }}>
+            {rota && (
+              <a href={rota} target="_blank" rel="noreferrer" style={btn('#0e7490')}>
+                🗺️ Abrir rota no Google Maps
+              </a>
+            )}
+            <a href={`https://wa.me/?text=${encodeURIComponent(texto)}`} target="_blank" rel="noreferrer" style={btn('#25D366')}>
+              💬 Enviar no WhatsApp
+            </a>
+            <button onClick={copiar} style={{ ...btn('var(--bg2)'), color: 'var(--txt2)', boxShadow: 'none', border: '1px solid var(--border)' }}>
+              {copiado === 'erro' ? '⚠️ Copie do texto abaixo' : copiado ? '✅ Copiado!' : '📋 Copiar roteiro'}
+            </button>
+          </div>
+
+          <div style={{ padding: '6px 0' }}>
+            {visitas.map((v, i) => (
+              <div key={v.id || i} style={{ display: 'flex', gap: 12, padding: '12px 18px', borderTop: i ? '1px solid var(--border)' : 'none', alignItems: 'flex-start' }}>
+                <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'var(--gold2,#fdf5e8)', color: 'var(--gold,#C4973B)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: 12.5, flexShrink: 0 }}>{i + 1}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', gap: 9, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                    <b style={{ fontSize: 14, color: 'var(--txt)' }}>{v.hora || '--:--'}</b>
+                    <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)' }}>{v.paciente || 'Paciente'}</span>
+                    {v.responsavel_nome && v.responsavel_nome !== v.paciente && (
+                      <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>· resp. {v.responsavel_nome}</span>
+                    )}
+                  </div>
+                  {v.servico && <div style={{ fontSize: 12, color: 'var(--txt2)', marginTop: 2 }}>💉 {v.servico}</div>}
+                  <div style={{ fontSize: 12, marginTop: 3 }}>
+                    {enderecoDe(v) && !semRua(v) ? (
+                      <a href={mapsDe(v)} target="_blank" rel="noreferrer"
+                        style={{ color: 'var(--tq2)', fontWeight: 700, textDecoration: 'underline', textUnderlineOffset: 2 }}>
+                        📍 {enderecoDe(v)} 🗺️
+                      </a>
+                    ) : (
+                      <span style={{ color: 'var(--err)', fontWeight: 700 }}>
+                        ⚠️ Endereço não cadastrado — a logística não consegue chegar
+                      </span>
+                    )}
+                  </div>
+                  {v.telefone && (
+                    <a href={`tel:${String(v.telefone).replace(/\D/g, '')}`}
+                      style={{ fontSize: 12, color: 'var(--muted)', textDecoration: 'none' }}>📞 {v.telefone}</a>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ padding: '12px 18px', borderTop: '1px solid var(--border)' }}>
+            <div style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 6 }}>
+              Texto que vai pra logística
+            </div>
+            <textarea readOnly value={texto} rows={Math.min(16, visitas.length * 5 + 4)}
+              style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 10, padding: '10px 12px',
+                fontSize: 12, lineHeight: 1.55, background: 'var(--bg)', color: 'var(--txt)', fontFamily: 'inherit', resize: 'vertical' }} />
+          </div>
+        </>
+      )}
     </div>
   );
 }
