@@ -3928,6 +3928,19 @@ function FaixaContexto({ sel, leadInfo, setLeadInfo, api, scoreChip, setScoreChi
   );
 
   const abrir = (campo, valorAtual) => { setRascunho(valorAtual || ''); setEditando(campo); };
+  const [ligarAberto, setLigarAberto] = React.useState(false);
+  const telLimpo = String(sel?.phone || '').replace(/\D/g, '');
+  const tel55 = telLimpo.startsWith('55') ? telLimpo : `55${telLimpo}`;
+  /* Registra a tentativa: o master quer medir quem liga, e a conversa fica com
+     a marca de que houve chamada (o WhatsApp não avisa a gente disso). */
+  const marcarLigacao = (via) => {
+    api.post('/extras/ligacoes', {
+      contato_nome: sel?.contact_name || 'Cliente', telefone: telLimpo,
+      direcao: 'realizada', status: 'Retornar',
+      observacoes: `Chamada iniciada pelo VittaHub (${via})`,
+    }).catch(() => {});
+    window.__auditLog?.('ligar', 'conversa', sel?.id, { nome: sel?.contact_name, via });
+  };
   const codigoTxt = sel?.codigo ? `VT-${String(sel.codigo).padStart(4, '0')}` : null;
 
   return (
@@ -3952,6 +3965,17 @@ function FaixaContexto({ sel, leadInfo, setLeadInfo, api, scoreChip, setScoreChi
       <Cartao ic="🔁" label="Transferir" valor="Passar adiante"
         dica="Passar este atendimento para outra pessoa"
         aoClicar={() => onTransferir?.()} />
+
+      {/* 📞 LIGAR PRO CLIENTE (ordem do master, 28/08: "quero que elas consigam
+          ligar para os clientes via WhatsApp"). Abre a conversa no WhatsApp do
+          aparelho, onde o botão de chamada fica a um toque; e oferece a ligação
+          normal pelo telefone. A chamada em si o navegador NÃO consegue fazer:
+          o WhatsApp não abre linha por link, nem pela API. */}
+      {sel?.phone && (
+        <Cartao ic="📞" label="Ligar" valor="Chamar cliente"
+          dica="Abrir no WhatsApp para chamar, ou ligar pelo telefone"
+          aoClicar={() => setLigarAberto(true)} />
+      )}
 
       {/* 2 · Cliente — quem fala com a gente (o nome do contato) */}
       <Cartao ic="🧑" label="Cliente" editavel aberto={editando === 'cliente'}
@@ -4028,6 +4052,42 @@ function FaixaContexto({ sel, leadInfo, setLeadInfo, api, scoreChip, setScoreChi
           try { navigator.clipboard.writeText(codigoTxt); Toast.show('Código copiado! 🆔', 'success'); }
           catch { /* webview sem área de transferência */ }
         } : undefined} />
+
+      {/* 📞 Como ligar: as duas formas que existem de verdade */}
+      {ligarAberto && (
+        <div onClick={() => setLigarAberto(false)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 1200,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div onClick={e => e.stopPropagation()} className="card"
+            style={{ width: '100%', maxWidth: 360, padding: 0, overflow: 'hidden' }}>
+            <div style={{ padding: '14px 16px 10px', borderBottom: '1px solid var(--border)' }}>
+              <div style={{ fontSize: 14.5, fontWeight: 800, color: 'var(--txt)' }}>📞 Ligar para {sel?.contact_name || 'o cliente'}</div>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3 }}>{fmt.phone(sel?.phone)}</div>
+            </div>
+            <div style={{ padding: '10px 12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <a href={`https://wa.me/${tel55}`} target="_blank" rel="noreferrer"
+                onClick={() => { marcarLigacao('WhatsApp'); setLigarAberto(false); }}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 13px', borderRadius: 11,
+                  textDecoration: 'none', background: '#25D366', color: '#fff', fontWeight: 800, fontSize: 13 }}>
+                💬 Abrir no WhatsApp
+                <span style={{ marginLeft: 'auto', fontSize: 10.5, fontWeight: 700, opacity: .9 }}>e tocar em 📞</span>
+              </a>
+              <a href={`tel:${telLimpo}`}
+                onClick={() => { marcarLigacao('telefone'); setLigarAberto(false); }}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 13px', borderRadius: 11,
+                  textDecoration: 'none', background: 'var(--bg2)', color: 'var(--txt)', fontWeight: 800, fontSize: 13,
+                  border: '1px solid var(--border)' }}>
+                📞 Ligar pelo telefone
+                <span style={{ marginLeft: 'auto', fontSize: 10.5, fontWeight: 700, color: 'var(--muted)' }}>chamada normal</span>
+              </a>
+              <div style={{ fontSize: 10.5, color: 'var(--light)', lineHeight: 1.5, marginTop: 2 }}>
+                A chamada de voz do WhatsApp só começa dentro do aplicativo — nenhum sistema consegue discar por ela.
+                Aqui a conversa já abre no contato certo: é um toque no ícone de telefone. A tentativa fica registrada em Ligações.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Selos discretos: etapa do funil e o que a IA lembrou */}
       {leadInfo?.status && (
