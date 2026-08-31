@@ -4065,12 +4065,26 @@ function FaixaContexto({ sel, leadInfo, setLeadInfo, api, scoreChip, setScoreChi
               <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3 }}>{fmt.phone(sel?.phone)}</div>
             </div>
             <div style={{ padding: '10px 12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {/* 📲 ABRE O APLICATIVO DIRETO, não o navegador (ordem do master,
+                  28/08: "quero que de alguma forma seja via WhatsApp"). O
+                  esquema whatsapp:// pula a página do wa.me e cai na conversa
+                  dentro do app — de lá é UM toque no ícone de chamada. Se o app
+                  não estiver instalado, o link de baixo resolve. */}
+              <a href={`whatsapp://send?phone=${tel55}`}
+                onClick={() => { marcarLigacao('WhatsApp'); setTimeout(() => setLigarAberto(false), 400); }}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '13px 14px', borderRadius: 11,
+                  textDecoration: 'none', background: '#25D366', color: '#fff', fontWeight: 800, fontSize: 13.5,
+                  boxShadow: '0 4px 14px rgba(37,211,102,.35)' }}>
+                📞 Chamar no WhatsApp
+                <span style={{ marginLeft: 'auto', fontSize: 10.5, fontWeight: 700, opacity: .95 }}>abre o app no contato</span>
+              </a>
               <a href={`https://wa.me/${tel55}`} target="_blank" rel="noreferrer"
-                onClick={() => { marcarLigacao('WhatsApp'); setLigarAberto(false); }}
-                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 13px', borderRadius: 11,
-                  textDecoration: 'none', background: '#25D366', color: '#fff', fontWeight: 800, fontSize: 13 }}>
-                💬 Abrir no WhatsApp
-                <span style={{ marginLeft: 'auto', fontSize: 10.5, fontWeight: 700, opacity: .9 }}>e tocar em 📞</span>
+                onClick={() => { marcarLigacao('WhatsApp Web'); setLigarAberto(false); }}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 13px', borderRadius: 11,
+                  textDecoration: 'none', background: 'var(--wa2,#e8fdf0)', color: '#128C7E', fontWeight: 800, fontSize: 12.5,
+                  border: '1px solid #25D366' }}>
+                💬 Abrir pelo WhatsApp Web
+                <span style={{ marginLeft: 'auto', fontSize: 10.5, fontWeight: 700, opacity: .8 }}>se o app não abrir</span>
               </a>
               <a href={`tel:${telLimpo}`}
                 onClick={() => { marcarLigacao('telefone'); setLigarAberto(false); }}
@@ -4081,8 +4095,8 @@ function FaixaContexto({ sel, leadInfo, setLeadInfo, api, scoreChip, setScoreChi
                 <span style={{ marginLeft: 'auto', fontSize: 10.5, fontWeight: 700, color: 'var(--muted)' }}>chamada normal</span>
               </a>
               <div style={{ fontSize: 10.5, color: 'var(--light)', lineHeight: 1.5, marginTop: 2 }}>
-                A chamada de voz do WhatsApp só começa dentro do aplicativo — nenhum sistema consegue discar por ela.
-                Aqui a conversa já abre no contato certo: é um toque no ícone de telefone. A tentativa fica registrada em Ligações.
+                O primeiro botão abre o WhatsApp já na conversa do cliente: a chamada é um toque no 📞 lá em cima.
+                A voz do WhatsApp só roda dentro do aplicativo — é assim para qualquer sistema. A tentativa fica registrada em Ligações.
               </div>
             </div>
           </div>
