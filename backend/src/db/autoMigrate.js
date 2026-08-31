@@ -3024,6 +3024,7 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
   try { await consertarAssinaturas(); } catch (e) { console.error('assinaturas:', e.message); }
   try { await titulosDaEquipe(); } catch (e) { console.error('titulos da equipe:', e.message); }
   try { await bonusPessoais(); } catch (e) { console.error('bonus pessoais:', e.message); }
+  try { await colunasCriticas(); } catch (e) { console.error('colunas criticas:', e.message); }
 }
 
 
@@ -3152,6 +3153,38 @@ const BONUS_PESSOAIS = [
     aviso: ['🏅 Bônus da Danielle aumentou',
       'Danielle: a sua bonificação por bater a meta passou para R$ 5.000. Vale a partir de agora.'] },
 ];
+
+/* 🛟 COLUNAS QUE NÃO PODEM FALTAR (28/08, depois de "na hora de transferir está
+   dando problema"). As migrações do bloco de cima rodam dentro de UM try/catch:
+   se qualquer linha anterior falha, todas as seguintes são puladas em silêncio
+   — e aí uma coluna nova nunca nasce, derrubando a tela que depende dela.
+
+   Estas são as do último mês, as que quebram funcionalidade se faltarem. Rodam
+   por fora, cada uma isolada: se uma falhar, as outras seguem. */
+async function colunasCriticas() {
+  const COLUNAS = [
+    ['conversas', 'transferida_por', "TEXT[] DEFAULT '{}'"],   // transferiu, sumiu
+    ['conversas', 'visivel_todos',   'BOOLEAN DEFAULT false'],  // mostrar pra equipe toda
+    ['conversas', 'nome_manual',     'BOOLEAN DEFAULT false'],  // nome digitado pela equipe
+    ['conversas', 'arquivada',       'BOOLEAN DEFAULT false'],
+    ['conversas', 'simulacao',       'BOOLEAN DEFAULT false'],
+    ['usuarios',  'titulo',          'TEXT'],                   // carteira na transferência
+    ['usuarios',  'so_fidelidade',   'BOOLEAN DEFAULT false'],
+    ['usuarios',  'meta_planos_mes', 'INT DEFAULT 0'],
+    ['biblioteca_midias', 'ordem',   'INT DEFAULT 999'],        // ordem das figurinhas
+  ];
+  let criadas = 0;
+  for (const [tabela, coluna, tipo] of COLUNAS) {
+    const { rows: [ja] } = await query(
+      `SELECT 1 FROM information_schema.columns WHERE table_name = $1 AND column_name = $2`,
+      [tabela, coluna]).catch(() => ({ rows: [1] }));
+    if (ja) continue;
+    await query(`ALTER TABLE ${tabela} ADD COLUMN IF NOT EXISTS ${coluna} ${tipo}`)
+      .then(() => { criadas++; console.log(`🛟 coluna criada: ${tabela}.${coluna}`); })
+      .catch(e => console.error(`coluna ${tabela}.${coluna}:`, e.message));
+  }
+  if (criadas) console.log(`🛟 ${criadas} coluna(s) que faltavam foram criadas`);
+}
 
 async function bonusPessoais() {
   for (const b of BONUS_PESSOAIS) {

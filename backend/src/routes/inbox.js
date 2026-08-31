@@ -4546,7 +4546,11 @@ r.patch('/conversations/:id/assign', async (req, res) => {
       `UPDATE conversas SET responsavel_id = $1,
               transferida_por = CASE WHEN $1::text IS NULL THEN ARRAY[]::text[]
                 ELSE ARRAY(SELECT x FROM unnest(COALESCE(transferida_por, ARRAY[]::text[])) AS x WHERE x <> $1::text) END
-       WHERE id = $2 RETURNING *`, [respId, req.params.id]);
+       WHERE id = $2 RETURNING *`, [respId, req.params.id])
+      .catch(async (e) => {   // 🛟 sem a coluna, ainda assim troca o responsável
+        console.error('assign (sem transferida_por):', e.message);
+        return query('UPDATE conversas SET responsavel_id = $1 WHERE id = $2 RETURNING *', [respId, req.params.id]);
+      });
     // O lead vinculado herda a carteira (responsável) — pra bater com a pasta/lista
     await query('UPDATE leads SET responsavel_id = $1 WHERE id = (SELECT lead_id FROM conversas WHERE id = $2 AND lead_id IS NOT NULL)', [respId, req.params.id]).catch(() => {});
     const cached = convoCache.get(req.params.id);
@@ -5133,9 +5137,17 @@ r.post('/sincronizar-chats', async (req, res) => {
 // Lista de atendentes (pra o seletor de transferência) — acessível a todos logados
 r.get('/atendentes', async (req, res) => {
   try {
+    /* 🛟 Rede de segurança: se a coluna 'titulo' ainda não existir no banco (a
+       migração pode ter sido pulada), a lista NÃO pode quebrar — é ela que a
+       tela de transferência usa. Cai na consulta sem o título. */
     const { rows } = await query(
       `SELECT id, nome, setor, cor, avatar, supervisor_id, titulo FROM usuarios
-       WHERE ativo = true AND role IN ('atendente','supervisor','master') ORDER BY nome`);
+       WHERE ativo = true AND role IN ('atendente','supervisor','master') ORDER BY nome`)
+      .catch(async (e) => {
+        console.error('atendentes (sem titulo):', e.message);
+        return query(`SELECT id, nome, setor, cor, avatar, supervisor_id FROM usuarios
+                      WHERE ativo = true AND role IN ('atendente','supervisor','master') ORDER BY nome`);
+      });
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -5156,14 +5168,28 @@ r.patch('/conversations/:id/transferir', async (req, res) => {
     /* Marca quem passou o atendimento adiante: a conversa some da lista dessa
        pessoa (ordem do master). O id de quem RECEBE sai da lista — assim, se um
        dia voltar pra ela, volta a aparecer normalmente. */
-    const { rows: [conv] } = await query(
-      `UPDATE conversas SET responsavel_id = $1${mantemBot ? '' : ', bot_ativo = false'}${novoSetor ? ', setor = $4' : ''},
-              transferida_por = ARRAY(
-                SELECT DISTINCT x FROM unnest(array_append(COALESCE(transferida_por, ARRAY[]::text[]), $3::text)) AS x
-                 WHERE x IS NOT NULL AND x <> '' AND x <> $1::text)
-       WHERE id = $2 RETURNING *`,
-      novoSetor ? [paraId, req.params.id, String(req.user?.id || ''), novoSetor]
-                : [paraId, req.params.id, String(req.user?.id || '')]);
+    let conv = null;
+    try {
+      const r2 = await query(
+        `UPDATE conversas SET responsavel_id = $1${mantemBot ? '' : ', bot_ativo = false'}${novoSetor ? ', setor = $4' : ''},
+                transferida_por = ARRAY(
+                  SELECT DISTINCT x FROM unnest(array_append(COALESCE(transferida_por, ARRAY[]::text[]), $3::text)) AS x
+                   WHERE x IS NOT NULL AND x <> '' AND x <> $1::text)
+         WHERE id = $2 RETURNING *`,
+        novoSetor ? [paraId, req.params.id, String(req.user?.id || ''), novoSetor]
+                  : [paraId, req.params.id, String(req.user?.id || '')]);
+      conv = r2.rows[0];
+    } catch (e) {
+      /* 🛟 A marca de quem transferiu é importante, mas TRANSFERIR é essencial:
+         se a coluna ainda não existir no banco, a transferência acontece do
+         mesmo jeito (28/08, "na hora de transferir está dando problema"). */
+      console.error('transferir (sem transferida_por):', e.message);
+      const r3 = await query(
+        `UPDATE conversas SET responsavel_id = $1${mantemBot ? '' : ', bot_ativo = false'}${novoSetor ? ', setor = $3' : ''}
+         WHERE id = $2 RETURNING *`,
+        novoSetor ? [paraId, req.params.id, novoSetor] : [paraId, req.params.id]);
+      conv = r3.rows[0];
+    }
     if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
     cacheUpdate(conv);
     const de = req.user?.nome || 'a equipe';

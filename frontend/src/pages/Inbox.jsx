@@ -1741,7 +1741,11 @@ export default function Inbox({ onUnreadChange }) {
       setConvos(p => p.filter(c => c.id !== idTransf));
       setSel(null); setMsgs([]);
       Toast.show(`Atendimento transferido para ${(para.nome||'').split(' ')[0]} 🔁`, 'success');
-    } catch (e) { Toast.show(e.message || 'Não foi possível transferir', 'error'); }
+    } catch (e) {
+      // Mostra o motivo que o servidor deu — "não foi possível" não ajuda ninguém
+      Toast.show(e.message ? `Não transferi: ${e.message}` : 'Não foi possível transferir', 'error');
+      console.error('transferir:', e);
+    }
     setTransfSaving(false);
   };
   /* 🗓️ Lê a conversa e escreve o cartão oficial na caixa de mensagem. O texto
