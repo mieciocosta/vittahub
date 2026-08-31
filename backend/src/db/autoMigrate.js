@@ -3023,7 +3023,7 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
   try { await mensagensProntas(); } catch (e) { console.error('mensagens prontas:', e.message); }
   try { await consertarAssinaturas(); } catch (e) { console.error('assinaturas:', e.message); }
   try { await titulosDaEquipe(); } catch (e) { console.error('titulos da equipe:', e.message); }
-  try { await bonusVacinas(); } catch (e) { console.error('bonus vacinas:', e.message); }
+  try { await bonusPessoais(); } catch (e) { console.error('bonus pessoais:', e.message); }
 }
 
 
@@ -3130,41 +3130,59 @@ async function carregarFigurinhas() {
    transferência e no seletor de responsável, pra ninguém precisar decorar quem
    cuida de quê. Roda todo boot e só escreve quando mudou — se o master trocar
    alguém de carteira, é aqui que se ajusta. */
-/* 🏅 BÔNUS DE VACINAS DA POLIANA E DA STEFANY = R$ 2.000 (ordem do master,
-   28/08: "muda o bônus da Poliana e Stefany de vacinas para R$ 2.000 e
-   sinaliza essa mudança").
+/* 🏅 BÔNUS PESSOAL DA EQUIPE (ordens do master, 28/08: "muda o bônus da Poliana
+   e Stefany de vacinas para R$ 2.000" e "coloca a bonificação da Danielle em
+   5.000 — sinaliza a mudança").
 
-   O prêmio pessoal já existia (é assim que a Raylane tem o dela): fica em
+   O prêmio pessoal já existia (é assim que a Raylane tem o dela): mora em
    configuracoes.metas.premiosPessoa, pelo PRIMEIRO NOME em minúsculo e sem
-   acento. O recado de premiosMsg aparece no placar delas, em dourado — é a
-   sinalização que o master pediu, cada uma vendo a própria mudança. */
-async function bonusVacinas() {
-  const { rows: [ja] } = await query(
-    "SELECT 1 FROM configuracoes WHERE chave = 'seed_bonus_2000_v1'").catch(() => ({ rows: [1] }));
-  if (ja) return;
-  const MSG = '🎉 Novo bônus: R$ 2.000 ao bater a meta de vacinas (antes R$ 1.500)';
-  await query(`
-    INSERT INTO configuracoes (chave, valor) VALUES ('metas', $1::jsonb)
-    ON CONFLICT (chave) DO UPDATE SET valor =
-      jsonb_set(jsonb_set(jsonb_set(jsonb_set(
-        COALESCE(configuracoes.valor,'{}'::jsonb),
-        '{premiosPessoa,poliana}', '2000'::jsonb, true),
-        '{premiosPessoa,stefany}', '2000'::jsonb, true),
-        '{premiosMsg,poliana}', $2::jsonb, true),
-        '{premiosMsg,stefany}', $2::jsonb, true),
-      updated_at = NOW()`,
-    [JSON.stringify({ premiosPessoa: { poliana: 2000, stefany: 2000 }, premiosMsg: { poliana: MSG, stefany: MSG } }),
-     JSON.stringify(MSG)]).catch((e) => { throw e; });
+   acento. O recado de premiosMsg aparece no placar da pessoa, em dourado — é a
+   sinalização que o master pede a cada mudança.
 
-  // 🔔 E o aviso no sino, pra ninguém descobrir só quando abrir o placar
-  await query(`INSERT INTO notificacoes (tipo, titulo, texto)
-               VALUES ('meta', $1, $2)`,
-    ['🏅 Bônus de vacinas aumentou',
-     'Poliana e Stefany: o bônus por bater a meta de vacinas passou de R$ 1.500 para R$ 2.000. Vale a partir de agora.'])
-    .catch(() => {});
-  await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_bonus_2000_v1','{"ok":true}')
-               ON CONFLICT DO NOTHING`).catch(() => {});
-  console.log('🏅 Bônus de vacinas da Poliana e da Stefany atualizado para R$ 2.000');
+   Cada mudança tem a SUA flag: roda uma vez, não reescreve a cada deploy e não
+   desfaz ajuste feito na tela depois. Pra mudar de novo, entra uma linha nova
+   com flag nova — o histórico fica aqui, à vista. */
+const BONUS_PESSOAIS = [
+  { flag: 'seed_bonus_2000_v1', quem: ['poliana', 'stefany'], valor: 2000,
+    msg: '🎉 Novo bônus: R$ 2.000 ao bater a meta de vacinas (antes R$ 1.500)',
+    aviso: ['🏅 Bônus de vacinas aumentou',
+      'Poliana e Stefany: o bônus por bater a meta de vacinas passou de R$ 1.500 para R$ 2.000. Vale a partir de agora.'] },
+  { flag: 'seed_bonus_danielle_5000_v1', quem: ['danielle'], valor: 5000,
+    msg: '🎉 Novo bônus: R$ 5.000 ao bater a meta (antes R$ 1.500)',
+    aviso: ['🏅 Bônus da Danielle aumentou',
+      'Danielle: a sua bonificação por bater a meta passou para R$ 5.000. Vale a partir de agora.'] },
+];
+
+async function bonusPessoais() {
+  for (const b of BONUS_PESSOAIS) {
+    const { rows: [ja] } = await query(
+      'SELECT 1 FROM configuracoes WHERE chave = $1', [b.flag]).catch(() => ({ rows: [1] }));
+    if (ja) continue;
+
+    // Monta os caminhos do jsonb pra cada pessoa da mudança
+    let sql = "COALESCE(configuracoes.valor,'{}'::jsonb)";
+    const params = [];
+    let i = 1;
+    const inicial = { premiosPessoa: {}, premiosMsg: {} };
+    for (const nome of b.quem) {
+      sql = `jsonb_set(jsonb_set(${sql}, '{premiosPessoa,${nome}}', $${i}::jsonb, true), '{premiosMsg,${nome}}', $${i + 1}::jsonb, true)`;
+      params.push(String(b.valor), JSON.stringify(b.msg));
+      i += 2;
+      inicial.premiosPessoa[nome] = b.valor;
+      inicial.premiosMsg[nome] = b.msg;
+    }
+    await query(
+      `INSERT INTO configuracoes (chave, valor) VALUES ('metas', $${i}::jsonb)
+       ON CONFLICT (chave) DO UPDATE SET valor = ${sql}, updated_at = NOW()`,
+      [...params, JSON.stringify(inicial)]);
+
+    // 🔔 Aviso no sino, pra ninguém descobrir só quando abrir o placar
+    await query('INSERT INTO notificacoes (tipo, titulo, texto) VALUES ($1,$2,$3)',
+      ['meta', b.aviso[0], b.aviso[1]]).catch(() => {});
+    await query(`INSERT INTO configuracoes (chave, valor) VALUES ($1,'{"ok":true}')
+                 ON CONFLICT DO NOTHING`, [b.flag]).catch(() => {});
+    console.log(`🏅 Bônus de ${b.quem.join(' e ')} atualizado para R$ ${b.valor}`);
+  }
 }
 
 async function titulosDaEquipe() {
