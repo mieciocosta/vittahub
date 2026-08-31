@@ -3023,6 +3023,7 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
   try { await mensagensProntas(); } catch (e) { console.error('mensagens prontas:', e.message); }
   try { await consertarAssinaturas(); } catch (e) { console.error('assinaturas:', e.message); }
   try { await titulosDaEquipe(); } catch (e) { console.error('titulos da equipe:', e.message); }
+  try { await bonusVacinas(); } catch (e) { console.error('bonus vacinas:', e.message); }
 }
 
 
@@ -3129,6 +3130,43 @@ async function carregarFigurinhas() {
    transferência e no seletor de responsável, pra ninguém precisar decorar quem
    cuida de quê. Roda todo boot e só escreve quando mudou — se o master trocar
    alguém de carteira, é aqui que se ajusta. */
+/* 🏅 BÔNUS DE VACINAS DA POLIANA E DA STEFANY = R$ 2.000 (ordem do master,
+   28/08: "muda o bônus da Poliana e Stefany de vacinas para R$ 2.000 e
+   sinaliza essa mudança").
+
+   O prêmio pessoal já existia (é assim que a Raylane tem o dela): fica em
+   configuracoes.metas.premiosPessoa, pelo PRIMEIRO NOME em minúsculo e sem
+   acento. O recado de premiosMsg aparece no placar delas, em dourado — é a
+   sinalização que o master pediu, cada uma vendo a própria mudança. */
+async function bonusVacinas() {
+  const { rows: [ja] } = await query(
+    "SELECT 1 FROM configuracoes WHERE chave = 'seed_bonus_2000_v1'").catch(() => ({ rows: [1] }));
+  if (ja) return;
+  const MSG = '🎉 Novo bônus: R$ 2.000 ao bater a meta de vacinas (antes R$ 1.500)';
+  await query(`
+    INSERT INTO configuracoes (chave, valor) VALUES ('metas', $1::jsonb)
+    ON CONFLICT (chave) DO UPDATE SET valor =
+      jsonb_set(jsonb_set(jsonb_set(jsonb_set(
+        COALESCE(configuracoes.valor,'{}'::jsonb),
+        '{premiosPessoa,poliana}', '2000'::jsonb, true),
+        '{premiosPessoa,stefany}', '2000'::jsonb, true),
+        '{premiosMsg,poliana}', $2::jsonb, true),
+        '{premiosMsg,stefany}', $2::jsonb, true),
+      updated_at = NOW()`,
+    [JSON.stringify({ premiosPessoa: { poliana: 2000, stefany: 2000 }, premiosMsg: { poliana: MSG, stefany: MSG } }),
+     JSON.stringify(MSG)]).catch((e) => { throw e; });
+
+  // 🔔 E o aviso no sino, pra ninguém descobrir só quando abrir o placar
+  await query(`INSERT INTO notificacoes (tipo, titulo, texto)
+               VALUES ('meta', $1, $2)`,
+    ['🏅 Bônus de vacinas aumentou',
+     'Poliana e Stefany: o bônus por bater a meta de vacinas passou de R$ 1.500 para R$ 2.000. Vale a partir de agora.'])
+    .catch(() => {});
+  await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_bonus_2000_v1','{"ok":true}')
+               ON CONFLICT DO NOTHING`).catch(() => {});
+  console.log('🏅 Bônus de vacinas da Poliana e da Stefany atualizado para R$ 2.000');
+}
+
 async function titulosDaEquipe() {
   const TITULOS = [
     ['poliana',  'Fidelidade'],
