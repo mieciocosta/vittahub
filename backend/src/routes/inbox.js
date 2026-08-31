@@ -419,6 +419,13 @@ export function podeVerSetor(viewer, conv) {
       && !ehGestao(viewer)) return false;   // 28/08: "só ela e a gestão" (master, supervisora, ve_tudo)
 
   if (viewer.ve_tudo) return true;
+  /* 📥 LEAD NOVO É DO MASTER (ordem do master, 28/08: "quero que meu usuário
+     seja o único a olhar todos os leads e que eu seja a distribuidora").
+     Conversa SEM responsável é lead ainda não distribuído: some da tela de todo
+     mundo até ele entregar a alguém. A equipe trabalha o que recebeu — e o que
+     não foi entregue não fica esperando ninguém, fica esperando ELE. */
+  if (!conv.responsavel_id) return false;
+
   /* 🎯 CONVERSA COM DONA É SÓ DELA (ordem do master, 24/08: "ao transferir para
      uma pessoa específica, desapareça para a outra que transferiu"). Atendente
      comum vê o POOL sem dono do seu setor e a própria carteira; conversa já
@@ -443,7 +450,7 @@ export function podeVerSetor(viewer, conv) {
   return ef === null || ef === viewerSetor;
 }
 
-function cacheGetList({ channel, search, unread_only, waiting, minhas, responsavel, grupos, setor, categoria, classificacao, arquivadas, page = 1, limit = 100, extraIds = null, viewer = null }) {
+function cacheGetList({ channel, search, unread_only, waiting, minhas, semDono, responsavel, grupos, setor, categoria, classificacao, arquivadas, page = 1, limit = 100, extraIds = null, viewer = null }) {
   let list = Array.from(convoCache.values())
     .sort((a, b) => new Date(b.last_message_at || 0) - new Date(a.last_message_at || 0));
   if (channel && channel !== 'all') list = list.filter(c => c.channel === channel);
@@ -479,6 +486,8 @@ function cacheGetList({ channel, search, unread_only, waiting, minhas, responsav
   }
   // Filtros do mock: Minhas (sou a responsável) e Grupos (conversas de grupo)
   if (minhas === 'true' && viewer) list = list.filter(c => c.responsavel_id === viewer.id);
+  // 📥 A fila de distribuição do master: leads que ainda não têm dona
+  if (semDono === 'true') list = list.filter(c => !c.responsavel_id);
   // Carteira de um atendente específico (gestão vê a carteira de cada um)
   if (responsavel && responsavel !== 'all') list = list.filter(c => c.responsavel_id === responsavel);
   if (grupos === 'true') list = list.filter(c => ehGrupo(c));
@@ -3963,6 +3972,8 @@ r.get('/conversations', async (req, res) => {
          27/08). Esta é a rota de emergência que roda enquanto o cache não
          carregou — sem isso, nos primeiros segundos do deploy a equipe veria
          os clientes da Poliana. */
+      // 📥 Lead sem dono é do master (mesma regra do cache)
+      if (req.user && req.user.role !== 'master') conditions.push('c.responsavel_id IS NOT NULL');
       if (req.user && !ehGestao(req.user) && !(req.user.so_fidelidade === true)) {
         conditions.push(`(c.responsavel_id = $${pi} OR (COALESCE(c.categoria,'') <> 'fidelidade'
               AND COALESCE(c.classificacao,'') <> 'fidelidade'
@@ -3995,6 +4006,10 @@ r.get('/conversations', async (req, res) => {
     minhas: tudo.filter(c => c.responsavel_id === req.user.id).length,
     naoLidas: tudo.filter(c => (c.unread || 0) > 0).length,
     grupos: tudo.filter(c => ehGrupo(c)).length,
+    /* 📥 Quantos leads esperando distribuição. Só o master enxerga conversa sem
+       dona, então pra equipe este número é sempre zero — e o chip nem aparece. */
+    aDistribuir: req.user?.role === 'master'
+      ? Array.from(convoCache.values()).filter(c => !c.categoria && !c.arquivada && !c.responsavel_id).length : 0,
     // Fila de venda: clientes que mandaram a última mensagem e esperam resposta
     esperando: tudo.filter(c => c.last_from === 'contact' && !ehGrupo(c)).length,
   };

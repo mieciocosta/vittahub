@@ -223,11 +223,13 @@ const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect, usersB
 });
 
 /* ── SearchBar ───────────────────────────────────────────────────────────────── */
-function SearchBar({ value, onChange, filter, setFilter, totalUnread, unreadOnly, setUnreadOnly, waiting, setWaiting, setor, setSetor, mostraSetores, modo, setModo, counts }) {
+function SearchBar({ value, onChange, filter, setFilter, totalUnread, unreadOnly, setUnreadOnly, waiting, setWaiting, setor, setSetor, mostraSetores, modo, setModo, counts, ehMaster }) {
   return (
     <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
       <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
-        {[['todas','Todas','todas'],['minhas','Minhas','minhas'],['naolidas','Não lidas','naoLidas'],['grupos','Grupos','grupos'],['fixadas','📌 Fixadas','fixadas']].map(([k, l, ck]) => {
+        {[['todas','Todas','todas'],
+          ...(ehMaster ? [['distribuir','📥 A distribuir','aDistribuir']] : []),
+          ['minhas','Minhas','minhas'],['naolidas','Não lidas','naoLidas'],['grupos','Grupos','grupos'],['fixadas','📌 Fixadas','fixadas']].map(([k, l, ck]) => {
           const ativo = modo === k;
           return (
             <button key={k} onClick={() => setModo(k)}
@@ -1839,6 +1841,8 @@ export default function Inbox({ onUnreadChange }) {
     () => {
       // Aba "📌 Fixadas" (pedido do master): a lista vira só as fixadas
       if (modo === 'fixadas') return fixadas;
+      // 📥 Fila de distribuição: só o que ainda não tem dona (visão do master)
+      if (modo === 'distribuir') return convos.filter(c => !c.responsavel_id);
       const base = quentesPrimeiro ? [...convos].sort((a, b) => scoreRank(a.lead_score) - scoreRank(b.lead_score)) : convos;
       // A geral não repete quem está na seção de fixadas
       return fixadasIds.size ? base.filter(c => !fixadasIds.has(c.id)) : base;
@@ -1889,7 +1893,8 @@ export default function Inbox({ onUnreadChange }) {
           totalUnread={totalUnread} unreadOnly={unreadOnly} setUnreadOnly={setUnreadOnly}
           waiting={waiting} setWaiting={setWaiting}
           setor={setorFiltro} setSetor={setSetorFiltro} mostraSetores={user?.role !== 'atendente'}
-          modo={modo} setModo={setModo} counts={{ ...(counts || {}), fixadas: fixadas.length }}/>
+          modo={modo} setModo={setModo} counts={{ ...(counts || {}), fixadas: fixadas.length }}
+          ehMaster={user?.role === 'master'}/>
 
         {setorResumo && (
           <div style={{ padding:'10px 12px', borderBottom:'1px solid var(--border)', background:'var(--bg2)' }}>
@@ -3983,8 +3988,12 @@ function FaixaContexto({ sel, leadInfo, setLeadInfo, api, scoreChip, setScoreChi
 
       {/* 🔁 Transferir logo depois do Interesse (ordem do master, 27/08): passar
           o atendimento adiante é decisão que se toma olhando pro interesse. */}
-      <Cartao ic="🔁" label="Transferir" valor="Passar adiante"
-        dica="Passar este atendimento para outra pessoa"
+      {/* Lead ainda sem dona é DISTRIBUIÇÃO, não transferência — o nome muda
+          pra deixar claro o que se está fazendo (ordem do master, 28/08). */}
+      <Cartao ic={sel?.responsavel_id ? '🔁' : '📤'}
+        label={sel?.responsavel_id ? 'Transferir' : 'Distribuir'}
+        valor={sel?.responsavel_id ? 'Passar adiante' : 'Escolher quem atende'}
+        dica={sel?.responsavel_id ? 'Passar este atendimento para outra pessoa' : 'Entregar este lead para alguém da equipe'}
         aoClicar={() => onTransferir?.()} />
 
       {/* 📞 LIGAR PRO CLIENTE (ordem do master, 28/08: "quero que elas consigam

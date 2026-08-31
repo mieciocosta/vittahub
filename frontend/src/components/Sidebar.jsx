@@ -570,7 +570,9 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
   const setoresBlock = (
     <>
       {!collapsed && <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:1.6, color:'rgba(255,255,255,.62)', padding:'10px 12px 5px', textTransform:'uppercase' }}>Setores</div>}
-      {setorItem('/classificar', '#94a3b8', 'Novos a classificar', setorCount.sem_classificacao)}
+      {/* 📥 A fila de novos é do master (ordem dele, 28/08: "eu sou a
+          distribuidora"). Pra equipe abriria vazia. */}
+      {user?.role === 'master' && setorItem('/classificar', '#94a3b8', 'Novos a classificar', setorCount.sem_classificacao)}
       {SETORES_MENU
         /* 💛 A pasta Fidelidade é da Poliana (ordem do master, 27/08: "todos os
            clientes da Poliana não aparecem para os demais"). Pra quem não é da
