@@ -2975,6 +2975,23 @@ export default function Inbox({ onUnreadChange }) {
             );
           })()}
 
+          {/* ⚠️ VOCÊ ESTÁ COMO OUTRA PESSOA (28/08: o master entrou no usuário
+              errado e mandou no nome da Raylane sendo da Poliana). O aviso roxo
+              do topo existia, mas o olho de quem escreve está AQUI embaixo.
+              Esta faixa fica colada na caixa de texto, impossível de ignorar. */}
+          {(() => {
+            let comoOutra = false;
+            try { comoOutra = !!localStorage.getItem('vh_token_master'); } catch { /* ok */ }
+            if (!comoOutra) return null;
+            return (
+              <div style={{ display:'flex', alignItems:'center', gap:8, padding:'6px 14px', flexShrink:0,
+                background:'#7c3aed', color:'#fff', fontSize:11.5, fontWeight:800 }}>
+                <span style={{ fontSize:13 }}>⚠️</span>
+                <span>Você está escrevendo como <u>{user?.nome}</u> — é este nome que vai aparecer na conversa.</span>
+              </div>
+            );
+          })()}
+
           {/* Input bar */}
           <div className="chat-input-bar" style={{ background:'var(--card,#fff)', padding:'9px 12px', borderTop:'1px solid var(--border)', flexShrink:0 }}>
             <div style={{ display:'flex', gap:6, alignItems:'flex-end' }}>

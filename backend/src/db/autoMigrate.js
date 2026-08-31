@@ -3244,6 +3244,27 @@ async function consertarAssinaturas() {
   const SEM_ACENTO = "'áàâãäéèêëíìîïóòôõöúùûüç','aaaaaeeeeiiiiooooouuuuc'";
   const TRATAMENTO = "^(dr|dra|sr|sra|enf|prof|profa)\\.?\\s";
 
+  /* 1b) Sra. Ducarmo (28/08): o master entrou no usuário errado e as mensagens
+     saíram assinadas Raylane, sendo da Poliana. Corrige só o que saiu nos
+     últimos 2 dias — atendimento antigo que era mesmo da Raylane fica intacto. */
+  const { rows: [jaDu] } = await query(
+    `SELECT 1 FROM configuracoes WHERE chave = 'fix_assinatura_ducarmo_v1'`).catch(() => ({ rows: [1] }));
+  if (!jaDu) {
+    const { rowCount: nDu } = await query(
+      `UPDATE mensagens m SET sender_nome = 'Poliana'
+        WHERE m.from_type = 'me'
+          AND COALESCE(m.sender_nome,'') ILIKE 'raylane%'
+          AND m.created_at > NOW() - interval '2 days'
+          AND EXISTS (
+            SELECT 1 FROM conversas c
+             WHERE c.id = m.conversa_id
+               AND lower(translate(COALESCE(c.contact_name,''), ${SEM_ACENTO}))
+                   ~ '(ducarmo|du carmo|do carmo)')`).catch(() => ({ rowCount: 0 }));
+    await query(`INSERT INTO configuracoes (chave, valor) VALUES ('fix_assinatura_ducarmo_v1','{"ok":true}')
+                 ON CONFLICT DO NOTHING`).catch(() => {});
+    console.log(`✍️  Sra. Ducarmo: ${nDu} mensagem(ns) passaram de Raylane para Poliana`);
+  }
+
   // 1) Os dois atendimentos que o master apontou → Stefany
   const { rows: [ja] } = await query(
     `SELECT 1 FROM configuracoes WHERE chave = 'fix_assinatura_stefany_v1'`).catch(() => ({ rows: [1] }));
