@@ -13,53 +13,76 @@ import { hexRGB, clarear, escurecer } from './hooks/utils.js';
 
 // Páginas carregadas sob demanda (code-splitting) — cada tela vira um pedaço
 // separado, baixado só quando abre. Deixa o carregamento inicial bem mais leve.
-const Dashboard = lazy(() => import('./pages/Dashboard.jsx'));
-const Inbox = lazy(() => import('./pages/Inbox.jsx'));
-const Leads = lazy(() => import('./pages/Leads.jsx'));
-const Funil = lazy(() => import('./pages/Funil.jsx'));
-const Retornos = lazy(() => import('./pages/Retornos.jsx'));
-const Relatorios = lazy(() => import('./pages/Relatorios.jsx'));
-const Configuracoes = lazy(() => import('./pages/Configuracoes.jsx'));
-const Agenda = lazy(() => import('./pages/Agenda.jsx'));
-const AgendarPublico = React.lazy(() => import('./pages/AgendarPublico.jsx'));
-const SolicitacaoVacinas = React.lazy(() => import('./pages/SolicitacaoVacinas.jsx'));
-const MinhaCarteira = React.lazy(() => import('./pages/MinhaCarteira.jsx'));
-const PlanoVacinal = React.lazy(() => import('./pages/PlanoVacinal.jsx'));
-const Ranking = React.lazy(() => import('./pages/Ranking.jsx'));
-const TabelaPrecos = React.lazy(() => import('./pages/TabelaPrecos.jsx'));
-const MaryIA = React.lazy(() => import('./pages/MaryIA.jsx'));
-const SimuladorIA = React.lazy(() => import('./pages/SimuladorIA.jsx'));
-const FidelidadeMes = React.lazy(() => import('./pages/FidelidadeMes.jsx'));
-const Indicacoes = lazy(() => import('./pages/Indicacoes.jsx'));
-const PastaClientes = lazy(() => import('./pages/PastaClientes.jsx'));
-const Classificar = lazy(() => import('./pages/Classificar.jsx'));
-const CasesSucesso = lazy(() => import('./pages/CasesSucesso.jsx'));
-const Cursos = lazy(() => import('./pages/Cursos.jsx'));
-const Planejamento = lazy(() => import('./pages/Planejamento.jsx'));
-const Estudos = lazy(() => import('./pages/Estudos.jsx'));
-const Profissionais = lazy(() => import('./pages/Profissionais.jsx'));
-const Metas = lazy(() => import('./pages/Metas.jsx'));
-const Terapias = lazy(() => import('./pages/Terapias.jsx'));
-const Caixa = lazy(() => import('./pages/Caixa.jsx'));
-const Lembretes = lazy(() => import('./pages/Lembretes.jsx'));
-const Quiz = lazy(() => import('./pages/Quiz.jsx'));
-const Amigo = lazy(() => import('./pages/Amigo.jsx'));
-const MeuPainel = lazy(() => import('./pages/MeuPainel.jsx'));
-const Recuperacao = lazy(() => import('./pages/Recuperacao.jsx'));
-const Equipe = lazy(() => import('./pages/Equipe.jsx'));
-const Biblioteca = lazy(() => import('./pages/Biblioteca.jsx'));
-const Figurinhas = lazy(() => import('./pages/Figurinhas.jsx'));
-const Modelos = lazy(() => import('./pages/Modelos.jsx'));
-const Ligacoes = lazy(() => import('./pages/Ligacoes.jsx'));
-const IAssistente = lazy(() => import('./pages/IAssistente.jsx'));
-const Auditoria = lazy(() => import('./pages/Auditoria.jsx'));
+const Dashboard = telaTardia(() => import('./pages/Dashboard.jsx'));
+const Inbox = telaTardia(() => import('./pages/Inbox.jsx'));
+const Leads = telaTardia(() => import('./pages/Leads.jsx'));
+const Funil = telaTardia(() => import('./pages/Funil.jsx'));
+const Retornos = telaTardia(() => import('./pages/Retornos.jsx'));
+const Relatorios = telaTardia(() => import('./pages/Relatorios.jsx'));
+const Configuracoes = telaTardia(() => import('./pages/Configuracoes.jsx'));
+const Agenda = telaTardia(() => import('./pages/Agenda.jsx'));
+const AgendarPublico = telaTardia(() => import('./pages/AgendarPublico.jsx'));
+const SolicitacaoVacinas = telaTardia(() => import('./pages/SolicitacaoVacinas.jsx'));
+const MinhaCarteira = telaTardia(() => import('./pages/MinhaCarteira.jsx'));
+const PlanoVacinal = telaTardia(() => import('./pages/PlanoVacinal.jsx'));
+const Ranking = telaTardia(() => import('./pages/Ranking.jsx'));
+const TabelaPrecos = telaTardia(() => import('./pages/TabelaPrecos.jsx'));
+/* 🔄 TELA QUE NÃO ABRE DEPOIS DE UM DEPLOY (causa clássica de tela branca)
+
+   Cada tela vem num arquivo separado, baixado só na hora que se abre. Quando
+   sobe uma versão nova, os arquivos ganham nome novo — quem estava com a aba
+   aberta continua pedindo os ANTIGOS, que já não existem. O pedido falha e a
+   tela não vem.
+
+   Aqui a falha vira uma recarga única e silenciosa: limpa o cache do navegador,
+   recarrega e a tela abre na versão nova. A trava no sessionStorage garante que
+   isso aconteça UMA vez — se o erro for outro, ele aparece de verdade em vez de
+   virar um laço de recarga. */
+const telaTardia = (carregar) => lazy(() => carregar().catch(async (e) => {
+  const chave = 'vh_recarga_chunk';
+  const jaTentou = (() => { try { return sessionStorage.getItem(chave); } catch { return null; } })();
+  if (!jaTentou) {
+    try { sessionStorage.setItem(chave, String(Date.now())); } catch { /* ok */ }
+    try { if (window.caches) for (const k of await caches.keys()) await caches.delete(k); } catch { /* ok */ }
+    window.location.reload();
+    return new Promise(() => {});   // segura o render até a página recarregar
+  }
+  throw e;
+}));
+
+const MaryIA = telaTardia(() => import('./pages/MaryIA.jsx'));
+const SimuladorIA = telaTardia(() => import('./pages/SimuladorIA.jsx'));
+const FidelidadeMes = telaTardia(() => import('./pages/FidelidadeMes.jsx'));
+const Indicacoes = telaTardia(() => import('./pages/Indicacoes.jsx'));
+const PastaClientes = telaTardia(() => import('./pages/PastaClientes.jsx'));
+const Classificar = telaTardia(() => import('./pages/Classificar.jsx'));
+const CasesSucesso = telaTardia(() => import('./pages/CasesSucesso.jsx'));
+const Cursos = telaTardia(() => import('./pages/Cursos.jsx'));
+const Planejamento = telaTardia(() => import('./pages/Planejamento.jsx'));
+const Estudos = telaTardia(() => import('./pages/Estudos.jsx'));
+const Profissionais = telaTardia(() => import('./pages/Profissionais.jsx'));
+const Metas = telaTardia(() => import('./pages/Metas.jsx'));
+const Terapias = telaTardia(() => import('./pages/Terapias.jsx'));
+const Caixa = telaTardia(() => import('./pages/Caixa.jsx'));
+const Lembretes = telaTardia(() => import('./pages/Lembretes.jsx'));
+const Quiz = telaTardia(() => import('./pages/Quiz.jsx'));
+const Amigo = telaTardia(() => import('./pages/Amigo.jsx'));
+const MeuPainel = telaTardia(() => import('./pages/MeuPainel.jsx'));
+const Recuperacao = telaTardia(() => import('./pages/Recuperacao.jsx'));
+const Equipe = telaTardia(() => import('./pages/Equipe.jsx'));
+const Biblioteca = telaTardia(() => import('./pages/Biblioteca.jsx'));
+const Figurinhas = telaTardia(() => import('./pages/Figurinhas.jsx'));
+const Modelos = telaTardia(() => import('./pages/Modelos.jsx'));
+const Ligacoes = telaTardia(() => import('./pages/Ligacoes.jsx'));
+const IAssistente = telaTardia(() => import('./pages/IAssistente.jsx'));
+const Auditoria = telaTardia(() => import('./pages/Auditoria.jsx'));
 /* 📊 Carteira de Leads (pedido do José via master, 27/08) — só o master. */
-const LeadsRelatorio = lazy(() => import('./pages/LeadsRelatorio.jsx'));
+const LeadsRelatorio = telaTardia(() => import('./pages/LeadsRelatorio.jsx'));
 /* 📋 Histórico dos contratos: plano vacinal, terapêutico e fidelidade */
-const PlanosFechados = lazy(() => import('./pages/PlanosFechados.jsx'));
+const PlanosFechados = telaTardia(() => import('./pages/PlanosFechados.jsx'));
 /* 🧭 Painel de gestão comercial: fila, equipe e alertas num lugar só */
-const PainelComercial = lazy(() => import('./pages/PainelComercial.jsx'));
-const WhatsApp = lazy(() => import('./pages/WhatsApp.jsx'));
+const PainelComercial = telaTardia(() => import('./pages/PainelComercial.jsx'));
+const WhatsApp = telaTardia(() => import('./pages/WhatsApp.jsx'));
 
 /* ─── Cor do dia ──────────────────────────────────────────────────────────────
    Paleta premium curada: uma cor de acento por dia da semana (0=Dom … 6=Sáb).
@@ -449,6 +472,8 @@ function SecurityLock({ user }) {
 }
 export default function App() {
   const { user, loading } = useAuth();
+  // A rota atual serve de chave pra rede de segurança se limpar ao trocar de tela
+  const rota = useLocation();
   const [unread, setUnread] = useState(0);
   const [theme, setTheme] = useState(() => localStorage.getItem('vh_theme') || 'light');
   const [corDia, setCorDiaState] = useState(() => localStorage.getItem('vh_cor') || 'auto');
@@ -506,11 +531,16 @@ export default function App() {
   return (
     <div style={{ display:'flex', minHeight:'100vh' }}>
       <PwaSetup />
-      <BuscaRapida />
-      {user.role !== 'master' && <SecurityLock user={user} />}
-      <CelebracaoGlobal />
+      {/* 🛟 Cada peça da MOLDURA na própria rede (01/09: "aparece tela branca").
+          Menu, placar e troca de usuário ficavam fora de qualquer proteção — um
+          erro em qualquer um deles apagava o CRM inteiro, sem mensagem nenhuma.
+          Agora a peça que falhar some sozinha e o atendimento continua de pé. */}
+      <ErrorBoundary discreto nome="Busca rápida"><BuscaRapida /></ErrorBoundary>
+      {user.role !== 'master' && <ErrorBoundary discreto nome="Trava de segurança"><SecurityLock user={user} /></ErrorBoundary>}
+      <ErrorBoundary discreto nome="Comemoração"><CelebracaoGlobal /></ErrorBoundary>
       <button className="vh-hamburger" onClick={() => setMobileMenu(true)} aria-label="Menu">☰</button>
       <div className={`vh-overlay${mobileMenu ? ' open' : ''}`} onClick={() => setMobileMenu(false)} />
+      <ErrorBoundary discreto nome="Menu lateral">
       <Sidebar
         unread={unread}
         theme={theme}
@@ -523,14 +553,17 @@ export default function App() {
         onSetCorDia={setCorDia}
         paletaCores={CORES_DIA}
       />
+      </ErrorBoundary>
       {user && <Heartbeat userId={user.id} />}
       <main className='vh-main' style={{ marginLeft:'var(--sw)', flex:1, minHeight:'100vh', overflowX:'hidden', transition:'margin-left .2s ease' }}>
         {/* 👤 Troca de usuário no topo de TODAS as telas. Substituiu a barra
             roxa flutuante: ela só avisava que você estava impersonando, mas não
             deixava trocar — pra isso era preciso caçar o botão na lateral. */}
-        <TrocaUsuario />
-        <PlacarVendas />
-        <ErrorBoundary>
+        <ErrorBoundary discreto nome="Troca de usuário"><TrocaUsuario /></ErrorBoundary>
+        <ErrorBoundary discreto nome="Placar de vendas"><PlacarVendas /></ErrorBoundary>
+        {/* A rede da TELA se limpa a cada troca de rota: erro numa tela não
+            prende mais o sistema todo até recarregar. */}
+        <ErrorBoundary resetKey={rota.pathname} nome={rota.pathname}>
         <Suspense fallback={<div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'70vh' }}><span className="spin" style={{ width:26, height:26, borderColor:'rgba(0,184,192,0.2)', borderTopColor:'var(--tq)' }} /></div>}>
         <Routes>
           {/* 💬 TODO MUNDO CAI NO CHAT (ordem do master, 01/09: "quero que para
