@@ -11,6 +11,37 @@ import Login from './pages/Login.jsx';
 import { api } from './hooks/api.js';
 import { hexRGB, clarear, escurecer } from './hooks/utils.js';
 
+/* 🔄 TELA QUE NÃO ABRE DEPOIS DE UM DEPLOY (causa clássica de tela branca)
+
+   Cada tela vem num arquivo separado, baixado só na hora que se abre. Quando
+   sobe uma versão nova, os arquivos ganham nome novo — quem estava com a aba
+   aberta continua pedindo os ANTIGOS, que já não existem. O pedido falha e a
+   tela não vem.
+
+   Aqui a falha vira uma recarga única e silenciosa: limpa o cache do navegador,
+   recarrega e a tela abre na versão nova. A trava no sessionStorage garante que
+   isso aconteça UMA vez — se o erro for outro, ele aparece de verdade em vez de
+   virar um laço de recarga.
+
+   ⚠️ É `function`, e não `const`, DE PROPÓSITO — e fica antes de todas as telas.
+   Como `const` logo abaixo da primeira tela, ela era usada antes de existir e o
+   navegador derrubava o app inteiro ("Cannot access 'D' before initialization",
+   01/09). Declaração de função sobe junto com o arquivo; const não sobe.
+   O build NÃO acusa isso: só estoura na cara de quem abre o sistema. */
+function telaTardia(carregar) {
+  return lazy(() => carregar().catch(async (e) => {
+    const chave = 'vh_recarga_chunk';
+    const jaTentou = (() => { try { return sessionStorage.getItem(chave); } catch { return null; } })();
+    if (!jaTentou) {
+      try { sessionStorage.setItem(chave, String(Date.now())); } catch { /* ok */ }
+      try { if (window.caches) for (const k of await caches.keys()) await caches.delete(k); } catch { /* ok */ }
+      window.location.reload();
+      return new Promise(() => {});   // segura o render até a página recarregar
+    }
+    throw e;
+  }));
+}
+
 // Páginas carregadas sob demanda (code-splitting) — cada tela vira um pedaço
 // separado, baixado só quando abre. Deixa o carregamento inicial bem mais leve.
 const Dashboard = telaTardia(() => import('./pages/Dashboard.jsx'));
@@ -27,28 +58,6 @@ const MinhaCarteira = telaTardia(() => import('./pages/MinhaCarteira.jsx'));
 const PlanoVacinal = telaTardia(() => import('./pages/PlanoVacinal.jsx'));
 const Ranking = telaTardia(() => import('./pages/Ranking.jsx'));
 const TabelaPrecos = telaTardia(() => import('./pages/TabelaPrecos.jsx'));
-/* 🔄 TELA QUE NÃO ABRE DEPOIS DE UM DEPLOY (causa clássica de tela branca)
-
-   Cada tela vem num arquivo separado, baixado só na hora que se abre. Quando
-   sobe uma versão nova, os arquivos ganham nome novo — quem estava com a aba
-   aberta continua pedindo os ANTIGOS, que já não existem. O pedido falha e a
-   tela não vem.
-
-   Aqui a falha vira uma recarga única e silenciosa: limpa o cache do navegador,
-   recarrega e a tela abre na versão nova. A trava no sessionStorage garante que
-   isso aconteça UMA vez — se o erro for outro, ele aparece de verdade em vez de
-   virar um laço de recarga. */
-const telaTardia = (carregar) => lazy(() => carregar().catch(async (e) => {
-  const chave = 'vh_recarga_chunk';
-  const jaTentou = (() => { try { return sessionStorage.getItem(chave); } catch { return null; } })();
-  if (!jaTentou) {
-    try { sessionStorage.setItem(chave, String(Date.now())); } catch { /* ok */ }
-    try { if (window.caches) for (const k of await caches.keys()) await caches.delete(k); } catch { /* ok */ }
-    window.location.reload();
-    return new Promise(() => {});   // segura o render até a página recarregar
-  }
-  throw e;
-}));
 
 const MaryIA = telaTardia(() => import('./pages/MaryIA.jsx'));
 const SimuladorIA = telaTardia(() => import('./pages/SimuladorIA.jsx'));
