@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { RefreshCw } from 'lucide-react';
 import { useApi } from '../context/AuthContext.jsx';
@@ -31,6 +31,118 @@ const ROTULO_SETOR = { vacinas: 'Vacinas', consultas: 'Consultas', terapias: 'Te
 
 // Nome de gente, nunca o pronome de tratamento (ordem do master, 01/09)
 const primeiro = (n) => fmt.primeiroNome(n);
+
+/* 💬 A CONVERSA DENTRO DO PAINEL (ordem do master, 01/09: "ao clicar em uma
+   conversa de algum usuário quero que fique lá mesmo no painel, como se fosse
+   algo totalmente independente, como se fosse uma nova fileira").
+
+   Antes, clicar numa conversa jogava a gestora pro Chat e ela PERDIA o painel:
+   voltava e tinha que achar a pessoa de novo. Agora a conversa abre como uma
+   terceira fileira, do lado — ela lê, responde e continua olhando os números
+   da equipe sem sair do lugar.
+
+   O que fica de fora de propósito: anexo, áudio e figurinha. Reproduzir o
+   compositor inteiro do Chat aqui seria manter dois compositores vivos, e um
+   ia envelhecer. Anexo aparece marcado, com o atalho pro Chat completo. */
+function ConversaNoPainel({ convId, onFechar, onIrProChat }) {
+  const api = useApi();
+  const [conv, setConv] = useState(null);
+  const [erro, setErro] = useState('');
+  const [texto, setTexto] = useState('');
+  const [enviando, setEnviando] = useState(false);
+  const fim = useRef(null);
+
+  const ler = React.useCallback(() => {
+    api.get(`/inbox/conversations/${convId}`)
+      .then(c => { setConv(c); setErro(''); })
+      .catch(e => setErro(e.message));
+  }, [convId]); // eslint-disable-line
+
+  useEffect(() => {
+    setConv(null); setTexto(''); ler();
+    const t = setInterval(ler, 15000);   // a conversa respira junto com o painel
+    return () => clearInterval(t);
+  }, [convId]); // eslint-disable-line
+
+  useEffect(() => { fim.current?.scrollIntoView({ block: 'end' }); }, [conv?.messages?.length]);
+
+  const enviar = async () => {
+    const t = texto.trim();
+    if (!t || enviando) return;
+    setEnviando(true);
+    try {
+      await api.post(`/inbox/conversations/${convId}/send`, { content: t, type: 'text' });
+      setTexto(''); ler();
+    } catch (e) { setErro(e.message); }
+    setEnviando(false);
+  };
+
+  const msgs = conv?.messages || [];
+  return (
+    <div className="card" style={{ padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column',
+      height: 'calc(100vh - 96px)', position: 'sticky', top: 12 }}>
+      <div style={{ padding: '11px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 900, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {conv?.contact_name || 'Conversa'}
+          </div>
+          <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>
+            {conv?.responsavel_nome ? `de ${primeiro(conv.responsavel_nome)}` : 'sem dona'}
+            {conv?.setor ? ` · ${conv.setor}` : ''}
+          </div>
+        </div>
+        <button onClick={onIrProChat} title="Abrir no Chat completo (anexos, áudio, figurinhas)"
+          style={{ border: '1.5px solid var(--border)', background: 'var(--card)', borderRadius: 8,
+            padding: '4px 9px', fontSize: 10.5, fontWeight: 800, color: 'var(--txt2)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+          ↗ Chat
+        </button>
+        <button onClick={onFechar} title="Fechar esta fileira"
+          style={{ border: 'none', background: 'transparent', color: 'var(--muted)', fontSize: 17, fontWeight: 800, cursor: 'pointer', lineHeight: 1 }}>×</button>
+      </div>
+
+      <div style={{ flex: 1, overflowY: 'auto', padding: '12px 14px', background: 'var(--bg)' }}>
+        {!conv && !erro && <div style={{ fontSize: 12, color: 'var(--muted)' }}>Abrindo a conversa…</div>}
+        {erro && <div style={{ fontSize: 12, color: 'var(--err)' }}>{erro}</div>}
+        {msgs.map(m => {
+          const minha = m.from_type === 'me' || m.from_type === 'bot';
+          const anexo = typeof m.content === 'string' && m.content.startsWith('[media:');
+          return (
+            <div key={m.id} style={{ display: 'flex', justifyContent: minha ? 'flex-end' : 'flex-start', marginBottom: 7 }}>
+              <div style={{ maxWidth: '86%', borderRadius: 12, padding: '7px 10px',
+                background: minha ? 'var(--tq3)' : 'var(--card)',
+                border: '1px solid var(--border)' }}>
+                {minha && m.sender_nome && (
+                  <div style={{ fontSize: 9.5, fontWeight: 800, color: 'var(--tq2)', marginBottom: 2 }}>{fmt.primeiroNome(m.sender_nome)}</div>
+                )}
+                <div style={{ fontSize: 12.5, color: 'var(--txt)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                  {anexo || m.type !== 'text'
+                    ? <span style={{ color: 'var(--muted)', fontStyle: 'italic' }}>📎 {m.type === 'text' ? 'anexo' : m.type} — abra no Chat pra ver</span>
+                    : m.content}
+                </div>
+                <div style={{ fontSize: 9, color: 'var(--light)', textAlign: 'right', marginTop: 2 }}>{fmt.msgTime(m.created_at)}</div>
+              </div>
+            </div>
+          );
+        })}
+        <div ref={fim} />
+      </div>
+
+      <div style={{ padding: 10, borderTop: '1px solid var(--border)', display: 'flex', gap: 7 }}>
+        <textarea value={texto} onChange={e => setTexto(e.target.value)} rows={2}
+          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviar(); } }}
+          placeholder="Escreva aqui… (Enter envia)"
+          style={{ flex: 1, resize: 'none', border: '1.5px solid var(--border)', borderRadius: 10,
+            padding: '7px 10px', fontSize: 12.5, background: 'var(--bg)', color: 'var(--txt)', fontFamily: 'inherit' }} />
+        <button onClick={enviar} disabled={!texto.trim() || enviando}
+          style={{ border: 'none', borderRadius: 10, padding: '0 14px', cursor: 'pointer', fontSize: 12, fontWeight: 800,
+            background: 'linear-gradient(135deg,#12a5ad,#0d8b92)', color: '#fff',
+            opacity: (!texto.trim() || enviando) ? .45 : 1 }}>
+          {enviando ? '…' : 'Enviar'}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 /* 🥧 PIZZA DOS ATENDIMENTOS (ordem do master, 01/09: "uma pizza de gráfico
    contendo todos atendimentos").
@@ -89,6 +201,79 @@ function Pizza({ titulo, dados, cores, total, rotuloCentro }) {
 // "há quanto tempo" curtinho — o painel é de relance, não de leitura
 const desde = (min) => (min < 60 ? `${min} min` : min < 1440 ? `${Math.floor(min / 60)} h` : `${Math.floor(min / 1440)} d`);
 
+/* 🏆 O RANKING DA EQUIPE (ordem do master, 01/09: "quero o ranking").
+
+   Placar por critério, e não só por dinheiro de propósito: num dia em que
+   ninguém fechou, o ranking por VENDA fica todo zerado e não diz nada — já o
+   de agendamento e o de atendimento mostram quem está construindo o mês. A
+   gestora troca o critério e enxerga o esforço, não só o resultado.
+
+   Ordem sempre pelo número, medalha só nos três primeiros, e a barra é
+   proporcional ao líder — quem está em último vê o tamanho da distância. */
+const CRITERIOS = [
+  ['vendeu_hoje', '💰 Vendeu', true],
+  ['agendou_hoje', '📅 Agendou', false],
+  ['atendeu_hoje', '💬 Atendeu', false],
+  ['recebeu_hoje', '📥 Recebeu', false],
+];
+const MEDALHA = ['🥇', '🥈', '🥉'];
+
+function Ranking({ equipe, aoClicar }) {
+  const [criterio, setCriterio] = useState('vendeu_hoje');
+  const conf = CRITERIOS.find(c => c[0] === criterio) || CRITERIOS[0];
+  const emReais = conf[2];
+  const lista = [...equipe].sort((a, b) => (b[criterio] || 0) - (a[criterio] || 0));
+  const topo = Math.max(1, ...lista.map(u => u[criterio] || 0));
+  const zerado = lista.every(u => !(u[criterio] || 0));
+
+  return (
+    <div className="card" style={{ padding: '13px 16px 15px', marginBottom: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', marginBottom: 11 }}>
+        <span style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--txt)' }}>🏆 Ranking de hoje</span>
+        <div style={{ display: 'flex', gap: 4, marginLeft: 'auto', background: 'var(--bg2)', borderRadius: 9, padding: 3 }}>
+          {CRITERIOS.map(([k, rot]) => (
+            <button key={k} onClick={() => setCriterio(k)}
+              style={{ border: 'none', cursor: 'pointer', borderRadius: 7, padding: '4px 9px', fontSize: 10.5, fontWeight: 800,
+                background: criterio === k ? 'var(--card)' : 'transparent',
+                color: criterio === k ? 'var(--txt)' : 'var(--muted)',
+                boxShadow: criterio === k ? '0 1px 4px rgba(0,0,0,.10)' : 'none' }}>{rot}</button>
+          ))}
+        </div>
+      </div>
+      {zerado && (
+        <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 9 }}>
+          Ninguém pontuou neste critério hoje ainda — o dia está começando.
+        </div>
+      )}
+      {lista.map((u, i) => {
+        const v = u[criterio] || 0;
+        const lider = i === 0 && v > 0;
+        return (
+          <div key={u.id} onClick={() => aoClicar(u.id)}
+            style={{ display: 'grid', gridTemplateColumns: '26px 1fr 74px', alignItems: 'center', gap: 8,
+              padding: '5px 0', cursor: 'pointer' }}>
+            <span style={{ fontSize: lider ? 15 : 11.5, fontWeight: 900, textAlign: 'center',
+              color: i < 3 && v > 0 ? 'var(--txt)' : 'var(--light)' }}>
+              {i < 3 && v > 0 ? MEDALHA[i] : i + 1}
+            </span>
+            <span style={{ minWidth: 0 }}>
+              <span style={{ fontSize: 12, fontWeight: lider ? 900 : 700, color: 'var(--txt)', display: 'block',
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{primeiro(u.nome)}</span>
+              <span style={{ display: 'block', height: 6, background: 'var(--bg2)', borderRadius: 99, overflow: 'hidden', marginTop: 3 }}>
+                <span style={{ display: 'block', width: `${(v / topo) * 100}%`, height: '100%', borderRadius: 99,
+                  background: u.cor || 'var(--tq)' }} />
+              </span>
+            </span>
+            <b style={{ fontSize: 12, textAlign: 'right', color: v > 0 ? (emReais ? 'var(--gold,#C4973B)' : 'var(--txt)') : 'var(--light)' }}>
+              {emReais ? (v > 0 ? fmt.brl(v) : '—') : v}
+            </b>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function PainelComercial() {
   const api = useApi();
   const nav = useNavigate();
@@ -98,11 +283,21 @@ export default function PainelComercial() {
   /* A pessoa aberta mora na URL (?pessoa=): assim a barra lateral e o chat
      mandam direto pro painel dela, e o link pode ser guardado. */
   const sel = params.get('pessoa') || null;
-  const setSel = (id) => {
+  /* A conversa aberta também mora na URL: a gestora pode recarregar a página,
+     ou mandar o link pra mim, e cai exatamente na mesma fileira. */
+  const convAberta = params.get('conversa') || null;
+  const mexerUrl = (mudar) => {
     const p = new URLSearchParams(params);
-    if (id) p.set('pessoa', String(id)); else p.delete('pessoa');
+    mudar(p);
     setParams(p, { replace: true });
   };
+  const setSel = (id) => mexerUrl(p => {
+    if (id) p.set('pessoa', String(id)); else p.delete('pessoa');
+    p.delete('conversa');   // trocou de pessoa: a fileira antiga não faz sentido
+  });
+  const abrirConversa = (id) => mexerUrl(p => {
+    if (id) p.set('conversa', String(id)); else p.delete('conversa');
+  });
   const [pessoa, setPessoa] = useState(null);    // dossiê carregado
   const [pErro, setPErro] = useState('');
   const [periodo, setPeriodo] = useState('hoje');
@@ -194,7 +389,11 @@ export default function PainelComercial() {
       {!d && !erro && <div className="card" style={{ padding: 20, color: 'var(--muted)', fontSize: 12.5 }}>Lendo o dia da casa…</div>}
 
       {d && (
-        <div className="vh-painel-wrap" style={{ display: 'grid', gridTemplateColumns: '236px minmax(0,1fr)', gap: 14, alignItems: 'start' }}>
+        /* 🧱 TRÊS FILEIRAS (01/09): equipe · painel · conversa. A do meio encolhe
+           quando a conversa abre, e nada desaparece — era esse o pedido do
+           master: "como se fosse uma nova fileira", sem sair do painel. */
+        <div className="vh-painel-wrap" style={{ display: 'grid', alignItems: 'start', gap: 14,
+          gridTemplateColumns: convAberta ? '212px minmax(0,1fr) minmax(320px,.85fr)' : '236px minmax(0,1fr)' }}>
 
           {/* ═══ ESQUERDA: a casa + o nome de cada uma (ordem do master, 01/09) ═══ */}
           <div className="vh-painel-equipe" style={{ position: 'sticky', top: 12, maxHeight: 'calc(100vh - 40px)', overflowY: 'auto' }}>
@@ -260,6 +459,8 @@ export default function PainelComercial() {
                   <Kpi v={fmt.brl(d.vendas_hoje.total)} l="vendido hoje" s={`${d.vendas_hoje.n} venda(s)`} cor="var(--gold,#C4973B)" />
                   <Kpi v={d.paradas} l="paradas há 3 dias" s="precisam de retomada" cor={d.paradas ? 'var(--warn,#e8991a)' : 'var(--txt)'} />
                 </div>
+
+                <Ranking equipe={eq} aoClicar={setSel} />
 
                 {/* 💎 MINHAS NEGOCIAÇÕES — a carteira dela, em dinheiro por etapa.
                     Vem antes da equipe de propósito: ela é fechadora primeiro,
@@ -501,10 +702,11 @@ export default function PainelComercial() {
                           sub="quem está esperando resposta vem primeiro"
                           vazio={!pessoa.conversas.length ? 'Nenhuma conversa na mão dela.' : null}>
                           {pessoa.conversas.map(c => (
-                            <div key={c.id} onClick={() => nav(`/inbox?conv=${c.id}`)}
+                            <div key={c.id} onClick={() => abrirConversa(c.id)}
                               style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '9px 16px',
                                 borderTop: '1px solid var(--border)', cursor: 'pointer',
-                                background: c.esperando && c.min > 30 ? 'rgba(220,38,38,.05)' : 'transparent' }}>
+                                background: String(convAberta) === String(c.id) ? 'var(--tq4)'
+                                  : (c.esperando && c.min > 30 ? 'rgba(220,38,38,.05)' : 'transparent') }}>
                               <span style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
                                 background: c.esperando ? (c.min > 30 ? '#dc2626' : '#e8991a') : '#22c55e' }} />
                               <span style={{ minWidth: 0, flex: 1 }}>
@@ -625,9 +827,10 @@ export default function PainelComercial() {
                         <Bloco titulo="⏳ Parados há 3 dias ou mais" sub="precisam de retomada"
                           vazio={!pessoa.parados.length ? 'Nada parado 🎉' : null}>
                           {pessoa.parados.map(c => (
-                            <div key={c.id} onClick={() => nav(`/inbox?conv=${c.id}`)}
+                            <div key={c.id} onClick={() => abrirConversa(c.id)}
                               style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '8px 16px',
-                                borderTop: '1px solid var(--border)', cursor: 'pointer' }}>
+                                borderTop: '1px solid var(--border)', cursor: 'pointer',
+                                background: String(convAberta) === String(c.id) ? 'var(--tq4)' : 'transparent' }}>
                               <span style={{ minWidth: 0, flex: 1 }}>
                                 <b style={{ fontSize: 11.5, color: 'var(--txt)', display: 'block', overflow: 'hidden',
                                   textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.nome || 'sem nome'}</b>
@@ -659,6 +862,13 @@ export default function PainelComercial() {
               </>
             )}
           </div>
+
+          {/* 💬 A TERCEIRA FILEIRA: a conversa, dentro do painel */}
+          {convAberta && (
+            <ConversaNoPainel convId={convAberta}
+              onFechar={() => abrirConversa('')}
+              onIrProChat={() => nav(`/inbox?conv=${convAberta}`)} />
+          )}
         </div>
       )}
     </div>
