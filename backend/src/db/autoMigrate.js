@@ -3028,6 +3028,7 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
   try { await titulosDaEquipe(); } catch (e) { console.error('titulos da equipe:', e.message); }
   try { await bonusPessoais(); } catch (e) { console.error('bonus pessoais:', e.message); }
   try { await colunasCriticas(); } catch (e) { console.error('colunas criticas:', e.message); }
+  try { await donosDaCasa(); } catch (e) { console.error('donos da casa:', e.message); }
   try { await distribuidoraDosLeads(); } catch (e) { console.error('distribuidora:', e.message); }
   try { await usuariosNovos(); } catch (e) { console.error('usuarios novos:', e.message); }
   // 🧹 Depois de criar/garantir a equipe nova: devolver pra fila o que o rodízio entregou sozinho
@@ -3247,6 +3248,26 @@ async function desfazerRodizioDaEquipeNova() {
   }
 }
 
+/* 🏛️ OS DONOS DA CASA NÃO SÃO COLABORADORES (ordem do master, 01/09: "a
+   gestora master sou eu e o Miécio… ainda consta Nágila e Miécio").
+
+   O Painel Comercial e as pastas da equipe existem pra acompanhar QUEM ATENDE.
+   O Miécio e a Nágila são os donos: aparecer na lista de gente pra cobrar meta,
+   produtividade e distribuição não faz sentido. A marca `dono_casa` tira os
+   dois dessas listas — e só delas: o acesso, a transferência e tudo o mais
+   continuam iguais. Nenhum poder é dado nem tirado aqui. */
+async function donosDaCasa() {
+  const SEM_ACENTO = "'áàâãäéèêëíìîïóòôõöúùûüç','aaaaaeeeeiiiiooooouuuuc'";
+  const { rowCount } = await query(
+    `UPDATE usuarios SET dono_casa = true
+      WHERE COALESCE(dono_casa,false) = false
+        AND (role = 'master'
+             OR lower(COALESCE(email,'')) IN ('miecio@vittalissaude.com.br','nagila@vittalissaude.com.br')
+             OR lower(translate(COALESCE(nome,''), ${SEM_ACENTO})) ~ '^(miecio|nagila)\\b')`)
+    .catch(() => ({ rowCount: 0 }));
+  if (rowCount) console.log(`🏛️ ${rowCount} conta(s) marcadas como dono da casa (fora da lista de colaboradoras)`);
+}
+
 async function distribuidoraDosLeads() {
   const SEM_ACENTO = "'áàâãäéèêëíìîïóòôõöúùûüç','aaaaaeeeeiiiiooooouuuuc'";
   const { rowCount } = await query(
@@ -3268,6 +3289,7 @@ async function colunasCriticas() {
     ['usuarios',  'distribuidor',    'BOOLEAN DEFAULT false'],   // recebe a fila de leads novos
     ['usuarios',  'so_fidelidade',   'BOOLEAN DEFAULT false'],
     ['usuarios',  'meta_planos_mes', 'INT DEFAULT 0'],
+    ['usuarios',  'dono_casa',       'BOOLEAN DEFAULT false'],  // donos da clínica: não são colaboradores
     ['biblioteca_midias', 'ordem',   'INT DEFAULT 999'],        // ordem das figurinhas
   ];
   let criadas = 0;

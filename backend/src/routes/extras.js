@@ -2738,6 +2738,8 @@ r.get('/painel-comercial', async (req, res) => {
                COALESCE(u.meta_individual,0)::float meta
           FROM usuarios u
          WHERE u.ativo = true AND u.role IN ('atendente','supervisor')
+           -- 🏛️ Os donos da casa ficam fora (01/09: "ainda consta Nágila e Miécio")
+           AND COALESCE(u.dono_casa,false) = false
          ORDER BY u.nome`),
       // Como os leads foram repartidos hoje
       query(`SELECT c.responsavel_id, u.nome, u.cor, COUNT(*)::int n

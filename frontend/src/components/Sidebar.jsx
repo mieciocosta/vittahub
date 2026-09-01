@@ -555,6 +555,23 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
     return () => clearInterval(t);
   }, []); // eslint-disable-line
 
+  /* 📂 A equipe pras pastas da barra lateral. Gestão = master, supervisora,
+     ve_tudo e quem distribui — a atendente comum só tem a própria carteira. */
+  const ehGestaoMenu = user?.role === 'master' || user?.role === 'supervisor'
+    || user?.ve_tudo === true || user?.distribuidor === true;
+  const [equipePastas, setEquipePastas] = useState([]);
+  useEffect(() => {
+    if (!ehGestaoMenu) { setEquipePastas([]); return; }
+    api.get('/inbox/atendentes')
+      .then(d => setEquipePastas((Array.isArray(d) ? d : [])
+        // Fora da lista: eu mesma, os donos da casa e qualquer conta master
+        .filter(u => String(u.id) !== String(user?.id) && u.dono_casa !== true && u.role !== 'master')))
+      .catch(() => setEquipePastas([]));
+  }, [ehGestaoMenu, user?.id]); // eslint-disable-line
+  // Qual pasta está aberta agora (pra marcar a linha na barra)
+  const pastaAtual = (loc.pathname === '/inbox')
+    ? (new URLSearchParams(loc.search).get('responsavel') || '') : '';
+
   // Bloco de Setores (logo abaixo de Clientes): atalhos coloridos com a contagem
   // de leads ESPERANDO em cada um — ajuda os atendentes a organizar o que vem junto.
   const setorBadge = (n, cor) => (!collapsed && n > 0)
@@ -572,6 +589,41 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
       {setorBadge(count, cor)}
     </NavLink>
   );
+  /* 📂 PASTAS DA EQUIPE — NA BARRA LATERAL (ordem do master, 01/09: "essas
+     pastas de cada usuário era na barra lateral e não em cima").
+
+     Nasceu junto com a regra de que atendimento entregue é exclusivo de quem
+     recebeu: a fila da gestora mostra só o que é dela, e a carteira de cada
+     colega mora aqui — um clique abre o Chat já filtrado naquela pessoa.
+     Só quem supervisiona enxerga; os donos da casa ficam fora da lista (eles
+     não são colaboradores a acompanhar). */
+  const pastaEquipe = (u) => {
+    const ativo = pastaAtual === String(u.id);
+    return (
+      <NavLink key={u.id} to={`/inbox?responsavel=${u.id}`} title={collapsed ? fmt.nome(u.nome) : ''}
+        style={{
+          display:'flex', alignItems:'center', gap: collapsed ? 0 : 9,
+          padding: collapsed ? '7px 0' : '7px 12px', justifyContent: collapsed ? 'center' : 'flex-start',
+          borderRadius:12, textDecoration:'none', fontSize:12.5, transition:'all .15s',
+          color: ativo ? 'var(--tq2)' : 'rgba(255,255,255,.85)',
+          background: ativo ? '#ffffff' : 'transparent', fontWeight: ativo ? 700 : 500,
+        }}>
+        <span style={{ width:21, height:21, borderRadius:'50%', flexShrink:0, background: u.cor || '#12a5ad',
+          color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:8.5, fontWeight:900 }}>
+          {fmt.initials(u.nome)}
+        </span>
+        {!collapsed && <span style={{ flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{fmt.primeiroNome(u.nome)}</span>}
+      </NavLink>
+    );
+  };
+  const equipeBlock = equipePastas.length > 0 ? (
+    <>
+      {!collapsed && <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:1.6, color:'rgba(255,255,255,.62)', padding:'10px 12px 5px', textTransform:'uppercase' }}>Pastas da equipe</div>}
+      {collapsed && <div style={{ borderTop:'1px solid rgba(255,255,255,.16)', margin:'8px 8px' }} />}
+      {equipePastas.map(pastaEquipe)}
+    </>
+  ) : null;
+
   const setoresBlock = (
     <>
       {!collapsed && <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:1.6, color:'rgba(255,255,255,.62)', padding:'10px 12px 5px', textTransform:'uppercase' }}>Setores</div>}
@@ -1005,6 +1057,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
             )}
           </NavLink>
           {to === '/inbox' && vittasysLink}
+          {to === '/inbox' && equipeBlock}
           {to === '/leads' && setoresBlock}
           </React.Fragment>
             );

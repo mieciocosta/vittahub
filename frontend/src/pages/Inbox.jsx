@@ -356,7 +356,7 @@ const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect, usersB
 });
 
 /* ── SearchBar ───────────────────────────────────────────────────────────────── */
-function SearchBar({ value, onChange, filter, setFilter, totalUnread, unreadOnly, setUnreadOnly, waiting, setWaiting, setor, setSetor, mostraSetores, modo, setModo, counts, ehDistribuidor, equipe, respFiltro, setRespFiltro }) {
+function SearchBar({ value, onChange, filter, setFilter, totalUnread, unreadOnly, setUnreadOnly, waiting, setWaiting, setor, setSetor, mostraSetores, modo, setModo, counts, ehDistribuidor }) {
   return (
     <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
       <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
@@ -386,31 +386,6 @@ function SearchBar({ value, onChange, filter, setFilter, totalUnread, unreadOnly
           </button>
         )}
       </div>
-      {/* 📂 AS PASTAS DA EQUIPE (ordem do master, 01/09: "o atendimento
-          transferido é exclusivo daquela pessoa; some da fileira dela como
-          gestora — pra ela olhar só se for na pasta da usuária x ou y").
-          A fila de cima é dela; a carteira de cada colega mora aqui. */}
-      {(equipe || []).length > 0 && (
-        <div style={{ display:'flex', gap:4, marginBottom:8, overflowX:'auto', paddingBottom:2 }}>
-          <button onClick={()=>setRespFiltro('')} title="Voltar pra sua fila"
-            style={{ flexShrink:0, padding:'4px 9px', borderRadius:8, fontSize:10.5, fontWeight:800, cursor:'pointer', border:'1.5px solid',
-              background: !respFiltro ? 'var(--tq)' : 'var(--card,#fff)', color: !respFiltro ? '#fff' : 'var(--muted)',
-              borderColor: !respFiltro ? 'var(--tq)' : 'var(--border)', whiteSpace:'nowrap' }}>
-            🏠 Minha fila
-          </button>
-          {equipe.map(a => {
-            const on = String(respFiltro) === String(a.id);
-            return (
-              <button key={a.id} onClick={()=>setRespFiltro(on ? '' : a.id)} title={`Pasta de ${a.nome}`}
-                style={{ flexShrink:0, padding:'4px 9px', borderRadius:8, fontSize:10.5, fontWeight:800, cursor:'pointer', border:'1.5px solid',
-                  background: on ? (a.cor || 'var(--pet)') : 'var(--card,#fff)', color: on ? '#fff' : 'var(--muted)',
-                  borderColor: on ? (a.cor || 'var(--pet)') : 'var(--border)', whiteSpace:'nowrap' }}>
-                📂 {String(a.nome).trim().split(' ')[0]}
-              </button>
-            );
-          })}
-        </div>
-      )}
       {mostraSetores && (
         <div style={{ display:'flex', gap:4, marginBottom:8 }}>
           {[['all','Todos'],['vacinas','Vacinas'],['consultas','Consultas'],['terapias','Terapias']].map(([k,l])=>(
@@ -2081,11 +2056,24 @@ export default function Inbox({ onUnreadChange }) {
           /* A aba aparece pra quem distribui. O contador só vem preenchido do
              servidor pra essas pessoas, então ele serve de segunda garantia
              se o perfil ainda não tiver recarregado. */
-          ehDistribuidor={user?.role === 'master' || user?.distribuidor === true || (counts?.aDistribuir || 0) > 0}
-          /* 📂 As pastas só aparecem pra quem supervisiona (a atendente só tem a
-             própria carteira — pra ela a linha seria uma fileira de becos). */
-          equipe={ehGestaoTela ? atendentes.filter(a2 => a2.id !== user?.id) : []}
-          respFiltro={respFiltro} setRespFiltro={abrirPastaDe}/>
+          ehDistribuidor={user?.role === 'master' || user?.distribuidor === true || (counts?.aDistribuir || 0) > 0}/>
+
+        {/* 📂 Está dentro da pasta de alguém (veio da barra lateral) — a faixa
+            avisa de quem é a carteira e traz o caminho de volta pra fila dela. */}
+        {respFiltro && (
+          <div style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 12px',
+            borderBottom:'1px solid var(--border)', background:'var(--bg2)' }}>
+            <span style={{ fontSize:11.5, fontWeight:800, color:'var(--txt2)', flex:1, overflow:'hidden',
+              textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+              📂 Pasta de {primeiroNomeUtil((atendentes.find(a2 => String(a2.id) === String(respFiltro)) || {}).nome) || 'colaboradora'}
+            </span>
+            <button onClick={() => abrirPastaDe('')}
+              style={{ border:'1.5px solid var(--border)', background:'var(--card,#fff)', borderRadius:8,
+                padding:'3px 9px', fontSize:10.5, fontWeight:800, color:'var(--muted)', cursor:'pointer', whiteSpace:'nowrap' }}>
+              🏠 Voltar pra minha fila
+            </button>
+          </div>
+        )}
 
         {setorResumo && (
           <div style={{ padding:'10px 12px', borderBottom:'1px solid var(--border)', background:'var(--bg2)' }}>

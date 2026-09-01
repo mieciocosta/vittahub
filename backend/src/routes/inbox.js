@@ -5240,7 +5240,8 @@ r.get('/atendentes', async (req, res) => {
        migração pode ter sido pulada), a lista NÃO pode quebrar — é ela que a
        tela de transferência usa. Cai na consulta sem o título. */
     const { rows } = await query(
-      `SELECT id, nome, setor, cor, avatar, supervisor_id, titulo FROM usuarios
+      `SELECT id, nome, setor, cor, avatar, supervisor_id, titulo, role,
+              COALESCE(dono_casa,false) AS dono_casa FROM usuarios
        WHERE ativo = true AND role IN ('atendente','supervisor','master') ORDER BY nome`)
       .catch(async (e) => {
         console.error('atendentes (sem titulo):', e.message);
