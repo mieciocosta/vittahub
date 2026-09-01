@@ -1984,7 +1984,10 @@ export default function Inbox({ onUnreadChange }) {
           waiting={waiting} setWaiting={setWaiting}
           setor={setorFiltro} setSetor={setSetorFiltro} mostraSetores={user?.role !== 'atendente'}
           modo={modo} setModo={setModo} counts={{ ...(counts || {}), fixadas: fixadas.length }}
-          ehDistribuidor={user?.role === 'master' || user?.distribuidor === true}/>
+          /* A aba aparece pra quem distribui. O contador só vem preenchido do
+             servidor pra essas pessoas, então ele serve de segunda garantia
+             se o perfil ainda não tiver recarregado. */
+          ehDistribuidor={user?.role === 'master' || user?.distribuidor === true || (counts?.aDistribuir || 0) > 0}/>
 
         {setorResumo && (
           <div style={{ padding:'10px 12px', borderBottom:'1px solid var(--border)', background:'var(--bg2)' }}>
