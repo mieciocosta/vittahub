@@ -2872,21 +2872,38 @@ r.get('/painel-comercial/pessoa/:id', async (req, res) => {
              AND v.data_venda >= ${DE})::float vendeu,
           (SELECT COUNT(*) FROM vendas v WHERE v.atendente_id = $1 AND v.data_venda >= ${DE})::int n_vendas,
           (SELECT COALESCE(SUM(v.valor),0) FROM vendas v WHERE v.atendente_id = $1
-             AND to_char(v.data_venda,'YYYY-MM') = to_char(NOW() - interval '3 hours','YYYY-MM'))::float vendeu_mes`,
+             AND to_char(v.data_venda,'YYYY-MM') = to_char(NOW() - interval '3 hours','YYYY-MM'))::float vendeu_mes,
+          /* 📅 HOJE vai SEMPRE, mesmo com o filtro em 7 dias ou no mês (ordem do
+             master, 01/09: "o quanto ele faturou hoje"). O período muda o resto
+             do dossiê; o dia corrente é pergunta fixa da gestora. */
+          (SELECT COALESCE(SUM(v.valor),0) FROM vendas v WHERE v.atendente_id = $1
+             AND v.data_venda = ${HOJE})::float vendeu_hoje,
+          (SELECT COUNT(*) FROM agenda_eventos a WHERE a.responsavel_id = $1 AND a.data = ${HOJE}
+             AND LOWER(COALESCE(a.status,'')) NOT LIKE 'cancel%'
+             AND a.servico IS DISTINCT FROM 'Pós Vacinal')::int agendou_hoje,
+          (SELECT COUNT(DISTINCT m.conversa_id) FROM mensagens m
+            WHERE m.sender_id = $1 AND m.from_type = 'me' AND m.created_at >= ${DIA_TS})::int atendeu_hoje`,
         [u.id]),
       /* 💬 COM QUEM ELA ESTÁ CONVERSANDO AGORA — a lista que o master pediu.
          Quem está esperando resposta vem primeiro, do mais antigo pro mais novo:
          é a fila de quem está mais perto de desistir. */
+      /* 📋 A FILEIRA DE ATENDIMENTO INTEIRA (ordem do master, 01/09: "quando a
+         master muda de usuário consegue ver as conversas que cada um está
+         tendo; quero que ao clicar em cada um ela tenha esse acesso").
+
+         Antes vinham só 25 — dava pra espiar, não pra supervisionar. Agora vem
+         a carteira toda dos últimos 90 dias, com o não-lido, e a tela filtra
+         e rola. É a mesma lista que a pessoa vê quando entra no sistema. */
       query(`
-        SELECT c.id, c.contact_name, c.last_from, c.last_message, c.last_message_at,
-               c.funil_etapa, c.setor,
+        SELECT c.id, c.contact_name, c.phone, c.last_from, c.last_message, c.last_message_at,
+               c.funil_etapa, c.setor, COALESCE(c.unread,0)::int unread,
                EXTRACT(EPOCH FROM (NOW() - c.last_message_at))/60 AS min_parada
           FROM conversas c
          WHERE c.responsavel_id = $1 AND COALESCE(c.arquivada,false) = false
            AND COALESCE(c.simulacao,false) = false
-           AND c.last_message_at > NOW() - interval '30 days'
+           AND c.last_message_at > NOW() - interval '90 days'
          ORDER BY (c.last_from = 'contact') DESC, c.last_message_at DESC
-         LIMIT 25`, [u.id]),
+         LIMIT 400`, [u.id]),
       query(`
         SELECT a.id, a.paciente, a.hora, a.servico, a.status, a.data, a.setor, a.conversa_id
           FROM agenda_eventos a
@@ -2966,11 +2983,15 @@ r.get('/painel-comercial/pessoa/:id', async (req, res) => {
         atendeu: r0.atendeu || 0, mensagens: r0.mensagens || 0, agendou: r0.agendou || 0,
         vendeu: Number(r0.vendeu) || 0, n_vendas: r0.n_vendas || 0,
         vendeu_mes: Number(r0.vendeu_mes) || 0,
+        vendeu_hoje: Number(r0.vendeu_hoje) || 0,
+        agendou_hoje: r0.agendou_hoje || 0,
+        atendeu_hoje: r0.atendeu_hoje || 0,
+        falta_meta: meta > 0 ? Math.max(0, meta - (Number(r0.vendeu_mes) || 0)) : null,
         pct_meta: meta > 0 ? Math.round(((Number(r0.vendeu_mes) || 0) / meta) * 100) : null,
       },
       conversas: conversas.rows.map(c => ({
         id: c.id, nome: c.contact_name, ultima: c.last_message, de: c.last_from,
-        etapa: c.funil_etapa || null, setor: c.setor || null,
+        etapa: c.funil_etapa || null, setor: c.setor || null, unread: c.unread || 0,
         esperando: c.last_from === 'contact',
         min: Math.round(Number(c.min_parada) || 0),
       })),

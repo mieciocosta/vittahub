@@ -301,6 +301,9 @@ export default function PainelComercial() {
   const [pessoa, setPessoa] = useState(null);    // dossiê carregado
   const [pErro, setPErro] = useState('');
   const [periodo, setPeriodo] = useState('hoje');
+  // Busca dentro da fileira da pessoa: carteira grande sem lupa não se usa
+  const [buscaConv, setBuscaConv] = useState('');
+  useEffect(() => { setBuscaConv(''); }, [sel]);
 
   const carregar = () => {
     setErro('');
@@ -402,7 +405,7 @@ export default function PainelComercial() {
                 border: sel === null ? '1.5px solid var(--gold,#C4973B)' : '1.5px solid var(--border)',
                 background: sel === null ? 'rgba(196,151,59,.10)' : 'var(--card)',
                 borderRadius: 12, padding: '10px 12px' }}>
-              <div style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--txt)' }}>🏠 Visão da casa</div>
+              <div style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--txt)' }}>🏠 Painel geral</div>
               <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 1 }}>
                 {d.fila.n} na fila · {d.sem_resposta.n} esperando
               </div>
@@ -662,18 +665,90 @@ export default function PainelComercial() {
                 {pErro && <div className="card" style={{ padding: 14, color: 'var(--err)', fontSize: 12.5 }}>{pErro}</div>}
                 {!pessoa && !pErro && <div className="card" style={{ padding: 20, color: 'var(--muted)', fontSize: 12.5 }}>Lendo o dia de {primeiro(aberta?.nome)}…</div>}
 
-                {pessoa && (
+                {pessoa && (() => {
+                  /* 🏅 A POSIÇÃO NO RANKING (ordem do master, 01/09: "qual
+                     posição do ranking"). Sai da MESMA lista do placar da casa,
+                     pra não existirem dois rankings discordando: no mês pelo
+                     faturamento, e o de hoje ao lado, que é o que muda o humor
+                     do dia. Só conta quem já pontuou — ficar em "1º" com zero
+                     não é liderança, é dia parado. */
+                  const posicao = (campo) => {
+                    const ord = [...eq].sort((a, b) => (b[campo] || 0) - (a[campo] || 0));
+                    const i = ord.findIndex(u => String(u.id) === String(sel));
+                    const meu = i >= 0 ? (ord[i][campo] || 0) : 0;
+                    return { pos: i >= 0 ? i + 1 : null, de: ord.length, pontuou: meu > 0 };
+                  };
+                  const noMes = posicao('vendeu_mes');
+                  const noDia = posicao('vendeu_hoje');
+                  const r = pessoa.resumo;
+                  return (
                   <>
+                    {/* 🎯 DESEMPENHO DE HOJE — a leitura de um olhar: quanto
+                        faturou, onde está na meta e em que lugar do placar. */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(215px,1fr))', gap: 12, marginBottom: 14 }}>
+                      <div className="card" style={{ padding: '13px 16px' }}>
+                        <div style={{ fontSize: 9.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5 }}>Faturou hoje</div>
+                        <div style={{ fontSize: 25, fontWeight: 900, letterSpacing: -.8, marginTop: 2,
+                          color: r.vendeu_hoje > 0 ? 'var(--gold,#C4973B)' : 'var(--muted)' }}>{fmt.brl(r.vendeu_hoje)}</div>
+                        <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                          {r.agendou_hoje} agendamento(s) · {r.atendeu_hoje} conversa(s) atendida(s)
+                        </div>
+                      </div>
+
+                      <div className="card" style={{ padding: '13px 16px' }}>
+                        <div style={{ fontSize: 9.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5 }}>Meta do mês</div>
+                        {r.pct_meta == null ? (
+                          <>
+                            <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--light)', marginTop: 4 }}>Sem meta definida</div>
+                            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                              Feito no mês: <b>{fmt.brl(r.vendeu_mes)}</b> · a meta se cadastra em Configurações
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div style={{ display: 'flex', alignItems: 'baseline', gap: 7, marginTop: 2 }}>
+                              <span style={{ fontSize: 25, fontWeight: 900, letterSpacing: -.8,
+                                color: r.pct_meta >= 100 ? 'var(--ok,#0fb07a)' : r.pct_meta >= 60 ? 'var(--txt)' : 'var(--warn,#e8991a)' }}>{r.pct_meta}%</span>
+                              <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>de {fmt.brl(pessoa.pessoa.meta)}</span>
+                            </div>
+                            <div style={{ height: 7, background: 'var(--bg2)', borderRadius: 99, overflow: 'hidden', margin: '6px 0 4px' }}>
+                              <div style={{ width: `${Math.min(r.pct_meta, 100)}%`, height: '100%', borderRadius: 99,
+                                background: r.pct_meta >= 100 ? 'var(--ok,#0fb07a)' : r.pct_meta >= 60 ? 'var(--tq)' : 'var(--warn,#e8991a)' }} />
+                            </div>
+                            <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                              {r.falta_meta > 0
+                                ? <>Fez <b>{fmt.brl(r.vendeu_mes)}</b> · faltam <b style={{ color: 'var(--warn,#e8991a)' }}>{fmt.brl(r.falta_meta)}</b></>
+                                : <b style={{ color: 'var(--ok,#0fb07a)' }}>Meta batida 🎉 {fmt.brl(r.vendeu_mes)}</b>}
+                            </div>
+                          </>
+                        )}
+                      </div>
+
+                      <div className="card" style={{ padding: '13px 16px' }}>
+                        <div style={{ fontSize: 9.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5 }}>Posição no ranking</div>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 7, marginTop: 2 }}>
+                          <span style={{ fontSize: 25, fontWeight: 900, letterSpacing: -.8, color: 'var(--txt)' }}>
+                            {noMes.pontuou && noMes.pos <= 3 ? MEDALHA[noMes.pos - 1] : ''}{noMes.pos ? `${noMes.pos}º` : '—'}
+                          </span>
+                          <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>de {noMes.de} no faturamento do mês</span>
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>
+                          Hoje: {noDia.pontuou ? <b>{noDia.pos}º lugar</b> : 'ainda não pontuou'}
+                        </div>
+                        {!noMes.pontuou && (
+                          <div style={{ fontSize: 10.5, color: 'var(--light)', marginTop: 2 }}>Sem venda registrada no mês.</div>
+                        )}
+                      </div>
+                    </div>
+
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(132px,1fr))', gap: 10, marginBottom: 14 }}>
-                      <Kpi v={pessoa.resumo.recebeu} l="recebeu" s="leads entregues" />
+                      <Kpi v={pessoa.resumo.recebeu} l="recebeu"
+                        s={`no período · ${PERIODOS.find(x => x[0] === periodo)?.[1].toLowerCase()}`} />
                       <Kpi v={pessoa.resumo.atendeu} l="atendeu" s={`${pessoa.resumo.mensagens} mensagem(ns)`} cor="var(--tq2)" />
                       <Kpi v={pessoa.resumo.agendou} l="agendou" cor="var(--ok,#0fb07a)" />
                       <Kpi v={fmt.brl(pessoa.resumo.vendeu)} l="vendeu" s={`${pessoa.resumo.n_vendas} venda(s)`} cor="var(--gold,#C4973B)" />
                       <Kpi v={pessoa.resumo.esperando} l="esperando" s="clientes sem resposta"
                         cor={pessoa.resumo.esperando > 2 ? 'var(--err)' : 'var(--txt)'} />
-                      <Kpi v={pessoa.resumo.pct_meta == null ? '—' : `${pessoa.resumo.pct_meta}%`} l="meta do mês"
-                        s={pessoa.resumo.pct_meta == null ? 'sem meta' : fmt.brl(pessoa.resumo.vendeu_mes)}
-                        cor={pessoa.resumo.pct_meta >= 80 ? 'var(--ok,#0fb07a)' : 'var(--txt)'} />
                     </div>
 
                     {/* 🥧 A carteira dela em pizza: por situação e por setor */}
@@ -697,33 +772,69 @@ export default function PainelComercial() {
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.25fr) minmax(0,1fr)', gap: 14, alignItems: 'start' }} className="vh-painel-cols">
                       <div>
-                        {/* 💬 Com quem ela está conversando — o que o master pediu primeiro */}
-                        <Bloco titulo="💬 Conversando agora"
-                          sub="quem está esperando resposta vem primeiro"
-                          vazio={!pessoa.conversas.length ? 'Nenhuma conversa na mão dela.' : null}>
-                          {pessoa.conversas.map(c => (
-                            <div key={c.id} onClick={() => abrirConversa(c.id)}
-                              style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '9px 16px',
-                                borderTop: '1px solid var(--border)', cursor: 'pointer',
-                                background: String(convAberta) === String(c.id) ? 'var(--tq4)'
-                                  : (c.esperando && c.min > 30 ? 'rgba(220,38,38,.05)' : 'transparent') }}>
-                              <span style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
-                                background: c.esperando ? (c.min > 30 ? '#dc2626' : '#e8991a') : '#22c55e' }} />
-                              <span style={{ minWidth: 0, flex: 1 }}>
-                                <b style={{ fontSize: 12, color: 'var(--txt)', display: 'block', overflow: 'hidden',
-                                  textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.nome || 'sem nome'}</b>
-                                <span style={{ fontSize: 10.5, color: 'var(--muted)', display: 'block', overflow: 'hidden',
-                                  textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                  {c.esperando ? '⏳ esperando resposta' : '✓ ela respondeu'}
-                                  {c.ultima ? ` · ${String(c.ultima).slice(0, 60)}` : ''}
-                                </span>
-                              </span>
-                              <span style={{ fontSize: 10.5, fontWeight: 800, color: c.esperando && c.min > 30 ? '#dc2626' : 'var(--muted)', flexShrink: 0 }}>
-                                {desde(c.min)}
-                              </span>
+                        {/* 📋 A FILEIRA DE ATENDIMENTO DELA — a carteira inteira,
+                            a mesma que ela vê quando entra no sistema (ordem do
+                            master, 01/09). Clicou, a conversa abre na fileira
+                            do lado, sem sair do painel. */}
+                        {(() => {
+                          const termo = buscaConv.trim().toLowerCase();
+                          const lista = termo
+                            ? pessoa.conversas.filter(c => `${c.nome || ''} ${c.ultima || ''}`.toLowerCase().includes(termo))
+                            : pessoa.conversas;
+                          const esperando = pessoa.conversas.filter(c => c.esperando).length;
+                          return (
+                            <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: 14 }}>
+                              <div style={{ padding: '12px 16px 10px', borderBottom: '1px solid var(--border)' }}>
+                                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                                  <span style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--txt)' }}>💬 A fileira de atendimento</span>
+                                  <span style={{ fontSize: 10.5, color: 'var(--muted)' }}>{pessoa.conversas.length} na mão dela</span>
+                                  {esperando > 0 && (
+                                    <span style={{ marginLeft: 'auto', fontSize: 10.5, fontWeight: 800, borderRadius: 99,
+                                      padding: '2px 9px', background: '#fee2e2', color: '#dc2626' }}>
+                                      ⏳ {esperando} esperando resposta
+                                    </span>
+                                  )}
+                                </div>
+                                <input value={buscaConv} onChange={e => setBuscaConv(e.target.value)}
+                                  placeholder="Procurar cliente nesta carteira…"
+                                  style={{ width: '100%', marginTop: 8, border: '1.5px solid var(--border)', borderRadius: 9,
+                                    padding: '6px 10px', fontSize: 12, background: 'var(--bg)', color: 'var(--txt)' }} />
+                              </div>
+                              <div style={{ maxHeight: 460, overflowY: 'auto' }}>
+                                {!lista.length && (
+                                  <div style={{ padding: '13px 16px', fontSize: 12, color: 'var(--muted)' }}>
+                                    {pessoa.conversas.length ? 'Nenhuma conversa com esse termo.' : 'Nenhuma conversa na mão dela.'}
+                                  </div>
+                                )}
+                                {lista.map(c => (
+                                  <div key={c.id} onClick={() => abrirConversa(c.id)}
+                                    style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '9px 16px',
+                                      borderTop: '1px solid var(--border)', cursor: 'pointer',
+                                      background: String(convAberta) === String(c.id) ? 'var(--tq4)'
+                                        : (c.esperando && c.min > 30 ? 'rgba(220,38,38,.05)' : 'transparent') }}>
+                                    <span style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
+                                      background: c.esperando ? (c.min > 30 ? '#dc2626' : '#e8991a') : '#22c55e' }} />
+                                    <span style={{ minWidth: 0, flex: 1 }}>
+                                      <b style={{ fontSize: 12, color: 'var(--txt)', display: 'block', overflow: 'hidden',
+                                        textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.nome || 'sem nome'}</b>
+                                      <span style={{ fontSize: 10.5, color: 'var(--muted)', display: 'block', overflow: 'hidden',
+                                        textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                        {c.esperando ? '⏳ esperando resposta' : '✓ ela respondeu'}
+                                        {c.ultima ? ` · ${String(c.ultima).slice(0, 60)}` : ''}
+                                      </span>
+                                    </span>
+                                    {c.unread > 0 && (
+                                      <span style={{ fontSize: 9.5, fontWeight: 900, borderRadius: 99, padding: '1px 6px',
+                                        background: 'var(--tq)', color: '#fff', flexShrink: 0 }}>{c.unread}</span>
+                                    )}
+                                    <span style={{ fontSize: 10.5, fontWeight: 800, flexShrink: 0,
+                                      color: c.esperando && c.min > 30 ? '#dc2626' : 'var(--muted)' }}>{desde(c.min)}</span>
+                                  </div>
+                                ))}
+                              </div>
                             </div>
-                          ))}
-                        </Bloco>
+                          );
+                        })()}
 
                         {/* 📈 Ritmo dos últimos 14 dias — relatório de produtividade */}
                         {(pessoa.dias || []).length > 0 && (() => {
@@ -782,6 +893,18 @@ export default function PainelComercial() {
                       </div>
 
                       <div>
+                        {/* 📊 O OUTRO LADO: OS RELATÓRIOS (ordem do master,
+                            01/09: "do outro lado ela tenha relatórios"). De um
+                            lado a fileira viva; deste, o que já aconteceu. */}
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, padding: '2px 2px 9px', flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: 11.5, fontWeight: 900, color: 'var(--txt)', textTransform: 'uppercase', letterSpacing: .8 }}>
+                            📊 Relatórios de {primeiro(pessoa.pessoa.nome)}
+                          </span>
+                          <span style={{ fontSize: 10.5, color: 'var(--muted)' }}>
+                            {PERIODOS.find(x => x[0] === periodo)?.[1].toLowerCase()}
+                          </span>
+                        </div>
+
                         {/* 📅 Quem ela já agendou */}
                         <Bloco titulo="📅 Agendou"
                           sub={pessoa.periodo === 'hoje' ? 'hoje' : pessoa.periodo === '7d' ? 'nos 7 dias' : 'no mês'}
@@ -858,7 +981,8 @@ export default function PainelComercial() {
                       </div>
                     </div>
                   </>
-                )}
+                  );
+                })()}
               </>
             )}
           </div>
