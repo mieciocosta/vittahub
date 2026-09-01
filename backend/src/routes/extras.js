@@ -2675,6 +2675,64 @@ async function podeComprovante(req, vendaId) {
    centenas de MB. Vai um comprovante por venda (o primeiro), com teto de
    tamanho — o que passar do teto vem sinalizado, e o arquivo continua
    abrindo em vez de travar o navegador. */
+/* 📋 PLANOS FECHADOS — o histórico de quem vende plano (ordem do master, 28/08:
+   "já que ela fica com planos vacinais e planos terapêuticos, é importante que
+   tenha um histórico separado: uma aba com todos os planos que foram fechados").
+
+   Plano não é venda avulsa: é contrato, tem começo e continuidade. Separar dá
+   à pessoa a noção do que ela construiu, e à casa a noção da carteira ativa.
+   Cada uma vê os seus; gestão vê de todo mundo e pode filtrar por pessoa. */
+const TIPOS_PLANO = { vacinal: 'Plano Vacinal', terapeutico: 'Terapia', fidelidade: 'Fidelidade Mensal' };
+r.get('/planos-fechados', async (req, res) => {
+  try {
+    const cond = [], params = []; let i = 1;
+    cond.push(`categoria = ANY($${i++})`);
+    params.push(req.query.tipo && TIPOS_PLANO[req.query.tipo]
+      ? [TIPOS_PLANO[req.query.tipo]] : Object.values(TIPOS_PLANO));
+
+    // Cada uma vê os seus; gestão vê tudo e pode filtrar por pessoa
+    if (!gestao(req) && !veGeral(req)) { cond.push(`atendente_id = $${i++}`); params.push(req.user.id); }
+    else if (req.query.pessoa) { cond.push(`atendente_id = $${i++}`); params.push(req.query.pessoa); }
+
+    if (/^\d{4}-\d{2}$/.test(req.query.mes || '')) { cond.push(`to_char(data_venda,'YYYY-MM') = $${i++}`); params.push(req.query.mes); }
+    else if (/^\d{4}$/.test(req.query.ano || '')) { cond.push(`to_char(data_venda,'YYYY') = $${i++}`); params.push(req.query.ano); }
+
+    const where = `WHERE ${cond.join(' AND ')}`;
+    const { rows: itens } = await query(`
+      SELECT v.id, v.data_venda, v.categoria, v.cliente_nome, v.paciente_nome, v.servico,
+             v.valor, v.desconto, v.forma_pagamento, v.status_pagamento, v.parcelas,
+             v.atendente_id, v.atendente_nome, v.conferido, v.conversa_id,
+             EXISTS (SELECT 1 FROM venda_comprovantes vc WHERE vc.venda_id = v.id) AS tem_comprovante
+        FROM vendas v ${where}
+       ORDER BY v.data_venda DESC, v.id DESC LIMIT 500`, params);
+
+    // Resumo por tipo de plano — quantos, quanto e o ticket médio
+    const { rows: resumo } = await query(`
+      SELECT categoria, COUNT(*)::int n, COALESCE(SUM(valor),0)::float total,
+             COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float recebido
+        FROM vendas ${where} GROUP BY 1 ORDER BY total DESC`, params);
+
+    // Por mês, pra desenhar a linha do tempo da carteira
+    const { rows: porMes } = await query(`
+      SELECT to_char(data_venda,'YYYY-MM') mes, COUNT(*)::int n, COALESCE(SUM(valor),0)::float total
+        FROM vendas ${where} GROUP BY 1 ORDER BY 1 DESC LIMIT 13`, params);
+
+    const soma = (c) => resumo.reduce((t, r2) => t + (Number(r2[c]) || 0), 0);
+    res.json({
+      itens: itens.map(v => ({ ...v, valor: parseFloat(v.valor) || 0, desconto: parseFloat(v.desconto) || 0 })),
+      resumo: resumo.map(r2 => ({ ...r2, total: Number(r2.total), recebido: Number(r2.recebido),
+        ticket: r2.n ? Number(r2.total) / r2.n : 0 })),
+      total: { n: soma('n'), total: soma('total'), recebido: soma('recebido'),
+               ticket: soma('n') ? soma('total') / soma('n') : 0 },
+      por_mes: porMes.map(m => ({ ...m, total: Number(m.total) })).reverse(),
+      pode_filtrar_pessoa: gestao(req) || veGeral(req),
+    });
+  } catch (err) {
+    console.error('planos-fechados:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 r.get('/caixa/relatorio', async (req, res) => {
   try {
     if (req.user.role !== 'master') return res.status(403).json({ error: 'Relatório da clínica inteira é do master.' });

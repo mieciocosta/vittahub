@@ -55,6 +55,8 @@ const IAssistente = lazy(() => import('./pages/IAssistente.jsx'));
 const Auditoria = lazy(() => import('./pages/Auditoria.jsx'));
 /* 📊 Carteira de Leads (pedido do José via master, 27/08) — só o master. */
 const LeadsRelatorio = lazy(() => import('./pages/LeadsRelatorio.jsx'));
+/* 📋 Histórico dos contratos: plano vacinal, terapêutico e fidelidade */
+const PlanosFechados = lazy(() => import('./pages/PlanosFechados.jsx'));
 const WhatsApp = lazy(() => import('./pages/WhatsApp.jsx'));
 
 /* ─── Cor do dia ──────────────────────────────────────────────────────────────
@@ -572,6 +574,7 @@ export default function App() {
           <Route path="/modelos" element={<Modelos />} />
           <Route path="/ligacoes" element={<Ligacoes />} />
           <Route path="/ia" element={<IAssistente />} />
+          <Route path="/planos-fechados" element={<PlanosFechados />} />
           <Route path="/carteira-leads" element={user.role === 'master' ? <LeadsRelatorio /> : <Navigate to="/" />} />
           <Route path="/auditoria" element={user.role === 'master' ? <Auditoria /> : <Navigate to="/" />} />
           <Route path="/whatsapp"     element={user.role === 'master' ? <WhatsApp /> : <Navigate to="/" />} />

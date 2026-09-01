@@ -68,6 +68,8 @@ const NAV = [
   { to:'/plano-vacinal', icon:Syringe, label:'Plano Vacinal', vacinas:true, cor:'#22c55e', destaque:true },
   { to:'/plano-terapias', icon:Puzzle,      label:'Plano de Terapias', terapias:true, destaque:true, cor:'#a855f7' },
   { to:'/minha-carteira', icon:Wallet,      label:'Minha Carteira', cor:'#2dd4bf' },
+  // 📋 Histórico dos contratos fechados (ordem do master, 28/08)
+  { to:'/planos-fechados', icon:ClipboardList, label:'Planos Fechados', cor:'#818cf8' },
   { to:'/leads',      icon:Users,           label:'Clientes', cor:'#a78bfa' },
   { to:'/retornos',   icon:Bell,            label:'Follow-up',  retornos:true, cor:'#fb7185' },
   { to:'/recuperacao',icon:Flame,           label:'Recuperação', cor:'#f97316' },
