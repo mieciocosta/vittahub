@@ -21,6 +21,19 @@ export default function Configuracoes() {
   const [cancelUser, setCancelUser] = useState(null);
   const [cancelTxt, setCancelTxt] = useState('');
   const [cancelBusy, setCancelBusy] = useState(false);
+  /* 👁 O QUE ELA ENXERGA (28/08): a Gabriellen foi criada e já apareceram 5
+     conversas na tela dela. As regras de visibilidade viraram muitas (carteira
+     fechada, fila de leads, conversa com dona, setor, exceção da casa) — em vez
+     de adivinhar, o master abre aqui a lista do que a pessoa vê e o MOTIVO de
+     cada linha ter passado. Só master. */
+  const [visao, setVisao] = useState(null);      // { alvo, dados } | { alvo, erro }
+  const [visaoBusy, setVisaoBusy] = useState(false);
+  const verVisao = async (u) => {
+    setVisao({ alvo: u }); setVisaoBusy(true);
+    try { setVisao({ alvo: u, dados: await api.get(`/inbox/diagnostico/visao/${u.id}`) }); }
+    catch (e) { setVisao({ alvo: u, erro: e.message || 'Não consegui ler.' }); }
+    finally { setVisaoBusy(false); }
+  };
   const cancelarAcesso = async () => {
     if (!cancelUser || cancelTxt.trim().toUpperCase() !== 'CANCELAR') return;
     setCancelBusy(true);
@@ -534,6 +547,12 @@ export default function Configuracoes() {
                     🚫 Cancelar acesso
                   </button>
                 )}
+                {isMaster && (
+                  <button onClick={()=>verVisao(u)} title={`Ver o que ${String(u.nome).split(' ')[0]} enxerga — e o motivo de cada conversa aparecer`}
+                    style={{ height:26, padding:'0 9px', borderRadius:8, border:'1.5px solid #bae6fd', background:'#f0f9ff', color:'#0369a1', cursor:'pointer', fontSize:10.5, fontWeight:800, flexShrink:0 }}>
+                    👁 O que ela vê
+                  </button>
+                )}
                 {isMaster && ehDono && (
                   <button onClick={()=>entrarComo(u)} title={`Entrar como ${u.nome} — ver o sistema como este usuário`}
                     style={{ height:26, padding:'0 9px', borderRadius:8, border:'1.5px solid #c4b5fd', background:'#f5f3ff', color:'#7c3aed', cursor:'pointer', fontSize:10.5, fontWeight:800, flexShrink:0 }}>
@@ -744,6 +763,65 @@ export default function Configuracoes() {
                   {cancelBusy ? 'Cancelando…' : 'Cancelar acesso agora'}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 👁 DIAGNÓSTICO DE VISÃO — a régua de acesso explicada linha por linha */}
+      {visao && (
+        <div onClick={e => e.target === e.currentTarget && setVisao(null)}
+          style={{ position:'fixed', inset:0, background:'rgba(3,43,48,.65)', zIndex:900, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+          <div className="card" style={{ width:'100%', maxWidth:620, maxHeight:'88vh', padding:0, overflow:'hidden', display:'flex', flexDirection:'column' }}>
+            <div style={{ padding:'14px 18px', background:'linear-gradient(120deg,#075985,#0891b2)', color:'#fff', flexShrink:0 }}>
+              <div style={{ fontWeight:900, fontSize:15 }}>👁 O que {String(visao.alvo?.nome || '').split(' ')[0]} enxerga hoje</div>
+              <div style={{ fontSize:11.5, opacity:.92, marginTop:3 }}>Cada conversa com o motivo que a deixou passar pela trava.</div>
+            </div>
+            <div style={{ padding:'16px 18px', overflowY:'auto' }}>
+              {visaoBusy && <div style={{ fontSize:12.5, color:'var(--muted)' }}>Conferindo…</div>}
+              {visao.erro && <div style={{ fontSize:12.5, color:'var(--err)' }}>{visao.erro}</div>}
+              {visao.dados && (() => {
+                const d = visao.dados;
+                const perfis = [
+                  d.usuario.role !== 'atendente' && `cargo ${d.usuario.role}`,
+                  d.usuario.ve_tudo && 've tudo',
+                  d.usuario.so_carteira && 'só carteira',
+                  d.usuario.so_fidelidade && 'só fidelidade',
+                  d.usuario.distribuidor && 'distribuidora dos leads',
+                ].filter(Boolean);
+                return (
+                  <>
+                    <div style={{ fontSize:12.5, color:'var(--txt2)', lineHeight:1.7, marginBottom:12 }}>
+                      Setores: <b>{(d.usuario.setores && d.usuario.setores.length ? d.usuario.setores : [d.usuario.setor || '—']).join(', ')}</b>
+                      {perfis.length ? <> · Perfil: <b>{perfis.join(' · ')}</b></> : null}
+                      <br />Enxerga <b style={{ color:d.enxerga ? '#0369a1' : '#16a34a' }}>{d.enxerga}</b> de {d.total_no_sistema} conversas do sistema.
+                    </div>
+                    {d.enxerga === 0 && (
+                      <div style={{ fontSize:12.5, color:'#16a34a', fontWeight:700 }}>✅ Nenhuma conversa — é exatamente o esperado para quem ainda não recebeu nada da distribuição.</div>
+                    )}
+                    {d.por_motivo.length > 0 && (
+                      <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginBottom:12 }}>
+                        {d.por_motivo.map(m => (
+                          <span key={m.motivo} style={{ fontSize:11, fontWeight:800, padding:'4px 10px', borderRadius:12, background:'var(--bg2)', color:'var(--txt2)', border:'1.5px solid var(--border)' }}>
+                            {m.motivo} · {m.n}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {d.exemplos.map(c => (
+                      <div key={c.id} style={{ padding:'8px 0', borderTop:'1px solid var(--border)', fontSize:12.5 }}>
+                        <b>{c.nome || 'sem nome'}</b>
+                        <span style={{ color:'var(--muted)' }}>{c.setor ? ` · ${c.setor}` : ' · sem setor'}{c.responsavel ? ` · de ${String(c.responsavel).split(' ')[0]}` : ' · sem dona'}</span>
+                        <div style={{ fontSize:11.5, color:'#0369a1', fontWeight:700 }}>↳ {c.motivo}</div>
+                      </div>
+                    ))}
+                  </>
+                );
+              })()}
+            </div>
+            <div style={{ padding:'12px 18px', borderTop:'1px solid var(--border)', display:'flex', justifyContent:'flex-end', flexShrink:0 }}>
+              <button onClick={() => setVisao(null)} className="btn btn-sm"
+                style={{ background:'var(--bg2)', color:'var(--muted)', border:'1.5px solid var(--border)' }}>Fechar</button>
             </div>
           </div>
         </div>

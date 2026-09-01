@@ -246,7 +246,7 @@ r.post('/impersonar/:id', auth, async (req, res) => {
     if (!eu || (!ehDono(eu) && eu.pode_impersonar !== true)) {
       return res.status(403).json({ error: 'Você não tem permissão para entrar como outro usuário. O master libera isso em Configurações → Usuários.' });
     }
-    const { rows: [u] } = await query('SELECT id,nome,email,cpf,role,cor,avatar,setor,setores,lider,ve_tudo,ve_geral FROM usuarios WHERE id = $1', [req.params.id]);
+    const { rows: [u] } = await query('SELECT id,nome,email,cpf,role,cor,avatar,setor,setores,lider,ve_tudo,ve_geral,so_carteira,so_fidelidade,distribuidor FROM usuarios WHERE id = $1', [req.params.id]);
     if (!u) return res.status(404).json({ error: 'Usuário não encontrado' });
     // Entrar na conta de um MASTER é privilégio do dono — senão a permissão
     // liberada a um supervisor viraria caminho pra assumir o sistema inteiro.
@@ -256,7 +256,12 @@ r.post('/impersonar/:id', auth, async (req, res) => {
     const token = jwt.sign(
       // ve_geral vai junto: impersonar tem que mostrar EXATAMENTE o que a
       // pessoa vê — sem ele o master entrava no marketing e perdia a visão geral
-      { id: u.id, nome: u.nome, email: u.email, role: u.role, cor: u.cor, setor: u.setor || null, setores: u.setores || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo, ve_geral: !!u.ve_geral, impersonadoPor: req.user.id },
+      /* Os perfis de carteira vão JUNTO (28/08): sem eles, o master entrava como
+         a Poliana e via mais do que ela vê de verdade — e a régua nova de acesso
+         (fila de leads, carteira fechada) lê exatamente esses campos. */
+      { id: u.id, nome: u.nome, email: u.email, role: u.role, cor: u.cor, setor: u.setor || null, setores: u.setores || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo, ve_geral: !!u.ve_geral,
+        so_carteira: u.so_carteira === true, so_fidelidade: u.so_fidelidade === true, distribuidor: u.distribuidor === true,
+        impersonadoPor: req.user.id },
       SECRET, { expiresIn: '12h' });
     console.log(`👤 IMPERSONAÇÃO: ${req.user.nome} entrou como ${u.nome} (${u.id})`);
     res.json({ token, user: { id: u.id, nome: u.nome, email: u.email, cpf: u.cpf, role: u.role, cor: u.cor, avatar: u.avatar || null, setor: u.setor || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo, dono: ehDono(u) || u.pode_impersonar === true } });

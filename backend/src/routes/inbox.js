@@ -1015,40 +1015,46 @@ async function enviarMenuTriagem(phoneNum) {
   return texto;
 }
 
-// Rodízio: pega a próxima atendente ativa do setor (contador em configuracoes)
-async function distribuirSetor(convId, setor) {
-  /* 👥 TRIAGEM DA SUPERVISORA (pedido do master): se o setor tem uma
-     supervisora COM equipe cadastrada debaixo dela (supervisor_id), TODOS os
-     leads novos caem com ELA — ela olha, escolhe e transfere pra quem quiser.
-     Sem equipe cadastrada, nada muda: segue o rodízio normal. */
-  const { rows: [sup] } = await query(
-    `SELECT s.id, s.nome FROM usuarios s
-      WHERE s.role = 'supervisor' AND s.ativo = true
-        AND ($1 = s.setor OR $1 = ANY(COALESCE(s.setores, '{}')))
-        AND EXISTS (SELECT 1 FROM usuarios f WHERE f.supervisor_id = s.id AND f.ativo = true)
-      ORDER BY s.nome LIMIT 1`, [setor]).catch(() => ({ rows: [null] }));
-  if (sup) {
-    await query('UPDATE conversas SET responsavel_id = $1 WHERE id = $2', [sup.id, convId]);
-    socketEmit('conv_assigned', { convId, responsavel_id: sup.id, responsavel_nome: sup.nome });
-    return sup;
-  }
-  const { rows: equipe } = await query(
+/* 📥 A ENTREGA DO LEAD É MANUAL — O SISTEMA NÃO DISTRIBUI SOZINHO
+   (ordem do master, 28/08: "eu gostaria que ela ficasse com essa
+   responsabilidade mesmo dela transferir, e não o sistema").
+
+   Aqui morava o RODÍZIO AUTOMÁTICO: o lead novo caía sozinho na mão da
+   próxima atendente ativa do setor. Foi por isso que a Gabriellen, criada
+   hoje, abriu o CRM já com 5 conversas sem a Danielle ter entregado nada.
+
+   Agora a conversa nasce SEM dona e vai pra fila de Distribuição — que só o
+   master e quem tem `distribuidor` enxergam. O que esta função ainda faz é
+   avisar quem distribui e devolver o nome dela (a IA precisa de um nome de
+   gente pra assinar; ordem do master: nunca "Mary"). */
+async function quemDistribui(setor) {
+  const { rows: [d] } = await query(
     `SELECT id, nome FROM usuarios
-     WHERE setor = $1 AND ativo = true AND role IN ('atendente','supervisor')
-     ORDER BY nome`, [setor]);
-  if (!equipe.length) return null;
-  const chave = `rr_${setor}`;
-  const { rows: [cfg] } = await query('SELECT valor FROM configuracoes WHERE chave = $1', [chave]);
-  const atual = parseInt(cfg?.valor?.i ?? -1);
-  const prox = (atual + 1) % equipe.length;
+      WHERE ativo = true AND COALESCE(distribuidor,false) = true
+        AND ($1::text IS NULL OR $1 = setor OR $1 = ANY(COALESCE(setores, '{}')))
+      ORDER BY nome LIMIT 1`, [setor]).catch(() => ({ rows: [null] }));
+  if (d) return d;
+  // Sem distribuidora cadastrada pro setor: usa a primeira do sistema
+  const { rows: [q] } = await query(
+    `SELECT id, nome FROM usuarios
+      WHERE ativo = true AND COALESCE(distribuidor,false) = true ORDER BY nome LIMIT 1`)
+    .catch(() => ({ rows: [null] }));
+  return q || null;
+}
+
+async function distribuirSetor(convId, setor) {
+  const dona = await quemDistribui(setor);
+  const rotulo = SETORES[setor]?.rotulo || setor || 'novo';
+  /* O aviso vai pra fila de distribuição (a Danielle abre a aba 📥 e entrega).
+     apenas_master fica falso: quem distribui também precisa ver. */
   await query(
-    `INSERT INTO configuracoes (chave, valor) VALUES ($1, $2)
-     ON CONFLICT (chave) DO UPDATE SET valor = $2, updated_at = NOW()`,
-    [chave, JSON.stringify({ i: prox })]);
-  const escolhida = equipe[prox];
-  await query('UPDATE conversas SET responsavel_id = $1 WHERE id = $2', [escolhida.id, convId]);
-  socketEmit('conv_assigned', { convId, responsavel_id: escolhida.id, responsavel_nome: escolhida.nome });
-  return escolhida;
+    `INSERT INTO notificacoes (tipo, titulo, texto, conv_id)
+     VALUES ('distribuicao', $1, $2, $3)`,
+    [`📥 Lead novo de ${rotulo} esperando entrega`,
+     `Chegou na fila de Distribuição${dona?.nome ? ` (${String(dona.nome).split(' ')[0]} entrega)` : ''}. Ninguém assume sozinho: a entrega é manual.`,
+     convId]).catch(() => {});
+  socketEmit('fila_distribuicao', { convId, setor });
+  return null;   // NINGUÉM é dono automaticamente
 }
 
 // Garante que a conversa tem um lead no funil (pra captura salvar a ficha)
@@ -1397,11 +1403,11 @@ async function triagemSetor(conv, texto, phoneNum) {
     if (cachedV) cacheUpdate({ ...cachedV, setor: 'vacinas', bot_ativo: false });
     conv.setor = 'vacinas'; conv.bot_ativo = false;
     socketEmit('bot_status', { convId: conv.id, bot_ativo: false });
-    // Rodízio define a dona da conversa e ela recebe o aviso pra assumir
-    const donaV = await distribuirSetor(conv.id, 'vacinas').catch(() => null);
+    // 📥 A conversa entra na fila de Distribuição — sem dona, entrega manual
+    await distribuirSetor(conv.id, 'vacinas').catch(() => null);
     await query(`INSERT INTO notificacoes (tipo, titulo, texto, conv_id) VALUES ('novo_lead',$1,$2,$3)`,
       [`💉 Vacinas: ${conv.contact_name || phoneNum}`,
-       `Cliente de vacinas aguardando atendimento${donaV?.nome ? ` (${String(donaV.nome).split(' ')[0]})` : ''}. A IA fica desligada aqui até você ligar no botão da conversa.`,
+       'Cliente de vacinas aguardando atendimento, na fila de Distribuição. A IA fica desligada aqui até você ligar no botão da conversa.',
        conv.id]).catch(() => {});
     return true;  // a equipe assume; a IA só entra se ligarem o botão
   }
@@ -1442,10 +1448,14 @@ async function triagemSetor(conv, texto, phoneNum) {
   await query('UPDATE conversas SET setor = $1, menu_enviado = true WHERE id = $2', [escolha, conv.id]);
   const cached = convoCache.get(conv.id);
   if (cached) cacheUpdate({ ...cached, setor: escolha });
-  const atendente = await distribuirSetor(conv.id, escolha);
+  /* 📥 A conversa entra na FILA de Distribuição (sem dona — entrega manual da
+     Danielle, ordem do master 28/08). Mas quem chega continua sendo recebido
+     por um nome de gente: emprestamos o primeiro nome de quem distribui, e a
+     captura do nome do cliente segue igual. */
+  await distribuirSetor(conv.id, escolha).catch(() => null);
+  const atendente = await quemDistribui(escolha).catch(() => null);
 
-  // Sorteio feito (vacinas → Danielle/Raylane · consultas → Fabiane/Taíse).
-  // Automação SÓ no início: confirma, apresenta a sorteada e o humano assume.
+  // Automação SÓ no início: confirma, recebe pelo nome e o humano assume.
   const confirmaCurta = `Perfeito! 😊\nVou te direcionar para nossa equipe.\nUm momento, por favor.`;
   if (zapiOk()) await zapiCall('/send-text', 'POST', { phone: `55${phoneNum}`, message: confirmaCurta });
   const { rows: [mc] } = await query(
@@ -1453,9 +1463,9 @@ async function triagemSetor(conv, texto, phoneNum) {
      VALUES ($1,'bot',$3,'text',$2,NOW()) RETURNING *`, [conv.id, confirmaCurta, await nomeAssinatura(conv)]).catch(() => ({ rows: [null] }));
   if (mc) socketEmit('new_message', { convId: conv.id, message: mc, conv });
 
-  // Saudação por turno + apresentação da atendente sorteada (espec da gestão)
+  // Saudação por turno + apresentação de quem recebe (espec da gestão)
   const saud = saudacaoDoTurno();
-  const nomeAt = atendente ? atendente.nome.split(' ')[0] : null;
+  const nomeAt = atendente ? String(atendente.nome).trim().split(' ')[0] : null;
   const confirma = nomeAt
     ? `${saud}! 😊\n\nEu me chamo *${nomeAt}*.\nÉ um prazer receber você na Vittalis Saúde. 💎\n\nPara que eu possa oferecer um atendimento personalizado e com toda atenção que você merece, poderia me informar seu nome, por gentileza?`
     : `${saud}! Você está na fila de *${SETORES[escolha].rotulo}* — nossa equipe já vai te atender 💎`;
@@ -1697,11 +1707,12 @@ async function vittaResponder(convId) {
        conversas DELA — as das colegas seguem normais, sem conflito. */
   let nomePersona = null;   // resolvido abaixo — NUNCA Mary (ordem do master)
   if (!conv.responsavel_id && conv.setor) {
-    /* Ordem do master: a IA NÃO responde como Mary — responde com o nome da
-       usuária. Conversa sem dona ganha uma AGORA pelo rodízio do setor (de
-       quebra, a venda que a IA fizer já conta pra alguém de verdade). */
-    const dist = await distribuirSetor(convId, conv.setor).catch(() => null);
-    if (dist?.id) { conv.responsavel_id = dist.id; }
+    /* Ordem do master: a IA NÃO responde como Mary — responde com o nome de uma
+       usuária de verdade. Mas a conversa NÃO ganha dona aqui (28/08: a entrega
+       é manual, da Danielle). A IA só toma emprestado o primeiro nome de quem
+       distribui; a conversa segue na fila até alguém receber de fato. */
+    const dist = await quemDistribui(conv.setor).catch(() => null);
+    if (dist?.nome) nomePersona = String(dist.nome).trim().split(' ')[0];
   }
   if (conv.responsavel_id) {
     const { rows: [respU] } = await query('SELECT nome, ia_consultas, ia_ligada FROM usuarios WHERE id = $1', [conv.responsavel_id]).catch(() => ({ rows: [null] }));
@@ -3968,29 +3979,69 @@ r.get('/conversations', async (req, res) => {
         conditions.push(`c.classificacao = $${pi++}`); params.push(req.query.classificacao);
       } else if (req.query.categoria) { conditions.push(`c.categoria = $${pi++}`); params.push(req.query.categoria); }
       // (sem filtro de pasta: ninguém some do atendimento geral — ordem do master)
-      // Acesso por setor (rede de segurança na janela de boot, antes do cache):
-      // mesma precedência do cache — o setor da CONVERSA manda; só usa o do
-      // responsável quando a conversa não tem setor.
-      if (req.user && req.user.role !== 'master' && req.user.setor) {
-        const grupoVac = `COALESCE(c.setor, (SELECT u2.setor FROM usuarios u2 WHERE u2.id = c.responsavel_id))`;
-        conditions.push(req.user.setor === 'vacinas'
-          ? `(${grupoVac} = 'vacinas' OR ${grupoVac} IS NULL)`
-          : `(${grupoVac} <> 'vacinas' OR ${grupoVac} IS NULL)`);
-      }
-      /* 💛 A carteira da Fidelidade também fica fora AQUI (ordem do master,
-         27/08). Esta é a rota de emergência que roda enquanto o cache não
-         carregou — sem isso, nos primeiros segundos do deploy a equipe veria
-         os clientes da Poliana. */
-      /* 📥 Lead sem dona é de quem distribui (mesma regra do cache). Fora isso,
-         só entra na fila o que teve mensagem nos últimos 7 dias. */
-      const distribui = req.user && (req.user.role === 'master' || req.user.distribuidor === true);
-      if (!distribui) conditions.push('c.responsavel_id IS NOT NULL');
-      else conditions.push(`(c.responsavel_id IS NOT NULL OR c.last_message_at > NOW() - interval '7 days')`);
-      if (req.user && !ehGestao(req.user) && !(req.user.so_fidelidade === true)) {
-        conditions.push(`(c.responsavel_id = $${pi} OR (COALESCE(c.categoria,'') <> 'fidelidade'
-              AND COALESCE(c.classificacao,'') <> 'fidelidade'
-              AND NOT EXISTS (SELECT 1 FROM usuarios uf WHERE uf.id = c.responsavel_id AND uf.so_fidelidade = true)))`);
-        params.push(req.user.id); pi++;
+      /* 🔒 A MESMA TRAVA DO CACHE, TAMBÉM AQUI (bug caro, 28/08: a Gabriellen
+         acabou de ser criada e já apareciam 5 conversas na tela dela, sem a
+         Danielle ter distribuído nada).
+
+         Esta é a rota de emergência: roda na janela de boot, ANTES do cache de
+         conversas carregar — ou seja, logo depois de todo deploy do Railway.
+         Ela filtrava só pelo MACRO-grupo (vacinas x não-vacinas), então quem
+         entrasse nesses primeiros segundos enxergava conversas que já tinham
+         dona, incluindo as da pasta Fidelidade sem categoria marcada. Agora o
+         WHERE repete, em SQL, a mesma régua do podeVerSetor. */
+      if (req.user && req.user.role !== 'master') {
+        const uid = req.user.id;
+        const gestao = ehGestao(req.user);
+        const regras = [];
+
+        // 🔁 Transferiu, sumiu: quem passou adiante não vê mais (a não ser que volte pra mão dela)
+        regras.push(`(NOT (COALESCE(c.transferida_por,'{}'::text[]) @> ARRAY[$${pi}]::text[])
+                      OR COALESCE(c.responsavel_id::text,'') = $${pi})`);
+        params.push(String(uid)); pi++;
+
+        if (req.user.so_carteira === true || req.user.so_fidelidade === true) {
+          /* 🏠 Home office por produção e 💛 carteira da Fidelidade (28/08:
+             "quero que a Poliana só veja os que ela já tem no nome dela"):
+             estes dois perfis enxergam APENAS o que está no nome delas. */
+          regras.push(`c.responsavel_id = $${pi}`); params.push(uid); pi++;
+        } else {
+          /* 💛 A pasta Fidelidade é fechada: só a gestão, a dona da carteira e
+             quem for a responsável direta da conversa. */
+          if (!gestao) {
+            regras.push(`(c.responsavel_id = $${pi} OR (COALESCE(c.categoria,'') <> 'fidelidade'
+                  AND COALESCE(c.classificacao,'') <> 'fidelidade'
+                  AND NOT EXISTS (SELECT 1 FROM usuarios uf WHERE uf.id = c.responsavel_id AND uf.so_fidelidade = true)))`);
+            params.push(uid); pi++;
+          }
+          /* 📥 Lead sem dona é de quem distribui (28/08: "Danielle recebe todos
+             os leads e distribui"), e só o que teve mensagem nos últimos 7 dias
+             — o passado (quase 2 mil conversas) não cai no colo de ninguém. */
+          if (req.user.distribuidor === true) {
+            regras.push(`(c.responsavel_id IS NOT NULL OR c.last_message_at > NOW() - interval '7 days')`);
+          } else {
+            regras.push('c.responsavel_id IS NOT NULL');
+          }
+          /* 🎯 Conversa com dona é só dela. A gestão (master, supervisora e quem
+             tem ve_tudo) continua enxergando tudo, senão ninguém supervisiona. */
+          if (!gestao) {
+            regras.push(`(c.responsavel_id IS NULL OR c.responsavel_id = $${pi})`);
+            params.push(uid); pi++;
+          }
+          /* 🎯 Separação EXATA por setor (a mesma do cache): vacinas vê vacinas,
+             consultas vê consultas, terapias vê terapias. Multi-setor pelo array
+             `setores` (ex.: Danielle). Conversa ainda sem setor passa — é lead
+             novo, e o dono dela já foi filtrado acima. */
+          const meus = (Array.isArray(req.user.setores) && req.user.setores.length)
+            ? req.user.setores : (req.user.setor ? [req.user.setor] : []);
+          if (meus.length) {
+            const setorConv = `COALESCE(c.setor, (SELECT u2.setor FROM usuarios u2 WHERE u2.id = c.responsavel_id))`;
+            regras.push(`(${setorConv} IS NULL OR ${setorConv} = ANY($${pi}::text[]))`);
+            params.push(meus); pi++;
+          }
+        }
+        /* 👁 A exceção da casa (Dra. Nágila, 27/08) fura tudo: conversa marcada
+           como visível pra equipe toda entra mesmo contra as regras acima. */
+        conditions.push(`(COALESCE(c.visivel_todos,false) = true OR (${regras.join(' AND ')}))`);
       }
       if (search) {
         conditions.push(`(unaccent(lower(c.contact_name)) ILIKE unaccent(lower($${pi})) OR c.phone ILIKE $${pi})`);
@@ -4703,19 +4754,12 @@ r.patch('/conversations/:id/classificar', async (req, res) => {
       return res.json({ ok: true, classificacao: cls, setor: mapa.setor, categoria: mapa.categoria, responsavel: donoId });
     }
 
-    // RODÍZIO AUTOMÁTICO: lead novo (sem responsável) e que NÃO foi pra pasta →
-    // distribui entre as atendentes do setor de forma justa e avisa a escolhida.
+    /* 📥 FILA DE DISTRIBUIÇÃO (28/08): classificar NÃO entrega mais a conversa.
+       O lead novo fica sem dona e entra na aba de Distribuição — quem entrega é
+       a Danielle, na mão. O sistema só avisa que chegou. */
     let distribuida = null;
     if (!mapa.categoria && !conv.responsavel_id) {
-      distribuida = await distribuirSetor(conv.id, mapa.setor).catch(() => null);
-      if (distribuida) {
-        const { rows: [c2] } = await query('SELECT * FROM conversas WHERE id = $1', [conv.id]).catch(() => ({ rows: [] }));
-        if (c2) cacheUpdate(c2);
-        await query(
-          `INSERT INTO notificacoes (tipo, titulo, texto, conv_id) VALUES ('distribuicao',$1,$2,$3)`,
-          [`📥 Novo lead pra você: ${conv.contact_name || conv.phone || 'cliente'}`,
-           `Distribuído automaticamente pelo rodízio de ${mapa.setor}.`, conv.id]).catch(() => {});
-      }
+      await distribuirSetor(conv.id, mapa.setor).catch(() => null);
     }
     res.json({ ok: true, classificacao: cls, setor: mapa.setor, categoria: mapa.categoria, responsavel: distribuida });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -5639,6 +5683,55 @@ r.post('/conversations/:id/montar-cartao', async (req, res) => {
     console.error('montar-cartao:', err.message);
     res.status(500).json({ error: err.message });
   }
+});
+
+/* 👁 O QUE ESTA PESSOA ENXERGA — E POR QUÊ (28/08, depois de "no usuário da
+   Gabriellen já tem cinco conversas, sendo que não é pra aparecer nenhuma").
+
+   As regras de visibilidade viraram muitas: carteira fechada, fila de leads,
+   conversa com dona, setor, exceção da casa. Quando aparece algo que não devia,
+   adivinhar custa caro. Aqui o master escolhe a pessoa e vê a LISTA do que ela
+   enxerga, cada linha com o motivo que a deixou passar. Só master. */
+r.get('/diagnostico/visao/:usuarioId', masterOnly, async (req, res) => {
+  try {
+    const { rows: [u] } = await query(
+      `SELECT id, nome, role, setor, setores, ve_tudo, so_carteira, so_fidelidade, distribuidor
+         FROM usuarios WHERE id = $1`, [req.params.usuarioId]);
+    if (!u) return res.status(404).json({ error: 'Usuário não encontrado.' });
+
+    const viewer = { ...u, id: String(u.id) };
+    const motivo = (c) => {
+      if (c.visivel_todos === true) return 'marcada como visível pra equipe toda';
+      if (String(c.responsavel_id || '') === String(u.id)) return 'ela é a responsável';
+      if (!c.responsavel_id) return 'lead sem dona (fila de distribuição)';
+      if (viewer.so_fidelidade) return 'carteira de fidelidade';
+      if (viewer.ve_tudo) return 'perfil vê tudo';
+      if (['master', 'supervisor'].includes(u.role)) return `cargo ${u.role}`;
+      const ef = c.setor || (c.responsavel_id ? usuariosSetor.get(String(c.responsavel_id)) : null) || null;
+      return ef === null ? 'conversa sem setor definido' : `setor ${ef}`;
+    };
+
+    const todas = Array.from(convoCache.values()).filter(c => !c.arquivada && !c.simulacao);
+    const visiveis = todas.filter(c => podeVerSetor(viewer, c));
+    const porMotivo = {};
+    for (const c of visiveis) { const m = motivo(c); porMotivo[m] = (porMotivo[m] || 0) + 1; }
+
+    res.json({
+      usuario: { id: u.id, nome: u.nome, role: u.role, setor: u.setor, setores: u.setores,
+                 ve_tudo: !!u.ve_tudo, so_carteira: !!u.so_carteira,
+                 so_fidelidade: !!u.so_fidelidade, distribuidor: !!u.distribuidor },
+      total_no_sistema: todas.length,
+      enxerga: visiveis.length,
+      por_motivo: Object.entries(porMotivo).map(([m, n]) => ({ motivo: m, n })).sort((a, b) => b.n - a.n),
+      exemplos: visiveis.slice(0, 40).map(c => ({
+        id: c.id, nome: c.contact_name, setor: c.setor || null,
+        responsavel_id: c.responsavel_id || null,
+        responsavel: c.responsavel_id ? (usuariosNome.get(String(c.responsavel_id)) || '—') : null,
+        visivel_todos: c.visivel_todos === true,
+        motivo: motivo(c),
+      })),
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 r.get('/conversations/:id/agenda-da-conversa', async (req, res) => {

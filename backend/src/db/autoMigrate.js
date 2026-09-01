@@ -3027,6 +3027,8 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
   try { await colunasCriticas(); } catch (e) { console.error('colunas criticas:', e.message); }
   try { await distribuidoraDosLeads(); } catch (e) { console.error('distribuidora:', e.message); }
   try { await usuariosNovos(); } catch (e) { console.error('usuarios novos:', e.message); }
+  // 🧹 Depois de criar/garantir a equipe nova: devolver pra fila o que o rodízio entregou sozinho
+  try { await desfazerRodizioDaEquipeNova(); } catch (e) { console.error('desfazer rodizio:', e.message); }
 }
 
 
@@ -3210,6 +3212,35 @@ async function usuariosNovos() {
       [`👤 ${p.nome.split(' ')[0]} entrou na equipe`,
        `${p.nome} · ${p.titulo}. Entra pelo CPF ${p.cpf} com a senha padrão da casa.`]).catch(() => {});
     console.log(`👤 Usuária criada: ${p.nome} (${p.titulo})`);
+  }
+}
+
+/* 🧹 DESFAZER O QUE O RODÍZIO ENTREGOU SOZINHO (cobrança do master, 28/08:
+   "no usuário da Gabriellen já tem cinco conversas, sendo que não é pra
+   aparecer nenhuma porque a Danielle ainda não distribuiu nada").
+
+   O rodízio automático foi desligado no inbox.js, mas as conversas que ele já
+   tinha jogado no colo da equipe nova continuam lá. Aqui elas VOLTAM pra fila
+   de Distribuição — sem dona, pra Danielle entregar na mão. Só mexe em quem
+   entrou depois do modelo novo e que nunca respondeu nada: se a pessoa já
+   trabalhou a conversa, a conversa é dela e fica onde está. */
+async function desfazerRodizioDaEquipeNova() {
+  for (const p of EQUIPE_NOVA) {
+    const { rows: [u] } = await query('SELECT id, nome FROM usuarios WHERE cpf = $1', [p.cpf])
+      .catch(() => ({ rows: [null] }));
+    if (!u) continue;
+    /* Perfil limpo: a equipe nova não tem carteira de fidelidade nem poder de
+       distribuir (ordem do master: "não é pra ter fidelidade no usuário dela"). */
+    await query(`UPDATE usuarios SET so_fidelidade = false, so_carteira = false,
+                   distribuidor = false, ve_tudo = false, setores = $2::text[], setor = $3
+                 WHERE id = $1`, [u.id, p.setores, p.setor]).catch(() => {});
+    const { rowCount } = await query(
+      `UPDATE conversas SET responsavel_id = NULL
+        WHERE responsavel_id = $1
+          AND NOT EXISTS (SELECT 1 FROM mensagens m
+                           WHERE m.conversa_id = conversas.id AND m.sender_id = $1)`, [u.id])
+      .catch(() => ({ rowCount: 0 }));
+    if (rowCount) console.log(`🧹 ${rowCount} conversa(s) de ${u.nome} voltaram pra fila de Distribuição (rodízio automático desligado)`);
   }
 }
 
