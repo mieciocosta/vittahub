@@ -158,7 +158,16 @@ const MEDIA_PREVIEW = {
 
    Lista simples de propósito (sem rolagem virtual): com o corte de 7 dias, a
    fila é pequena — e a fila que cresce demais é sinal de problema, não de tela. */
-function FilaDistribuicao({ convos, equipe, onSelect, onDistribuir, entregando }) {
+/* 💎 O QUE É GRANDE FICA COM ELA (ordem do master, 28/08: "a Danielle fica com
+   os atendimentos de plano vacinal e com o cliente em potencial pra fechar um
+   plano terapêutico grande — e é ela que distribui o resto").
+
+   O selo não decide nada: só chama a atenção pra ela não deixar passar um
+   negócio grande no meio da correria da fila. Quem decide é ela, sempre. */
+const PISTA_GRANDE = /(plano\s*vacinal|plano\s*fidelidade|pacote|todas as vacinas|calend[áa]rio|terapia|fono|psico|ocupacional|\baba\b|avalia[çc][ãa]o|acompanhamento|mensal)/i;
+const ehPotencialAlto = (c) => PISTA_GRANDE.test(String(c.last_message || '')) || c.lead_score === 'quente';
+
+function FilaDistribuicao({ convos, equipe, onSelect, onDistribuir, entregando, eu, grandesPrimeiro, setGrandesPrimeiro }) {
   const iniciais = (n) => String(n || '?').trim().split(/\s+/).slice(0, 2).map(p => p[0]).join('').toUpperCase();
   const espera = (c) => Math.max(0, Math.floor((Date.now() - new Date(c.last_message_at || 0).getTime()) / 60000));
   const rotuloEspera = (m) => (m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ''}` : `${m}m`);
@@ -175,9 +184,32 @@ function FilaDistribuicao({ convos, equipe, onSelect, onDistribuir, entregando }
     );
   }
 
+  // Ordem: por padrão quem espera há mais tempo; no modo dela, os grandes na frente
+  const lista = grandesPrimeiro
+    ? [...convos].sort((a2, b2) => (ehPotencialAlto(b2) ? 1 : 0) - (ehPotencialAlto(a2) ? 1 : 0))
+    : convos;
+  const nGrandes = convos.filter(ehPotencialAlto).length;
+
   return (
     <div style={{ height: '100%', overflowY: 'auto' }}>
-      {convos.map(c => {
+      {/* Atalho de leitura: quantos parecem negociação grande, e o botão de
+          jogá-los pra frente da fila */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px',
+        borderBottom: '1px solid var(--border)', background: 'var(--bg)', position: 'sticky', top: 0, zIndex: 2 }}>
+        <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700 }}>
+          {convos.length} na fila{nGrandes ? ` · ${nGrandes} com cara de negócio grande` : ''}
+        </span>
+        {nGrandes > 0 && (
+          <button onClick={() => setGrandesPrimeiro(v => !v)}
+            style={{ marginLeft: 'auto', border: `1px solid ${grandesPrimeiro ? 'var(--gold,#C4973B)' : 'var(--border)'}`,
+              background: grandesPrimeiro ? 'var(--gold2,#fdf5e8)' : 'var(--card)',
+              color: grandesPrimeiro ? 'var(--gold,#C4973B)' : 'var(--muted)',
+              borderRadius: 99, padding: '3px 11px', fontSize: 10.5, fontWeight: 800, cursor: 'pointer' }}>
+            💎 Grandes primeiro
+          </button>
+        )}
+      </div>
+      {lista.map(c => {
         const min = espera(c);
         const atrasado = min >= 15;   // 15 min esperando = a fila está devendo
         const st = setorDe(c);
@@ -203,15 +235,32 @@ function FilaDistribuicao({ convos, equipe, onSelect, onDistribuir, entregando }
                 <div style={{ fontSize: 11, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {c.last_message || '…'}
                 </div>
-                {st && (
-                  <span style={{ display: 'inline-block', marginTop: 4, fontSize: 8.5, fontWeight: 800, borderRadius: 99,
-                    padding: '1px 8px', background: CORSETOR[st] || 'var(--bord2)', color: '#0b1420' }}>{st}</span>
-                )}
+                <div style={{ display: 'flex', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
+                  {st && (
+                    <span style={{ fontSize: 8.5, fontWeight: 800, borderRadius: 99,
+                      padding: '1px 8px', background: CORSETOR[st] || 'var(--bord2)', color: '#0b1420' }}>{st}</span>
+                  )}
+                  {/* 💎 Cheiro de negociação grande — plano, pacote, terapia */}
+                  {ehPotencialAlto(c) && (
+                    <span style={{ fontSize: 8.5, fontWeight: 900, borderRadius: 99, padding: '1px 8px',
+                      background: 'var(--gold,#C4973B)', color: '#fff' }}>💎 potencial alto</span>
+                  )}
+                </div>
               </div>
             </div>
 
-            {/* Um toque entrega — as iniciais são a equipe, na cor de cada uma */}
-            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 7, paddingLeft: 43 }}>
+            {/* Um toque entrega — as iniciais são a equipe, na cor de cada uma.
+                O primeiro botão é o dela: negócio grande não se distribui. */}
+            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 7, paddingLeft: 43, alignItems: 'center' }}>
+              {eu && (
+                <button disabled={!!entregando} onClick={() => onDistribuir(c, eu)}
+                  title="Ficar com este atendimento"
+                  style={{ border: 'none', borderRadius: 99, padding: '6px 12px', cursor: entregando ? 'wait' : 'pointer',
+                    background: 'linear-gradient(135deg,#E3B95C,#C4973B)', color: '#fff', fontSize: 10.5, fontWeight: 900,
+                    boxShadow: '0 2px 8px rgba(196,151,59,.4)', opacity: entregando === c.id ? .4 : 1 }}>
+                  💎 Fica comigo
+                </button>
+              )}
               {equipe.map(p => (
                 <button key={p.id} disabled={!!entregando}
                   onClick={() => onDistribuir(c, p)}
@@ -624,6 +673,7 @@ export default function Inbox({ onUnreadChange }) {
   const [cartaoBusy, setCartaoBusy] = useState(false);         // 🗓️ montando o cartão de agendamento
   const [assinarComo, setAssinarComo] = useState('');          // ✍️ gestão escrevendo no nome da dona
   const [entregando, setEntregando] = useState(null);          // 📥 lead sendo distribuído
+  const [grandesPrimeiro, setGrandesPrimeiro] = useState(false); // 💎 negócios grandes na frente
   const [total, setTotal]             = useState(0);
   const [page, setPage]               = useState(1);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -2047,6 +2097,8 @@ export default function Inbox({ onUnreadChange }) {
           {modo === 'distribuir' ? (
             <FilaDistribuicao convos={convosExib} equipe={atendentes.filter(a2 => a2.id !== user?.id)}
               onSelect={openConvo} entregando={entregando}
+              eu={user ? { id: user.id, nome: user.nome } : null}
+              grandesPrimeiro={grandesPrimeiro} setGrandesPrimeiro={setGrandesPrimeiro}
               onDistribuir={async (c, p) => {
                 if (entregando) return;
                 setEntregando(c.id);
