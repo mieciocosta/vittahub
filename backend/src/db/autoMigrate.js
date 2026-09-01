@@ -3289,9 +3289,17 @@ async function equipeDaCasa() {
   const bcrypt = await import('bcryptjs');
   for (const p of EQUIPE_CASA) {
     try {
+      /* Procura por CPF, e-mail E NOME. Sem o nome, uma conta cadastrada na mão
+         com outro e-mail viraria uma SEGUNDA conta da mesma pessoa aqui — dois
+         "Carlos Eduardo" na lista, cada um com metade do histórico. */
+      const SEM_ACENTO2 = "'áàâãäéèêëíìîïóòôõöúùûüç','aaaaaeeeeiiiiooooouuuuc'";
+      const primeiroENome = p.nome.split(' ').slice(0, 2).join(' ').toLowerCase();
       const { rows: [ja] } = await query(
-        'SELECT id, ativo FROM usuarios WHERE cpf = $1 OR lower(email) = lower($2) LIMIT 1',
-        [p.cpf, p.email]);
+        `SELECT id, ativo FROM usuarios
+          WHERE cpf = $1 OR lower(email) = lower($2)
+             OR lower(translate(COALESCE(nome,''), ${SEM_ACENTO2})) LIKE $3 || '%'
+          LIMIT 1`,
+        [p.cpf, p.email, primeiroENome.normalize('NFD').replace(/[\u0300-\u036f]/g, '')]);
       if (ja) {
         // Já está cadastrada: só garante que está ligada e com o acesso certo.
         await query(`UPDATE usuarios
@@ -3317,6 +3325,31 @@ async function equipeDaCasa() {
       console.error(`equipe da casa (${p.nome}):`, e.message);
     }
   }
+
+  /* 🧹 CONTA GÊMEA QUE EU MESMO POSSO TER CRIADO
+
+     A primeira versão desta função procurava só por CPF e e-mail. Se a pessoa
+     já estava cadastrada na mão com OUTRO e-mail, ela não era encontrada e uma
+     segunda conta nascia — dois "Carlos Eduardo" na lista, cada um com metade
+     da história, e uma delas com a senha padrão da casa aberta.
+
+     Esta passada desliga a gêmea, e só ela: precisa ter o e-mail @vittahub.local
+     (ou seja, nasceu daqui), ter uma xará com outro id, e NUNCA ter sido usada —
+     sem mensagem, sem venda e sem conversa no nome dela. Desligar é reversível;
+     apagar quebraria histórico, então não apago. */
+  const { rows: gemeas } = await query(`
+    SELECT a.id, a.nome FROM usuarios a
+     WHERE lower(COALESCE(a.email,'')) LIKE '%@vittahub.local'
+       AND EXISTS (SELECT 1 FROM usuarios b
+                    WHERE b.id <> a.id AND lower(b.nome) = lower(a.nome))
+       AND NOT EXISTS (SELECT 1 FROM mensagens m WHERE m.sender_id = a.id)
+       AND NOT EXISTS (SELECT 1 FROM vendas v WHERE v.atendente_id = a.id)
+       AND NOT EXISTS (SELECT 1 FROM conversas c WHERE c.responsavel_id = a.id)
+       AND a.ativo = true AND a.role <> 'master'`).catch(() => ({ rows: [] }));
+  for (const g of gemeas) {
+    await query('UPDATE usuarios SET ativo = false WHERE id = $1', [g.id]).catch(() => {});
+    console.log(`🧹 Conta duplicada e nunca usada desligada: ${g.nome} (${g.id})`);
+  }
 }
 
 /* 📣 O MARKETING NÃO É CARTEIRA A ACOMPANHAR (ordem do master, 01/09: "retira
@@ -3331,12 +3364,19 @@ async function equipeDaCasa() {
    deles continua exatamente o mesmo, inclusive a visão da casa inteira. */
 async function marketingForaDoPainel() {
   const SEM_ACENTO = "'áàâãäéèêëíìîïóòôõöúùûüç','aaaaaeeeeiiiiooooouuuuc'";
+  /* Casa pelo NOME também, e não só por e-mail/CPF: se a conta foi cadastrada
+     na mão com outro e-mail, a marca não pegava e os dois continuavam na lista
+     (cobrança do master, 01/09: "não esqueça de retirar o Carlos Eduardo e o
+     José da lista"). O nome é o que o master enxerga na tela — é por ele que a
+     regra tem que funcionar. Vale pra qualquer cópia da mesma pessoa. */
   const { rowCount } = await query(
     `UPDATE usuarios SET fora_do_painel = true
       WHERE COALESCE(fora_do_painel,false) = false
         AND (lower(COALESCE(email,'')) IN ('jose.carlos@vittahub.local','carlos.eduardo@vittahub.local')
              OR cpf IN ('62075159351','07964909371')
-             OR lower(COALESCE(titulo,'')) = 'marketing')`).catch(() => ({ rowCount: 0 }));
+             OR lower(COALESCE(titulo,'')) = 'marketing'
+             OR lower(translate(COALESCE(nome,''), ${SEM_ACENTO})) ~ '^(jose\\s*carlos|carlos\\s*eduardo)\\b')`)
+    .catch(() => ({ rowCount: 0 }));
   if (rowCount) console.log(`📣 ${rowCount} conta(s) de marketing saíram do painel comercial (acesso intacto)`);
 }
 
