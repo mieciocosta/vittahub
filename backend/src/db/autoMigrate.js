@@ -3026,6 +3026,7 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
   try { await bonusPessoais(); } catch (e) { console.error('bonus pessoais:', e.message); }
   try { await colunasCriticas(); } catch (e) { console.error('colunas criticas:', e.message); }
   try { await distribuidoraDosLeads(); } catch (e) { console.error('distribuidora:', e.message); }
+  try { await usuariosNovos(); } catch (e) { console.error('usuarios novos:', e.message); }
 }
 
 
@@ -3167,6 +3168,51 @@ const BONUS_PESSOAIS = [
    e não o sistema"). A marca vive no usuário: quem tem `distribuidor = true`
    enxerga a fila dos leads sem dona e entrega pra equipe. O master enxerga
    sempre, por ser o dono. Roda todo boot e só escreve se mudou. */
+/* 👤 GENTE NOVA NA EQUIPE. Cada pessoa entra aqui uma vez, com a carteira que
+   o master definiu. Roda por fora do try/catch principal e é idempotente: se o
+   usuário já existe (pelo CPF ou pelo e-mail), não duplica nem reescreve a
+   senha que a pessoa já trocou.
+
+   Senha inicial: Vittalis@2026 — a mesma da casa. Entra pelo CPF. */
+const EQUIPE_NOVA = [
+  { nome: 'Gabriellen Layanne Corrêa Mendes',
+    email: 'gabriellen@vittalissaude.com.br',
+    cpf: '05678089390',
+    cor: '#14b8a6',
+    setores: ['terapias', 'consultas'],
+    setor: 'terapias',
+    titulo: 'Terapias ABA e Neuropediatra',
+    desde: '28/08' },
+];
+
+async function usuariosNovos() {
+  const bcrypt = await import('bcryptjs');
+  for (const p of EQUIPE_NOVA) {
+    const { rows: [ja] } = await query(
+      'SELECT id FROM usuarios WHERE cpf = $1 OR email = $2 LIMIT 1', [p.cpf, p.email])
+      .catch(() => ({ rows: [1] }));
+    if (ja) {
+      // Já existe: só garante a carteira e o setor, sem tocar na senha
+      await query(`UPDATE usuarios SET titulo = COALESCE(titulo, $2), setor = COALESCE(setor, $3),
+                     setores = COALESCE(setores, $4::text[]), ativo = true
+                   WHERE cpf = $1`, [p.cpf, p.titulo, p.setor, p.setores]).catch(() => {});
+      continue;
+    }
+    const senha = await bcrypt.default.hash('Vittalis@2026', 10);
+    await query(`
+      INSERT INTO usuarios (nome, email, cpf, senha, role, cor, ativo, setor, setores, titulo)
+      VALUES ($1,$2,$3,$4,'atendente',$5,true,$6,$7::text[],$8)`,
+      [p.nome, p.email, p.cpf, senha, p.cor, p.setor, p.setores, p.titulo]).catch(e => {
+        console.error(`usuário ${p.nome}:`, e.message);
+      });
+    await query(`INSERT INTO notificacoes (tipo, titulo, texto)
+                 VALUES ('equipe', $1, $2)`,
+      [`👤 ${p.nome.split(' ')[0]} entrou na equipe`,
+       `${p.nome} · ${p.titulo}. Entra pelo CPF ${p.cpf} com a senha padrão da casa.`]).catch(() => {});
+    console.log(`👤 Usuária criada: ${p.nome} (${p.titulo})`);
+  }
+}
+
 async function distribuidoraDosLeads() {
   const SEM_ACENTO = "'áàâãäéèêëíìîïóòôõöúùûüç','aaaaaeeeeiiiiooooouuuuc'";
   const { rowCount } = await query(
@@ -3244,6 +3290,7 @@ async function titulosDaEquipe() {
     ['suellen',  'Consultas'],
     ['mayara',   'Terapia Ativos'],
     ['yasmin',   'Plano Vacinal Ativos'],
+    ['gabriellen', 'Terapias ABA e Neuropediatra'],
   ];
   const SEM_ACENTO = "'áàâãäéèêëíìîïóòôõöúùûüç','aaaaaeeeeiiiiooooouuuuc'";
   let n = 0;
