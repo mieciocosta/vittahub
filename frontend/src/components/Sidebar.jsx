@@ -718,9 +718,9 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                   background:'linear-gradient(90deg,#fde68a,#fff7d6,#fde68a)', WebkitBackgroundClip:'text', backgroundClip:'text', color:'transparent',
                   textShadow:'0 1px 8px rgba(252,211,77,.25)' }}>
                   {(() => { const h = new Date().getHours();
-                    /* "Dra. Nágila" cortava em "Dra." — título vem junto do nome */
-                    const pn = String(user?.nome || '').trim().split(/\s+/);
-                    const nome = /^dr[a]?\.?$/i.test(pn[0] || '') ? pn.slice(0, 2).join(' ') : (pn[0] || '');
+                    /* 01/09, ordem do master: "retira Dra… retira Dr também".
+                       A saudação chama pelo nome, sem pronome de tratamento. */
+                    const nome = fmt.primeiroNome(user?.nome);
                     return h < 12 ? `☀️ Bom dia, ${nome}!`
                       : h < 18 ? `🌤️ Boa tarde, ${nome}!`
                       : `🌙 Boa noite, ${nome}!`; })()}

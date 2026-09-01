@@ -25,7 +25,8 @@ const ROTPRES = { online: 'online agora', ausente: 'ausente', offline: 'fora do 
 const NIVEL = { alto: ['#dc2626', '#fee2e2'], medio: ['#b45309', '#fef3c7'], baixo: ['#5a6b7b', '#eef2f6'] };
 const PERIODOS = [['hoje', 'Hoje'], ['7d', '7 dias'], ['mes', 'Mês']];
 
-const primeiro = (n) => String(n || '').trim().split(' ')[0];
+// Nome de gente, nunca o pronome de tratamento (ordem do master, 01/09)
+const primeiro = (n) => fmt.primeiroNome(n);
 // "há quanto tempo" curtinho — o painel é de relance, não de leitura
 const desde = (min) => (min < 60 ? `${min} min` : min < 1440 ? `${Math.floor(min / 60)} h` : `${Math.floor(min / 1440)} d`);
 

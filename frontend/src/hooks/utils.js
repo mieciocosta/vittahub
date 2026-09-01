@@ -15,13 +15,27 @@ export const STATUS_CLR = {
 */
 export const COLORS = ['#00B8C0','#0E8C96','#C4973B','#10b981','#ef4444','#8b5cf6','#f97316','#3b82f6'];
 
+const TRATAMENTO = /^(dr|dra|sr|sra|enf|prof|profa)\.?$/i;
+// Tira o pronome de tratamento da FRENTE do nome, quantos vierem ("Dra. Sra. X")
+export function semTitulo(nome) {
+  const partes = String(nome || '').trim().split(/\s+/).filter(Boolean);
+  while (partes.length > 1 && TRATAMENTO.test(partes[0])) partes.shift();
+  // Nome que é SÓ o título não vira vazio — melhor mostrar o que existe
+  return partes.join(' ') || String(nome || '').trim();
+}
+
 export const fmt = {
   brl: v => v==null?'—':new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(v),
   date: s => { if(!s) return '—'; const[y,m,d]=s.split('-'); return `${d}/${m}/${y}`; },
   phone: p => { const n=(p||'').replace(/\D/g,''); if(n.length===11) return `(${n.slice(0,2)}) ${n.slice(2,7)}-${n.slice(7)}`; if(n.length===10) return `(${n.slice(0,2)}) ${n.slice(2,6)}-${n.slice(6)}`; return p; },
   relTime: iso => { if(!iso) return ''; const d=new Date(iso),diff=Date.now()-d; if(diff<60000) return 'agora'; if(diff<3600000) return `${Math.floor(diff/60000)}m`; if(diff<86400000) return d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}); return d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}); },
   msgTime: iso => new Date(iso).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}),
-  initials: n => (n||'?').split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase(),
+  initials: n => (semTitulo(n)||'?').split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase(),
+  /* 🏷️ NOME SEM PRONOME DE TRATAMENTO (ordem do master, 01/09: "retira Dra…
+     retira Dr também"). A tela mostra gente, não título: "Dr Miécio" vira
+     "Miécio". Vale só pra exibir — o cadastro é normalizado no servidor. */
+  nome: n => semTitulo(n),
+  primeiroNome: n => (semTitulo(n).split(' ')[0] || ''),
   shortDate: iso => { if(!iso) return ''; const d=new Date(iso); return d.toLocaleDateString('pt-BR',{day:'2-digit',month:'short'}); },
 };
 

@@ -1406,8 +1406,11 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
     // ── Títulos (Dr/Dra) nos nomes dos masters — uma vez ──
     const { rows: [flagTit] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_titulos_dr_v1'");
     if (!flagTit) {
-      await query(`UPDATE usuarios SET nome = 'Dr Miécio' WHERE email = 'miecio@vittalissaude.com.br'`).catch(() => {});
-      await query(`UPDATE usuarios SET nome = 'Dra. Nágila' WHERE email = 'nagila@vittalissaude.com.br'`).catch(() => {});
+      /* 01/09, ordem do master: "retira Dra… retira Dr também". O cadastro
+         guarda o NOME, não o pronome de tratamento — era ele que aparecia como
+         "Dr."/"Dra." na coluna da equipe, na saudação e nas assinaturas. */
+      await query(`UPDATE usuarios SET nome = 'Miécio' WHERE email = 'miecio@vittalissaude.com.br'`).catch(() => {});
+      await query(`UPDATE usuarios SET nome = 'Nágila' WHERE email = 'nagila@vittalissaude.com.br'`).catch(() => {});
       await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_titulos_dr_v1', '{"ok":true}') ON CONFLICT DO NOTHING`);
       console.log('🪪 Nomes atualizados: Dr Miécio e Dra. Nágila');
     }
@@ -3387,6 +3390,22 @@ async function consertarAssinaturas() {
         AND sender_nome ~* $1
         AND length(regexp_replace(sender_nome, $1, '', 'i')) > 1`, [TRATAMENTO]).catch(() => ({ rowCount: 0 }));
   if (normalizadas) console.log(`✍️  ${normalizadas} assinatura(s) sem o pronome de tratamento`);
+
+  /* 3) O CADASTRO também perde o pronome (ordem do master, 01/09: "retira Dra
+        pois a gestora master sou eu e o Miécio… retira Dr também").
+
+        É o nome do usuário que aparece na coluna da equipe, no painel, na
+        saudação da barra lateral e em toda assinatura nova — com o título na
+        frente, a tela mostrava "Dr." no lugar da pessoa. Roda todo boot e é
+        idempotente: nome já limpo não casa com o regex. Só mexe em `usuarios`
+        — o cadastro de profissionais mantém o "Dra. Fulana (Pediatra)" do
+        cartão de agendamento, que é ordem antiga do master. */
+  const { rowCount: cadastros } = await query(
+    `UPDATE usuarios
+        SET nome = btrim(regexp_replace(nome, $1, '', 'i'))
+      WHERE nome ~* $1
+        AND length(btrim(regexp_replace(nome, $1, '', 'i'))) > 1`, [TRATAMENTO]).catch(() => ({ rowCount: 0 }));
+  if (cadastros) console.log(`🪪 ${cadastros} cadastro(s) sem o pronome de tratamento no nome`);
 }
 
 async function mensagensProntas() {

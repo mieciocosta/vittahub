@@ -305,7 +305,7 @@ export default function Caixa() {
     const b = baixaJust; if (!b || String(b.texto).trim().length < 10) { window.alert('Escreva a justificativa (mínimo 10 caracteres): como o pagamento foi confirmado?'); return; }
     try {
       const r2 = await api.patch(`/extras/vendas/${b.venda.id}/receber`, { status: 'pago', justificativa: b.texto.trim() });
-      window.alert(r2?.mensagem || '✅ Solicitação enviada ao Dr. Miécio.');
+      window.alert(r2?.mensagem || '✅ Solicitação enviada ao Miécio.');
       setBaixaJust(null);
       api.get('/extras/baixas-pendentes').then(d => setBaixasPend(Array.isArray(d?.itens) ? d.itens : [])).catch(() => {});
     } catch (e) { window.alert('Erro: ' + e.message); }
@@ -918,7 +918,7 @@ Gerado em ${new Date().toLocaleString('pt-BR')} · Vittalis Saúde · documento 
               ? `✅ Fechado hoje às ${new Date(fechStatus.enviado_em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}${fechStatus?.grupo ? ` · enviado no grupo ${fechStatus.grupo}` : ''}`
               : fechStatus?.grupo
                 ? `O relatório das suas vendas de hoje vai direto pro grupo ${fechStatus.grupo} no WhatsApp.`
-                : 'O relatório vai pro grupo Caixa do WhatsApp (grupo ainda não configurado — fale com o Dr. Miécio).'}
+                : 'O relatório vai pro grupo Caixa do WhatsApp (grupo ainda não configurado — fale com o Miécio).'}
           </div>
         </div>
         <button onClick={async () => {
@@ -942,7 +942,7 @@ Gerado em ${new Date().toLocaleString('pt-BR')} · Vittalis Saúde · documento 
         <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: 12, border: '1.5px solid #fcd34d' }}>
           <div style={{ padding: '11px 16px', background: 'linear-gradient(120deg,#78350f,#b45309)', color: '#fff', display: 'flex', alignItems: 'center', gap: 9 }}>
             <span style={{ fontSize: 15 }}>💸</span>
-            <b style={{ flex: 1, fontSize: 13.5 }}>{user?.role === 'master' ? 'Baixas manuais aguardando sua autorização' : 'Suas baixas aguardando o Dr. Miécio'}</b>
+            <b style={{ flex: 1, fontSize: 13.5 }}>{user?.role === 'master' ? 'Baixas manuais aguardando sua autorização' : 'Suas baixas aguardando o Miécio'}</b>
             <span style={{ background: 'rgba(255,255,255,.25)', borderRadius: 10, padding: '2px 9px', fontSize: 12, fontWeight: 800 }}>{baixasPend.length}</span>
           </div>
           {baixasPend.map((bp, i) => (
@@ -971,7 +971,7 @@ Gerado em ${new Date().toLocaleString('pt-BR')} · Vittalis Saúde · documento 
           <div className="card" style={{ width: '100%', maxWidth: 420, padding: 20 }}>
             <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 6 }}>💸 Dar baixa com autorização</div>
             <p style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.5 }}>
-              Baixa de <b>{baixaJust.venda.cliente_nome || 'cliente'}</b> ({Number(baixaJust.venda.valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}). A justificativa é obrigatória e a baixa só aplica depois que o <b>Dr. Miécio autorizar</b>.
+              Baixa de <b>{baixaJust.venda.cliente_nome || 'cliente'}</b> ({Number(baixaJust.venda.valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}). A justificativa é obrigatória e a baixa só aplica depois que o <b>Miécio autorizar</b>.
             </p>
             <div className="field" style={{ margin: 0, marginBottom: 12 }}>
               <label>Justificativa * (como o pagamento foi confirmado?)</label>
@@ -979,7 +979,7 @@ Gerado em ${new Date().toLocaleString('pt-BR')} · Vittalis Saúde · documento 
                 placeholder="Ex.: cliente mostrou o comprovante do Pix na recepção, valor conferido…" style={{ resize: 'vertical' }} />
             </div>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button onClick={enviarBaixaJust} className="btn btn-p" style={{ fontWeight: 800 }}>📨 Enviar pro Dr. Miécio</button>
+              <button onClick={enviarBaixaJust} className="btn btn-p" style={{ fontWeight: 800 }}>📨 Enviar pro Miécio</button>
               <button onClick={() => setBaixaJust(null)} className="btn">Cancelar</button>
             </div>
           </div>
