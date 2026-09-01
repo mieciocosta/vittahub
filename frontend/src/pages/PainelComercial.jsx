@@ -79,6 +79,40 @@ export default function PainelComercial() {
             <Kpi v={d.paradas} l="paradas há 3 dias" s="precisam de retomada" cor={d.paradas ? 'var(--warn,#e8991a)' : 'var(--txt)'} />
           </div>
 
+          {/* 💎 MINHAS NEGOCIAÇÕES — a carteira dela, em dinheiro por etapa.
+              Vem antes da equipe de propósito: ela é fechadora primeiro,
+              gestora depois (ordem do master, 28/08). */}
+          {(d.minhas_negociacoes || []).length > 0 && (
+            <div className="card" style={{ padding: '13px 16px 15px', marginBottom: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 9, flexWrap: 'wrap', marginBottom: 10 }}>
+                <span style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--txt)' }}>💎 Minhas negociações</span>
+                <span style={{ fontSize: 11, color: 'var(--muted)' }}>o que está na sua mão, por etapa</span>
+                <span style={{ marginLeft: 'auto', fontSize: 13, fontWeight: 900, color: 'var(--gold,#C4973B)' }}>
+                  {fmt.brl((d.minhas_negociacoes || []).reduce((t, x) => t + x.valor, 0))} em jogo
+                </span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(148px,1fr))', gap: 9 }}>
+                {d.minhas_negociacoes.map(e => (
+                  <div key={e.etapa} onClick={() => nav('/inbox?minhas=1')}
+                    style={{ border: '1px solid var(--border)', borderRadius: 12, padding: '10px 12px', cursor: 'pointer',
+                      background: e.parados ? 'rgba(232,153,26,.06)' : 'var(--bg)' }}>
+                    <div style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase',
+                      letterSpacing: .4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.etapa}</div>
+                    <div style={{ fontSize: 18, fontWeight: 900, color: 'var(--txt)', letterSpacing: -.5, marginTop: 2 }}>{e.n}</div>
+                    <div style={{ fontSize: 12, fontWeight: 800, color: e.valor ? 'var(--tq2)' : 'var(--light)' }}>
+                      {e.valor ? fmt.brl(e.valor) : 'sem valor lançado'}
+                    </div>
+                    {e.parados > 0 && (
+                      <div style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--warn,#e8991a)', marginTop: 3 }}>
+                        ⏳ {e.parados} parado{e.parados > 1 ? 's' : ''} há +3 dias
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.6fr) minmax(0,1fr)', gap: 14, alignItems: 'start' }} className="vh-painel-cols">
             {/* A equipe agora */}
             <div className="card" style={{ padding: 0, overflow: 'hidden' }}>

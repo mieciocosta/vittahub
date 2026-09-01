@@ -2700,7 +2700,7 @@ r.get('/painel-comercial', async (req, res) => {
     const DIA_TS = "((NOW() - interval '3 hours')::date + interval '3 hours')";
     const MES = "to_char(NOW() - interval '3 hours','YYYY-MM')";
 
-    const [fila, semResp, agenda, vendasHoje, equipe, distrib, paradas, presenca] = await Promise.all([
+    const [fila, semResp, agenda, vendasHoje, equipe, distrib, paradas, presenca, minhas] = await Promise.all([
       // Fila esperando distribuição (com o corte de 7 dias, igual à tela)
       query(`SELECT COUNT(*)::int n,
                     COALESCE(EXTRACT(EPOCH FROM (NOW() - MIN(last_message_at)))/60, 0)::int espera_max
@@ -2750,6 +2750,21 @@ r.get('/painel-comercial', async (req, res) => {
                 AND COALESCE(status_atend,'aberto') <> 'resolvido'
                 AND last_message_at BETWEEN NOW() - interval '30 days' AND NOW() - interval '3 days'`),
       query(`SELECT usuario_id, status, ultimo_heartbeat FROM presenca`).catch(() => ({ rows: [] })),
+      /* 💎 MINHAS NEGOCIAÇÕES (ordem do master, 28/08): quem fecha plano grande
+         precisa ver DINHEIRO por etapa, não contagem de conversa. Junta a etapa
+         do funil da conversa com o valor da proposta do lead, e mostra há
+         quantos dias cada uma está parada — é onde o dinheiro esfria. */
+      query(`
+        SELECT COALESCE(NULLIF(c.funil_etapa,''), l.status, 'Sem etapa') AS etapa,
+               COUNT(*)::int n,
+               COALESCE(SUM(l.valor_proposta),0)::float valor,
+               COUNT(*) FILTER (WHERE c.last_message_at < NOW() - interval '3 days')::int parados
+          FROM conversas c
+          LEFT JOIN leads l ON l.id = c.lead_id
+         WHERE c.responsavel_id = $1
+           AND COALESCE(c.arquivada,false) = false
+           AND COALESCE(c.status_atend,'aberto') <> 'resolvido'
+         GROUP BY 1 ORDER BY valor DESC, n DESC`, [req.user.id]).catch(() => ({ rows: [] })),
     ]);
 
     const pres = {};
@@ -2791,6 +2806,10 @@ r.get('/painel-comercial', async (req, res) => {
       equipe: time,
       distribuicao_hoje: distrib.rows.map(d => ({ ...d, n: Number(d.n) })),
       paradas: (paradas.rows[0] || {}).n || 0,
+      /* 💎 A carteira DELA por etapa: quantos, quanto vale e quantos pararam */
+      minhas_negociacoes: (minhas.rows || []).map(x => ({
+        etapa: x.etapa, n: x.n, valor: Number(x.valor) || 0, parados: x.parados,
+      })),
       alertas: alertas.slice(0, 12),
     });
   } catch (err) {
