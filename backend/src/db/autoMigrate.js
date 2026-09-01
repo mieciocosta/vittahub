@@ -3179,6 +3179,7 @@ async function distribuidoraDosLeads() {
 async function colunasCriticas() {
   const COLUNAS = [
     ['conversas', 'transferida_por', "TEXT[] DEFAULT '{}'"],   // transferiu, sumiu
+    ['conversas', 'responsavel_desde', 'TIMESTAMPTZ'],          // quando ganhou dona (distribuição do dia)
     ['conversas', 'visivel_todos',   'BOOLEAN DEFAULT false'],  // mostrar pra equipe toda
     ['conversas', 'nome_manual',     'BOOLEAN DEFAULT false'],  // nome digitado pela equipe
     ['conversas', 'arquivada',       'BOOLEAN DEFAULT false'],

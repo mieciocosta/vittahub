@@ -65,6 +65,9 @@ const NAV = [
   { to:'/tabela-precos', icon:FileText,     label:'Tabela de Preços', cor:'#0ea5e9' },
 
   { grupo:'Vender' },
+  /* 🧭 Painel de gestão comercial: fila de leads, equipe e alertas (ordem do
+     master, 28/08). Aparece pra gestão e pra quem distribui. */
+  { to:'/painel-comercial', icon:LayoutGrid, label:'Painel Comercial', comercial:true, cor:'#C4973B', destaque:true },
   { to:'/plano-vacinal', icon:Syringe, label:'Plano Vacinal', vacinas:true, cor:'#22c55e', destaque:true },
   { to:'/plano-terapias', icon:Puzzle,      label:'Plano de Terapias', terapias:true, destaque:true, cor:'#a855f7' },
   { to:'/minha-carteira', icon:Wallet,      label:'Minha Carteira', cor:'#2dd4bf' },
@@ -920,6 +923,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                quem não tem setor nenhum (marketing) — aí não há o que filtrar. */
             && (!n.terapias || podeSetor('terapias'))
             && (!n.vacinas || podeSetor('vacinas'))
+            && (!n.comercial || ['master','supervisor'].includes(user?.role) || user?.distribuidor === true)
             && (!n.lider || user?.lider || user?.role === 'master')
             && (!n.iaBotao || user?.ia_consultas === true || user?.role === 'master')
             && (n.grupo ? !buscaAtiva : bateBusca(n.label))

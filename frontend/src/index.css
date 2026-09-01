@@ -577,3 +577,6 @@ input::placeholder, textarea::placeholder { color: var(--light); }
 /* No celular o botão dourado de Agendar fica só com o ícone: o campo de
    escrever é mais importante que a palavra (ordem do master, 27/08). */
 @media (max-width: 768px) { .vh-so-desktop { display: none !important; } }
+
+/* 🧭 Painel Comercial: no celular as duas colunas viram uma */
+@media (max-width: 900px) { .vh-painel-cols { grid-template-columns: 1fr !important; } }

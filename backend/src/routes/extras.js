@@ -2683,6 +2683,122 @@ async function podeComprovante(req, vendaId) {
    à pessoa a noção do que ela construiu, e à casa a noção da carteira ativa.
    Cada uma vê os seus; gestão vê de todo mundo e pode filtrar por pessoa. */
 const TIPOS_PLANO = { vacinal: 'Plano Vacinal', terapeutico: 'Terapia', fidelidade: 'Fidelidade Mensal' };
+/* 🧭 PAINEL COMERCIAL (ordem do master, 28/08: "quero todas as funções dentro
+   do usuário dela... que ela possa gerenciar os seus atendimentos e os de cada
+   colaborador que está debaixo da cobertura dela").
+
+   Junta numa resposta só o que hoje está espalhado: a fila, o dia da casa, o
+   que cada pessoa está fazendo agora, como os leads foram repartidos e o que
+   pede ação. Quem vê: master, supervisora e quem distribui. */
+r.get('/painel-comercial', async (req, res) => {
+  try {
+    const podeVer = ['master', 'supervisor'].includes(req.user.role)
+      || req.user.distribuidor === true || veGeral(req);
+    if (!podeVer) return res.status(403).json({ error: 'Painel de gestão comercial.' });
+
+    const HOJE = "(NOW() - interval '3 hours')::date";
+    const DIA_TS = "((NOW() - interval '3 hours')::date + interval '3 hours')";
+    const MES = "to_char(NOW() - interval '3 hours','YYYY-MM')";
+
+    const [fila, semResp, agenda, vendasHoje, equipe, distrib, paradas, presenca] = await Promise.all([
+      // Fila esperando distribuição (com o corte de 7 dias, igual à tela)
+      query(`SELECT COUNT(*)::int n,
+                    COALESCE(EXTRACT(EPOCH FROM (NOW() - MIN(last_message_at)))/60, 0)::int espera_max
+               FROM conversas
+              WHERE responsavel_id IS NULL AND COALESCE(arquivada,false) = false
+                AND COALESCE(simulacao,false) = false AND categoria IS NULL
+                AND last_message_at > NOW() - interval '7 days'`),
+      // Clientes esperando resposta agora
+      query(`SELECT COUNT(*)::int n,
+                    COALESCE(EXTRACT(EPOCH FROM (NOW() - MIN(last_message_at)))/60, 0)::int espera_max
+               FROM conversas
+              WHERE last_from = 'contact' AND COALESCE(arquivada,false) = false
+                AND COALESCE(simulacao,false) = false
+                AND last_message_at > NOW() - interval '48 hours'`),
+      query(`SELECT COUNT(*)::int n FROM agenda_eventos
+              WHERE data = ${HOJE} AND LOWER(COALESCE(status,'')) NOT LIKE 'cancel%'
+                AND servico IS DISTINCT FROM 'Pós Vacinal'`),
+      query(`SELECT COALESCE(SUM(valor),0)::float total, COUNT(*)::int n
+               FROM vendas WHERE data_venda = ${HOJE}`),
+      /* A linha de cada pessoa: o que tem na mão, o que está devendo e o que
+         produziu hoje. É a leitura que transforma supervisão em ação. */
+      query(`
+        SELECT u.id, u.nome, u.cor, u.titulo, u.setor,
+               (SELECT COUNT(*) FROM conversas c WHERE c.responsavel_id = u.id
+                  AND COALESCE(c.arquivada,false) = false)::int abertas,
+               (SELECT COUNT(*) FROM conversas c WHERE c.responsavel_id = u.id
+                  AND c.last_from = 'contact' AND c.last_message_at > NOW() - interval '48 hours')::int sem_resposta,
+               (SELECT COUNT(DISTINCT m.conversa_id) FROM mensagens m
+                 WHERE m.sender_id = u.id AND m.from_type = 'me' AND m.created_at >= ${DIA_TS})::int atendeu_hoje,
+               (SELECT COUNT(*) FROM agenda_eventos a WHERE a.responsavel_id = u.id AND a.data = ${HOJE}
+                  AND LOWER(COALESCE(a.status,'')) NOT LIKE 'cancel%')::int agendou_hoje,
+               (SELECT COALESCE(SUM(v.valor),0) FROM vendas v WHERE v.atendente_id = u.id AND v.data_venda = ${HOJE})::float vendeu_hoje,
+               (SELECT COALESCE(SUM(v.valor),0) FROM vendas v WHERE v.atendente_id = u.id
+                  AND to_char(v.data_venda,'YYYY-MM') = ${MES})::float vendeu_mes,
+               COALESCE(u.meta_individual,0)::float meta
+          FROM usuarios u
+         WHERE u.ativo = true AND u.role IN ('atendente','supervisor')
+         ORDER BY u.nome`),
+      // Como os leads foram repartidos hoje
+      query(`SELECT c.responsavel_id, u.nome, u.cor, COUNT(*)::int n
+               FROM conversas c JOIN usuarios u ON u.id = c.responsavel_id
+              WHERE c.responsavel_desde >= ${DIA_TS}
+              GROUP BY 1,2,3 ORDER BY n DESC`).catch(() => ({ rows: [] })),
+      // Conversas paradas: ninguém fala há 3 dias e não estão fechadas
+      query(`SELECT COUNT(*)::int n FROM conversas
+              WHERE responsavel_id IS NOT NULL AND COALESCE(arquivada,false) = false
+                AND COALESCE(status_atend,'aberto') <> 'resolvido'
+                AND last_message_at BETWEEN NOW() - interval '30 days' AND NOW() - interval '3 days'`),
+      query(`SELECT usuario_id, status, ultimo_heartbeat FROM presenca`).catch(() => ({ rows: [] })),
+    ]);
+
+    const pres = {};
+    for (const p of presenca.rows) {
+      const min = (Date.now() - new Date(p.ultimo_heartbeat).getTime()) / 60000;
+      pres[String(p.usuario_id)] = min < 6 ? 'online' : min < 45 ? 'ausente' : 'offline';
+    }
+
+    const time = equipe.rows.map(u => ({
+      ...u,
+      vendeu_hoje: Number(u.vendeu_hoje) || 0,
+      vendeu_mes: Number(u.vendeu_mes) || 0,
+      meta: Number(u.meta) || 0,
+      pct_meta: Number(u.meta) > 0 ? Math.round((Number(u.vendeu_mes) / Number(u.meta)) * 100) : null,
+      recebeu_hoje: (distrib.rows.find(d => String(d.responsavel_id) === String(u.id)) || {}).n || 0,
+      presenca: pres[String(u.id)] || 'offline',
+    }));
+
+    /* 🚨 O que pede ação — a lista que faz o painel virar trabalho, não enfeite */
+    const alertas = [];
+    const f = fila.rows[0] || {}; const sr = semResp.rows[0] || {};
+    if (f.n > 0 && f.espera_max >= 15) {
+      alertas.push({ nivel: 'alto', txt: `${f.n} lead(s) na fila — o mais antigo espera há ${Math.round(f.espera_max)} min`, acao: 'distribuir' });
+    }
+    for (const u of time) {
+      if (u.sem_resposta >= 3) alertas.push({ nivel: 'alto', txt: `${u.nome.split(' ')[0]} com ${u.sem_resposta} clientes sem resposta`, quem: u.id });
+      if (u.presenca === 'online' && u.atendeu_hoje === 0) alertas.push({ nivel: 'medio', txt: `${u.nome.split(' ')[0]} está online e ainda não respondeu ninguém hoje`, quem: u.id });
+      if (u.recebeu_hoje === 0 && u.presenca !== 'offline') alertas.push({ nivel: 'baixo', txt: `${u.nome.split(' ')[0]} não recebeu nenhum lead hoje`, quem: u.id });
+    }
+    if ((paradas.rows[0] || {}).n > 0) {
+      alertas.push({ nivel: 'medio', txt: `${paradas.rows[0].n} conversa(s) sem movimento há mais de 3 dias`, acao: 'ver' });
+    }
+
+    res.json({
+      fila: { n: f.n || 0, espera_max: Math.round(f.espera_max || 0) },
+      sem_resposta: { n: sr.n || 0, espera_max: Math.round(sr.espera_max || 0) },
+      agendamentos_hoje: (agenda.rows[0] || {}).n || 0,
+      vendas_hoje: { total: Number((vendasHoje.rows[0] || {}).total) || 0, n: (vendasHoje.rows[0] || {}).n || 0 },
+      equipe: time,
+      distribuicao_hoje: distrib.rows.map(d => ({ ...d, n: Number(d.n) })),
+      paradas: (paradas.rows[0] || {}).n || 0,
+      alertas: alertas.slice(0, 12),
+    });
+  } catch (err) {
+    console.error('painel-comercial:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 r.get('/planos-fechados', async (req, res) => {
   try {
     const cond = [], params = []; let i = 1;
@@ -2694,7 +2810,9 @@ r.get('/planos-fechados', async (req, res) => {
     if (!gestao(req) && !veGeral(req)) { cond.push(`atendente_id = $${i++}`); params.push(req.user.id); }
     else if (req.query.pessoa) { cond.push(`atendente_id = $${i++}`); params.push(req.query.pessoa); }
 
-    if (/^\d{4}-\d{2}$/.test(req.query.mes || '')) { cond.push(`to_char(data_venda,'YYYY-MM') = $${i++}`); params.push(req.query.mes); }
+    // Ano, mês ou dia: o filtro mais fino manda (ordem do master, 28/08)
+    if (/^\d{4}-\d{2}-\d{2}$/.test(req.query.dia || '')) { cond.push(`data_venda = $${i++}`); params.push(req.query.dia); }
+    else if (/^\d{4}-\d{2}$/.test(req.query.mes || '')) { cond.push(`to_char(data_venda,'YYYY-MM') = $${i++}`); params.push(req.query.mes); }
     else if (/^\d{4}$/.test(req.query.ano || '')) { cond.push(`to_char(data_venda,'YYYY') = $${i++}`); params.push(req.query.ano); }
 
     const where = `WHERE ${cond.join(' AND ')}`;
@@ -2717,8 +2835,19 @@ r.get('/planos-fechados', async (req, res) => {
       SELECT to_char(data_venda,'YYYY-MM') mes, COUNT(*)::int n, COALESCE(SUM(valor),0)::float total
         FROM vendas ${where} GROUP BY 1 ORDER BY 1 DESC LIMIT 13`, params);
 
+    /* 📅 Dias do mês escolhido: é o calendário que o master pediu, pra ela
+       clicar no dia e ver o que foi fechado ali. */
+    let porDia = [];
+    if (/^\d{4}-\d{2}$/.test(req.query.mes || '')) {
+      const pDia = params.slice();
+      ({ rows: porDia } = await query(`
+        SELECT to_char(data_venda,'YYYY-MM-DD') dia, COUNT(*)::int n, COALESCE(SUM(valor),0)::float total
+          FROM vendas ${where} GROUP BY 1 ORDER BY 1`, pDia).catch(() => ({ rows: [] })));
+    }
+
     const soma = (c) => resumo.reduce((t, r2) => t + (Number(r2[c]) || 0), 0);
     res.json({
+      por_dia: porDia.map(x => ({ ...x, total: Number(x.total) })),
       itens: itens.map(v => ({ ...v, valor: parseFloat(v.valor) || 0, desconto: parseFloat(v.desconto) || 0 })),
       resumo: resumo.map(r2 => ({ ...r2, total: Number(r2.total), recebido: Number(r2.recebido),
         ticket: r2.n ? Number(r2.total) / r2.n : 0 })),

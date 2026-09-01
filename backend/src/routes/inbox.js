@@ -4574,7 +4574,7 @@ r.patch('/conversations/:id/assign', async (req, res) => {
        lista, e quando o atendimento VOLTA PRO POOL (sem dono) a lista é zerada
        — é uma nova rodada de distribuição, todo mundo do setor vê de novo. */
     const { rows: [convUp] } = await query(
-      `UPDATE conversas SET responsavel_id = $1,
+      `UPDATE conversas SET responsavel_id = $1, responsavel_desde = CASE WHEN $1::text IS NULL THEN NULL ELSE NOW() END,
               transferida_por = CASE WHEN $1::text IS NULL THEN ARRAY[]::text[]
                 ELSE ARRAY(SELECT x FROM unnest(COALESCE(transferida_por, ARRAY[]::text[])) AS x WHERE x <> $1::text) END
        WHERE id = $2 RETURNING *`, [respId, req.params.id])
@@ -5202,7 +5202,7 @@ r.patch('/conversations/:id/transferir', async (req, res) => {
     let conv = null;
     try {
       const r2 = await query(
-        `UPDATE conversas SET responsavel_id = $1${mantemBot ? '' : ', bot_ativo = false'}${novoSetor ? ', setor = $4' : ''},
+        `UPDATE conversas SET responsavel_id = $1, responsavel_desde = NOW()${mantemBot ? '' : ', bot_ativo = false'}${novoSetor ? ', setor = $4' : ''},
                 transferida_por = ARRAY(
                   SELECT DISTINCT x FROM unnest(array_append(COALESCE(transferida_por, ARRAY[]::text[]), $3::text)) AS x
                    WHERE x IS NOT NULL AND x <> '' AND x <> $1::text)
@@ -5216,7 +5216,7 @@ r.patch('/conversations/:id/transferir', async (req, res) => {
          mesmo jeito (28/08, "na hora de transferir está dando problema"). */
       console.error('transferir (sem transferida_por):', e.message);
       const r3 = await query(
-        `UPDATE conversas SET responsavel_id = $1${mantemBot ? '' : ', bot_ativo = false'}${novoSetor ? ', setor = $3' : ''}
+        `UPDATE conversas SET responsavel_id = $1, responsavel_desde = NOW()${mantemBot ? '' : ', bot_ativo = false'}${novoSetor ? ', setor = $3' : ''}
          WHERE id = $2 RETURNING *`,
         novoSetor ? [paraId, req.params.id, novoSetor] : [paraId, req.params.id]);
       conv = r3.rows[0];

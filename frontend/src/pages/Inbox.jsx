@@ -766,6 +766,7 @@ export default function Inbox({ onUnreadChange }) {
   const [setorFiltro, setSetorFiltro] = useState('all');
   const [searchParams, setSearchParams] = useSearchParams();
   const clsFiltro = searchParams.get('cls') || 'all';
+  const respFiltro = searchParams.get('responsavel') || '';   // 🧭 veio do Painel Comercial
   const [setorResumo, setSetorResumo] = useState(null);
   useEffect(() => {
     const reais = ['vacinacao','planos_vacinais','fidelidade','consultas','terapias'];
@@ -1197,6 +1198,10 @@ export default function Inbox({ onUnreadChange }) {
       if (modo === 'minhas') params.set('minhas', 'true');
       if (modo === 'naolidas') params.set('unread_only', 'true');
       if (modo === 'grupos') params.set('grupos', 'true');
+      /* 📥 Fila de distribuição e o atalho do Painel Comercial: clicar numa
+         pessoa lá abre o chat já filtrado nas conversas DELA (28/08). */
+      if (modo === 'distribuir') params.set('semDono', 'true');
+      if (respFiltro) params.set('responsavel', respFiltro);
       const data = await api.get(`/inbox/conversations?${params}`);
       if (data.counts) setCounts(data.counts);
       const list = data.data || data;
@@ -1225,6 +1230,10 @@ export default function Inbox({ onUnreadChange }) {
       if (modo === 'minhas') params.set('minhas', 'true');
       if (modo === 'naolidas') params.set('unread_only', 'true');
       if (modo === 'grupos') params.set('grupos', 'true');
+      /* 📥 Fila de distribuição e o atalho do Painel Comercial: clicar numa
+         pessoa lá abre o chat já filtrado nas conversas DELA (28/08). */
+      if (modo === 'distribuir') params.set('semDono', 'true');
+      if (respFiltro) params.set('responsavel', respFiltro);
       const data = await api.get(`/inbox/conversations?${params}`);
       if (data.counts) setCounts(data.counts);
       const list = data.data || [];
