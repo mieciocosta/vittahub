@@ -533,8 +533,13 @@ export default function App() {
         <ErrorBoundary>
         <Suspense fallback={<div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'70vh' }}><span className="spin" style={{ width:26, height:26, borderColor:'rgba(0,184,192,0.2)', borderTopColor:'var(--tq)' }} /></div>}>
         <Routes>
-          {/* 👶 Quem cuida só da carteira Fidelidade entra direto no painel do mês */}
-          <Route path="/"             element={user.so_fidelidade ? <Navigate to="/fidelidade-mes" replace /> : <Dashboard />} />
+          {/* 💬 TODO MUNDO CAI NO CHAT (ordem do master, 01/09: "quero que para
+              todos o chat esteja ativado e em destaque"). Antes o Resumo abria
+              primeiro e o atendimento ficava a um clique de distância — numa
+              casa que vive de WhatsApp, a primeira tela tem que ser a conversa.
+              O Resumo continua inteiro no menu. */}
+          <Route path="/"             element={<Navigate to="/inbox" replace />} />
+          <Route path="/resumo"       element={<Dashboard />} />
           <Route path="/inbox"        element={<Inbox onUnreadChange={setUnread} />} />
           <Route path="/leads"        element={<Leads />} />
           <Route path="/funil"        element={<Funil />} />

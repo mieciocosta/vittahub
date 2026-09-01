@@ -2067,6 +2067,11 @@ export default function Inbox({ onUnreadChange }) {
               textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
               📂 Pasta de {primeiroNomeUtil((atendentes.find(a2 => String(a2.id) === String(respFiltro)) || {}).nome) || 'colaboradora'}
             </span>
+            <button onClick={() => nav(`/painel-comercial?pessoa=${respFiltro}`)}
+              style={{ border:'1.5px solid #bae6fd', background:'#f0f9ff', borderRadius:8,
+                padding:'3px 9px', fontSize:10.5, fontWeight:800, color:'#0369a1', cursor:'pointer', whiteSpace:'nowrap' }}>
+              📊 Painel dela
+            </button>
             <button onClick={() => abrirPastaDe('')}
               style={{ border:'1.5px solid var(--border)', background:'var(--card,#fff)', borderRadius:8,
                 padding:'3px 9px', fontSize:10.5, fontWeight:800, color:'var(--muted)', cursor:'pointer', whiteSpace:'nowrap' }}>

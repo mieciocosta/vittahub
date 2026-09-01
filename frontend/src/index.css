@@ -579,6 +579,29 @@ input::placeholder, textarea::placeholder { color: var(--light); }
 @media (max-width: 768px) { .vh-so-desktop { display: none !important; } }
 
 /* 🧭 Painel Comercial: no celular as duas colunas viram uma */
+/* 🥧 CORES DOS GRÁFICOS — passaram no validador de daltonismo (ΔE por par
+   adjacente, piso de croma, faixa de luminosidade e contraste com o fundo).
+   O modo escuro tem os PRÓPRIOS tons, não é o claro invertido: no fundo escuro
+   o âmbar e o verde claros saíam da faixa e sumiam. Não trocar no olho. */
+:root {
+  --viz-espera: #dc2626;   /* esperando resposta */
+  --viz-conversa: #0fb07a; /* em conversa */
+  --viz-parado: #e8991a;   /* parado há +3 dias */
+  --viz-1: #12a5ad;        /* vacinas   */
+  --viz-2: #e8991a;        /* consultas */
+  --viz-3: #8b5cf6;        /* terapias  */
+  --viz-4: #e0518c;        /* sem setor */
+}
+[data-theme="dark"] {
+  --viz-espera: #dc2626;
+  --viz-conversa: #0f9f6e;
+  --viz-parado: #c07c0c;
+  --viz-1: #12a5ad;
+  --viz-2: #c07c0c;
+  --viz-3: #8b5cf6;
+  --viz-4: #e0518c;
+}
+
 @media (max-width: 900px) { .vh-painel-cols { grid-template-columns: 1fr !important; } }
 /* 🧭 Painel Comercial: no celular a coluna das meninas vira uma faixa que rola
    de lado — o nome de cada uma continua na mão, sem empurrar o conteúdo. */

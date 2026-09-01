@@ -2849,7 +2849,7 @@ r.get('/painel-comercial/pessoa/:id', async (req, res) => {
       : `date_trunc('month', ${HOJE})::date`;
     const DE_TS = per === 'hoje' ? DIA_TS : `((${DE})::date + interval '3 hours')`;
 
-    const [resumo, conversas, agenda, vendas, parados, dias, etapas] = await Promise.all([
+    const [resumo, conversas, agenda, vendas, parados, dias, etapas, fatias, porSetor] = await Promise.all([
       query(`
         SELECT
           (SELECT COUNT(*) FROM conversas c WHERE c.responsavel_id = $1
@@ -2929,6 +2929,29 @@ r.get('/painel-comercial/pessoa/:id', async (req, res) => {
          WHERE c.responsavel_id = $1 AND COALESCE(c.arquivada,false) = false
            AND COALESCE(c.status_atend,'aberto') <> 'resolvido'
          GROUP BY 1 ORDER BY valor DESC, n DESC`, [u.id]).catch(() => ({ rows: [] })),
+      /* 🥧 A PIZZA DOS ATENDIMENTOS (ordem do master, 01/09: "uma pizza de
+         gráfico contendo todos atendimentos"). Três fatias que dizem o ESTADO
+         de cada conversa na mão dela — é a leitura que vira cobrança:
+         quem está esperando, quem está em conversa e quem esfriou. */
+      query(`
+        SELECT CASE
+                 WHEN c.last_from = 'contact' THEN 'Esperando resposta'
+                 WHEN c.last_message_at <= NOW() - interval '3 days' THEN 'Parado há +3 dias'
+                 ELSE 'Em conversa'
+               END AS fatia, COUNT(*)::int n
+          FROM conversas c
+         WHERE c.responsavel_id = $1 AND COALESCE(c.arquivada,false) = false
+           AND COALESCE(c.simulacao,false) = false
+           AND c.last_message_at > NOW() - interval '60 days'
+         GROUP BY 1`, [u.id]).catch(() => ({ rows: [] })),
+      // 🥧 E a mesma carteira repartida por setor
+      query(`
+        SELECT COALESCE(NULLIF(c.setor,''), 'Sem setor') AS fatia, COUNT(*)::int n
+          FROM conversas c
+         WHERE c.responsavel_id = $1 AND COALESCE(c.arquivada,false) = false
+           AND COALESCE(c.simulacao,false) = false
+           AND c.last_message_at > NOW() - interval '60 days'
+         GROUP BY 1 ORDER BY n DESC`, [u.id]).catch(() => ({ rows: [] })),
     ]);
 
     const r0 = resumo.rows[0] || {};
@@ -2964,6 +2987,14 @@ r.get('/painel-comercial/pessoa/:id', async (req, res) => {
       })),
       dias: dias.rows.map(x => ({ rotulo: x.rotulo, atendeu: x.atendeu, agendou: x.agendou, vendeu: Number(x.vendeu) || 0 })),
       etapas: etapas.rows.map(x => ({ etapa: x.etapa, n: x.n, valor: Number(x.valor) || 0 })),
+      /* 🥧 Ordem FIXA das fatias: a cor segue o significado, nunca a posição no
+         ranking — senão a mesma cor muda de dono quando o número vira. */
+      pizza_situacao: ['Esperando resposta', 'Em conversa', 'Parado há +3 dias']
+        .map(k => ({ fatia: k, n: (fatias.rows.find(r2 => r2.fatia === k) || {}).n || 0 }))
+        .filter(x => x.n > 0),
+      pizza_setor: ['vacinas', 'consultas', 'terapias', 'Sem setor']
+        .map(k => ({ fatia: k, n: (porSetor.rows.find(r2 => r2.fatia === k) || {}).n || 0 }))
+        .filter(x => x.n > 0),
     });
   } catch (err) {
     console.error('painel-comercial/pessoa:', err.message);

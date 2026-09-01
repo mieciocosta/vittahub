@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { RefreshCw } from 'lucide-react';
 import { useApi } from '../context/AuthContext.jsx';
 import { fmt } from '../hooks/utils.js';
@@ -24,9 +24,68 @@ const CORPRES = { online: '#22c55e', ausente: '#f59e0b', offline: '#64748b' };
 const ROTPRES = { online: 'online agora', ausente: 'ausente', offline: 'fora do sistema' };
 const NIVEL = { alto: ['#dc2626', '#fee2e2'], medio: ['#b45309', '#fef3c7'], baixo: ['#5a6b7b', '#eef2f6'] };
 const PERIODOS = [['hoje', 'Hoje'], ['7d', '7 dias'], ['mes', 'Mês']];
+/* Ordem FIXA (a mesma que o servidor devolve): cor amarrada ao significado. */
+const COR_SITUACAO = ['var(--viz-espera)', 'var(--viz-conversa)', 'var(--viz-parado)'];
+const COR_SETOR = ['var(--viz-1)', 'var(--viz-2)', 'var(--viz-3)', 'var(--viz-4)'];
+const ROTULO_SETOR = { vacinas: 'Vacinas', consultas: 'Consultas', terapias: 'Terapias' };
 
 // Nome de gente, nunca o pronome de tratamento (ordem do master, 01/09)
 const primeiro = (n) => fmt.primeiroNome(n);
+
+/* 🥧 PIZZA DOS ATENDIMENTOS (ordem do master, 01/09: "uma pizza de gráfico
+   contendo todos atendimentos").
+
+   É uma rosca, não um disco cheio: o buraco do meio guarda o TOTAL, que é a
+   primeira coisa que ela quer saber. Escolhas que valem a pena registrar:
+   · a cor de cada fatia sai do significado (esperando / em conversa / parado;
+     vacinas / consultas / terapias), nunca da posição no ranking — senão a
+     mesma cor mudaria de dono quando o número virasse;
+   · 2px de respiro entre as fatias, pra vizinhas não colarem numa mancha só;
+   · a legenda SEMPRE aparece, com rótulo, número e porcentagem — quem não
+     distingue as cores lê os números do mesmo jeito;
+   · fatias em ordem fixa, e nenhuma some: fatia zerada é filtrada no servidor. */
+function Pizza({ titulo, dados, cores, total, rotuloCentro }) {
+  const soma = total != null ? total : (dados || []).reduce((t, x) => t + x.n, 0);
+  if (!soma) return null;
+  const R = 54, r = 33, C = 62;              // raio externo, interno, centro
+  const GAP = 0.030;                          // respiro entre fatias (radianos)
+  let ang = -Math.PI / 2;                     // começa no topo
+  const arcos = dados.map((x, i) => {
+    const fatia = (x.n / soma) * Math.PI * 2;
+    const a0 = ang + (dados.length > 1 ? GAP / 2 : 0);
+    const a1 = ang + fatia - (dados.length > 1 ? GAP / 2 : 0);
+    ang += fatia;
+    const grande = (a1 - a0) > Math.PI ? 1 : 0;
+    const p = (raio, a) => `${(C + raio * Math.cos(a)).toFixed(2)} ${(C + raio * Math.sin(a)).toFixed(2)}`;
+    return {
+      ...x, cor: cores[i % cores.length],
+      pct: Math.round((x.n / soma) * 100),
+      d: `M ${p(R, a0)} A ${R} ${R} 0 ${grande} 1 ${p(R, a1)} L ${p(r, a1)} A ${r} ${r} 0 ${grande} 0 ${p(r, a0)} Z`,
+    };
+  });
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 16px 15px', flexWrap: 'wrap' }}>
+      <svg width={124} height={124} viewBox="0 0 124 124" role="img" aria-label={titulo} style={{ flexShrink: 0 }}>
+        {arcos.map(a => <path key={a.fatia} d={a.d} fill={a.cor}><title>{`${a.fatia}: ${a.n} (${a.pct}%)`}</title></path>)}
+        <text x={C} y={C - 2} textAnchor="middle" style={{ fontSize: 21, fontWeight: 900, fill: 'var(--txt)' }}>{soma}</text>
+        <text x={C} y={C + 13} textAnchor="middle" style={{ fontSize: 8.5, fontWeight: 700, fill: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .6 }}>
+          {rotuloCentro || 'no total'}
+        </text>
+      </svg>
+      <div style={{ flex: 1, minWidth: 132 }}>
+        <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .6, marginBottom: 7 }}>{titulo}</div>
+        {arcos.map(a => (
+          <div key={a.fatia} style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 5 }}>
+            <span style={{ width: 9, height: 9, borderRadius: 3, background: a.cor, flexShrink: 0 }} />
+            <span style={{ fontSize: 11.5, color: 'var(--txt2)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.fatia}</span>
+            <b style={{ fontSize: 11.5, color: 'var(--txt)' }}>{a.n}</b>
+            <span style={{ fontSize: 10.5, color: 'var(--muted)', width: 30, textAlign: 'right' }}>{a.pct}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 // "há quanto tempo" curtinho — o painel é de relance, não de leitura
 const desde = (min) => (min < 60 ? `${min} min` : min < 1440 ? `${Math.floor(min / 60)} h` : `${Math.floor(min / 1440)} d`);
 
@@ -35,7 +94,15 @@ export default function PainelComercial() {
   const nav = useNavigate();
   const [d, setD] = useState(null);
   const [erro, setErro] = useState('');
-  const [sel, setSel] = useState(null);          // id da colaboradora aberta (null = a casa)
+  const [params, setParams] = useSearchParams();
+  /* A pessoa aberta mora na URL (?pessoa=): assim a barra lateral e o chat
+     mandam direto pro painel dela, e o link pode ser guardado. */
+  const sel = params.get('pessoa') || null;
+  const setSel = (id) => {
+    const p = new URLSearchParams(params);
+    if (id) p.set('pessoa', String(id)); else p.delete('pessoa');
+    setParams(p, { replace: true });
+  };
   const [pessoa, setPessoa] = useState(null);    // dossiê carregado
   const [pErro, setPErro] = useState('');
   const [periodo, setPeriodo] = useState('hoje');
@@ -47,15 +114,20 @@ export default function PainelComercial() {
   // Atualiza sozinho: é um painel de acompanhamento, não um relatório parado
   useEffect(() => { carregar(); const t = setInterval(carregar, 60000); return () => clearInterval(t); }, []); // eslint-disable-line
 
-  // Abriu uma pessoa (ou trocou o período): busca o dossiê dela
+  /* Abriu uma pessoa (ou trocou o período): busca o dossiê dela e fica
+     RELENDO a cada 30s — o master pediu "uma fileira olhando em tempo real",
+     então a lista de quem está esperando resposta não pode envelhecer na tela. */
   useEffect(() => {
     if (!sel) { setPessoa(null); setPErro(''); return; }
     let vivo = true;
-    setPErro('');
-    api.get(`/extras/painel-comercial/pessoa/${sel}?periodo=${periodo}`)
-      .then(r => { if (vivo) setPessoa(r); })
-      .catch(e => { if (vivo) { setPessoa(null); setPErro(e.message); } });
-    return () => { vivo = false; };
+    const ler = () => {
+      api.get(`/extras/painel-comercial/pessoa/${sel}?periodo=${periodo}`)
+        .then(r => { if (vivo) { setPessoa(r); setPErro(''); } })
+        .catch(e => { if (vivo) setPErro(e.message); });
+    };
+    setPessoa(null); setPErro(''); ler();
+    const t = setInterval(ler, 30000);
+    return () => { vivo = false; clearInterval(t); };
   }, [sel, periodo]); // eslint-disable-line
 
   const Kpi = ({ v, l, s, cor }) => (
@@ -77,7 +149,20 @@ export default function PainelComercial() {
   );
 
   const maxDist = Math.max(1, ...((d?.distribuicao_hoje || []).map(x => x.n)));
-  const eq = d?.equipe || [];
+  /* A coluna da esquerda é ordenada por URGÊNCIA, não pelo alfabeto: quem tem
+     mais cliente esperando resposta sobe. É o que a gestora precisa ver antes
+     de qualquer outra coisa; empate volta pra ordem do nome. */
+  const eq = [...(d?.equipe || [])].sort((a, b) =>
+    (b.sem_resposta || 0) - (a.sem_resposta || 0) || String(a.nome).localeCompare(String(b.nome)));
+  // A soma da casa, pra fechar a tabela da equipe com o número do time inteiro
+  const totalEq = eq.reduce((t, u) => ({
+    recebeu_hoje: t.recebeu_hoje + (u.recebeu_hoje || 0),
+    abertas: t.abertas + (u.abertas || 0),
+    sem_resposta: t.sem_resposta + (u.sem_resposta || 0),
+    atendeu_hoje: t.atendeu_hoje + (u.atendeu_hoje || 0),
+    agendou_hoje: t.agendou_hoje + (u.agendou_hoje || 0),
+    vendeu_hoje: t.vendeu_hoje + (u.vendeu_hoje || 0),
+  }), { recebeu_hoje: 0, abertas: 0, sem_resposta: 0, atendeu_hoje: 0, agendou_hoje: 0, vendeu_hoje: 0 });
   const aberta = eq.find(u => String(u.id) === String(sel)) || null;
 
   return (
@@ -270,6 +355,18 @@ export default function PainelComercial() {
                             </tr>
                           ))}
                         </tbody>
+                        <tfoot>
+                          <tr style={{ background: 'var(--bg)' }}>
+                            <td style={{ padding: '9px 12px', borderTop: '2px solid var(--border)', fontSize: 11, fontWeight: 900, color: 'var(--txt)' }}>A casa</td>
+                            {[totalEq.recebeu_hoje, totalEq.abertas, totalEq.sem_resposta, totalEq.atendeu_hoje, totalEq.agendou_hoje].map((v2, i) => (
+                              <td key={i} style={{ padding: '9px 12px', borderTop: '2px solid var(--border)', textAlign: 'right',
+                                fontSize: 12.5, fontWeight: 900, color: i === 2 && v2 > 0 ? 'var(--err)' : 'var(--txt)' }}>{v2}</td>
+                            ))}
+                            <td style={{ padding: '9px 12px', borderTop: '2px solid var(--border)', textAlign: 'right',
+                              fontSize: 12.5, fontWeight: 900, color: 'var(--gold,#C4973B)' }}>{fmt.brl(totalEq.vendeu_hoje)}</td>
+                            <td style={{ borderTop: '2px solid var(--border)' }} />
+                          </tr>
+                        </tfoot>
                       </table>
                     </div>
                   </div>
@@ -340,6 +437,11 @@ export default function PainelComercial() {
                       {aberta && <> · <span style={{ color: CORPRES[aberta.presenca], fontWeight: 700 }}>{ROTPRES[aberta.presenca]}</span></>}
                     </div>
                   </div>
+                  <span title="A lista se atualiza sozinha a cada 30 segundos"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 800,
+                      color: '#0fb07a', background: 'rgba(15,176,122,.10)', borderRadius: 99, padding: '3px 9px' }}>
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#0fb07a' }} /> AO VIVO
+                  </span>
                   <div style={{ display: 'flex', gap: 5, background: 'var(--bg2)', borderRadius: 10, padding: 3 }}>
                     {PERIODOS.map(([k, l]) => (
                       <button key={k} onClick={() => setPeriodo(k)}
@@ -372,6 +474,25 @@ export default function PainelComercial() {
                         s={pessoa.resumo.pct_meta == null ? 'sem meta' : fmt.brl(pessoa.resumo.vendeu_mes)}
                         cor={pessoa.resumo.pct_meta >= 80 ? 'var(--ok,#0fb07a)' : 'var(--txt)'} />
                     </div>
+
+                    {/* 🥧 A carteira dela em pizza: por situação e por setor */}
+                    {((pessoa.pizza_situacao || []).length > 0 || (pessoa.pizza_setor || []).length > 0) && (
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(290px,1fr))', gap: 14, marginBottom: 14 }}>
+                        {(pessoa.pizza_situacao || []).length > 0 && (
+                          <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+                            <Pizza titulo="Atendimentos por situação" dados={pessoa.pizza_situacao}
+                              cores={COR_SITUACAO} rotuloCentro="na mão dela" />
+                          </div>
+                        )}
+                        {(pessoa.pizza_setor || []).length > 0 && (
+                          <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+                            <Pizza titulo="Atendimentos por setor" rotuloCentro="conversas"
+                              dados={pessoa.pizza_setor.map(x => ({ ...x, fatia: ROTULO_SETOR[x.fatia] || x.fatia }))}
+                              cores={COR_SETOR} />
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.25fr) minmax(0,1fr)', gap: 14, alignItems: 'start' }} className="vh-painel-cols">
                       <div>
@@ -427,6 +548,35 @@ export default function PainelComercial() {
                             </Bloco>
                           );
                         })()}
+
+                        {/* 📋 RELATÓRIO DE PRODUTIVIDADE DIÁRIA (ordem do master,
+                            01/09). O gráfico mostra o ritmo; a tabela dá o número
+                            exato de cada dia, que é o que se leva pra conversa.
+                            Do mais recente pro mais antigo, sem os dias vazios. */}
+                        {(pessoa.dias || []).some(x => x.atendeu || x.agendou || x.vendeu) && (
+                          <Bloco titulo="📋 Produtividade dia a dia" sub="os últimos 14 dias, do mais recente">
+                            <div style={{ overflowX: 'auto' }}>
+                              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 300 }}>
+                                <thead>
+                                  <tr>{['Dia', 'Atendeu', 'Agendou', 'Vendeu'].map((h, i) => (
+                                    <th key={h} style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: .4, color: 'var(--muted)',
+                                      textAlign: i ? 'right' : 'left', padding: '7px 16px', fontWeight: 800 }}>{h}</th>
+                                  ))}</tr>
+                                </thead>
+                                <tbody>
+                                  {[...pessoa.dias].reverse().filter(x => x.atendeu || x.agendou || x.vendeu).map(x => (
+                                    <tr key={x.rotulo}>
+                                      <td style={{ padding: '7px 16px', borderTop: '1px solid var(--border)', fontSize: 11.5, fontWeight: 700, color: 'var(--txt2)' }}>{x.rotulo}</td>
+                                      <td style={{ padding: '7px 16px', borderTop: '1px solid var(--border)', fontSize: 11.5, fontWeight: 800, textAlign: 'right', color: 'var(--txt2)' }}>{x.atendeu}</td>
+                                      <td style={{ padding: '7px 16px', borderTop: '1px solid var(--border)', fontSize: 11.5, fontWeight: 800, textAlign: 'right', color: x.agendou ? 'var(--ok,#0fb07a)' : 'var(--muted)' }}>{x.agendou}</td>
+                                      <td style={{ padding: '7px 16px', borderTop: '1px solid var(--border)', fontSize: 11.5, fontWeight: 800, textAlign: 'right', color: x.vendeu ? 'var(--gold,#C4973B)' : 'var(--muted)' }}>{x.vendeu ? fmt.brl(x.vendeu) : '—'}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </Bloco>
+                        )}
                       </div>
 
                       <div>

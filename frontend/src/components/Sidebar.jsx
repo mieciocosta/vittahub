@@ -56,7 +56,10 @@ const NAV = [
        Equipe     = gente, treino e motivação
      Nada foi apagado do sistema: só saiu do menu o que estava repetido. */
   { grupo:'Meu dia' },
-  { to:'/inbox',      icon:MessageSquare,   label:'Chat',     unread:true, cor:'#25D366' },
+  /* 💬 O CHAT É A CASA (ordem do master, 01/09: "quero que para todos o chat
+     esteja ativado e em destaque"). Primeiro item, dourado como os destaques e
+     sem nenhuma trava de perfil: seja qual for o cargo, o atendimento abre. */
+  { to:'/inbox',      icon:MessageSquare,   label:'Chat',     unread:true, cor:'#25D366', destaque:true },
   { to:'/agenda',     icon:CalendarDays,    label:'Agenda', cor:'#f59e0b' },
   /* 👶 Painel do mês da carteira Fidelidade — primeira parada de quem cuida
      dos mensalistas (ordem do master, 24/08). */
@@ -83,7 +86,8 @@ const NAV = [
   /* 📊 RELATÓRIOS = SÓ RELATÓRIO. Tudo que se LÊ pra decidir mora aqui; o que
      se FAZ mora nas outras seções. Era isso que estava embaralhado. */
   { grupo:'Relatórios' },
-  { to:'/',           icon:LayoutDashboard, label:'Resumo do dia', cor:'#38bdf8' },
+  // O Resumo saiu da rota '/' (agora é o Chat) e ganhou endereço próprio
+  { to:'/resumo',     icon:LayoutDashboard, label:'Resumo do dia', cor:'#38bdf8' },
   { to:'/agenda?aba=relatorio', icon:ClipboardList, label:'Relatório do Dia', cor:'#0ea5e9', destaque:true },
   // Carteira de Leads: mede se o marketing converte (pedido do José, 27/08).
   { to:'/carteira-leads', icon:UserPlus,    label:'Carteira de Leads', masterOnly:true, cor:'#7c5cbf' },
@@ -568,9 +572,15 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
         .filter(u => String(u.id) !== String(user?.id) && u.dono_casa !== true && u.role !== 'master')))
       .catch(() => setEquipePastas([]));
   }, [ehGestaoMenu, user?.id]); // eslint-disable-line
-  // Qual pasta está aberta agora (pra marcar a linha na barra)
-  const pastaAtual = (loc.pathname === '/inbox')
-    ? (new URLSearchParams(loc.search).get('responsavel') || '') : '';
+  /* Qual pasta está aberta (pra marcar a linha na barra). Vale nos dois
+     caminhos: o painel da pessoa (?pessoa=) e o chat filtrado nela
+     (?responsavel=), que é pra onde o botão do painel leva. */
+  const pastaAtual = (() => {
+    const q = new URLSearchParams(loc.search);
+    if (loc.pathname === '/painel-comercial') return q.get('pessoa') || '';
+    if (loc.pathname === '/inbox') return q.get('responsavel') || '';
+    return '';
+  })();
 
   // Bloco de Setores (logo abaixo de Clientes): atalhos coloridos com a contagem
   // de leads ESPERANDO em cada um — ajuda os atendentes a organizar o que vem junto.
@@ -600,7 +610,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
   const pastaEquipe = (u) => {
     const ativo = pastaAtual === String(u.id);
     return (
-      <NavLink key={u.id} to={`/inbox?responsavel=${u.id}`} title={collapsed ? fmt.nome(u.nome) : ''}
+      <NavLink key={u.id} to={`/painel-comercial?pessoa=${u.id}`} title={collapsed ? fmt.nome(u.nome) : ''}
         style={{
           display:'flex', alignItems:'center', gap: collapsed ? 0 : 9,
           padding: collapsed ? '7px 0' : '7px 12px', justifyContent: collapsed ? 'center' : 'flex-start',
@@ -618,7 +628,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
   };
   const equipeBlock = equipePastas.length > 0 ? (
     <>
-      {!collapsed && <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:1.6, color:'rgba(255,255,255,.62)', padding:'10px 12px 5px', textTransform:'uppercase' }}>Pastas da equipe</div>}
+      {!collapsed && <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:1.6, color:'rgba(255,255,255,.62)', padding:'10px 12px 5px', textTransform:'uppercase' }}>Painel de cada uma</div>}
       {collapsed && <div style={{ borderTop:'1px solid rgba(255,255,255,.16)', margin:'8px 8px' }} />}
       {equipePastas.map(pastaEquipe)}
     </>
@@ -658,7 +668,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
           que também é o atalho pro Resumo. */}
       {collapsed && (
         <div style={{ padding:'12px 0 6px', flexShrink:0 }}>
-          <NavLink to="/" title="Ir para o Resumo" className="brand-link" style={{ textDecoration:'none', display:'block' }}>
+          <NavLink to="/" title="Ir para o Chat" className="brand-link" style={{ textDecoration:'none', display:'block' }}>
             <img src="/logos/logo-icon-white.png" alt="Vittalis Saúde" style={{ height:24, objectFit:'contain', display:'block', margin:'0 auto', opacity:.9 }} />
           </NavLink>
         </div>

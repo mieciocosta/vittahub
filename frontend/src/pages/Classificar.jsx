@@ -156,7 +156,7 @@ export default function Classificar() {
               : 'Nenhum cliente esperando classificação. Tudo organizado por aqui!'}
           </div>
           {feitas > 0 && (
-            <button onClick={() => nav('/')} className="btn btn-p" style={{ marginTop: 16, gap: 7 }}><Trophy size={15} /> Ver o resultado no Resumo</button>
+            <button onClick={() => nav('/resumo')} className="btn btn-p" style={{ marginTop: 16, gap: 7 }}><Trophy size={15} /> Ver o resultado no Resumo</button>
           )}
         </div>
       ) : (
