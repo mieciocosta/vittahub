@@ -384,14 +384,15 @@ export function podeVerSetor(viewer, conv) {
      ve_tudo, que era exatamente por onde a conversa voltava a aparecer no
      recarregamento (na tela ela sumia, no F5 ressuscitava). Se o atendimento
      voltar pra ela um dia, o id sai da lista e ela enxerga de novo. */
-  /* 01/09: pra GESTÃO isso virou regra de LISTA, não de acesso. O master
-     pediu que o atendimento entregue suma da fila dela "para ela olhar só se
-     for na pasta da usuária x ou y" — quem tira da fila é o cacheGetList; se
-     travássemos aqui, a pasta da colega abriria vazia e ela ficaria cega. */
+  /* 01/09: pra QUEM DISTRIBUI (a Danielle) isso virou regra de LISTA, não de
+     acesso. O master pediu que o atendimento entregue suma da fila dela "para
+     ela olhar só se for na pasta da usuária x ou y" — quem tira da fila é o
+     cacheGetList; se travássemos aqui, a pasta da colega abriria vazia e ela
+     ficaria cega. Pro resto do time segue exatamente como era. */
   if (Array.isArray(conv.transferida_por) && conv.transferida_por.length
       && conv.transferida_por.map(String).includes(String(viewer.id))
       && String(conv.responsavel_id || '') !== String(viewer.id)
-      && !ehGestao(viewer)) return false;
+      && viewer.distribuidor !== true) return false;
   /* 🏠 HOME OFFICE POR PRODUÇÃO (pedido do master): quem tem so_carteira só
      enxerga o que foi TRANSFERIDO pra ela — nem o pool sem dono. Vem antes de
      qualquer outra regra (inclusive ve_tudo): é o contrato desse perfil.
@@ -507,7 +508,10 @@ function cacheGetList({ channel, search, unread_only, waiting, minhas, semDono, 
   const filtrouAlguem = (responsavel && responsavel !== 'all') || minhas === 'true'
     || semDono === 'true' || !!search || !!categoria || !!classificacao
     || (setor && setor !== 'all') || arquivadas === 'true';
-  if (viewer && viewer.role !== 'master' && ehGestao(viewer) && !filtrouAlguem) {
+  /* Vale pra QUEM DISTRIBUI (a Danielle) — foi dela que o master falou. O
+     marketing (José e Carlos) e a supervisora de setor seguem enxergando a
+     casa inteira: ler conversa por conversa é o trabalho deles. */
+  if (viewer && viewer.role !== 'master' && viewer.distribuidor === true && !filtrouAlguem) {
     list = list.filter(c => !c.responsavel_id || String(c.responsavel_id) === String(viewer.id));
   }
   if (unread_only === 'true') list = list.filter(c => (c.unread || 0) > 0);

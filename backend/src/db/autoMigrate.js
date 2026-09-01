@@ -3028,6 +3028,7 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
   try { await titulosDaEquipe(); } catch (e) { console.error('titulos da equipe:', e.message); }
   try { await bonusPessoais(); } catch (e) { console.error('bonus pessoais:', e.message); }
   try { await colunasCriticas(); } catch (e) { console.error('colunas criticas:', e.message); }
+  try { await equipeDaCasa(); } catch (e) { console.error('equipe da casa:', e.message); }
   try { await donosDaCasa(); } catch (e) { console.error('donos da casa:', e.message); }
   try { await distribuidoraDosLeads(); } catch (e) { console.error('distribuidora:', e.message); }
   try { await usuariosNovos(); } catch (e) { console.error('usuarios novos:', e.message); }
@@ -3256,6 +3257,67 @@ async function desfazerRodizioDaEquipeNova() {
    produtividade e distribuição não faz sentido. A marca `dono_casa` tira os
    dois dessas listas — e só delas: o acesso, a transferência e tudo o mais
    continuam iguais. Nenhum poder é dado nem tirado aqui. */
+/* 👥 A EQUIPE DA CASA, GARANTIDA NA SEGUNDA PASSADA (cobrança do master,
+   01/09: "faltou Mayara, Suelen, Carlos e José").
+
+   Estas contas eram criadas lá dentro do bloco grande de migração — e aquele
+   bloco inteiro vive num try/catch só: se UMA instrução falha, tudo que vem
+   depois é pulado em silêncio. Foi por isso que quatro pessoas simplesmente
+   não existiam (ou ficaram inativas) e sumiram das pastas e do painel.
+
+   Aqui cada uma é tratada sozinha, com o próprio try: se uma falhar, as outras
+   entram do mesmo jeito. Procura por CPF e por e-mail (o cadastro pode ter sido
+   feito na mão com outro e-mail), cria se faltar e reativa se estiver desligada.
+   NÃO mexe em senha de quem já existe. */
+const EQUIPE_CASA = [
+  { nome: 'Mayara Santos Aguiar Miranda', email: 'mayara.miranda@vittahub.local',
+    cpf: '61242108351', cor: '#0ea5e9', role: 'atendente',
+    setor: 'vacinas', setores: ['vacinas', 'consultas', 'terapias'], titulo: 'Atendimento geral' },
+  { nome: 'Suellen Pãozinho Anceles', email: 'suellen.anceles@vittahub.local',
+    cpf: '61683378300', cor: '#22c55e', role: 'atendente',
+    setor: 'vacinas', setores: ['vacinas', 'consultas', 'terapias'], titulo: 'Atendimento geral' },
+  { nome: 'José Carlos Ramos da Silva', email: 'jose.carlos@vittahub.local',
+    cpf: '62075159351', cor: '#f97316', role: 'supervisor',
+    setor: null, setores: null, ve_tudo: true, titulo: 'Marketing' },
+  { nome: 'Carlos Eduardo Santos Rosa', email: 'carlos.eduardo@vittahub.local',
+    cpf: '07964909371', cor: '#a855f7', role: 'supervisor',
+    setor: null, setores: null, ve_tudo: true, titulo: 'Marketing' },
+];
+
+async function equipeDaCasa() {
+  const bcrypt = await import('bcryptjs');
+  for (const p of EQUIPE_CASA) {
+    try {
+      const { rows: [ja] } = await query(
+        'SELECT id, ativo FROM usuarios WHERE cpf = $1 OR lower(email) = lower($2) LIMIT 1',
+        [p.cpf, p.email]);
+      if (ja) {
+        // Já está cadastrada: só garante que está ligada e com o acesso certo.
+        await query(`UPDATE usuarios
+                        SET ativo = true,
+                            role = COALESCE(NULLIF(role,''), $2),
+                            cor = COALESCE(cor, $3),
+                            titulo = COALESCE(titulo, $4),
+                            setor = COALESCE(setor, $5),
+                            setores = COALESCE(setores, $6::text[]),
+                            ve_tudo = COALESCE(ve_tudo, false) OR $7
+                      WHERE id = $1`,
+          [ja.id, p.role, p.cor, p.titulo, p.setor, p.setores, p.ve_tudo === true]).catch(() => {});
+        if (ja.ativo === false) console.log(`👥 ${p.nome.split(' ')[0]} voltou pra equipe (estava inativa)`);
+        continue;
+      }
+      const senha = await bcrypt.default.hash('Vittalis@2026', 10);
+      await query(`
+        INSERT INTO usuarios (nome, email, cpf, senha, role, cor, ativo, setor, setores, titulo, ve_tudo)
+        VALUES ($1,$2,$3,$4,$5,$6,true,$7,$8::text[],$9,$10)`,
+        [p.nome, p.email, p.cpf, senha, p.role, p.cor, p.setor, p.setores, p.titulo, p.ve_tudo === true]);
+      console.log(`👥 Conta criada: ${p.nome} (${p.titulo})`);
+    } catch (e) {
+      console.error(`equipe da casa (${p.nome}):`, e.message);
+    }
+  }
+}
+
 async function donosDaCasa() {
   const SEM_ACENTO = "'áàâãäéèêëíìîïóòôõöúùûüç','aaaaaeeeeiiiiooooouuuuc'";
   const { rowCount } = await query(
