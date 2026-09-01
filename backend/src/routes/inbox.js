@@ -5245,7 +5245,8 @@ r.get('/atendentes', async (req, res) => {
        tela de transferência usa. Cai na consulta sem o título. */
     const { rows } = await query(
       `SELECT id, nome, setor, cor, avatar, supervisor_id, titulo, role,
-              COALESCE(dono_casa,false) AS dono_casa FROM usuarios
+              COALESCE(dono_casa,false) AS dono_casa,
+              COALESCE(fora_do_painel,false) AS fora_do_painel FROM usuarios
        WHERE ativo = true AND role IN ('atendente','supervisor','master') ORDER BY nome`)
       .catch(async (e) => {
         console.error('atendentes (sem titulo):', e.message);

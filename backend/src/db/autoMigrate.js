@@ -3030,6 +3030,7 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
   try { await colunasCriticas(); } catch (e) { console.error('colunas criticas:', e.message); }
   try { await equipeDaCasa(); } catch (e) { console.error('equipe da casa:', e.message); }
   try { await donosDaCasa(); } catch (e) { console.error('donos da casa:', e.message); }
+  try { await marketingForaDoPainel(); } catch (e) { console.error('marketing fora do painel:', e.message); }
   try { await distribuidoraDosLeads(); } catch (e) { console.error('distribuidora:', e.message); }
   try { await usuariosNovos(); } catch (e) { console.error('usuarios novos:', e.message); }
   // 🧹 Depois de criar/garantir a equipe nova: devolver pra fila o que o rodízio entregou sozinho
@@ -3318,6 +3319,27 @@ async function equipeDaCasa() {
   }
 }
 
+/* 📣 O MARKETING NÃO É CARTEIRA A ACOMPANHAR (ordem do master, 01/09: "retira
+   José e Carlos do painel de Danielle").
+
+   Os dois são marketing: o serviço deles é varrer conversa por conversa atrás
+   do ponto onde o lead esfria — não têm carteira, não recebem distribuição e
+   não têm meta de venda. No painel da gestora comercial eles apareciam como se
+   fossem colaboradoras a cobrar, com todas as colunas zeradas.
+
+   A marca tira os dois do PAINEL e das pastas da equipe. Só disso: o acesso
+   deles continua exatamente o mesmo, inclusive a visão da casa inteira. */
+async function marketingForaDoPainel() {
+  const SEM_ACENTO = "'áàâãäéèêëíìîïóòôõöúùûüç','aaaaaeeeeiiiiooooouuuuc'";
+  const { rowCount } = await query(
+    `UPDATE usuarios SET fora_do_painel = true
+      WHERE COALESCE(fora_do_painel,false) = false
+        AND (lower(COALESCE(email,'')) IN ('jose.carlos@vittahub.local','carlos.eduardo@vittahub.local')
+             OR cpf IN ('62075159351','07964909371')
+             OR lower(COALESCE(titulo,'')) = 'marketing')`).catch(() => ({ rowCount: 0 }));
+  if (rowCount) console.log(`📣 ${rowCount} conta(s) de marketing saíram do painel comercial (acesso intacto)`);
+}
+
 async function donosDaCasa() {
   const SEM_ACENTO = "'áàâãäéèêëíìîïóòôõöúùûüç','aaaaaeeeeiiiiooooouuuuc'";
   const { rowCount } = await query(
@@ -3352,6 +3374,7 @@ async function colunasCriticas() {
     ['usuarios',  'so_fidelidade',   'BOOLEAN DEFAULT false'],
     ['usuarios',  'meta_planos_mes', 'INT DEFAULT 0'],
     ['usuarios',  'dono_casa',       'BOOLEAN DEFAULT false'],  // donos da clínica: não são colaboradores
+    ['usuarios',  'fora_do_painel',  'BOOLEAN DEFAULT false'],  // marketing: não é carteira a acompanhar
     ['biblioteca_midias', 'ordem',   'INT DEFAULT 999'],        // ordem das figurinhas
   ];
   let criadas = 0;

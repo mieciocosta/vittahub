@@ -568,8 +568,11 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
     if (!ehGestaoMenu) { setEquipePastas([]); return; }
     api.get('/inbox/atendentes')
       .then(d => setEquipePastas((Array.isArray(d) ? d : [])
-        // Fora da lista: eu mesma, os donos da casa e qualquer conta master
-        .filter(u => String(u.id) !== String(user?.id) && u.dono_casa !== true && u.role !== 'master')))
+        /* Fora da lista: eu mesma, os donos da casa, contas master e o
+           marketing (01/09: "retira José e Carlos") — as pastas são de quem
+           tem carteira de cliente. */
+        .filter(u => String(u.id) !== String(user?.id) && u.dono_casa !== true
+          && u.fora_do_painel !== true && u.role !== 'master')))
       .catch(() => setEquipePastas([]));
   }, [ehGestaoMenu, user?.id]); // eslint-disable-line
   /* Qual pasta está aberta (pra marcar a linha na barra). Vale nos dois
