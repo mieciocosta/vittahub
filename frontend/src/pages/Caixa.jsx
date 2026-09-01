@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Wallet, Paperclip, FileText, X, Check, Download, Eye, Search, Filter, Image as ImageIcon, CheckCircle2, Circle, FileSpreadsheet, Printer, Sparkles, AlertTriangle, Pencil, HandCoins, TrendingDown, TrendingUp, Plus, Trash2, CalendarCheck, Gift } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
+import { Toast } from '../hooks/toast.js';   // avisos do relatório com comprovantes
 import { fmt, hojeLocalISO } from '../hooks/utils.js';
 
 const fileToDataUrl = (file) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file); });
@@ -550,6 +551,98 @@ export default function Caixa() {
     a.download = `caixa-${mes}${setor ? '-' + setor : ''}.csv`; a.click(); URL.revokeObjectURL(a.href);
   };
 
+  /* 📄 RELATÓRIO COM OS COMPROVANTES (ordem do master, 28/08: "quero ter de
+     cada setor e o total, e que cada setor ao puxar o relatório venha com o
+     comprovante"). Abre a folha pronta pra imprimir ou salvar em PDF: o resumo
+     de cada setor, o total da casa, e depois cada venda com o comprovante do
+     lado — é o documento de conferência. Só master. */
+  const [relComp, setRelComp] = useState(false);
+  const relatorioComComprovantes = async () => {
+    if (relComp) return;
+    setRelComp(true);
+    try {
+      const q = new URLSearchParams({ mes });
+      if (setor) q.set('setor', setor);
+      const d = await api.get(`/extras/caixa/relatorio?${q}`);
+      const esc = (t) => String(t ?? '').replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+      const linhaSetor = (r2) => `<tr>
+        <td>${esc(r2.setor)}</td><td class="n">${r2.n}</td>
+        <td class="n">${fmt.brl(r2.total)}</td><td class="n">${fmt.brl(r2.recebido)}</td>
+        <td class="n">${r2.com_comp}/${r2.n}</td></tr>`;
+      const bloco = (v) => `<div class="v">
+        <div class="vh">
+          <b>${esc(v.cliente_nome || v.paciente_nome || 'Cliente')}</b>
+          <span>${fmtData(v.data_venda)}</span>
+          <span>${esc(v.setor)}</span>
+          <span>${esc(v.servico || v.categoria || '')}</span>
+          <span>${esc(v.forma_pagamento || '')}</span>
+          <span class="val">${fmt.brl(v.valor)}</span>
+          <span>${esc(v.atendente_nome || '')}</span>
+          ${v.conferido ? '<span class="ok">conferida</span>' : ''}
+        </div>
+        <div class="cp">${
+          v.comprovante && String(v.comprovante).startsWith('data:image')
+            ? `<img src="${v.comprovante}"/>`
+            : v.comprovante
+              ? `<div class="pdf">📎 ${esc(v.comprovante_nome || 'Comprovante em PDF')} — abra pelo Caixa</div>`
+              : v.comprovante_pesado
+                ? '<div class="falta">Comprovante grande demais pra imprimir — está guardado no Caixa</div>'
+                : '<div class="falta">⚠️ Sem comprovante anexado</div>'
+        }</div></div>`;
+      const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"/>
+<title>Caixa ${esc(d.mes)} — Vittalis Saúde</title><style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',Arial,sans-serif;color:#0a1520;background:#fff}
+.faixa{height:7px;background:linear-gradient(90deg,#00B8C0,#0E8C96)}
+.pg{padding:26px 32px}
+.cab{display:flex;justify-content:space-between;align-items:center}
+.cab img{height:66px}.cab .t{text-align:right}
+.cab h1{font-size:20px;color:#06424A}.cab .s{font-size:12px;color:#5a7285;margin-top:3px}
+.cab .p{display:inline-block;margin-top:6px;background:#e5f8f9;color:#007d83;padding:3px 11px;border-radius:20px;font-size:10.5px;font-weight:700}
+.hr{height:1.5px;background:#e3ebf1;margin:14px 0 18px}
+h2{font-size:14px;color:#06424A;border-left:4px solid #00B8C0;padding-left:9px;margin:0 0 9px}
+table{width:100%;border-collapse:collapse;margin-bottom:18px}
+th{background:#06424A;color:#fff;font-size:10px;text-transform:uppercase;padding:6px 9px;text-align:left}
+td{font-size:11.5px;padding:6px 9px;border-top:1px solid #eef3f7}
+td.n{text-align:right;font-weight:700}
+tr.tot td{background:#f8fbfc;font-weight:900;color:#06424A;border-top:2px solid #06424A}
+.v{border:1px solid #e3ebf1;border-radius:10px;padding:9px 11px;margin-bottom:9px;page-break-inside:avoid}
+.vh{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;font-size:11px;color:#5a7285}
+.vh b{font-size:13px;color:#0a1520}
+.vh .val{margin-left:auto;font-size:14px;font-weight:900;color:#06424A}
+.vh .ok{background:#e2f8ef;color:#0a8f5b;border-radius:6px;padding:1px 7px;font-size:9.5px;font-weight:800}
+.cp{margin-top:7px}
+.cp img{max-width:100%;max-height:320px;border:1px solid #e3ebf1;border-radius:8px;display:block}
+.falta{background:#fdecec;color:#c0392b;border-radius:8px;padding:7px 10px;font-size:11px;font-weight:700}
+.pdf{background:#eef2f6;color:#33506b;border-radius:8px;padding:7px 10px;font-size:11px;font-weight:700}
+.rod{margin-top:14px;border-top:1px solid #e3ebf1;padding-top:9px;font-size:9.5px;color:#8fa3b3;line-height:1.5}
+@page{size:A4;margin:11mm}
+</style></head><body><div class="faixa"></div><div class="pg">
+<div class="cab"><img src="${window.location.origin}/logos/logo-v-color.png" alt="Vittalis Saúde"/>
+<div class="t"><h1>Caixa — conferência com comprovantes</h1>
+<div class="s">Cada venda do período com o comprovante anexado</div>
+<div class="p">${esc(d.mes)}${d.setor ? ` · ${esc(d.setor)}` : ' · todos os setores'}</div></div></div>
+<div class="hr"></div>
+<h2>Resumo por setor</h2>
+<table><tr><th>Setor</th><th>Vendas</th><th>Faturado</th><th>Recebido</th><th>Com comprovante</th></tr>
+${d.resumo.map(linhaSetor).join('')}
+<tr class="tot"><td>TOTAL DA CASA</td><td class="n">${d.total.n}</td>
+<td class="n">${fmt.brl(d.total.total)}</td><td class="n">${fmt.brl(d.total.recebido)}</td>
+<td class="n">${d.total.com_comp}/${d.total.n}</td></tr></table>
+<h2>Vendas e comprovantes${d.setor ? ` · ${esc(d.setor)}` : ''}</h2>
+${d.itens.map(bloco).join('')}
+<div class="rod">Faturado = tudo que foi vendido no mês. Recebido = o que já entrou (pago ou cortesia).
+${d.sem_comprovante} venda(s) sem comprovante anexado — aparecem em vermelho e são o que precisa ser cobrado da equipe.
+Gerado em ${new Date().toLocaleString('pt-BR')} · Vittalis Saúde · documento interno.</div>
+</div></body></html>`;
+      const w = window.open('', '_blank');
+      if (!w) { Toast.show('O navegador bloqueou a janela — libere os pop-ups.', 'error'); return; }
+      w.document.write(html); w.document.close();
+      setTimeout(() => w.print(), 900);
+    } catch (e) { Toast.show(e.message || 'Não consegui montar o relatório', 'error'); }
+    finally { setRelComp(false); }
+  };
+
   const exportarPDF = () => {
     const w = window.open('', '_blank'); if (!w) return;
     const linhas = filtrada.map(v => `<tr>
@@ -656,6 +749,14 @@ export default function Caixa() {
             <button onClick={() => abrirDia()} className="btn btn-sm" style={{ gap: 6, background: '#0E8C96', color: '#fff', border: 'none', fontWeight: 800 }} title="Conferir e fechar caixa e estoque do dia">🔒 Fechar o dia</button>
             <button onClick={exportarCSV} className="btn btn-sm" style={{ gap: 6, background: 'rgba(255,255,255,.92)', color: '#065f46', border: 'none', fontWeight: 800 }} title="Exportar planilha (CSV)"><FileSpreadsheet size={14} /> Planilha</button>
             <button onClick={exportarPDF} className="btn btn-sm" style={{ gap: 6, background: 'rgba(255,255,255,.2)', color: '#fff', border: '1px solid rgba(255,255,255,.4)', fontWeight: 800 }} title="Gerar PDF do mês / imprimir"><Printer size={14} /> PDF do mês</button>
+            {/* 📄 Conferência de verdade: cada venda com o comprovante do lado */}
+            {user?.role === 'master' && (
+              <button onClick={relatorioComComprovantes} disabled={relComp} className="btn btn-sm"
+                style={{ gap: 6, background: '#C4973B', color: '#fff', border: 'none', fontWeight: 800, opacity: relComp ? .6 : 1 }}
+                title="Relatório do mês com o comprovante de cada venda — por setor e com o total">
+                <Printer size={14} /> {relComp ? 'Montando…' : 'Relatório com comprovantes'}
+              </button>
+            )}
           </div>
         </div>
       </div>

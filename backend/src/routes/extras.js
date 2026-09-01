@@ -2663,6 +2663,88 @@ async function podeComprovante(req, vendaId) {
 }
 
 // Lista os comprovantes de uma venda (sem o base64 — só metadados + análise)
+/* 📄 RELATÓRIO DO CAIXA COM OS COMPROVANTES (ordem do master, 28/08: "quero
+   ter de cada setor e o total, e que cada setor ao puxar o relatório venha com
+   o comprovante").
+
+   Devolve o mês fechado por setor, o total da casa e a lista de vendas com o
+   comprovante embutido — é o documento de conferência: cada linha de dinheiro
+   com o papel do lado. Visão da clínica inteira, então SÓ MASTER.
+
+   Cuidado com o peso: comprovante é imagem, e um mês inteiro passaria de
+   centenas de MB. Vai um comprovante por venda (o primeiro), com teto de
+   tamanho — o que passar do teto vem sinalizado, e o arquivo continua
+   abrindo em vez de travar o navegador. */
+r.get('/caixa/relatorio', async (req, res) => {
+  try {
+    if (req.user.role !== 'master') return res.status(403).json({ error: 'Relatório da clínica inteira é do master.' });
+    const mes = /^\d{4}-\d{2}$/.test(req.query.mes || '')
+      ? req.query.mes : new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 7);
+    const setor = ['vacinas', 'consultas', 'terapias'].includes(req.query.setor) ? req.query.setor : null;
+    /* Setor da venda, deduzido da categoria quando o campo veio vazio (dado
+       antigo). Montado por função, com e sem o prefixo da tabela: trocar por
+       replace corromperia o texto 'sem setor' no fim da expressão. */
+    const setorExpr = (pre = '') => `COALESCE(NULLIF(${pre}setor,''),
+      CASE WHEN ${pre}categoria = 'Consulta' THEN 'consultas'
+           WHEN ${pre}categoria = 'Terapia'  THEN 'terapias'
+           WHEN ${pre}categoria IN ('Vacinação Geral','Plano Vacinal','Fidelidade Mensal') THEN 'vacinas'
+      END, 'sem setor')`;
+    const SETOR_VENDA = setorExpr();
+    const SETOR_V = setorExpr('v.');
+
+    // Resumo: cada setor e o total da casa (o total sempre vem, mesmo filtrando)
+    const { rows: resumo } = await query(`
+      SELECT ${SETOR_VENDA} AS setor,
+             COUNT(*)::int n,
+             COALESCE(SUM(valor),0)::float total,
+             COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float recebido,
+             COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM venda_comprovantes vc WHERE vc.venda_id = vendas.id))::int com_comp
+        FROM vendas WHERE to_char(data_venda,'YYYY-MM') = $1
+       GROUP BY 1 ORDER BY total DESC`, [mes]);
+
+    const { rows: vendas } = await query(`
+      SELECT v.id, v.data_venda, v.cliente_nome, v.paciente_nome, v.servico, v.categoria,
+             ${SETOR_V} AS setor,
+             v.valor, v.desconto, v.forma_pagamento, v.status_pagamento, v.atendente_nome, v.conferido
+        FROM vendas v
+       WHERE to_char(v.data_venda,'YYYY-MM') = $1
+         ${setor ? `AND ${SETOR_V} = $2` : ''}
+       ORDER BY v.data_venda, v.id`, setor ? [mes, setor] : [mes]);
+
+    /* Comprovantes: um por venda, com teto de 22 MB no total. Passou do teto,
+       a venda vem marcada como "comprovante grande demais pra imprimir" — o
+       relatório continua saindo, e o arquivo segue disponível no Caixa. */
+    const TETO = 22 * 1024 * 1024;
+    let peso = 0;
+    const itens = [];
+    for (const v of vendas) {
+      const { rows: [c] } = await query(
+        `SELECT data_url, nome, tipo FROM venda_comprovantes WHERE venda_id = $1 ORDER BY created_at LIMIT 1`,
+        [v.id]).catch(() => ({ rows: [] }));
+      let comprovante = null, pesado = false;
+      if (c?.data_url) {
+        if (peso + c.data_url.length <= TETO) { comprovante = c.data_url; peso += c.data_url.length; }
+        else pesado = true;
+      }
+      itens.push({ ...v, valor: parseFloat(v.valor) || 0, desconto: parseFloat(v.desconto) || 0,
+        comprovante, comprovante_nome: c?.nome || null, comprovante_pesado: pesado,
+        sem_comprovante: !c });
+    }
+
+    const soma = (col) => resumo.reduce((t, r2) => t + (r2[col] || 0), 0);
+    res.json({
+      mes, setor,
+      resumo: resumo.map(r2 => ({ ...r2, total: Number(r2.total), recebido: Number(r2.recebido) })),
+      total: { n: soma('n'), total: soma('total'), recebido: soma('recebido'), com_comp: soma('com_comp') },
+      itens,
+      sem_comprovante: itens.filter(i => i.sem_comprovante).length,
+    });
+  } catch (err) {
+    console.error('caixa/relatorio:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 r.get('/vendas/:id/comprovantes', async (req, res) => {
   try {
     const perm = await podeComprovante(req, req.params.id);
