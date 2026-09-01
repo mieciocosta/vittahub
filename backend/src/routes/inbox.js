@@ -5245,7 +5245,8 @@ r.get('/atendentes', async (req, res) => {
        WHERE ativo = true AND role IN ('atendente','supervisor','master') ORDER BY nome`)
       .catch(async (e) => {
         console.error('atendentes (sem titulo):', e.message);
-        return query(`SELECT id, nome, setor, cor, avatar, supervisor_id FROM usuarios
+        // Sem a coluna nova: o `role` já basta pra barra lateral tirar os masters
+        return query(`SELECT id, nome, setor, cor, avatar, supervisor_id, role FROM usuarios
                       WHERE ativo = true AND role IN ('atendente','supervisor','master') ORDER BY nome`);
       });
     res.json(rows);
