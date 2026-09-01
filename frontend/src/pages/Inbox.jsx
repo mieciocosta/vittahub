@@ -148,6 +148,90 @@ const MEDIA_PREVIEW = {
   '[image]': 'Foto', '[video]': 'Vídeo', '[audio]': 'Áudio',
   '[document]': 'Documento', '[sticker]': 'Figurinha',
 };
+/* 📥 FILA DE DISTRIBUIÇÃO (ordem do master, 28/08: "Danielle recebe todos os
+   leads e distribui... ela fica com essa responsabilidade, e não o sistema").
+
+   Aqui o segredo é distribuir SEM ABRIR a conversa: cada linha traz o que ela
+   precisa pra decidir — quem é, o que escreveu, há quanto tempo espera e de que
+   setor parece ser — e as iniciais da equipe do lado. Um toque entrega e a
+   conversa sai da fila. Quem quiser ler antes é só clicar no nome.
+
+   Lista simples de propósito (sem rolagem virtual): com o corte de 7 dias, a
+   fila é pequena — e a fila que cresce demais é sinal de problema, não de tela. */
+function FilaDistribuicao({ convos, equipe, onSelect, onDistribuir, entregando }) {
+  const iniciais = (n) => String(n || '?').trim().split(/\s+/).slice(0, 2).map(p => p[0]).join('').toUpperCase();
+  const espera = (c) => Math.max(0, Math.floor((Date.now() - new Date(c.last_message_at || 0).getTime()) / 60000));
+  const rotuloEspera = (m) => (m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ''}` : `${m}m`);
+  const setorDe = (c) => c.setor || c.classificacao || null;
+  const CORSETOR = { vacinas: '#22c55e', consultas: '#0ea5e9', terapias: '#a855f7' };
+
+  if (!convos.length) {
+    return (
+      <div style={{ padding: '46px 22px', textAlign: 'center', color: 'var(--muted)' }}>
+        <div style={{ fontSize: 34, marginBottom: 8 }}>🎉</div>
+        <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--txt)' }}>Fila zerada!</div>
+        <div style={{ fontSize: 12.5, marginTop: 4 }}>Todo lead novo já tem uma responsável.</div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ height: '100%', overflowY: 'auto' }}>
+      {convos.map(c => {
+        const min = espera(c);
+        const atrasado = min >= 15;   // 15 min esperando = a fila está devendo
+        const st = setorDe(c);
+        return (
+          <div key={c.id} style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)',
+            background: atrasado ? 'rgba(220,38,38,.06)' : 'transparent',
+            borderLeft: `3px solid ${atrasado ? '#dc2626' : 'transparent'}` }}>
+            <div onClick={() => onSelect(c)} style={{ display: 'flex', gap: 9, cursor: 'pointer' }}>
+              <div style={{ width: 34, height: 34, borderRadius: '50%', flexShrink: 0, background: 'var(--bg2)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, color: 'var(--muted)' }}>
+                {iniciais(c.contact_name)}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 7 }}>
+                  <b style={{ fontSize: 12.5, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {c.contact_name || 'Contato'}
+                  </b>
+                  <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 800, flexShrink: 0,
+                    color: atrasado ? '#dc2626' : 'var(--light)' }}>
+                    {atrasado ? '⏰ ' : ''}{rotuloEspera(min)}
+                  </span>
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {c.last_message || '…'}
+                </div>
+                {st && (
+                  <span style={{ display: 'inline-block', marginTop: 4, fontSize: 8.5, fontWeight: 800, borderRadius: 99,
+                    padding: '1px 8px', background: CORSETOR[st] || 'var(--bord2)', color: '#0b1420' }}>{st}</span>
+                )}
+              </div>
+            </div>
+
+            {/* Um toque entrega — as iniciais são a equipe, na cor de cada uma */}
+            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 7, paddingLeft: 43 }}>
+              {equipe.map(p => (
+                <button key={p.id} disabled={!!entregando}
+                  onClick={() => onDistribuir(c, p)}
+                  title={`Entregar para ${p.nome}${p.titulo ? ` · ${p.titulo}` : ''}`}
+                  style={{ width: 30, height: 30, borderRadius: '50%', border: 'none', cursor: entregando ? 'wait' : 'pointer',
+                    background: p.cor || 'var(--tq)', color: '#fff', fontSize: 10, fontWeight: 900,
+                    opacity: entregando === c.id ? .4 : 1, transition: 'transform .1s' }}
+                  onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.12)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.transform = 'none'; }}>
+                  {iniciais(p.nome)}
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect, usersById, fixada, onToggleFix }) {
   const st = STATUS_CFG[conv.status_atend] || STATUS_CFG.aberto;
   const hasUnread = conv.unread > 0;
@@ -223,13 +307,13 @@ const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect, usersB
 });
 
 /* ── SearchBar ───────────────────────────────────────────────────────────────── */
-function SearchBar({ value, onChange, filter, setFilter, totalUnread, unreadOnly, setUnreadOnly, waiting, setWaiting, setor, setSetor, mostraSetores, modo, setModo, counts, ehMaster }) {
+function SearchBar({ value, onChange, filter, setFilter, totalUnread, unreadOnly, setUnreadOnly, waiting, setWaiting, setor, setSetor, mostraSetores, modo, setModo, counts, ehDistribuidor }) {
   return (
     <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
       <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
         {[['todas','Todas','todas'],
-          ...(ehMaster ? [['distribuir','📥 A distribuir','aDistribuir']] : []),
-          ['minhas','Minhas','minhas'],['naolidas','Não lidas','naoLidas'],['grupos','Grupos','grupos'],['fixadas','📌 Fixadas','fixadas']].map(([k, l, ck]) => {
+          ...(ehDistribuidor ? [['distribuir','📥 Distribuição','aDistribuir']] : []),
+          [ 'minhas', ehDistribuidor ? '💬 Meus atendimentos' : 'Minhas', 'minhas'],['naolidas','Não lidas','naoLidas'],['grupos','Grupos','grupos'],['fixadas','📌 Fixadas','fixadas']].map(([k, l, ck]) => {
           const ativo = modo === k;
           return (
             <button key={k} onClick={() => setModo(k)}
@@ -539,6 +623,7 @@ export default function Inbox({ onUnreadChange }) {
   const [provaEnviando, setProvaEnviando] = useState(false);   // 📸 envio do conjunto de fotos
   const [cartaoBusy, setCartaoBusy] = useState(false);         // 🗓️ montando o cartão de agendamento
   const [assinarComo, setAssinarComo] = useState('');          // ✍️ gestão escrevendo no nome da dona
+  const [entregando, setEntregando] = useState(null);          // 📥 lead sendo distribuído
   const [total, setTotal]             = useState(0);
   const [page, setPage]               = useState(1);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -639,6 +724,11 @@ export default function Inbox({ onUnreadChange }) {
     load(); const t = setInterval(load, 20000); return () => clearInterval(t);
   }, [clsFiltro]); // eslint-disable-line
   const [modo, setModo] = useState('todas');
+  // A fila precisa da equipe carregada pra mostrar as iniciais de cada uma
+  useEffect(() => {
+    if (modo !== 'distribuir' || atendentes.length) return;
+    api.get('/inbox/atendentes').then(d => setAtendentes(Array.isArray(d) ? d : [])).catch(() => {});
+  }, [modo]); // eslint-disable-line
   const [counts, setCounts] = useState(null);
   const [somAtivo, setSomAtivo] = useState(() => localStorage.getItem('vh_sound') !== 'off');
   const somRef = useRef(true);
@@ -1894,7 +1984,7 @@ export default function Inbox({ onUnreadChange }) {
           waiting={waiting} setWaiting={setWaiting}
           setor={setorFiltro} setSetor={setSetorFiltro} mostraSetores={user?.role !== 'atendente'}
           modo={modo} setModo={setModo} counts={{ ...(counts || {}), fixadas: fixadas.length }}
-          ehMaster={user?.role === 'master'}/>
+          ehDistribuidor={user?.role === 'master' || user?.distribuidor === true}/>
 
         {setorResumo && (
           <div style={{ padding:'10px 12px', borderBottom:'1px solid var(--border)', background:'var(--bg2)' }}>
@@ -1951,9 +2041,24 @@ export default function Inbox({ onUnreadChange }) {
           </div>
         )}
         <div ref={listContainerRef} style={{ flex:1, minHeight:0 }}>
-          <VirtualList items={convosExib} selectedId={sel?.id} onSelect={openConvo} usersById={usersById}
-            containerHeight={listH} loadMore={loadMore} hasMore={hasMore} loadingMore={loadingMore}
-            fixadasIds={fixadasIds} onToggleFix={toggleFix}/>
+          {modo === 'distribuir' ? (
+            <FilaDistribuicao convos={convosExib} equipe={atendentes.filter(a2 => a2.id !== user?.id)}
+              onSelect={openConvo} entregando={entregando}
+              onDistribuir={async (c, p) => {
+                if (entregando) return;
+                setEntregando(c.id);
+                try {
+                  await api.patch(`/inbox/conversations/${c.id}/transferir`, { para_id: p.id });
+                  setConvos(prev => prev.filter(x => x.id !== c.id));   // sai da fila na hora
+                  Toast.show(`Entregue para ${String(p.nome).split(' ')[0]} 📤`, 'success');
+                } catch (e) { Toast.show(e.message || 'Não consegui entregar', 'error'); }
+                setEntregando(null);
+              }} />
+          ) : (
+            <VirtualList items={convosExib} selectedId={sel?.id} onSelect={openConvo} usersById={usersById}
+              containerHeight={listH} loadMore={loadMore} hasMore={hasMore} loadingMore={loadingMore}
+              fixadasIds={fixadasIds} onToggleFix={toggleFix}/>
+          )}
         </div>
 
         {/* Rodapé da lista: resumo do dia + controle de som (ocupa o espaço ocioso) */}

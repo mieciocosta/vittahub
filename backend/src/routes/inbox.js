@@ -323,20 +323,24 @@ let usuariosSetores = new Map(); // id → setores extras (acesso multi-setor, e
 let usuariosNome = new Map();    // id → nome ATUAL (assinatura sempre com o nome vigente)
 let usuariosSoCarteira = new Set(); // 🏠 home office por produção: só vê o que foi transferido
 let usuariosSoFidelidade = new Set(); // 💛 vê SOMENTE a carteira de Fidelidade (ordem do master, 24/08)
+let usuariosDistribuidores = new Set(); // 📥 recebem a fila de leads sem dona (28/08)
 async function carregarUsuariosSetor() {
   try {
     let rows;
     // Cada tentativa cobre um banco mais antigo que o anterior
+    try { ({ rows } = await query('SELECT id, setor, setores, nome, so_carteira, so_fidelidade, distribuidor FROM usuarios')); }
+    catch {
     try { ({ rows } = await query('SELECT id, setor, setores, nome, so_carteira, so_fidelidade FROM usuarios')); }
     catch {
       try { ({ rows } = await query('SELECT id, setor, setores, nome, so_carteira FROM usuarios')); }
       catch { ({ rows } = await query('SELECT id, setor, nome FROM usuarios')); }
-    }
+    } }
     usuariosSetor = new Map(rows.map(u => [String(u.id), u.setor || null]));
     usuariosSetores = new Map(rows.filter(u => Array.isArray(u.setores) && u.setores.length).map(u => [String(u.id), u.setores]));
     usuariosNome = new Map(rows.map(u => [String(u.id), u.nome || null]));
     usuariosSoCarteira = new Set(rows.filter(u => u.so_carteira === true).map(u => String(u.id)));
     usuariosSoFidelidade = new Set(rows.filter(u => u.so_fidelidade === true).map(u => String(u.id)));
+    usuariosDistribuidores = new Set(rows.filter(u => u.distribuidor === true).map(u => String(u.id)));
   } catch { /* banco ainda não pronto — tenta de novo no próximo tick */ }
 }
 carregarUsuariosSetor();
@@ -395,13 +399,11 @@ export function podeVerSetor(viewer, conv) {
      apenas esse"). Quem tem esse perfil enxerga SÓ as conversas da pasta
      Fidelidade — na lista, na busca e ao abrir. Vem antes de setor e ve_tudo. */
   if (viewer.so_fidelidade === true || usuariosSoFidelidade.has(String(viewer.id))) {
-    /* Além da pasta, entra TUDO que for transferido pra ela (ordem do master,
-       24/08: "na medida que transferirem cada atendimento para ela, aparece na
-       grade principal dela"). Assim a carteira dela cresce pelo trabalho da
-       equipe, sem abrir a casa inteira. */
-    return String(conv.categoria || '') === 'fidelidade'
-        || String(conv.classificacao || '') === 'fidelidade'
-        || String(conv.responsavel_id || '') === String(viewer.id);
+    /* 28/08, ordem do master: "quero que a Poliana só veja os que ela já tem no
+       nome dela". Antes ela via a pasta Fidelidade inteira; agora vê a própria
+       carteira. Cliente novo de fidelidade chega pela distribuição — a Danielle
+       entrega, e a partir dali é dela. */
+    return String(conv.responsavel_id || '') === String(viewer.id);
   }
   /* 💛 A CARTEIRA DA FIDELIDADE É SÓ DELA (ordem do master, 27/08: "todos os
      clientes da Poliana não aparecem para os demais"). Fecha a carteira dos
@@ -419,12 +421,19 @@ export function podeVerSetor(viewer, conv) {
       && !ehGestao(viewer)) return false;   // 28/08: "só ela e a gestão" (master, supervisora, ve_tudo)
 
   if (viewer.ve_tudo) return true;
-  /* 📥 LEAD NOVO É DO MASTER (ordem do master, 28/08: "quero que meu usuário
-     seja o único a olhar todos os leads e que eu seja a distribuidora").
-     Conversa SEM responsável é lead ainda não distribuído: some da tela de todo
-     mundo até ele entregar a alguém. A equipe trabalha o que recebeu — e o que
-     não foi entregue não fica esperando ninguém, fica esperando ELE. */
-  if (!conv.responsavel_id) return false;
+  /* 📥 A FILA DE LEADS É DE QUEM DISTRIBUI (ordem do master, 28/08: "Danielle
+     recebe todos os leads e distribui... ela fica com essa responsabilidade, e
+     não o sistema"). Conversa SEM responsável some da tela da equipe: quem
+     enxerga é o master (dono) e quem tem a marca de distribuidor.
+
+     E o passado NÃO entra: conversa sem dona parada há mais de 7 dias fica fora
+     da fila (são quase 2 mil de antes deste modelo). Ela continua achável na
+     busca do master, mas não cai no colo de quem distribui. */
+  if (!conv.responsavel_id) {
+    if (!usuariosDistribuidores.has(String(viewer.id))) return false;
+    const quando = new Date(conv.last_message_at || 0).getTime();
+    return Date.now() - quando < 7 * 24 * 3600 * 1000;
+  }
 
   /* 🎯 CONVERSA COM DONA É SÓ DELA (ordem do master, 24/08: "ao transferir para
      uma pessoa específica, desapareça para a outra que transferiu"). Atendente
@@ -3972,8 +3981,11 @@ r.get('/conversations', async (req, res) => {
          27/08). Esta é a rota de emergência que roda enquanto o cache não
          carregou — sem isso, nos primeiros segundos do deploy a equipe veria
          os clientes da Poliana. */
-      // 📥 Lead sem dono é do master (mesma regra do cache)
-      if (req.user && req.user.role !== 'master') conditions.push('c.responsavel_id IS NOT NULL');
+      /* 📥 Lead sem dona é de quem distribui (mesma regra do cache). Fora isso,
+         só entra na fila o que teve mensagem nos últimos 7 dias. */
+      const distribui = req.user && (req.user.role === 'master' || req.user.distribuidor === true);
+      if (!distribui) conditions.push('c.responsavel_id IS NOT NULL');
+      else conditions.push(`(c.responsavel_id IS NOT NULL OR c.last_message_at > NOW() - interval '7 days')`);
       if (req.user && !ehGestao(req.user) && !(req.user.so_fidelidade === true)) {
         conditions.push(`(c.responsavel_id = $${pi} OR (COALESCE(c.categoria,'') <> 'fidelidade'
               AND COALESCE(c.classificacao,'') <> 'fidelidade'
@@ -4008,8 +4020,12 @@ r.get('/conversations', async (req, res) => {
     grupos: tudo.filter(c => ehGrupo(c)).length,
     /* 📥 Quantos leads esperando distribuição. Só o master enxerga conversa sem
        dona, então pra equipe este número é sempre zero — e o chip nem aparece. */
-    aDistribuir: req.user?.role === 'master'
-      ? Array.from(convoCache.values()).filter(c => !c.categoria && !c.arquivada && !c.responsavel_id).length : 0,
+    /* 📥 Quantos leads esperando distribuição — só quem distribui (e o master)
+       enxerga esse número; a equipe recebe zero e o botão nem aparece. */
+    aDistribuir: (req.user?.role === 'master' || req.user?.distribuidor === true
+                  || usuariosDistribuidores.has(String(req.user?.id)))
+      ? Array.from(convoCache.values()).filter(c => !c.categoria && !c.arquivada && !c.responsavel_id
+          && (Date.now() - new Date(c.last_message_at || 0).getTime() < 7 * 24 * 3600 * 1000)).length : 0,
     // Fila de venda: clientes que mandaram a última mensagem e esperam resposta
     esperando: tudo.filter(c => c.last_from === 'contact' && !ehGrupo(c)).length,
   };

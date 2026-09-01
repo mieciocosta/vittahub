@@ -3025,6 +3025,7 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
   try { await titulosDaEquipe(); } catch (e) { console.error('titulos da equipe:', e.message); }
   try { await bonusPessoais(); } catch (e) { console.error('bonus pessoais:', e.message); }
   try { await colunasCriticas(); } catch (e) { console.error('colunas criticas:', e.message); }
+  try { await distribuidoraDosLeads(); } catch (e) { console.error('distribuidora:', e.message); }
 }
 
 
@@ -3161,6 +3162,20 @@ const BONUS_PESSOAIS = [
 
    Estas são as do último mês, as que quebram funcionalidade se faltarem. Rodam
    por fora, cada uma isolada: se uma falhar, as outras seguem. */
+/* 📥 QUEM DISTRIBUI OS LEADS (ordem do master, 28/08: "Danielle recebe todos os
+   leads e distribui... eu gostaria que ela ficasse com essa responsabilidade,
+   e não o sistema"). A marca vive no usuário: quem tem `distribuidor = true`
+   enxerga a fila dos leads sem dona e entrega pra equipe. O master enxerga
+   sempre, por ser o dono. Roda todo boot e só escreve se mudou. */
+async function distribuidoraDosLeads() {
+  const SEM_ACENTO = "'áàâãäéèêëíìîïóòôõöúùûüç','aaaaaeeeeiiiiooooouuuuc'";
+  const { rowCount } = await query(
+    `UPDATE usuarios SET distribuidor = true
+      WHERE lower(translate(COALESCE(nome,''), ${SEM_ACENTO})) LIKE '%danielle%'
+        AND COALESCE(distribuidor,false) = false`).catch(() => ({ rowCount: 0 }));
+  if (rowCount) console.log('📥 Danielle marcada como distribuidora dos leads');
+}
+
 async function colunasCriticas() {
   const COLUNAS = [
     ['conversas', 'transferida_por', "TEXT[] DEFAULT '{}'"],   // transferiu, sumiu
@@ -3169,6 +3184,7 @@ async function colunasCriticas() {
     ['conversas', 'arquivada',       'BOOLEAN DEFAULT false'],
     ['conversas', 'simulacao',       'BOOLEAN DEFAULT false'],
     ['usuarios',  'titulo',          'TEXT'],                   // carteira na transferência
+    ['usuarios',  'distribuidor',    'BOOLEAN DEFAULT false'],   // recebe a fila de leads novos
     ['usuarios',  'so_fidelidade',   'BOOLEAN DEFAULT false'],
     ['usuarios',  'meta_planos_mes', 'INT DEFAULT 0'],
     ['biblioteca_midias', 'ordem',   'INT DEFAULT 999'],        // ordem das figurinhas
