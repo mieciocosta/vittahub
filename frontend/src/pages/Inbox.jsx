@@ -1172,7 +1172,7 @@ export default function Inbox({ onUnreadChange }) {
       } catch {}
     }, 5000);
     return () => clearInterval(iv);
-  }, [filter, search, unreadOnly, waiting, setorFiltro, clsFiltro, modo]);
+  }, [filter, search, unreadOnly, waiting, setorFiltro, clsFiltro, modo, respFiltro]);
 
   // ── Auto-scroll ao chegar novas mensagens ─────────────────────────────────
   // Só rola se o usuário já estava perto do fim (não interrompe quem lê mensagens antigas)
@@ -1213,7 +1213,7 @@ export default function Inbox({ onUnreadChange }) {
       lastPollTs.current = new Date().toISOString();
       onUnreadChange?.(list.reduce((s, c) => s + (c.unread || 0), 0));
     } catch(err) { console.error('loadConvos:', err.message); }
-  }, [filter, search, unreadOnly, waiting, setorFiltro, clsFiltro, modo]);
+  }, [filter, search, unreadOnly, waiting, setorFiltro, clsFiltro, modo, respFiltro]);
 
   // ── Infinite scroll ────────────────────────────────────────────────────────
   const loadMore = useCallback(async () => {
