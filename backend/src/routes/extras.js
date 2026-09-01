@@ -2818,6 +2818,157 @@ r.get('/painel-comercial', async (req, res) => {
   }
 });
 
+/* 👤 O DOSSIÊ DE CADA COLABORADORA (ordem do master, 01/09: "do lado esquerdo o
+   nome de cada uma das meninas, onde ela pode olhar tudo — com quem está
+   conversando, quem já agendou, relatórios de produtividade do dia").
+
+   O painel geral responde "como está a casa". Este responde "como está a
+   FULANA": o que ela tem na mão agora, quem está esperando resposta, o que ela
+   agendou, o que vendeu e a linha dos últimos dias. Tudo do mesmo lugar, pra
+   Danielle cobrar com número na mão em vez de impressão. */
+r.get('/painel-comercial/pessoa/:id', async (req, res) => {
+  try {
+    const podeVer = req.user.role === 'master' || req.user.distribuidor === true
+      || ['master', 'supervisor'].includes(req.user.role) || veGeral(req);
+    if (!podeVer) return res.status(403).json({ error: 'Painel de gestão comercial.' });
+
+    const { rows: [u] } = await query(
+      'SELECT id, nome, cor, titulo, setor, setores, meta_individual FROM usuarios WHERE id = $1',
+      [req.params.id]);
+    if (!u) return res.status(404).json({ error: 'Pessoa não encontrada.' });
+
+    /* Período: hoje (padrão), 7 dias ou o mês. O "dia" da casa começa às 3h UTC
+       porque São Luís é UTC-3 — sem isso, depois das 21h o relatório pula. */
+    const per = ['hoje', '7d', 'mes'].includes(String(req.query.periodo)) ? String(req.query.periodo) : 'hoje';
+    const HOJE = "(NOW() - interval '3 hours')::date";
+    const DIA_TS = "((NOW() - interval '3 hours')::date + interval '3 hours')";
+    const DE = per === 'hoje' ? HOJE
+      : per === '7d' ? `(${HOJE} - interval '6 days')`
+      : `date_trunc('month', ${HOJE})::date`;
+    const DE_TS = per === 'hoje' ? DIA_TS : `((${DE})::date + interval '3 hours')`;
+
+    const [resumo, conversas, agenda, vendas, parados, dias, etapas] = await Promise.all([
+      query(`
+        SELECT
+          (SELECT COUNT(*) FROM conversas c WHERE c.responsavel_id = $1
+             AND COALESCE(c.arquivada,false) = false)::int abertas,
+          (SELECT COUNT(*) FROM conversas c WHERE c.responsavel_id = $1
+             AND c.last_from = 'contact' AND COALESCE(c.arquivada,false) = false
+             AND c.last_message_at > NOW() - interval '48 hours')::int esperando,
+          (SELECT COUNT(*) FROM conversas c WHERE c.responsavel_id = $1
+             AND c.responsavel_desde >= ${DE_TS})::int recebeu,
+          (SELECT COUNT(DISTINCT m.conversa_id) FROM mensagens m
+            WHERE m.sender_id = $1 AND m.from_type = 'me' AND m.created_at >= ${DE_TS})::int atendeu,
+          (SELECT COUNT(*) FROM mensagens m
+            WHERE m.sender_id = $1 AND m.from_type = 'me' AND m.created_at >= ${DE_TS})::int mensagens,
+          (SELECT COUNT(*) FROM agenda_eventos a WHERE a.responsavel_id = $1
+             AND a.data >= ${DE} AND LOWER(COALESCE(a.status,'')) NOT LIKE 'cancel%'
+             AND a.servico IS DISTINCT FROM 'Pós Vacinal')::int agendou,
+          (SELECT COALESCE(SUM(v.valor),0) FROM vendas v WHERE v.atendente_id = $1
+             AND v.data_venda >= ${DE})::float vendeu,
+          (SELECT COUNT(*) FROM vendas v WHERE v.atendente_id = $1 AND v.data_venda >= ${DE})::int n_vendas,
+          (SELECT COALESCE(SUM(v.valor),0) FROM vendas v WHERE v.atendente_id = $1
+             AND to_char(v.data_venda,'YYYY-MM') = to_char(NOW() - interval '3 hours','YYYY-MM'))::float vendeu_mes`,
+        [u.id]),
+      /* 💬 COM QUEM ELA ESTÁ CONVERSANDO AGORA — a lista que o master pediu.
+         Quem está esperando resposta vem primeiro, do mais antigo pro mais novo:
+         é a fila de quem está mais perto de desistir. */
+      query(`
+        SELECT c.id, c.contact_name, c.last_from, c.last_message, c.last_message_at,
+               c.funil_etapa, c.setor,
+               EXTRACT(EPOCH FROM (NOW() - c.last_message_at))/60 AS min_parada
+          FROM conversas c
+         WHERE c.responsavel_id = $1 AND COALESCE(c.arquivada,false) = false
+           AND COALESCE(c.simulacao,false) = false
+           AND c.last_message_at > NOW() - interval '30 days'
+         ORDER BY (c.last_from = 'contact') DESC, c.last_message_at DESC
+         LIMIT 25`, [u.id]),
+      query(`
+        SELECT a.id, a.paciente, a.hora, a.servico, a.status, a.data, a.setor, a.conversa_id
+          FROM agenda_eventos a
+         WHERE a.responsavel_id = $1 AND a.data >= ${DE}
+           AND a.servico IS DISTINCT FROM 'Pós Vacinal'
+         ORDER BY a.data, a.hora LIMIT 40`, [u.id]),
+      query(`
+        SELECT v.id, v.cliente_nome, v.paciente_nome, v.servico, v.valor::float, v.data_venda,
+               v.forma_pagamento, (v.comprovante IS NOT NULL) AS tem_comprovante
+          FROM vendas v WHERE v.atendente_id = $1 AND v.data_venda >= ${DE}
+         ORDER BY v.created_at DESC LIMIT 40`, [u.id]),
+      // ⏳ O dinheiro que esfria: dela, sem movimento há 3 dias ou mais
+      query(`
+        SELECT c.id, c.contact_name, c.last_message_at, c.funil_etapa,
+               EXTRACT(EPOCH FROM (NOW() - c.last_message_at))/86400 AS dias
+          FROM conversas c
+         WHERE c.responsavel_id = $1 AND COALESCE(c.arquivada,false) = false
+           AND COALESCE(c.status_atend,'aberto') <> 'resolvido'
+           AND c.last_message_at BETWEEN NOW() - interval '30 days' AND NOW() - interval '3 days'
+         ORDER BY c.last_message_at LIMIT 20`, [u.id]),
+      /* 📈 A linha dos últimos 14 dias: atendeu, agendou e vendeu por dia.
+         É o que mostra ritmo — um dia fraco acontece, três seguidos é conversa. */
+      query(`
+        WITH d AS (
+          SELECT generate_series(${HOJE} - interval '13 days', ${HOJE}, interval '1 day')::date dia
+        )
+        SELECT to_char(d.dia,'DD/MM') rotulo, d.dia,
+               (SELECT COUNT(DISTINCT m.conversa_id) FROM mensagens m
+                 WHERE m.sender_id = $1 AND m.from_type = 'me'
+                   AND (m.created_at - interval '3 hours')::date = d.dia)::int atendeu,
+               (SELECT COUNT(*) FROM agenda_eventos a WHERE a.responsavel_id = $1 AND a.data = d.dia
+                  AND LOWER(COALESCE(a.status,'')) NOT LIKE 'cancel%'
+                  AND a.servico IS DISTINCT FROM 'Pós Vacinal')::int agendou,
+               (SELECT COALESCE(SUM(v.valor),0) FROM vendas v
+                 WHERE v.atendente_id = $1 AND v.data_venda = d.dia)::float vendeu
+          FROM d ORDER BY d.dia`, [u.id]).catch(() => ({ rows: [] })),
+      // O funil dela: onde está cada conversa e quanto vale
+      query(`
+        SELECT COALESCE(NULLIF(c.funil_etapa,''), l.status, 'Sem etapa') AS etapa,
+               COUNT(*)::int n, COALESCE(SUM(l.valor_proposta),0)::float valor
+          FROM conversas c LEFT JOIN leads l ON l.id = c.lead_id
+         WHERE c.responsavel_id = $1 AND COALESCE(c.arquivada,false) = false
+           AND COALESCE(c.status_atend,'aberto') <> 'resolvido'
+         GROUP BY 1 ORDER BY valor DESC, n DESC`, [u.id]).catch(() => ({ rows: [] })),
+    ]);
+
+    const r0 = resumo.rows[0] || {};
+    const meta = Number(u.meta_individual) || 0;
+    res.json({
+      pessoa: { id: u.id, nome: u.nome, cor: u.cor, titulo: u.titulo, setor: u.setor, setores: u.setores, meta },
+      periodo: per,
+      resumo: {
+        abertas: r0.abertas || 0, esperando: r0.esperando || 0, recebeu: r0.recebeu || 0,
+        atendeu: r0.atendeu || 0, mensagens: r0.mensagens || 0, agendou: r0.agendou || 0,
+        vendeu: Number(r0.vendeu) || 0, n_vendas: r0.n_vendas || 0,
+        vendeu_mes: Number(r0.vendeu_mes) || 0,
+        pct_meta: meta > 0 ? Math.round(((Number(r0.vendeu_mes) || 0) / meta) * 100) : null,
+      },
+      conversas: conversas.rows.map(c => ({
+        id: c.id, nome: c.contact_name, ultima: c.last_message, de: c.last_from,
+        etapa: c.funil_etapa || null, setor: c.setor || null,
+        esperando: c.last_from === 'contact',
+        min: Math.round(Number(c.min_parada) || 0),
+      })),
+      agendamentos: agenda.rows.map(a => ({
+        id: a.id, paciente: a.paciente, hora: a.hora, servico: a.servico,
+        status: a.status, data: a.data, setor: a.setor, conversa_id: a.conversa_id,
+      })),
+      vendas: vendas.rows.map(v => ({
+        id: v.id, cliente: v.cliente_nome || v.paciente_nome, servico: v.servico,
+        valor: Number(v.valor) || 0, data: v.data_venda,
+        forma: v.forma_pagamento, comprovante: v.tem_comprovante === true,
+      })),
+      parados: parados.rows.map(c => ({
+        id: c.id, nome: c.contact_name, etapa: c.funil_etapa || null,
+        dias: Math.floor(Number(c.dias) || 0),
+      })),
+      dias: dias.rows.map(x => ({ rotulo: x.rotulo, atendeu: x.atendeu, agendou: x.agendou, vendeu: Number(x.vendeu) || 0 })),
+      etapas: etapas.rows.map(x => ({ etapa: x.etapa, n: x.n, valor: Number(x.valor) || 0 })),
+    });
+  } catch (err) {
+    console.error('painel-comercial/pessoa:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 r.get('/planos-fechados', async (req, res) => {
   try {
     const cond = [], params = []; let i = 1;

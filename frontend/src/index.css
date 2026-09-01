@@ -580,3 +580,10 @@ input::placeholder, textarea::placeholder { color: var(--light); }
 
 /* 🧭 Painel Comercial: no celular as duas colunas viram uma */
 @media (max-width: 900px) { .vh-painel-cols { grid-template-columns: 1fr !important; } }
+/* 🧭 Painel Comercial: no celular a coluna das meninas vira uma faixa que rola
+   de lado — o nome de cada uma continua na mão, sem empurrar o conteúdo. */
+@media (max-width: 900px) {
+  .vh-painel-wrap { grid-template-columns: 1fr !important; }
+  .vh-painel-equipe { position: static !important; max-height: none !important; display: flex !important; overflow-x: auto !important; gap: 8px !important; padding-bottom: 4px !important; }
+  .vh-painel-equipe > * { flex: 0 0 auto !important; min-width: 132px !important; }
+}

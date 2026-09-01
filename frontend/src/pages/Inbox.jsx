@@ -356,7 +356,7 @@ const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect, usersB
 });
 
 /* ── SearchBar ───────────────────────────────────────────────────────────────── */
-function SearchBar({ value, onChange, filter, setFilter, totalUnread, unreadOnly, setUnreadOnly, waiting, setWaiting, setor, setSetor, mostraSetores, modo, setModo, counts, ehDistribuidor }) {
+function SearchBar({ value, onChange, filter, setFilter, totalUnread, unreadOnly, setUnreadOnly, waiting, setWaiting, setor, setSetor, mostraSetores, modo, setModo, counts, ehDistribuidor, equipe, respFiltro, setRespFiltro }) {
   return (
     <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
       <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
@@ -386,6 +386,31 @@ function SearchBar({ value, onChange, filter, setFilter, totalUnread, unreadOnly
           </button>
         )}
       </div>
+      {/* 📂 AS PASTAS DA EQUIPE (ordem do master, 01/09: "o atendimento
+          transferido é exclusivo daquela pessoa; some da fileira dela como
+          gestora — pra ela olhar só se for na pasta da usuária x ou y").
+          A fila de cima é dela; a carteira de cada colega mora aqui. */}
+      {(equipe || []).length > 0 && (
+        <div style={{ display:'flex', gap:4, marginBottom:8, overflowX:'auto', paddingBottom:2 }}>
+          <button onClick={()=>setRespFiltro('')} title="Voltar pra sua fila"
+            style={{ flexShrink:0, padding:'4px 9px', borderRadius:8, fontSize:10.5, fontWeight:800, cursor:'pointer', border:'1.5px solid',
+              background: !respFiltro ? 'var(--tq)' : 'var(--card,#fff)', color: !respFiltro ? '#fff' : 'var(--muted)',
+              borderColor: !respFiltro ? 'var(--tq)' : 'var(--border)', whiteSpace:'nowrap' }}>
+            🏠 Minha fila
+          </button>
+          {equipe.map(a => {
+            const on = String(respFiltro) === String(a.id);
+            return (
+              <button key={a.id} onClick={()=>setRespFiltro(on ? '' : a.id)} title={`Pasta de ${a.nome}`}
+                style={{ flexShrink:0, padding:'4px 9px', borderRadius:8, fontSize:10.5, fontWeight:800, cursor:'pointer', border:'1.5px solid',
+                  background: on ? (a.cor || 'var(--pet)') : 'var(--card,#fff)', color: on ? '#fff' : 'var(--muted)',
+                  borderColor: on ? (a.cor || 'var(--pet)') : 'var(--border)', whiteSpace:'nowrap' }}>
+                📂 {String(a.nome).trim().split(' ')[0]}
+              </button>
+            );
+          })}
+        </div>
+      )}
       {mostraSetores && (
         <div style={{ display:'flex', gap:4, marginBottom:8 }}>
           {[['all','Todos'],['vacinas','Vacinas'],['consultas','Consultas'],['terapias','Terapias']].map(([k,l])=>(
@@ -775,11 +800,21 @@ export default function Inbox({ onUnreadChange }) {
     load(); const t = setInterval(load, 20000); return () => clearInterval(t);
   }, [clsFiltro]); // eslint-disable-line
   const [modo, setModo] = useState('todas');
-  // A fila precisa da equipe carregada pra mostrar as iniciais de cada uma
+  /* 📂 Quem supervisiona vê a pasta de cada colega (ordem do master, 01/09).
+     Gestão aqui = master, supervisora, ve_tudo e quem distribui. */
+  const ehGestaoTela = user?.role === 'master' || user?.role === 'supervisor'
+    || user?.ve_tudo === true || user?.distribuidor === true;
+  const abrirPastaDe = (id) => {
+    const p = new URLSearchParams(searchParams);
+    if (id) p.set('responsavel', String(id)); else p.delete('responsavel');
+    setSearchParams(p, { replace: true });
+  };
+  // A fila e as pastas precisam da equipe carregada (iniciais e nomes)
   useEffect(() => {
-    if (modo !== 'distribuir' || atendentes.length) return;
+    if (atendentes.length) return;
+    if (modo !== 'distribuir' && !ehGestaoTela) return;
     api.get('/inbox/atendentes').then(d => setAtendentes(Array.isArray(d) ? d : [])).catch(() => {});
-  }, [modo]); // eslint-disable-line
+  }, [modo, ehGestaoTela]); // eslint-disable-line
   const [counts, setCounts] = useState(null);
   const [somAtivo, setSomAtivo] = useState(() => localStorage.getItem('vh_sound') !== 'off');
   const somRef = useRef(true);
@@ -2046,7 +2081,11 @@ export default function Inbox({ onUnreadChange }) {
           /* A aba aparece pra quem distribui. O contador só vem preenchido do
              servidor pra essas pessoas, então ele serve de segunda garantia
              se o perfil ainda não tiver recarregado. */
-          ehDistribuidor={user?.role === 'master' || user?.distribuidor === true || (counts?.aDistribuir || 0) > 0}/>
+          ehDistribuidor={user?.role === 'master' || user?.distribuidor === true || (counts?.aDistribuir || 0) > 0}
+          /* 📂 As pastas só aparecem pra quem supervisiona (a atendente só tem a
+             própria carteira — pra ela a linha seria uma fileira de becos). */
+          equipe={ehGestaoTela ? atendentes.filter(a2 => a2.id !== user?.id) : []}
+          respFiltro={respFiltro} setRespFiltro={abrirPastaDe}/>
 
         {setorResumo && (
           <div style={{ padding:'10px 12px', borderBottom:'1px solid var(--border)', background:'var(--bg2)' }}>

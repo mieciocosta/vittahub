@@ -384,9 +384,14 @@ export function podeVerSetor(viewer, conv) {
      ve_tudo, que era exatamente por onde a conversa voltava a aparecer no
      recarregamento (na tela ela sumia, no F5 ressuscitava). Se o atendimento
      voltar pra ela um dia, o id sai da lista e ela enxerga de novo. */
+  /* 01/09: pra GESTÃO isso virou regra de LISTA, não de acesso. O master
+     pediu que o atendimento entregue suma da fila dela "para ela olhar só se
+     for na pasta da usuária x ou y" — quem tira da fila é o cacheGetList; se
+     travássemos aqui, a pasta da colega abriria vazia e ela ficaria cega. */
   if (Array.isArray(conv.transferida_por) && conv.transferida_por.length
       && conv.transferida_por.map(String).includes(String(viewer.id))
-      && String(conv.responsavel_id || '') !== String(viewer.id)) return false;
+      && String(conv.responsavel_id || '') !== String(viewer.id)
+      && !ehGestao(viewer)) return false;
   /* 🏠 HOME OFFICE POR PRODUÇÃO (pedido do master): quem tem so_carteira só
      enxerga o que foi TRANSFERIDO pra ela — nem o pool sem dono. Vem antes de
      qualquer outra regra (inclusive ve_tudo): é o contrato desse perfil.
@@ -486,6 +491,25 @@ function cacheGetList({ channel, search, unread_only, waiting, minhas, semDono, 
   // de vacina; quem NÃO é de vacina (consultas/terapias) vê tudo que não é vacina.
   // Vale pra atendente E supervisora. Master e quem não tem setor veem tudo.
   if (viewer) list = list.filter(c => podeVerSetor(viewer, c));
+  /* 🔒 ENTREGOU, É DELA (ordem do master, 01/09: "os atendimentos que forem
+     transferidos sejam exclusivos daquela pessoa; que suma da fileira dela como
+     gestora — para ela olhar só se for na pasta da usuária x ou y").
+
+     A gestora (supervisora / ve_tudo / distribuidora) parou de carregar o
+     atendimento das colegas na PRÓPRIA fila: a lista dela mostra o que é dela e
+     o que ainda não tem dona. Pra olhar a carteira de alguém, ela abre a pasta
+     daquela pessoa — é o ?responsavel= (o botão "Abrir as conversas dela" do
+     Painel Comercial e o chip da equipe).
+
+     Vale só pra LISTA CRUA do inbox: pasta de alguém, busca, pastas e páginas
+     por classificação seguem mostrando tudo, senão a supervisão ficaria cega.
+     O master enxerga tudo, sempre. */
+  const filtrouAlguem = (responsavel && responsavel !== 'all') || minhas === 'true'
+    || semDono === 'true' || !!search || !!categoria || !!classificacao
+    || (setor && setor !== 'all') || arquivadas === 'true';
+  if (viewer && viewer.role !== 'master' && ehGestao(viewer) && !filtrouAlguem) {
+    list = list.filter(c => !c.responsavel_id || String(c.responsavel_id) === String(viewer.id));
+  }
   if (unread_only === 'true') list = list.filter(c => (c.unread || 0) > 0);
   // Aguardando resposta: a última mensagem é do CLIENTE (fila de quem espera)
   if (waiting === 'true') {
