@@ -8906,12 +8906,20 @@ r.get('/conversations/:id/protocolo', async (req, res) => {
     if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
     if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso.' });
 
-    const [passos, { rows: msgs }, { rows: [cfgRow] }] = await Promise.all([
+    const [passos, { rows: msgs }, { rows: [cfgRow] }, { rows: agendou }] = await Promise.all([
       getProtocolo(),
       query(`SELECT from_type, type, content, filename, transcricao FROM mensagens
               WHERE conversa_id = $1 AND from_type NOT IN ('system','interno')
               ORDER BY created_at ASC LIMIT 200`, [req.params.id]),
       query("SELECT valor FROM configuracoes WHERE chave = 'protocolo'").catch(() => ({ rows: [] })),
+      /* 🎯 AGENDOU? Então o atendimento fez o que tinha que fazer (ordem do
+         master, 01/09: "quando elas agendarem quero que a nota do atendimento
+         fique 10"). O protocolo é o CAMINHO; o agendamento é o destino — cobrar
+         passo a passo de quem já chegou lá seria punir quem acertou. */
+      query(`SELECT 1 FROM agenda_eventos
+              WHERE conversa_id = $1 AND LOWER(COALESCE(status,'')) NOT LIKE 'cancel%'
+                AND servico IS DISTINCT FROM 'Pós Vacinal' LIMIT 1`, [req.params.id])
+        .catch(() => ({ rows: [] })),
     ]);
     const clinica = cfgRow?.valor?.clinica || {};
 
@@ -8953,10 +8961,21 @@ r.get('/conversations/:id/protocolo', async (req, res) => {
        Só conta quando a conversa já começou de verdade — cobrar protocolo em
        conversa de duas mensagens seria injusto e viraria ruído. */
     const nossasReais = nossas.length;
+    const virouAgenda = agendou.length > 0;
     let nota = null;
     if (nossasReais >= 2) {
       const proxima = faltando[0] || null;
-      nota = {
+      /* 🏆 Agendou, é nota 10 — e ponto (ordem do master, 01/09). O placar não
+         volta atrás nem se algum passo do caminho tiver sido pulado: o cliente
+         está marcado na agenda, que é o resultado que a casa quer. Os passos
+         que faltaram continuam listados embaixo, como aprendizado, sem virar
+         cobrança em cima de quem fechou. */
+      nota = virouAgenda ? {
+        valor: 10, pct: 100, feitos, total: lista.length, tipo: 'parabens',
+        titulo: '🎉 Agendou! Atendimento nota 10',
+        texto: 'Cliente marcado na agenda — é exatamente pra isso que o protocolo existe. Parabéns 💙',
+        proximo: null, por_agendamento: true,
+      } : {
         valor: +(pct / 10).toFixed(1),                 // 0 a 10
         pct, feitos, total: lista.length,
         tipo: pct >= 100 ? 'parabens' : pct >= 60 ? 'atencao' : 'alerta',
@@ -9077,7 +9096,9 @@ r.get('/conversations/:id/resumo', async (req, res) => {
  "temperatura":"quente|morno|frio",
  "avaliacao":{"nota":0,"pontos_fortes":["o que a atendente fez bem"],"deixou_a_desejar":["o que faltou, de forma concreta e sem grosseria"],"dica":"uma orientação prática pra próxima conversa"}}
 
-Na avaliação, nota de 0 a 10 sobre COMO a atendente conduziu, cobrando o PROTOCOLO da clínica: (1) boas-vindas calorosas, (2) perguntar o nome do paciente, (3) enviar o significado do nome com imagem, (4) enviar a revista/material do serviço, (5) só então apresentar o valor, (6) avisar de forma AFIRMATIVA que vai ligar ("estarei ligando"), (7) enviar provas sociais (fotos/vídeos de outras crianças e o Instagram), (8) convite de agendamento com endereço e mapa. Em "deixou_a_desejar", cite exatamente quais desses passos faltaram. Se quem respondeu foi só a IA (VITTA), avalie a condução do atendimento mesmo assim e diga isso em "deixou_a_desejar". Seja justo e específico: nada de "poderia melhorar" genérico.`;
+Na avaliação, nota de 0 a 10 sobre COMO a atendente conduziu, cobrando o PROTOCOLO da clínica.
+REGRA QUE VEM ANTES DE TODAS (ordem do dono da clínica): se a conversa resultou em AGENDAMENTO — cliente marcado, data e hora combinadas, cartão de agendamento enviado — a nota é 10, mesmo que algum passo do caminho tenha sido pulado. O protocolo existe para chegar no agendamento; quem chegou, acertou. Nesse caso, o que faltou entra apenas como sugestão para a próxima, nunca como cobrança.
+Os passos do protocolo: (1) boas-vindas calorosas, (2) perguntar o nome do paciente, (3) enviar o significado do nome com imagem, (4) enviar a revista/material do serviço, (5) só então apresentar o valor, (6) avisar de forma AFIRMATIVA que vai ligar ("estarei ligando"), (7) enviar provas sociais (fotos/vídeos de outras crianças e o Instagram), (8) convite de agendamento com endereço e mapa. Em "deixou_a_desejar", cite exatamente quais desses passos faltaram. Se quem respondeu foi só a IA (VITTA), avalie a condução do atendimento mesmo assim e diga isso em "deixou_a_desejar". Seja justo e específico: nada de "poderia melhorar" genérico.`;
 
     let d = await openaiMessages({ model: 'gpt-4o', max_tokens: 4096, json: true, system: sys,
       messages: [{ role: 'user', content: prompt }] });

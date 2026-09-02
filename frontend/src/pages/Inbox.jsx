@@ -3028,16 +3028,37 @@ export default function Inbox({ onUnreadChange }) {
                   com a dica e as ações. Verde = feito, âmbar = falta. */}
               <button onClick={alternarProto} title={protoAberto ? 'Baixar a barra do passo a passo' : 'Abrir a barra do passo a passo'}
                 style={{ width:'100%', display:'flex', alignItems:'center', gap:9, padding:'6px 14px', border:'none', cursor:'pointer', background:'transparent', textAlign:'left' }}>
-                <span style={{ fontSize:13 }}>{proto.faltando.length ? '📋' : '🏆'}</span>
-                <span style={{ flex:1, minWidth:0, fontSize:11.5, fontWeight:800, color:'var(--txt2)' }}>
-                  {proto.faltando.length
-                    ? `Protocolo Vittalis — ${proto.passos.length - proto.faltando.length}/${proto.passos.length} passos`
-                    : 'Protocolo Vittalis completo! Atendimento nota 10 💙'}
+                {/* 🏆 Agendou é nota 10 (ordem do master, 01/09): o placar
+                    comemora mesmo que algum passo do caminho tenha sido pulado.
+                    Os passos que faltaram seguem listados embaixo, como
+                    aprendizado — nunca como cobrança em cima de quem fechou. */}
+                <span style={{ fontSize:13 }}>{proto.nota?.por_agendamento || !proto.faltando.length ? '🏆' : '📋'}</span>
+                <span style={{ flex:1, minWidth:0, fontSize:11.5, fontWeight:800,
+                  color: proto.nota?.por_agendamento ? '#15803d' : 'var(--txt2)' }}>
+                  {proto.nota?.por_agendamento
+                    ? 'Agendou! Atendimento nota 10 💙'
+                    : proto.faltando.length
+                      ? `Protocolo Vittalis — ${proto.passos.length - proto.faltando.length}/${proto.passos.length} passos`
+                      : 'Protocolo Vittalis completo! Atendimento nota 10 💙'}
                 </span>
                 <span style={{ width:64, height:5, borderRadius:99, background:'var(--border)', overflow:'hidden', flexShrink:0 }}>
-                  <span style={{ display:'block', height:'100%', width:`${proto.pct}%`, borderRadius:99, background: proto.faltando.length ? '#f59e0b' : '#16a34a' }} />
+                  <span style={{ display:'block', height:'100%', borderRadius:99,
+                    width: proto.nota?.por_agendamento ? '100%' : `${proto.pct}%`,
+                    background: (proto.nota?.por_agendamento || !proto.faltando.length) ? '#16a34a' : '#f59e0b' }} />
                 </span>
-                <span style={{ fontSize:10, fontWeight:800, color:'var(--muted)' }}>{proto.pct}% {protoAberto ? '▲' : '▼'}</span>
+                <span style={{ fontSize:10, fontWeight:800, color: proto.nota?.por_agendamento ? '#15803d' : 'var(--muted)' }}>
+                  {proto.nota?.por_agendamento ? 'nota 10' : `${proto.pct}%`}
+                </span>
+                {/* ➖ MINIMIZAR DE VERDADE (ordem do master, 01/09: "quero poder
+                    minimizar"). A seta sozinha ninguém via: virou um botão com
+                    a palavra escrita. Baixa a barra INTEIRA — funil, perguntas
+                    e passo a passo — e devolve a tela pro que importa, que é a
+                    conversa. A escolha fica guardada no aparelho. */}
+                <span style={{ display:'flex', alignItems:'center', gap:4, flexShrink:0,
+                  border:'1.5px solid var(--border)', borderRadius:8, padding:'3px 9px',
+                  fontSize:10, fontWeight:800, color:'var(--txt2)', background:'var(--bg2)' }}>
+                  {protoAberto ? '➖ Minimizar' : '➕ Abrir passo a passo'}
+                </span>
               </button>
 
               {protoAberto && (
