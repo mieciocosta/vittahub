@@ -4,7 +4,7 @@ import {
   UserPlus, Hash, Bot, FileText, Volume2, File, Tag,
   Smile, PanelLeftClose, PanelLeftOpen, Play, ChevronUp, Loader2, Zap, Plus,
   CheckCircle2, Clock, MessageCircle, Phone, Image,
-  MailOpen, VolumeX, CalendarDays, Bell, Trash2, Sticker, MessageSquare, ChevronLeft } from 'lucide-react';
+  MailOpen, VolumeX, CalendarDays, Bell, Trash2, Sticker, MessageSquare, ChevronLeft, MapPin } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { fmt, openWA, avatarGrad } from '../hooks/utils.js';
@@ -2650,8 +2650,6 @@ export default function Inbox({ onUnreadChange }) {
             <div style={{ display:'flex', gap:6, padding:'8px 14px 0', overflowX:'auto', flexShrink:0 }}>
               {[
                 ['📅','Agendar', ()=>setShowAgendar(true)],
-                // 📍 Endereço oficial da casa, sem ninguém digitar (01/09)
-                ['📍','Endereço', mandarEndereco],
                 ['💰','Orçamento', ()=> sel?.setor === 'terapias' ? setShowTerapia(true) : setShowProposta(true)],
                 ['📷','Experiência', ()=>{setBibAba('foto');setShowBib(true);}],
                 ['🎁','Indicação', ()=>setShowIndicar(true)],
@@ -3322,6 +3320,16 @@ export default function Inbox({ onUnreadChange }) {
                   title="🗓️ Montar mensagem de agendamento lendo a conversa"
                   className="tb-ico-color" style={{ '--ic':'#0ea5e9', opacity: cartaoBusy ? .5 : 1 }}>
                   {cartaoBusy ? <Loader2 size={18} className="spin"/> : <CalendarDays size={18} strokeWidth={2.3}/>}
+                </button>
+                {/* 📍 ENDEREÇO DA CASA, COLADO NO AGENDAMENTO (ordem do master,
+                    01/09: "não quero um botão igual do Agendar que fica na
+                    barra debaixo"). É aqui que ele tem que estar: quem acabou
+                    de montar o cartão é quem manda o endereço em seguida. O
+                    texto vem do servidor, da mesma fonte do cartão. */}
+                <button onClick={mandarEndereco} disabled={endBusy}
+                  title="📍 Endereço da Clínica — o texto oficial da casa, com o Google Maps"
+                  className="tb-ico-color" style={{ '--ic':'#16a34a', opacity: endBusy ? .5 : 1 }}>
+                  {endBusy ? <Loader2 size={18} className="spin"/> : <MapPin size={18} strokeWidth={2.3}/>}
                 </button>
                 <button onClick={()=>setShowAgendarMsg(true)} title="⏰ Agendar mensagem — escolha o dia e a hora pra disparar pro cliente"
                   className="tb-ico-color" style={{ '--ic':'#6366f1' }}><Clock size={18} strokeWidth={2.3}/></button>
