@@ -46,17 +46,12 @@ export default class ErrorBoundary extends React.Component {
   render() {
     if (!this.state.error) return this.props.children;
 
-    /* Modo discreto: peça da moldura (menu, placar). Some sem derrubar a tela
-       inteira — o atendimento continua funcionando. */
-    if (this.props.discreto) {
-      return (
-        <div title={this.texto()}
-          style={{ padding: '6px 10px', fontSize: 10.5, color: '#dc2626', background: '#fef2f2',
-            border: '1px solid #fecaca', borderRadius: 8, margin: 6 }}>
-          ⚠️ {this.props.nome || 'Um pedaço da tela'} não carregou. O resto do sistema segue normal.
-        </div>
-      );
-    }
+    /* Modo discreto: peça da moldura (menu, placar, troca de usuário). Ela
+       simplesmente SOME, sem barra vermelha nenhuma (ordem do master, 01/09:
+       "tem uma barra vermelha e vinho e quero que você tire"). O que importa
+       era não derrubar o sistema inteiro — isso continua valendo. O motivo
+       fica no console e em window.__vhUltimoErro, pra quem for consertar. */
+    if (this.props.discreto) return null;
 
     return (
       <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}>
