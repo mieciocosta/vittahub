@@ -2140,7 +2140,11 @@ export default function Inbox({ onUnreadChange }) {
         {/* 📌 FIXADAS EM DESTAQUE (ordem do master, 24/08): faixa dourada, fundo
             próprio e borda de ouro — as conversas que ela escolheu não se
             perdem no meio da lista geral. */}
-        {fixadas.length > 0 && modo !== 'fixadas' && (
+        {/* 📌 A faixa de fixadas fica FORA da Distribuição (ordem do master, 01/09:
+            "na distribuição tira fixação"). Aquela fila é de passagem — o lead
+            entra, é entregue e sai. Fixar ali não guarda prioridade nenhuma, e
+            a faixa dourada ainda roubava altura de quem está esperando. */}
+        {fixadas.length > 0 && modo !== 'fixadas' && modo !== 'distribuir' && (
           <div style={{ flexShrink:0, maxHeight: fixadasBaixas ? 108 : '42%', overflowY:'auto',
             background:'linear-gradient(180deg, rgba(196,151,59,.10), rgba(196,151,59,.03))',
             borderTop:'2px solid #C4973B', borderBottom:'2px solid #C4973B',
@@ -2171,7 +2175,7 @@ export default function Inbox({ onUnreadChange }) {
             ))}
           </div>
         )}
-        {fixadas.length > 0 && modo !== 'fixadas' && (
+        {fixadas.length > 0 && modo !== 'fixadas' && modo !== 'distribuir' && (
           <div style={{ flexShrink:0, padding:'6px 13px', fontSize:10, fontWeight:800, letterSpacing:.8, textTransform:'uppercase', color:'var(--muted)', background:'var(--bg2)', borderBottom:'1px solid var(--border)' }}>
             💬 Geral
           </div>
