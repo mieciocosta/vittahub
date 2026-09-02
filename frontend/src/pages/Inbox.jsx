@@ -344,12 +344,11 @@ function SearchBar({ value, onChange, filter, setFilter, totalUnread, unreadOnly
     <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
       <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
         {[['todas','Todas','todas'],
-          /* 📥💬 UMA ABA SÓ PRAS DUAS FILEIRAS (ordem do master, 01/09: "duas
-             fileiras uma ao lado da outra, uma de Distribuição e a outra Meus
-             atendimentos"). Eram duas abas e ela vivia pulando de uma pra
-             outra: entregava um lead, trocava de aba pra ver a própria
-             carteira, voltava. Agora as duas ficam abertas ao mesmo tempo. */
-          ...(ehDistribuidor ? [['duas','📥 Distribuição · 💬 Meus','aDistribuir']] : []),
+          /* 📥 Distribuição e Meus atendimentos voltaram a ser DUAS ABAS
+             (ordem do master, 01/09: "não precisa ter mais duas fileiras lado
+             a lado"). Lado a lado, dentro da lista do chat, cada uma virava
+             uma tira estreita demais e ainda espremia a conversa. */
+          ...(ehDistribuidor ? [['distribuir','📥 Distribuição','aDistribuir']] : []),
           [ 'minhas', ehDistribuidor ? '💬 Meus atendimentos' : 'Minhas', 'minhas'],['naolidas','Não lidas','naoLidas'],['grupos','Grupos','grupos'],['fixadas','📌 Fixadas','fixadas']].map(([k, l, ck]) => {
           const ativo = modo === k;
           return (
@@ -407,38 +406,6 @@ const primeiroNomeUtil = (nome) => {
 };
 
 /* ── LazyMedia: carrega base64 sob demanda via endpoint ─────────────────────── */
-/* 📌 A FAIXA DE FIXADAS DE UMA FILEIRA (ordem do master, 01/09: "essas
-   conversas fixas têm que ter em cada fileira").
-
-   A faixa dourada única no topo servia pra UMA lista. Com duas fileiras lado a
-   lado ela ficava longe da fileira a que pertence e ainda roubava altura das
-   duas. Agora cada fileira carrega as suas, no topo dela — a de Distribuição
-   mostra os leads fixados, a de Meus atendimentos mostra os dela.
-
-   Vale SÓ no usuário de quem distribui (Danielle e o master), que é onde as
-   duas fileiras existem; pra todo o resto da equipe a faixa continua uma só,
-   no topo, exatamente como era. */
-function FaixaFixadas({ itens, sel, onSelect, usersById, onToggleFix }) {
-  if (!itens || !itens.length) return null;
-  return (
-    <div style={{ background:'linear-gradient(180deg, rgba(196,151,59,.10), rgba(196,151,59,.03))',
-      borderBottom:'2px solid #C4973B', boxShadow:'inset 0 0 0 1px rgba(196,151,59,.18)' }}>
-      <div style={{ padding:'5px 12px', fontSize:9.5, fontWeight:900, letterSpacing:.8, textTransform:'uppercase',
-        color:'#8a6417', background:'linear-gradient(120deg,#fdf0d5,#fdf6e7)', position:'sticky', top:0, zIndex:2,
-        display:'flex', alignItems:'center', justifyContent:'space-between', borderBottom:'1px solid rgba(196,151,59,.35)' }}>
-        <span>📌 Fixadas</span>
-        <span style={{ background:'#C4973B', color:'#fff', borderRadius:99, padding:'1px 8px', fontSize:9.5, fontWeight:900 }}>{itens.length}</span>
-      </div>
-      {itens.map(c => (
-        <div key={c.id} style={{ borderLeft:'3px solid #C4973B' }}>
-          <ConvoRow conv={c} selected={sel?.id === c.id} onSelect={onSelect} usersById={usersById}
-            fixada onToggleFix={onToggleFix} />
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function LazyMedia({ msgId, type, filename, token, onLightbox, fotoSel }) {
   const [src, setSrc]     = useState(null);
   const [loading, setLoading] = useState(false);
@@ -822,7 +789,7 @@ export default function Inbox({ onUnreadChange }) {
       const guardado = localStorage.getItem('vh_modo_lista');
       if (guardado) return guardado;
     } catch { /* navegador sem storage: segue o padrão */ }
-    return (user?.role === 'master' || user?.distribuidor === true) ? 'duas' : 'todas';
+    return 'todas';
   });
   useEffect(() => { try { localStorage.setItem('vh_modo_lista', modo); } catch { /* ok */ } }, [modo]);
   /* 📂 Quem supervisiona vê a pasta de cada colega (ordem do master, 01/09).
@@ -841,22 +808,6 @@ export default function Inbox({ onUnreadChange }) {
     api.get('/inbox/atendentes').then(d => setAtendentes(Array.isArray(d) ? d : [])).catch(() => {});
   }, [modo, ehGestaoTela]); // eslint-disable-line
   const [counts, setCounts] = useState(null);
-  /* Se o servidor confirmar que ela distribui e ela ainda não escolheu nada, as
-     duas fileiras abrem sozinhas. Só uma vez: escolha dela sempre manda.
-
-     ⚠️ Este trecho fica DEPOIS do `counts` de propósito. Ele estava logo acima,
-     lendo `counts` na lista de dependências — e essa lista é avaliada na hora
-     do render, antes do `const counts` existir. Resultado: "Cannot access
-     before initialization" e o Chat inteiro em branco (01/09). O build não
-     acusa; só quebra na cara de quem abre. */
-  const jaAbriuDuas = useRef(false);
-  useEffect(() => {
-    if (jaAbriuDuas.current || counts?.souDistribuidor !== true) return;
-    jaAbriuDuas.current = true;
-    let escolheu = null;
-    try { escolheu = localStorage.getItem('vh_modo_lista'); } catch { /* ok */ }
-    if (!escolheu || escolheu === 'todas') setModo('duas');
-  }, [counts?.souDistribuidor]); // eslint-disable-line
   const [somAtivo, setSomAtivo] = useState(() => localStorage.getItem('vh_sound') !== 'off');
   const somRef = useRef(true);
   useEffect(() => { somRef.current = somAtivo; localStorage.setItem('vh_sound', somAtivo ? 'on' : 'off'); }, [somAtivo]);
@@ -1277,8 +1228,6 @@ export default function Inbox({ onUnreadChange }) {
       /* 📥 Fila de distribuição e o atalho do Painel Comercial: clicar numa
          pessoa lá abre o chat já filtrado nas conversas DELA (28/08). */
       if (modo === 'distribuir') params.set('semDono', 'true');
-      // 📥💬 Duas fileiras: a lista vem inteira (pool sem dona + carteira dela)
-      if (modo === 'duas') params.set('limit', '200');
       if (respFiltro) params.set('responsavel', respFiltro);
       const data = await api.get(`/inbox/conversations?${params}`);
       if (data.counts) setCounts(data.counts);
@@ -1311,8 +1260,6 @@ export default function Inbox({ onUnreadChange }) {
       /* 📥 Fila de distribuição e o atalho do Painel Comercial: clicar numa
          pessoa lá abre o chat já filtrado nas conversas DELA (28/08). */
       if (modo === 'distribuir') params.set('semDono', 'true');
-      // 📥💬 Duas fileiras: a lista vem inteira (pool sem dona + carteira dela)
-      if (modo === 'duas') params.set('limit', '200');
       if (respFiltro) params.set('responsavel', respFiltro);
       const data = await api.get(`/inbox/conversations?${params}`);
       if (data.counts) setCounts(data.counts);
@@ -2072,7 +2019,6 @@ export default function Inbox({ onUnreadChange }) {
       if (modo === 'fixadas') return fixadas;
       // 📥 Fila de distribuição: só o que ainda não tem dona (visão do master)
       if (modo === 'distribuir') return convos.filter(c => !c.responsavel_id);
-      if (modo === 'duas') return convos;   // a tela separa em duas fileiras
       const base = quentesPrimeiro ? [...convos].sort((a, b) => scoreRank(a.lead_score) - scoreRank(b.lead_score)) : convos;
       // A geral não repete quem está na seção de fixadas
       return fixadasIds.size ? base.filter(c => !fixadasIds.has(c.id)) : base;
@@ -2101,7 +2047,7 @@ export default function Inbox({ onUnreadChange }) {
 
       {/* ── LISTA DE CONVERSAS ─────────────────────────────────────────────── */}
       <div className={`vh-inbox-list${sel ? ' hidden' : ''}`}
-        style={{ width:listCollapsed?0:(modo === 'duas' ? Math.max(listWidth, 640) : listWidth), flexShrink:0, background:'var(--card,#fff)',
+        style={{ width:listCollapsed?0:listWidth, flexShrink:0, background:'var(--card,#fff)',
         display:'flex', flexDirection:'column', borderRight:'1px solid var(--border)',
         overflow:'hidden', transition:'width .2s ease' }}>
         {/* Header */}
@@ -2182,7 +2128,7 @@ export default function Inbox({ onUnreadChange }) {
         {/* 📌 FIXADAS EM DESTAQUE (ordem do master, 24/08): faixa dourada, fundo
             próprio e borda de ouro — as conversas que ela escolheu não se
             perdem no meio da lista geral. */}
-        {fixadas.length > 0 && modo !== 'fixadas' && modo !== 'duas' && (
+        {fixadas.length > 0 && modo !== 'fixadas' && (
           <div style={{ flexShrink:0, maxHeight:'42%', overflowY:'auto',
             background:'linear-gradient(180deg, rgba(196,151,59,.10), rgba(196,151,59,.03))',
             borderTop:'2px solid #C4973B', borderBottom:'2px solid #C4973B',
@@ -2204,69 +2150,13 @@ export default function Inbox({ onUnreadChange }) {
             ))}
           </div>
         )}
-        {fixadas.length > 0 && modo !== 'fixadas' && modo !== 'duas' && (
+        {fixadas.length > 0 && modo !== 'fixadas' && (
           <div style={{ flexShrink:0, padding:'6px 13px', fontSize:10, fontWeight:800, letterSpacing:.8, textTransform:'uppercase', color:'var(--muted)', background:'var(--bg2)', borderBottom:'1px solid var(--border)' }}>
             💬 Geral
           </div>
         )}
         <div ref={listContainerRef} style={{ flex:1, minHeight:0 }}>
-          {modo === 'duas' ? (
-            /* 📥💬 AS DUAS FILEIRAS LADO A LADO (ordem do master, 01/09).
-               Esquerda: o que chegou e ainda não tem dona — entrega num toque.
-               Direita: a carteira dela. As duas rolam sozinhas, e clicar em
-               qualquer uma abre a conversa no chat, do lado. */
-            <div style={{ display:'flex', height:'100%', minHeight:0 }}>
-              <div style={{ flex:1, minWidth:0, display:'flex', flexDirection:'column', borderRight:'1px solid var(--border)' }}>
-                <div style={{ flexShrink:0, padding:'7px 12px', fontSize:10.5, fontWeight:900, letterSpacing:.8,
-                  textTransform:'uppercase', color:'#8a6417', background:'linear-gradient(120deg,#fdf0d5,#fdf6e7)',
-                  borderBottom:'1px solid rgba(196,151,59,.35)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-                  <span>📥 Distribuição</span>
-                  <span style={{ background:'#C4973B', color:'#fff', borderRadius:99, padding:'1px 8px', fontSize:10, fontWeight:900 }}>
-                    {convosExib.filter(c => !c.responsavel_id).length}
-                  </span>
-                </div>
-                <div style={{ flex:1, minHeight:0, overflowY:'auto' }}>
-                  {/* 📌 AS FIXADAS DE CADA FILEIRA (ordem do master, 01/09:
-                      "essas conversas fixas têm que ter em cada fileira").
-                      A faixa dourada única em cima servia pra UMA lista; com
-                      duas, ela ficava longe da fileira a que pertence e ainda
-                      roubava altura das duas. Agora cada fileira carrega as
-                      suas, no topo dela. */}
-                  <FaixaFixadas itens={fixadas.filter(c => !c.responsavel_id)}
-                    sel={sel} onSelect={openConvo} usersById={usersById} onToggleFix={toggleFix} />
-                  <FilaDistribuicao convos={convosExib.filter(c => !c.responsavel_id && !fixadasIds.has(c.id))}
-                    equipe={atendentes.filter(a2 => a2.id !== user?.id)}
-                    onSelect={openConvo} entregando={entregando}
-                    eu={user ? { id: user.id, nome: user.nome } : null}
-                    grandesPrimeiro={grandesPrimeiro} setGrandesPrimeiro={setGrandesPrimeiro}
-                    onDistribuir={distribuirLead} />
-                </div>
-              </div>
-              <div style={{ flex:1, minWidth:0, display:'flex', flexDirection:'column' }}>
-                <div style={{ flexShrink:0, padding:'7px 12px', fontSize:10.5, fontWeight:900, letterSpacing:.8,
-                  textTransform:'uppercase', color:'var(--tq2)', background:'var(--tq4)',
-                  borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-                  <span>💬 Meus atendimentos</span>
-                  <span style={{ background:'var(--tq)', color:'#fff', borderRadius:99, padding:'1px 8px', fontSize:10, fontWeight:900 }}>
-                    {convosExib.filter(c => String(c.responsavel_id || '') === String(user?.id)).length}
-                  </span>
-                </div>
-                <div style={{ flex:1, minHeight:0, overflowY:'auto' }}>
-                  <FaixaFixadas itens={fixadas.filter(c => String(c.responsavel_id || '') === String(user?.id))}
-                    sel={sel} onSelect={openConvo} usersById={usersById} onToggleFix={toggleFix} />
-                  {convosExib.filter(c => String(c.responsavel_id || '') === String(user?.id)).length === 0 && (
-                    <div style={{ padding:'16px 13px', fontSize:12, color:'var(--muted)', lineHeight:1.6 }}>
-                      Nenhuma conversa no seu nome ainda. Use o <b>💎 Fica comigo</b> ao lado pra segurar um negócio grande.
-                    </div>
-                  )}
-                  {convosExib.filter(c => String(c.responsavel_id || '') === String(user?.id) && !fixadasIds.has(c.id)).map(c => (
-                    <ConvoRow key={c.id} conv={c} selected={sel?.id === c.id} onSelect={openConvo}
-                      usersById={usersById} fixada={fixadasIds.has(c.id)} onToggleFix={toggleFix} />
-                  ))}
-                </div>
-              </div>
-            </div>
-          ) : modo === 'distribuir' ? (
+          {modo === 'distribuir' ? (
             <FilaDistribuicao convos={convosExib} equipe={atendentes.filter(a2 => a2.id !== user?.id)}
               onSelect={openConvo} entregando={entregando}
               eu={user ? { id: user.id, nome: user.nome } : null}
