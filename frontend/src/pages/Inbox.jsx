@@ -810,6 +810,16 @@ export default function Inbox({ onUnreadChange }) {
     return (user?.role === 'master' || user?.distribuidor === true) ? 'duas' : 'todas';
   });
   useEffect(() => { try { localStorage.setItem('vh_modo_lista', modo); } catch { /* ok */ } }, [modo]);
+  /* Se o servidor confirmar que ela distribui e ela ainda não escolheu nada, as
+     duas fileiras abrem sozinhas. Só uma vez: escolha dela sempre manda. */
+  const jaAbriuDuas = useRef(false);
+  useEffect(() => {
+    if (jaAbriuDuas.current || counts?.souDistribuidor !== true) return;
+    jaAbriuDuas.current = true;
+    let escolheu = null;
+    try { escolheu = localStorage.getItem('vh_modo_lista'); } catch { /* ok */ }
+    if (!escolheu || escolheu === 'todas') setModo('duas');
+  }, [counts?.souDistribuidor]); // eslint-disable-line
   /* 📂 Quem supervisiona vê a pasta de cada colega (ordem do master, 01/09).
      Gestão aqui = master, supervisora, ve_tudo e quem distribui. */
   const ehGestaoTela = user?.role === 'master' || user?.role === 'supervisor'
@@ -2096,7 +2106,11 @@ export default function Inbox({ onUnreadChange }) {
           /* A aba aparece pra quem distribui. O contador só vem preenchido do
              servidor pra essas pessoas, então ele serve de segunda garantia
              se o perfil ainda não tiver recarregado. */
-          ehDistribuidor={user?.role === 'master' || user?.distribuidor === true || (counts?.aDistribuir || 0) > 0}/>
+          /* 📥 Quem distribui é o SERVIDOR que diz (counts.souDistribuidor) — o
+             login devolvia o usuário sem essa marca e a aba sumia no usuário da
+             Danielle. O resto da conta fica de reserva pra token antigo. */
+          ehDistribuidor={counts?.souDistribuidor === true || user?.role === 'master'
+            || user?.distribuidor === true || (counts?.aDistribuir || 0) > 0}/>
 
         {/* 📂 Está dentro da pasta de alguém (veio da barra lateral) — a faixa
             avisa de quem é a carteira e traz o caminho de volta pra fila dela. */}

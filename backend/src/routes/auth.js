@@ -126,7 +126,14 @@ r.post('/login', async (req, res) => {
              VALUES ($1,$2,'login',$3::jsonb,$4,$5)`,
         [u.id, u.nome, JSON.stringify({ metodo: 'cpf', ...(loc || {}) }), ip, req.get('user-agent')?.slice(0, 300)]).catch(() => {});
     }).catch(() => { logAudit(req, u.id, u.nome, 'login', { metodo: 'cpf' }); });
-    res.json({ token, user: { id: u.id, nome: u.nome, email: u.email, cpf: u.cpf, role: u.role, cor: u.cor, avatar: u.avatar || null, setor: u.setor || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo, dono: ehDono(u) || u.pode_impersonar === true } });
+    res.json({ token, user: { id: u.id, nome: u.nome, email: u.email, cpf: u.cpf, role: u.role, cor: u.cor, avatar: u.avatar || null, setor: u.setor || null, setores: u.setores || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo,
+        /* 📥 Os perfis de carteira vêm JUNTO (01/09). Sem eles, quem entrava —
+           ou quem o master impersonava — ficava sem a marca de distribuidora
+           até dar F5: a aba de Distribuição e as duas fileiras simplesmente não
+           apareciam no usuário da Danielle. O /auth/me já mandava certo; o
+           login e o "entrar como" é que devolviam um usuário pela metade. */
+        distribuidor: u.distribuidor === true, so_carteira: u.so_carteira === true, so_fidelidade: u.so_fidelidade === true,
+        dono: ehDono(u) || u.pode_impersonar === true } });
   } catch (err) {
     console.error('Login error:', err.message); // detalhe só no log do servidor
     res.status(500).json({ error: 'Erro interno. Tente novamente.' }); // não vaza o motivo
@@ -184,11 +191,24 @@ r.patch('/me/nome', auth, async (req, res) => {
     const nome = String(req.body?.nome || '').trim().slice(0, 60);
     if (nome.length < 2) return res.status(400).json({ error: 'Digite um nome válido.' });
     const { rows: [u] } = await query(
-      'UPDATE usuarios SET nome = $1, updated_at = NOW() WHERE id = $2 RETURNING id, nome, email, cpf, role, cor, avatar, setor, setores, lider, ve_tudo, ve_geral',
+      /* O RETURNING precisa trazer os perfis de carteira: é com estes campos
+         que o token novo é assinado. Sem eles, trocar o próprio nome fazia a
+         pessoa PERDER a marca de distribuidora até sair e entrar de novo — a
+         fila de Distribuição sumia do nada, sem ninguém ter mexido em nada. */
+      `UPDATE usuarios SET nome = $1, updated_at = NOW() WHERE id = $2
+         RETURNING id, nome, email, cpf, role, cor, avatar, setor, setores, lider, ve_tudo, ve_geral,
+                   so_carteira, so_fidelidade, distribuidor, pode_impersonar`,
       [nome, req.user.id]);
     if (!u) return res.status(404).json({ error: 'Usuário não encontrado.' });
     const token = jwt.sign({ id: u.id, nome: u.nome, email: u.email, role: u.role, cor: u.cor, setor: u.setor || null, setores: u.setores || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo, ve_geral: !!u.ve_geral, so_carteira: !!u.so_carteira, so_fidelidade: !!u.so_fidelidade, distribuidor: !!u.distribuidor }, SECRET, { expiresIn: u.role === 'master' ? '30d' : '16h' }); // equipe: sessão morre no mesmo dia; master mantém 30d
-    res.json({ ok: true, token, user: { id: u.id, nome: u.nome, email: u.email, cpf: u.cpf, role: u.role, cor: u.cor, avatar: u.avatar || null, setor: u.setor || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo, dono: ehDono(u) || u.pode_impersonar === true } });
+    res.json({ ok: true, token, user: { id: u.id, nome: u.nome, email: u.email, cpf: u.cpf, role: u.role, cor: u.cor, avatar: u.avatar || null, setor: u.setor || null, setores: u.setores || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo,
+        /* 📥 Os perfis de carteira vêm JUNTO (01/09). Sem eles, quem entrava —
+           ou quem o master impersonava — ficava sem a marca de distribuidora
+           até dar F5: a aba de Distribuição e as duas fileiras simplesmente não
+           apareciam no usuário da Danielle. O /auth/me já mandava certo; o
+           login e o "entrar como" é que devolviam um usuário pela metade. */
+        distribuidor: u.distribuidor === true, so_carteira: u.so_carteira === true, so_fidelidade: u.so_fidelidade === true,
+        dono: ehDono(u) || u.pode_impersonar === true } });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -264,7 +284,14 @@ r.post('/impersonar/:id', auth, async (req, res) => {
         impersonadoPor: req.user.id },
       SECRET, { expiresIn: '12h' });
     console.log(`👤 IMPERSONAÇÃO: ${req.user.nome} entrou como ${u.nome} (${u.id})`);
-    res.json({ token, user: { id: u.id, nome: u.nome, email: u.email, cpf: u.cpf, role: u.role, cor: u.cor, avatar: u.avatar || null, setor: u.setor || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo, dono: ehDono(u) || u.pode_impersonar === true } });
+    res.json({ token, user: { id: u.id, nome: u.nome, email: u.email, cpf: u.cpf, role: u.role, cor: u.cor, avatar: u.avatar || null, setor: u.setor || null, setores: u.setores || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo,
+        /* 📥 Os perfis de carteira vêm JUNTO (01/09). Sem eles, quem entrava —
+           ou quem o master impersonava — ficava sem a marca de distribuidora
+           até dar F5: a aba de Distribuição e as duas fileiras simplesmente não
+           apareciam no usuário da Danielle. O /auth/me já mandava certo; o
+           login e o "entrar como" é que devolviam um usuário pela metade. */
+        distribuidor: u.distribuidor === true, so_carteira: u.so_carteira === true, so_fidelidade: u.so_fidelidade === true,
+        dono: ehDono(u) || u.pode_impersonar === true } });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

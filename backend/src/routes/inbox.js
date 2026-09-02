@@ -4107,6 +4107,17 @@ r.get('/conversations', async (req, res) => {
           && (Date.now() - new Date(c.last_message_at || 0).getTime() < 7 * 24 * 3600 * 1000)).length : 0,
     // Fila de venda: clientes que mandaram a última mensagem e esperam resposta
     esperando: tudo.filter(c => c.last_from === 'contact' && !ehGrupo(c)).length,
+    /* 📥 QUEM DISTRIBUI, QUEM DIZ É O SERVIDOR (01/09).
+
+       A tela decidia isso pelo `distribuidor` que vinha no login — e o login
+       devolvia o usuário pela metade, sem esse campo. Resultado: no usuário da
+       Danielle a aba de Distribuição e as duas fileiras simplesmente não
+       apareciam, e ninguém entendia por quê.
+
+       Agora a resposta vem do banco, pelo cache de usuários: não depende de
+       token antigo, de payload incompleto nem de F5. */
+    souDistribuidor: req.user?.role === 'master' || req.user?.distribuidor === true
+      || usuariosDistribuidores.has(String(req.user?.id)),
   };
   res.json(result);
 });
