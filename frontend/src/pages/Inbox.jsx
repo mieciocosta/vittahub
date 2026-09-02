@@ -794,7 +794,22 @@ export default function Inbox({ onUnreadChange }) {
     const load = () => api.get(`/inbox/setor-resumo?cls=${clsFiltro}`).then(setSetorResumo).catch(()=>setSetorResumo(null));
     load(); const t = setInterval(load, 20000); return () => clearInterval(t);
   }, [clsFiltro]); // eslint-disable-line
-  const [modo, setModo] = useState('todas');
+  /* 📥💬 AS DUAS FILEIRAS ABREM SOZINHAS (ordem do master, 01/09, pedida três
+     vezes: "quero duas fileiras uma ao lado da outra").
+
+     Elas já existiam, mas atrás de uma aba — e aba que precisa ser descoberta
+     é aba que não existe. Pra quem DISTRIBUI (o master e a Danielle), o chat
+     agora abre já com as duas: Distribuição de um lado, a carteira dela do
+     outro. A escolha fica guardada: trocou de aba, o sistema respeita na
+     próxima vez. Pra quem não distribui, nada muda. */
+  const [modo, setModo] = useState(() => {
+    try {
+      const guardado = localStorage.getItem('vh_modo_lista');
+      if (guardado) return guardado;
+    } catch { /* navegador sem storage: segue o padrão */ }
+    return (user?.role === 'master' || user?.distribuidor === true) ? 'duas' : 'todas';
+  });
+  useEffect(() => { try { localStorage.setItem('vh_modo_lista', modo); } catch { /* ok */ } }, [modo]);
   /* 📂 Quem supervisiona vê a pasta de cada colega (ordem do master, 01/09).
      Gestão aqui = master, supervisora, ve_tudo e quem distribui. */
   const ehGestaoTela = user?.role === 'master' || user?.role === 'supervisor'
