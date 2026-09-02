@@ -407,6 +407,38 @@ const primeiroNomeUtil = (nome) => {
 };
 
 /* ── LazyMedia: carrega base64 sob demanda via endpoint ─────────────────────── */
+/* 📌 A FAIXA DE FIXADAS DE UMA FILEIRA (ordem do master, 01/09: "essas
+   conversas fixas têm que ter em cada fileira").
+
+   A faixa dourada única no topo servia pra UMA lista. Com duas fileiras lado a
+   lado ela ficava longe da fileira a que pertence e ainda roubava altura das
+   duas. Agora cada fileira carrega as suas, no topo dela — a de Distribuição
+   mostra os leads fixados, a de Meus atendimentos mostra os dela.
+
+   Vale SÓ no usuário de quem distribui (Danielle e o master), que é onde as
+   duas fileiras existem; pra todo o resto da equipe a faixa continua uma só,
+   no topo, exatamente como era. */
+function FaixaFixadas({ itens, sel, onSelect, usersById, onToggleFix }) {
+  if (!itens || !itens.length) return null;
+  return (
+    <div style={{ background:'linear-gradient(180deg, rgba(196,151,59,.10), rgba(196,151,59,.03))',
+      borderBottom:'2px solid #C4973B', boxShadow:'inset 0 0 0 1px rgba(196,151,59,.18)' }}>
+      <div style={{ padding:'5px 12px', fontSize:9.5, fontWeight:900, letterSpacing:.8, textTransform:'uppercase',
+        color:'#8a6417', background:'linear-gradient(120deg,#fdf0d5,#fdf6e7)', position:'sticky', top:0, zIndex:2,
+        display:'flex', alignItems:'center', justifyContent:'space-between', borderBottom:'1px solid rgba(196,151,59,.35)' }}>
+        <span>📌 Fixadas</span>
+        <span style={{ background:'#C4973B', color:'#fff', borderRadius:99, padding:'1px 8px', fontSize:9.5, fontWeight:900 }}>{itens.length}</span>
+      </div>
+      {itens.map(c => (
+        <div key={c.id} style={{ borderLeft:'3px solid #C4973B' }}>
+          <ConvoRow conv={c} selected={sel?.id === c.id} onSelect={onSelect} usersById={usersById}
+            fixada onToggleFix={onToggleFix} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function LazyMedia({ msgId, type, filename, token, onLightbox, fotoSel }) {
   const [src, setSrc]     = useState(null);
   const [loading, setLoading] = useState(false);
@@ -2150,7 +2182,7 @@ export default function Inbox({ onUnreadChange }) {
         {/* 📌 FIXADAS EM DESTAQUE (ordem do master, 24/08): faixa dourada, fundo
             próprio e borda de ouro — as conversas que ela escolheu não se
             perdem no meio da lista geral. */}
-        {fixadas.length > 0 && modo !== 'fixadas' && (
+        {fixadas.length > 0 && modo !== 'fixadas' && modo !== 'duas' && (
           <div style={{ flexShrink:0, maxHeight:'42%', overflowY:'auto',
             background:'linear-gradient(180deg, rgba(196,151,59,.10), rgba(196,151,59,.03))',
             borderTop:'2px solid #C4973B', borderBottom:'2px solid #C4973B',
@@ -2172,7 +2204,7 @@ export default function Inbox({ onUnreadChange }) {
             ))}
           </div>
         )}
-        {fixadas.length > 0 && modo !== 'fixadas' && (
+        {fixadas.length > 0 && modo !== 'fixadas' && modo !== 'duas' && (
           <div style={{ flexShrink:0, padding:'6px 13px', fontSize:10, fontWeight:800, letterSpacing:.8, textTransform:'uppercase', color:'var(--muted)', background:'var(--bg2)', borderBottom:'1px solid var(--border)' }}>
             💬 Geral
           </div>
@@ -2194,7 +2226,15 @@ export default function Inbox({ onUnreadChange }) {
                   </span>
                 </div>
                 <div style={{ flex:1, minHeight:0, overflowY:'auto' }}>
-                  <FilaDistribuicao convos={convosExib.filter(c => !c.responsavel_id)}
+                  {/* 📌 AS FIXADAS DE CADA FILEIRA (ordem do master, 01/09:
+                      "essas conversas fixas têm que ter em cada fileira").
+                      A faixa dourada única em cima servia pra UMA lista; com
+                      duas, ela ficava longe da fileira a que pertence e ainda
+                      roubava altura das duas. Agora cada fileira carrega as
+                      suas, no topo dela. */}
+                  <FaixaFixadas itens={fixadas.filter(c => !c.responsavel_id)}
+                    sel={sel} onSelect={openConvo} usersById={usersById} onToggleFix={toggleFix} />
+                  <FilaDistribuicao convos={convosExib.filter(c => !c.responsavel_id && !fixadasIds.has(c.id))}
                     equipe={atendentes.filter(a2 => a2.id !== user?.id)}
                     onSelect={openConvo} entregando={entregando}
                     eu={user ? { id: user.id, nome: user.nome } : null}
@@ -2212,12 +2252,14 @@ export default function Inbox({ onUnreadChange }) {
                   </span>
                 </div>
                 <div style={{ flex:1, minHeight:0, overflowY:'auto' }}>
+                  <FaixaFixadas itens={fixadas.filter(c => String(c.responsavel_id || '') === String(user?.id))}
+                    sel={sel} onSelect={openConvo} usersById={usersById} onToggleFix={toggleFix} />
                   {convosExib.filter(c => String(c.responsavel_id || '') === String(user?.id)).length === 0 && (
                     <div style={{ padding:'16px 13px', fontSize:12, color:'var(--muted)', lineHeight:1.6 }}>
                       Nenhuma conversa no seu nome ainda. Use o <b>💎 Fica comigo</b> ao lado pra segurar um negócio grande.
                     </div>
                   )}
-                  {convosExib.filter(c => String(c.responsavel_id || '') === String(user?.id)).map(c => (
+                  {convosExib.filter(c => String(c.responsavel_id || '') === String(user?.id) && !fixadasIds.has(c.id)).map(c => (
                     <ConvoRow key={c.id} conv={c} selected={sel?.id === c.id} onSelect={openConvo}
                       usersById={usersById} fixada={fixadasIds.has(c.id)} onToggleFix={toggleFix} />
                   ))}
