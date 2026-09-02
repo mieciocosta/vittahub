@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { RefreshCw } from 'lucide-react';
-import { useApi } from '../context/AuthContext.jsx';
+import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt } from '../hooks/utils.js';
 
 /* 🧭 PAINEL COMERCIAL (ordem do master, 28/08: "quero todas as funções dentro do
@@ -275,6 +275,130 @@ function Ranking({ equipe, aoClicar }) {
 }
 
 
+/* 📥💬 AS DUAS FILEIRAS, LADO A LADO (ordem do master, 01/09: "vamos criar
+   duas fileiras uma ao lado da outra, uma de Distribuição e a outra Meus
+   atendimentos").
+
+   É o modelo que ele desenhou no dia 28: a Danielle recebe TODO lead e entrega
+   na mão — o sistema não distribui sozinho. Então a tela junta as duas coisas
+   que ela faz o dia inteiro, sem trocar de aba:
+
+   · ESQUERDA, Distribuição: quem chegou e ainda não tem dona. Quem espera há
+     mais tempo em cima (é quem está mais perto de desistir), vermelho depois
+     de 15 minutos, e o selo 💎 no que cheira a plano grande. Entregar é UM
+     toque nas iniciais da colega — ou "Fica comigo", que é o direito dela de
+     segurar o negócio grande.
+   · DIREITA, Meus atendimentos: a carteira dela, com quem espera resposta em
+     cima. Clicou, a conversa abre na fileira do lado. */
+function DuasFileiras({ fila, meus, equipe, eu, onAbrir, convAberta, onEntregar, entregando }) {
+  const [soGrandes, setSoGrandes] = useState(false);
+  const lista = soGrandes ? fila.filter(c => c.grande) : fila;
+
+  const Cabeca = ({ emoji, titulo, n, cor, extra }) => (
+    <div style={{ padding: '12px 14px 10px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+      <span style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--txt)' }}>{emoji} {titulo}</span>
+      <span style={{ fontSize: 10.5, fontWeight: 800, borderRadius: 99, padding: '2px 8px', background: 'var(--bg2)', color: cor }}>{n}</span>
+      {extra}
+    </div>
+  );
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(300px,1fr))', gap: 14, marginBottom: 14 }}
+      className="vh-duas-fileiras">
+      {/* ─── 📥 DISTRIBUIÇÃO ─── */}
+      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+        <Cabeca emoji="📥" titulo="Distribuição" n={fila.length} cor="var(--gold,#C4973B)"
+          extra={fila.some(c => c.grande) && (
+            <button onClick={() => setSoGrandes(v => !v)}
+              style={{ marginLeft: 'auto', border: '1.5px solid', borderRadius: 8, padding: '3px 9px', fontSize: 10, fontWeight: 800, cursor: 'pointer',
+                background: soGrandes ? 'var(--gold,#C4973B)' : 'var(--card)', color: soGrandes ? '#fff' : 'var(--muted)',
+                borderColor: soGrandes ? 'var(--gold,#C4973B)' : 'var(--border)' }}>
+              💎 só os grandes
+            </button>
+          )} />
+        <div style={{ maxHeight: 420, overflowY: 'auto' }}>
+          {!lista.length && (
+            <div style={{ padding: '16px 14px', fontSize: 12, color: 'var(--ok,#0fb07a)', fontWeight: 700 }}>
+              {fila.length ? 'Nenhum lead grande na fila agora.' : 'Fila zerada 🎉 nenhum lead esperando entrega.'}
+            </div>
+          )}
+          {lista.map(c => (
+            <div key={c.id} style={{ padding: '9px 14px', borderTop: '1px solid var(--border)',
+              background: c.min > 15 ? 'rgba(220,38,38,.05)' : 'transparent' }}>
+              <div onClick={() => onAbrir(c.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <span style={{ minWidth: 0, flex: 1 }}>
+                  <b style={{ fontSize: 12, color: 'var(--txt)', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {c.grande && <span title="Cheira a plano vacinal ou terapêutico">💎 </span>}{c.nome || 'sem nome'}
+                  </b>
+                  <span style={{ fontSize: 10.5, color: 'var(--muted)', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {c.ultima ? String(c.ultima).slice(0, 52) : 'sem mensagem'}
+                  </span>
+                </span>
+                <span style={{ fontSize: 10.5, fontWeight: 800, flexShrink: 0, color: c.min > 15 ? '#dc2626' : 'var(--muted)' }}>
+                  espera {desde(c.min)}
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 7, flexWrap: 'wrap' }}>
+                <button disabled={!!entregando} onClick={() => onEntregar(c, eu)}
+                  title="Fica comigo — os planos grandes são seus"
+                  style={{ border: 'none', borderRadius: 99, padding: '4px 11px', cursor: entregando ? 'wait' : 'pointer',
+                    background: 'linear-gradient(135deg,#E3B95C,#C4973B)', color: '#fff', fontSize: 10.5, fontWeight: 800,
+                    opacity: entregando === c.id ? .4 : 1 }}>
+                  💎 Fica comigo
+                </button>
+                {equipe.map(pp => (
+                  <button key={pp.id} disabled={!!entregando} onClick={() => onEntregar(c, pp)}
+                    title={`Entregar para ${primeiro(pp.nome)}`}
+                    style={{ width: 27, height: 27, borderRadius: '50%', border: 'none', cursor: entregando ? 'wait' : 'pointer',
+                      background: pp.cor || 'var(--tq)', color: '#fff', fontSize: 9, fontWeight: 900,
+                      opacity: entregando === c.id ? .4 : 1 }}>
+                    {fmt.initials(pp.nome)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ─── 💬 MEUS ATENDIMENTOS ─── */}
+      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+        <Cabeca emoji="💬" titulo="Meus atendimentos" n={meus.length} cor="var(--tq2)"
+          extra={(() => { const e = meus.filter(c => c.esperando).length; return e > 0 && (
+            <span style={{ marginLeft: 'auto', fontSize: 10.5, fontWeight: 800, borderRadius: 99, padding: '2px 9px', background: '#fee2e2', color: '#dc2626' }}>
+              ⏳ {e} esperando você
+            </span>
+          ); })()} />
+        <div style={{ maxHeight: 420, overflowY: 'auto' }}>
+          {!meus.length && (
+            <div style={{ padding: '16px 14px', fontSize: 12, color: 'var(--muted)' }}>
+              Nenhuma conversa no seu nome ainda. Use o “💎 Fica comigo” ao lado pra segurar um negócio grande.
+            </div>
+          )}
+          {meus.map(c => (
+            <div key={c.id} onClick={() => onAbrir(c.id)}
+              style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '9px 14px', borderTop: '1px solid var(--border)', cursor: 'pointer',
+                background: String(convAberta) === String(c.id) ? 'var(--tq4)' : (c.esperando && c.min > 30 ? 'rgba(220,38,38,.05)' : 'transparent') }}>
+              <span style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
+                background: c.esperando ? (c.min > 30 ? '#dc2626' : '#e8991a') : '#22c55e' }} />
+              <span style={{ minWidth: 0, flex: 1 }}>
+                <b style={{ fontSize: 12, color: 'var(--txt)', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.nome || 'sem nome'}</b>
+                <span style={{ fontSize: 10.5, color: 'var(--muted)', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {c.esperando ? '⏳ esperando você' : '✓ respondida'}{c.etapa ? ` · ${c.etapa}` : ''}
+                </span>
+              </span>
+              {c.unread > 0 && (
+                <span style={{ fontSize: 9.5, fontWeight: 900, borderRadius: 99, padding: '1px 6px', background: 'var(--tq)', color: '#fff', flexShrink: 0 }}>{c.unread}</span>
+              )}
+              <span style={{ fontSize: 10.5, fontWeight: 800, flexShrink: 0, color: c.esperando && c.min > 30 ? '#dc2626' : 'var(--muted)' }}>{desde(c.min)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function PainelComercial() {
   const api = useApi();
   const nav = useNavigate();
@@ -302,6 +426,21 @@ export default function PainelComercial() {
      colunas espremidas — assim a conversa nasce do tamanho de um chat de
      verdade, que era o pedido: "entrar dentro do painel dele de fato". */
   const [abaDir, setAbaDir] = useState('relatorios');
+  const [entregando, setEntregando] = useState(null);   // 📥 lead sendo entregue
+  const { user } = useAuth();
+  /* Entregar é a decisão dela, não do sistema (ordem do master, 28/08). A linha
+     sai da fila na hora, sem esperar o próximo ciclo — se der erro, ela volta. */
+  const entregar = async (c, pessoaDestino) => {
+    if (entregando) return;
+    setEntregando(c.id);
+    const antes = d;
+    setD(x => x ? { ...x, fila_conversas: (x.fila_conversas || []).filter(y => y.id !== c.id) } : x);
+    try {
+      await api.patch(`/inbox/conversations/${c.id}/transferir`, { para_id: pessoaDestino.id });
+      carregar();
+    } catch (e) { setD(antes); setErro(e.message || 'Não consegui entregar este lead.'); }
+    setEntregando(null);
+  };
   useEffect(() => { setBuscaConv(''); setAbaDir('relatorios'); }, [sel]);
   useEffect(() => { if (convAberta) setAbaDir('conversa'); }, [convAberta]);
 
@@ -352,7 +491,8 @@ export default function PainelComercial() {
 
   /* ═══ VISÃO 1 · PAINEL GERAL — a casa e a equipe ═══════════════════════ */
   const painelGeral = !d ? null : (
-    <div className="vh-painel-wrap" style={{ display: 'grid', gridTemplateColumns: '236px minmax(0,1fr)', gap: 14, alignItems: 'start' }}>
+    <div className="vh-painel-wrap" style={{ display: 'grid', alignItems: 'start', gap: 14,
+      gridTemplateColumns: convAberta ? '212px minmax(0,1fr) minmax(320px,.8fr)' : '236px minmax(0,1fr)' }}>
       <div className="vh-painel-equipe" style={{ position: 'sticky', top: 12, maxHeight: 'calc(100vh - 40px)', overflowY: 'auto' }}>
         <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: 1.2, color: 'var(--muted)', textTransform: 'uppercase', padding: '4px 4px 6px' }}>
           A equipe — clique para entrar
@@ -396,6 +536,12 @@ export default function PainelComercial() {
           <Kpi v={fmt.brl(d.vendas_hoje.total)} l="vendido hoje" s={`${d.vendas_hoje.n} venda(s)`} cor="var(--gold,#C4973B)" />
           <Kpi v={d.paradas} l="paradas há 3 dias" s="precisam de retomada" cor={d.paradas ? 'var(--warn,#e8991a)' : 'var(--txt)'} />
         </div>
+
+        <DuasFileiras
+          fila={d.fila_conversas || []} meus={d.meus_atendimentos || []}
+          equipe={eq} eu={{ id: user?.id, nome: user?.nome, cor: user?.cor }}
+          onAbrir={abrirConversa} convAberta={convAberta}
+          onEntregar={entregar} entregando={entregando} />
 
         <Ranking equipe={eq} aoClicar={setSel} />
 
@@ -541,6 +687,12 @@ export default function PainelComercial() {
           </div>
         </div>
       </div>
+
+      {/* 💬 Clicou numa das duas fileiras: a conversa abre aqui do lado */}
+      {convAberta && (
+        <ConversaNoPainel convId={convAberta} onFechar={() => abrirConversa('')}
+          onIrProChat={() => nav(`/inbox?conv=${convAberta}`)} />
+      )}
     </div>
   );
 

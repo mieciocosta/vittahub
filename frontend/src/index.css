@@ -607,6 +607,8 @@ input::placeholder, textarea::placeholder { color: var(--light); }
    de lado — o nome de cada uma continua na mão, sem empurrar o conteúdo. */
 @media (max-width: 900px) {
   .vh-painel-wrap { grid-template-columns: 1fr !important; }
+  /* As duas fileiras (Distribuição e Meus atendimentos) empilham no celular */
+  .vh-duas-fileiras { grid-template-columns: 1fr !important; }
   /* No celular a conversa vira a última faixa da página, com altura própria */
   .vh-painel-wrap > .card:last-child { height: 70vh !important; position: static !important; }
   .vh-painel-equipe { position: static !important; max-height: none !important; display: flex !important; overflow-x: auto !important; gap: 8px !important; padding-bottom: 4px !important; }

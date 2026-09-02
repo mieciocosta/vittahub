@@ -2690,6 +2690,11 @@ const TIPOS_PLANO = { vacinal: 'Plano Vacinal', terapeutico: 'Terapia', fidelida
    Junta numa resposta só o que hoje está espalhado: a fila, o dia da casa, o
    que cada pessoa está fazendo agora, como os leads foram repartidos e o que
    pede ação. Quem vê: master, supervisora e quem distribui. */
+/* 💎 O QUE CHEIRA A NEGÓCIO GRANDE (ordem do master, 28/08: "ela fica com os
+   planos vacinais e os planos terapêuticos"). A mesma régua da fila do chat —
+   serve pra Danielle bater o olho e segurar o que é dela antes de distribuir. */
+const PISTA_GRANDE = /(plano\s*vacinal|plano\s*fidelidade|pacote|todas as vacinas|calend[áa]rio|terapia|fono|psico|ocupacional|\baba\b|avalia[çc][ãa]o|acompanhamento|mensal)/i;
+
 r.get('/painel-comercial', async (req, res) => {
   try {
     const podeVer = ['master', 'supervisor'].includes(req.user.role)
@@ -2700,7 +2705,8 @@ r.get('/painel-comercial', async (req, res) => {
     const DIA_TS = "((NOW() - interval '3 hours')::date + interval '3 hours')";
     const MES = "to_char(NOW() - interval '3 hours','YYYY-MM')";
 
-    const [fila, semResp, agenda, vendasHoje, equipe, distrib, paradas, presenca, minhas] = await Promise.all([
+    const [fila, semResp, agenda, vendasHoje, equipe, distrib, paradas, presenca, minhas,
+           filaConvs, meusAtend] = await Promise.all([
       // Fila esperando distribuição (com o corte de 7 dias, igual à tela)
       query(`SELECT COUNT(*)::int n,
                     COALESCE(EXTRACT(EPOCH FROM (NOW() - MIN(last_message_at)))/60, 0)::int espera_max
@@ -2769,6 +2775,33 @@ r.get('/painel-comercial', async (req, res) => {
            AND COALESCE(c.arquivada,false) = false
            AND COALESCE(c.status_atend,'aberto') <> 'resolvido'
          GROUP BY 1 ORDER BY valor DESC, n DESC`, [req.user.id]).catch(() => ({ rows: [] })),
+      /* 📥 AS DUAS FILEIRAS, LADO A LADO (ordem do master, 01/09).
+
+         A da esquerda é a DISTRIBUIÇÃO: lead que chegou e ainda não tem dona.
+         Só o que teve mensagem nos últimos 7 dias — o passado (quase 2 mil
+         conversas de antes deste modelo) não cai no colo de ninguém. Quem
+         espera há mais tempo vem primeiro: é quem está mais perto de desistir. */
+      query(`
+        SELECT c.id, c.contact_name, c.last_message, c.last_message_at, c.setor,
+               EXTRACT(EPOCH FROM (NOW() - c.last_message_at))/60 AS min_espera
+          FROM conversas c
+         WHERE c.responsavel_id IS NULL AND COALESCE(c.arquivada,false) = false
+           AND COALESCE(c.simulacao,false) = false AND c.categoria IS NULL
+           AND c.last_message_at > NOW() - interval '7 days'
+         ORDER BY c.last_message_at ASC LIMIT 60`).catch(() => ({ rows: [] })),
+      /* A da direita é a carteira DELA: o que ficou no nome dela pra atender —
+         plano vacinal e plano terapêutico, os negócios grandes que ela fecha.
+         Aqui quem espera resposta sobe. */
+      query(`
+        SELECT c.id, c.contact_name, c.last_message, c.last_message_at, c.setor,
+               c.last_from, c.funil_etapa, COALESCE(c.unread,0)::int unread,
+               EXTRACT(EPOCH FROM (NOW() - c.last_message_at))/60 AS min_parada
+          FROM conversas c
+         WHERE c.responsavel_id = $1 AND COALESCE(c.arquivada,false) = false
+           AND COALESCE(c.simulacao,false) = false
+           AND c.last_message_at > NOW() - interval '90 days'
+         ORDER BY (c.last_from = 'contact') DESC, c.last_message_at DESC
+         LIMIT 60`, [req.user.id]).catch(() => ({ rows: [] })),
     ]);
 
     const pres = {};
@@ -2815,6 +2848,19 @@ r.get('/painel-comercial', async (req, res) => {
         etapa: x.etapa, n: x.n, valor: Number(x.valor) || 0, parados: x.parados,
       })),
       alertas: alertas.slice(0, 12),
+      /* 🔎 A pista de negócio grande vai calculada daqui: a tela não precisa
+         saber as palavras, e assim a régra vive num lugar só. */
+      fila_conversas: (filaConvs.rows || []).map(c => ({
+        id: c.id, nome: c.contact_name, ultima: c.last_message, setor: c.setor || null,
+        min: Math.round(Number(c.min_espera) || 0),
+        grande: PISTA_GRANDE.test(`${c.contact_name || ''} ${c.last_message || ''}`),
+      })),
+      meus_atendimentos: (meusAtend.rows || []).map(c => ({
+        id: c.id, nome: c.contact_name, ultima: c.last_message, setor: c.setor || null,
+        etapa: c.funil_etapa || null, unread: c.unread || 0,
+        esperando: c.last_from === 'contact',
+        min: Math.round(Number(c.min_parada) || 0),
+      })),
     });
   } catch (err) {
     console.error('painel-comercial:', err.message);
