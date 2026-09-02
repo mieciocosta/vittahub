@@ -1972,6 +1972,15 @@ export default function Inbox({ onUnreadChange }) {
       if (!d?.achou) { Toast.show(d?.aviso || 'Não achei data e hora na conversa', 'error'); return; }
       setInput(d.texto);
       textRef.current?.focus();
+      /* 📝 Veio o MODELO (a conversa não tinha data — combinaram por telefone).
+         O aviso muda de tom: não é erro, é um cartão pronto esperando os dados.
+         E o cursor vai pro primeiro __ pra ela já digitar por cima. */
+      if (d.modelo) {
+        const i = String(d.texto).indexOf('__');
+        if (i >= 0) requestAnimationFrame(() => textRef.current?.setSelectionRange(i, i + 2));
+        Toast.show(`📝 Modelo pronto — preencha ${(d.faltando || []).join(', ')}.`, 'info');
+        return;
+      }
       const falta = (d.faltando || []).length ? ` Confira: ${d.faltando.join(' e ')}.` : '';
       Toast.show(`🗓️ Cartão montado (${d.resumo}).${falta}`, 'success');
     } catch (e) { Toast.show(e.message || 'Não consegui montar o cartão', 'error'); }

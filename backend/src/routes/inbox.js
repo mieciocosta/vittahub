@@ -5674,12 +5674,53 @@ r.post('/conversations/:id/montar-cartao', async (req, res) => {
     const ia = (ev || (lido && lido.origem === 'cartao')) ? null
       : await analisarConversaParaAgenda(conv).catch(() => null);
 
-    if (!ev && !lido && !(ia && ia.tem_agendamento && ia.data && ia.hora)) {
-      return res.json({ achou: false,
-        aviso: 'Não achei data e hora na conversa. Combine o horário com o cliente e clique de novo.' });
-    }
-
     const pistas = await pistasDaConversa(conv.id, conv).catch(() => ({}));
+
+    /* 📝 SEM DATA NA CONVERSA? VEM O MODELO (ordem do master, 02/09: "se não
+       tiver na conversa, ele traz o modelo para ser editado, pois pode
+       acontecer do atendente agendar por telefone").
+
+       Antes o botão só dizia "não achei data e hora" e a atendente ficava sem
+       nada: quem combinou por telefone tinha que digitar o cartão inteiro na
+       mão, e foi digitando na mão que o texto derivou. Agora ela recebe o
+       cartão oficial já montado com TUDO que o sistema sabe (cliente,
+       paciente, serviço, local, setor) e só preenche o que falta.
+
+       Os espaços a preencher vêm marcados com __ de propósito: é impossível
+       enviar sem ver, diferente de um campo vazio que passa batido. */
+    if (!ev && !lido && !(ia && ia.tem_agendamento && ia.data && ia.hora)) {
+      const emCasaM = pistas.emCasa === true;
+      const modeloDados = {
+        cliente: mem.responsavel || conv.contact_name || 'Cliente',
+        paciente: pistas.paciente || mem.paciente || '',
+        data: '', hora: '',
+        servico: pistas.servico
+          || (conv.setor === 'terapias' ? 'Sessão de terapia' : conv.setor === 'consultas' ? 'Consulta' : 'Vacinação'),
+        setor: conv.setor,
+        bonus: pistas.bonus || '',
+        local: emCasaM
+          ? (pistas.endereco ? `Em sua residência — ${String(pistas.endereco).slice(0, 48)}` : 'Em sua residência')
+          : 'Na Clínica Vittalis Saúde (Renascença)',
+        tratamento: ['mamãe', 'papai'].includes(String(mem.tratamento || '')) ? mem.tratamento : '',
+      };
+      let modelo = await cartaoAgendamento(modeloDados);
+      modelo = modelo
+        .replace('📅 Data: ', '📅 Data: __/__/____')
+        .replace('🕓 Horário: hs', '🕓 Horário: __:__hs');
+      // Sem nome do paciente o cartão omite a linha; no modelo ela precisa
+      // existir pra ser preenchida, senão a atendente esquece que faltou.
+      if (!modeloDados.paciente) {
+        modelo = modelo.replace('📅 Data: ', '👶🏻 Paciente: __________\n📅 Data: ');
+      }
+      const aPreencher = ['a data', 'o horário'];
+      if (!modeloDados.paciente) aPreencher.push('o nome do paciente');
+      return res.json({
+        achou: true, modelo: true, origem: 'modelo', texto: modelo,
+        faltando: aPreencher,
+        resumo: 'modelo em branco',
+        aviso: 'Não achei data e hora na conversa, então trouxe o modelo da casa pra você preencher.',
+      });
+    }
     const emCasa = ev
       ? (!!String(ev.endereco || '').trim() || /resid|casa|domic/i.test(String(ev.servico || '')))
       : (/resid|casa|domic/i.test(String((lido && lido.local) || ''))
