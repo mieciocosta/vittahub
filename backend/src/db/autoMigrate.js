@@ -3031,6 +3031,8 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
   try { await equipeDaCasa(); } catch (e) { console.error('equipe da casa:', e.message); }
   try { await donosDaCasa(); } catch (e) { console.error('donos da casa:', e.message); }
   try { await marketingForaDoPainel(); } catch (e) { console.error('marketing fora do painel:', e.message); }
+  // 👤 Depois de marcar donos e distribuidoras: liberar a observação pra gestora
+  try { await gestoraPodeObservar(); } catch (e) { console.error('gestora observar:', e.message); }
   try { await distribuidoraDosLeads(); } catch (e) { console.error('distribuidora:', e.message); }
   try { await usuariosNovos(); } catch (e) { console.error('usuarios novos:', e.message); }
   // 🧹 Depois de criar/garantir a equipe nova: devolver pra fila o que o rodízio entregou sozinho
@@ -3378,6 +3380,26 @@ async function marketingForaDoPainel() {
              OR lower(translate(COALESCE(nome,''), ${SEM_ACENTO})) ~ '^(jose\\s*carlos|carlos\\s*eduardo)\\b')`)
     .catch(() => ({ rowCount: 0 }));
   if (rowCount) console.log(`📣 ${rowCount} conta(s) de marketing saíram do painel comercial (acesso intacto)`);
+}
+
+/* 👤 A GESTORA COMERCIAL PODE OBSERVAR (ordem do master, 01/09: "quero que a
+   Danielle possa mudar de usuário em qualquer momento, igual eu e a Nágila,
+   pra que ela possa observar o rendimento mais precisamente").
+
+   Quem distribui os leads é quem cobra o resultado deles — e cobrar sem poder
+   olhar de perto é palpite. A marca vale pra quem tem `distribuidor`: hoje é a
+   Danielle, e se o master passar a bola pra outra pessoa, a permissão vai
+   junto sem precisar de mim.
+
+   O que ela NÃO alcança: as contas da direção (master e dono_casa), barradas
+   no proprio /impersonar. E toda entrada dela vira aviso pro master. */
+async function gestoraPodeObservar() {
+  const { rowCount } = await query(
+    `UPDATE usuarios SET pode_impersonar = true
+      WHERE COALESCE(distribuidor,false) = true AND ativo = true
+        AND COALESCE(pode_impersonar,false) = false
+        AND COALESCE(dono_casa,false) = false`).catch(() => ({ rowCount: 0 }));
+  if (rowCount) console.log(`👤 ${rowCount} gestora(s) de distribuição liberada(s) pra observar a equipe`);
 }
 
 async function donosDaCasa() {

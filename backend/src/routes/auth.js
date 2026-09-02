@@ -257,6 +257,37 @@ r.get('/diagnostico-setores', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* 👥 QUEM EU POSSO OBSERVAR (ordem do master, 01/09: "quero que a Danielle
+   possa mudar de usuário em qualquer momento, igual eu e a Nágila, pra que ela
+   possa observar o rendimento mais precisamente — exceto Dra e Dr").
+
+   A lista de usuários do sistema é do master e continua sendo. Esta aqui é
+   outra coisa: é a lista de quem se pode ENTRAR pra observar, e ela já vem
+   filtrada pelas mesmas regras que o /impersonar aplica. Assim a gestora
+   comercial não recebe uma lista com nomes que o servidor recusaria depois.
+
+   Os DONOS DA CASA ficam de fora pra quem não é dono: quem supervisiona a
+   operação não entra na conta de quem é dono dela. */
+r.get('/impersonaveis', auth, async (req, res) => {
+  try {
+    const { rows: [eu] } = await query(
+      'SELECT id, nome, email, cpf, role, pode_impersonar FROM usuarios WHERE id = $1', [req.user.id]);
+    if (!eu || (!ehDono(eu) && eu.pode_impersonar !== true)) {
+      return res.status(403).json({ error: 'Você não tem permissão para entrar como outro usuário.' });
+    }
+    const souDono = ehDono(eu);
+    const { rows } = await query(`
+      SELECT id, nome, email, cpf, role, cor, avatar, setor, titulo,
+             COALESCE(dono_casa,false) AS dono_casa
+        FROM usuarios
+       WHERE role <> 'bot' AND ativo = true AND id <> $1
+       ORDER BY nome`, [eu.id]).catch(() => ({ rows: [] }));
+    const lista = rows.filter(u => souDono || (u.role !== 'master' && u.dono_casa !== true));
+    res.json(lista.map(u => ({ id: u.id, nome: u.nome, cor: u.cor, avatar: u.avatar || null,
+      setor: u.setor || null, titulo: u.titulo || null, role: u.role, ativo: true })));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.post('/impersonar/:id', auth, async (req, res) => {
   try {
     // Confere no BANCO, não no token: o token não carrega CPF e pode estar
@@ -266,12 +297,15 @@ r.post('/impersonar/:id', auth, async (req, res) => {
     if (!eu || (!ehDono(eu) && eu.pode_impersonar !== true)) {
       return res.status(403).json({ error: 'Você não tem permissão para entrar como outro usuário. O master libera isso em Configurações → Usuários.' });
     }
-    const { rows: [u] } = await query('SELECT id,nome,email,cpf,role,cor,avatar,setor,setores,lider,ve_tudo,ve_geral,so_carteira,so_fidelidade,distribuidor FROM usuarios WHERE id = $1', [req.params.id]);
+    const { rows: [u] } = await query('SELECT id,nome,email,cpf,role,cor,avatar,setor,setores,lider,ve_tudo,ve_geral,so_carteira,so_fidelidade,distribuidor,COALESCE(dono_casa,false) AS dono_casa FROM usuarios WHERE id = $1', [req.params.id]);
     if (!u) return res.status(404).json({ error: 'Usuário não encontrado' });
     // Entrar na conta de um MASTER é privilégio do dono — senão a permissão
     // liberada a um supervisor viraria caminho pra assumir o sistema inteiro.
-    if (u.role === 'master' && !ehDono(eu)) {
-      return res.status(403).json({ error: 'Só o dono pode entrar na conta de um master.' });
+    /* 🏛️ Quem não é dono não entra na conta de um dono (ordem do master,
+       01/09: "exceto Dra e Dr"). Vale pro cargo de master E pra marca
+       dono_casa, que é o que identifica as contas do Miécio e da Nágila. */
+    if ((u.role === 'master' || u.dono_casa === true) && !ehDono(eu)) {
+      return res.status(403).json({ error: 'Esta conta é da direção da clínica e não pode ser observada.' });
     }
     const token = jwt.sign(
       // ve_geral vai junto: impersonar tem que mostrar EXATAMENTE o que a
@@ -284,6 +318,19 @@ r.post('/impersonar/:id', auth, async (req, res) => {
         impersonadoPor: req.user.id },
       SECRET, { expiresIn: '12h' });
     console.log(`👤 IMPERSONAÇÃO: ${req.user.nome} entrou como ${u.nome} (${u.id})`);
+    /* 🔔 O MASTER SEMPRE SABE (01/09). Liberar a troca de usuário pra gestora
+       comercial é dar acesso à conversa de todo mundo — legítimo pra
+       supervisão, e por isso mesmo tem que deixar rastro. O aviso é
+       apenas_master: fica só com o dono, não vira exposição da equipe.
+       Quando é o próprio dono que entra, não avisa nada — seria ele avisando
+       a si mesmo a cada troca. */
+    if (!ehDono(eu)) {
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master)
+                   VALUES ('seguranca', $1, $2, true)`,
+        [`👤 ${String(eu.nome).split(' ')[0]} entrou como ${String(u.nome).split(' ')[0]}`,
+         `${eu.nome} usou a troca de usuário para observar a conta de ${u.nome}. Registrado em ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}.`])
+        .catch(() => {});
+    }
     res.json({ token, user: { id: u.id, nome: u.nome, email: u.email, cpf: u.cpf, role: u.role, cor: u.cor, avatar: u.avatar || null, setor: u.setor || null, setores: u.setores || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo,
         /* 📥 Os perfis de carteira vêm JUNTO (01/09). Sem eles, quem entrava —
            ou quem o master impersonava — ficava sem a marca de distribuidora

@@ -50,7 +50,7 @@ export default function Dashboard() {
   useEffect(() => {
     if (!podeTrocar || !trocaAberta || equipeTroca.length) return;
     const BASE = import.meta.env.VITE_API_URL || '';
-    fetch(`${BASE}/api/auth/usuarios`, { headers: { Authorization: `Bearer ${tokenMaster()}` } })
+    fetch(`${BASE}/api/auth/impersonaveis`, { headers: { Authorization: `Bearer ${tokenMaster()}` } })
       .then(r => r.json())
       .then(d => setEquipeTroca(Array.isArray(d) ? d.filter(u => u.ativo !== false) : []))
       .catch(() => setEquipeTroca([]));

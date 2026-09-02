@@ -23,7 +23,11 @@ export default function TrocaUsuario() {
   useEffect(() => {
     if (!podeTrocar) return;
     const BASE = import.meta.env.VITE_API_URL || '';
-    fetch(`${BASE}/api/auth/usuarios`, { headers: { Authorization: `Bearer ${tokenMaster()}` } })
+    /* A lista vem do /impersonaveis, não do /usuarios: aquela é a lista de
+       cadastro, do master. Esta já chega filtrada pelas regras da troca — a
+       gestora comercial não vê nomes que o servidor recusaria depois, e as
+       contas da direção não aparecem pra ninguém além do dono (01/09). */
+    fetch(`${BASE}/api/auth/impersonaveis`, { headers: { Authorization: `Bearer ${tokenMaster()}` } })
       .then(r => r.json())
       .then(d => setUsers(Array.isArray(d) ? d.filter(u => u.ativo !== false) : []))
       .catch(() => setUsers([]));

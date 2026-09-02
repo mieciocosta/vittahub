@@ -892,6 +892,18 @@ export default function Inbox({ onUnreadChange }) {
     try { localStorage.setItem('vh_proto_aberto', nova ? '1' : '0'); } catch { /* ok */ }
     return nova;
   });
+  /* 📌 A ÁREA DAS FIXADAS ENCOLHE (ordem do master, 01/09: "deixe uma seta que
+     eu possa reduzir o tamanho da tela de fixadas"). Com muitas fixadas ela
+     comia quase metade da lista e empurrava o resto pra baixo. A seta alterna
+     entre a faixa cheia e uma tira baixinha; a escolha fica guardada. */
+  const [fixadasBaixas, setFixadasBaixas] = useState(() => {
+    try { return localStorage.getItem('vh_fixadas_baixas') === '1'; } catch { return false; }
+  });
+  const alternarFixadas = () => setFixadasBaixas(v2 => {
+    const nova = !v2;
+    try { localStorage.setItem('vh_fixadas_baixas', nova ? '1' : '0'); } catch { /* ok */ }
+    return nova;
+  });
   const [protoBusy, setProtoBusy] = useState('');
   const [protoSel, setProtoSel] = useState(null); // passo aberto nos botões numerados (23/08/2026)
   // ✏️ Edição da frase do passo (pedido do master: "não me dá a opção de usar
@@ -2129,7 +2141,7 @@ export default function Inbox({ onUnreadChange }) {
             próprio e borda de ouro — as conversas que ela escolheu não se
             perdem no meio da lista geral. */}
         {fixadas.length > 0 && modo !== 'fixadas' && (
-          <div style={{ flexShrink:0, maxHeight:'42%', overflowY:'auto',
+          <div style={{ flexShrink:0, maxHeight: fixadasBaixas ? 108 : '42%', overflowY:'auto',
             background:'linear-gradient(180deg, rgba(196,151,59,.10), rgba(196,151,59,.03))',
             borderTop:'2px solid #C4973B', borderBottom:'2px solid #C4973B',
             boxShadow:'inset 0 0 0 1px rgba(196,151,59,.18)' }}>
@@ -2140,7 +2152,16 @@ export default function Inbox({ onUnreadChange }) {
                 📌 Fixadas
                 <span style={{ textTransform:'none', fontWeight:700, fontSize:9.5, opacity:.75 }}>suas conversas de prioridade</span>
               </span>
-              <span style={{ background:'#C4973B', color:'#fff', borderRadius:99, padding:'1px 9px', fontSize:10, fontWeight:900 }}>{fixadas.length}</span>
+              <span style={{ display:'flex', alignItems:'center', gap:6 }}>
+                <span style={{ background:'#C4973B', color:'#fff', borderRadius:99, padding:'1px 9px', fontSize:10, fontWeight:900 }}>{fixadas.length}</span>
+                {/* ▼▲ A seta que encolhe a área das fixadas (ordem do master) */}
+                <button onClick={alternarFixadas}
+                  title={fixadasBaixas ? 'Mostrar todas as fixadas' : 'Reduzir a área das fixadas'}
+                  style={{ border:'1px solid rgba(196,151,59,.45)', background:'rgba(255,255,255,.55)', color:'#8a6417',
+                    borderRadius:7, width:22, height:19, lineHeight:1, cursor:'pointer', fontSize:10, fontWeight:900, padding:0 }}>
+                  {fixadasBaixas ? '▼' : '▲'}
+                </button>
+              </span>
             </div>
             {fixadas.map(c => (
               <div key={c.id} style={{ borderLeft:'3px solid #C4973B' }}>
