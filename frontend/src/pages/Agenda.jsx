@@ -25,6 +25,15 @@ export default function Agenda() {
   const [eventos, setEventos] = useState([]);
   // 📋 Relatório do dia + produtividade da equipe
   const [aba, setAba] = useState(() => (new URLSearchParams(window.location.search).get('aba') === 'relatorio' ? 'relatorio' : 'lista'));
+  /* 💉🩺 DUAS AGENDAS EM UMA (ordem do master, 01/09: "quero que apareça duas
+     agendas para ela: Agenda vacinas e Agenda consultas").
+
+     Não são duas telas: é a MESMA agenda com um recorte por setor. Duas telas
+     iguais lado a lado envelheceriam separadas — uma ganharia um botão que a
+     outra não teria, como já aconteceu com o cartão de agendamento. O menu
+     leva direto pro recorte (?setor=vacinas), e aqui os chips trocam na hora. */
+  const [setorAgenda, setSetorAgenda] = useState(() =>
+    new URLSearchParams(window.location.search).get('setor') || '');
   const [rel, setRel] = useState(null);
   // 📄 Relatório individual. Abre já aberto quando vem do atalho "Meu Relatório"
   // do menu (pedido do master: cada uma gera o dela sem caçar botão).
@@ -43,6 +52,9 @@ export default function Agenda() {
   useEffect(() => {
     const q = new URLSearchParams(location.search);
     if (q.get('aba') === 'relatorio') setAba('relatorio');
+    // O menu manda o setor pela URL; sem isto, trocar de "Agenda Vacinas" pra
+    // "Agenda Consultas" não faria nada (é a mesma rota, só muda a busca).
+    setSetorAgenda(q.get('setor') || '');
     setRelLider(q.get('individual') === '1');
     /* 🗓️ ?data=YYYY-MM-DD abre a agenda JÁ no dia certo (ordem do master,
        27/08: "depois de agendar, ir direto pra agenda"). Sem isto a tela abria
@@ -172,8 +184,12 @@ export default function Agenda() {
 
   // 💙 Agenda dividida (pedido do master): agendamentos em cima, pós-vacinais
   // embaixo — assim o pós não conflita nem se mistura com as visitas do dia.
-  const agendamentos = eventos.filter(ev => ev.servico !== 'Pós Vacinal');
-  const posVacinais = eventos.filter(ev => ev.servico === 'Pós Vacinal');
+  /* Evento sem setor gravado conta como vacinas — é o padrão da casa desde o
+     começo, e é o que o próprio formulário usa. Sem isso o recorte de vacinas
+     esconderia o histórico antigo. */
+  const doSetor = (ev) => !setorAgenda || (ev.setor || 'vacinas') === setorAgenda;
+  const agendamentos = eventos.filter(ev => ev.servico !== 'Pós Vacinal' && doSetor(ev));
+  const posVacinais = eventos.filter(ev => ev.servico === 'Pós Vacinal' && doSetor(ev));
 
   // Uma linha de evento — a MESMA pra agendamentos e pós-vacinais (mesmas ações).
   const linhaEvento = (ev, i, total) => {
@@ -281,6 +297,26 @@ export default function Agenda() {
               background: aba === k ? 'var(--tq)' : 'var(--card)', color: aba === k ? '#fff' : 'var(--muted)' }}>{l}</button>
         ))}
       </div>
+
+      {/* 💉🩺 O recorte por setor — a "Agenda Vacinas" e a "Agenda Consultas"
+          do menu caem aqui. Fica só na aba da agenda do dia: no relatório e na
+          logística o corte é outro. */}
+      {aba === 'lista' && (
+        <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+          {[['', '📆 Todas'], ['vacinas', '💉 Vacinas'], ['consultas', '🩺 Consultas'], ['terapias', '🤲 Terapias']].map(([k, l]) => {
+            const n2 = k ? eventos.filter(ev => (ev.setor || 'vacinas') === k).length : eventos.length;
+            return (
+              <button key={k || 'todas'} onClick={() => setSetorAgenda(k)}
+                style={{ padding: '5px 12px', borderRadius: 20, fontSize: 11.5, fontWeight: 800, cursor: 'pointer',
+                  border: `1.5px solid ${setorAgenda === k ? 'var(--pet,#7c3aed)' : 'var(--border)'}`,
+                  background: setorAgenda === k ? 'var(--pet,#7c3aed)' : 'var(--card)',
+                  color: setorAgenda === k ? '#fff' : 'var(--muted)' }}>
+                {l}{n2 ? ` ${n2}` : ''}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {aba === 'vittamed' ? <AgendaVittaMed vmed={vmed} setor={vmedSetor} setSetor={setVmedSetor} rotuloDia={rotuloDia} onRecarregar={loadVmed} ehMaster={user?.role === 'master'} /> :
        aba === 'logistica' ? <Logistica eventos={eventos} data={data} rotuloDia={rotuloDia} /> :

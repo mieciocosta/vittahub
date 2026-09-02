@@ -61,6 +61,12 @@ const NAV = [
      sem nenhuma trava de perfil: seja qual for o cargo, o atendimento abre. */
   { to:'/inbox',      icon:MessageSquare,   label:'Chat',     unread:true, cor:'#25D366', destaque:true },
   { to:'/agenda',     icon:CalendarDays,    label:'Agenda', cor:'#f59e0b' },
+  /* 💉🩺 AS DUAS AGENDAS (ordem do master, 01/09: "quero que apareça duas
+     agendas para ela: Agenda vacinas e Agenda consultas"). São atalhos pro
+     MESMO calendário, já com o recorte do setor — não duas telas, que
+     envelheceriam separadas. A Agenda de cima continua mostrando o dia todo. */
+  { to:'/agenda?setor=vacinas',   icon:Syringe,     label:'Agenda Vacinas', cor:'#22c55e' },
+  { to:'/agenda?setor=consultas', icon:Stethoscope, label:'Agenda Consultas', cor:'#2563eb' },
   /* 👶 Painel do mês da carteira Fidelidade — primeira parada de quem cuida
      dos mensalistas (ordem do master, 24/08). */
   { to:'/fidelidade-mes', icon:Heart, label:'Fidelidade do mês', cor:'#00B8C0' },
