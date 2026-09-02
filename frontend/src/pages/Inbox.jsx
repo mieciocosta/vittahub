@@ -3321,16 +3321,6 @@ export default function Inbox({ onUnreadChange }) {
                   className="tb-ico-color" style={{ '--ic':'#0ea5e9', opacity: cartaoBusy ? .5 : 1 }}>
                   {cartaoBusy ? <Loader2 size={18} className="spin"/> : <CalendarDays size={18} strokeWidth={2.3}/>}
                 </button>
-                {/* 📍 ENDEREÇO DA CASA, COLADO NO AGENDAMENTO (ordem do master,
-                    01/09: "não quero um botão igual do Agendar que fica na
-                    barra debaixo"). É aqui que ele tem que estar: quem acabou
-                    de montar o cartão é quem manda o endereço em seguida. O
-                    texto vem do servidor, da mesma fonte do cartão. */}
-                <button onClick={mandarEndereco} disabled={endBusy}
-                  title="📍 Endereço da Clínica — o texto oficial da casa, com o Google Maps"
-                  className="tb-ico-color" style={{ '--ic':'#16a34a', opacity: endBusy ? .5 : 1 }}>
-                  {endBusy ? <Loader2 size={18} className="spin"/> : <MapPin size={18} strokeWidth={2.3}/>}
-                </button>
                 <button onClick={()=>setShowAgendarMsg(true)} title="⏰ Agendar mensagem — escolha o dia e a hora pra disparar pro cliente"
                   className="tb-ico-color" style={{ '--ic':'#6366f1' }}><Clock size={18} strokeWidth={2.3}/></button>
                 <Calculadora />
@@ -3377,6 +3367,22 @@ export default function Inbox({ onUnreadChange }) {
                   boxShadow:'0 3px 12px rgba(196,151,59,.42)', opacity: cartaoBusy ? .65 : 1 }}>
                 {cartaoBusy ? <Loader2 size={15} className="spin"/> : <CalendarDays size={15} strokeWidth={2.4}/>}
                 <span className="vh-so-desktop">Agendar</span>
+              </button>
+              {/* 📍 ENDEREÇO — botão IGUAL ao Agendar, do lado dele (ordem do
+                  master, 01/09: "como disse, um botão igual do Agendar").
+                  Mesmo tamanho, mesmo feitio, mesma altura; muda só a cor, pra
+                  não confundir um com o outro na pressa. Manda o endereço
+                  oficial da casa: o texto vem do servidor, da mesma fonte do
+                  cartão, e cai na caixa pra atendente conferir antes de enviar. */}
+              <button onClick={mandarEndereco} disabled={endBusy}
+                title="Endereço da Clínica — o texto oficial da casa, com o Google Maps"
+                style={{ display:'flex', alignItems:'center', gap:6, flexShrink:0, border:'none',
+                  padding:'9px 15px', borderRadius:10, cursor: endBusy ? 'wait' : 'pointer',
+                  background:'linear-gradient(135deg,#34d399,#0d9488)', color:'#fff',
+                  fontSize:12.5, fontWeight:800, letterSpacing:-.2,
+                  boxShadow:'0 3px 12px rgba(13,148,136,.38)', opacity: endBusy ? .65 : 1 }}>
+                {endBusy ? <Loader2 size={15} className="spin"/> : <MapPin size={15} strokeWidth={2.4}/>}
+                <span className="vh-so-desktop">Endereço</span>
               </button>
               <button onClick={recording?stopRec:startRec} className="btn btn-ico" style={{ background:recording?'var(--err2)':'var(--bg2)', color:recording?'var(--err)':'var(--muted)', borderRadius:8, animation:recording?'pulse 1.2s infinite':'none' }}>
                 {recording?<MicOff size={15}/>:<Mic size={15}/>}
