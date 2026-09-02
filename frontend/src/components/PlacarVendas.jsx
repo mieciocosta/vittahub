@@ -483,7 +483,15 @@ export default function PlacarVendas() {
       {/* O que está parado, em pastilhas — texto corrido em faixa vermelha vira
           ruído e some da vista em dois dias. Aqui cada área é um item, e a
           cobrança de responder à mão só aparece quando é o BOT que está fora. */}
-      {desligadas.length > 0 && (
+      {/* ⏸️ A FAIXA "FORA DO AR" É DO MASTER (ordem do master, 01/09: "tem uma
+          barra escrito fora do ar no usuário da Danielle, quero que você tire").
+
+          Ela avisa que um interruptor de automação está desligado — e esses
+          interruptores são da tela de Configurações, que só o master mexe. Pra
+          equipe a faixa era um alarme vinho no topo do dia que ninguém podia
+          desligar: preocupa e não deixa agir. Pro master continua gritando,
+          que é o ponto: esquecer o freio puxado é pior que o problema. */}
+      {desligadas.length > 0 && user?.role === 'master' && (
         <div style={{ width: '100%', marginTop: 7, display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap',
           padding: '7px 12px', borderRadius: 12,
           background: 'linear-gradient(90deg, rgba(127,29,29,.92), rgba(153,27,27,.72))',
