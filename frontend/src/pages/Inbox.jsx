@@ -2032,8 +2032,10 @@ export default function Inbox({ onUnreadChange }) {
       // 📥 Fila de distribuição: só o que ainda não tem dona (visão do master)
       if (modo === 'distribuir') return convos.filter(c => !c.responsavel_id);
       const base = quentesPrimeiro ? [...convos].sort((a, b) => scoreRank(a.lead_score) - scoreRank(b.lead_score)) : convos;
-      // A geral não repete quem está na seção de fixadas
-      return fixadasIds.size ? base.filter(c => !fixadasIds.has(c.id)) : base;
+      /* A lista não repete quem já está na faixa dourada — mas SÓ onde a faixa
+         existe (Meus atendimentos). Nas outras abas ela some, e esconder a
+         fixada ali faria a conversa desaparecer da tela sem ter pra onde ir. */
+      return (modo === 'minhas' && fixadasIds.size) ? base.filter(c => !fixadasIds.has(c.id)) : base;
     },
     [convos, quentesPrimeiro, fixadasIds, modo, fixadas]
   );
@@ -2140,11 +2142,16 @@ export default function Inbox({ onUnreadChange }) {
         {/* 📌 FIXADAS EM DESTAQUE (ordem do master, 24/08): faixa dourada, fundo
             próprio e borda de ouro — as conversas que ela escolheu não se
             perdem no meio da lista geral. */}
-        {/* 📌 A faixa de fixadas fica FORA da Distribuição (ordem do master, 01/09:
-            "na distribuição tira fixação"). Aquela fila é de passagem — o lead
-            entra, é entregue e sai. Fixar ali não guarda prioridade nenhuma, e
-            a faixa dourada ainda roubava altura de quem está esperando. */}
-        {fixadas.length > 0 && modo !== 'fixadas' && modo !== 'distribuir' && (
+        {/* 📌 A FAIXA DE FIXADAS MORA SÓ EM "MEUS ATENDIMENTOS" (ordem do master,
+            01/09: "tira fixação de todos exceto meus atendimentos").
+
+            Fixar é escolher prioridade DENTRO da própria carteira. Na fila de
+            Distribuição o lead é de passagem, e em "Todas" a faixa só roubava
+            altura de uma lista que já é grande. Ficou onde faz diferença.
+
+            O alfinete continua em cada conversa, em qualquer lista: dá pra
+            fixar de onde estiver — a fixada aparece na carteira dela. */}
+        {fixadas.length > 0 && modo === 'minhas' && (
           <div style={{ flexShrink:0, maxHeight: fixadasBaixas ? 108 : '42%', overflowY:'auto',
             background:'linear-gradient(180deg, rgba(196,151,59,.10), rgba(196,151,59,.03))',
             borderTop:'2px solid #C4973B', borderBottom:'2px solid #C4973B',
@@ -2175,7 +2182,7 @@ export default function Inbox({ onUnreadChange }) {
             ))}
           </div>
         )}
-        {fixadas.length > 0 && modo !== 'fixadas' && modo !== 'distribuir' && (
+        {fixadas.length > 0 && modo === 'minhas' && (
           <div style={{ flexShrink:0, padding:'6px 13px', fontSize:10, fontWeight:800, letterSpacing:.8, textTransform:'uppercase', color:'var(--muted)', background:'var(--bg2)', borderBottom:'1px solid var(--border)' }}>
             💬 Geral
           </div>
