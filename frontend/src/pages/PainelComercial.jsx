@@ -338,24 +338,9 @@ function DuasFileiras({ fila, meus, equipe, eu, onAbrir, convAberta, onEntregar,
                   espera {desde(c.min)}
                 </span>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 7, flexWrap: 'wrap' }}>
-                <button disabled={!!entregando} onClick={() => onEntregar(c, eu)}
-                  title="Fica comigo — os planos grandes são seus"
-                  style={{ border: 'none', borderRadius: 99, padding: '4px 11px', cursor: entregando ? 'wait' : 'pointer',
-                    background: 'linear-gradient(135deg,#E3B95C,#C4973B)', color: '#fff', fontSize: 10.5, fontWeight: 800,
-                    opacity: entregando === c.id ? .4 : 1 }}>
-                  💎 Fica comigo
-                </button>
-                {equipe.map(pp => (
-                  <button key={pp.id} disabled={!!entregando} onClick={() => onEntregar(c, pp)}
-                    title={`Entregar para ${primeiro(pp.nome)}`}
-                    style={{ width: 27, height: 27, borderRadius: '50%', border: 'none', cursor: entregando ? 'wait' : 'pointer',
-                      background: pp.cor || 'var(--tq)', color: '#fff', fontSize: 9, fontWeight: 900,
-                      opacity: entregando === c.id ? .4 : 1 }}>
-                    {fmt.initials(pp.nome)}
-                  </button>
-                ))}
-              </div>
+              {/* 🚫 A parede de iniciais saiu daqui também (ordem do master,
+                  01/09): a transferência mora dentro da conversa, com o nome
+                  inteiro da colega na frente. A fila é só a fila. */}
             </div>
           ))}
         </div>

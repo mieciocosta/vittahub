@@ -249,31 +249,14 @@ function FilaDistribuicao({ convos, equipe, onSelect, onDistribuir, entregando, 
               </div>
             </div>
 
-            {/* Um toque entrega — as iniciais são a equipe, na cor de cada uma.
-                O primeiro botão é o dela: negócio grande não se distribui. */}
-            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 7, paddingLeft: 43, alignItems: 'center' }}>
-              {eu && (
-                <button disabled={!!entregando} onClick={() => onDistribuir(c, eu)}
-                  title="Ficar com este atendimento"
-                  style={{ border: 'none', borderRadius: 99, padding: '6px 12px', cursor: entregando ? 'wait' : 'pointer',
-                    background: 'linear-gradient(135deg,#E3B95C,#C4973B)', color: '#fff', fontSize: 10.5, fontWeight: 900,
-                    boxShadow: '0 2px 8px rgba(196,151,59,.4)', opacity: entregando === c.id ? .4 : 1 }}>
-                  💎 Fica comigo
-                </button>
-              )}
-              {equipe.map(p => (
-                <button key={p.id} disabled={!!entregando}
-                  onClick={() => onDistribuir(c, p)}
-                  title={`Entregar para ${p.nome}${p.titulo ? ` · ${p.titulo}` : ''}`}
-                  style={{ width: 30, height: 30, borderRadius: '50%', border: 'none', cursor: entregando ? 'wait' : 'pointer',
-                    background: p.cor || 'var(--tq)', color: '#fff', fontSize: 10, fontWeight: 900,
-                    opacity: entregando === c.id ? .4 : 1, transition: 'transform .1s' }}
-                  onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.12)'; }}
-                  onMouseLeave={e => { e.currentTarget.style.transform = 'none'; }}>
-                  {iniciais(p.nome)}
-                </button>
-              ))}
-            </div>
+            {/* 🚫 A FILEIRA DE INICIAIS SAIU (ordem do master, 01/09: "retira
+                isso, pois já tem dentro de cada conversa para transferência").
+
+                Eram onze botões embaixo de CADA lead — uma parede colorida que
+                empurrava a próxima conversa pra fora da tela e repetia o que a
+                conversa aberta já faz melhor, com o nome inteiro da colega na
+                frente. Aqui a fila volta a ser o que precisa ser: a lista de
+                quem está esperando. Abre a conversa e entrega por lá. */}
           </div>
         );
       })}
