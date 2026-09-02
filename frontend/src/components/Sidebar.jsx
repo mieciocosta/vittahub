@@ -960,10 +960,31 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
       {/* Nav */}
       <nav onClick={() => onCloseMobile?.()} style={{ flex:1, padding: collapsed ? '14px 6px' : '14px 10px', display:'flex', flexDirection:'column', gap:3, overflowY:'auto', overflowX:'hidden' }}>
         {!collapsed && <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:1.6, color:'rgba(255,255,255,.62)', padding:'0 12px 6px', textTransform:'uppercase' }}>Menu</div>}
-        {/* 🔎 A busca do menu SAIU (ordem do master, 24/08: "não entendi a
-            diferença, melhor deixar só a geral"). Dois campos de busca lado a
-            lado confundiam: agora existe UMA busca, a Pesquisa geral, que acha
-            página, cliente e mensagem no mesmo lugar. */}
+        {/* 🔎 A BUSCA DO MENU VOLTOU (ordem do master, 01/09: "não aparece a
+            opção de pesquisar os botões na lateral, somente na conversa").
+
+            Ela tinha saído em 24/08 porque dois campos de busca lado a lado
+            confundiam. O que resolve a confusão não é tirar um, é encadear os
+            dois: aqui se digita e o MENU vai filtrando na hora; se o que se
+            procura não é uma tela e sim um cliente ou uma mensagem, o mesmo
+            termo sobe pra Pesquisa geral no botão logo abaixo, já preenchido.
+            Uma caixa, dois destinos, sem escolher nada antes de digitar. */}
+        {!collapsed && (
+          <div style={{ position:'relative', margin:'0 4px 7px' }}>
+            <Search size={13} style={{ position:'absolute', left:10, top:'50%', transform:'translateY(-50%)',
+              color:'rgba(255,255,255,.55)', pointerEvents:'none' }} />
+            <input value={buscaMenu} onChange={e => setBuscaMenu(e.target.value)}
+              placeholder="Procurar no menu…"
+              style={{ width:'100%', padding:'7px 26px 7px 30px', borderRadius:10, fontSize:12, fontWeight:600,
+                border:'1px solid rgba(255,255,255,.22)', background:'rgba(255,255,255,.10)',
+                color:'#fff', outline:'none' }} />
+            {buscaAtiva && (
+              <button onClick={() => setBuscaMenu('')} title="Limpar"
+                style={{ position:'absolute', right:6, top:'50%', transform:'translateY(-50%)', border:'none',
+                  background:'transparent', color:'rgba(255,255,255,.7)', cursor:'pointer', fontSize:13, lineHeight:1, padding:2 }}>×</button>
+            )}
+          </div>
+        )}
         {/* 🔎 PESQUISA GERAL (pedido do master: "onde aparece pra mim?") —
             porta de entrada VISÍVEL pra busca global, que antes só abria com
             Ctrl+K (impossível no celular). Se já digitou algo na caixinha do
