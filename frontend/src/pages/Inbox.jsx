@@ -2918,8 +2918,19 @@ export default function Inbox({ onUnreadChange }) {
               mesmo toque abre os dois). Antes eram TRÊS faixas empilhadas
               disputando a tela com a conversa. */}
           {proto?.funil && protoAberto && (
-            <div style={{ flexShrink:0, borderTop:'1px solid var(--border)', background:'var(--card)', padding:'7px 14px 6px' }}>
-              <div style={{ display:'flex', alignItems:'center', gap:5, overflowX:'auto', paddingBottom:2 }}>
+            <div style={{ flexShrink:0, borderTop:'1px solid var(--border)', background:'var(--card)', padding:'7px 14px 6px', position:'relative' }}>
+              {/* ➖ MINIMIZAR TAMBÉM DAQUI (ordem do master, 01/09: "em todos os
+                  usuários, cada um possa minimizar os protocolos dentro do chat
+                  das conversas"). O comando existia só lá embaixo, na linha do
+                  Protocolo — quem estava incomodado com ESTA faixa não achava.
+                  Agora ela tem o próprio botão, no canto. Vale pra toda a
+                  equipe: nunca teve trava de cargo, e cada uma guarda a própria
+                  escolha no aparelho dela. */}
+              <button onClick={alternarProto} title="Minimizar o passo a passo"
+                style={{ position:'absolute', right:6, top:4, zIndex:2, border:'1.5px solid var(--border)',
+                  background:'var(--card)', color:'var(--muted)', borderRadius:7, width:22, height:19,
+                  lineHeight:1, cursor:'pointer', fontSize:11, fontWeight:900, padding:0 }}>−</button>
+              <div style={{ display:'flex', alignItems:'center', gap:5, overflowX:'auto', paddingBottom:2, paddingRight:26 }}>
                 {proto.funil.etapas.map((e, i) => {
                   const atual = e.n === proto.funil.etapa_atual && !proto.funil.completo;
                   return (
