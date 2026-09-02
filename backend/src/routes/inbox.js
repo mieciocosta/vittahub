@@ -14,7 +14,7 @@ import { sincronizarFidelidadeVittasys, pontePronta, ultimaSincronizacaoFidelida
 import { htmlParaPDF } from '../services/pdf.js';
 import { pareceMensagemDeTeste, pareceArquivoDeTeste, avisarTesteBloqueado } from '../services/freio.js';
 import { pacienteVittaMedLocal } from './vittamed.js';
-import { cartaoAgendamento } from '../services/cartaoAgenda.js';
+import { cartaoAgendamento, mensagemEndereco } from '../services/cartaoAgenda.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const r = express.Router();
@@ -5876,6 +5876,19 @@ r.post('/cartao-agendamento', async (req, res) => {
     }, { preAgendado: b.pre_agendado === true });
     res.json({ texto });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* 📍 O ENDEREÇO DA CLÍNICA EM UM TOQUE (ordem do master, 01/09: "cria um botão
+   só de Endereço da Clínica que já vai com essa mensagem padrão de endereço,
+   assim como já existe para agendamento").
+
+   Vem da MESMA fonte do cartão de agendamento. Ninguém digita endereço na mão:
+   foi assim que o texto derivou duas vezes e uma família foi parar no lugar
+   errado. Um endpoint em vez de uma constante na tela porque, no dia em que o
+   endereço mudar, muda no servidor e todo mundo já manda o certo — inclusive
+   quem estiver com a tela velha aberta. */
+r.get('/mensagem-endereco', (req, res) => {
+  res.json({ texto: mensagemEndereco() });
 });
 
 /* 🗓️ LER O AGENDAMENTO QUE JÁ ESTÁ NA CONVERSA (ordem do master, 27/08: "quando

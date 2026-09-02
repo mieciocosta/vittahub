@@ -955,6 +955,29 @@ export default function Inbox({ onUnreadChange }) {
   const msgAreaRef       = useRef(null);
   const fileRef          = useRef(null);
   const textRef          = useRef(null);
+  /* 📍 ENDEREÇO DA CLÍNICA EM UM TOQUE (ordem do master, 01/09: "cria um botão
+     só de Endereço da Clínica que já vai com essa mensagem padrão, assim como
+     já existe para agendamento").
+
+     O texto vem do SERVIDOR, da mesma fonte do cartão de agendamento — ninguém
+     digita endereço na mão. E ele cai na caixa de digitar em vez de sair
+     sozinho: quem atende lê, ajusta o cumprimento se quiser, e envia. Mandar
+     direto seria tirar dela a última conferência antes de o cliente receber. */
+  const [endBusy, setEndBusy] = useState(false);
+  const mandarEndereco = async () => {
+    if (endBusy) return;
+    setEndBusy(true);
+    try {
+      const { texto } = await api.get('/inbox/mensagem-endereco');
+      if (texto) {
+        setInput(p => (p.trim() ? `${p.trim()}\n\n${texto}` : texto));
+        textRef.current?.focus();
+        Toast.show('Endereço na caixa — é só enviar 📍', 'success');
+      }
+    } catch (e) { Toast.show(e.message || 'Não consegui montar o endereço', 'error'); }
+    setEndBusy(false);
+  };
+
   const listContainerRef = useRef(null);
   const searchTimeout    = useRef(null);
   const lastPollTs       = useRef(new Date().toISOString());
@@ -2627,6 +2650,8 @@ export default function Inbox({ onUnreadChange }) {
             <div style={{ display:'flex', gap:6, padding:'8px 14px 0', overflowX:'auto', flexShrink:0 }}>
               {[
                 ['📅','Agendar', ()=>setShowAgendar(true)],
+                // 📍 Endereço oficial da casa, sem ninguém digitar (01/09)
+                ['📍','Endereço', mandarEndereco],
                 ['💰','Orçamento', ()=> sel?.setor === 'terapias' ? setShowTerapia(true) : setShowProposta(true)],
                 ['📷','Experiência', ()=>{setBibAba('foto');setShowBib(true);}],
                 ['🎁','Indicação', ()=>setShowIndicar(true)],

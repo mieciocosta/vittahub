@@ -11,7 +11,7 @@ const DIAS_SEM = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Q
 /* Bloco do endereço EXATAMENTE como o master ditou (27/08): as quatro linhas
    do endereço, uma linha em branco, e só então o mapa, com o rótulo dele:
    "Nosso endereço pelo Google Maps". Texto do dono é lei: não reescrever. */
-const ENDERECO = [
+export const ENDERECO = [
   '🏥 Nosso endereço, Clínica Vittalis Saúde:',
   'Ed. Business Center, Térreo',
   'Av. Cel. Colares Moreira, 3A, Renascença',
@@ -19,7 +19,18 @@ const ENDERECO = [
   '',
   '🗺️ Nosso endereço pelo Google Maps: https://share.google/cJwx0T5DVaCxZyc6I',
 ];
-const INSTAGRAM = '📸 Acompanhe momentos de cuidado no nosso Instagram: https://www.instagram.com/vittalissaudeslz/';
+export const INSTAGRAM = '📸 Acompanhe momentos de cuidado no nosso Instagram: https://www.instagram.com/vittalissaudeslz/';
+
+/* 📍 MENSAGEM SÓ DO ENDEREÇO (ordem do master, 01/09: "cria um botão só de
+   Endereço da Clínica que já vai com essa mensagem padrão, assim como já existe
+   para agendamento").
+
+   Nasce do MESMO bloco que o cartão usa. É por isso que ela existe aqui e não
+   numa constante solta na tela: no dia em que o endereço mudar, muda num lugar
+   e os dois textos mudam juntos. Foi assim que o cartão parou de derivar. */
+export function mensagemEndereco() {
+  return [...ENDERECO, '', INSTAGRAM].join('\n');
+}
 
 export const ehEmCasa = (txt) => /resid|casa|domic/i.test(String(txt || ''));
 /* 🏥 O endereço da clínica só entra quando o atendimento é AQUI. A regra antiga
