@@ -38,6 +38,15 @@ CRM de WhatsApp para clínica de pediatria/vacinação. Dono/master: Dr. Miécio
 - Respostas ao usuário: PT-BR, calorosas, com emojis moderados; sempre avisar "no ar em ~3 min + Ctrl+Shift+R".
 - Patches grandes via python heredoc com `assert` de contagem antes de gravar; `cd /home/user/vittahub` sempre (o cwd reseta entre comandos).
 
+## Antes de commitar frontend (regra que nasceu de duas telas brancas em 01/09)
+1. `cd frontend && npm run build` — o básico, mas **não pega erro de execução**.
+2. `npx eslint --config lint-tdz.config.mjs src/pages/X.jsx` — a regra `no-use-before-define` é a que
+   pega o "Cannot access 'X' before initialization" que derruba o app inteiro. Nem todo aviso é bug:
+   referência dentro de callback/efeito é segura (roda depois do corpo do componente); o que MATA é uso
+   na hora do render — array de dependências de `useEffect`, valor inicial de `useState`, JSX.
+3. Carregar os chunks num Chromium de verdade (`/opt/pw-browsers/chromium-1194/chrome-linux/chrome` +
+   puppeteer-core, servindo `dist` com http-server) e conferir `pageerror` no console.
+
 ## Armadilhas conhecidas
 - Duas sessões podem trabalhar em paralelo: `git pull --rebase origin main` se o push falhar.
 - Sandbox sem rede externa (proxy 403): não valide URLs de YouTube/sites; Puppeteer local usa `executablePath /opt/pw-browsers/.../chrome` e `waitUntil:'load'` (networkidle trava).

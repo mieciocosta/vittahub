@@ -793,16 +793,6 @@ export default function Inbox({ onUnreadChange }) {
     return (user?.role === 'master' || user?.distribuidor === true) ? 'duas' : 'todas';
   });
   useEffect(() => { try { localStorage.setItem('vh_modo_lista', modo); } catch { /* ok */ } }, [modo]);
-  /* Se o servidor confirmar que ela distribui e ela ainda não escolheu nada, as
-     duas fileiras abrem sozinhas. Só uma vez: escolha dela sempre manda. */
-  const jaAbriuDuas = useRef(false);
-  useEffect(() => {
-    if (jaAbriuDuas.current || counts?.souDistribuidor !== true) return;
-    jaAbriuDuas.current = true;
-    let escolheu = null;
-    try { escolheu = localStorage.getItem('vh_modo_lista'); } catch { /* ok */ }
-    if (!escolheu || escolheu === 'todas') setModo('duas');
-  }, [counts?.souDistribuidor]); // eslint-disable-line
   /* 📂 Quem supervisiona vê a pasta de cada colega (ordem do master, 01/09).
      Gestão aqui = master, supervisora, ve_tudo e quem distribui. */
   const ehGestaoTela = user?.role === 'master' || user?.role === 'supervisor'
@@ -819,6 +809,22 @@ export default function Inbox({ onUnreadChange }) {
     api.get('/inbox/atendentes').then(d => setAtendentes(Array.isArray(d) ? d : [])).catch(() => {});
   }, [modo, ehGestaoTela]); // eslint-disable-line
   const [counts, setCounts] = useState(null);
+  /* Se o servidor confirmar que ela distribui e ela ainda não escolheu nada, as
+     duas fileiras abrem sozinhas. Só uma vez: escolha dela sempre manda.
+
+     ⚠️ Este trecho fica DEPOIS do `counts` de propósito. Ele estava logo acima,
+     lendo `counts` na lista de dependências — e essa lista é avaliada na hora
+     do render, antes do `const counts` existir. Resultado: "Cannot access
+     before initialization" e o Chat inteiro em branco (01/09). O build não
+     acusa; só quebra na cara de quem abre. */
+  const jaAbriuDuas = useRef(false);
+  useEffect(() => {
+    if (jaAbriuDuas.current || counts?.souDistribuidor !== true) return;
+    jaAbriuDuas.current = true;
+    let escolheu = null;
+    try { escolheu = localStorage.getItem('vh_modo_lista'); } catch { /* ok */ }
+    if (!escolheu || escolheu === 'todas') setModo('duas');
+  }, [counts?.souDistribuidor]); // eslint-disable-line
   const [somAtivo, setSomAtivo] = useState(() => localStorage.getItem('vh_sound') !== 'off');
   const somRef = useRef(true);
   useEffect(() => { somRef.current = somAtivo; localStorage.setItem('vh_sound', somAtivo ? 'on' : 'off'); }, [somAtivo]);
