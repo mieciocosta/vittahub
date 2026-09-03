@@ -136,6 +136,12 @@ async function start() {
             'SELECT * FROM mensagens WHERE id = $1', [messageId]
           );
           if (msg) {
+            /* Vai pra TODOS os clientes: mídia em base64 (até 12 MB) não pode
+               viajar aqui — vira [media:id] e cada tela busca sob demanda
+               (03/09, "CRM travando demais"). */
+            if (typeof msg.content === 'string' && msg.content.startsWith('data:') && msg.content.length > 500) {
+              msg.content = `[media:${msg.id}]`; msg.has_media = true;
+            }
             // Socket.io entrega a todos os clientes conectados
             socketEmit('new_message', { convId, message: msg, conv });
           }

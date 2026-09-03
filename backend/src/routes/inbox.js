@@ -1008,6 +1008,19 @@ async function guardarMidiaRecebida(msgId, url) {
   }
 }
 
+/* 🪶 MENSAGEM LEVE PRO FIO (cobrança do master, 03/09: "CRM travando demais").
+   Mídia recebida agora fica em base64 dentro de `content` (até 12 MB). O
+   histórico já trocava isso por [media:id] e o navegador busca o arquivo sob
+   demanda — mas o poll de 2s da conversa aberta e o socket que vai pra TODOS
+   os clientes ainda mandavam a mensagem inteira. Um vídeo de 10 MB virava
+   10 MB de JSON em cada aba aberta. Toda saída de mensagem passa por aqui. */
+function mensagemLeve(m) {
+  if (m && typeof m.content === 'string' && m.content.startsWith('data:') && m.content.length > 500) {
+    return { ...m, content: `[media:${m.id}]`, has_media: true };
+  }
+  return m;
+}
+
 /* 🧹 E o que já chegou nos últimos dias, cujo link ainda vale, é resgatado no
    boot — devagar, em segundo plano, pra não pesar a subida. O que já venceu
    não tem mais como recuperar (o arquivo só existia no link). */
@@ -1016,17 +1029,21 @@ async function resgatarMidiasRecentes() {
     const { rows } = await query(`
       SELECT id, content FROM mensagens
        WHERE type IN ('image','audio','video','document','sticker','gif')
-         AND content LIKE 'http%' AND created_at > NOW() - interval '7 days'
-       ORDER BY created_at DESC LIMIT 300`).catch(() => ({ rows: [] }));
+         AND content LIKE 'http%' AND created_at > NOW() - interval '2 days'
+       ORDER BY created_at DESC LIMIT 80`).catch(() => ({ rows: [] }));
     let ok = 0;
+    /* Devagar de verdade (03/09, "travando demais"): 80 por boot, um a cada
+       1,5s — cada um é um download + UPDATE de megabytes no banco, e o boot
+       acontece a cada deploy. O que chega novo já é guardado na hora pelo
+       webhook; isto aqui é só rede de segurança. */
     for (const m of rows) {
       if (await guardarMidiaRecebida(m.id, m.content)) ok++;
-      await new Promise(r => setTimeout(r, 150));
+      await new Promise(r => setTimeout(r, 1500));
     }
     if (rows.length) console.log(`📥 Mídias recebidas resgatadas pro banco: ${ok}/${rows.length}`);
   } catch (e) { console.error('resgatarMidiasRecentes:', e.message); }
 }
-setTimeout(() => { resgatarMidiasRecentes(); }, 45 * 1000);
+setTimeout(() => { resgatarMidiasRecentes(); }, 3 * 60 * 1000);
 
 /* 🎤 ÁUDIO SAI SEMPRE EM OGG/OPUS (ordem do master, 03/09: "sobre o áudio
    preciso que conserte").
@@ -3393,7 +3410,7 @@ r.post('/webhook/zapi', async (req, res) => {
     // ── Socket.io: entrega instantânea para todos os clientes ──
     if (newMsg) {
       ultimaMsgGravadaAt = Date.now();          // prova de que a entrada está viva
-      socketEmit('new_message', { convId: conv.id, message: newMsg, conv });
+      socketEmit('new_message', { convId: conv.id, message: mensagemLeve(newMsg), conv });
       await query(`SELECT pg_notify('vittahub', $1)`, [
         JSON.stringify({ event:'new_message', convId:conv.id, messageId:newMsg.id, conv })
       ]).catch(() => {});
@@ -4787,12 +4804,7 @@ r.get('/conversations/:id', async (req, res) => {
 
     // Substitui base64 por referência — o frontend carrega sob demanda via /messages/:id/content
     // Uma imagem base64 pode ter 200-500 kB; com 15 mensagens isso pode ser MB de payload desnecessário
-    const messages = rawMsgs.map(m => {
-      if (m.content && m.content.startsWith('data:') && m.content.length > 500) {
-        return { ...m, content: `[media:${m.id}]`, has_media: true };
-      }
-      return m;
-    });
+    const messages = rawMsgs.map(mensagemLeve);
 
     let lead = null;
     if (conv.lead_id) {
@@ -4852,7 +4864,7 @@ r.get('/conversations/:id/poll', async (req, res) => {
       `SELECT * FROM mensagens WHERE conversa_id = $1 AND created_at > $2 ORDER BY created_at ASC LIMIT 20`,
       [req.params.id, afterTs]
     );
-    if (immediate.length > 0) return res.json({ messages: immediate });
+    if (immediate.length > 0) return res.json({ messages: immediate.map(mensagemLeve) });
 
     // Nenhuma mensagem nova ainda — segura a conexão por até 25s
     const messages = await new Promise(resolve => {
@@ -4874,7 +4886,7 @@ r.get('/conversations/:id/poll', async (req, res) => {
       });
     });
 
-    res.json({ messages });
+    res.json({ messages: messages.map(mensagemLeve) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -4897,7 +4909,7 @@ r.get('/conversations/:id/messages/new', async (req, res) => {
        ORDER BY created_at ASC LIMIT 50`,
       [req.params.id, afterTs]
     );
-    res.json({ messages: rows });
+    res.json({ messages: rows.map(mensagemLeve) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

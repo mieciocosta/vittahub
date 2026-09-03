@@ -530,6 +530,12 @@ const primeiroNomeUtil = (nome) => {
   return util || partes[0] || '';
 };
 
+/* 🪶 Mensagem que chegou PESADA (base64 inteiro pelo poll ou pelo socket) vira
+   referência lazy na hora — o servidor já faz isso, mas se alguma versão
+   antiga responder, a tela não engole 10 MB de texto (03/09). */
+const mensagemLeve = (m) => (m && typeof m.content === 'string' && m.content.startsWith('data:') && m.content.length > 500)
+  ? { ...m, content: `[media:${m.id}]`, has_media: true } : m;
+
 /* ── LazyMedia: carrega base64 sob demanda via endpoint ─────────────────────── */
 function LazyMedia({ msgId, type, filename, token, onLightbox, fotoSel }) {
   const [src, setSrc]     = useState(null);
@@ -1318,7 +1324,8 @@ export default function Inbox({ onUnreadChange }) {
           : x));
       });
 
-      socket.on('new_message', ({ convId, message, conv: updConv }) => {
+      socket.on('new_message', ({ convId, message: msgBruta, conv: updConv }) => {
+        const message = mensagemLeve(msgBruta);
         // 📱 Notificação do sistema quando a aba está em 2º plano (app instalado
         // ou navegador minimizado): mostra quem falou e um pedaço da mensagem
         try {
@@ -1446,7 +1453,8 @@ export default function Inbox({ onUnreadChange }) {
           { headers: { Authorization: `Bearer ${token}` } }
         );
         if (!resp.ok) return;
-        const { messages: newMsgs = [] } = await resp.json();
+        const { messages: pesadas = [] } = await resp.json();
+        const newMsgs = pesadas.map(mensagemLeve);
         if (!newMsgs.length) return;
 
         setMsgs(prev => {

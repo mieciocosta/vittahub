@@ -88,8 +88,20 @@ export function createSocketServer(httpServer, frontendUrl) {
 /** Emite evento. Se o payload traz uma conversa (data.conv), entrega só pra quem
  *  tem acesso ao setor dela (regra de acesso por setor). Eventos sem conversa
  *  (status global, agenda, notificações…) seguem pra todos. */
+/* 🪶 Nada de mídia em base64 pelo socket (03/09, "CRM travando demais"): o
+   evento vai pra TODAS as abas abertas — um vídeo de 10 MB dentro de `message`
+   virava 10 MB em cada navegador. Vira [media:id]; a tela busca sob demanda. */
+function semBase64(data) {
+  const m = data && data.message;
+  if (m && typeof m.content === 'string' && m.content.startsWith('data:') && m.content.length > 500) {
+    return { ...data, message: { ...m, content: `[media:${m.id}]`, has_media: true } };
+  }
+  return data;
+}
+
 export function socketEmit(event, data) {
   if (!io) return;
+  data = semBase64(data);
   try {
     if (data && data.conv && convGroupFn) {
       const grupo = convGroupFn(data.conv); // 'vacina' | 'nao-vacina' | null
@@ -116,6 +128,7 @@ export function socketEmitToUsers(userIds, event, data) {
 /** Emite para clientes de uma conversa específica */
 export function socketEmitConv(convId, event, data) {
   if (!io) return;
+  data = semBase64(data);
   io.to(`conv:${convId}`).emit(event, data);
   io.emit(event, data); // também emite globalmente para lista de conversas
 }
