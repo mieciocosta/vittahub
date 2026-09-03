@@ -321,7 +321,11 @@ h1 { letter-spacing: -0.7px; }
 }
 
 .tb-ico-color {
-  width: 38px; height: 38px; padding: 0 !important;
+  /* 🧹 32px em vez de 38 (ordem do master, 03/09: "o chat ficou apertado...
+     reduz um pouco mais o tamanho dos outros do lado"). Onze ícones a 38px
+     comiam a largura que devia ser da caixa de escrever — que é onde o
+     trabalho acontece. */
+  width: 32px; height: 32px; padding: 0 !important;
   display: inline-flex; align-items: center; justify-content: center;
   /* chip na cor do próprio ícone, bem diluído */
   background: linear-gradient(160deg,

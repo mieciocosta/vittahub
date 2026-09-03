@@ -215,7 +215,7 @@ const MEDIA_PREVIEW = {
 const PISTA_GRANDE = /(plano\s*vacinal|plano\s*fidelidade|pacote|todas as vacinas|calend[áa]rio|terapia|fono|psico|ocupacional|\baba\b|avalia[çc][ãa]o|acompanhamento|mensal)/i;
 const ehPotencialAlto = (c) => PISTA_GRANDE.test(String(c.last_message || '')) || c.lead_score === 'quente';
 
-function FilaDistribuicao({ convos, equipe, onSelect, onDistribuir, entregando, eu, grandesPrimeiro, setGrandesPrimeiro, fixadasIds, onToggleFix }) {
+function FilaDistribuicao({ convos, equipe, onSelect, onDistribuir, entregando, eu, grandesPrimeiro, setGrandesPrimeiro, fixadasIds, onToggleFix, verAntigos, setVerAntigos, nAntigos = 0 }) {
   const iniciais = (n) => String(n || '?').trim().split(/\s+/).slice(0, 2).map(p => p[0]).join('').toUpperCase();
   const espera = (c) => Math.max(0, Math.floor((Date.now() - new Date(c.last_message_at || 0).getTime()) / 60000));
   const rotuloEspera = (m) => (m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ''}` : `${m}m`);
@@ -262,6 +262,31 @@ function FilaDistribuicao({ convos, equipe, onSelect, onDistribuir, entregando, 
           </button>
         )}
       </div>
+      {/* 📦 OS ANTIGOS EXISTEM E APARECEM (cobrança do master, 03/09: "tem
+          conversas que estão em Todas e deveriam estar em Distribuição").
+
+          A fila mostra os últimos 7 dias — combinado de 28/08, pra que as
+          ~1.900 conversas do passado não caíssem de uma vez no colo dela. O
+          erro era o resto ficar INVISÍVEL: o master via em "Todas" gente que a
+          fila nunca oferecia, e parecia sistema deixando contato pra trás.
+          Agora eles estão aqui, com o número na cara e a um toque. */}
+      {(nAntigos > 0 || verAntigos) && setVerAntigos && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px',
+          borderBottom: '1px solid var(--border)', background: verAntigos ? 'var(--gold2,#fdf5e8)' : 'var(--bg2)' }}>
+          <span style={{ fontSize: 10.5, color: 'var(--muted)', fontWeight: 700, flex: 1 }}>
+            {verAntigos
+              ? 'Mostrando também os que estão parados há mais de 7 dias'
+              : `${nAntigos} sem dona parados há mais de 7 dias, fora da fila do dia`}
+          </span>
+          <button onClick={() => setVerAntigos(v2 => !v2)}
+            style={{ border: `1.5px solid ${verAntigos ? 'var(--gold,#C4973B)' : 'var(--border)'}`,
+              background: verAntigos ? 'var(--gold,#C4973B)' : 'var(--card)',
+              color: verAntigos ? '#fff' : 'var(--txt2)',
+              borderRadius: 99, padding: '3px 11px', fontSize: 10.5, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+            {verAntigos ? '↩️ Só os do dia' : `📦 Ver os ${nAntigos} antigos`}
+          </button>
+        </div>
+      )}
       {lista.map(c => {
         const min = espera(c);
         const atrasado = min >= 15;   // 15 min esperando = a fila está devendo
@@ -758,6 +783,10 @@ export default function Inbox({ onUnreadChange }) {
   const [provaEnviando, setProvaEnviando] = useState(false);   // 📸 envio do conjunto de fotos
   const [cartaoBusy, setCartaoBusy] = useState(false);         // 🗓️ montando o cartão de agendamento
   const [assinarComo, setAssinarComo] = useState('');          // ✍️ gestão escrevendo no nome da dona
+  /* 📥 A fila mostra os últimos 7 dias por padrão; o resto fica atrás de um
+     botão com o número na cara (03/09). Antes eles simplesmente não existiam
+     na tela — e o master via em "Todas" gente que a fila nunca oferecia. */
+  const [verAntigos, setVerAntigos] = useState(false);
   const [entregando, setEntregando] = useState(null);          // 📥 lead sendo distribuído
   /* 📤 A ENTREGA DO LEAD — uma função só, usada pela aba de distribuição e
      pelas duas fileiras. A linha sai da fila na hora; se o servidor recusar, a
@@ -1479,7 +1508,7 @@ export default function Inbox({ onUnreadChange }) {
       if (modo === 'grupos') params.set('grupos', 'true');
       /* 📥 Fila de distribuição e o atalho do Painel Comercial: clicar numa
          pessoa lá abre o chat já filtrado nas conversas DELA (28/08). */
-      if (modo === 'distribuir') params.set('semDono', 'true');
+      if (modo === 'distribuir') { params.set('semDono', 'true'); if (verAntigos) params.set('antigos', 'true'); }
       if (respFiltro) params.set('responsavel', respFiltro);
       const data = await api.get(`/inbox/conversations?${params}`);
       if (data.counts) setCounts(data.counts);
@@ -1511,7 +1540,7 @@ export default function Inbox({ onUnreadChange }) {
       if (modo === 'grupos') params.set('grupos', 'true');
       /* 📥 Fila de distribuição e o atalho do Painel Comercial: clicar numa
          pessoa lá abre o chat já filtrado nas conversas DELA (28/08). */
-      if (modo === 'distribuir') params.set('semDono', 'true');
+      if (modo === 'distribuir') { params.set('semDono', 'true'); if (verAntigos) params.set('antigos', 'true'); }
       if (respFiltro) params.set('responsavel', respFiltro);
       const data = await api.get(`/inbox/conversations?${params}`);
       if (data.counts) setCounts(data.counts);
@@ -1528,14 +1557,14 @@ export default function Inbox({ onUnreadChange }) {
     /* As dependências precisam incluir TODOS os filtros que a busca usa: sem
        isso, a próxima página vinha com o filtro antigo (aba, setor, pasta ou
        pessoa) e a lista misturava conversa que não era pra estar ali. */
-  }, [page, hasMore, loadingMore, filter, search, unreadOnly, modo, setorFiltro, clsFiltro, waiting, respFiltro]);
+  }, [page, hasMore, loadingMore, filter, search, unreadOnly, modo, setorFiltro, clsFiltro, waiting, respFiltro, verAntigos]);
 
   // ── Recarrega ao mudar busca/filtros (inclui setor e classificação do menu) ──
   useEffect(() => {
     clearTimeout(searchTimeout.current);
     searchTimeout.current = setTimeout(() => loadConvos(), 350);
     return () => clearTimeout(searchTimeout.current);
-  }, [search, filter, unreadOnly, setorFiltro, clsFiltro, waiting, modo]);
+  }, [search, filter, unreadOnly, setorFiltro, clsFiltro, waiting, modo, verAntigos]);
 
   useEffect(() => { api.get('/inbox/quick-replies').then(setQr).catch(() => {}); }, []);
   const [qrNovo, setQrNovo] = useState(null);
@@ -2486,6 +2515,7 @@ export default function Inbox({ onUnreadChange }) {
               onSelect={openConvo} entregando={entregando}
               eu={user ? { id: user.id, nome: user.nome } : null}
               grandesPrimeiro={grandesPrimeiro} setGrandesPrimeiro={setGrandesPrimeiro}
+              verAntigos={verAntigos} setVerAntigos={setVerAntigos} nAntigos={counts?.aDistribuirAntigos || 0}
               onDistribuir={distribuirLead}
               fixadasIds={fixadasIds} onToggleFix={toggleFix} />
           ) : (
@@ -3235,6 +3265,28 @@ export default function Inbox({ onUnreadChange }) {
                   );
                 })()}
 
+                {/* 📄 BANCO DE DOCUMENTOS — os arquivos gerais da casa (termo,
+                    orientações, carteirinha). Vieram pra cá quando o ícone saiu
+                    da barra: mesma porta, arquivos intactos. */}
+                {docs.length > 0 && (
+                  <div style={{ marginBottom:10, paddingBottom:9, borderBottom:'1px solid var(--border)' }}>
+                    <div style={{ fontSize:10, fontWeight:800, color:'var(--tq2)', marginBottom:5 }}>
+                      📄 Documentos da casa <span style={{ fontWeight:600, color:'var(--muted)' }}>· toque pra enviar pro cliente</span>
+                    </div>
+                    <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+                      {docs.map(d => (
+                        <button key={d.id} onClick={()=>{ enviarDoc(d); setShowTabela(false); }}
+                          disabled={docEnviando === d.id || !sel} title={`Enviar "${d.nome}" ao cliente`}
+                          style={{ padding:'6px 12px', borderRadius:10, fontSize:11.5, fontWeight:700,
+                            cursor: docEnviando === d.id ? 'wait' : 'pointer', border:'1.5px solid var(--border)',
+                            background:'var(--bg)', color:'var(--txt2)', maxWidth:230, overflow:'hidden',
+                            textOverflow:'ellipsis', whiteSpace:'nowrap', opacity: docEnviando === d.id ? .5 : 1 }}>
+                          {docEnviando === d.id ? '⏳ enviando…' : `📄 ${d.nome}`}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {tabelaArqs.length > 0 && (
                   <div style={{ marginBottom:10, paddingBottom:9, borderBottom:'1px solid var(--border)' }}>
                     <div style={{ fontSize:10, fontWeight:800, color:'var(--tq2)', marginBottom:5 }}>
@@ -3803,44 +3855,56 @@ export default function Inbox({ onUnreadChange }) {
                   figurinhas, mídia) do que é anexo do momento (clipe e emoji),
                   que ficam colados no campo de escrever. */}
               <div className="tb-grupo">
-                <button onClick={corrigirTexto} disabled={!input.trim() || corrigindo} title="Corrigir ortografia com IA (não muda o tom)"
-                  className="tb-ico-color" style={{ '--ic':'#8b5cf6', opacity:!input.trim()?.4:1 }}>
-                  {corrigindo ? <Loader2 size={18} className="spin"/> : <Sparkles size={18} strokeWidth={2.3}/>}
-                </button>
+                {/* ✨ O corretor de ortografia SAIU da barra (ordem do master,
+                    03/09: "esse pode retirar"). Era o primeiro ícone da fila e
+                    ocupava o lugar mais nobre pra uma ajuda que quase ninguém
+                    usava — quem escreve rápido no WhatsApp não para pra
+                    corrigir. O espaço voltou pra caixa de escrever. */}
                 <button onClick={()=>{setShowQR(p=>!p);setShowEmoji(false);}} title="Mensagens automáticas"
-                  className={`tb-ico-color${showQR?' tb-on':''}`} style={{ '--ic':'#06b6d4' }}><Zap size={18} strokeWidth={2.3}/></button>
-                <button onClick={()=>{setShowDocs(p=>!p);setShowQR(false);setShowEmoji(false);}} title="Banco de documentos — envie os principais em 1 clique"
-                  className={`tb-ico-color${showDocs?' tb-on':''}`} style={{ '--ic':'#10b981' }}><FileText size={18} strokeWidth={2.3}/></button>
-                {/* 🗓️ MONTAR AGENDAMENTO (ordem do master, 27/08): lê a conversa
-                    inteira e escreve o cartão oficial na caixa, pronto pra revisar
-                    e mandar. Não envia sozinho — quem manda é a atendente. */}
-                <button onClick={montarCartaoAgenda} disabled={cartaoBusy}
-                  title="🗓️ Montar mensagem de agendamento lendo a conversa"
-                  className="tb-ico-color" style={{ '--ic':'#0ea5e9', opacity: cartaoBusy ? .5 : 1 }}>
-                  {cartaoBusy ? <Loader2 size={18} className="spin"/> : <CalendarDays size={18} strokeWidth={2.3}/>}
-                </button>
+                  className={`tb-ico-color${showQR?' tb-on':''}`} style={{ '--ic':'#06b6d4' }}><Zap size={16} strokeWidth={2.3}/></button>
+                {/* 📄 O Banco de documentos saiu da barra (ordem do master,
+                    03/09: "esse pode retirar, pois já tem do outro lado — só
+                    cuidado pra não apagar do outro esses documentos").
+
+                    E o cuidado dele estava certo: os documentos do banco NÃO
+                    são os mesmos anexos da Tabela de Preços; são dois lugares
+                    diferentes. Tirar só o ícone deixaria esses arquivos sem
+                    caminho nenhum. Então eles foram PRA DENTRO do painel da
+                    Tabela, na própria seção. Nenhum arquivo foi apagado: o
+                    banco continua igual, só mudou de porta. */}
+                {/* 🧹 ÍCONES QUE SAÍRAM DAQUI (ordem do master, 03/09: "o chat
+                    ficou apertado; esses ícones do lado esquerdo que não são
+                    importantes"):
+
+                    · 🗓️ montar agendamento — virou o botão grande "Agendar" ao
+                      lado da caixa, com nome escrito. Dois caminhos pra mesma
+                      ação só ocupavam espaço.
+                    · 🧮 calculadora — conta de valor se faz na proposta, não no
+                      meio de uma conversa.
+
+                    Ficou o ⏰ agendar mensagem, que não tem irmão em lugar
+                    nenhum e é o que segura o follow-up da casa. */}
                 <button onClick={()=>setShowAgendarMsg(true)} title="⏰ Agendar mensagem — escolha o dia e a hora pra disparar pro cliente"
-                  className="tb-ico-color" style={{ '--ic':'#6366f1' }}><Clock size={18} strokeWidth={2.3}/></button>
-                <Calculadora />
+                  className="tb-ico-color" style={{ '--ic':'#6366f1' }}><Clock size={16} strokeWidth={2.3}/></button>
 
                 <span className="tb-div" />
 
                 <button onClick={()=>fileRef.current?.click()} title="Anexar arquivo"
-                  className="tb-ico-color" style={{ '--ic':'#3b82f6' }}><Paperclip size={18} strokeWidth={2.3}/></button>
+                  className="tb-ico-color" style={{ '--ic':'#3b82f6' }}><Paperclip size={16} strokeWidth={2.3}/></button>
                 {/* Biblioteca colada no clipe e no emoji — pedido do master: é
                     daqui que a equipe manda foto pro cliente, então tem que
                     estar junto do que ela já usa pra enviar. */}
                 <button onClick={()=>{setBibAba('foto');setShowBib(true);}} title="🖼️ Biblioteca de Experiências — fotos e vídeos da clínica"
-                  className="tb-ico-color" style={{ '--ic':'#d946ef' }}><Image size={18} strokeWidth={2.3}/></button>
+                  className="tb-ico-color" style={{ '--ic':'#d946ef' }}><Image size={16} strokeWidth={2.3}/></button>
                 <button onClick={()=>{setShowEmoji(p=>!p);setShowQR(false);setShowProntas(false);}} title="Emojis"
-                  className={`tb-ico-color${showEmoji?' tb-on':''}`} style={{ '--ic':'#f59e0b' }}><Smile size={18} strokeWidth={2.3}/></button>
+                  className={`tb-ico-color${showEmoji?' tb-on':''}`} style={{ '--ic':'#f59e0b' }}><Smile size={16} strokeWidth={2.3}/></button>
                 {/* 💟 Figurinhas coladas nos emojis (ordem do master, 24/08) */}
                 <button onClick={()=>{setShowFigus(p=>!p);setShowEmoji(false);setShowQR(false);setShowProntas(false);}} title="Figurinhas da Vittalis"
-                  className={`tb-ico-color${showFigus?' tb-on':''}`} style={{ '--ic':'#00B8C0' }}><Sticker size={18} strokeWidth={2.3}/></button>
+                  className={`tb-ico-color${showFigus?' tb-on':''}`} style={{ '--ic':'#00B8C0' }}><Sticker size={16} strokeWidth={2.3}/></button>
                 {/* 📝 MENSAGENS PRONTAS (pedido do master: tem atendente que não
                     usa a IA cem por cento) — os textos oficiais da casa em 1 toque */}
                 <button onClick={()=>{setShowProntas(p=>!p);setShowEmoji(false);setShowQR(false);}} title="📝 Mensagens prontas da casa: boas-vindas, endereço, cartões de agendamento…"
-                  className={`tb-ico-color${showProntas?' tb-on':''}`} style={{ '--ic':'#ec4899' }}><MessageSquare size={18} strokeWidth={2.3}/></button>
+                  className={`tb-ico-color${showProntas?' tb-on':''}`} style={{ '--ic':'#ec4899' }}><MessageSquare size={16} strokeWidth={2.3}/></button>
               </div>
 
               {/* Botão "IA responde" RETIRADO a pedido do master — a Vitta agora
@@ -3859,15 +3923,15 @@ export default function Inbox({ onUnreadChange }) {
               <button onClick={montarCartaoAgenda} disabled={cartaoBusy}
                 title="Lê a conversa e monta a mensagem de agendamento"
                 style={{ display:'flex', alignItems:'center', gap:6, flexShrink:0, border:'none',
-                  padding:'9px 15px', borderRadius:10, cursor: cartaoBusy ? 'wait' : 'pointer',
+                  padding:'7px 11px', borderRadius:9, cursor: cartaoBusy ? 'wait' : 'pointer',
                   /* 🌸 ROSA (ordem do master, 02/09: "o botão Agendar que está
                      no chat em rosa e o de localização lilás"). As duas ações
                      que mais saem na conversa ganharam cor própria: assim a
                      mão encontra o botão certo sem ler o rótulo. */
                   background:'linear-gradient(135deg,#f472b6,#db2777)', color:'#fff',
-                  fontSize:12.5, fontWeight:800, letterSpacing:-.2,
+                  fontSize:11.5, fontWeight:800, letterSpacing:-.2,
                   boxShadow:'0 3px 12px rgba(219,39,119,.42)', opacity: cartaoBusy ? .65 : 1 }}>
-                {cartaoBusy ? <Loader2 size={15} className="spin"/> : <CalendarDays size={15} strokeWidth={2.4}/>}
+                {cartaoBusy ? <Loader2 size={15} className="spin"/> : <CalendarDays size={13} strokeWidth={2.4}/>}
                 <span className="vh-so-desktop">Agendar</span>
               </button>
               {/* 📍 ENDEREÇO — botão IGUAL ao Agendar, do lado dele (ordem do
@@ -3879,12 +3943,12 @@ export default function Inbox({ onUnreadChange }) {
               <button onClick={mandarEndereco} disabled={endBusy}
                 title="Endereço da Clínica — o texto oficial da casa, com o Google Maps"
                 style={{ display:'flex', alignItems:'center', gap:6, flexShrink:0, border:'none',
-                  padding:'9px 15px', borderRadius:10, cursor: endBusy ? 'wait' : 'pointer',
+                  padding:'7px 11px', borderRadius:9, cursor: endBusy ? 'wait' : 'pointer',
                   // 💜 Lilás — o par do rosa do Agendar (ordem do master, 02/09)
                   background:'linear-gradient(135deg,#c084fc,#8b5cf6)', color:'#fff',
-                  fontSize:12.5, fontWeight:800, letterSpacing:-.2,
+                  fontSize:11.5, fontWeight:800, letterSpacing:-.2,
                   boxShadow:'0 3px 12px rgba(139,92,246,.42)', opacity: endBusy ? .65 : 1 }}>
-                {endBusy ? <Loader2 size={15} className="spin"/> : <MapPin size={15} strokeWidth={2.4}/>}
+                {endBusy ? <Loader2 size={15} className="spin"/> : <MapPin size={13} strokeWidth={2.4}/>}
                 <span className="vh-so-desktop">Endereço</span>
               </button>
               {/* 📋 TABELA — o terceiro irmão do Agendar e do Endereço (ordem do
@@ -3894,11 +3958,11 @@ export default function Inbox({ onUnreadChange }) {
               <button onClick={abrirTabela}
                 title="Tabela de preços — os valores publicados pela gestão"
                 style={{ display:'flex', alignItems:'center', gap:6, flexShrink:0, border:'none',
-                  padding:'9px 15px', borderRadius:10, cursor:'pointer',
+                  padding:'7px 11px', borderRadius:9, cursor:'pointer',
                   background: showTabela ? 'linear-gradient(135deg,#0d9488,#0f766e)' : 'linear-gradient(135deg,#34d399,#0d9488)',
-                  color:'#fff', fontSize:12.5, fontWeight:800, letterSpacing:-.2,
+                  color:'#fff', fontSize:11.5, fontWeight:800, letterSpacing:-.2,
                   boxShadow:'0 3px 12px rgba(13,148,136,.38)' }}>
-                <FileText size={15} strokeWidth={2.4}/>
+                <FileText size={13} strokeWidth={2.4}/>
                 <span className="vh-so-desktop">Tabela</span>
               </button>
               {/* 📸 PROVA SOCIAL — o quarto irmão (03/09). Âmbar: cor própria
@@ -3906,11 +3970,11 @@ export default function Inbox({ onUnreadChange }) {
               <button onClick={mandarProvaSocial} disabled={provaEnviando}
                 title="Envia 4 fotos reais do cuidado com as crianças, com a mensagem do nosso Instagram"
                 style={{ display:'flex', alignItems:'center', gap:6, flexShrink:0, border:'none',
-                  padding:'9px 15px', borderRadius:10, cursor: provaEnviando ? 'wait' : 'pointer',
+                  padding:'7px 11px', borderRadius:9, cursor: provaEnviando ? 'wait' : 'pointer',
                   background:'linear-gradient(135deg,#fbbf24,#d97706)', color:'#fff',
-                  fontSize:12.5, fontWeight:800, letterSpacing:-.2,
+                  fontSize:11.5, fontWeight:800, letterSpacing:-.2,
                   boxShadow:'0 3px 12px rgba(217,119,6,.38)', opacity: provaEnviando ? .65 : 1 }}>
-                {provaEnviando ? <Loader2 size={15} className="spin"/> : <Image size={15} strokeWidth={2.4}/>}
+                {provaEnviando ? <Loader2 size={15} className="spin"/> : <Image size={13} strokeWidth={2.4}/>}
                 <span className="vh-so-desktop">{provaEnviando ? 'Enviando…' : 'Prova social'}</span>
               </button>
               <button onClick={recording?stopRec:startRec} className="btn btn-ico" style={{ background:recording?'var(--err2)':'var(--bg2)', color:recording?'var(--err)':'var(--muted)', borderRadius:8, animation:recording?'pulse 1.2s infinite':'none' }}>

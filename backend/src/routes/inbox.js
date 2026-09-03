@@ -465,7 +465,7 @@ export function podeVerSetor(viewer, conv) {
   return ef === null || ef === viewerSetor;
 }
 
-function cacheGetList({ channel, search, unread_only, waiting, minhas, semDono, responsavel, grupos, setor, categoria, classificacao, arquivadas, page = 1, limit = 100, extraIds = null, viewer = null }) {
+function cacheGetList({ channel, search, unread_only, waiting, minhas, semDono, responsavel, grupos, setor, categoria, classificacao, arquivadas, antigos, page = 1, limit = 100, extraIds = null, viewer = null }) {
   let list = Array.from(convoCache.values())
     .sort((a, b) => new Date(b.last_message_at || 0) - new Date(a.last_message_at || 0));
   if (channel && channel !== 'all') list = list.filter(c => c.channel === channel);
@@ -491,7 +491,29 @@ function cacheGetList({ channel, search, unread_only, waiting, minhas, semDono, 
   // Acesso por MACRO-grupo (regra da gestão): quem é de VACINAS só vê conversas
   // de vacina; quem NÃO é de vacina (consultas/terapias) vê tudo que não é vacina.
   // Vale pra atendente E supervisora. Master e quem não tem setor veem tudo.
-  if (viewer) list = list.filter(c => podeVerSetor(viewer, c));
+  /* 📥 A FILA DE DISTRIBUIÇÃO MOSTRA TUDO QUE PRECISA SER ENTREGUE (cobrança
+     do master, 03/09: "tem conversas que estão em Todas e deveriam estar em
+     Distribuição; é como se o sistema não estivesse organizando de fato todos
+     que precisam ser distribuídos").
+
+     A causa: a regra de acesso esconde conversa sem dona parada há mais de 7
+     dias — foi combinado em 28/08 pra que as ~1.900 do passado não caíssem no
+     colo da Danielle de uma vez. Só que o master enxerga essas conversas em
+     "Todas" (ele vê tudo), e elas nunca apareciam na Distribuição. Da cadeira
+     dele parecia que o sistema estava deixando gente pra trás.
+
+     Agora, quando se pede a FILA de propósito (?semDono=true), quem distribui
+     vê todas as sem dona — e o corte de 7 dias vira uma escolha na tela, não
+     uma parede invisível. */
+  const filaDeQuemDistribui = semDono === 'true' && viewer
+    && (viewer.role === 'master' || viewer.distribuidor === true
+        || usuariosDistribuidores.has(String(viewer.id)));
+  if (viewer && !filaDeQuemDistribui) list = list.filter(c => podeVerSetor(viewer, c));
+  else if (filaDeQuemDistribui) {
+    const CORTE = 7 * 24 * 3600 * 1000;
+    list = list.filter(c => !c.responsavel_id && c.simulacao !== true
+      && (antigos === 'true' || Date.now() - new Date(c.last_message_at || 0).getTime() < CORTE));
+  }
   /* 📂 "SÓ NA PASTA" (ordem do master, 03/09: "pode dar a opção também de cada
      um retirar da fileira e deixar apenas na pasta").
 
@@ -4121,10 +4143,20 @@ r.get('/conversations', async (req, res) => {
        dona, então pra equipe este número é sempre zero — e o chip nem aparece. */
     /* 📥 Quantos leads esperando distribuição — só quem distribui (e o master)
        enxerga esse número; a equipe recebe zero e o botão nem aparece. */
+    /* 📥 O contador da aba conta EXATAMENTE o que a fila mostra. Antes ele
+       excluía quem tinha pasta, e a fila não excluía: o número dizia 12 e
+       apareciam 15. Número que não bate com a tela destrói a confiança na
+       tela inteira. */
     aDistribuir: (req.user?.role === 'master' || req.user?.distribuidor === true
                   || usuariosDistribuidores.has(String(req.user?.id)))
-      ? Array.from(convoCache.values()).filter(c => !c.categoria && !c.arquivada && !c.responsavel_id
+      ? Array.from(convoCache.values()).filter(c => !c.arquivada && !c.simulacao && !c.responsavel_id
           && (Date.now() - new Date(c.last_message_at || 0).getTime() < 7 * 24 * 3600 * 1000)).length : 0,
+    /* E quantas ficaram pra trás do corte de 7 dias — é este número que vira o
+       botão "ver antigos" na tela, em vez de sumirem sem ninguém saber. */
+    aDistribuirAntigos: (req.user?.role === 'master' || req.user?.distribuidor === true
+                  || usuariosDistribuidores.has(String(req.user?.id)))
+      ? Array.from(convoCache.values()).filter(c => !c.arquivada && !c.simulacao && !c.responsavel_id
+          && (Date.now() - new Date(c.last_message_at || 0).getTime() >= 7 * 24 * 3600 * 1000)).length : 0,
     // Fila de venda: clientes que mandaram a última mensagem e esperam resposta
     esperando: tudo.filter(c => c.last_from === 'contact' && !ehGrupo(c)).length,
     /* 📥 QUEM DISTRIBUI, QUEM DIZ É O SERVIDOR (01/09).
