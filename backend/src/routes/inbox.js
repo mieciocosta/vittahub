@@ -6110,10 +6110,21 @@ r.post('/conversations/:id/send', async (req, res) => {
     // cliente no funil (pra nenhum contato ser esquecido). Não bloqueia o envio.
     garanteLead(convUpd || conv).catch(() => {});
 
-    // ── Responsável automático: só depois da 2ª resposta da MESMA atendente ──
-    // (a pedido do Sr. Miécio: clicar pra ler não pode "roubar" a conversa)
+    /* ── Responsável automático: só depois da 2ª resposta da MESMA atendente ──
+       (a pedido do Sr. Miécio: clicar pra ler não pode "roubar" a conversa)
+
+       🔒 E SÓ PRA QUEM DISTRIBUI (ordem do master, 02/09: "ninguém recebe lead
+       a não ser a Danielle; fica centralizado nela e ela distribui").
+
+       Esta era a última porta por onde um lead ainda caía sozinho no colo de
+       alguém: bastava responder duas vezes numa conversa sem dona — o que
+       acontece nas marcadas como "visível pra equipe toda" — e ela virava da
+       atendente, sem passar pela distribuição. Agora, quem não distribui pode
+       responder à vontade que o lead continua na fila, esperando a entrega. */
     let autoAssign = null;
-    if (!conv.responsavel_id && req.user?.id) {
+    const podeAssumirSozinha = req.user?.role === 'master' || req.user?.distribuidor === true
+      || usuariosDistribuidores.has(String(req.user?.id));
+    if (!conv.responsavel_id && req.user?.id && podeAssumirSozinha) {
       const { rows: [{ count }] } = await query(
         `SELECT COUNT(*) AS count FROM mensagens WHERE conversa_id = $1 AND from_type = 'me' AND sender_id = $2`,
         [req.params.id, req.user.id]);
