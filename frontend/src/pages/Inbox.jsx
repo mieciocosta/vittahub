@@ -116,6 +116,12 @@ function VirtualList({ items, selectedId, onSelect, containerHeight, loadMore, h
   const visibleItems = items.slice(visibleStart, visibleEnd);
   const totalHeight  = items.length * ITEM_HEIGHT;
 
+  /* Se o que já veio não enche a área visível, o scroll nunca acontece e a
+     lista ficaria parada pra sempre. Aqui ela mesma pede a próxima página. */
+  useEffect(() => {
+    if (hasMore && !loadingMore && totalHeight <= containerHeight + ITEM_HEIGHT) loadMore();
+  }, [hasMore, loadingMore, totalHeight, containerHeight, loadMore]);
+
   const onScroll = useCallback(e => {
     const st = e.currentTarget.scrollTop;
     setScrollTop(st);
@@ -134,6 +140,23 @@ function VirtualList({ items, selectedId, onSelect, containerHeight, loadMore, h
           ))}
         </div>
       </div>
+      {/* ⬇️ CARREGAR MAIS, NA MÃO (cobrança do master, 02/09: "aparece dois e
+          pouco mil atendimentos, porém não carrega todos").
+
+          A lista só puxava a próxima página quando o SCROLL chegava perto do
+          fim. Quando a área não rola de verdade — a altura medida saiu errada,
+          ou a janela é grande e os 50 primeiros não enchem a tela — o evento
+          nunca dispara e a lista congela nos primeiros, mesmo com o rodapé
+          dizendo que há dois mil. O botão não depende de medida nenhuma. */}
+      {hasMore && !loadingMore && (
+        <div style={{ textAlign: 'center', padding: '10px 12px 14px' }}>
+          <button onClick={loadMore}
+            style={{ border: '1.5px solid var(--tq)', background: 'var(--tq4,#e8f7f8)', color: 'var(--tq2)',
+              borderRadius: 10, padding: '7px 16px', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>
+            ⬇️ Carregar mais conversas
+          </button>
+        </div>
+      )}
       {loadingMore && (
         <div style={{ textAlign: 'center', padding: 12 }}>
           <Loader2 size={16} color="var(--tq)" style={{ animation: 'spin 1s linear infinite' }} />
@@ -1459,7 +1482,10 @@ export default function Inbox({ onUnreadChange }) {
       setPage(next);
     } catch {}
     setLoadingMore(false);
-  }, [page, hasMore, loadingMore, filter, search, unreadOnly]);
+    /* As dependências precisam incluir TODOS os filtros que a busca usa: sem
+       isso, a próxima página vinha com o filtro antigo (aba, setor, pasta ou
+       pessoa) e a lista misturava conversa que não era pra estar ali. */
+  }, [page, hasMore, loadingMore, filter, search, unreadOnly, modo, setorFiltro, clsFiltro, waiting, respFiltro]);
 
   // ── Recarrega ao mudar busca/filtros (inclui setor e classificação do menu) ──
   useEffect(() => {
