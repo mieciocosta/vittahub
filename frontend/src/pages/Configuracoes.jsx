@@ -26,6 +26,21 @@ export default function Configuracoes() {
      fechada, fila de leads, conversa com dona, setor, exceção da casa) — em vez
      de adivinhar, o master abre aqui a lista do que a pessoa vê e o MOTIVO de
      cada linha ter passado. Só master. */
+  /* 🎤 DIAGNÓSTICO DE ÁUDIO (03/09: "o áudio não sai, ainda com problema"). O
+     master roda o caminho inteiro no servidor de produção — gera um tom,
+     converte, manda pro próprio WhatsApp — e vê a resposta crua. É o que me
+     falta pra consertar sem adivinhar. */
+  const [audioFone, setAudioFone] = useState('');
+  const [audioTeste, setAudioTeste] = useState(null);
+  const [audioBusy, setAudioBusy] = useState(false);
+  const [midiasDiag, setMidiasDiag] = useState(null);
+  const testarAudio = async () => {
+    setAudioBusy(true); setAudioTeste(null);
+    try { setAudioTeste(await api.post('/inbox/diagnostico/testar-audio', { phone: audioFone })); }
+    catch (e) { setAudioTeste({ error: e.message }); }
+    setAudioBusy(false);
+    api.get('/inbox/diagnostico/midias').then(setMidiasDiag).catch(() => {});
+  };
   const [visao, setVisao] = useState(null);      // { alvo, dados } | { alvo, erro }
   const [visaoBusy, setVisaoBusy] = useState(false);
   const verVisao = async (u) => {
@@ -729,6 +744,48 @@ export default function Configuracoes() {
           </div>
         </div>
       </div>
+
+      {isMaster && (
+        <div className="card" style={{ padding:'16px 18px', marginTop:16 }}>
+          <div style={{ fontWeight:900, fontSize:14, marginBottom:4 }}>🎤 Diagnóstico de áudio e anexos</div>
+          <div style={{ fontSize:12, color:'var(--muted)', lineHeight:1.55, marginBottom:10 }}>
+            Roda o caminho inteiro no servidor: gera um tom de 2 segundos, converte pra nota de voz e manda pro número abaixo pelo WhatsApp da clínica. A resposta crua aparece aqui — é ela que diz onde trava.
+          </div>
+          <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
+            <input value={audioFone} onChange={e=>setAudioFone(e.target.value)} placeholder="Seu WhatsApp com DDD (ex.: 98981773161)"
+              style={{ flex:1, minWidth:220, border:'1.5px solid var(--border)', borderRadius:9, padding:'8px 11px', fontSize:13, background:'var(--bg)', color:'var(--txt)' }} />
+            <button onClick={testarAudio} disabled={audioBusy || audioFone.replace(/\D/g,'').length < 10} className="btn btn-p" style={{ fontWeight:800 }}>
+              {audioBusy ? 'Testando…' : '🎤 Mandar áudio de teste'}
+            </button>
+            <button onClick={()=>api.get('/inbox/diagnostico/midias').then(setMidiasDiag).catch(e=>setMidiasDiag({ error:e.message }))} className="btn btn-sm"
+              style={{ background:'var(--bg2)', color:'var(--txt2)', border:'1.5px solid var(--border)' }}>Ver últimos envios</button>
+          </div>
+          {audioTeste && (
+            <pre style={{ marginTop:12, fontSize:11, whiteSpace:'pre-wrap', wordBreak:'break-word', background:'var(--bg2)', padding:12, borderRadius:10,
+              color: audioTeste.ok ? 'var(--ok,#16a34a)' : 'var(--err,#dc2626)' }}>
+              {audioTeste.ok ? '✅ O WhatsApp aceitou. Confira se chegou como nota de voz.' : '❌ Falhou.'}
+              {'\n'}{(audioTeste.passos || []).join('\n')}
+              {audioTeste.error ? `\nErro: ${audioTeste.error}` : ''}
+              {audioTeste.corpo ? `\nResposta do WhatsApp: ${audioTeste.corpo}` : ''}
+            </pre>
+          )}
+          {midiasDiag && (
+            <div style={{ marginTop:12, fontSize:11.5 }}>
+              <div style={{ color:'var(--muted)', marginBottom:6 }}>
+                Conversor no servidor: <b style={{ color: midiasDiag.ffmpeg?.ok ? 'var(--ok,#16a34a)' : 'var(--err,#dc2626)' }}>{midiasDiag.ffmpeg?.ok ? `OK · ${midiasDiag.ffmpeg.versao}` : `AUSENTE · ${midiasDiag.ffmpeg?.erro || ''}`}</b>
+                {' · '}WhatsApp: <b>{midiasDiag.zapi ? 'configurado' : 'NÃO configurado'}</b>
+              </div>
+              {(midiasDiag.envios || []).length === 0 && <div style={{ color:'var(--muted)' }}>Nenhum envio de mídia registrado desde a última subida do servidor.</div>}
+              {(midiasDiag.envios || []).map((e, i) => (
+                <div key={i} style={{ padding:'6px 0', borderTop:'1px solid var(--border)', color: e.status && e.status < 300 ? 'var(--txt2)' : 'var(--err,#dc2626)' }}>
+                  <b>{new Date(e.quando).toLocaleTimeString('pt-BR')}</b> · {e.origem} · {e.tipo} · {e.mime} · {Math.round((e.bytes||0)/1024)} KB · {e.convertido ? 'convertido pra ogg' : 'sem conversão'} · status <b>{e.status ?? 'sem resposta'}</b>
+                  {e.corpo ? <div style={{ fontSize:10.5, opacity:.85, wordBreak:'break-word' }}>{e.corpo}</div> : null}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 🚫 CONFIRMAÇÃO DE CANCELAMENTO — popup próprio (o confirm do navegador
           falha na webview do celular) e com palavra de segurança. */}

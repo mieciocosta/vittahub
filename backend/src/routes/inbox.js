@@ -1004,6 +1004,61 @@ async function converterAudioParaOgg(buffer) {
   });
 }
 
+/* 🔍 DIAGNÓSTICO DE ÁUDIO E ANEXOS (03/09, depois de "o áudio não sai, ainda
+   com problema"). Eu não enxergo a produção; o master enxerga. Então o sistema
+   passa a guardar os últimos envios de mídia — formato, tamanho, se converteu,
+   e a resposta CRUA do WhatsApp — e ganha um botão de teste que roda o caminho
+   inteiro no servidor de verdade e devolve tudo o que aconteceu. */
+const ultimosEnviosMidia = [];
+function registrarEnvioMidia(reg) {
+  ultimosEnviosMidia.unshift({ quando: new Date().toISOString(), ...reg });
+  if (ultimosEnviosMidia.length > 30) ultimosEnviosMidia.length = 30;
+}
+
+r.get('/diagnostico/midias', masterOnly, async (req, res) => {
+  let ffmpeg = { ok: false, versao: null };
+  try {
+    const { default: ffmpegPath } = await import('ffmpeg-static');
+    const { execFile } = await import('node:child_process');
+    ffmpeg = await new Promise(resolve => execFile(ffmpegPath, ['-version'], { timeout: 8000 }, (e, out) =>
+      resolve(e ? { ok: false, versao: null, erro: e.message } : { ok: true, versao: String(out).split('\n')[0].slice(0, 80) })));
+  } catch (e) { ffmpeg = { ok: false, versao: null, erro: e.message }; }
+  res.json({ ffmpeg, zapi: zapiOk(), envios: ultimosEnviosMidia });
+});
+
+r.post('/diagnostico/testar-audio', masterOnly, async (req, res) => {
+  const passos = [];
+  try {
+    const phone = String(req.body?.phone || '').replace(/\D/g, '');
+    if (phone.length < 10) return res.status(400).json({ error: 'Informe o número com DDD (ex.: 98981773161).' });
+    const ph55 = phone.startsWith('55') ? phone : `55${phone}`;
+    if (!zapiOk()) return res.status(400).json({ error: 'Z-API não configurada no servidor.' });
+
+    const { default: ffmpegPath } = await import('ffmpeg-static');
+    const { spawn } = await import('node:child_process');
+    passos.push(`ffmpeg em ${ffmpegPath}`);
+    const tom = await new Promise((resolve, reject) => {
+      const ff = spawn(ffmpegPath, ['-loglevel', 'error', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=2',
+        '-c:a', 'libopus', '-b:a', '32k', '-ar', '48000', '-ac', '1', '-f', 'ogg', 'pipe:1']);
+      const out = [], err = [];
+      ff.stdout.on('data', d => out.push(d)); ff.stderr.on('data', d => err.push(d));
+      ff.on('error', reject);
+      ff.on('close', c => c === 0 ? resolve(Buffer.concat(out)) : reject(new Error(Buffer.concat(err).toString().slice(0, 200))));
+    });
+    passos.push(`tom de teste gerado: ${tom.length} bytes, cabeçalho ${tom.subarray(0, 4).toString()}`);
+
+    const dataUrl = `data:audio/ogg;base64,${tom.toString('base64')}`;
+    const zr = await zapiCall('/send-audio', 'POST', { phone: ph55, audio: dataUrl });
+    const corpo = zr ? (await zr.text().catch(() => '')).slice(0, 600) : '(sem resposta)';
+    passos.push(`Z-API /send-audio → status ${zr?.status ?? 'sem resposta'}`);
+    registrarEnvioMidia({ origem: 'teste', tipo: 'audio', mime: 'audio/ogg', bytes: tom.length, convertido: true, status: zr?.status ?? null, corpo });
+    res.json({ ok: !!zr?.ok, status: zr?.status ?? null, corpo, passos });
+  } catch (e) {
+    passos.push(`ERRO: ${e.message}`);
+    res.status(500).json({ error: e.message, passos });
+  }
+});
+
 export async function zapiCall(path, method = 'GET', body = null) {
   const { default: fetch } = await import('node-fetch');
   /* 🚨 TRANCA ÚNICA: nenhuma mensagem de teste chega no WhatsApp do cliente,
@@ -7145,6 +7200,12 @@ r.post('/conversations/:id/upload', upload.single('file'), async (req, res) => {
             await new Promise(r => setTimeout(r, 1500));
             zr = await enviarUmaVez().catch(() => null);
           }
+          // 🔍 Fica na memória pro diagnóstico do master (03/09)
+          try {
+            const corpoDiag = zr && !zr.ok ? (await zr.clone().text().catch(() => '')).slice(0, 400) : '';
+            registrarEnvioMidia({ origem: 'upload', tipo: type, mime: f.mimetype, bytes: f.size,
+              convertido: type === 'audio' && audioParaEnviar !== dataUrl, status: zr?.status ?? null, corpo: corpoDiag });
+          } catch { /* diagnóstico nunca derruba o envio */ }
           if (zr?.ok) {
             const zd = await zr.json().catch(() => ({}));
             if (zd.zaapId || zd.messageId) {
