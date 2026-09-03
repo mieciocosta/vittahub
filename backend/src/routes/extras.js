@@ -83,7 +83,25 @@ r.get('/agenda', async (req, res) => {
     /* Só o MASTER vê a agenda inteira. 'supervisor' não serve: Raylane e
        Danielle são supervisoras DO SETOR delas, e cada setor tem a sua agenda —
        era por isso que a separação parecia não valer pra elas. */
-    const isGestao = req.user.role === 'master';
+    /* 📥 QUEM DISTRIBUI VÊ AS TRÊS AGENDAS (ordem do master, 03/09: "no
+       usuário da Danielle o VittaHub não está conseguindo puxar a agenda de
+       vacinas que já existe nos demais setores").
+
+       A separação por setor continua valendo pra equipe: vacinas não vê
+       consultas e vice-versa. Mas quem centraliza os leads é quem fecha o
+       plano vacinal — o maior ticket da casa — e não dá pra marcar o que não
+       se enxerga. A marca é `distribuidor`, não o nome dela: se o master
+       passar a distribuição adiante, o acesso vai junto.
+
+       Só a agenda: isto não mexe em conversa, carteira nem faturamento. */
+    let distribui = req.user.distribuidor === true;
+    if (!distribui && req.user.role !== 'master' && req.user.distribuidor === undefined) {
+      // Token antigo não traz a marca — confere no cadastro, que é a verdade
+      const { rows: [ud] } = await query('SELECT distribuidor FROM usuarios WHERE id = $1', [req.user.id])
+        .catch(() => ({ rows: [] }));
+      distribui = ud?.distribuidor === true;
+    }
+    const isGestao = req.user.role === 'master' || distribui;
     const meuSetor = req.user.setor;
     const meusSetores = Array.isArray(req.user.setores) && req.user.setores.length ? req.user.setores : null;
     const out = isGestao
