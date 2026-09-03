@@ -58,8 +58,60 @@ function registrarDrop(motivo, body) {
 const convoCache = new Map(); // id → conversa
 let cacheReady = false;
 
+/* 👤 CLIENTE JÁ ATENDIDO É DE QUEM ATENDEU (cobrança do master, 03/09: "no
+   usuário da Stefany não está carregando todas as mensagens dos clientes").
+
+   Não era carregamento. Desde 28/08 a atendente só vê o que está NO NOME dela,
+   e conversa sem dona fica só com quem distribui. Só que a maioria das
+   conversas antigas nunca ganhou dona formalmente: a Stefany atendeu, mandou
+   dez mensagens, e a conversa seguiu "sem responsável". Com a regra nova, esses
+   clientes sumiram da tela dela e foram parar na fila da Danielle — como se
+   fossem leads novos, e não são.
+
+   Uma passada só: cada conversa sem dona vai pro nome de quem da equipe mandou
+   a ÚLTIMA mensagem nela. Lead que nunca teve resposta da equipe continua sem
+   dona, na fila da Danielle — a regra do master fica intacta. A data do
+   "recebeu" é a da mensagem, pra não inflar a distribuição de hoje. Roda ANTES
+   do cache carregar, senão a tela mostraria o passado por mais um boot. */
+async function donasHistoricas() {
+  try {
+    const { rows: [ja] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_donas_historicas_v1'");
+    if (ja) return;
+    const { rows } = await query(`
+      WITH ult AS (
+        SELECT DISTINCT ON (m.conversa_id) m.conversa_id, m.sender_id, m.created_at
+          FROM mensagens m
+         WHERE m.from_type = 'me' AND m.sender_id IS NOT NULL
+         ORDER BY m.conversa_id, m.created_at DESC
+      )
+      UPDATE conversas c
+         SET responsavel_id = u.id,
+             responsavel_desde = COALESCE(c.responsavel_desde, ult.created_at)
+        FROM ult
+        JOIN usuarios u ON u.id::text = ult.sender_id::text
+       WHERE c.id = ult.conversa_id
+         AND c.responsavel_id IS NULL
+         AND COALESCE(c.arquivada,false) = false AND COALESCE(c.simulacao,false) = false
+         AND u.ativo = true AND u.role IN ('atendente','supervisor')
+         AND COALESCE(u.dono_casa,false) = false AND COALESCE(u.fora_do_painel,false) = false
+       RETURNING u.nome`);
+    const porPessoa = {};
+    for (const r2 of rows) { const n2 = String(r2.nome || '').split(' ')[0]; porPessoa[n2] = (porPessoa[n2] || 0) + 1; }
+    const resumo = Object.entries(porPessoa).sort((a, b) => b[1] - a[1]).map(([n2, q]) => `${n2}: ${q}`).join(' · ');
+    await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_donas_historicas_v1', $1::jsonb) ON CONFLICT DO NOTHING`,
+      [JSON.stringify({ ok: true, total: rows.length, porPessoa })]);
+    if (rows.length) {
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('equipe', $1, $2, true)`,
+        [`👤 ${rows.length} cliente(s) voltaram pro nome de quem atendeu`,
+         `Conversas antigas sem responsável foram pro nome de quem mandou a última mensagem: ${resumo}. Lead que nunca teve resposta continua na fila de Distribuição.`]).catch(() => {});
+      console.log(`👤 Donas históricas: ${rows.length} conversa(s) → ${resumo}`);
+    }
+  } catch (e) { console.error('donasHistoricas:', e.message); }
+}
+
 async function loadCache() {
   try {
+    await donasHistoricas();   // antes do SELECT: o cache nasce já com as donas certas
     // Limite alto para não "esconder" conversas quando o histórico é grande.
     // São só metadados (preview + URL de foto), então cabe bem em memória.
     // 🧪 As conversas de simulação (avaliação da IA) não entram na lista do time
