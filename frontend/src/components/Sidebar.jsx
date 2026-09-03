@@ -9,6 +9,7 @@ import {
   BellRing, Syringe, ExternalLink, ClipboardList, FileSignature, Search, X, Heart,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
+import { aoVivo } from '../hooks/polling.js';
 import { useApi } from '../context/AuthContext.jsx';
 import { setToken } from '../hooks/api.js';
 import { fmt, clarear, escurecer, tituloUsuario } from '../hooks/utils.js';
@@ -165,7 +166,7 @@ function BellPanel({ collapsed }) {
   const naoLidas = notifs.filter(n => !n.lida).length;
 
   const load = () => api.get('/inbox/notifications').then(d => setNotifs(Array.isArray(d) ? d : [])).catch(() => {});
-  useEffect(() => { load(); const t = setInterval(load, 30000); return () => clearInterval(t); }, []); // eslint-disable-line
+  useEffect(() => { load(); return aoVivo(load, 30000); }, []); // eslint-disable-line
   useEffect(() => {
     const fn = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
     document.addEventListener('mousedown', fn);
@@ -532,8 +533,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
   const [vencidos, setVencidos] = useState(0);
   useEffect(() => {
     const load = () => api.get('/leads/retornos').then(d => setVencidos(d.vencidos?.length || 0)).catch(() => {});
-    load(); const t = setInterval(load, 60000);
-    return () => clearInterval(t);
+    load(); return aoVivo(load, 60000);
   }, []); // eslint-disable-line
 
   // Planejamento: lembretes de hoje/atrasados (badge) — só líder/master
@@ -545,24 +545,21 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
       const n = (Array.isArray(d) ? d : []).filter(x => x.tipo === 'lembrete' && !x.concluido && x.lembrete_em && String(x.lembrete_em).slice(0, 10) <= hoje).length;
       setLembretes(n);
     }).catch(() => {});
-    load(); const t = setInterval(load, 60000);
-    return () => clearInterval(t);
+    load(); return aoVivo(load, 60000);
   }, [user?.lider, user?.role]); // eslint-disable-line
 
   // Chat da equipe: não-lidas (badge)
   const [eqNaoLidas, setEqNaoLidas] = useState(0);
   useEffect(() => {
     const load = () => api.get('/inbox/chat-interno-naolidas').then(d => setEqNaoLidas(d?.n || 0)).catch(() => {});
-    load(); const t = setInterval(load, 12000);
-    return () => clearInterval(t);
+    load(); return aoVivo(load, 12000);
   }, []); // eslint-disable-line
 
   // Contagem de leads esperando por setor (badges dos atalhos) — atualiza a cada 15s
   const [setorCount, setSetorCount] = useState({});
   useEffect(() => {
     const load = () => api.get('/inbox/setores-contagem').then(setSetorCount).catch(() => {});
-    load(); const t = setInterval(load, 15000);
-    return () => clearInterval(t);
+    load(); return aoVivo(load, 15000);
   }, []); // eslint-disable-line
 
   /* 📂 A equipe pras pastas da barra lateral. Gestão = master, supervisora,

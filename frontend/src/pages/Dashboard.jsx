@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { aoVivo } from '../hooks/polling.js';
 import { MessageSquare, HeartPulse, CalendarCheck, CircleDollarSign, Bell, ChevronRight, Plus, Syringe, UserPlus, ClipboardList, Send, Phone, Trophy, FileSearch } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt, tituloUsuario } from '../hooks/utils.js';
@@ -109,7 +110,7 @@ export default function Dashboard() {
     if (isMaster) api.get('/extras/comparativo-mes').then(setComp).catch(() => {});
     if (isMaster) api.get('/extras/vendas/resumo').then(setVendasResumo).catch(() => {}); // painel comercial é só do master
     const loadAt = () => api.get('/inbox/atencao-agora').then(setAtencao).catch(() => {});
-    loadAt(); const t = setInterval(loadAt, 20000); return () => clearInterval(t);
+    loadAt(); return aoVivo(loadAt, 20000);
   }, []); // eslint-disable-line
 
   const hoje = new Date();

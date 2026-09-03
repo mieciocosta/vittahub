@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import { aoVivo } from '../hooks/polling.js';
 import { Shield, Search, ChevronLeft, MapPin, Clock, Wifi, WifiOff, Loader2, Monitor, Smartphone } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt } from '../hooks/utils.js';
@@ -180,7 +181,7 @@ export default function Auditoria() {
   const loadPresenca = useCallback(() => {
     api.get('/auditoria/presenca').then(setPresenca).catch(() => {});
   }, []); // eslint-disable-line
-  useEffect(() => { if (nivel === 'presenca') { loadPresenca(); const t = setInterval(loadPresenca, 15000); return () => clearInterval(t); } }, [nivel]); // eslint-disable-line
+  useEffect(() => { if (nivel === 'presenca') { loadPresenca(); return aoVivo(loadPresenca, 15000); } }, [nivel]); // eslint-disable-line
 
   useEffect(() => {
     if (nivel === 'usuarios') api.get(`/auditoria/usuarios${search ? `?search=${encodeURIComponent(search)}` : ''}`).then(setUsuarios).catch(() => {});

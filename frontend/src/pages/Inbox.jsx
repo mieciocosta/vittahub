@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { aoVivo } from '../hooks/polling.js';
 import {
   Send, Paperclip, Mic, MicOff, Sparkles, Search, RefreshCw, X,
   UserPlus, Hash, Bot, FileText, Volume2, File, Tag,
@@ -915,7 +916,7 @@ export default function Inbox({ onUnreadChange }) {
     const reais = ['vacinacao','planos_vacinais','fidelidade','consultas','terapias'];
     if (!reais.includes(clsFiltro)) { setSetorResumo(null); return; }
     const load = () => api.get(`/inbox/setor-resumo?cls=${clsFiltro}`).then(setSetorResumo).catch(()=>setSetorResumo(null));
-    load(); const t = setInterval(load, 20000); return () => clearInterval(t);
+    load(); return aoVivo(load, 20000);
   }, [clsFiltro]); // eslint-disable-line
   /* 📥💬 AS DUAS FILEIRAS ABREM SOZINHAS (ordem do master, 01/09, pedida três
      vezes: "quero duas fileiras uma ao lado da outra").
@@ -1175,7 +1176,7 @@ export default function Inbox({ onUnreadChange }) {
   const [estudoBusy, setEstudoBusy] = useState(false);
   const [estudoAviso, setEstudoAviso] = useState(null);
   const [, setTick] = useState(0); // re-render a cada 30s: relógio de espera do cliente
-  useEffect(() => { const t = setInterval(() => setTick(x => x + 1), 30000); return () => clearInterval(t); }, []);
+  useEffect(() => aoVivo(() => setTick(x => x + 1), 30000), []);
   const [intentOff, setIntentOff] = useState(null); // id da msg cujo radar foi dispensado
   const [showAgendarMsg, setShowAgendarMsg] = useState(false);
   const [showIndicar, setShowIndicar] = useState(false);
@@ -1188,7 +1189,7 @@ export default function Inbox({ onUnreadChange }) {
   // Meta global do setor — banner motivacional dentro do atendimento (atualiza 60s)
   useEffect(() => {
     const f = () => api.get('/extras/meta-setor').then(setMetaSetor).catch(() => {});
-    f(); const t = setInterval(f, 60000); return () => clearInterval(t);
+    f(); return aoVivo(f, 60000);
   }, []); // eslint-disable-line
   const [listH, setListH]       = useState(500);
 
@@ -1473,10 +1474,10 @@ export default function Inbox({ onUnreadChange }) {
       } catch {}
     };
 
-    // Poll imediato ao abrir conversa + a cada 2s
+    // Poll imediato ao abrir conversa + a cada 2s (dorme com a aba escondida;
+    // o socket segue avisando, e ao voltar o poll roda na hora)
     fetchNew();
-    const iv = setInterval(fetchNew, 2000);
-    return () => clearInterval(iv);
+    return aoVivo(fetchNew, 2000);
   }, [sel?.id, token]);
 
 

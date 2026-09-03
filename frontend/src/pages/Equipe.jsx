@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { aoVivo } from '../hooks/polling.js';
 import { Send, Users, MessageSquare, Mic, Paperclip, Square, FileText, Download } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt } from '../hooks/utils.js';
@@ -23,7 +24,7 @@ export default function Equipe() {
   const chunksRef = useRef([]);
 
   const loadContatos = () => api.get('/inbox/chat-interno/contatos').then(d => setContatos(Array.isArray(d) ? d : [])).catch(() => {});
-  useEffect(() => { loadContatos(); const t = setInterval(loadContatos, 8000); return () => clearInterval(t); }, []); // eslint-disable-line
+  useEffect(() => { loadContatos(); return aoVivo(loadContatos, 8000); }, []); // eslint-disable-line
 
   const abrir = (c) => {
     setSel(c); setMsgs([]);

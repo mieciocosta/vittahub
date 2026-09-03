@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { aoVivo } from '../hooks/polling.js';
 import { MessageCircle, Pencil, Plus, Trash2, GripVertical, Check, X, Search, Clock, CalendarClock, Phone } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt, openWA } from '../hooks/utils.js';
@@ -64,10 +65,10 @@ export default function Funil() {
   useEffect(() => { load(); }, []); // eslint-disable-line
   // Atualização leve: polling 20s + ao voltar para a aba
   useEffect(() => {
-    const t = setInterval(() => load(true), 20000);
+    const parar = aoVivo(() => load(true), 20000);
     const onFocus = () => load(true);
     window.addEventListener('focus', onFocus);
-    return () => { clearInterval(t); window.removeEventListener('focus', onFocus); };
+    return () => { parar(); window.removeEventListener('focus', onFocus); };
   }, [load]);
 
   /* ── filtros ── */

@@ -1,8 +1,14 @@
 /* Service worker do VittaHub — SEM cache (atualização nunca "gruda") + push
-   real: recebe o aviso mesmo com o app fechado e abre a tela certa no clique. */
+   real: recebe o aviso mesmo com o app fechado e abre a tela certa no clique.
+
+   Não existe handler de `fetch` de propósito (03/09, "melhorar o desempenho"):
+   o antigo só repassava a chamada (`respondWith(fetch(req))`), e isso fazia
+   CADA requisição do CRM dar um pulo a mais pelo worker — aparecia duas vezes
+   no Network e custava alguns ms por chamada, sem cachear nada. Sem handler o
+   navegador fala direto com o servidor; o push e o clique na notificação
+   continuam iguais. */
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
-self.addEventListener('fetch', (e) => { e.respondWith(fetch(e.request)); });
 
 self.addEventListener('push', (event) => {
   let d = {};

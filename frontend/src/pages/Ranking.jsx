@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { aoVivo } from '../hooks/polling.js';
 import { Trophy, RefreshCw } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt } from '../hooks/utils.js';
@@ -64,8 +65,7 @@ export default function Ranking() {
   };
 
   useEffect(() => { carregar(periodo); /* recarrega a cada 2 min pra ficar vivo */
-    const t = setInterval(() => carregar(periodo), 120000);
-    return () => clearInterval(t);
+    return aoVivo(() => carregar(periodo), 120000);
   }, [periodo, metrica]); // eslint-disable-line
 
   const rotuloPeriodo = (PERIODOS.find(p => p[0] === periodo) || [])[1];

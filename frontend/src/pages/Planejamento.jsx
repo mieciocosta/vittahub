@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { aoVivo } from '../hooks/polling.js';
 import { useNavigate } from 'react-router-dom';
 import { Rocket, Users, Trophy, Coins, ClipboardCheck, GraduationCap, Target, Lightbulb, StickyNote, Bell, Plus, X, Check, Trash2, Pencil, CalendarClock, UserPlus, Activity, MessageSquare, Zap, DollarSign, Circle, Calculator, Package, Paperclip, Download, Upload, FileText } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
@@ -98,7 +99,7 @@ export default function Planejamento() {
   const loadNotas = () => api.get('/extras/planejamento/notas').then(d => setNotas(Array.isArray(d) ? d : [])).catch(() => setNotas([]));
   useEffect(() => { loadNotas(); }, []); // eslint-disable-line
   const loadLiderados = () => api.get('/extras/planejamento/liderados').then(d => setLiderados(Array.isArray(d) ? d : [])).catch(() => setLiderados([]));
-  useEffect(() => { loadLiderados(); const t = setInterval(loadLiderados, 45000); return () => clearInterval(t); }, []); // eslint-disable-line
+  useEffect(() => { loadLiderados(); return aoVivo(loadLiderados, 45000); }, []); // eslint-disable-line
   useEffect(() => { api.get('/extras/planejamento/pacotes').then(setPacotes).catch(() => setPacotes({ itens: [] })); }, []); // eslint-disable-line
   const loadAnexos = () => api.get('/extras/planejamento/anexos').then(d => setAnexos(Array.isArray(d) ? d : [])).catch(() => setAnexos([]));
   useEffect(() => { loadAnexos(); }, []); // eslint-disable-line

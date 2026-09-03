@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import { aoVivo } from '../hooks/polling.js';
 import { useNavigate } from 'react-router-dom';
 import { MessageSquare, RefreshCw, Zap, Trophy } from 'lucide-react';
 import { useApi } from '../context/AuthContext.jsx';
@@ -61,7 +62,7 @@ export default function Classificar() {
   // Placar de vendas do dia — reforça o clima de meta (atualiza a cada 30s)
   useEffect(() => {
     const p = () => api.get('/extras/vendas/hoje').then(setPlacar).catch(() => {});
-    p(); const t = setInterval(p, 30000); return () => clearInterval(t);
+    p(); return aoVivo(p, 30000);
   }, []); // eslint-disable-line
 
   const classificar = async (c, dest) => {

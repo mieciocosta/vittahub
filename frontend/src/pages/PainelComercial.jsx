@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { aoVivo } from '../hooks/polling.js';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { RefreshCw } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
@@ -60,8 +61,7 @@ function ConversaNoPainel({ convId, onFechar, onIrProChat }) {
 
   useEffect(() => {
     setConv(null); setTexto(''); ler();
-    const t = setInterval(ler, 15000);   // a conversa respira junto com o painel
-    return () => clearInterval(t);
+    return aoVivo(ler, 15000);   // a conversa respira junto com o painel
   }, [convId]); // eslint-disable-line
 
   useEffect(() => { fim.current?.scrollIntoView({ block: 'end' }); }, [conv?.messages?.length]);
@@ -430,7 +430,7 @@ export default function PainelComercial() {
   useEffect(() => { if (convAberta) setAbaDir('conversa'); }, [convAberta]);
 
   const carregar = () => { setErro(''); api.get('/extras/painel-comercial').then(setD).catch(e => setErro(e.message)); };
-  useEffect(() => { carregar(); const t = setInterval(carregar, 60000); return () => clearInterval(t); }, []); // eslint-disable-line
+  useEffect(() => { carregar(); return aoVivo(carregar, 60000); }, []); // eslint-disable-line
 
   /* O dossiê da pessoa se relê a cada 30s — "uma fileira olhando em tempo
      real" (ordem do master): a lista de quem espera não pode envelhecer. */
@@ -441,8 +441,8 @@ export default function PainelComercial() {
       .then(r => { if (vivo) { setPessoa(r); setPErro(''); } })
       .catch(e => { if (vivo) setPErro(e.message); });
     setPessoa(null); setPErro(''); ler();
-    const t = setInterval(ler, 30000);
-    return () => { vivo = false; clearInterval(t); };
+    const parar = aoVivo(ler, 30000);
+    return () => { vivo = false; parar(); };
   }, [sel, periodo]); // eslint-disable-line
 
   const Kpi = ({ v, l, s, cor }) => (

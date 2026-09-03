@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { aoVivo } from '../hooks/polling.js';
 import { useNavigate } from 'react-router-dom';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt } from '../hooks/utils.js';
@@ -136,7 +137,7 @@ export default function PlacarVendas() {
   useEffect(() => {
     if (!user) return;
     carregar();
-    const t = setInterval(carregar, 90000);
+    const parar = aoVivo(carregar, 90000);
     import('socket.io-client').then(({ io }) => {
       const BASE = import.meta.env.VITE_API_URL || '';
       const s = io(BASE, { transports: ['websocket', 'polling'], auth: { token: localStorage.getItem('vh_token') || '' } });
@@ -149,7 +150,7 @@ export default function PlacarVendas() {
       });
       sockRef.current = s;
     }).catch(() => {});
-    return () => { clearInterval(t); try { sockRef.current?.disconnect(); } catch {} };
+    return () => { parar(); try { sockRef.current?.disconnect(); } catch {} };
   }, [user]); // eslint-disable-line
 
   if (!user || !meta || !meta.metaGlobal) return null;
