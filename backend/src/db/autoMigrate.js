@@ -3027,8 +3027,12 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
   try { await consertarAssinaturas(); } catch (e) { console.error('assinaturas:', e.message); }
   try { await titulosDaEquipe(); } catch (e) { console.error('titulos da equipe:', e.message); }
   try { await bonusPessoais(); } catch (e) { console.error('bonus pessoais:', e.message); }
-  try { await metasPorSetor(); } catch (e) { console.error('metas por setor:', e.message); }
   try { await colunasCriticas(); } catch (e) { console.error('colunas criticas:', e.message); }
+  /* ⚠️ DEPOIS de colunasCriticas, sempre. As metas por setor gravam numa coluna
+     que nasce lá — rodando antes, o UPDATE falhava calado (a coluna não existia
+     ainda) e a meta da Danielle nunca mudava, sem erro nenhum na tela.
+     Cobrança dele, 03/09: "a meta de Danielle não mudou". */
+  try { await metasPorSetor(); } catch (e) { console.error('metas por setor:', e.message); }
   try { await equipeDaCasa(); } catch (e) { console.error('equipe da casa:', e.message); }
   try { await donosDaCasa(); } catch (e) { console.error('donos da casa:', e.message); }
   try { await marketingForaDoPainel(); } catch (e) { console.error('marketing fora do painel:', e.message); }
@@ -3431,11 +3435,14 @@ async function metasPorSetor() {
     const { rows: [ja] } = await query('SELECT 1 FROM configuracoes WHERE chave = $1', [m.flag])
       .catch(() => ({ rows: [1] }));
     if (ja) continue;
+    // Rede de segurança: se a coluna faltar, cria na hora. Falhar calado aqui
+    // significa meta que não muda e ninguém entende por quê.
+    await query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS metas_setor JSONB DEFAULT '{}'::jsonb`).catch(() => {});
     const { rowCount } = await query(
       `UPDATE usuarios SET metas_setor = $2::jsonb, updated_at = NOW()
         WHERE lower(translate(COALESCE(nome,''), ${SEM_ACENTO})) LIKE $1 || '%'`,
-      [m.quem, JSON.stringify(m.metas)]).catch(() => ({ rowCount: 0 }));
-    if (!rowCount) continue;
+      [m.quem, JSON.stringify(m.metas)]).catch((e) => { console.error('metas_setor:', e.message); return { rowCount: 0 }; });
+    if (!rowCount) { console.error(`metas por setor: ninguém com nome começando em "${m.quem}"`); continue; }
     /* O bônus total (a soma das frentes) segue no lugar de sempre, que é de
        onde o placar da casa lê — senão teríamos dois números de bônus. */
     const total = Object.values(m.metas).reduce((t, x) => t + (x.bonus || 0), 0);
