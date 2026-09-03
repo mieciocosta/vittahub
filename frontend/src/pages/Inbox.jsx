@@ -3194,6 +3194,16 @@ export default function Inbox({ onUnreadChange }) {
                 <input ref={arqTabelaRef} type="file" onChange={anexarNaTabela} style={{ display:'none' }}
                   accept=".pdf,.doc,.docx,.xls,.xlsx,image/*" />
 
+                {/* 📝 Porta pras mensagens prontas da casa, que perderam o
+                    ícone da barra e agora moram aqui. */}
+                <button onClick={()=>{ setShowTabela(false); setShowProntas(true); setShowEmoji(false); setShowQR(false); }}
+                  title="Textos prontos da casa: boas-vindas, cartões de agendamento, orientações"
+                  style={{ width:'100%', marginBottom:9, borderRadius:10, padding:'8px 14px', cursor:'pointer',
+                    border:'1.5px solid var(--border)', background:'var(--bg2)', color:'var(--txt2)',
+                    fontSize:11.5, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center', gap:7 }}>
+                  📝 Mensagens prontas da casa
+                </button>
+
                 <div style={{ display:'flex', gap:5, marginBottom:8, flexWrap:'wrap' }}>
                   {[['', 'Tudo'], ['vacinas', '💉 Vacinas'], ['consultas', '🩺 Consultas'], ['terapias', '🤲 Terapias']].map(([k, rot]) => (
                     <button key={k || 'tudo'} onClick={()=>{ setTabelaSetor(k); setTabelaSel([]); carregarArqsTabela(k); }}
@@ -3894,8 +3904,15 @@ export default function Inbox({ onUnreadChange }) {
                 {/* Biblioteca colada no clipe e no emoji — pedido do master: é
                     daqui que a equipe manda foto pro cliente, então tem que
                     estar junto do que ela já usa pra enviar. */}
-                <button onClick={()=>{setBibAba('foto');setShowBib(true);}} title="🖼️ Biblioteca de Experiências — fotos e vídeos da clínica"
-                  className="tb-ico-color" style={{ '--ic':'#d946ef' }}><Image size={16} strokeWidth={2.3}/></button>
+                {/* 🖼️ A Biblioteca saiu da barra (ordem do master, 03/09: "já
+                    tem prova social, então retire — só transfira esses
+                    arquivos").
+
+                    E os arquivos JÁ estão do outro lado: o botão 📸 Prova
+                    social busca as fotos exatamente nesta Biblioteca, filtradas
+                    pelo setor da conversa. Nada foi movido nem apagado — a
+                    fonte sempre foi a mesma. Pra ver, acrescentar ou tirar
+                    foto, a tela Biblioteca continua no menu. */}
                 <button onClick={()=>{setShowEmoji(p=>!p);setShowQR(false);setShowProntas(false);}} title="Emojis"
                   className={`tb-ico-color${showEmoji?' tb-on':''}`} style={{ '--ic':'#f59e0b' }}><Smile size={16} strokeWidth={2.3}/></button>
                 {/* 💟 Figurinhas coladas nos emojis (ordem do master, 24/08) */}
@@ -3903,8 +3920,12 @@ export default function Inbox({ onUnreadChange }) {
                   className={`tb-ico-color${showFigus?' tb-on':''}`} style={{ '--ic':'#00B8C0' }}><Sticker size={16} strokeWidth={2.3}/></button>
                 {/* 📝 MENSAGENS PRONTAS (pedido do master: tem atendente que não
                     usa a IA cem por cento) — os textos oficiais da casa em 1 toque */}
-                <button onClick={()=>{setShowProntas(p=>!p);setShowEmoji(false);setShowQR(false);}} title="📝 Mensagens prontas da casa: boas-vindas, endereço, cartões de agendamento…"
-                  className={`tb-ico-color${showProntas?' tb-on':''}`} style={{ '--ic':'#ec4899' }}><MessageSquare size={16} strokeWidth={2.3}/></button>
+                {/* 📝 As mensagens prontas saíram da barra (ordem do master,
+                    03/09: "retire esses, só transfira para Tabela"). O caminho
+                    agora é o painel da Tabela, que virou o lugar único do
+                    CONTEÚDO da casa: documentos, arquivos, preços, o combinado
+                    sobre precificação e os textos prontos. Uma porta só é mais
+                    fácil de lembrar do que sete ícones parecidos. */}
               </div>
 
               {/* Botão "IA responde" RETIRADO a pedido do master — a Vitta agora
