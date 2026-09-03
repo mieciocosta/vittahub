@@ -587,6 +587,9 @@ input::placeholder, textarea::placeholder { color: var(--light); }
    pelo lembrete de ligação. Mora aqui porque antes vivia dentro de um bloco
    condicional do chat: se aquele bloco não renderizasse, a animação não
    existia e o destaque ficava parado, sem ninguém entender por quê. */
+/* 🎤 Pulso vermelho do microfone gravando — o aviso que não deixa esquecer */
+@keyframes vhPulseVermelho { 0%,100% { box-shadow: 0 0 0 0 rgba(220,38,38,.6) } 50% { box-shadow: 0 0 0 8px rgba(220,38,38,0) } }
+
 @keyframes vhPulseOuro { 0%,100% { box-shadow: 0 0 0 0 rgba(196,151,59,.55) } 50% { box-shadow: 0 0 0 7px rgba(196,151,59,0) } }
 
 /* 🥧 CORES DOS GRÁFICOS — passaram no validador de daltonismo (ΔE por par

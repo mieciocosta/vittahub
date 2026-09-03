@@ -1042,24 +1042,6 @@ export default function Inbox({ onUnreadChange }) {
      Ela escolhe os itens e o texto cai na caixa de digitar, como o Agendar e o
      Endereço. Preço é a mensagem mais delicada do atendimento: sai depois de
      ela ler, nunca sozinha. */
-  /* 📸 PROVA SOCIAL EM UM BOTÃO (ordem do master, 03/09: "cria um botão no chat
-     igual ao de agendar: Prova Social, onde tem essa mensagem do nosso
-     Instagram e tem fotos dos pequenos — vai mandar 4 fotos junto com a
-     mensagem").
-
-     Este é o único dos quatro que ENVIA direto, sem passar pela caixa de
-     digitar: são imagens, não texto pra revisar. E é o passo do protocolo que
-     mais se esquecia justamente por estar escondido dentro do painel de
-     modelos. */
-  const mandarProvaSocial = async () => {
-    if (!sel || provaEnviando) return;
-    setProvaEnviando(true);
-    try {
-      const r = await api.post(`/inbox/conversations/${sel.id}/prova-social`, { quantas: 4 });
-      Toast.show(r?.enviadas ? `${r.enviadas} fotos enviadas com o Instagram 📸` : 'Fotos enviadas 📸', 'success');
-    } catch (e) { Toast.show(e.message || 'Não consegui enviar as fotos', 'error'); }
-    setProvaEnviando(false);
-  };
   const [showTabela, setShowTabela] = useState(false);
   const [tabelaItens, setTabelaItens] = useState(null);
   const [tabelaSel, setTabelaSel] = useState([]);
@@ -1201,6 +1183,35 @@ export default function Inbox({ onUnreadChange }) {
   const msgAreaRef       = useRef(null);
   const fileRef          = useRef(null);
   const textRef          = useRef(null);
+  /* 📸 PROVA SOCIAL EM UM BOTÃO (ordem do master, 03/09: "cria um botão no chat
+     igual ao de agendar: Prova Social, onde tem essa mensagem do nosso
+     Instagram e tem fotos dos pequenos — vai mandar 4 fotos junto com a
+     mensagem").
+
+     Este é o único dos quatro que ENVIA direto, sem passar pela caixa de
+     digitar: são imagens, não texto pra revisar. E é o passo do protocolo que
+     mais se esquecia justamente por estar escondido dentro do painel de
+     modelos. */
+  const mandarProvaSocial = async () => {
+    if (!sel || provaEnviando) return;
+    setProvaEnviando(true);
+    try {
+      const r = await api.post(`/inbox/conversations/${sel.id}/prova-social`, { quantas: 4 });
+      /* As fotos vão sozinhas (imagem não se revisa) e o TEXTO cai na caixa pra
+         ela conferir antes de mandar — ordem do master, 03/09. A legenda da
+         imagem não estava sendo entregue pelo WhatsApp; assim o convite do
+         Instagram chega sempre, e ainda passa pelos olhos dela. */
+      if (r?.texto) {
+        setInput(p2 => (p2.trim() ? `${p2.trim()}\n\n${r.texto}` : r.texto));
+        textRef.current?.focus();
+      }
+      Toast.show(r?.enviadas
+        ? `${r.enviadas} fotos indo 📸 o texto do Instagram está na caixa — confira e envie`
+        : 'Fotos enviadas 📸', 'success');
+    } catch (e) { Toast.show(e.message || 'Não consegui enviar as fotos', 'error'); }
+    setProvaEnviando(false);
+  };
+
   /* 📍 ENDEREÇO DA CLÍNICA EM UM TOQUE (ordem do master, 01/09: "cria um botão
      só de Endereço da Clínica que já vai com essa mensagem padrão, assim como
      já existe para agendamento").
@@ -3998,11 +4009,37 @@ export default function Inbox({ onUnreadChange }) {
                 {provaEnviando ? <Loader2 size={15} className="spin"/> : <Image size={13} strokeWidth={2.4}/>}
                 <span className="vh-so-desktop">{provaEnviando ? 'Enviando…' : 'Prova social'}</span>
               </button>
-              <button onClick={recording?stopRec:startRec} className="btn btn-ico" style={{ background:recording?'var(--err2)':'var(--bg2)', color:recording?'var(--err)':'var(--muted)', borderRadius:8, animation:recording?'pulse 1.2s infinite':'none' }}>
-                {recording?<MicOff size={15}/>:<Mic size={15}/>}
+              {/* 🎤 VIDA NO MICROFONE, NO MESMO LUGAR (ordem do master, 03/09:
+                  "não mude ele de lugar, só dê vida para ele e para o botão de
+                  enviar"). Era o único cinza no meio de quatro coloridos, e
+                  parecia desligado. Ganhou o verde do WhatsApp; gravando fica
+                  vermelho pulsando, impossível de esquecer ligado. */}
+              <button onClick={recording?stopRec:startRec}
+                title={recording ? 'Parar a gravação e enviar' : 'Gravar um áudio — voz converte mais que textão'}
+                style={{ display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, border:'none',
+                  width:36, height:36, borderRadius:'50%', cursor:'pointer',
+                  background: recording ? 'linear-gradient(135deg,#f87171,#dc2626)' : 'linear-gradient(135deg,#4ade80,#16a34a)',
+                  color:'#fff',
+                  boxShadow: recording ? '0 3px 14px rgba(220,38,38,.55)' : '0 3px 12px rgba(22,163,74,.42)',
+                  animation: recording ? 'vhPulseVermelho 1.1s ease-in-out infinite' : 'none' }}>
+                {recording?<MicOff size={16} strokeWidth={2.4}/>:<Mic size={16} strokeWidth={2.4}/>}
               </button>
-              <button onClick={()=>send()} disabled={(!input.trim()&&!filePreview)||sending} className="btn btn-ico" style={{ background:(input.trim()||filePreview)&&!sending?'var(--tq)':'var(--bg2)', color:(input.trim()||filePreview)&&!sending?'#fff':'var(--light)', borderRadius:8, transition:'all .15s' }}>
-                {sending ? <Loader2 size={15} style={{animation:'spin 1s linear infinite'}}/> : <Send size={15}/>}
+              {/* ➤ VIDA NO ENVIAR (ordem do master, 03/09). Ele era um quadradinho
+                  cinza que só acendia num turquesa apagado — o botão mais usado
+                  do sistema parecia o menos importante. Agora é redondo, no
+                  turquesa cheio da casa, com sombra: quando há o que mandar,
+                  ele CHAMA. Sem nada escrito, fica apagado de propósito, pra
+                  ninguém clicar à toa. */}
+              <button onClick={()=>send()} disabled={(!input.trim()&&!filePreview)||sending}
+                title="Enviar (Enter)"
+                style={{ display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, border:'none',
+                  width:38, height:38, borderRadius:'50%', transition:'all .15s',
+                  cursor: (input.trim()||filePreview)&&!sending ? 'pointer' : 'default',
+                  background: (input.trim()||filePreview)&&!sending
+                    ? 'linear-gradient(135deg,#22d3ee,#0E8C96)' : 'var(--bg2)',
+                  color: (input.trim()||filePreview)&&!sending ? '#fff' : 'var(--light)',
+                  boxShadow: (input.trim()||filePreview)&&!sending ? '0 3px 14px rgba(14,140,150,.5)' : 'none' }}>
+                {sending ? <Loader2 size={16} style={{animation:'spin 1s linear infinite'}}/> : <Send size={16} strokeWidth={2.4}/>}
               </button>
             </div>
             {recording&&<div style={{ textAlign:'center', marginTop:5, fontSize:11, color:'var(--err)', fontWeight:600 }}>🔴 Gravando… clique para parar</div>}

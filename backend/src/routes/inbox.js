@@ -8056,10 +8056,19 @@ r.post('/conversations/:id/prova-social', async (req, res) => {
     const ph55 = phoneNum.startsWith('55') ? phoneNum : `55${phoneNum}`;
 
     const setorFoto = conv.setor === 'vacinas' ? 'vacinas' : 'terapias';
+    /* ⚡ POR QUE ISTO ESTAVA LENTO (cobrança do master, 03/09: "prova social
+       está demorando demais").
+
+       A consulta trazia `data` de até 60 fotos — e `data` é a imagem inteira em
+       base64. Eram dezenas de MB saindo do banco pra usar QUATRO. O tempo não
+       estava no WhatsApp: estava aqui, antes de qualquer envio.
+
+       Agora vêm só os identificadores (linha leve), escolhem-se os candidatos e
+       só então a imagem é buscada, uma a uma, até completar o número pedido. */
     const { rows: cands } = await query(`
-      SELECT id, titulo, data, msg_id FROM biblioteca_midias
+      SELECT id, msg_id, (data IS NOT NULL) AS tem_data FROM biblioteca_midias
        WHERE tipo IN ('foto', 'imagem', 'image') AND setor IN ($1, 'geral')
-       ORDER BY (setor = $1) DESC, random() LIMIT 60`, [setorFoto]);   // varre bem mais: muita foto guarda só a referência da mensagem
+       ORDER BY (setor = $1) DESC, random() LIMIT 40`, [setorFoto]);
     /* 📸 QUATRO FOTOS (ordem do master, 03/09: "ele vai mandar 4 fotos e junto
        com a mensagem do Instagram"). Eram 10 — e dez fotos seguidas no
        WhatsApp cansam e parecem disparo de robô. Quatro contam a mesma
@@ -8069,8 +8078,12 @@ r.post('/conversations/:id/prova-social', async (req, res) => {
     const prontas = [];
     for (const f of cands) {
       if (prontas.length >= quantas) break;
-      let d = f.data;
-      if (!d && f.msg_id) {
+      let d = null;
+      if (f.tem_data) {
+        const { rows: [b] } = await query('SELECT data FROM biblioteca_midias WHERE id = $1', [f.id])
+          .catch(() => ({ rows: [] }));
+        d = b?.data || null;
+      } else if (f.msg_id) {
         const { rows: [msgF] } = await query('SELECT content FROM mensagens WHERE id = $1', [f.msg_id]).catch(() => ({ rows: [] }));
         d = String(msgF?.content || '').startsWith('data:') ? msgF.content : null;
       }
@@ -8078,27 +8091,38 @@ r.post('/conversations/:id/prova-social', async (req, res) => {
     }
     if (!prontas.length) return res.status(400).json({ error: 'A Biblioteca não tem fotos utilizáveis pra este setor — anexe fotos em Biblioteca primeiro.' });
 
-    /* A legenda da ÚLTIMA foto é a mensagem inteira de prova social, a mesma
-       do passo 7 do protocolo. Assim as fotos e o convite chegam como uma
-       coisa só — não uma rajada de imagens e um texto solto no fim. */
+    /* ✍️ O TEXTO NÃO VAI MAIS COMO LEGENDA (cobrança do master, 03/09: "só
+       está indo as 4 fotos e não está indo o texto e o link do Instagram").
+
+       A legenda ia junto no envio da imagem e o WhatsApp não estava
+       entregando. Em vez de insistir num caminho que falha calado, o texto
+       volta pra tela: sai daqui na resposta, cai na caixa de digitar e a
+       atendente confere antes de mandar — que foi o que ele pediu, e é a mesma
+       regra dos outros botões (Agendar, Endereço, Tabela). */
     const insta = 'Olha que lindo o cuidado da nossa equipe com as crianças 🥰 '
       + 'Cada sorriso desses é uma família que confiou na gente. '
       + 'No nosso Instagram tem muitos momentos assim: https://www.instagram.com/vittalissaudeslz/ 💙';
-    let enviadas = 0;
-    for (let i = 0; i < prontas.length; i++) {
-      const legenda = i === prontas.length - 1 ? insta : '';
-      const zr = await zapiCall('/send-image', 'POST', { phone: ph55, image: prontas[i], caption: legenda });
-      if (!zr?.ok) continue;
-      enviadas++;
-      const { rows: [m] } = await query(`INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, created_at)
-        VALUES ($1,'me',$2,'image',$3,NOW()) RETURNING *`, [conv.id, req.user.nome, prontas[i]]).catch(() => ({ rows: [null] }));
-      if (m) socketEmit('new_message', { convId: conv.id, message: m, conv });
-    }
-    if (!enviadas) return res.status(500).json({ error: 'Nenhuma foto conseguiu sair — tente de novo.' });
-    // Atendente respondeu → bot desliga nesta conversa (regra da casa)
-    await query('UPDATE conversas SET last_from = $2, last_message = $3, last_message_at = NOW() WHERE id = $1 RETURNING *', [conv.id, 'me', '[image]'])
-      .then(({ rows: [c2] }) => c2 && cacheUpdate(c2)).catch(() => {});
-    res.json({ ok: true, enviadas });
+    /* ⚡ A TELA NÃO ESPERA O WHATSAPP (03/09). Cada foto é um upload grande:
+       quatro em fila são vários segundos com o botão travado em "Enviando…",
+       e a atendente parada olhando. Agora o servidor responde na hora e manda
+       as fotos por trás — elas vão aparecendo na conversa uma a uma, pelo
+       mesmo caminho de qualquer mensagem nova. Se alguma falhar, some do meio
+       e as outras seguem; o erro fica no log do servidor. */
+    (async () => {
+      for (let i = 0; i < prontas.length; i++) {
+        try {
+          const zr = await zapiCall('/send-image', 'POST', { phone: ph55, image: prontas[i] });
+          if (!zr?.ok) { console.error('prova-social: foto recusada pelo WhatsApp'); continue; }
+          const { rows: [m] } = await query(`INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, created_at)
+            VALUES ($1,'me',$2,'image',$3,NOW()) RETURNING *`, [conv.id, req.user.nome, prontas[i]]).catch(() => ({ rows: [null] }));
+          if (m) socketEmit('new_message', { convId: conv.id, message: m, conv });
+        } catch (e) { console.error('prova-social envio:', e.message); }
+      }
+      // Atendente respondeu → bot desliga nesta conversa (regra da casa)
+      await query('UPDATE conversas SET last_from = $2, last_message = $3, last_message_at = NOW() WHERE id = $1 RETURNING *', [conv.id, 'me', '[image]'])
+        .then(({ rows: [c2] }) => c2 && cacheUpdate(c2)).catch(() => {});
+    })();
+    res.json({ ok: true, enviadas: prontas.length, emAndamento: true, texto: insta });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
