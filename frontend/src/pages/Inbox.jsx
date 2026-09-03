@@ -110,8 +110,31 @@ function VirtualList({ items, selectedId, onSelect, containerHeight, loadMore, h
   const scrollRef = useRef(null);
   const [scrollTop, setScrollTop] = useState(0);
 
-  const visibleStart = Math.max(0, Math.floor(scrollTop / ITEM_HEIGHT) - 3);
-  const visibleCount = Math.ceil(containerHeight / ITEM_HEIGHT) + 6;
+  /* 📏 A LISTA MEDE A SI MESMA (erro grave do master, 03/09: "mostra 80
+     conversas e na barra de rolagem não aparece todas").
+
+     A altura vinha MEDIDA DE FORA, do container pai. Quando essa medida saía
+     errada — e saía: a barra do protocolo abre e fecha, a faixa de fixadas
+     entra e sai, o painel do lado empurra tudo — a lista desenhava uma janela
+     do tamanho errado. Sobrava espaço em branco embaixo e a rolagem parecia
+     ter menos conversa do que o rodapé dizia.
+
+     Agora ela lê a PRÓPRIA altura do elemento que rola, e um ResizeObserver
+     avisa toda vez que ela muda. A medida de fora vira só o palpite inicial. */
+  const [altura, setAltura] = useState(containerHeight || 500);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const medir = () => setAltura(el.clientHeight || containerHeight || 500);
+    medir();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(medir);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [containerHeight]);
+
+  const visibleStart = Math.max(0, Math.floor(scrollTop / ITEM_HEIGHT) - 5);
+  const visibleCount = Math.ceil(altura / ITEM_HEIGHT) + 10;
   const visibleEnd   = Math.min(items.length, visibleStart + visibleCount);
   const visibleItems = items.slice(visibleStart, visibleEnd);
   const totalHeight  = items.length * ITEM_HEIGHT;
@@ -119,19 +142,21 @@ function VirtualList({ items, selectedId, onSelect, containerHeight, loadMore, h
   /* Se o que já veio não enche a área visível, o scroll nunca acontece e a
      lista ficaria parada pra sempre. Aqui ela mesma pede a próxima página. */
   useEffect(() => {
-    if (hasMore && !loadingMore && totalHeight <= containerHeight + ITEM_HEIGHT) loadMore();
-  }, [hasMore, loadingMore, totalHeight, containerHeight, loadMore]);
+    if (hasMore && !loadingMore && totalHeight <= altura + ITEM_HEIGHT) loadMore();
+  }, [hasMore, loadingMore, totalHeight, altura, loadMore]);
 
   const onScroll = useCallback(e => {
     const st = e.currentTarget.scrollTop;
     setScrollTop(st);
-    const near = st + containerHeight >= totalHeight - ITEM_HEIGHT * 4;
+    const near = st + e.currentTarget.clientHeight >= totalHeight - ITEM_HEIGHT * 4;
     if (near && hasMore && !loadingMore) loadMore();
-  }, [containerHeight, totalHeight, hasMore, loadingMore, loadMore]);
+  }, [totalHeight, hasMore, loadingMore, loadMore]);
 
   return (
     <div ref={scrollRef} onScroll={onScroll}
-      style={{ flex: 1, overflowY: 'auto', position: 'relative', height: containerHeight }}>
+      /* height 100%: quem manda no tamanho é o espaço que sobrou na tela, não
+         um número calculado antes. Era o número que estava errando. */
+      style={{ position: 'absolute', inset: 0, overflowY: 'auto' }}>
       <div style={{ height: totalHeight, position: 'relative' }}>
         <div style={{ position: 'absolute', top: visibleStart * ITEM_HEIGHT, left: 0, right: 0 }}>
           {visibleItems.map(c => (
@@ -2417,7 +2442,9 @@ export default function Inbox({ onUnreadChange }) {
             💬 Geral
           </div>
         )}
-        <div ref={listContainerRef} style={{ flex:1, minHeight:0 }}>
+        {/* position:relative + inset:0 no rolador: a altura passa a ser o espaço
+            que sobrou de verdade na tela, sem depender de conta nenhuma. */}
+        <div ref={listContainerRef} style={{ flex:1, minHeight:0, position:'relative' }}>
           {modo === 'distribuir' ? (
             <FilaDistribuicao convos={convosExib} equipe={atendentes.filter(a2 => a2.id !== user?.id)}
               onSelect={openConvo} entregando={entregando}
