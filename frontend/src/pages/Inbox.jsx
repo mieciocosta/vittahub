@@ -733,7 +733,13 @@ const MsgItem = React.memo(function MsgItem({ m, prevMsg, contactName, channel, 
             )}
             <div style={{ fontSize:10, color:'var(--light)', marginTop:4, textAlign:'right', display:'flex', alignItems:'center', justifyContent:'flex-end', gap:3 }}>
               {fmt.msgTime(m.created_at||m.timestamp)}
-              {isMe&&<span style={{ color:m.status==='delivered'||m.status==='read'?'var(--tq)':'var(--light)' }}>{m.status==='delivered'||m.status==='read'?'✓✓':'✓'}</span>}
+              {/* ❌ ERRO DE ENVIO VISÍVEL (03/09: "ainda não sai áudio" — e o áudio
+                  com erro mostrava o MESMO ✓ do enviado). Agora falha é vermelha,
+                  com o motivo no toque, e não se confunde com "foi". */}
+              {isMe && (m.status === 'erro'
+                ? <span title={m.aviso || 'O WhatsApp não aceitou este envio. Toque em Configurações → Diagnóstico de áudio e anexos pra ver o motivo.'}
+                    style={{ color:'#ef4444', fontWeight:900, cursor:'help' }}>❌ não enviado</span>
+                : <span style={{ color:m.status==='delivered'||m.status==='read'?'var(--tq)':'var(--light)' }}>{m.status==='delivered'||m.status==='read'?'✓✓':'✓'}</span>)}
             </div>
           </div>
         </div>

@@ -1,7 +1,11 @@
 # Configuração Nixpacks para o Railway (VittaHub backend)
 # Instala bibliotecas de sistema necessárias para o Chromium/Puppeteer rodar
 [phases.setup]
-nixPkgs = ["nodejs", "...", "chromium"]
+# ffmpeg: converte o áudio da equipe pra ogg/opus (nota de voz do WhatsApp).
+# Instalado como pacote do SISTEMA de propósito: o ffmpeg-static baixa o binário
+# na hora do build, e quando esse download falha o áudio vai bruto e o WhatsApp
+# recusa calado (03/09). Com o pacote aqui, o conversor existe sempre.
+nixPkgs = ["nodejs", "...", "chromium", "ffmpeg"]
 aptPkgs = [
   "libnspr4",
   "libnss3",

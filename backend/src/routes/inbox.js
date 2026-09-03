@@ -985,8 +985,30 @@ setTimeout(() => { resgatarMidiasRecentes(); }, 45 * 1000);
    torcer pelo formato certo no aparelho, o servidor converte TUDO pra ogg/opus
    antes de enviar, com o ffmpeg embutido (ffmpeg-static, sem depender do que
    o Railway tem instalado). Mono, 48kHz, 32kbps: o padrão de nota de voz. */
+/* Onde está o ffmpeg: o do sistema (nixpacks) vem primeiro; o ffmpeg-static é
+   a reserva. Lembra qual achou, pra não procurar de novo a cada áudio e pro
+   diagnóstico dizer qual está em uso. */
+let ffmpegAchado = null;
+async function acharFfmpeg() {
+  if (ffmpegAchado) return ffmpegAchado;
+  const { execFile } = await import('node:child_process');
+  const { existsSync } = await import('node:fs');
+  const testa = (bin) => new Promise(ok => execFile(bin, ['-version'], { timeout: 8000 }, (e, out) =>
+    ok(e ? null : { bin, versao: String(out).split('\n')[0].slice(0, 80) })));
+  const doSistema = await testa('ffmpeg');
+  if (doSistema) return (ffmpegAchado = { ...doSistema, origem: 'sistema' });
+  try {
+    const { default: p } = await import('ffmpeg-static');
+    if (p && existsSync(p)) {
+      const st = await testa(p);
+      if (st) return (ffmpegAchado = { ...st, origem: 'ffmpeg-static' });
+    }
+  } catch { /* sem o pacote: cai no erro abaixo */ }
+  throw new Error('ffmpeg não encontrado no servidor (nem do sistema, nem o ffmpeg-static)');
+}
+
 async function converterAudioParaOgg(buffer) {
-  const { default: ffmpegPath } = await import('ffmpeg-static');
+  const { bin: ffmpegPath } = await acharFfmpeg();
   const { spawn } = await import('node:child_process');
   return new Promise((resolve, reject) => {
     const ff = spawn(ffmpegPath, ['-loglevel', 'error', '-i', 'pipe:0', '-vn',
@@ -1024,10 +1046,8 @@ function registrarEnvioMidia(reg) {
 r.get('/diagnostico/midias', auth, masterOnly, async (req, res) => {
   let ffmpeg = { ok: false, versao: null };
   try {
-    const { default: ffmpegPath } = await import('ffmpeg-static');
-    const { execFile } = await import('node:child_process');
-    ffmpeg = await new Promise(resolve => execFile(ffmpegPath, ['-version'], { timeout: 8000 }, (e, out) =>
-      resolve(e ? { ok: false, versao: null, erro: e.message } : { ok: true, versao: String(out).split('\n')[0].slice(0, 80) })));
+    const f = await acharFfmpeg();
+    ffmpeg = { ok: true, versao: `${f.versao} (${f.origem})` };
   } catch (e) { ffmpeg = { ok: false, versao: null, erro: e.message }; }
   res.json({ ffmpeg, zapi: zapiOk(), envios: ultimosEnviosMidia });
 });
@@ -1040,9 +1060,9 @@ r.post('/diagnostico/testar-audio', auth, masterOnly, async (req, res) => {
     const ph55 = phone.startsWith('55') ? phone : `55${phone}`;
     if (!zapiOk()) return res.status(400).json({ error: 'Z-API não configurada no servidor.' });
 
-    const { default: ffmpegPath } = await import('ffmpeg-static');
+    const { bin: ffmpegPath, origem, versao } = await acharFfmpeg();
     const { spawn } = await import('node:child_process');
-    passos.push(`ffmpeg em ${ffmpegPath}`);
+    passos.push(`ffmpeg: ${origem} · ${versao}`);
     const tom = await new Promise((resolve, reject) => {
       const ff = spawn(ffmpegPath, ['-loglevel', 'error', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=2',
         '-c:a', 'libopus', '-b:a', '32k', '-ar', '48000', '-ac', '1', '-f', 'ogg', 'pipe:1']);
