@@ -1704,6 +1704,15 @@ export default function Inbox({ onUnreadChange }) {
         setSel(prev => prev?.id === sel.id ? { ...prev, responsavel_id: r.autoAssign.responsavel_id, responsavel_nome: u?.nome || r.autoAssign.responsavel_nome, responsavel_cor: u?.cor || null } : prev);
         setConvos(prev => prev.map(c => c.id === sel.id ? { ...c, responsavel_id: r.autoAssign.responsavel_id } : c));
       }
+      /* 🏆 A NOTA DO TOPO SE ATUALIZA NA HORA (ordem do master, 03/09: "dê nota
+         10 ao atendimento toda vez que terminar em agendamento").
+
+         O cartão de agendamento enviado cria o evento na agenda — e é o evento
+         que faz a nota virar 10. Só que o protocolo era lido uma vez, ao abrir
+         a conversa: ela mandava o cartão, a agenda enchia e a nota continuava
+         mostrando o número velho até fechar e abrir de novo. Agora ele é relido
+         depois de cada envio. */
+      api.get(`/inbox/conversations/${sel.id}/protocolo`).then(setProto).catch(() => {});
     }
     catch(e) { console.error('send error:', e.message); }
     finally { setSending(false); }
@@ -2553,7 +2562,9 @@ export default function Inbox({ onUnreadChange }) {
                     {proto.nota.tipo === 'parabens' ? '🎉' : proto.nota.tipo === 'atencao' ? '👏' : '⚠️'}
                     Nota {String(proto.nota.valor).replace('.', ',')}
                     <span style={{ opacity:.85, fontWeight:700 }}>
-                      · {proto.nota.tipo === 'parabens' ? 'protocolo completo' : proto.nota.proximo?.titulo || 'siga o protocolo'}
+                      · {proto.nota.por_agendamento ? 'agendou 🎉'
+                        : proto.nota.tipo === 'parabens' ? 'protocolo completo'
+                        : proto.nota.proximo?.titulo || 'siga o protocolo'}
                     </span>
                   </button>
                 )}
@@ -4109,7 +4120,12 @@ export default function Inbox({ onUnreadChange }) {
                 {resumo.avaliacao && (
                   <div style={{ marginTop:14, padding:'13px 15px', borderRadius:12, background:'var(--bg2)', border:'1px solid var(--border)' }}>
                     <div style={{ display:'flex', alignItems:'center', gap:9, marginBottom:9 }}>
-                      <span style={{ fontSize:10, fontWeight:800, letterSpacing:.5, textTransform:'uppercase', color:'var(--muted)', flex:1 }}>⭐ Avaliação do atendimento</span>
+                      <span style={{ fontSize:10, fontWeight:800, letterSpacing:.5, textTransform:'uppercase', color:'var(--muted)', flex:1 }}>
+                        ⭐ Avaliação do atendimento
+                        {resumo.avaliacao.por_agendamento && (
+                          <span style={{ textTransform:'none', letterSpacing:0, color:'var(--ok,#16a34a)', fontWeight:800 }}> · agendou 🎉</span>
+                        )}
+                      </span>
                       <span style={{ fontSize:17, fontWeight:900, color: resumo.avaliacao.nota >= 8 ? 'var(--ok,#16a34a)' : resumo.avaliacao.nota >= 6 ? '#d97706' : 'var(--err,#dc2626)' }}>
                         {resumo.avaliacao.nota}/10
                       </span>
@@ -4122,7 +4138,12 @@ export default function Inbox({ onUnreadChange }) {
                     )}
                     {resumo.avaliacao.deixou_a_desejar?.length > 0 && (
                       <div style={{ marginBottom:8 }}>
-                        <div style={{ fontSize:11, fontWeight:800, color:'var(--err,#dc2626)', marginBottom:2 }}>⚠️ Deixou a desejar</div>
+                        {/* Quem agendou não "deixou a desejar" — fechou. O que
+                            faltou no caminho vira dica pra próxima. */}
+                        <div style={{ fontSize:11, fontWeight:800, marginBottom:2,
+                          color: resumo.avaliacao.por_agendamento ? 'var(--tq2)' : 'var(--err,#dc2626)' }}>
+                          {resumo.avaliacao.por_agendamento ? '💡 Pra ficar ainda melhor na próxima' : '⚠️ Deixou a desejar'}
+                        </div>
                         {resumo.avaliacao.deixou_a_desejar.map((x, i) => <div key={i} style={{ fontSize:12.5, lineHeight:1.55 }}>• {x}</div>)}
                       </div>
                     )}

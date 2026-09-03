@@ -9197,15 +9197,31 @@ Os passos do protocolo: (1) boas-vindas calorosas, (2) perguntar o nome do pacie
 
     const limpa = (t) => String(t || '').replace(/\*+/g, '').trim() || null;
     const lista = (a) => (Array.isArray(a) ? a : []).slice(0, 5).map(limpa).filter(Boolean);
+    /* A conversa virou agendamento? Então o atendimento fez o que tinha que
+       fazer, e a nota é 10 — mesmo que algum passo do caminho tenha sido
+       pulado. Mesma regra do selo do topo, no mesmo lugar do banco. */
+    const { rows: agAval } = await query(
+      `SELECT 1 FROM agenda_eventos
+        WHERE conversa_id = $1 AND LOWER(COALESCE(status,'')) NOT LIKE 'cancel%'
+          AND servico IS DISTINCT FROM 'Pós Vacinal' LIMIT 1`, [req.params.id]).catch(() => ({ rows: [] }));
+    const virouAgendaAval = agAval.length > 0;
+
     const out = {
       resumo: limpa(j.resumo), cliente: limpa(j.cliente), interesse: limpa(j.interesse),
       ja_oferecido: limpa(j.ja_oferecido), objecoes: lista(j.objecoes), combinado: limpa(j.combinado),
       pendente: limpa(j.pendente), proximo_passo: limpa(j.proximo_passo),
       temperatura: ['quente', 'morno', 'frio'].includes(j.temperatura) ? j.temperatura : null,
       avaliacao: j.avaliacao ? {
-        nota: Math.max(0, Math.min(parseFloat(j.avaliacao.nota) || 0, 10)),
+        /* 🏆 Agendou é 10, e isso NÃO é pedido à IA — é imposto aqui (ordem do
+           master, 03/09). Pedir no prompt funcionava quase sempre, e "quase
+           sempre" numa nota que a equipe lê todo dia vira injustiça: uma hora
+           a IA desconta um passo pulado e a pessoa que fechou leva 8,5. A
+           regra da casa mora no código; a IA opina no resto. */
+        nota: virouAgendaAval ? 10 : Math.max(0, Math.min(parseFloat(j.avaliacao.nota) || 0, 10)),
         pontos_fortes: lista(j.avaliacao.pontos_fortes),
         deixou_a_desejar: lista(j.avaliacao.deixou_a_desejar),
+        // Quando fechou, o que faltou é aprendizado pra próxima, não cobrança
+        por_agendamento: virouAgendaAval,
         dica: limpa(j.avaliacao.dica),
       } : null,
       mensagens: hist.length, gerado_em: new Date().toISOString(),
