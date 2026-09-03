@@ -974,7 +974,48 @@ export default function Inbox({ onUnreadChange }) {
      tabela, que é o que a equipe manda pro cliente). "Puxar tudo da aba" é
      puxar os dois — sem isso, o botão traria metade da aba. */
   const [tabelaArqs, setTabelaArqs] = useState([]);
+  /* 📝 As notas de precificação e o anexo, dentro da conversa (02/09). A ideia
+     é que quem está na ponta não precise sair do atendimento pra guardar o que
+     descobriu: anexa o PDF novo e escreve o combinado ali mesmo. */
+  const [tabelaNotas, setTabelaNotas] = useState({});
+  const [precoEdit, setPrecoEdit] = useState(null);   // texto em edição, ou null
+  const [precoBusy, setPrecoBusy] = useState(false);
+  const arqTabelaRef = useRef(null);
   const [arqEnviando, setArqEnviando] = useState(null);
+  const carregarNotasTabela = () => {
+    api.get('/extras/tabela-precos/notas').then(d => setTabelaNotas(d && typeof d === 'object' ? d : {})).catch(() => {});
+  };
+  const salvarNotaTabela = async (setor, texto) => {
+    if (precoBusy) return;
+    setPrecoBusy(true);
+    try {
+      const d = await api.put('/extras/tabela-precos/notas', { setor, texto });
+      setTabelaNotas(d && typeof d === 'object' ? d : {});
+      setPrecoEdit(null);
+      Toast.show(texto.trim() ? 'Anotação salva pra equipe toda 📝' : 'Anotação removida', 'success');
+    } catch (e) { Toast.show(e.message || 'Não consegui salvar', 'error'); }
+    setPrecoBusy(false);
+  };
+  /* 📎 Anexar da conversa: o arquivo entra na MESMA pasta da aba Tabela de
+     Preços. Quem anexou aqui publicou pra casa toda — não é cópia local. */
+  const anexarNaTabela = async (e) => {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f) return;
+    if (!tabelaSetor) { Toast.show('Escolha o setor (Vacinas, Consultas ou Terapias) antes de anexar.', 'error'); return; }
+    if (f.size > 40 * 1048576) { Toast.show('Arquivo grande demais (máx. 40 MB).', 'error'); return; }
+    setPrecoBusy(true);
+    try {
+      const url = await new Promise((ok, err) => {
+        const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = err; r.readAsDataURL(f);
+      });
+      const a = await api.post('/extras/pasta-arquivos', {
+        chave: `tabela_precos_${tabelaSetor}`, nome: f.name, arquivo: url, mimetype: f.type });
+      setTabelaArqs(p2 => [a, ...p2]);
+      Toast.show('Anexado na tabela da casa 📎', 'success');
+    } catch (err) { Toast.show(err.message || 'Não consegui anexar', 'error'); }
+    setPrecoBusy(false);
+  };
   const carregarArqsTabela = (setor) => {
     const chaves = setor ? [`tabela_precos_${setor}`] : ['tabela_precos_vacinas', 'tabela_precos_consultas', 'tabela_precos_terapias'];
     Promise.all(chaves.map(k => api.get(`/extras/pasta-arquivos?chave=${k}`).catch(() => [])))
@@ -1012,6 +1053,7 @@ export default function Inbox({ onUnreadChange }) {
     const setorInicial = sel?.setor || '';
     setTabelaSetor(setorInicial);
     carregarArqsTabela(setorInicial);
+    carregarNotasTabela();
   };
   const [protoBusy, setProtoBusy] = useState('');
   const [protoSel, setProtoSel] = useState(null); // passo aberto nos botões numerados (23/08/2026)
@@ -2992,6 +3034,75 @@ export default function Inbox({ onUnreadChange }) {
                     </button>
                   ))}
                 </div>
+                {/* 📝 O COMBINADO DA CASA SOBRE PREÇO (ordem do master, 02/09).
+                    Parcelamento, desconto de irmão, o que entra no pacote — o
+                    que não cabe numa linha de tabela e antes vivia na cabeça de
+                    cada uma, com cada cliente ouvindo uma versão. Quem escreve
+                    assina, e vale pra equipe toda. */}
+                {tabelaSetor && (() => {
+                  const nota = tabelaNotas?.[tabelaSetor];
+                  const editando = precoEdit !== null;
+                  return (
+                    <div style={{ marginBottom:10, paddingBottom:9, borderBottom:'1px solid var(--border)' }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:5, flexWrap:'wrap' }}>
+                        <span style={{ fontSize:10, fontWeight:800, color:'var(--tq2)' }}>📝 Sobre a precificação</span>
+                        {!editando && (
+                          <button onClick={()=>setPrecoEdit(nota?.texto || '')}
+                            style={{ border:'1.5px solid var(--border)', background:'var(--bg2)', borderRadius:8,
+                              padding:'2px 9px', fontSize:10, fontWeight:800, color:'var(--txt2)', cursor:'pointer' }}>
+                            {nota ? '✏️ Editar' : '➕ Escrever'}
+                          </button>
+                        )}
+                        <button onClick={()=>arqTabelaRef.current?.click()} disabled={precoBusy}
+                          title="Anexar um documento na tabela desta área (fica pra casa toda)"
+                          style={{ marginLeft:'auto', border:'1.5px solid var(--tq)', background:'var(--tq4,#e8f7f8)', borderRadius:8,
+                            padding:'2px 9px', fontSize:10, fontWeight:800, color:'var(--tq2)', cursor: precoBusy ? 'wait' : 'pointer' }}>
+                          📎 Anexar documento
+                        </button>
+                        <input ref={arqTabelaRef} type="file" onChange={anexarNaTabela} style={{ display:'none' }}
+                          accept=".pdf,.doc,.docx,.xls,.xlsx,image/*" />
+                      </div>
+                      {editando ? (
+                        <>
+                          <textarea value={precoEdit} onChange={e=>setPrecoEdit(e.target.value)} rows={4} autoFocus
+                            placeholder={'Ex.: Parcelamos em até 10x sem juros no cartão.\nIrmãos têm 10% no pacote.\nO pacote inclui a aplicação e o pós vacinal.'}
+                            style={{ width:'100%', resize:'vertical', border:'1.5px solid var(--border)', borderRadius:10,
+                              padding:'8px 10px', fontSize:12, background:'var(--bg)', color:'var(--txt)', fontFamily:'inherit', lineHeight:1.5 }} />
+                          <div style={{ display:'flex', gap:6, marginTop:6, flexWrap:'wrap' }}>
+                            <button onClick={()=>salvarNotaTabela(tabelaSetor, precoEdit)} disabled={precoBusy}
+                              style={{ border:'none', borderRadius:9, padding:'6px 13px', cursor:'pointer', fontSize:11.5, fontWeight:800,
+                                background:'var(--tq)', color:'#fff', opacity: precoBusy ? .6 : 1 }}>
+                              {precoBusy ? 'Salvando…' : 'Salvar pra equipe'}
+                            </button>
+                            <button onClick={()=>setPrecoEdit(null)}
+                              style={{ border:'1.5px solid var(--border)', borderRadius:9, padding:'6px 12px', cursor:'pointer',
+                                fontSize:11.5, fontWeight:700, background:'var(--bg2)', color:'var(--muted)' }}>Cancelar</button>
+                            <span style={{ fontSize:10, color:'var(--light)', alignSelf:'center' }}>vale pra todo mundo, com o seu nome</span>
+                          </div>
+                        </>
+                      ) : nota ? (
+                        <div style={{ background:'var(--bg2)', borderRadius:10, padding:'8px 11px' }}>
+                          <div style={{ fontSize:12, color:'var(--txt2)', whiteSpace:'pre-wrap', lineHeight:1.55 }}>{nota.texto}</div>
+                          <div style={{ display:'flex', gap:8, alignItems:'center', marginTop:6, flexWrap:'wrap' }}>
+                            <span style={{ fontSize:9.5, color:'var(--light)' }}>
+                              por {fmt.primeiroNome(nota.por)}{nota.em ? ` · ${new Date(nota.em).toLocaleDateString('pt-BR')}` : ''}
+                            </span>
+                            <button onClick={()=>{ setInput(p2 => (p2.trim() ? `${p2.trim()}\n\n${nota.texto}` : nota.texto)); setShowTabela(false); textRef.current?.focus(); }}
+                              style={{ border:'1.5px solid var(--border)', background:'var(--card)', borderRadius:8,
+                                padding:'2px 9px', fontSize:10, fontWeight:800, color:'var(--txt2)', cursor:'pointer' }}>
+                              ↗ Usar na mensagem
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ fontSize:11.5, color:'var(--muted)' }}>
+                          Nada anotado ainda. Escreva o que a equipe precisa saber pra falar de preço com segurança.
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
                 {tabelaArqs.length > 0 && (
                   <div style={{ marginBottom:10, paddingBottom:9, borderBottom:'1px solid var(--border)' }}>
                     <div style={{ fontSize:10, fontWeight:800, color:'var(--tq2)', marginBottom:5 }}>
@@ -3828,9 +3939,9 @@ export default function Inbox({ onUnreadChange }) {
                   placeholder="Ex.: Liguei 14h. A mãe decide, o pai paga. O Théo tem 8 meses, já tomou as do 6º mês em outra clínica. Vai viajar em janeiro e quer retomar em fevereiro. Pediu para chamar no WhatsApp só de tarde."
                   style={{ width:'100%', minHeight:120, padding:'10px 12px', borderRadius:10, border:'1.5px solid var(--border)', fontSize:12.5, lineHeight:1.55,
                     background:'var(--card)', color:'var(--txt)', boxSizing:'border-box', resize:'vertical', fontFamily:'inherit' }} />
-                <button onClick={salvarNota} disabled={notaBusy || !notaTxt.trim()} className="btn btn-p btn-sm"
-                  style={{ marginTop:7, fontWeight:700, opacity:(notaBusy || !notaTxt.trim())?.5:1 }}>
-                  {notaBusy ? 'Salvando…' : 'Salvar anotação'}
+                <button onClick={salvarNota} disabled={precoBusy || !notaTxt.trim()} className="btn btn-p btn-sm"
+                  style={{ marginTop:7, fontWeight:700, opacity:(precoBusy || !notaTxt.trim())?.5:1 }}>
+                  {precoBusy ? 'Salvando…' : 'Salvar anotação'}
                 </button>
 
                 <div style={{ marginTop:12, display:'flex', flexDirection:'column', gap:8 }}>

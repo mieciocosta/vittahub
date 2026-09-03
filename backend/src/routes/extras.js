@@ -2196,6 +2196,46 @@ r.get('/pasta-arquivos/:id/download', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/* 📝 NOTAS DE PRECIFICAÇÃO (ordem do master, 02/09: "cada um possa anexar
+   documentos e também escrever informações sobre precificação").
+
+   É o combinado que não cabe numa linha de tabela: parcelamento, desconto de
+   irmão, validade da promoção, o que entra e o que não entra no pacote. Antes
+   isso vivia na cabeça de cada uma — e cada cliente ouvia uma versão.
+
+   Uma nota por setor, escrita por qualquer pessoa da equipe, com o nome de
+   quem escreveu e quando. Deixar aberto pra todas é decisão do master: quem
+   está na ponta é quem descobre a dúvida que se repete. A assinatura é o que
+   mantém a responsabilidade junto da liberdade. */
+const SETORES_NOTA = ['vacinas', 'consultas', 'terapias'];
+
+r.get('/tabela-precos/notas', async (req, res) => {
+  try {
+    const { rows: [c] } = await query("SELECT valor FROM configuracoes WHERE chave = 'tabela_precos_notas'")
+      .catch(() => ({ rows: [] }));
+    res.json(c?.valor || {});
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+r.put('/tabela-precos/notas', async (req, res) => {
+  try {
+    const setor = String(req.body?.setor || '');
+    if (!SETORES_NOTA.includes(setor)) return res.status(400).json({ error: 'Setor inválido.' });
+    const texto = cut(String(req.body?.texto || '').trim(), 4000);
+    const { rows: [c] } = await query("SELECT valor FROM configuracoes WHERE chave = 'tabela_precos_notas'")
+      .catch(() => ({ rows: [] }));
+    const atual = c?.valor && typeof c.valor === 'object' ? c.valor : {};
+    /* Nota vazia APAGA a do setor: sem isso ficaria um bloco em branco na tela
+       da equipe, que é pior que não ter nota nenhuma. */
+    if (texto) atual[setor] = { texto, por: req.user.nome, em: new Date().toISOString() };
+    else delete atual[setor];
+    await query(`INSERT INTO configuracoes (chave, valor) VALUES ('tabela_precos_notas', $1::jsonb)
+                 ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`,
+      [JSON.stringify(atual)]);
+    res.json(atual);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.post('/pasta-arquivos', async (req, res) => {
   try {
     const b = req.body || {};
