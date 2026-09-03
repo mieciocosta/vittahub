@@ -265,6 +265,8 @@ function FilaDistribuicao({ convos, equipe, onSelect, onDistribuir, entregando, 
 }
 
 const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect, usersById, fixada, onToggleFix }) {
+  /* 📌 A fixada se reconhece de longe pela borda dourada — é o que diz "seu
+     clique funcionou" nas listas que não têm a faixa em cima. */
   const st = STATUS_CFG[conv.status_atend] || STATUS_CFG.aberto;
   const hasUnread = conv.unread > 0;
   const resp = conv.responsavel_id ? usersById?.[conv.responsavel_id] : null;
@@ -281,6 +283,8 @@ const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect, usersB
       style={{
         display: 'flex', gap: 11, padding: '0 13px', cursor: 'pointer',
         height: ITEM_HEIGHT, alignItems: 'center',
+        // 📌 Fixada: barra dourada na lateral — o sinal de que o clique valeu
+        borderLeft: fixada ? '3px solid #C4973B' : '3px solid transparent',
         borderBottom: '1px solid var(--border)',
         borderLeft: `3px solid ${selected ? 'var(--tq)' : hasUnread ? st.color : 'transparent'}`,
       }}>
@@ -2064,10 +2068,22 @@ export default function Inbox({ onUnreadChange }) {
       // 📥 Fila de distribuição: só o que ainda não tem dona (visão do master)
       if (modo === 'distribuir') return convos.filter(c => !c.responsavel_id);
       const base = quentesPrimeiro ? [...convos].sort((a, b) => scoreRank(a.lead_score) - scoreRank(b.lead_score)) : convos;
-      /* A lista não repete quem já está na faixa dourada — mas SÓ onde a faixa
-         existe (Meus atendimentos). Nas outras abas ela some, e esconder a
-         fixada ali faria a conversa desaparecer da tela sem ter pra onde ir. */
-      return (modo === 'minhas' && fixadasIds.size) ? base.filter(c => !fixadasIds.has(c.id)) : base;
+      /* 📌 FIXAR PRECISA FAZER ALGO VISÍVEL EM QUALQUER LISTA (cobrança do
+         master, 02/09: "não está dando a possibilidade de fixar, não aparece
+         essa opção").
+
+         O botão nunca saiu do lugar — o que sumiu foi o efeito. Desde que a
+         faixa dourada passou a existir só em "Meus atendimentos", fixar em
+         "Todas" não movia nada e parecia que o botão não funcionava.
+
+         Agora: onde a faixa existe (Meus atendimentos), a lista não repete
+         quem já está lá em cima; nas outras, a fixada SOBE pro topo da própria
+         lista, com a borda dourada. Uma faixa só, e o alfinete valendo em
+         todo lugar. */
+      if (modo === 'minhas' && fixadasIds.size) return base.filter(c => !fixadasIds.has(c.id));
+      if (!fixadasIds.size) return base;
+      const fixa = base.filter(c => fixadasIds.has(c.id));
+      return fixa.length ? [...fixa, ...base.filter(c => !fixadasIds.has(c.id))] : base;
     },
     [convos, quentesPrimeiro, fixadasIds, modo, fixadas]
   );
