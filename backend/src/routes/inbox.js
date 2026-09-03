@@ -920,6 +920,62 @@ const zapiOk = () => process.env.ZAPI_INSTANCE && process.env.ZAPI_TOKEN;
 
 // Helper: call Z-API
 export const TELEFONE_SIMULADOR = '5500000000000';
+/* 📥 A MÍDIA QUE O CLIENTE MANDA PASSA A SER NOSSA (ordem do master, 03/09:
+   "garantir envio de anexos e recebimento").
+
+   O webhook da Z-API entrega foto, áudio e documento como um LINK — e esse
+   link é temporário: vence em poucos dias. Guardar só o link significava que a
+   receita que a mãe mandou na segunda não abria mais na sexta. Era assim que
+   "o anexo sumiu" acontecia sem ninguém apagar nada.
+
+   Agora, logo depois de gravar a mensagem (pra não atrasar o webhook), o
+   arquivo é baixado em segundo plano e guardado no banco como data URL — o
+   mesmo formato dos anexos que a equipe envia. Até 12MB; acima disso fica o
+   link, que ainda funciona enquanto vale. Falhou a baixa, o link fica. */
+const MIDIA_MAX_BYTES = 12 * 1024 * 1024;
+async function guardarMidiaRecebida(msgId, url) {
+  try {
+    if (!msgId || !/^https?:\/\//i.test(String(url || ''))) return false;
+    const { default: fetch } = await import('node-fetch');
+    const r = await fetch(url, { timeout: 25000 });
+    if (!r.ok) return false;
+    const tamanho = Number(r.headers.get('content-length') || 0);
+    if (tamanho > MIDIA_MAX_BYTES) return false;
+    const buf = Buffer.from(await r.arrayBuffer());
+    if (!buf.length || buf.length > MIDIA_MAX_BYTES) return false;
+    const mime = String(r.headers.get('content-type') || 'application/octet-stream').split(';')[0].trim();
+    const dataUrl = `data:${mime};base64,${buf.toString('base64')}`;
+    // Só troca se ainda for o link: se alguém já trocou (ou apagou), não pisa
+    const { rowCount } = await query(
+      `UPDATE mensagens SET content = $1, mimetype = COALESCE(mimetype, $2), file_size = COALESCE(file_size, $3)
+        WHERE id = $4 AND content = $5`, [dataUrl, mime, buf.length, msgId, url]);
+    return rowCount > 0;
+  } catch (e) {
+    console.error('guardarMidiaRecebida:', e.message);
+    return false;
+  }
+}
+
+/* 🧹 E o que já chegou nos últimos dias, cujo link ainda vale, é resgatado no
+   boot — devagar, em segundo plano, pra não pesar a subida. O que já venceu
+   não tem mais como recuperar (o arquivo só existia no link). */
+async function resgatarMidiasRecentes() {
+  try {
+    const { rows } = await query(`
+      SELECT id, content FROM mensagens
+       WHERE type IN ('image','audio','video','document','sticker','gif')
+         AND content LIKE 'http%' AND created_at > NOW() - interval '7 days'
+       ORDER BY created_at DESC LIMIT 300`).catch(() => ({ rows: [] }));
+    let ok = 0;
+    for (const m of rows) {
+      if (await guardarMidiaRecebida(m.id, m.content)) ok++;
+      await new Promise(r => setTimeout(r, 150));
+    }
+    if (rows.length) console.log(`📥 Mídias recebidas resgatadas pro banco: ${ok}/${rows.length}`);
+  } catch (e) { console.error('resgatarMidiasRecentes:', e.message); }
+}
+setTimeout(() => { resgatarMidiasRecentes(); }, 45 * 1000);
+
 export async function zapiCall(path, method = 'GET', body = null) {
   const { default: fetch } = await import('node-fetch');
   /* 🚨 TRANCA ÚNICA: nenhuma mensagem de teste chega no WhatsApp do cliente,
@@ -3166,6 +3222,11 @@ r.post('/webhook/zapi', async (req, res) => {
     // com quem já voltou a falar é o jeito mais rápido de queimar o lead.
     if (!isMe && !isGroupMsg && conv.resgate_tentativas > 0 && !conv.resgate_pausado) {
       query(`UPDATE conversas SET resgate_pausado = true WHERE id = $1`, [conv.id]).catch(() => {});
+    }
+
+    // 📥 Mídia recebida: guarda o arquivo de verdade, em segundo plano (03/09)
+    if (newMsg && mediaData && type !== 'text') {
+      guardarMidiaRecebida(newMsg.id, mediaData).catch(() => {});
     }
 
     // ── Socket.io: entrega instantânea para todos os clientes ──
@@ -7028,14 +7089,23 @@ r.post('/conversations/:id/upload', upload.single('file'), async (req, res) => {
 
         // ── Z-API (caminho principal em produção) ──────────────────────────────
         if (zapiOk()) {
-          let zr;
-          if (type === 'audio')        zr = await zapiCall('/send-audio',   'POST', { phone: phone55, audio: dataUrl });
-          else if (type === 'sticker') zr = await zapiCall('/send-sticker', 'POST', { phone: phone55, sticker: dataUrl });
-          else if (type === 'image')   zr = await zapiCall('/send-image',   'POST', { phone: phone55, image: dataUrl, caption: '' });
-          else if (type === 'video')   zr = await zapiCall('/send-video',   'POST', { phone: phone55, video: dataUrl, caption: '' });
-          else {
+          /* 🔁 UMA RETENTATIVA (03/09: "garantir envio de anexos"). Arquivo
+             grande + 4G oscilando = a primeira tentativa às vezes cai no meio.
+             Um segundo envio, 1,5s depois, resolve a maioria sem a atendente
+             precisar mandar de novo. Só repete em falha de rede ou erro do
+             servidor (5xx); recusa do WhatsApp (4xx) é definitiva. */
+          const enviarUmaVez = async () => {
+            if (type === 'audio')        return zapiCall('/send-audio',   'POST', { phone: phone55, audio: dataUrl });
+            if (type === 'sticker')      return zapiCall('/send-sticker', 'POST', { phone: phone55, sticker: dataUrl });
+            if (type === 'image')        return zapiCall('/send-image',   'POST', { phone: phone55, image: dataUrl, caption: '' });
+            if (type === 'video')        return zapiCall('/send-video',   'POST', { phone: phone55, video: dataUrl, caption: '' });
             const ext = (f.originalname.split('.').pop() || 'bin').toLowerCase().slice(0, 5);
-            zr = await zapiCall(`/send-document/${ext}`, 'POST', { phone: phone55, document: dataUrl, fileName: f.originalname });
+            return zapiCall(`/send-document/${ext}`, 'POST', { phone: phone55, document: dataUrl, fileName: f.originalname });
+          };
+          let zr = await enviarUmaVez().catch(() => null);
+          if (!zr || (zr.status >= 500)) {
+            await new Promise(r => setTimeout(r, 1500));
+            zr = await enviarUmaVez().catch(() => null);
           }
           if (zr?.ok) {
             const zd = await zr.json().catch(() => ({}));

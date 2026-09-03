@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
+import compression from 'compression';
 import cors from 'cors';
 import path from 'path';
 import { createServer } from 'http';
@@ -81,6 +82,18 @@ app.get('/api/versao', (req, res) => {
   });
 });
 
+/* ⚡ COMPRESSÃO (ordem do master, 03/09: "melhorar a performance"). A lista de
+   conversas e o histórico de mensagens são JSON grandes e MUITO repetitivos —
+   gzip corta 70-85% do que trafega, e no 4G do tablet isso é a diferença entre
+   abrir em 1s ou em 4s. Fica de fora só o que é fluxo contínuo (o long-poll em
+   event-stream), que o gzip seguraria no buffer e quebraria o "ao vivo". */
+app.use(compression({
+  filter: (req, res) => {
+    const tipo = String(res.getHeader('Content-Type') || '');
+    if (tipo.includes('text/event-stream')) return false;
+    return compression.filter(req, res);
+  },
+}));
 app.use('/api/auth',    authRouter);
 app.use('/api/leads',   leadsRouter);
 app.use('/api/reports', reportsRouter);
