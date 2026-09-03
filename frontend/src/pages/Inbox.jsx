@@ -258,11 +258,16 @@ function FilaDistribuicao({ convos, equipe, onSelect, onDistribuir, entregando, 
                   {onToggleFix && (
                     <button onClick={e => { e.stopPropagation(); onToggleFix(c); }}
                       title={fixadasIds?.has?.(c.id) ? 'Desafixar' : 'Fixar este lead no topo (só no seu usuário)'}
-                      style={{ fontSize: 8.5, fontWeight: 900, borderRadius: 99, padding: '1px 8px', cursor: 'pointer',
-                        border: 'none', letterSpacing: .3, whiteSpace: 'nowrap',
-                        background: fixadasIds?.has?.(c.id) ? 'linear-gradient(120deg,#f59e0b,#fcd34d)' : 'var(--bg2)',
-                        color: fixadasIds?.has?.(c.id) ? '#78350f' : 'var(--muted)' }}>
-                      📌 {fixadasIds?.has?.(c.id) ? 'FIXADA' : 'FIXAR'}
+                      /* Mesmo botão da lista geral: maior e amarelo (02/09). Um
+                         só desenho pro alfinete em toda a tela — dois tamanhos
+                         diferentes pra mesma ação é o que faz a equipe achar
+                         que são coisas distintas. */
+                      style={{ fontSize: 10.5, fontWeight: 900, borderRadius: 10, padding: '5px 13px', cursor: 'pointer',
+                        border: fixadasIds?.has?.(c.id) ? '1.5px solid #b45309' : '1.5px solid #eab308',
+                        letterSpacing: .4, whiteSpace: 'nowrap', lineHeight: 1.25,
+                        background: '#facc15', color: '#713f12',
+                        boxShadow: '0 2px 8px rgba(234,179,8,.55)' }}>
+                      📌 {fixadasIds?.has?.(c.id) ? 'CONVERSA FIXADA' : 'FIXAR CONVERSA'}
                     </button>
                   )}
                 </div>
@@ -344,12 +349,16 @@ const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect, usersB
           {onToggleFix && (
             <button onClick={e => { e.stopPropagation(); onToggleFix(conv); }}
               title={fixada ? 'Desafixar — volta pra lista geral' : 'Fixar conversa — sobe pra sua seção de fixadas (só no seu usuário)'}
-              style={{ fontSize: 9, fontWeight: 900, padding: '3px 9px', borderRadius: 9, letterSpacing: .5, cursor: 'pointer', border: 'none',
-                background: 'linear-gradient(120deg,#f59e0b,#fcd34d)', color: '#78350f',
+              /* 📌 MAIOR E AMARELO (ordem do master, 02/09: "quero um botão
+                 maior e com fundo amarelo"). Era um selo miúdo que se perdia no
+                 meio dos outros; agora é o elemento mais visível da linha. */
+              style={{ fontSize: 10.5, fontWeight: 900, padding: '5px 13px', borderRadius: 10, letterSpacing: .4, cursor: 'pointer',
+                border: fixada ? '1.5px solid #b45309' : '1.5px solid #eab308',
+                background: '#facc15', color: '#713f12',
                 /* Padrão fixo (cobrança do master: uns gordos, outros esticados):
                    nunca quebra linha nem estica — mesmo tamanho em toda linha */
-                whiteSpace: 'nowrap', flexShrink: 0, lineHeight: 1.2, flexGrow: 0,
-                boxShadow: '0 1px 6px rgba(245,158,11,.5)' }}>
+                whiteSpace: 'nowrap', flexShrink: 0, lineHeight: 1.25, flexGrow: 0,
+                boxShadow: '0 2px 8px rgba(234,179,8,.55)' }}>
               📌 {fixada ? 'CONVERSA FIXADA' : 'FIXAR CONVERSA'}
             </button>
           )}
@@ -2444,6 +2453,19 @@ export default function Inbox({ onUnreadChange }) {
                   <button onClick={abrirAgendar} title="Agendar este atendimento (conta na meta do mês)" style={calmo()}>
                     <CalendarDays size={12}/> Agendar
                   </button>
+                  {/* 📌 FIXAR DENTRO DA CONVERSA (ordem do master, 02/09: "quero
+                      que tenha também dentro do chat essa opção"). Ela estava só
+                      na lista — e quem já entrou na conversa não volta pra lista
+                      pra fixar: ou tem o botão aqui, ou não fixa. Amarelo e do
+                      mesmo tamanho do da lista, pra ser o mesmo botão aos olhos
+                      de quem usa. Vale pra todo mundo, e é por pessoa. */}
+                  <button onClick={() => toggleFix(sel)}
+                    title={fixadasIds.has(sel.id) ? 'Desafixar esta conversa' : 'Fixar esta conversa no topo (só no seu usuário)'}
+                    style={{ ...calmo(), background:'#facc15', color:'#713f12', fontWeight:900,
+                      border: fixadasIds.has(sel.id) ? '1.5px solid #b45309' : '1.5px solid #eab308',
+                      boxShadow:'0 2px 8px rgba(234,179,8,.5)' }}>
+                    📌 {fixadasIds.has(sel.id) ? 'Conversa fixada' : 'Fixar conversa'}
+                  </button>
 
                   {/* ⋯ Mais: tudo o que não é do dia a dia */}
                   <div style={{ position: 'relative' }}>
@@ -3408,9 +3430,13 @@ export default function Inbox({ onUnreadChange }) {
                 title="Lê a conversa e monta a mensagem de agendamento"
                 style={{ display:'flex', alignItems:'center', gap:6, flexShrink:0, border:'none',
                   padding:'9px 15px', borderRadius:10, cursor: cartaoBusy ? 'wait' : 'pointer',
-                  background:'linear-gradient(135deg,#E3B95C,#C4973B)', color:'#fff',
+                  /* 🌸 ROSA (ordem do master, 02/09: "o botão Agendar que está
+                     no chat em rosa e o de localização lilás"). As duas ações
+                     que mais saem na conversa ganharam cor própria: assim a
+                     mão encontra o botão certo sem ler o rótulo. */
+                  background:'linear-gradient(135deg,#f472b6,#db2777)', color:'#fff',
                   fontSize:12.5, fontWeight:800, letterSpacing:-.2,
-                  boxShadow:'0 3px 12px rgba(196,151,59,.42)', opacity: cartaoBusy ? .65 : 1 }}>
+                  boxShadow:'0 3px 12px rgba(219,39,119,.42)', opacity: cartaoBusy ? .65 : 1 }}>
                 {cartaoBusy ? <Loader2 size={15} className="spin"/> : <CalendarDays size={15} strokeWidth={2.4}/>}
                 <span className="vh-so-desktop">Agendar</span>
               </button>
@@ -3424,9 +3450,10 @@ export default function Inbox({ onUnreadChange }) {
                 title="Endereço da Clínica — o texto oficial da casa, com o Google Maps"
                 style={{ display:'flex', alignItems:'center', gap:6, flexShrink:0, border:'none',
                   padding:'9px 15px', borderRadius:10, cursor: endBusy ? 'wait' : 'pointer',
-                  background:'linear-gradient(135deg,#34d399,#0d9488)', color:'#fff',
+                  // 💜 Lilás — o par do rosa do Agendar (ordem do master, 02/09)
+                  background:'linear-gradient(135deg,#c084fc,#8b5cf6)', color:'#fff',
                   fontSize:12.5, fontWeight:800, letterSpacing:-.2,
-                  boxShadow:'0 3px 12px rgba(13,148,136,.38)', opacity: endBusy ? .65 : 1 }}>
+                  boxShadow:'0 3px 12px rgba(139,92,246,.42)', opacity: endBusy ? .65 : 1 }}>
                 {endBusy ? <Loader2 size={15} className="spin"/> : <MapPin size={15} strokeWidth={2.4}/>}
                 <span className="vh-so-desktop">Endereço</span>
               </button>
