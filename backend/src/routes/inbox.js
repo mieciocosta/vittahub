@@ -1009,13 +1009,19 @@ async function converterAudioParaOgg(buffer) {
    passa a guardar os últimos envios de mídia — formato, tamanho, se converteu,
    e a resposta CRUA do WhatsApp — e ganha um botão de teste que roda o caminho
    inteiro no servidor de verdade e devolve tudo o que aconteceu. */
+/* ⚠️ Estas rotas moram ANTES do r.use(auth) (linha ~3700), então o `auth` vai
+   explícito aqui. Sem ele, req.user chegava vazio e o masterOnly devolvia 403
+   pra todo mundo — inclusive pro master. O cartão de diagnóstico mostrava
+   "conversor AUSENTE / WhatsApp NÃO configurado", que era só o estado padrão
+   da tela quando a chamada falha: uma pista falsa que eu mesmo fabriquei.
+   Achado pelo master, 03/09, olhando o tráfego da página. */
 const ultimosEnviosMidia = [];
 function registrarEnvioMidia(reg) {
   ultimosEnviosMidia.unshift({ quando: new Date().toISOString(), ...reg });
   if (ultimosEnviosMidia.length > 30) ultimosEnviosMidia.length = 30;
 }
 
-r.get('/diagnostico/midias', masterOnly, async (req, res) => {
+r.get('/diagnostico/midias', auth, masterOnly, async (req, res) => {
   let ffmpeg = { ok: false, versao: null };
   try {
     const { default: ffmpegPath } = await import('ffmpeg-static');
@@ -1026,7 +1032,7 @@ r.get('/diagnostico/midias', masterOnly, async (req, res) => {
   res.json({ ffmpeg, zapi: zapiOk(), envios: ultimosEnviosMidia });
 });
 
-r.post('/diagnostico/testar-audio', masterOnly, async (req, res) => {
+r.post('/diagnostico/testar-audio', auth, masterOnly, async (req, res) => {
   const passos = [];
   try {
     const phone = String(req.body?.phone || '').replace(/\D/g, '');
@@ -7170,6 +7176,18 @@ r.post('/conversations/:id/upload', upload.single('file'), async (req, res) => {
         // O motivo da recusa volta pra tela — vídeo grande falhava calado
         let motivoFalha = null;
 
+        /* 🎤 O áudio vai pro WhatsApp em ogg/opus, sempre — por QUALQUER cano.
+           Fica declarado aqui fora, antes da Z-API, porque o fallback Evolution
+           também precisa dele. O que fica gravado no CRM é o original, que o
+           navegador da equipe toca; o que sai pro cliente é o convertido. */
+        let audioParaEnviar = dataUrl;
+        if (type === 'audio' && !/ogg|opus/i.test(f.mimetype)) {
+          try {
+            const ogg = await converterAudioParaOgg(f.buffer);
+            audioParaEnviar = `data:audio/ogg;base64,${ogg.toString('base64')}`;
+          } catch (e) { console.error('conversão de áudio falhou, indo no original:', e.message); }
+        }
+
         // ── Z-API (caminho principal em produção) ──────────────────────────────
         if (zapiOk()) {
           /* 🔁 UMA RETENTATIVA (03/09: "garantir envio de anexos"). Arquivo
@@ -7177,16 +7195,6 @@ r.post('/conversations/:id/upload', upload.single('file'), async (req, res) => {
              Um segundo envio, 1,5s depois, resolve a maioria sem a atendente
              precisar mandar de novo. Só repete em falha de rede ou erro do
              servidor (5xx); recusa do WhatsApp (4xx) é definitiva. */
-          /* 🎤 O áudio vai pro WhatsApp em ogg/opus, sempre. O que fica gravado
-             no CRM é o original (webm/m4a), que o navegador da equipe toca; o
-             que sai pro cliente é o convertido, que o WhatsApp toca. */
-          let audioParaEnviar = dataUrl;
-          if (type === 'audio' && !/ogg|opus/i.test(f.mimetype)) {
-            try {
-              const ogg = await converterAudioParaOgg(f.buffer);
-              audioParaEnviar = `data:audio/ogg;base64,${ogg.toString('base64')}`;
-            } catch (e) { console.error('conversão de áudio falhou, indo no original:', e.message); }
-          }
           const enviarUmaVez = async () => {
             if (type === 'audio')        return zapiCall('/send-audio',   'POST', { phone: phone55, audio: audioParaEnviar });
             if (type === 'sticker')      return zapiCall('/send-sticker', 'POST', { phone: phone55, sticker: dataUrl });
@@ -7224,9 +7232,13 @@ r.post('/conversations/:id/upload', upload.single('file'), async (req, res) => {
         // ── Evolution (fallback legado) ────────────────────────────────────────
         if (!sent && EVO_URL() && EVO_KEY()) {
           if (type === 'audio') {
+            /* O fallback também vai com o ogg/opus convertido — antes mandava o
+               original (webm/m4a), e o WhatsApp recusava pelos dois canos. */
+            const b64Audio = (typeof audioParaEnviar === 'string' && audioParaEnviar.includes(','))
+              ? audioParaEnviar.split(',')[1] : base64;
             await evoFetch(`/message/sendWhatsAppAudio/${EVO_INST()}`, 'POST', {
               number: waNumber,
-              audio: base64,
+              audio: b64Audio,
               encoding: true
             });
           } else {
