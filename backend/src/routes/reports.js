@@ -283,7 +283,13 @@ const SINAL_OBJECAO =    // o cliente recuando (marketing caro / lead frio)
   '(n[aã]o (vou|quero|posso|tenho interesse)|desisti|muito caro|caro demais|vou pensar|depois eu (vejo|falo|retorno)|deixa pra depois|achei caro|t[aá] caro)';
 
 r.get('/leads-novos', async (req, res) => {
-  if (req.user.role !== 'master') return res.status(403).json({ error: 'Relatório restrito ao master' });
+  /* Master sempre; fora dele, só quem o master liberou (usuarios.ve_carteira_leads
+     — o José, 03/09). Lê do banco, não do token: liberar não pode depender de
+     a pessoa sair e entrar de novo. */
+  if (req.user.role !== 'master') {
+    const { rows: [u] } = await query('SELECT ve_carteira_leads FROM usuarios WHERE id = $1', [req.user.id]).catch(() => ({ rows: [] }));
+    if (u?.ve_carteira_leads !== true) return res.status(403).json({ error: 'Relatório restrito ao master' });
+  }
   try {
     const meses    = Math.min(24, Math.max(1, parseInt(req.query.meses) || 6));
     const soEntrada = String(req.query.entrada ?? '1') !== '0';

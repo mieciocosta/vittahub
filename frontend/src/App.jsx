@@ -86,7 +86,8 @@ const Modelos = telaTardia(() => import('./pages/Modelos.jsx'));
 const Ligacoes = telaTardia(() => import('./pages/Ligacoes.jsx'));
 const IAssistente = telaTardia(() => import('./pages/IAssistente.jsx'));
 const Auditoria = telaTardia(() => import('./pages/Auditoria.jsx'));
-/* 📊 Carteira de Leads (pedido do José via master, 27/08) — só o master. */
+/* 📊 Carteira de Leads (pedido do José via master, 27/08) — master e quem
+   tem ve_carteira_leads (o próprio José, liberado pelo master em 03/09). */
 const LeadsRelatorio = telaTardia(() => import('./pages/LeadsRelatorio.jsx'));
 /* 📋 Histórico dos contratos: plano vacinal, terapêutico e fidelidade */
 const PlanosFechados = telaTardia(() => import('./pages/PlanosFechados.jsx'));
@@ -654,7 +655,7 @@ export default function App() {
           <Route path="/ia" element={<IAssistente />} />
           <Route path="/planos-fechados" element={<PlanosFechados />} />
           <Route path="/painel-comercial" element={(['master','supervisor'].includes(user.role) || user.distribuidor) ? <PainelComercial /> : <Navigate to="/" />} />
-          <Route path="/carteira-leads" element={user.role === 'master' ? <LeadsRelatorio /> : <Navigate to="/" />} />
+          <Route path="/carteira-leads" element={(user.role === 'master' || user.ve_carteira_leads === true) ? <LeadsRelatorio /> : <Navigate to="/" />} />
           <Route path="/auditoria" element={user.role === 'master' ? <Auditoria /> : <Navigate to="/" />} />
           <Route path="/whatsapp"     element={user.role === 'master' ? <WhatsApp /> : <Navigate to="/" />} />
           <Route path="/configuracoes" element={<Configuracoes />} />

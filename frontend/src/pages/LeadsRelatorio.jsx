@@ -15,7 +15,7 @@ import { fmt } from '../hooks/utils.js';
    LEAD = cliente novo no primeiro contato. FECHOU = venda no caixa OU o próprio
    cliente confirmando o pagamento na conversa (o master pediu pra ler as
    mensagens: muita venda fecha no WhatsApp antes de virar lançamento).
-   Só o master enxerga. */
+   Só o master enxerga — e quem ele liberar (ve_carteira_leads: o José, 03/09). */
 
 const DOW = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const n0 = (v) => new Intl.NumberFormat('pt-BR').format(v || 0);

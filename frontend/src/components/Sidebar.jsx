@@ -97,7 +97,8 @@ const NAV = [
   { to:'/resumo',     icon:LayoutDashboard, label:'Resumo do dia', cor:'#38bdf8' },
   { to:'/agenda?aba=relatorio', icon:ClipboardList, label:'Relatório do Dia', cor:'#0ea5e9', destaque:true },
   // Carteira de Leads: mede se o marketing converte (pedido do José, 27/08).
-  { to:'/carteira-leads', icon:UserPlus,    label:'Carteira de Leads', masterOnly:true, cor:'#7c5cbf' },
+  // 03/09: liberado também pra quem tem ve_carteira_leads (o José, do marketing)
+  { to:'/carteira-leads', icon:UserPlus,    label:'Carteira de Leads', carteiraLeads:true, cor:'#7c5cbf' },
   { to:'/relatorios', icon:BarChart2,       label:'Relatório Comercial', cor:'#60a5fa' },
   { to:'/metas',      icon:Target,          label:'Metas', gestao:true, cor:'#e879f9' },
 
@@ -999,6 +1000,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
           </button>
         )}
         {NAV.filter(n => (!n.masterOnly || user?.role === 'master')
+            && (!n.carteiraLeads || user?.role === 'master' || user?.ve_carteira_leads === true)
             && (!n.gestao || ['master','supervisor'].includes(user?.role))
             && (!n.consultas || podeSetor('consultas'))
             && (!n.consultasOuTerapias || podeSetor('consultas') || podeSetor('terapias'))

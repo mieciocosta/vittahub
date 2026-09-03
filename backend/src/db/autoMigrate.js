@@ -3034,6 +3034,7 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
      Cobrança dele, 03/09: "a meta de Danielle não mudou". */
   try { await metasPorSetor(); } catch (e) { console.error('metas por setor:', e.message); }
   try { await metaDiariaDosSetores(); } catch (e) { console.error('meta diaria dos setores:', e.message); }
+  try { await carteiraLeadsParaJose(); } catch (e) { console.error('carteira de leads jose:', e.message); }
   try { await equipeDaCasa(); } catch (e) { console.error('equipe da casa:', e.message); }
   try { await donosDaCasa(); } catch (e) { console.error('donos da casa:', e.message); }
   try { await marketingForaDoPainel(); } catch (e) { console.error('marketing fora do painel:', e.message); }
@@ -3481,6 +3482,29 @@ async function metaDiariaDosSetores() {
   console.log('🎯 Meta diária de R$ 19.000 aplicada aos três setores');
 }
 
+/* 📊 CARTEIRA DE LEADS LIBERADA PRO JOSÉ (ordem do master, 03/09: "libera o
+   relatório de carteira de leads para o usuário José"). O relatório nasceu
+   de um pedido dele (27/08) e mede justamente o trabalho do marketing — mas
+   ficou trancado no master. A marca usuarios.ve_carteira_leads abre o menu,
+   a rota e a API pra quem a tiver; o resto da equipe segue sem ver. Casa
+   por CPF, e-mail e nome (a conta pode ter sido recadastrada na mão). */
+async function carteiraLeadsParaJose() {
+  const FLAG = 'seed_carteira_leads_jose_v1';
+  const SEM_ACENTO = "'áàâãäéèêëíìîïóòôõöúùûüç','aaaaaeeeeiiiiooooouuuuc'";
+  const { rows: [ja] } = await query('SELECT 1 FROM configuracoes WHERE chave = $1', [FLAG]).catch(() => ({ rows: [1] }));
+  if (ja) return;
+  const { rowCount } = await query(
+    `UPDATE usuarios SET ve_carteira_leads = true, updated_at = NOW()
+      WHERE COALESCE(ve_carteira_leads,false) = false AND ativo = true
+        AND (lower(COALESCE(email,'')) = 'jose.carlos@vittahub.local'
+             OR regexp_replace(COALESCE(cpf,''), '\\D', '', 'g') = '62075159351'
+             OR lower(translate(COALESCE(nome,''), ${SEM_ACENTO})) ~ '^jose\\b')`)
+    .catch((e) => { console.error('ve_carteira_leads:', e.message); return { rowCount: 0 }; });
+  if (!rowCount) { console.error('carteira de leads: nenhum usuário ativo chamado José encontrado'); return; }
+  await query(`INSERT INTO configuracoes (chave, valor) VALUES ($1, '{"ok":true}') ON CONFLICT DO NOTHING`, [FLAG]).catch(() => {});
+  console.log(`📊 Carteira de Leads liberada pro José (${rowCount} conta(s))`);
+}
+
 async function donosDaCasa() {
   const SEM_ACENTO = "'áàâãäéèêëíìîïóòôõöúùûüç','aaaaaeeeeiiiiooooouuuuc'";
   const { rowCount } = await query(
@@ -3518,6 +3542,7 @@ async function colunasCriticas() {
     ['usuarios',  'dono_casa',       'BOOLEAN DEFAULT false'],  // donos da clínica: não são colaboradores
     ['usuarios',  'fora_do_painel',  'BOOLEAN DEFAULT false'],  // marketing: não é carteira a acompanhar
     ['usuarios',  'metas_setor',     "JSONB DEFAULT '{}'::jsonb"],  // meta e bônus por setor (03/09)
+    ['usuarios',  've_carteira_leads', 'BOOLEAN DEFAULT false'],  // relatório Carteira de Leads liberado (José, 03/09)
     ['biblioteca_midias', 'ordem',   'INT DEFAULT 999'],        // ordem das figurinhas
   ];
   let criadas = 0;

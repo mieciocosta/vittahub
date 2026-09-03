@@ -133,6 +133,7 @@ r.post('/login', async (req, res) => {
            apareciam no usuário da Danielle. O /auth/me já mandava certo; o
            login e o "entrar como" é que devolviam um usuário pela metade. */
         distribuidor: u.distribuidor === true, so_carteira: u.so_carteira === true, so_fidelidade: u.so_fidelidade === true,
+        ve_carteira_leads: u.ve_carteira_leads === true,   // 📊 relatório Carteira de Leads (José, 03/09)
         dono: ehDono(u) || u.pode_impersonar === true } });
   } catch (err) {
     console.error('Login error:', err.message); // detalhe só no log do servidor
@@ -142,7 +143,7 @@ r.post('/login', async (req, res) => {
 
 r.get('/me', auth, async (req, res) => {
   try {
-    const { rows } = await query('SELECT id,nome,email,cpf,role,cor,avatar,setor,setores,lider,ve_tudo,ve_geral,so_carteira,so_fidelidade,distribuidor,ia_consultas,ia_ligada,pode_impersonar,baixa_supervisionada FROM usuarios WHERE id=$1', [req.user.id]);
+    const { rows } = await query('SELECT id,nome,email,cpf,role,cor,avatar,setor,setores,lider,ve_tudo,ve_geral,so_carteira,so_fidelidade,distribuidor,ia_consultas,ia_ligada,pode_impersonar,baixa_supervisionada,ve_carteira_leads FROM usuarios WHERE id=$1', [req.user.id]);
     if (!rows[0]) return res.status(404).json({ error: 'Não encontrado' });
     res.json({ ...rows[0], dono: ehDono(rows[0]) || rows[0].pode_impersonar === true });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -197,7 +198,7 @@ r.patch('/me/nome', auth, async (req, res) => {
          fila de Distribuição sumia do nada, sem ninguém ter mexido em nada. */
       `UPDATE usuarios SET nome = $1, updated_at = NOW() WHERE id = $2
          RETURNING id, nome, email, cpf, role, cor, avatar, setor, setores, lider, ve_tudo, ve_geral,
-                   so_carteira, so_fidelidade, distribuidor, pode_impersonar`,
+                   so_carteira, so_fidelidade, distribuidor, pode_impersonar, ve_carteira_leads`,
       [nome, req.user.id]);
     if (!u) return res.status(404).json({ error: 'Usuário não encontrado.' });
     const token = jwt.sign({ id: u.id, nome: u.nome, email: u.email, role: u.role, cor: u.cor, setor: u.setor || null, setores: u.setores || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo, ve_geral: !!u.ve_geral, so_carteira: !!u.so_carteira, so_fidelidade: !!u.so_fidelidade, distribuidor: !!u.distribuidor }, SECRET, { expiresIn: u.role === 'master' ? '30d' : '16h' }); // equipe: sessão morre no mesmo dia; master mantém 30d
@@ -208,6 +209,7 @@ r.patch('/me/nome', auth, async (req, res) => {
            apareciam no usuário da Danielle. O /auth/me já mandava certo; o
            login e o "entrar como" é que devolviam um usuário pela metade. */
         distribuidor: u.distribuidor === true, so_carteira: u.so_carteira === true, so_fidelidade: u.so_fidelidade === true,
+        ve_carteira_leads: u.ve_carteira_leads === true,   // 📊 relatório Carteira de Leads (José, 03/09)
         dono: ehDono(u) || u.pode_impersonar === true } });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -297,7 +299,7 @@ r.post('/impersonar/:id', auth, async (req, res) => {
     if (!eu || (!ehDono(eu) && eu.pode_impersonar !== true)) {
       return res.status(403).json({ error: 'Você não tem permissão para entrar como outro usuário. O master libera isso em Configurações → Usuários.' });
     }
-    const { rows: [u] } = await query('SELECT id,nome,email,cpf,role,cor,avatar,setor,setores,lider,ve_tudo,ve_geral,so_carteira,so_fidelidade,distribuidor,COALESCE(dono_casa,false) AS dono_casa FROM usuarios WHERE id = $1', [req.params.id]);
+    const { rows: [u] } = await query('SELECT id,nome,email,cpf,role,cor,avatar,setor,setores,lider,ve_tudo,ve_geral,so_carteira,so_fidelidade,distribuidor,ve_carteira_leads,COALESCE(dono_casa,false) AS dono_casa FROM usuarios WHERE id = $1', [req.params.id]);
     if (!u) return res.status(404).json({ error: 'Usuário não encontrado' });
     // Entrar na conta de um MASTER é privilégio do dono — senão a permissão
     // liberada a um supervisor viraria caminho pra assumir o sistema inteiro.
@@ -338,6 +340,7 @@ r.post('/impersonar/:id', auth, async (req, res) => {
            apareciam no usuário da Danielle. O /auth/me já mandava certo; o
            login e o "entrar como" é que devolviam um usuário pela metade. */
         distribuidor: u.distribuidor === true, so_carteira: u.so_carteira === true, so_fidelidade: u.so_fidelidade === true,
+        ve_carteira_leads: u.ve_carteira_leads === true,   // 📊 relatório Carteira de Leads (José, 03/09)
         dono: ehDono(u) || u.pode_impersonar === true } });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
