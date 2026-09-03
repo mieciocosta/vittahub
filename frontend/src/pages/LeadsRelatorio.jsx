@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Download, FileText, RefreshCw, MessageSquare } from 'lucide-react';
 import { useApi } from '../context/AuthContext.jsx';
@@ -63,9 +63,26 @@ export default function LeadsRelatorio() {
 
   const limparRecorte = () => { setMes(''); setDia(''); setDow(null); setSetor(''); setOrigem(''); };
 
-  const carregar = () => {
+  /* 📅 A data só vale quando está COMPLETA. O campo de data do navegador
+     dispara a cada dígito do ano ("0002", "0020", "0202", "2026") — e cada
+     um desses virava uma busca no servidor com uma janela absurda. O que
+     aparece na tela é o rascunho; o filtro só muda com ano de verdade. */
+  const [deTxt, setDeTxt] = useState('');
+  const [ateTxt, setAteTxt] = useState('');
+  const dataPronta = (v) => !v || parseInt(v.slice(0, 4), 10) >= 2000;
+  const escolherDe  = (v) => { setDeTxt(v);  if (dataPronta(v)) { setDe(v);  limparRecorte(); } };
+  const escolherAte = (v) => { setAteTxt(v); if (dataPronta(v)) { setAte(v); limparRecorte(); } };
+  const periodoManual = (d, a) => { setDeTxt(d); setAteTxt(a); setDe(d); setAte(a); };
+
+  /* 🏁 Só a resposta MAIS RECENTE vale. Clicando rápido em dois meses, a
+     resposta do primeiro chegava depois e sobrescrevia a do segundo — a tela
+     mostrava um recorte e os números de outro ("às vezes perde a data"). */
+  const pedidoRef = useRef(0);
+  const carregar = (fresh = false) => {
+    const meu = ++pedidoRef.current;
     setCarregando(true); setErro('');
     const q = new URLSearchParams({ entrada: entrada ? '1' : '0' });
+    if (fresh === true) q.set('fresh', '1');   // botão Atualizar fura o cache do servidor
     if (de) { q.set('de', de); if (ate) q.set('ate', ate); } else q.set('meses', meses);
     if (mes) q.set('mes', mes);
     if (dia) q.set('dia', dia);
@@ -73,10 +90,10 @@ export default function LeadsRelatorio() {
     if (setor) q.set('setor', setor);
     if (origem) q.set('origem', origem);
     api.get(`/reports/leads-novos?${q}`)
-      .then(d => { setDados(d); setCarregando(false); })
-      .catch(e => { setErro(e.message); setCarregando(false); });
+      .then(d => { if (meu !== pedidoRef.current) return; setDados(d); setCarregando(false); })
+      .catch(e => { if (meu !== pedidoRef.current) return; setErro(e.message); setCarregando(false); });
   };
-  useEffect(carregar, [meses, de, ate, mes, dia, dow, setor, origem, entrada]); // eslint-disable-line
+  useEffect(() => { carregar(); }, [meses, de, ate, mes, dia, dow, setor, origem, entrada]); // eslint-disable-line
 
   const t = dados?.totais;
   const lista = useMemo(() => {
@@ -210,22 +227,23 @@ Agendamento e venda só contam se aconteceram DEPOIS da chegada do lead. Gerado 
           </div>
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
-          <button onClick={carregar} title="Atualizar" style={{ ...btn(false), padding: '5px 9px' }}><RefreshCw size={13} /></button>
+          {carregando && dados && <span style={{ fontSize: 11, color: 'var(--muted)', alignSelf: 'center' }}>atualizando…</span>}
+          <button onClick={() => carregar(true)} title="Atualizar" style={{ ...btn(false), padding: '5px 9px' }}><RefreshCw size={13} /></button>
           <button onClick={gerarPDF} style={{ ...btn(false), display: 'flex', alignItems: 'center', gap: 5 }}><FileText size={13} /> PDF</button>
           <button onClick={baixarCSV} style={{ ...btn(false), display: 'flex', alignItems: 'center', gap: 5 }}><Download size={13} /> Excel</button>
         </div>
       </div>
 
       <Caixa style={{ padding: '9px 12px', marginBottom: 12, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        {atalho('Este mês', () => { setDe(primeiroDoMes(0)); setAte(ultimoDoMes(0)); limparRecorte(); }, de === primeiroDoMes(0))}
-        {atalho('Mês passado', () => { setDe(primeiroDoMes(1)); setAte(ultimoDoMes(1)); limparRecorte(); }, de === primeiroDoMes(1))}
-        {[3, 6, 12].map(m => atalho(`${m} meses`, () => { setDe(''); setAte(''); setMeses(m); limparRecorte(); }, semPeriodoManual && meses === m))}
+        {atalho('Este mês', () => { periodoManual(primeiroDoMes(0), ultimoDoMes(0)); limparRecorte(); }, de === primeiroDoMes(0))}
+        {atalho('Mês passado', () => { periodoManual(primeiroDoMes(1), ultimoDoMes(1)); limparRecorte(); }, de === primeiroDoMes(1))}
+        {[3, 6, 12].map(m => atalho(`${m} meses`, () => { periodoManual('', ''); setMeses(m); limparRecorte(); }, semPeriodoManual && meses === m))}
         <span style={{ width: 1, height: 18, background: 'var(--border)', margin: '0 2px' }} />
         <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700 }}>Período exato:</span>
-        <input type="date" value={de} max={ate || hojeSLZ()} onChange={e => { setDe(e.target.value); limparRecorte(); }} style={dataInput} />
+        <input type="date" value={deTxt} max={ate || hojeSLZ()} onChange={e => escolherDe(e.target.value)} style={dataInput} />
         <span style={{ fontSize: 11, color: 'var(--muted)' }}>até</span>
-        <input type="date" value={ate} min={de} max={hojeSLZ()} onChange={e => { setAte(e.target.value); limparRecorte(); }} style={dataInput} />
-        {de && <button onClick={() => { setDe(''); setAte(''); }} style={{ ...btn(false), fontWeight: 600 }}>limpar</button>}
+        <input type="date" value={ateTxt} min={de} max={hojeSLZ()} onChange={e => escolherAte(e.target.value)} style={dataInput} />
+        {de && <button onClick={() => periodoManual('', '')} style={{ ...btn(false), fontWeight: 600 }}>limpar</button>}
         <label style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'var(--muted)', cursor: 'pointer' }}>
           <input type="checkbox" checked={entrada} onChange={e => setEntrada(e.target.checked)} />
           Só quem nos procurou primeiro {!!t?.prospeccao && <span style={{ color: 'var(--light)' }}>({n0(t.prospeccao)} fora)</span>}

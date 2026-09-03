@@ -282,6 +282,28 @@ const SINAL_ACEITE =     // o cliente fechando o combinado
 const SINAL_OBJECAO =    // o cliente recuando (marketing caro / lead frio)
   '(n[aã]o (vou|quero|posso|tenho interesse)|desisti|muito caro|caro demais|vou pensar|depois eu (vejo|falo|retorno)|deixa pra depois|achei caro|t[aá] caro)';
 
+/* ⚡ CACHE DA CARTEIRA DE LEADS (cobrança do master, 03/09: "quando seleciono
+   a data, demora pra carregar e às vezes perde a data"). As quatro varreduras
+   lá embaixo (toda a tabela de mensagens agrupada por conversa + regex de
+   sinais de fechamento) dependem SÓ da janela de/até. Mês, dia, dia da
+   semana, setor, origem e "só quem nos procurou" são filtro em memória — e
+   mesmo assim cada clique refazia tudo no banco. Agora a janela fica guardada
+   por 3 minutos: o primeiro clique paga o preço, os seguintes respondem na
+   hora. O botão "Atualizar" da tela manda fresh=1 e fura o cache. */
+const CACHE_LEADS_NOVOS = new Map();          // 'de|ate' → { em, leads }
+const CACHE_LEADS_TTL = 3 * 60 * 1000;
+const lerCacheLeads = (k) => {
+  const c = CACHE_LEADS_NOVOS.get(k);
+  if (!c) return null;
+  if (Date.now() - c.em > CACHE_LEADS_TTL) { CACHE_LEADS_NOVOS.delete(k); return null; }
+  return c.leads;
+};
+const guardarCacheLeads = (k, leads) => {
+  CACHE_LEADS_NOVOS.set(k, { em: Date.now(), leads });
+  // Não deixa crescer: guarda as últimas janelas pedidas, não todas da história
+  while (CACHE_LEADS_NOVOS.size > 12) CACHE_LEADS_NOVOS.delete(CACHE_LEADS_NOVOS.keys().next().value);
+};
+
 r.get('/leads-novos', async (req, res) => {
   /* Master sempre; fora dele, só quem o master liberou (usuarios.ve_carteira_leads
      — o José, 03/09). Lê do banco, não do token: liberar não pode depender de
@@ -322,6 +344,11 @@ r.get('/leads-novos', async (req, res) => {
     // fechar em setembro — e isso continua sendo mérito da campanha de agosto).
     const ATE_FIM = ate ? ` AND ${SLZ('a.pin')} < TIMESTAMP '${ate} 00:00:00' + interval '1 day'` : '';
 
+    const DOW = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+    const chaveCache = `${de}|${ate}`;
+    const fresh = String(req.query.fresh || '') === '1';
+    let leads = fresh ? null : lerCacheLeads(chaveCache);
+    if (!leads) {
     const [base, agenda, vendas, sinais] = await Promise.all([
       /* Chegada de cada conversa: primeira mensagem DO CLIENTE (pin) e primeira
          nossa (pout). Uma varredura só em mensagens, agrupada por conversa. */
@@ -400,10 +427,9 @@ r.get('/leads-novos', async (req, res) => {
     const sinalDe = new Map(sinais.rows.map(s => [s.conversa_id, s]));
 
     const dataISO = (d) => (d instanceof Date ? d.toISOString().slice(0, 10) : (d ? String(d).slice(0, 10) : null));
-    const DOW = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 
     // ── Monta o lead: chegada + tudo que aconteceu DEPOIS dela ───────────────
-    const leads = base.rows.map(c => {
+    leads = base.rows.map(c => {
       const chegou = c.chegou;                       // 'YYYY-MM-DD HH:MM' (São Luís)
       const dia = chegou.slice(0, 10), mes = chegou.slice(0, 7);
       const [Y, M, D] = dia.split('-').map(Number);
@@ -449,6 +475,8 @@ r.get('/leads-novos', async (req, res) => {
         prova,
       };
     });
+    guardarCacheLeads(chaveCache, leads);
+    }
 
     // Universo de marketing: por padrão só quem NOS PROCUROU primeiro.
     const universo = leads.filter(l => (soEntrada ? !l.nosChamamos : true));
