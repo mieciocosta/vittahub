@@ -1966,19 +1966,63 @@ export default function Inbox({ onUnreadChange }) {
     finally { setSending(false); }
   };
 
+  /* 🎤 GRAVAÇÃO DE ÁUDIO (cobrança do master, 03/09, do tablet: "não está
+     funcionando a captação de áudio").
+
+     Três coisas quebravam no celular e nenhuma delas aparecia na tela:
+
+     1) O formato era chutado: gravava no que o aparelho quisesse e rotulava de
+        webm. Android grava webm/opus; iPhone e alguns tablets gravam mp4. Um
+        mp4 chamado de webm o WhatsApp recusa calado. Agora perguntamos ao
+        navegador que formato ele SABE gravar e usamos esse — no nome do
+        arquivo também.
+     2) Quando dava erro, saía um alert() — que o webview do celular NÃO mostra
+        (armadilha conhecida da casa). A pessoa tocava, nada acontecia. Agora é
+        o Toast, e com o MOTIVO: microfone bloqueado, sem microfone, ou
+        conexão sem HTTPS.
+     3) Toque por engano gravava 0,2s e mandava um arquivo vazio. Áudio curto
+        demais agora é descartado com aviso. */
   const startRec = async () => {
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      Toast.show('Este navegador não grava áudio. Abra o VittaHub no Chrome, pelo endereço com https.', 'error');
+      return;
+    }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio:true });
-      const mr = new MediaRecorder(stream); const ch = [];
-      mr.ondataavailable = e => ch.push(e.data);
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const candidatos = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus', 'audio/ogg'];
+      const mime = candidatos.find(t => MediaRecorder.isTypeSupported?.(t)) || '';
+      const mr = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+      const ch = [];
+      const inicio = Date.now();
+      mr.ondataavailable = e => { if (e.data && e.data.size) ch.push(e.data); };
+      mr.onerror = () => Toast.show('A gravação falhou no aparelho. Tente de novo.', 'error');
       mr.onstop = async () => {
-        const blob = new Blob(ch, { type:'audio/webm' });
-        const fd = new FormData(); fd.append('file', blob, 'audio.webm');
-        const m = await api.upload(`/inbox/conversations/${sel.id}/upload`, fd);
-        setMsgs(p => [...p, m]); stream.getTracks().forEach(t => t.stop());
+        stream.getTracks().forEach(t => t.stop());
+        const tipo = mr.mimeType || mime || 'audio/webm';
+        const ext = /mp4/.test(tipo) ? 'm4a' : /ogg/.test(tipo) ? 'ogg' : 'webm';
+        const blob = new Blob(ch, { type: tipo.split(';')[0] });
+        if (Date.now() - inicio < 700 || blob.size < 1500) {
+          Toast.show('Áudio curto demais — segure e fale, depois toque de novo pra enviar.', 'info');
+          return;
+        }
+        try {
+          const fd = new FormData(); fd.append('file', blob, `audio.${ext}`);
+          const m = await api.upload(`/inbox/conversations/${sel.id}/upload`, fd);
+          setMsgs(p => [...p, m]);
+          if (m?.aviso) Toast.show(`⚠️ ${m.aviso}`, 'error');
+        } catch (e) { Toast.show(e.message || 'Não consegui enviar o áudio', 'error'); }
       };
-      mr.start(); setRecorder(mr); setRecording(true);
-    } catch { alert('Microfone indisponível'); }
+      mr.start(250);   // fatias periódicas: tem aparelho que só entrega no stop e perde o começo
+      setRecorder(mr); setRecording(true);
+    } catch (e) {
+      const nome = e?.name || '';
+      Toast.show(
+        nome === 'NotAllowedError' || nome === 'PermissionDeniedError'
+          ? 'Microfone bloqueado. Toque no cadeado ao lado do endereço e permita o microfone pro VittaHub.'
+          : nome === 'NotFoundError' ? 'Nenhum microfone encontrado neste aparelho.'
+          : nome === 'NotReadableError' ? 'Outro aplicativo está usando o microfone. Feche-o e tente de novo.'
+          : `Não consegui ligar o microfone (${nome || e?.message || 'erro'}).`, 'error');
+    }
   };
   const stopRec = () => { recorder?.stop(); setRecording(false); setRecorder(null); };
 
