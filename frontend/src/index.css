@@ -470,8 +470,28 @@ h1 { letter-spacing: -0.7px; }
   .vh-hamburger { display: flex !important; }
   .vh-main { margin-left: 0 !important; }
   /* Inbox: lista OU conversa */
-  .vh-inbox-wrap { flex-direction: column !important; }
-  .vh-inbox-list { width: 100% !important; min-width: unset !important; max-width: unset !important; }
+  /* 📐 A CADEIA DE ALTURA NO CELULAR (cobrança do master, 03/09: "as conversas
+     no chat não são carregadas").
+
+     Não era falta de dados: era altura ZERO. No desktop o chat é uma LINHA
+     (lista ao lado da conversa) e a lista estica até o chão sozinha. No
+     celular vira COLUNA — e numa coluna o item só tem a altura do próprio
+     conteúdo. Como a rolagem da lista passou a ser absoluta (pra medir a si
+     mesma), o conteúdo dela não conta pra altura... e a lista encolheu até
+     sumir. Aqui cada elo da cadeia recebe altura explícita.
+
+     100dvh em vez de 100vh: no celular a barra de endereço do navegador some e
+     volta, e o vh antigo ignora isso — a lista ficava com um pedaço embaixo
+     escondido atrás dela. */
+  .vh-inbox-wrap { flex-direction: column !important;
+    height: calc(100dvh - 64px - env(safe-area-inset-bottom, 0px)) !important; }
+  body.vh-conversa-aberta .vh-inbox-wrap { height: 100dvh !important; }
+  .vh-inbox-list { width: 100% !important; min-width: unset !important; max-width: unset !important;
+    flex: 1 1 auto !important; min-height: 0 !important; height: 100% !important; }
+  .vh-inbox-chat { flex: 1 1 auto !important; min-height: 0 !important; }
+  /* A página não precisa forçar 100vh de altura mínima aqui: com a barra de
+     baixo isso virava 64px de rolagem morta em toda tela. */
+  .vh-main { min-height: 0 !important; }
   .vh-inbox-list.hidden { display: none !important; }
   .vh-inbox-chat { width: 100% !important; min-width: unset !important; display: flex !important; flex-direction: column !important; }
   .vh-inbox-chat.hidden { display: none !important; }
