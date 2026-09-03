@@ -167,7 +167,7 @@ const MEDIA_PREVIEW = {
 const PISTA_GRANDE = /(plano\s*vacinal|plano\s*fidelidade|pacote|todas as vacinas|calend[áa]rio|terapia|fono|psico|ocupacional|\baba\b|avalia[çc][ãa]o|acompanhamento|mensal)/i;
 const ehPotencialAlto = (c) => PISTA_GRANDE.test(String(c.last_message || '')) || c.lead_score === 'quente';
 
-function FilaDistribuicao({ convos, equipe, onSelect, onDistribuir, entregando, eu, grandesPrimeiro, setGrandesPrimeiro }) {
+function FilaDistribuicao({ convos, equipe, onSelect, onDistribuir, entregando, eu, grandesPrimeiro, setGrandesPrimeiro, fixadasIds, onToggleFix }) {
   const iniciais = (n) => String(n || '?').trim().split(/\s+/).slice(0, 2).map(p => p[0]).join('').toUpperCase();
   const espera = (c) => Math.max(0, Math.floor((Date.now() - new Date(c.last_message_at || 0).getTime()) / 60000));
   const rotuloEspera = (m) => (m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ''}` : `${m}m`);
@@ -185,9 +185,14 @@ function FilaDistribuicao({ convos, equipe, onSelect, onDistribuir, entregando, 
   }
 
   // Ordem: por padrão quem espera há mais tempo; no modo dela, os grandes na frente
-  const lista = grandesPrimeiro
+  const base = grandesPrimeiro
     ? [...convos].sort((a2, b2) => (ehPotencialAlto(b2) ? 1 : 0) - (ehPotencialAlto(a2) ? 1 : 0))
     : convos;
+  /* 📌 O que a pessoa fixou fica em cima, mesmo aqui — senão o alfinete seria
+     um botão que acende e não move nada (02/09). */
+  const lista = fixadasIds?.size
+    ? [...base.filter(c2 => fixadasIds.has(c2.id)), ...base.filter(c2 => !fixadasIds.has(c2.id))]
+    : base;
   const nGrandes = convos.filter(ehPotencialAlto).length;
 
   return (
@@ -216,7 +221,7 @@ function FilaDistribuicao({ convos, equipe, onSelect, onDistribuir, entregando, 
         return (
           <div key={c.id} style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)',
             background: atrasado ? 'rgba(220,38,38,.06)' : 'transparent',
-            borderLeft: `3px solid ${atrasado ? '#dc2626' : 'transparent'}` }}>
+            borderLeft: `3px solid ${fixadasIds?.has?.(c.id) ? '#C4973B' : atrasado ? '#dc2626' : 'transparent'}` }}>
             <div onClick={() => onSelect(c)} style={{ display: 'flex', gap: 9, cursor: 'pointer' }}>
               <div style={{ width: 34, height: 34, borderRadius: '50%', flexShrink: 0, background: 'var(--bg2)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, color: 'var(--muted)' }}>
@@ -244,6 +249,21 @@ function FilaDistribuicao({ convos, equipe, onSelect, onDistribuir, entregando, 
                   {ehPotencialAlto(c) && (
                     <span style={{ fontSize: 8.5, fontWeight: 900, borderRadius: 99, padding: '1px 8px',
                       background: 'var(--gold,#C4973B)', color: '#fff' }}>💎 potencial alto</span>
+                  )}
+                  {/* 📌 FIXAR TAMBÉM AQUI (ordem do master, 02/09: "quero que
+                      essa opção apareça para todas as conversas e para todos os
+                      usuários"). A fila é de passagem, mas há lead que a pessoa
+                      quer manter debaixo do olho até entregar. O que continua
+                      fora daqui é a FAIXA dourada, que roubava altura. */}
+                  {onToggleFix && (
+                    <button onClick={e => { e.stopPropagation(); onToggleFix(c); }}
+                      title={fixadasIds?.has?.(c.id) ? 'Desafixar' : 'Fixar este lead no topo (só no seu usuário)'}
+                      style={{ fontSize: 8.5, fontWeight: 900, borderRadius: 99, padding: '1px 8px', cursor: 'pointer',
+                        border: 'none', letterSpacing: .3, whiteSpace: 'nowrap',
+                        background: fixadasIds?.has?.(c.id) ? 'linear-gradient(120deg,#f59e0b,#fcd34d)' : 'var(--bg2)',
+                        color: fixadasIds?.has?.(c.id) ? '#78350f' : 'var(--muted)' }}>
+                      📌 {fixadasIds?.has?.(c.id) ? 'FIXADA' : 'FIXAR'}
+                    </button>
                   )}
                 </div>
               </div>
@@ -2241,7 +2261,8 @@ export default function Inbox({ onUnreadChange }) {
               onSelect={openConvo} entregando={entregando}
               eu={user ? { id: user.id, nome: user.nome } : null}
               grandesPrimeiro={grandesPrimeiro} setGrandesPrimeiro={setGrandesPrimeiro}
-              onDistribuir={distribuirLead} />
+              onDistribuir={distribuirLead}
+              fixadasIds={fixadasIds} onToggleFix={toggleFix} />
           ) : (
             <VirtualList items={convosExib} selectedId={sel?.id} onSelect={openConvo} usersById={usersById}
               containerHeight={listH} loadMore={loadMore} hasMore={hasMore} loadingMore={loadingMore}
