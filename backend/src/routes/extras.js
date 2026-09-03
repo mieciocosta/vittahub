@@ -2941,7 +2941,8 @@ r.get('/painel-comercial/pessoa/:id', async (req, res) => {
     if (!podeVer) return res.status(403).json({ error: 'Painel de gestão comercial.' });
 
     const { rows: [u] } = await query(
-      'SELECT id, nome, cor, titulo, setor, setores, meta_individual FROM usuarios WHERE id = $1',
+      `SELECT id, nome, cor, titulo, setor, setores, meta_individual,
+              COALESCE(metas_setor,'{}'::jsonb) AS metas_setor FROM usuarios WHERE id = $1`,
       [req.params.id]);
     if (!u) return res.status(404).json({ error: 'Pessoa não encontrada.' });
 
@@ -2955,7 +2956,7 @@ r.get('/painel-comercial/pessoa/:id', async (req, res) => {
       : `date_trunc('month', ${HOJE})::date`;
     const DE_TS = per === 'hoje' ? DIA_TS : `((${DE})::date + interval '3 hours')`;
 
-    const [resumo, conversas, agenda, vendas, parados, dias, etapas, fatias, porSetor] = await Promise.all([
+    const [resumo, conversas, agenda, vendas, parados, dias, etapas, fatias, vendasSetorHoje, porSetor] = await Promise.all([
       query(`
         SELECT
           (SELECT COUNT(*) FROM conversas c WHERE c.responsavel_id = $1
@@ -3067,6 +3068,19 @@ r.get('/painel-comercial/pessoa/:id', async (req, res) => {
            AND COALESCE(c.simulacao,false) = false
            AND c.last_message_at > NOW() - interval '60 days'
          GROUP BY 1`, [u.id]).catch(() => ({ rows: [] })),
+      /* 🎯 O QUE ELA VENDEU HOJE, POR SETOR (ordem do master, 03/09: metas
+         separadas de vacinas e de consultas/terapias). Sem a quebra por setor,
+         daria pra bater tudo numa frente e a outra ficar parada sem ninguém
+         ver — que é justamente o que as duas metas evitam. */
+      query(`
+        SELECT COALESCE(NULLIF(v.setor,''),
+                 CASE WHEN v.categoria = 'Consulta' THEN 'consultas'
+                      WHEN v.categoria = 'Terapia'  THEN 'terapias'
+                      ELSE 'vacinas' END) AS setor,
+               COALESCE(SUM(v.valor),0)::float total
+          FROM vendas v
+         WHERE v.atendente_id = $1 AND v.data_venda = ${HOJE}
+         GROUP BY 1`, [u.id]).catch(() => ({ rows: [] })),
       // 🥧 E a mesma carteira repartida por setor
       query(`
         SELECT COALESCE(NULLIF(c.setor,''), 'Sem setor') AS fatia, COUNT(*)::int n
@@ -3081,6 +3095,20 @@ r.get('/painel-comercial/pessoa/:id', async (req, res) => {
     const meta = Number(u.meta_individual) || 0;
     res.json({
       pessoa: { id: u.id, nome: u.nome, cor: u.cor, titulo: u.titulo, setor: u.setor, setores: u.setores, meta },
+      /* Cada meta já sai com o feito e o que falta calculados: a tela só
+         desenha. Conta de meta em dois lugares é conta que diverge. */
+      metas_dia: Object.entries(u.metas_setor || {}).map(([chave, m]) => {
+        const setoresM = Array.isArray(m.setores) && m.setores.length ? m.setores : [chave];
+        const feito = (vendasSetorHoje.rows || [])
+          .filter(r2 => setoresM.includes(r2.setor))
+          .reduce((t, r2) => t + Number(r2.total || 0), 0);
+        const alvo = Number(m.dia) || 0;
+        return {
+          chave, rotulo: m.rotulo || chave, alvo, bonus: Number(m.bonus) || 0, feito,
+          falta: Math.max(0, alvo - feito),
+          pct: alvo > 0 ? Math.round((feito / alvo) * 100) : null,
+        };
+      }),
       periodo: per,
       resumo: {
         abertas: r0.abertas || 0, esperando: r0.esperando || 0, recebeu: r0.recebeu || 0,

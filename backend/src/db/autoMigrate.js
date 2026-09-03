@@ -3027,6 +3027,7 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
   try { await consertarAssinaturas(); } catch (e) { console.error('assinaturas:', e.message); }
   try { await titulosDaEquipe(); } catch (e) { console.error('titulos da equipe:', e.message); }
   try { await bonusPessoais(); } catch (e) { console.error('bonus pessoais:', e.message); }
+  try { await metasPorSetor(); } catch (e) { console.error('metas por setor:', e.message); }
   try { await colunasCriticas(); } catch (e) { console.error('colunas criticas:', e.message); }
   try { await equipeDaCasa(); } catch (e) { console.error('equipe da casa:', e.message); }
   try { await donosDaCasa(); } catch (e) { console.error('donos da casa:', e.message); }
@@ -3402,6 +3403,54 @@ async function gestoraPodeObservar() {
   if (rowCount) console.log(`👤 ${rowCount} gestora(s) de distribuição liberada(s) pra observar a equipe`);
 }
 
+/* 🎯 METAS POR SETOR DA GESTORA COMERCIAL (ordem do master, 03/09: "na meta da
+   Danielle agora ela tem de todos os setores: meta de vacinas 19 mil por dia,
+   meta de consultas e terapias 19 mil por dia; bônus 10 mil, 5 mil de cada
+   setor").
+
+   A meta da casa sempre foi UM número por pessoa. Ela agora responde por duas
+   frentes com pesos iguais, e um número só esconderia o desequilíbrio: daria
+   pra bater 38 mil só de vacinas e a área de consultas ficar parada o mês
+   inteiro sem ninguém ver. Duas metas separadas obrigam as duas a andarem.
+
+   Guardado em `usuarios.metas_setor`, por pessoa — não é regra de cargo. E o
+   bônus mora junto da meta que ele premia: 5 mil por frente, 10 mil no total. */
+const METAS_POR_SETOR = [
+  { quem: 'danielle', flag: 'seed_metas_setor_danielle_v1',
+    metas: {
+      vacinas:   { rotulo: 'Vacinas',              dia: 19000, bonus: 5000, setores: ['vacinas'] },
+      atendimento: { rotulo: 'Consultas e terapias', dia: 19000, bonus: 5000, setores: ['consultas', 'terapias'] },
+    },
+    aviso: ['🎯 Metas novas da Danielle',
+      'Agora são duas metas diárias: R$ 19.000 em vacinas e R$ 19.000 em consultas e terapias. O bônus é de R$ 5.000 por frente, R$ 10.000 batendo as duas.'] },
+];
+
+async function metasPorSetor() {
+  const SEM_ACENTO = "'áàâãäéèêëíìîïóòôõöúùûüç','aaaaaeeeeiiiiooooouuuuc'";
+  for (const m of METAS_POR_SETOR) {
+    const { rows: [ja] } = await query('SELECT 1 FROM configuracoes WHERE chave = $1', [m.flag])
+      .catch(() => ({ rows: [1] }));
+    if (ja) continue;
+    const { rowCount } = await query(
+      `UPDATE usuarios SET metas_setor = $2::jsonb, updated_at = NOW()
+        WHERE lower(translate(COALESCE(nome,''), ${SEM_ACENTO})) LIKE $1 || '%'`,
+      [m.quem, JSON.stringify(m.metas)]).catch(() => ({ rowCount: 0 }));
+    if (!rowCount) continue;
+    /* O bônus total (a soma das frentes) segue no lugar de sempre, que é de
+       onde o placar da casa lê — senão teríamos dois números de bônus. */
+    const total = Object.values(m.metas).reduce((t, x) => t + (x.bonus || 0), 0);
+    await query(
+      `INSERT INTO configuracoes (chave, valor) VALUES ('metas', $2::jsonb)
+       ON CONFLICT (chave) DO UPDATE SET
+         valor = jsonb_set(COALESCE(configuracoes.valor,'{}'::jsonb), '{premiosPessoa,${m.quem}}', $1::jsonb, true),
+         updated_at = NOW()`,
+      [String(total), JSON.stringify({ premiosPessoa: { [m.quem]: total } })]).catch(() => {});
+    await query(`INSERT INTO notificacoes (tipo, titulo, texto) VALUES ('meta', $1, $2)`, m.aviso).catch(() => {});
+    await query(`INSERT INTO configuracoes (chave, valor) VALUES ($1, '{"ok":true}') ON CONFLICT DO NOTHING`, [m.flag]).catch(() => {});
+    console.log(`🎯 Metas por setor aplicadas: ${m.quem} (bônus total R$ ${total})`);
+  }
+}
+
 async function donosDaCasa() {
   const SEM_ACENTO = "'áàâãäéèêëíìîïóòôõöúùûüç','aaaaaeeeeiiiiooooouuuuc'";
   const { rowCount } = await query(
@@ -3438,6 +3487,7 @@ async function colunasCriticas() {
     ['usuarios',  'meta_planos_mes', 'INT DEFAULT 0'],
     ['usuarios',  'dono_casa',       'BOOLEAN DEFAULT false'],  // donos da clínica: não são colaboradores
     ['usuarios',  'fora_do_painel',  'BOOLEAN DEFAULT false'],  // marketing: não é carteira a acompanhar
+    ['usuarios',  'metas_setor',     "JSONB DEFAULT '{}'::jsonb"],  // meta e bônus por setor (03/09)
     ['biblioteca_midias', 'ordem',   'INT DEFAULT 999'],        // ordem das figurinhas
   ];
   let criadas = 0;

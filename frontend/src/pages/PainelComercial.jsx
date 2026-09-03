@@ -745,6 +745,62 @@ export default function PainelComercial() {
 
       {p && (
         <>
+          {/* 🎯 AS METAS DO DIA, POR FRENTE (ordem do master, 03/09: "meta de
+              vacinas 19 mil por dia, meta de consultas e terapias 19 mil por
+              dia; bônus 10 mil, 5 mil de cada setor").
+
+              Vem antes dos números do mês de propósito: meta de dia se resolve
+              hoje. E as duas aparecem lado a lado justamente pra não dar pra
+              esconder uma frente parada atrás da outra. */}
+          {(p.metas_dia || []).length > 0 && (
+            <div className="card" style={{ padding: '13px 16px 15px', marginBottom: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 9, flexWrap: 'wrap', marginBottom: 11 }}>
+                <span style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--txt)' }}>🎯 Metas de hoje</span>
+                {(() => {
+                  const bateu = p.metas_dia.filter(m => m.pct >= 100);
+                  const ganho = bateu.reduce((t, m) => t + m.bonus, 0);
+                  const total = p.metas_dia.reduce((t, m) => t + m.bonus, 0);
+                  return (
+                    <span style={{ marginLeft: 'auto', fontSize: 11.5, fontWeight: 800,
+                      color: ganho ? 'var(--gold,#C4973B)' : 'var(--muted)' }}>
+                      🏅 Bônus: {fmt.brl(ganho)} de {fmt.brl(total)}
+                      {bateu.length === p.metas_dia.length && ' 🎉'}
+                    </span>
+                  );
+                })()}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(230px,1fr))', gap: 12 }}>
+                {p.metas_dia.map(m => {
+                  const ok = m.pct >= 100;
+                  return (
+                    <div key={m.chave} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: '11px 13px',
+                      background: ok ? 'rgba(15,176,122,.07)' : 'var(--bg)' }}>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 7, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 11, fontWeight: 800, color: 'var(--txt2)' }}>{m.rotulo}</span>
+                        <span style={{ marginLeft: 'auto', fontSize: 10.5, fontWeight: 800, color: 'var(--muted)' }}>
+                          bônus {fmt.brl(m.bonus)}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 3 }}>
+                        <span style={{ fontSize: 21, fontWeight: 900, letterSpacing: -.6,
+                          color: ok ? 'var(--ok,#0fb07a)' : 'var(--txt)' }}>{fmt.brl(m.feito)}</span>
+                        <span style={{ fontSize: 11, color: 'var(--muted)' }}>de {fmt.brl(m.alvo)}</span>
+                      </div>
+                      <div style={{ height: 7, background: 'var(--bg2)', borderRadius: 99, overflow: 'hidden', margin: '6px 0 4px' }}>
+                        <div style={{ width: `${Math.min(m.pct || 0, 100)}%`, height: '100%', borderRadius: 99,
+                          background: ok ? 'var(--ok,#0fb07a)' : (m.pct || 0) >= 60 ? 'var(--tq)' : 'var(--warn,#e8991a)' }} />
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                        {ok ? <b style={{ color: 'var(--ok,#0fb07a)' }}>Meta batida 🎉 bônus de {fmt.brl(m.bonus)}</b>
+                          : <>Faltam <b style={{ color: 'var(--warn,#e8991a)' }}>{fmt.brl(m.falta)}</b> · {m.pct || 0}%</>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* 🎯 O desempenho dela, de um olhar */}
           {(() => {
             const noMes = posicao('vendeu_mes'), noDia = posicao('vendeu_hoje'), r = p.resumo;
