@@ -8028,9 +8028,15 @@ r.post('/conversations/:id/prova-social', async (req, res) => {
       SELECT id, titulo, data, msg_id FROM biblioteca_midias
        WHERE tipo IN ('foto', 'imagem', 'image') AND setor IN ($1, 'geral')
        ORDER BY (setor = $1) DESC, random() LIMIT 60`, [setorFoto]);   // varre bem mais: muita foto guarda só a referência da mensagem
+    /* 📸 QUATRO FOTOS (ordem do master, 03/09: "ele vai mandar 4 fotos e junto
+       com a mensagem do Instagram"). Eram 10 — e dez fotos seguidas no
+       WhatsApp cansam e parecem disparo de robô. Quatro contam a mesma
+       história e cabem numa olhada. O número vem no pedido, então dá pra
+       mudar sem mexer no código. */
+    const quantas = Math.max(1, Math.min(parseInt(req.body?.quantas) || 4, 10));
     const prontas = [];
     for (const f of cands) {
-      if (prontas.length >= 10) break;   // conjunto de 10 (ordem do master, 24/08)
+      if (prontas.length >= quantas) break;
       let d = f.data;
       if (!d && f.msg_id) {
         const { rows: [msgF] } = await query('SELECT content FROM mensagens WHERE id = $1', [f.msg_id]).catch(() => ({ rows: [] }));
@@ -8040,7 +8046,12 @@ r.post('/conversations/:id/prova-social', async (req, res) => {
     }
     if (!prontas.length) return res.status(400).json({ error: 'A Biblioteca não tem fotos utilizáveis pra este setor — anexe fotos em Biblioteca primeiro.' });
 
-    const insta = '📸 Veja mais momentos assim no nosso Instagram: https://www.instagram.com/vittalissaudeslz/';
+    /* A legenda da ÚLTIMA foto é a mensagem inteira de prova social, a mesma
+       do passo 7 do protocolo. Assim as fotos e o convite chegam como uma
+       coisa só — não uma rajada de imagens e um texto solto no fim. */
+    const insta = 'Olha que lindo o cuidado da nossa equipe com as crianças 🥰 '
+      + 'Cada sorriso desses é uma família que confiou na gente. '
+      + 'No nosso Instagram tem muitos momentos assim: https://www.instagram.com/vittalissaudeslz/ 💙';
     let enviadas = 0;
     for (let i = 0; i < prontas.length; i++) {
       const legenda = i === prontas.length - 1 ? insta : '';

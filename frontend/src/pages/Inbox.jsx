@@ -1013,6 +1013,24 @@ export default function Inbox({ onUnreadChange }) {
      Ela escolhe os itens e o texto cai na caixa de digitar, como o Agendar e o
      Endereço. Preço é a mensagem mais delicada do atendimento: sai depois de
      ela ler, nunca sozinha. */
+  /* 📸 PROVA SOCIAL EM UM BOTÃO (ordem do master, 03/09: "cria um botão no chat
+     igual ao de agendar: Prova Social, onde tem essa mensagem do nosso
+     Instagram e tem fotos dos pequenos — vai mandar 4 fotos junto com a
+     mensagem").
+
+     Este é o único dos quatro que ENVIA direto, sem passar pela caixa de
+     digitar: são imagens, não texto pra revisar. E é o passo do protocolo que
+     mais se esquecia justamente por estar escondido dentro do painel de
+     modelos. */
+  const mandarProvaSocial = async () => {
+    if (!sel || provaEnviando) return;
+    setProvaEnviando(true);
+    try {
+      const r = await api.post(`/inbox/conversations/${sel.id}/prova-social`, { quantas: 4 });
+      Toast.show(r?.enviadas ? `${r.enviadas} fotos enviadas com o Instagram 📸` : 'Fotos enviadas 📸', 'success');
+    } catch (e) { Toast.show(e.message || 'Não consegui enviar as fotos', 'error'); }
+    setProvaEnviando(false);
+  };
   const [showTabela, setShowTabela] = useState(false);
   const [tabelaItens, setTabelaItens] = useState(null);
   const [tabelaSel, setTabelaSel] = useState([]);
@@ -2986,16 +3004,9 @@ export default function Inbox({ onUnreadChange }) {
                     prova social com fotos, onde carregue as fotos"). Não é texto:
                     um toque manda o conjunto de fotos reais da casa, escolhidas
                     pelo setor da conversa. Fica fixa aqui, ninguém apaga sem querer. */}
-                <button onClick={async ()=>{
-                    if (!sel || provaEnviando) return;
-                    setProvaEnviando(true);
-                    try {
-                      const r = await api.post(`/inbox/conversations/${sel.id}/prova-social`, {});
-                      Toast.show(r?.enviadas ? `${r.enviadas} fotos enviadas 📸` : 'Fotos enviadas 📸', 'success');
-                      setShowQR(false);
-                    } catch (e) { Toast.show(e.message || 'Não consegui enviar as fotos', 'error'); }
-                    setProvaEnviando(false);
-                  }}
+                {/* Mesma função do botão da barra: um caminho só de envio, senão
+                    um dos dois envelhece e passa a mandar coisa diferente. */}
+                <button onClick={()=>{ mandarProvaSocial(); setShowQR(false); }}
                   disabled={provaEnviando}
                   title="Envia o conjunto de fotos reais de atendimento (prova social)"
                   style={{ padding:'4px 11px', borderRadius:8, background:'var(--gold2,#fdf5e8)', color:'var(--gold,#C4973B)',
@@ -3874,6 +3885,18 @@ export default function Inbox({ onUnreadChange }) {
                   boxShadow:'0 3px 12px rgba(13,148,136,.38)' }}>
                 <FileText size={15} strokeWidth={2.4}/>
                 <span className="vh-so-desktop">Tabela</span>
+              </button>
+              {/* 📸 PROVA SOCIAL — o quarto irmão (03/09). Âmbar: cor própria
+                  pra mão achar sem ler, como os outros três. */}
+              <button onClick={mandarProvaSocial} disabled={provaEnviando}
+                title="Envia 4 fotos reais do cuidado com as crianças, com a mensagem do nosso Instagram"
+                style={{ display:'flex', alignItems:'center', gap:6, flexShrink:0, border:'none',
+                  padding:'9px 15px', borderRadius:10, cursor: provaEnviando ? 'wait' : 'pointer',
+                  background:'linear-gradient(135deg,#fbbf24,#d97706)', color:'#fff',
+                  fontSize:12.5, fontWeight:800, letterSpacing:-.2,
+                  boxShadow:'0 3px 12px rgba(217,119,6,.38)', opacity: provaEnviando ? .65 : 1 }}>
+                {provaEnviando ? <Loader2 size={15} className="spin"/> : <Image size={15} strokeWidth={2.4}/>}
+                <span className="vh-so-desktop">{provaEnviando ? 'Enviando…' : 'Prova social'}</span>
               </button>
               <button onClick={recording?stopRec:startRec} className="btn btn-ico" style={{ background:recording?'var(--err2)':'var(--bg2)', color:recording?'var(--err)':'var(--muted)', borderRadius:8, animation:recording?'pulse 1.2s infinite':'none' }}>
                 {recording?<MicOff size={15}/>:<Mic size={15}/>}
