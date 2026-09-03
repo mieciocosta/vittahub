@@ -384,11 +384,29 @@ function SearchBar({ value, onChange, filter, setFilter, totalUnread, unreadOnly
           ...(ehDistribuidor ? [['distribuir','📥 Distribuição','aDistribuir']] : []),
           [ 'minhas', ehDistribuidor ? '💬 Meus atendimentos' : 'Minhas', 'minhas'],['naolidas','Não lidas','naoLidas'],['grupos','Grupos','grupos'],['fixadas','📌 Fixadas','fixadas']].map(([k, l, ck]) => {
           const ativo = modo === k;
+          /* 📥 DISTRIBUIÇÃO EM DESTAQUE (ordem do master, 02/09: "deixa a aba
+             Distribuição em destaque para lembrar ela de distribuir").
+
+             Lead parado na fila é venda esfriando, e a aba se perdia entre as
+             outras, todas do mesmo tom. Agora ela é dourada quando TEM alguém
+             esperando, com um pontinho pulsando; com a fila zerada, volta a ser
+             discreta — destaque permanente vira papel de parede em dois dias e
+             ninguém mais enxerga. */
+          const chamando = k === 'distribuir' && !ativo && (counts?.aDistribuir || 0) > 0;
           return (
             <button key={k} onClick={() => setModo(k)}
-              style={{ flex: 1, padding: '5px 3px', borderRadius: 8, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', border: '1.5px solid',
-                background: ativo ? 'var(--tq)' : 'var(--card,#fff)', color: ativo ? '#fff' : 'var(--muted)',
-                borderColor: ativo ? 'var(--tq)' : 'var(--border)', whiteSpace: 'nowrap' }}>
+              title={chamando ? `${counts.aDistribuir} lead(s) esperando você entregar` : undefined}
+              style={{ flex: 1, padding: '5px 3px', borderRadius: 8, fontSize: 10.5, fontWeight: chamando ? 900 : 700, cursor: 'pointer', border: '1.5px solid',
+                background: ativo ? 'var(--tq)' : chamando ? 'linear-gradient(135deg,#E3B95C,#C4973B)' : 'var(--card,#fff)',
+                color: ativo ? '#fff' : chamando ? '#fff' : 'var(--muted)',
+                borderColor: ativo ? 'var(--tq)' : chamando ? '#C4973B' : 'var(--border)',
+                boxShadow: chamando ? '0 2px 10px rgba(196,151,59,.5)' : 'none',
+                animation: chamando ? 'vhPulseOuro 1.8s ease-in-out infinite' : 'none',
+                whiteSpace: 'nowrap', position: 'relative' }}>
+              {chamando && (
+                <span style={{ position:'absolute', top:-3, right:-3, width:9, height:9, borderRadius:'50%',
+                  background:'#dc2626', border:'2px solid var(--card,#fff)' }} />
+              )}
               {l}{counts?.[ck] != null ? ` ${counts[ck]}` : ''}
             </button>
           );
@@ -951,6 +969,37 @@ export default function Inbox({ onUnreadChange }) {
   const [tabelaItens, setTabelaItens] = useState(null);
   const [tabelaSel, setTabelaSel] = useState([]);
   const [tabelaSetor, setTabelaSetor] = useState('');
+  /* 📎 OS ARQUIVOS DA ABA TABELA (02/09). A aba Tabela de Preços tem duas
+     coisas: a lista de valores e os ARQUIVOS publicados (o PDF ou a imagem da
+     tabela, que é o que a equipe manda pro cliente). "Puxar tudo da aba" é
+     puxar os dois — sem isso, o botão traria metade da aba. */
+  const [tabelaArqs, setTabelaArqs] = useState([]);
+  const [arqEnviando, setArqEnviando] = useState(null);
+  const carregarArqsTabela = (setor) => {
+    const chaves = setor ? [`tabela_precos_${setor}`] : ['tabela_precos_vacinas', 'tabela_precos_consultas', 'tabela_precos_terapias'];
+    Promise.all(chaves.map(k => api.get(`/extras/pasta-arquivos?chave=${k}`).catch(() => [])))
+      .then(ls => setTabelaArqs(ls.flat().filter(Boolean)))
+      .catch(() => setTabelaArqs([]));
+  };
+  /* Manda o arquivo pelo MESMO caminho do clipe de papel: baixa o conteúdo,
+     vira arquivo e sobe pelo upload da conversa. Um caminho só de envio de
+     mídia é o que evita dois comportamentos diferentes pro mesmo PDF. */
+  const enviarArqTabela = async (a) => {
+    if (!sel || arqEnviando) return;
+    setArqEnviando(a.id);
+    try {
+      const d = await api.get(`/extras/pasta-arquivos/${a.id}/download`);
+      if (!d?.arquivo) throw new Error('Arquivo não encontrado.');
+      const blob = await (await fetch(d.arquivo)).blob();
+      const fd = new FormData();
+      fd.append('file', new File([blob], d.nome || a.nome || 'tabela', { type: d.mimetype || a.mimetype || blob.type }));
+      const m = await api.upload(`/inbox/conversations/${sel.id}/upload`, fd);
+      setMsgs(p2 => [...p2, m]);
+      Toast.show('Tabela enviada 📎', 'success');
+      setShowTabela(false);
+    } catch (e) { Toast.show(e.message || 'Não consegui enviar o arquivo', 'error'); }
+    setArqEnviando(null);
+  };
   const abrirTabela = () => {
     setShowTabela(v2 => !v2);
     setShowEmoji(false); setShowProntas(false); setShowQR(false); setShowFigus(false);
@@ -960,7 +1009,9 @@ export default function Inbox({ onUnreadChange }) {
         .catch(() => setTabelaItens([]));
     }
     // Abre já no setor da conversa: é o que ela vai querer em 9 de 10 vezes
-    setTabelaSetor(sel?.setor || '');
+    const setorInicial = sel?.setor || '';
+    setTabelaSetor(setorInicial);
+    carregarArqsTabela(setorInicial);
   };
   const [protoBusy, setProtoBusy] = useState('');
   const [protoSel, setProtoSel] = useState(null); // passo aberto nos botões numerados (23/08/2026)
@@ -2933,7 +2984,7 @@ export default function Inbox({ onUnreadChange }) {
                 </div>
                 <div style={{ display:'flex', gap:5, marginBottom:8, flexWrap:'wrap' }}>
                   {[['', 'Tudo'], ['vacinas', '💉 Vacinas'], ['consultas', '🩺 Consultas'], ['terapias', '🤲 Terapias']].map(([k, rot]) => (
-                    <button key={k || 'tudo'} onClick={()=>{ setTabelaSetor(k); setTabelaSel([]); }}
+                    <button key={k || 'tudo'} onClick={()=>{ setTabelaSetor(k); setTabelaSel([]); carregarArqsTabela(k); }}
                       style={{ padding:'4px 11px', borderRadius:20, fontSize:11, fontWeight:800, cursor:'pointer',
                         border:`1.5px solid ${tabelaSetor === k ? 'var(--tq)' : 'var(--border)'}`,
                         background: tabelaSetor === k ? 'var(--tq)' : 'var(--card)', color: tabelaSetor === k ? '#fff' : 'var(--muted)' }}>
@@ -2941,6 +2992,26 @@ export default function Inbox({ onUnreadChange }) {
                     </button>
                   ))}
                 </div>
+                {tabelaArqs.length > 0 && (
+                  <div style={{ marginBottom:10, paddingBottom:9, borderBottom:'1px solid var(--border)' }}>
+                    <div style={{ fontSize:10, fontWeight:800, color:'var(--tq2)', marginBottom:5 }}>
+                      📎 Arquivos da tabela <span style={{ fontWeight:600, color:'var(--muted)' }}>· toque pra enviar pro cliente</span>
+                    </div>
+                    <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+                      {tabelaArqs.map(a => (
+                        <button key={a.id} onClick={()=>enviarArqTabela(a)} disabled={!!arqEnviando}
+                          title={`Enviar ${a.nome} pro cliente`}
+                          style={{ padding:'6px 12px', borderRadius:10, fontSize:11.5, fontWeight:700,
+                            cursor: arqEnviando ? 'wait' : 'pointer', border:'1.5px solid var(--tq)',
+                            background:'var(--tq4,#e8f7f8)', color:'var(--tq2)',
+                            opacity: arqEnviando === a.id ? .5 : 1, maxWidth:230, overflow:'hidden',
+                            textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                          {arqEnviando === a.id ? '⏳ enviando…' : `📄 ${a.nome}`}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {tabelaItens === null && <div style={{ fontSize:12, color:'var(--muted)' }}>Buscando a tabela…</div>}
                 {tabelaItens !== null && !doSetor.length && (
                   <div style={{ fontSize:12, color:'var(--muted)' }}>
