@@ -4092,10 +4092,16 @@ export default function Inbox({ onUnreadChange }) {
                 style={{ display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, border:'none',
                   width:38, height:38, borderRadius:'50%', transition:'all .15s',
                   cursor: (input.trim()||filePreview)&&!sending ? 'pointer' : 'default',
+                  /* 📨 SEMPRE EM DESTAQUE (ordem do master, 03/09: "destaca"). Vazio ele
+                     ficava cinza e sumia entre os outros — o botão mais usado do
+                     sistema não pode parecer desligado. Agora é turquesa sempre:
+                     com algo pra mandar, cheio e com sombra; vazio, contornado,
+                     mas ainda claramente ali. */
                   background: (input.trim()||filePreview)&&!sending
-                    ? 'linear-gradient(135deg,#22d3ee,#0E8C96)' : 'var(--bg2)',
-                  color: (input.trim()||filePreview)&&!sending ? '#fff' : 'var(--light)',
-                  boxShadow: (input.trim()||filePreview)&&!sending ? '0 3px 14px rgba(14,140,150,.5)' : 'none' }}>
+                    ? 'linear-gradient(135deg,#22d3ee,#0E8C96)' : 'rgba(0,184,192,.14)',
+                  border: (input.trim()||filePreview)&&!sending ? 'none' : '2px solid var(--tq,#00B8C0)',
+                  color: (input.trim()||filePreview)&&!sending ? '#fff' : 'var(--tq,#00B8C0)',
+                  boxShadow: (input.trim()||filePreview)&&!sending ? '0 3px 14px rgba(14,140,150,.5)' : '0 2px 8px rgba(0,184,192,.25)' }}>
                 {sending ? <Loader2 size={16} style={{animation:'spin 1s linear infinite'}}/> : <Send size={16} strokeWidth={2.4}/>}
               </button>
             </div>
