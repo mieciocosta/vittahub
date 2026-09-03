@@ -250,24 +250,46 @@ export default function PlacarVendas() {
         const mes = meta.focoMes?.[s.setor] || null;       // alvo do mês (ex.: 20 Planos)
         const minMeta = s.metaMinima || 100000;
         const faltaMin = Math.max(0, s.faltaMinima ?? Math.max(minMeta - (s.confirmado || 0), 0));
+        /* 🎯 Meta DO DIA em R$ (ordem do master, 03/09: "meta diaria pra cada
+           setor é 19 mil"). Quando o servidor manda metaDia, a cápsula vira o
+           que o nome promete — quanto falta HOJE — e a mínima do mês desce pra
+           linha de baixo. Só o master recebe o vendido do setor no dia. */
+        const metaDia = s.metaDia || 0;
+        const usaDia = verValores && metaDia > 0;
+        const faltaDia = Math.max(0, s.faltaDia ?? Math.max(metaDia - (s.confirmadoHoje || 0), 0));
+        const diaOk = usaDia && faltaDia <= 0;
         const cor = CORES[s.setor] || '#fde68a';
         if (!foco && !verValores) return null;
         return (
           <Capsula key={s.setor}
             // A meta ideal saiu da faixa, mas continua no "passar o mouse".
-            title={foco
+            title={usaDia
+              ? `${nome} hoje: ${fmt.brl(s.confirmadoHoje || 0)} de ${fmt.brl(metaDia)}${foco ? ` · ${foco.map(f => `${f.feitos} de ${f.alvo} ${f.rotulo.toLowerCase()}`).join(' ou ')}` : ''} · no mês ${fmt.brl(s.confirmado || 0)} de ${fmt.brl(minMeta)} · meta ideal ${fmt.brl(s.metaGlobal || 0)}`
+              : foco
               ? `${nome} hoje: ${foco.map(f => `${f.feitos} de ${f.alvo} ${f.rotulo.toLowerCase()}`).join(' ou ')}${verValores ? ` · no mês ${fmt.brl(s.confirmado || 0)} de ${fmt.brl(minMeta)}` : ''}`
               : `${nome}: ${fmt.brl(s.confirmado || 0)} de ${fmt.brl(minMeta)} · meta ideal ${fmt.brl(s.metaGlobal || 0)}`}>
             <span style={{ fontSize: 15 }}>{EMOJI[s.setor] || '🎯'}</span>
             <div style={{ lineHeight: 1.12, transition: 'transform .35s', transform: pulse ? 'scale(1.05)' : 'scale(1)' }}>
               <Rotulo>{nome} · meta de hoje</Rotulo>
-              <div style={{ fontSize: 13.5, fontWeight: 900, color: focoOk ? '#6ee7b7' : cor, textShadow: '0 1px 3px rgba(0,0,0,.45)' }}>
-                {/* Onde existe meta em QUANTIDADE ela substitui o R$: "falta
+              <div style={{ fontSize: 13.5, fontWeight: 900, color: (focoOk || diaOk) ? '#6ee7b7' : cor, textShadow: '0 1px 3px rgba(0,0,0,.45)' }}>
+                {/* Master: a meta do DIA em R$ (19 mil por setor). Equipe: onde
+                    existe meta em QUANTIDADE ela substitui o R$: "falta
                     R$ 99.600" não diz o que fazer hoje; "1 Plano Vacinal" diz. */}
-                {foco
+                {usaDia
+                  ? (diaOk ? '🏆 Meta do dia batida!' : `falta ${fmt.brl(faltaDia)} de ${fmt.brl(metaDia)}`)
+                  : foco
                   ? (focoOk ? '✅ Feita! Bora além' : foco.map(qtdTexto).join(' ou '))
                   : (faltaMin <= 0 ? '🏆 Meta batida!' : `falta ${fmt.brl(faltaMin)}`)}
               </div>
+              {/* A mínima do MÊS não some: desce pra linha de baixo, miúda */}
+              {usaDia && !mes && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
+                  <Barra pct={minMeta ? ((s.confirmado || 0) / minMeta) * 100 : 0} cor={`linear-gradient(90deg,${cor},#fff8e1)`} largura={54} />
+                  <span style={{ fontSize: 10, fontWeight: 800, color: 'rgba(255,255,255,.9)' }}>
+                    mês {fmt.brl(s.confirmado || 0)} de {fmt.brl(minMeta)}
+                  </span>
+                </div>
+              )}
               {/* O alvo do MÊS logo abaixo: 1 por dia é o passo, 20 é o destino */}
               {mes && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>

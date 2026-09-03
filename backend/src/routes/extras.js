@@ -1283,6 +1283,27 @@ r.get('/meta-setor', async (req, res) => {
     const porSetor = [];
     for (const s of ordem) porSetor.push(await confDe(s));
 
+    /* 🎯 META DO DIA EM R$ (ordem do master, 03/09: "meta diaria pra cada setor
+       é 19 mil"). Antes a cápsula "meta de hoje" do placar mostrava o que
+       faltava da MÍNIMA DO MÊS (R$ 100 mil) — "falta R$ 91.350" às 9h da manhã
+       não diz nada sobre o dia. A fonte é a mesma do relatório do líder
+       (configuracoes.relatorio_lider → setores[setor].dia), pra existir um
+       número só; o vendido de HOJE segue a régua do placar (venda fechada). */
+    const cfgLider = await cfgRelatorioLider();
+    for (const ps of porSetor) {
+      const doSetorL = cfgLider.setores?.[ps.setor] || {};
+      const metaDia = Math.max(0, parseFloat(doSetorL.dia) || parseFloat(cfgLider.meta_diaria_setor) || 0);
+      const { rows: [hd] } = await query(
+        `SELECT COALESCE(SUM(valor),0)::float vendido FROM vendas
+          WHERE COALESCE(setor,'vacinas') = $1 AND data_venda = $2::date`, [ps.setor, hojeSLZ])
+        .catch(() => ({ rows: [{ vendido: 0 }] }));
+      const vendidoHoje = hd?.vendido || 0;
+      ps.metaDia = metaDia;
+      ps.confirmadoHoje = vendidoHoje;
+      ps.faltaDia = Math.max(metaDia - vendidoHoje, 0);
+      ps.pctDia = metaDia ? +Math.min((vendidoHoje / metaDia) * 100, 100).toFixed(1) : 0;
+    }
+
     /* 🏅 PRÊMIO PESSOAL (ordem do master, 22/08: "R$ 2.500 é somente para a
        Raylane; as demais, R$ 1.500"): configuracoes.metas.premiosPessoa =
        { "raylane": 2500 } sobrepõe o prêmio da mínima SÓ pra pessoa logada,
@@ -1337,11 +1358,12 @@ r.get('/meta-setor', async (req, res) => {
        dela, contra a meta dela. O total do setor em R$ é visão do master. */
     const podeValores = req.user.role === 'master';
     const porSetorSeguro = podeValores ? porSetor : porSetor.map(s => ({
-      setor: s.setor, metaGlobal: s.metaGlobal, metaMinima: s.metaMinima,
+      setor: s.setor, metaGlobal: s.metaGlobal, metaMinima: s.metaMinima, metaDia: s.metaDia,
       premio: s.premio, premioMinimo: s.premioMinimo, premioDia: s.premioDia,
       diarias: s.diarias || null,   // diária é o dinheiro DELA — sempre passa
       confirmado: null, recebido: null, aReceber: null,
       faltaMinima: null, faltaGlobal: null, pctMinima: null, pctGlobal: null,
+      confirmadoHoje: null, faltaDia: null, pctDia: null,   // total do setor no dia = visão do master
     }));
     res.json({
       ...porSetorSeguro[0], porSetor: porSetorSeguro,

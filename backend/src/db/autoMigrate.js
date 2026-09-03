@@ -3033,6 +3033,7 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
      ainda) e a meta da Danielle nunca mudava, sem erro nenhum na tela.
      Cobrança dele, 03/09: "a meta de Danielle não mudou". */
   try { await metasPorSetor(); } catch (e) { console.error('metas por setor:', e.message); }
+  try { await metaDiariaDosSetores(); } catch (e) { console.error('meta diaria dos setores:', e.message); }
   try { await equipeDaCasa(); } catch (e) { console.error('equipe da casa:', e.message); }
   try { await donosDaCasa(); } catch (e) { console.error('donos da casa:', e.message); }
   try { await marketingForaDoPainel(); } catch (e) { console.error('marketing fora do painel:', e.message); }
@@ -3456,6 +3457,28 @@ async function metasPorSetor() {
     await query(`INSERT INTO configuracoes (chave, valor) VALUES ($1, '{"ok":true}') ON CONFLICT DO NOTHING`, [m.flag]).catch(() => {});
     console.log(`🎯 Metas por setor aplicadas: ${m.quem} (bônus total R$ ${total})`);
   }
+}
+
+/* 🎯 META DIÁRIA DE CADA SETOR = R$ 19 MIL (ordem do master, 03/09: "meta
+   diaria pra cada setor é 19 mil"). A fonte única é configuracoes.relatorio_lider
+   → setores[setor].dia — é de lá que o relatório do líder já lia, e agora o
+   placar (/extras/meta-setor) lê também. Roda UMA vez (flag); depois disso o
+   valor é ajustado pela tela do Relatório do Líder, sem mexer em código. */
+async function metaDiariaDosSetores() {
+  const FLAG = 'seed_meta_dia_setor_19k_v1', META_DIA = 19000;
+  const { rows: [ja] } = await query('SELECT 1 FROM configuracoes WHERE chave = $1', [FLAG]).catch(() => ({ rows: [1] }));
+  if (ja) return;
+  const { rows: [c] } = await query("SELECT valor FROM configuracoes WHERE chave = 'relatorio_lider'").catch(() => ({ rows: [] }));
+  const cfg = (c?.valor && typeof c.valor === 'object') ? c.valor : {};
+  const setores = { ...(cfg.setores || {}) };
+  for (const st of ['vacinas', 'consultas', 'terapias']) setores[st] = { ...(setores[st] || {}), dia: META_DIA };
+  const novo = { ...cfg, setores, meta_diaria_setor: META_DIA };
+  await query(`INSERT INTO configuracoes (chave, valor) VALUES ('relatorio_lider', $1::jsonb)
+               ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`, [JSON.stringify(novo)]);
+  await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('meta', $1, $2, true)`,
+    ['🎯 Meta diária dos setores', 'Vacinas, consultas e terapias agora têm meta de R$ 19.000 por dia. O placar mostra quanto falta hoje; o valor é ajustável no Relatório do Líder.']).catch(() => {});
+  await query(`INSERT INTO configuracoes (chave, valor) VALUES ($1, '{"ok":true}') ON CONFLICT DO NOTHING`, [FLAG]).catch(() => {});
+  console.log('🎯 Meta diária de R$ 19.000 aplicada aos três setores');
 }
 
 async function donosDaCasa() {

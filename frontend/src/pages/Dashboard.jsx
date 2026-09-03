@@ -455,6 +455,12 @@ export default function Dashboard() {
                         quanto é evita a dúvida de "por que o caixa não bate?" */}
                     {s.aReceber > 0 && <span> · {fmt.brl(s.aReceber)} a receber</span>}
                   </div>
+                  {/* 🎯 Meta do DIA (ordem do master, 03/09: R$ 19 mil por setor) */}
+                  {s.metaDia > 0 && s.confirmadoHoje != null && (
+                    <div style={{ fontSize: 12.5, fontWeight: 800, marginBottom: 8, color: (s.faltaDia ?? 1) <= 0 ? 'var(--ok,#16a34a)' : cor }}>
+                      Hoje: {fmt.brl(s.confirmadoHoje || 0)} de {fmt.brl(s.metaDia)}{(s.faltaDia ?? 1) <= 0 ? ' · 🏆 meta do dia batida!' : ` · faltam ${fmt.brl(s.faltaDia || 0)}`}
+                    </div>
+                  )}
                   <div style={{ height: 9, borderRadius: 6, background: 'var(--bg2)', overflow: 'hidden' }}>
                     <div style={{ width: `${pct}%`, height: '100%', borderRadius: 6, background: batida ? 'var(--ok,#16a34a)' : cor, transition: 'width .5s' }} />
                   </div>
