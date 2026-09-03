@@ -505,6 +505,26 @@ h1 { letter-spacing: -0.7px; }
   .vh-faixa { display: none !important; }
 }
 
+/* 📱 BARRA DE NAVEGAÇÃO DO CELULAR (03/09) — escondida no desktop, fixa no
+   rodapé em tela pequena. Respeita a área do gesto do iPhone (safe-area). */
+.vh-barra-celular { display: none; }
+@media (max-width: 768px) {
+  .vh-barra-celular {
+    display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 195;
+    background: var(--card, #fff); border-top: 1px solid var(--border);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    box-shadow: 0 -4px 16px rgba(0,0,0,.08);
+  }
+  /* O conteúdo das telas não fica escondido atrás da barra */
+  .vh-main { padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px)) !important; }
+  /* Dentro de uma conversa o rodapé é da caixa de digitar — a barra sai e o
+     espaço volta, igual ao WhatsApp. Quem liga/desliga a classe é o Chat. */
+  body.vh-conversa-aberta .vh-barra-celular { display: none; }
+  body.vh-conversa-aberta .vh-main { padding-bottom: 0 !important; }
+  /* A busca e o placar não podem ficar embaixo da barra */
+  .vh-barra-celular ~ * { --vh-rodape: 64px; }
+}
+
 /* ── Tablet ── */
 @media (min-width: 769px) and (max-width: 1024px) {
   :root { --sw: 64px !important; }

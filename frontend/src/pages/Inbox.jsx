@@ -820,6 +820,13 @@ export default function Inbox({ onUnreadChange }) {
   const [listCollapsed, setListCollapsed] = useState(false);
   const [sel, setSel]                     = useState(null);
   const [msgs, setMsgs]                   = useState([]);
+  /* 📱 Conversa aberta = a barra de baixo do celular some (03/09). A marca vai
+     no <body> porque a barra mora fora desta tela, no App; a classe é o jeito
+     mais simples de um falar com o outro sem estado compartilhado. */
+  useEffect(() => {
+    document.body.classList.toggle('vh-conversa-aberta', !!sel);
+    return () => document.body.classList.remove('vh-conversa-aberta');
+  }, [sel?.id]); // eslint-disable-line
   const [msgsTotal, setMsgsTotal]         = useState(0);
   const [msgsHasMore, setMsgsHasMore]     = useState(false);
   const [loadingOlderMsgs, setLoadingOlderMsgs] = useState(false);

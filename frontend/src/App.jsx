@@ -7,6 +7,7 @@ import BuscaRapida from './components/BuscaRapida.jsx';
 import CelebracaoGlobal from './components/CelebracaoGlobal.jsx';
 import TrocaUsuario from './components/TrocaUsuario.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
+import BarraCelular from './components/BarraCelular.jsx';
 import Login from './pages/Login.jsx';
 import { api } from './hooks/api.js';
 import { hexRGB, clarear, escurecer } from './hooks/utils.js';
@@ -562,6 +563,11 @@ export default function App() {
         onSetCorDia={setCorDia}
         paletaCores={CORES_DIA}
       />
+      </ErrorBoundary>
+      {/* 📱 A barra de baixo do celular: os destinos que importam sempre à
+          vista (03/09). Só existe em tela pequena — a regra mora no CSS. */}
+      <ErrorBoundary discreto nome="Barra do celular">
+        <BarraCelular unread={unread} onAbrirMenu={() => setMobileMenu(true)} />
       </ErrorBoundary>
       {user && <Heartbeat userId={user.id} />}
       <main className='vh-main' style={{ marginLeft:'var(--sw)', flex:1, minHeight:'100vh', overflowX:'hidden', transition:'margin-left .2s ease' }}>
