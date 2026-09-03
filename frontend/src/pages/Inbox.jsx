@@ -3141,6 +3141,29 @@ export default function Inbox({ onUnreadChange }) {
                     ✕ Fechar
                   </button>
                 </div>
+                {/* 📎 ANEXAR EM EVIDÊNCIA (ordem do master, 03/09: "na tabela de
+                    preço quero o botão anexar em mais evidência, uma cor que
+                    chame atenção e uma posição melhor").
+
+                    Estava um selo miúdo no canto do bloco de anotações, cinza
+                    entre outros cinzas. Subiu pro topo do painel, com a largura
+                    toda e em coral: no meio de uma tela de turquesa e dourado,
+                    o quente é o que a vista acha primeiro. Publicar tabela nova
+                    é das coisas mais importantes que se faz aqui — não podia
+                    ser a mais escondida. */}
+                <button onClick={()=>arqTabelaRef.current?.click()} disabled={precoBusy}
+                  title="Anexar a tabela (PDF, imagem ou planilha) — fica publicada pra casa toda"
+                  style={{ width:'100%', marginBottom:9, border:'none', borderRadius:10,
+                    padding:'9px 14px', cursor: precoBusy ? 'wait' : 'pointer',
+                    background:'linear-gradient(135deg,#FF8A6B,#FF6B4A)', color:'#fff',
+                    fontSize:12, fontWeight:800, letterSpacing:-.1,
+                    boxShadow:'0 3px 12px rgba(255,107,74,.42)', opacity: precoBusy ? .6 : 1,
+                    display:'flex', alignItems:'center', justifyContent:'center', gap:7 }}>
+                  📎 {precoBusy ? 'Anexando…' : 'Anexar documento na tabela'}
+                </button>
+                <input ref={arqTabelaRef} type="file" onChange={anexarNaTabela} style={{ display:'none' }}
+                  accept=".pdf,.doc,.docx,.xls,.xlsx,image/*" />
+
                 <div style={{ display:'flex', gap:5, marginBottom:8, flexWrap:'wrap' }}>
                   {[['', 'Tudo'], ['vacinas', '💉 Vacinas'], ['consultas', '🩺 Consultas'], ['terapias', '🤲 Terapias']].map(([k, rot]) => (
                     <button key={k || 'tudo'} onClick={()=>{ setTabelaSetor(k); setTabelaSel([]); carregarArqsTabela(k); }}
@@ -3170,14 +3193,6 @@ export default function Inbox({ onUnreadChange }) {
                             {nota ? '✏️ Editar' : '➕ Escrever'}
                           </button>
                         )}
-                        <button onClick={()=>arqTabelaRef.current?.click()} disabled={precoBusy}
-                          title="Anexar um documento na tabela desta área (fica pra casa toda)"
-                          style={{ marginLeft:'auto', border:'1.5px solid var(--tq)', background:'var(--tq4,#e8f7f8)', borderRadius:8,
-                            padding:'2px 9px', fontSize:10, fontWeight:800, color:'var(--tq2)', cursor: precoBusy ? 'wait' : 'pointer' }}>
-                          📎 Anexar documento
-                        </button>
-                        <input ref={arqTabelaRef} type="file" onChange={anexarNaTabela} style={{ display:'none' }}
-                          accept=".pdf,.doc,.docx,.xls,.xlsx,image/*" />
                       </div>
                       {editando ? (
                         <>
