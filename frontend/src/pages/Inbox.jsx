@@ -937,6 +937,31 @@ export default function Inbox({ onUnreadChange }) {
     try { localStorage.setItem('vh_fixadas_baixas', nova ? '1' : '0'); } catch { /* ok */ }
     return nova;
   });
+  /* 📋 A TABELA DE PREÇOS DENTRO DA CONVERSA (ordem do master, 02/09: "um
+     botão igual ao de agendar sobre Tabela, onde puxe tudo da aba de tabela").
+
+     Puxa a MESMA tabela da aba Tabela de Preços — é a fonte única de preço da
+     casa. Não é uma cópia: se a gestão publicar um valor novo lá, a conversa
+     já manda o novo, sem ninguém avisar ninguém.
+
+     Ela escolhe os itens e o texto cai na caixa de digitar, como o Agendar e o
+     Endereço. Preço é a mensagem mais delicada do atendimento: sai depois de
+     ela ler, nunca sozinha. */
+  const [showTabela, setShowTabela] = useState(false);
+  const [tabelaItens, setTabelaItens] = useState(null);
+  const [tabelaSel, setTabelaSel] = useState([]);
+  const [tabelaSetor, setTabelaSetor] = useState('');
+  const abrirTabela = () => {
+    setShowTabela(v2 => !v2);
+    setShowEmoji(false); setShowProntas(false); setShowQR(false); setShowFigus(false);
+    if (tabelaItens === null) {
+      api.get('/extras/tabela-precos')
+        .then(d => setTabelaItens(Array.isArray(d?.itens) ? d.itens : []))
+        .catch(() => setTabelaItens([]));
+    }
+    // Abre já no setor da conversa: é o que ela vai querer em 9 de 10 vezes
+    setTabelaSetor(sel?.setor || '');
+  };
   const [protoBusy, setProtoBusy] = useState('');
   const [protoSel, setProtoSel] = useState(null); // passo aberto nos botões numerados (23/08/2026)
   // ✏️ Edição da frase do passo (pedido do master: "não me dá a opção de usar
@@ -2869,6 +2894,97 @@ export default function Inbox({ onUnreadChange }) {
           )}
 
           {/* 📝 Mensagens prontas — modelos oficiais pra enviar na mão */}
+          {/* 📋 TABELA DE PREÇOS NA CONVERSA — a mesma da aba Tabela de Preços */}
+          {showTabela && sel && (() => {
+            const todos = tabelaItens || [];
+            const doSetor = tabelaSetor ? todos.filter(i => (i.setor || 'consultas') === tabelaSetor) : todos;
+            const brl = (v2) => Number(v2 || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+            const porCat = {};
+            for (const i of doSetor) { const c2 = i.categoria || 'Serviços'; (porCat[c2] = porCat[c2] || []).push(i); }
+            const chave = (i) => `${i.setor || ''}|${i.nome}|${i.valor}`;
+            const marcado = (i) => tabelaSel.includes(chave(i));
+            const alternar = (i) => setTabelaSel(p2 => p2.includes(chave(i)) ? p2.filter(x => x !== chave(i)) : [...p2, chave(i)]);
+            const escolhidos = doSetor.filter(marcado);
+            /* O texto que vai pro cliente: categorias em negrito do WhatsApp,
+               um item por linha. Sem travessão, no tom da casa. */
+            const montar = () => {
+              const lista = escolhidos.length ? escolhidos : doSetor;
+              const cats = {};
+              for (const i of lista) { const c2 = i.categoria || 'Serviços'; (cats[c2] = cats[c2] || []).push(i); }
+              const linhas = ['💎 Nossos valores', ''];
+              for (const [c2, itens3] of Object.entries(cats)) {
+                linhas.push(`*${c2}*`);
+                for (const i of itens3) linhas.push(`• ${i.nome}: ${brl(i.valor)}${i.obs ? ` (${i.obs})` : ''}`);
+                linhas.push('');
+              }
+              linhas.push('Parcelamos no cartão de crédito e emitimos nota fiscal pro reembolso do plano 💙');
+              return linhas.join('\n');
+            };
+            return (
+              <div style={{ background:'var(--card,#fff)', borderTop:'1px solid var(--border)', padding:'9px 12px', flexShrink:0, maxHeight:280, overflowY:'auto' }}>
+                <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8, flexWrap:'wrap' }}>
+                  <span style={{ flex:1, minWidth:120, fontSize:10.5, fontWeight:800, color:'var(--muted)', textTransform:'uppercase', letterSpacing:.6 }}>
+                    📋 Tabela de preços <span style={{ textTransform:'none', fontWeight:600 }}>· escolha o que enviar</span>
+                  </span>
+                  <button onClick={()=>{ setShowTabela(false); setTabelaSel([]); }}
+                    style={{ border:'none', borderRadius:8, padding:'3px 10px', cursor:'pointer', background:'var(--err2,#fde8e8)', color:'var(--err,#dc2626)', fontSize:11, fontWeight:900, flexShrink:0 }}>
+                    ✕ Fechar
+                  </button>
+                </div>
+                <div style={{ display:'flex', gap:5, marginBottom:8, flexWrap:'wrap' }}>
+                  {[['', 'Tudo'], ['vacinas', '💉 Vacinas'], ['consultas', '🩺 Consultas'], ['terapias', '🤲 Terapias']].map(([k, rot]) => (
+                    <button key={k || 'tudo'} onClick={()=>{ setTabelaSetor(k); setTabelaSel([]); }}
+                      style={{ padding:'4px 11px', borderRadius:20, fontSize:11, fontWeight:800, cursor:'pointer',
+                        border:`1.5px solid ${tabelaSetor === k ? 'var(--tq)' : 'var(--border)'}`,
+                        background: tabelaSetor === k ? 'var(--tq)' : 'var(--card)', color: tabelaSetor === k ? '#fff' : 'var(--muted)' }}>
+                      {rot}
+                    </button>
+                  ))}
+                </div>
+                {tabelaItens === null && <div style={{ fontSize:12, color:'var(--muted)' }}>Buscando a tabela…</div>}
+                {tabelaItens !== null && !doSetor.length && (
+                  <div style={{ fontSize:12, color:'var(--muted)' }}>
+                    Nenhum preço publicado neste setor. A gestão publica na tela <b>Tabela de Preços</b>.
+                  </div>
+                )}
+                {Object.entries(porCat).map(([cat, itens3]) => (
+                  <div key={cat} style={{ marginBottom:8 }}>
+                    <div style={{ fontSize:10, fontWeight:800, color:'var(--tq2)', marginBottom:4 }}>{cat}</div>
+                    <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+                      {itens3.map(i => (
+                        <button key={chave(i)} onClick={()=>alternar(i)}
+                          title={i.obs || i.nome}
+                          style={{ padding:'6px 12px', borderRadius:10, fontSize:11.5, fontWeight:700, cursor:'pointer',
+                            border:`1.5px solid ${marcado(i) ? 'var(--gold,#C4973B)' : 'var(--border)'}`,
+                            background: marcado(i) ? '#fdf6e7' : 'var(--bg)',
+                            color: marcado(i) ? '#8a6417' : 'var(--txt2)' }}>
+                          {marcado(i) ? '✓ ' : ''}{i.nome} · <b>{brl(i.valor)}</b>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                {doSetor.length > 0 && (
+                  <div style={{ display:'flex', gap:7, marginTop:4, flexWrap:'wrap', alignItems:'center' }}>
+                    <button onClick={()=>{ setInput(montar()); setShowTabela(false); setTabelaSel([]); textRef.current?.focus(); }}
+                      style={{ border:'none', borderRadius:10, padding:'8px 15px', cursor:'pointer', fontSize:12, fontWeight:800,
+                        background:'linear-gradient(135deg,#E3B95C,#C4973B)', color:'#fff', boxShadow:'0 3px 12px rgba(196,151,59,.4)' }}>
+                      {escolhidos.length ? `Inserir ${escolhidos.length} item(ns)` : 'Inserir a tabela toda'}
+                    </button>
+                    {escolhidos.length > 0 && (
+                      <button onClick={()=>setTabelaSel([])}
+                        style={{ border:'1.5px solid var(--border)', borderRadius:10, padding:'7px 12px', cursor:'pointer',
+                          fontSize:11.5, fontWeight:700, background:'var(--bg2)', color:'var(--muted)' }}>
+                        Limpar seleção
+                      </button>
+                    )}
+                    <span style={{ fontSize:10.5, color:'var(--light)' }}>o texto cai na caixa pra você conferir antes de enviar</span>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           {showProntas && sel && (() => {
             const nomeC = sel.contact_name || '{CLIENTE}';
             const at1 = String(user?.nome || '').split(' ')[0];
@@ -3456,6 +3572,20 @@ export default function Inbox({ onUnreadChange }) {
                   boxShadow:'0 3px 12px rgba(139,92,246,.42)', opacity: endBusy ? .65 : 1 }}>
                 {endBusy ? <Loader2 size={15} className="spin"/> : <MapPin size={15} strokeWidth={2.4}/>}
                 <span className="vh-so-desktop">Endereço</span>
+              </button>
+              {/* 📋 TABELA — o terceiro irmão do Agendar e do Endereço (ordem do
+                  master, 02/09: "um botão igual ao de agendar sobre Tabela, onde
+                  puxe tudo da aba de tabela"). Mesmo tamanho e feitio; verde,
+                  que é a cor que sobrou depois do rosa e do lilás. */}
+              <button onClick={abrirTabela}
+                title="Tabela de preços — os valores publicados pela gestão"
+                style={{ display:'flex', alignItems:'center', gap:6, flexShrink:0, border:'none',
+                  padding:'9px 15px', borderRadius:10, cursor:'pointer',
+                  background: showTabela ? 'linear-gradient(135deg,#0d9488,#0f766e)' : 'linear-gradient(135deg,#34d399,#0d9488)',
+                  color:'#fff', fontSize:12.5, fontWeight:800, letterSpacing:-.2,
+                  boxShadow:'0 3px 12px rgba(13,148,136,.38)' }}>
+                <FileText size={15} strokeWidth={2.4}/>
+                <span className="vh-so-desktop">Tabela</span>
               </button>
               <button onClick={recording?stopRec:startRec} className="btn btn-ico" style={{ background:recording?'var(--err2)':'var(--bg2)', color:recording?'var(--err)':'var(--muted)', borderRadius:8, animation:recording?'pulse 1.2s infinite':'none' }}>
                 {recording?<MicOff size={15}/>:<Mic size={15}/>}
