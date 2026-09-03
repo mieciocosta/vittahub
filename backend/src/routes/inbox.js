@@ -976,6 +976,34 @@ async function resgatarMidiasRecentes() {
 }
 setTimeout(() => { resgatarMidiasRecentes(); }, 45 * 1000);
 
+/* 🎤 ÁUDIO SAI SEMPRE EM OGG/OPUS (ordem do master, 03/09: "sobre o áudio
+   preciso que conserte").
+
+   O celular grava no formato que quer — Android manda webm, iPhone manda mp4
+   — e o WhatsApp só toca nota de voz em ogg/opus. Mandar webm era o áudio
+   "sumir": o WhatsApp recusava, ou entregava como arquivo mudo. Em vez de
+   torcer pelo formato certo no aparelho, o servidor converte TUDO pra ogg/opus
+   antes de enviar, com o ffmpeg embutido (ffmpeg-static, sem depender do que
+   o Railway tem instalado). Mono, 48kHz, 32kbps: o padrão de nota de voz. */
+async function converterAudioParaOgg(buffer) {
+  const { default: ffmpegPath } = await import('ffmpeg-static');
+  const { spawn } = await import('node:child_process');
+  return new Promise((resolve, reject) => {
+    const ff = spawn(ffmpegPath, ['-loglevel', 'error', '-i', 'pipe:0', '-vn',
+      '-c:a', 'libopus', '-b:a', '32k', '-ar', '48000', '-ac', '1', '-f', 'ogg', 'pipe:1']);
+    const out = []; const err = [];
+    ff.stdout.on('data', d => out.push(d));
+    ff.stderr.on('data', d => err.push(d));
+    ff.on('error', reject);
+    ff.on('close', code => {
+      if (code === 0 && out.length) resolve(Buffer.concat(out));
+      else reject(new Error(`ffmpeg saiu com ${code}: ${Buffer.concat(err).toString().slice(0, 200)}`));
+    });
+    ff.stdin.on('error', () => {});   // o ffmpeg pode fechar a entrada antes do fim
+    ff.stdin.end(buffer);
+  });
+}
+
 export async function zapiCall(path, method = 'GET', body = null) {
   const { default: fetch } = await import('node-fetch');
   /* 🚨 TRANCA ÚNICA: nenhuma mensagem de teste chega no WhatsApp do cliente,
@@ -7094,8 +7122,18 @@ r.post('/conversations/:id/upload', upload.single('file'), async (req, res) => {
              Um segundo envio, 1,5s depois, resolve a maioria sem a atendente
              precisar mandar de novo. Só repete em falha de rede ou erro do
              servidor (5xx); recusa do WhatsApp (4xx) é definitiva. */
+          /* 🎤 O áudio vai pro WhatsApp em ogg/opus, sempre. O que fica gravado
+             no CRM é o original (webm/m4a), que o navegador da equipe toca; o
+             que sai pro cliente é o convertido, que o WhatsApp toca. */
+          let audioParaEnviar = dataUrl;
+          if (type === 'audio' && !/ogg|opus/i.test(f.mimetype)) {
+            try {
+              const ogg = await converterAudioParaOgg(f.buffer);
+              audioParaEnviar = `data:audio/ogg;base64,${ogg.toString('base64')}`;
+            } catch (e) { console.error('conversão de áudio falhou, indo no original:', e.message); }
+          }
           const enviarUmaVez = async () => {
-            if (type === 'audio')        return zapiCall('/send-audio',   'POST', { phone: phone55, audio: dataUrl });
+            if (type === 'audio')        return zapiCall('/send-audio',   'POST', { phone: phone55, audio: audioParaEnviar });
             if (type === 'sticker')      return zapiCall('/send-sticker', 'POST', { phone: phone55, sticker: dataUrl });
             if (type === 'image')        return zapiCall('/send-image',   'POST', { phone: phone55, image: dataUrl, caption: '' });
             if (type === 'video')        return zapiCall('/send-video',   'POST', { phone: phone55, video: dataUrl, caption: '' });
