@@ -2005,6 +2005,24 @@ export default function Inbox({ onUnreadChange }) {
     } catch (e) { Toast.show(e.message || 'Não foi possível classificar', 'error'); }
   };
 
+  /* 📂 SÓ NA PASTA (ordem do master, 03/09: "pode dar a opção também de cada
+     um retirar da fileira e deixar apenas na pasta"). A conversa continua
+     existindo — some só da fila crua e volta sozinha se o cliente falar. */
+  const [filaBusy, setFilaBusy] = useState(false);
+  const alternarForaDaFila = async () => {
+    if (!sel || filaBusy) return;
+    setFilaBusy(true);
+    const tirar = sel.fora_da_fila !== true;
+    try {
+      await api.patch(`/inbox/conversations/${sel.id}/fora-da-fila`, { fora: tirar });
+      setSel(p => ({ ...p, fora_da_fila: tirar }));
+      setConvos(p => tirar ? p.filter(c => c.id !== sel.id)
+        : p.map(c => c.id === sel.id ? { ...c, fora_da_fila: false } : c));
+      Toast.show(tirar ? 'Saiu da fila — vive na pasta 📂' : 'De volta pra fila ↩️', 'success');
+    } catch (e) { Toast.show(e.message || 'Não consegui mudar', 'error'); }
+    setFilaBusy(false);
+  };
+
   const moverPasta = async (categoria) => {
     try {
       await api.patch(`/inbox/conversations/${sel.id}/categoria`, { categoria });
@@ -2870,6 +2888,30 @@ export default function Inbox({ onUnreadChange }) {
                       </button>
                     </div>
                     {sel.categoria && <div style={{ fontSize:11, color:'var(--muted)', marginTop:6 }}>Nesta pasta. Clique de novo pra tirar.</div>}
+
+                    {/* 📂 TIRAR DA FILEIRA (ordem do master, 03/09). Só aparece
+                        quando a conversa JÁ tem pasta — sem pasta ela não teria
+                        pra onde ir, e some sem endereço é o que não pode. */}
+                    {(sel.classificacao || sel.categoria) && (
+                      <div style={{ marginTop:9 }}>
+                        <button onClick={alternarForaDaFila} disabled={filaBusy}
+                          title={sel.fora_da_fila
+                            ? 'Trazer de volta pra fila de atendimento'
+                            : 'Tirar da fila: a conversa continua na pasta e volta sozinha se o cliente mandar mensagem'}
+                          style={{ width:'100%', border:'1.5px solid', borderRadius:9, padding:'7px 12px',
+                            fontSize:11.5, fontWeight:800, cursor: filaBusy ? 'wait' : 'pointer',
+                            background: sel.fora_da_fila ? 'var(--tq4,#e8f7f8)' : 'var(--bg2)',
+                            color: sel.fora_da_fila ? 'var(--tq2)' : 'var(--txt2)',
+                            borderColor: sel.fora_da_fila ? 'var(--tq)' : 'var(--border)' }}>
+                          {sel.fora_da_fila ? '↩️ Voltar pra fila' : '📂 Tirar da fila (deixar só na pasta)'}
+                        </button>
+                        <div style={{ fontSize:10.5, color:'var(--light)', marginTop:5, lineHeight:1.5 }}>
+                          {sel.fora_da_fila
+                            ? 'Hoje ela vive só na pasta. Se o cliente mandar mensagem, volta pra fila sozinha.'
+                            : 'Atendeu e classificou? Tire da fila pra ela não pesar no seu dia. Nada se perde: fica na pasta e volta sozinha se o cliente falar.'}
+                        </div>
+                      </div>
+                    )}
                   </div>
                   {user?.role === 'master' && (
                     <div style={{ marginTop:12, paddingTop:12, borderTop:'1px solid var(--border)' }}>

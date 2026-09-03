@@ -492,6 +492,21 @@ function cacheGetList({ channel, search, unread_only, waiting, minhas, semDono, 
   // de vacina; quem NÃO é de vacina (consultas/terapias) vê tudo que não é vacina.
   // Vale pra atendente E supervisora. Master e quem não tem setor veem tudo.
   if (viewer) list = list.filter(c => podeVerSetor(viewer, c));
+  /* 📂 "SÓ NA PASTA" (ordem do master, 03/09: "pode dar a opção também de cada
+     um retirar da fileira e deixar apenas na pasta").
+
+     O modelo que ele desenhou: a conversa atendida é CLASSIFICADA numa pasta e
+     continua na fila — as duas coisas ao mesmo tempo. Quando a fila cresce
+     demais, quem atende pode tirar de lá, e a conversa passa a viver só na
+     pasta dela.
+
+     Some só da FILA CRUA. Abriu a pasta, buscou pelo nome, filtrou por pessoa
+     ou por setor: ela aparece. E volta pra fila sozinha na primeira mensagem
+     nova do cliente — é isso que faz "arquivar" não virar "perder". */
+  const filaCrua = !categoria && !classificacao && !search
+    && (!responsavel || responsavel === 'all') && minhas !== 'true' && semDono !== 'true'
+    && (!setor || setor === 'all') && arquivadas !== 'true';
+  if (filaCrua) list = list.filter(c => c.fora_da_fila !== true);
   /* 🔒 ENTREGOU, É DELA (ordem do master, 01/09: "os atendimentos que forem
      transferidos sejam exclusivos daquela pessoa; que suma da fileira dela como
      gestora — para ela olhar só se for na pasta da usuária x ou y").
@@ -780,6 +795,11 @@ async function fotoParaBiblioteca({ conv, dataUrl, waId, quando, messageType, ms
           END,
           unread = conversas.unread + 1,
           last_from = 'contact',
+          /* 📂 VOLTA PRA FILA QUANDO O CLIENTE FALA (ordem do master, 03/09).
+             Tirar da fila só é seguro porque existe esta linha: mensagem nova
+             traz a conversa de volta sozinha. Sem ela, "só na pasta" viraria
+             um lugar onde cliente some — que é exatamente o que ele não quer. */
+          fora_da_fila = false,
           followup_count = 0,
           last_message = EXCLUDED.last_message,
           last_message_at = EXCLUDED.last_message_at
@@ -844,7 +864,7 @@ r.post('/webhook/instagram', async (req, res) => {
         const { rows: [conv] } = await query(`
           INSERT INTO conversas (channel, contact_name, contact_id, unread, last_message, last_message_at)
           VALUES ('instagram', $1, $2, 1, $3, NOW())
-          ON CONFLICT (contact_id) DO UPDATE SET unread = conversas.unread + 1, last_from = 'contact', last_message = $3, last_message_at = NOW()
+          ON CONFLICT (contact_id) DO UPDATE SET unread = conversas.unread + 1, last_from = 'contact', fora_da_fila = false, last_message = $3, last_message_at = NOW()
           RETURNING *`, [`@${sid}`, sid, content]);
         await query(`INSERT INTO mensagens (conversa_id, from_type, type, content) VALUES ($1,'contact','text',$2)`, [conv.id, content]);
       }
@@ -4865,6 +4885,25 @@ r.patch('/conversations/:id/arquivar', async (req, res) => {
 
 // Mover atendimento para uma PASTA (fidelidade / banco_dados) ou tirar (null).
 // Sai do inbox normal e passa a viver na pasta correspondente.
+/* 📂 TIRAR DA FILA (ou devolver) — ordem do master, 03/09. Só faz sentido com
+   a conversa já classificada numa pasta: sem pasta ela não teria pra onde ir, e
+   o servidor recusa em vez de deixar sumir. */
+r.patch('/conversations/:id/fora-da-fila', async (req, res) => {
+  try {
+    const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso.' });
+    const tirar = req.body?.fora !== false;
+    if (tirar && !conv.classificacao && !conv.categoria) {
+      return res.status(400).json({ error: 'Classifique a pasta antes de tirar da fila — senão a conversa fica sem lugar.' });
+    }
+    const { rows: [c] } = await query(
+      'UPDATE conversas SET fora_da_fila = $1 WHERE id = $2 RETURNING *', [tirar, req.params.id]);
+    if (c) cacheUpdate(c);
+    res.json({ ok: true, fora_da_fila: tirar });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.patch('/conversations/:id/categoria', async (req, res) => {
   try {
     const cat = ['fidelidade', 'banco_dados'].includes(req.body.categoria) ? req.body.categoria : null;
