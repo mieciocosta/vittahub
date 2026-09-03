@@ -211,7 +211,7 @@ export default function PlacarVendas() {
     : 'A primeira venda do dia é sua! 🚀';
 
   return (
-    <div style={{ position: 'sticky', top: 0, zIndex: 90, display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap',
+    <div className="vh-placar" style={{ position: 'sticky', top: 0, zIndex: 90, display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap',
       padding: '9px 18px 11px', color: '#fff', overflow: 'hidden',
       background: festa ? 'linear-gradient(90deg,#78350f,#b45309,#f59e0b)'
         : batida ? 'linear-gradient(90deg,#064e3b,#047857,#10b981)'

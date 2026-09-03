@@ -450,7 +450,10 @@ h1 { letter-spacing: -0.7px; }
    ═══════════════════════════════════════════════════════════════════════════ */
 
 /* ── Sidebar: drawer no mobile ── */
-@media (max-width: 768px) {
+/* 📱 CELULAR E TABLET EM PÉ (03/09): o tablet em pé tem ~800px e caía na
+   faixa 'tablet' — menu de 64px com texto truncado. Em pé ele é um celular
+   grande: menu na gaveta e barra de baixo. */
+@media (max-width: 768px), (max-width: 1024px) and (orientation: portrait) {
   :root { --sw: 0px !important; }
   .vh-sidebar {
     transform: translateX(-100%);
@@ -508,7 +511,7 @@ h1 { letter-spacing: -0.7px; }
 /* 📱 BARRA DE NAVEGAÇÃO DO CELULAR (03/09) — escondida no desktop, fixa no
    rodapé em tela pequena. Respeita a área do gesto do iPhone (safe-area). */
 .vh-barra-celular { display: none; }
-@media (max-width: 768px) {
+@media (max-width: 768px), (max-width: 1024px) and (orientation: portrait) {
   .vh-barra-celular {
     display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 195;
     background: var(--card, #fff); border-top: 1px solid var(--border);
@@ -525,8 +528,16 @@ h1 { letter-spacing: -0.7px; }
   .vh-barra-celular ~ * { --vh-rodape: 64px; }
 }
 
+/* 📊 O placar de vendas encolhe em tela pequena (03/09): no tablet em pé ele
+   comia metade da altura antes de aparecer a primeira conversa. */
+@media (max-width: 768px), (max-width: 1024px) and (orientation: portrait) {
+  .vh-placar { padding: 6px 10px 7px !important; gap: 5px !important; }
+  .vh-placar > * { font-size: 11px !important; }
+  .vh-placar .vh-placar-kpi { padding: 4px 8px !important; }
+}
+
 /* ── Tablet ── */
-@media (min-width: 769px) and (max-width: 1024px) {
+@media (min-width: 769px) and (max-width: 1024px) and (orientation: landscape) {
   :root { --sw: 64px !important; }
   .vh-sidebar { width: 64px !important; }
   .vh-dash-grid-3 { grid-template-columns: 1fr 1fr !important; }
@@ -600,7 +611,7 @@ input::placeholder, textarea::placeholder { color: var(--light); }
 
 /* No celular o botão dourado de Agendar fica só com o ícone: o campo de
    escrever é mais importante que a palavra (ordem do master, 27/08). */
-@media (max-width: 768px) { .vh-so-desktop { display: none !important; } }
+@media (max-width: 768px), (max-width: 1024px) and (orientation: portrait) { .vh-so-desktop { display: none !important; } }
 
 /* 🧭 Painel Comercial: no celular as duas colunas viram uma */
 /* ✨ Pulso dourado — usado pela aba Distribuição quando tem lead esperando e

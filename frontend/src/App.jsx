@@ -517,6 +517,29 @@ export default function App() {
 
   const toggleTheme = () => setTheme(t => t === 'light' ? 'dark' : 'light');
   const toggleNav = () => setNavCollapsed(p => !p);
+
+  /* 📱 TABLET DEITADO = MENU SÓ COM ÍCONES, DE VERDADE (cobrança do master,
+     03/09, com o print: "veja o menu lateral truncado").
+
+     O CSS já forçava 64px de largura no tablet, mas o menu continuava
+     desenhando os TEXTOS — "Painel de cada uma", "Meu dia" — dentro de 64px,
+     que viravam letras empilhadas. O React não sabia que estava estreito; só
+     o CSS sabia. Agora o app escuta a largura da tela e, nessa faixa, manda o
+     menu se desenhar colapsado, com a mesma lógica do botão de recolher. A
+     escolha da pessoa (vh_nav) fica intacta pra quando voltar ao desktop.
+     Tablet EM PÉ não passa por aqui: vira celular, com a barra de baixo. */
+  const [tabletDeitado, setTabletDeitado] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia
+      ? window.matchMedia('(min-width: 769px) and (max-width: 1024px) and (orientation: landscape)').matches
+      : false);
+  useEffect(() => {
+    if (!window.matchMedia) return;
+    const mq = window.matchMedia('(min-width: 769px) and (max-width: 1024px) and (orientation: landscape)');
+    const ouvir = (e) => setTabletDeitado(e.matches);
+    mq.addEventListener ? mq.addEventListener('change', ouvir) : mq.addListener(ouvir);
+    return () => { mq.removeEventListener ? mq.removeEventListener('change', ouvir) : mq.removeListener(ouvir); };
+  }, []);
+  const colapsadoEfetivo = navCollapsed || tabletDeitado;
   // Hook estável: precisa ficar ANTES dos early-returns abaixo (regras de hooks),
   // senão o nº de hooks muda entre renders (loading→pronto) e estoura React #310.
   const closeMobile = React.useCallback(() => setMobileMenu(false), []);
@@ -555,7 +578,7 @@ export default function App() {
         unread={unread}
         theme={theme}
         onToggleTheme={toggleTheme}
-        collapsed={navCollapsed}
+        collapsed={colapsadoEfetivo}
         onToggleCollapse={toggleNav}
         mobileOpen={mobileMenu}
         onCloseMobile={closeMobile}
