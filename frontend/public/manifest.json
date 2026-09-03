@@ -1,26 +1,32 @@
 {
-  "name": "VittaHub · CRM Vittalis Saúde",
+  "name": "VittaHub - CRM",
   "short_name": "VittaHub",
   "description": "CRM da Vittalis Saúde — atendimento, agenda, vendas e metas.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#0E8C96",
+  "background_color": "#ffffff",
   "theme_color": "#0E8C96",
   "lang": "pt-BR",
   "icons": [
     {
-      "src": "/logos/icone-color.png",
+      "src": "/icones/icone-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/logos/icone-color.png",
+      "src": "/icones/icone-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/icones/icone-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ],
   "display_override": [
@@ -39,8 +45,9 @@
       "url": "/inbox",
       "icons": [
         {
-          "src": "/logos/icone-color.png",
-          "sizes": "192x192"
+          "src": "/icones/icone-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
         }
       ]
     },
@@ -50,8 +57,9 @@
       "url": "/agenda",
       "icons": [
         {
-          "src": "/logos/icone-color.png",
-          "sizes": "192x192"
+          "src": "/icones/icone-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
         }
       ]
     },
@@ -61,19 +69,21 @@
       "url": "/caixa",
       "icons": [
         {
-          "src": "/logos/icone-color.png",
-          "sizes": "192x192"
+          "src": "/icones/icone-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
         }
       ]
     },
     {
-      "name": "Agenda de hoje",
-      "short_name": "Hoje",
-      "url": "/",
+      "name": "Resumo do dia",
+      "short_name": "Resumo",
+      "url": "/resumo",
       "icons": [
         {
-          "src": "/logos/icone-color.png",
-          "sizes": "192x192"
+          "src": "/icones/icone-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
         }
       ]
     }
