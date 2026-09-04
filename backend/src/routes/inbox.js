@@ -5462,13 +5462,21 @@ r.get('/fixadas', async (req, res) => {
         const { rows: [db] } = await query('SELECT * FROM conversas WHERE id = $1', [f.conversa_id]).catch(() => ({ rows: [] }));
         c = db || null;
       }
-      if (c) convs.push(c);
+      /* 🔒 Fixada também obedece à regra de acesso (cobrança do master, 04/09:
+         "ainda consta Nágila, Miécio, grupo Caixa" na Gabriellen). Esta rota
+         devolvia TUDO que estivesse fixado no usuário — e quem entra "como"
+         ela e fixa, fixa no usuário dela. Era por aqui que a carteira fechada
+         vazava, por cima de todas as outras travas. */
+      if (c && podeVerSetor(req.user, c)) convs.push(c);
     }
     res.json(mascararLista(convs, req.user));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 r.post('/conversations/:id/fixar', async (req, res) => {
   try {
+    // Não fixa o que não pode ver (a fixada passaria por cima do acesso)
+    const cFix = convoCache.get(req.params.id);
+    if (cFix && !podeVerSetor(req.user, cFix)) return res.status(403).json({ error: 'Sem acesso a esta conversa.' });
     // Alterna: já fixada → desafixa; senão fixa. Sem limite de quantidade.
     const { rowCount } = await query('DELETE FROM conversas_fixadas WHERE usuario_id = $1 AND conversa_id = $2',
       [req.user.id, req.params.id]);
