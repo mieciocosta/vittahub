@@ -962,7 +962,8 @@ export default function Inbox({ onUnreadChange }) {
       setFotosModo(false);
     } catch (e) { Toast.show(e.message, 'error'); }
   };
-  const [waiting, setWaiting] = useState(false);
+  // ?esperando=1 abre já na fila de quem espera resposta (atalho do Resumo, 04/09)
+  const [waiting, setWaiting] = useState(() => new URLSearchParams(window.location.search).get('esperando') === '1');
   const [setorFiltro, setSetorFiltro] = useState('all');
   const [searchParams, setSearchParams] = useSearchParams();
   const clsFiltro = searchParams.get('cls') || 'all';

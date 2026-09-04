@@ -5512,6 +5512,12 @@ r.get('/atencao-agora', async (req, res) => {
   try {
     const agora = Date.now();
     let semResposta = 0, quentes = 0;
+    /* 🧊 LEADS PRESOS (pedido do master, 04/09: "veja se tem leads presos sem
+       atendimento"). O contador de cima só olha as últimas 24h — o cliente que
+       escreveu há 3 dias e ninguém respondeu não aparecia em lugar nenhum.
+       Aqui: última mensagem do CLIENTE, há mais de 24h e até 30 dias, fora
+       grupos e fora do que foi tirado da fila. Lista os mais antigos primeiro. */
+    const presos = [];
     for (const c of convoCache.values()) {
       if (c.categoria) continue;
       if (!podeVerSetor(req.user, c)) continue;
@@ -5519,8 +5525,14 @@ r.get('/atencao-agora', async (req, res) => {
         const idade = c.last_message_at ? agora - new Date(c.last_message_at).getTime() : 0;
         if (idade > 10 * 60 * 1000 && idade < 24 * 3600 * 1000) semResposta++;
         if (c.lead_score === 'quente') quentes++;
+        if (idade >= 24 * 3600 * 1000 && idade <= 30 * 24 * 3600 * 1000 && !ehGrupo(c) && c.fora_da_fila !== true && !c.arquivada && !c.simulacao) {
+          presos.push({ id: c.id, contact_name: c.contact_name, phone: c.phone, responsavel_id: c.responsavel_id || null,
+            responsavel_nome: c.responsavel_id ? (usuariosNome.get(String(c.responsavel_id)) || null) : null,
+            setor: c.setor || null, espera_horas: Math.round(idade / 3600000), last_message: String(c.last_message || '').slice(0, 80) });
+        }
       }
     }
+    presos.sort((a, b) => b.espera_horas - a.espera_horas);
     const hoje = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10); // dia de São Luís (auditoria)
     const mes = hoje.slice(0, 7);
     const soMinhasVenda = req.user.role === 'master' || req.user.role === 'supervisor' ? '' : ` AND atendente_id = '${String(req.user.id).replace(/[^a-zA-Z0-9-]/g, '')}'`;
@@ -5531,6 +5543,9 @@ r.get('/atencao-agora', async (req, res) => {
     ]);
     res.json({
       semResposta, quentes,
+      presos: presos.length,
+      presosSemDona: presos.filter(p => !p.responsavel_id).length,
+      presosLista: mascararLista(presos.slice(0, 15), req.user),
       agendamentosSemConfirmar: ag.rows[0]?.n || 0,
       vendasPendentes: vp.rows[0]?.n || 0,
       vendasPendentesValor: vp.rows[0]?.v || 0,

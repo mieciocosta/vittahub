@@ -482,7 +482,9 @@ export default function Dashboard() {
             {atencao ? (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))', gap: 10 }}>
                 {[
-                  ['Sem resposta +10min', atencao.semResposta, '#dc2626', '/inbox?cls=', 'Clientes esperando'],
+                  ['Sem resposta +10min', atencao.semResposta, '#dc2626', '/inbox?esperando=1', 'Clientes esperando'],
+                  // 🧊 Pedido do master (04/09): lead preso há dias sem ninguém responder
+                  ['Presos há +24h', atencao.presos || 0, '#7c3aed', '/inbox?esperando=1', `${atencao.presosSemDona || 0} sem dona · até 30 dias`],
                   ['Leads quentes parados', atencao.quentes, '#e8671a', '/inbox', 'Querem fechar'],
                   ['Agend. sem confirmar', atencao.agendamentosSemConfirmar, '#d97706', '/agenda', 'Confirmar com o cliente'],
                   // Valor a receber é financeiro — só o master vê
@@ -496,6 +498,20 @@ export default function Dashboard() {
                 ))}
               </div>
             ) : <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Carregando…</div>}
+            {/* 🧊 Os mais antigos, com nome — um toque abre a conversa */}
+            {Array.isArray(atencao?.presosLista) && atencao.presosLista.length > 0 && (
+              <div style={{ marginTop: 12, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+                <div style={{ fontSize: 11, fontWeight: 800, color: '#7c3aed', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 6 }}>🧊 Presos há mais tempo</div>
+                {atencao.presosLista.slice(0, 8).map(p => (
+                  <div key={p.id} onClick={() => nav(`/inbox?conv=${p.id}`)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px dashed var(--border)', cursor: 'pointer', fontSize: 12 }}>
+                    <span style={{ fontWeight: 800, color: '#7c3aed', minWidth: 46 }}>{p.espera_horas >= 48 ? `${Math.round(p.espera_horas / 24)} d` : `${p.espera_horas} h`}</span>
+                    <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 700 }}>{p.contact_name || p.phone || 'Contato'}</span>
+                    <span style={{ fontSize: 10.5, color: p.responsavel_nome ? 'var(--muted)' : '#dc2626', fontWeight: 700 }}>{p.responsavel_nome ? p.responsavel_nome.split(' ')[0] : 'sem dona'}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           {/* Resumo comercial do mês — só o master */}
           {isMaster && vendasResumo && (
