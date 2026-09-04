@@ -20,6 +20,11 @@ r.use(auth);
 const cut = (v, n) => (v == null ? null : String(v).slice(0, n));
 const gestao = (req) => ['master', 'supervisor'].includes(req.user.role);
 
+/* Meta de vendas do mês por setor quando ainda não foi configurada. Valor dado
+   pelo master: R$ 19.000 para vacinas e o mesmo para consultas e terapias.
+   Antes o padrão era ZERO — o placar mostrava meta 0 e "0%" para todo mundo. */
+const META_VENDAS_PADRAO = 19000;
+
 /* 👁️ VISÃO GERAL — quem enxerga a clínica INTEIRA (todos os setores e a linha
    de cada colega). Regra do master, repetida por ele mais de uma vez:
    só a GESTÃO (ele) e o MARKETING. Supervisora NÃO entra aqui — ela é
@@ -1185,7 +1190,7 @@ r.get('/meta-setor', async (req, res) => {
         `SELECT COALESCE(SUM(valor),0)::float vendido,
                 COALESCE(SUM(valor) FILTER (WHERE ${METfilter}),0)::float recebido
            FROM vendas WHERE COALESCE(setor,'vacinas') = $1 AND ${mesCol}`, [s]);
-      const meta = parseFloat(metaV[s]) || 0, conf = r2?.vendido || 0;
+      const meta = parseFloat(metaV[s]) || META_VENDAS_PADRAO, conf = r2?.vendido || 0;
       const recebido = r2?.recebido || 0, aReceber = Math.max(conf - recebido, 0);
       const MG = metaGlobalDe(s), MM = metaMinimaDe(s);
       return { setor: s, confirmado: conf, recebido, aReceber, meta, pct: meta ? +((conf / meta) * 100).toFixed(1) : 0, falta: Math.max(meta - conf, 0),
@@ -3620,6 +3625,22 @@ r.get('/vendas/resumo', async (req, res) => {
       mes, setores,
       total: { meta: totMeta, confirmado: totConf, pendente: totPend, agendado: totAg, desconto: totDesc, falta: Math.max(totMeta - totConf, 0), pct: totMeta ? +((totConf / totMeta) * 100).toFixed(1) : null },
       porAtendente: porAtendente.rows, porCategoria: porCategoria.rows,
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* A meta de VENDAS por setor existia só como PUT — sem GET e sem nenhum campo
+   na tela, era um endpoint órfão: o número mandava no placar (meta, %, "falta
+   R$") e não havia onde digitá-lo. Agora a gestão lê, edita e salva. */
+r.get('/vendas/meta', async (req, res) => {
+  try {
+    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão.' });
+    const { rows } = await query("SELECT valor FROM configuracoes WHERE chave = 'metas'");
+    const v = rows[0]?.valor?.vendas || {};
+    res.json({
+      vacinas:   parseFloat(v.vacinas)   || META_VENDAS_PADRAO,
+      consultas: parseFloat(v.consultas) || META_VENDAS_PADRAO,
+      terapias:  parseFloat(v.terapias)  || META_VENDAS_PADRAO,
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

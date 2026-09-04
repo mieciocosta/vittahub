@@ -3010,6 +3010,34 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log('👀 Gestão na pasta Fidelidade:', nG);
     }
 
+    /* 🎯 META DE VENDAS DO MÊS POR SETOR — número do master: R$ 19.000 para
+       vacinas e o mesmo para consultas e terapias.
+
+       Por que semear em vez de deixar só um padrão no código: essa meta é lida
+       em mais de uma tela (placar do topo, Caixa, relatório) e cada uma tinha o
+       seu próprio "se não tiver, use X" — 0 aqui, 200 mil ali. Gravada no banco,
+       todas passam a olhar o mesmo número.
+
+       Roda uma vez só (flag) e só preenche o que estiver vazio: se a gestão já
+       tiver digitado outro valor, ele fica. Depois disso é editável em
+       Configurações → Metas de VENDAS do mês. */
+    const { rows: [flagMetaVendas] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_meta_vendas_19k_v1'");
+    if (!flagMetaVendas) {
+      const { rows: [mAtual] } = await query("SELECT valor FROM configuracoes WHERE chave = 'metas'").catch(() => ({ rows: [] }));
+      const vAtual = mAtual?.valor?.vendas || {};
+      const manterOuDefinir = (s2) => (parseFloat(vAtual[s2]) > 0 ? parseFloat(vAtual[s2]) : 19000);
+      const vendas = {
+        vacinas: manterOuDefinir('vacinas'),
+        consultas: manterOuDefinir('consultas'),
+        terapias: manterOuDefinir('terapias'),
+      };
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('metas', jsonb_build_object('vendas', $1::jsonb))
+                   ON CONFLICT (chave) DO UPDATE SET valor = jsonb_set(COALESCE(configuracoes.valor,'{}'::jsonb), '{vendas}', $1::jsonb), updated_at = NOW()`,
+        [JSON.stringify(vendas)]).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_meta_vendas_19k_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log(`🎯 Meta de vendas por setor: ${JSON.stringify(vendas)}`);
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);

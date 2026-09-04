@@ -117,6 +117,27 @@ async function loadCache() {
     // 🧪 As conversas de simulação (avaliação da IA) não entram na lista do time
     const { rows } = await query(`SELECT * FROM conversas WHERE COALESCE(simulacao,false) = false ORDER BY last_message_at DESC LIMIT 20000`);
     rows.forEach(c => convoCache.set(c.id, c));
+
+    /* ── CONVERSA FANTASMA (bug que custou caro) ────────────────────────────
+       Este recarregamento só ESCREVIA por cima. O que sumia do banco — a
+       duplicada que a mesclagem apagou, por exemplo — continuava no cache até
+       o próximo restart: aparecia na lista, a pessoa clicava, tentava
+       transferir e levava "Conversa não encontrada". Fantasma na tela.
+
+       Agora o recarregamento também TIRA o que não existe mais. Não dá para
+       apagar tudo que não veio nas 20.000: acima desse limite há conversa
+       antiga legítima no cache. Então confirma no banco, uma consulta só, e
+       só remove o que realmente sumiu. Na prática esse conjunto é vazio. */
+    const vivos = new Set(rows.map(c => c.id));
+    const suspeitos = [...convoCache.keys()].filter(id => !vivos.has(id));
+    if (suspeitos.length) {
+      const { rows: existem } = await query('SELECT id FROM conversas WHERE id = ANY($1)', [suspeitos]);
+      const confirmados = new Set(existem.map(r2 => r2.id));
+      let removidas = 0;
+      for (const id of suspeitos) if (!confirmados.has(id)) { convoCache.delete(id); removidas++; }
+      if (removidas) console.log(`🧹 ConvoCache: ${removidas} conversa(s) fantasma removida(s)`);
+    }
+
     cacheReady = true;
     console.log(`✅ ConvoCache: ${rows.length} conversas`);
   } catch (e) { console.error('Cache load error:', e.message); }
@@ -126,6 +147,27 @@ setTimeout(loadCache, 3000);
 
 function cacheUpdate(conv) {
   convoCache.set(conv.id, conv);
+}
+
+/* Conversa apagada do banco tem de sair do cache NA HORA — senão ela continua
+   na lista de todo mundo e cada clique nela vira erro. */
+function cacheRemove(id) {
+  const tinha = convoCache.delete(id);
+  // 'conversa_removida' é o evento que o Inbox já escutava — e que ninguém
+  // emitia desde que excluir conversa foi desativado. Agora tem quem emita.
+  if (tinha) socketEmit('conversa_removida', { convId: id });
+  return tinha;
+}
+
+/* Ação que não achou a conversa: quase sempre é fantasma do cache. Em vez de
+   devolver um erro seco que deixa a pessoa clicando na mesma linha morta,
+   limpa o fantasma, avisa as telas abertas e explica o que aconteceu. */
+function conversaSumiu(id, res) {
+  cacheRemove(id);
+  return res.status(404).json({
+    error: 'Essa conversa não existe mais no sistema (pode ter sido mesclada com outra do mesmo cliente). Acabei de tirá-la da lista — atualize a página.',
+    removida: true,
+  });
 }
 // A sincronização de Fidelidade (VittaSys) insere conversas por fora deste
 // arquivo — sem avisar o cache, elas só apareceriam no próximo restart.
@@ -4655,7 +4697,7 @@ r.post('/conversations/:id/load-from-zapi', async (req, res) => {
   if (!zapiOk()) return res.json({ ok: false, loaded: 0 });
   try {
     const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
-    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
+    if (!conv) return conversaSumiu(req.params.id, res);
 
     let phone = conv.phone?.replace(/\D/g, '') || '';
     if (phone.startsWith('55') && phone.length >= 12) phone = phone.slice(2);
@@ -4799,7 +4841,7 @@ r.patch('/conversations/:id/contato', async (req, res) => {
     if (!sets.length) return res.status(400).json({ error: 'Nada para atualizar.' });
     params.push(req.params.id);
     const { rows: [conv] } = await query(`UPDATE conversas SET ${sets.join(', ')} WHERE id = $${i} RETURNING *`, params);
-    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!conv) return conversaSumiu(req.params.id, res);
     cacheUpdate(conv);
     res.json({ ok: true, contact_name: conv.contact_name, phone: conv.phone });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -4880,7 +4922,7 @@ r.patch('/conversations/:id/funil-etapa', async (req, res) => {
   try {
     const etapa = req.body.etapa ? String(req.body.etapa).slice(0, 32) : null;
     const { rows: [conv] } = await query('UPDATE conversas SET funil_etapa = $1 WHERE id = $2 RETURNING *', [etapa, req.params.id]);
-    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!conv) return conversaSumiu(req.params.id, res);
     cacheUpdate(conv);
     res.json({ ok: true, funil_etapa: etapa });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -5159,7 +5201,7 @@ r.patch('/conversations/:id/setor', async (req, res) => {
     if (!setor) return res.status(400).json({ error: 'Setor inválido.' });
     const { rows: [conv] } = await query(
       'UPDATE conversas SET setor = $1 WHERE id = $2 RETURNING *', [setor, req.params.id]);
-    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!conv) return conversaSumiu(req.params.id, res);
     cacheUpdate(conv);
     socketEmit('conv_setor', { convId: conv.id, setor });
     res.json({ ok: true, setor });
@@ -5172,7 +5214,7 @@ r.patch('/conversations/:id/classificar', async (req, res) => {
     // null/'' → remove a classificação (tira da pasta de Planos, por ex.)
     if (cls === null || cls === '') {
       const { rows: [conv] } = await query('UPDATE conversas SET classificacao = NULL WHERE id = $1 RETURNING *', [req.params.id]);
-      if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+      if (!conv) return conversaSumiu(req.params.id, res);
       cacheUpdate(conv);
       socketEmit('conv_setor', { convId: conv.id, classificacao: null });
       return res.json({ ok: true, classificacao: null });
@@ -5184,7 +5226,7 @@ r.patch('/conversations/:id/classificar', async (req, res) => {
         ? 'UPDATE conversas SET classificacao = $1, setor = $2, categoria = $3, menu_enviado = true, bot_ativo = false WHERE id = $4 RETURNING *'
         : 'UPDATE conversas SET classificacao = $1, setor = $2, categoria = $3, menu_enviado = true WHERE id = $4 RETURNING *',
       [cls, mapa.setor, mapa.categoria, req.params.id]);
-    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!conv) return conversaSumiu(req.params.id, res);
     cacheUpdate(conv);
     socketEmit('conv_setor', { convId: conv.id, setor: mapa.setor, classificacao: cls, categoria: mapa.categoria });
     /* 🤖 "De início, quem está ligada é a IA" (master): classificou pra
@@ -5230,7 +5272,7 @@ r.patch('/conversations/:id/perder', async (req, res) => {
     const motivo = String(req.body.motivo || '').trim().slice(0, 80);
     if (!motivo) return res.status(400).json({ error: 'Informe o motivo da perda.' });
     const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
-    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!conv) return conversaSumiu(req.params.id, res);
     const valor = req.body.valor_potencial !== undefined && !isNaN(parseFloat(req.body.valor_potencial)) ? Math.max(0, parseFloat(req.body.valor_potencial)) : 0;
     await query(
       `INSERT INTO perdas (conversa_id, atendente_id, atendente_nome, setor, categoria, cliente_nome, motivo, observacao, valor_potencial)
@@ -5251,7 +5293,7 @@ r.post('/conversations/:id/followup', async (req, res) => {
     const data = String(req.body.data || '').slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) return res.status(400).json({ error: 'Escolha a data do follow-up.' });
     const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
-    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!conv) return conversaSumiu(req.params.id, res);
     const leadId = conv.lead_id || await garanteLead(conv);
     if (!leadId) return res.status(500).json({ error: 'Não foi possível criar a ficha do cliente.' });
     const motivo = String(req.body.motivo || '').slice(0, 120);
@@ -5290,7 +5332,7 @@ r.patch('/conversations/:id/arquivar', async (req, res) => {
 r.patch('/conversations/:id/fora-da-fila', async (req, res) => {
   try {
     const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
-    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!conv) return conversaSumiu(req.params.id, res);
     if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso.' });
     const tirar = req.body?.fora !== false;
     if (tirar && !conv.classificacao && !conv.categoria) {
@@ -5311,7 +5353,7 @@ r.patch('/conversations/:id/categoria', async (req, res) => {
       `UPDATE conversas SET categoria = $1,
          categoria_em = CASE WHEN $1::text IS NOT NULL THEN NOW() ELSE categoria_em END
        WHERE id = $2 RETURNING *`, [cat, req.params.id]);
-    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!conv) return conversaSumiu(req.params.id, res);
     /* 💛 Entrou na pasta Fidelidade → cai direto na carteira de quem cuida da
        fidelidade (ordem do master, 24/08: "puxa todos da carteira fidelidade
        pra ela, no funil principal"). Só quando existe UMA dona do perfil, pra
@@ -5336,7 +5378,7 @@ r.patch('/conversations/:id/pasta-dia', async (req, res) => {
     dia = (dia >= 1 && dia <= 31) ? dia : null;
     const { rows: [conv] } = await query(
       'UPDATE conversas SET pasta_dia = $1 WHERE id = $2 RETURNING *', [dia, req.params.id]);
-    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!conv) return conversaSumiu(req.params.id, res);
     cacheUpdate(conv);
     res.json({ ok: true, pasta_dia: dia });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -5381,7 +5423,7 @@ r.post('/conversations/manual', async (req, res) => {
 r.post('/conversations/:id/exemplo', masterOnly, async (req, res) => {
   try {
     const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
-    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!conv) return conversaSumiu(req.params.id, res);
     const { rows: msgs } = await query(
       `SELECT from_type, type, content, filename FROM mensagens
        WHERE conversa_id = $1 AND type IN ('text','document') AND from_type NOT IN ('system','interno')
@@ -5655,7 +5697,7 @@ r.put('/encaminhar-destino', async (req, res) => {
 r.post('/conversations/:id/encaminhar', async (req, res) => {
   try {
     const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
-    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!conv) return conversaSumiu(req.params.id, res);
     if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso a esta conversa.' });
     if (!zapiOk()) return res.status(400).json({ error: 'WhatsApp não configurado.' });
     let destino = String(req.body?.destino || '').replace(/\D/g, '');
@@ -5786,7 +5828,7 @@ r.patch('/conversations/:id/transferir', async (req, res) => {
         novoSetor ? [paraId, req.params.id, novoSetor] : [paraId, req.params.id]);
       conv = r3.rows[0];
     }
-    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!conv) return conversaSumiu(req.params.id, res);
     cacheUpdate(conv);
     const de = req.user?.nome || 'a equipe';
     // Mensagem de sistema na thread (registro da transferência)
@@ -5816,7 +5858,7 @@ r.patch('/conversations/:id/visivel-todos', masterOnly, async (req, res) => {
     const ligar = req.body.visivel !== false;
     const { rows: [conv] } = await query(
       'UPDATE conversas SET visivel_todos = $1 WHERE id = $2 RETURNING *', [ligar, req.params.id]);
-    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!conv) return conversaSumiu(req.params.id, res);
     cacheUpdate(conv);
     socketEmit('conv_visivel_todos', { convId: conv.id, visivel: ligar });
     res.json({ ok: true, visivel_todos: ligar });
@@ -6135,7 +6177,7 @@ async function pistasDaConversa(convId, conv) {
 r.post('/conversations/:id/montar-cartao', async (req, res) => {
   try {
     const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
-    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!conv) return conversaSumiu(req.params.id, res);
     if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso.' });
 
     const hojeSLZ = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
@@ -6301,7 +6343,7 @@ r.get('/diagnostico/visao/:usuarioId', masterOnly, async (req, res) => {
 r.get('/conversations/:id/agenda-da-conversa', async (req, res) => {
   try {
     const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
-    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!conv) return conversaSumiu(req.params.id, res);
     if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso.' });
     const lido = await agendamentoDaConversa(req.params.id);
     /* 🧠 A IA lê a conversa inteira (texto + flyers) — é ela que separa o que
@@ -6346,7 +6388,7 @@ r.get('/conversations/:id/agenda-da-conversa', async (req, res) => {
 r.get('/conversations/:id/horarios', async (req, res) => {
   try {
     const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
-    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!conv) return conversaSumiu(req.params.id, res);
     if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso.' });
     const setorProf = conv.setor === 'terapias' ? 'terapias' : 'consultas';
     const { rows: profs } = await query(`SELECT nome, especialidade, disponibilidade FROM profissionais
@@ -6704,7 +6746,7 @@ r.post('/conversations/:id/send', async (req, res) => {
 r.post('/conversations/:id/orcamento-pdf', async (req, res) => {
   try {
     const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
-    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
+    if (!conv) return conversaSumiu(req.params.id, res);
     if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso: esta conversa é de outro setor.' });
     if (!zapiOk()) return res.status(400).json({ error: 'WhatsApp (Z-API) não configurado.' });
     const b = req.body || {};
@@ -7269,7 +7311,7 @@ r.delete('/agendadas/fila/:id', masterOnly, async (req, res) => {
 r.post('/conversations/:id/agendar', async (req, res) => {
   try {
     const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
-    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
+    if (!conv) return conversaSumiu(req.params.id, res);
     if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso a esta conversa.' });
     const texto = String((req.body || {}).texto || '').trim();
     // 📎 Anexo opcional (pedido do master): documento ou imagem em data URI
@@ -7344,7 +7386,7 @@ r.delete('/documentos/:id', async (req, res) => {
 r.post('/conversations/:id/enviar-documento', async (req, res) => {
   try {
     const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
-    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
+    if (!conv) return conversaSumiu(req.params.id, res);
     if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso a esta conversa.' });
     const { rows: [doc] } = await query(`SELECT nome, arquivo, mimetype FROM documentos_banco WHERE id = $1`, [(req.body || {}).docId]);
     if (!doc) return res.status(404).json({ error: 'Documento não encontrado.' });
@@ -7381,7 +7423,7 @@ r.post('/conversations/:id/sugerir-resposta', async (req, res) => {
   try {
     if (!temIA()) return res.status(400).json({ error: 'IA não configurada.' });
     const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
-    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
+    if (!conv) return conversaSumiu(req.params.id, res);
     if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso a esta conversa.' });
     const t = await montarTranscriptConversa(req.params.id, 25);
     if (!t) return res.status(400).json({ error: 'Sem conversa pra ler.' });
@@ -7797,7 +7839,7 @@ r.post('/conversations/:id/reset-triagem', async (req, res) => {
     const { rows: [conv] } = await query(
       `UPDATE conversas SET bot_ativo = true, menu_enviado = false, triagem_ts = NULL, captura_etapa = NULL
        WHERE id = $1 RETURNING id, bot_ativo`, [req.params.id]);
-    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
+    if (!conv) return conversaSumiu(req.params.id, res);
     const cached = convoCache.get(conv.id);
     if (cached) cacheUpdate({ ...cached, bot_ativo: true });
     socketEmit('bot_status', { convId: conv.id, bot_ativo: true });
@@ -7836,7 +7878,7 @@ r.post('/conversations/:id/send-midia', async (req, res) => {
   try {
     const { midiaId } = req.body;
     const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
-    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
+    if (!conv) return conversaSumiu(req.params.id, res);
     // Resolve pelo msg_id quando a foto veio da conversa (não é copiada)
     const { midiaComDados } = await import('./extras.js');
     const m = await midiaComDados(midiaId);
@@ -8497,7 +8539,7 @@ function htmlCartaoNome(nome, origem, significado, bencao, logoB64) {
 r.post('/conversations/:id/prova-social', async (req, res) => {
   try {
     const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
-    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!conv) return conversaSumiu(req.params.id, res);
     if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso.' });
     if (!zapiOk()) return res.status(400).json({ error: 'WhatsApp não configurado.' });
     const phoneNum = conv.contact_id ? conv.contact_id.replace('@s.whatsapp.net', '') : String(conv.phone || '').replace(/\D/g, '');
@@ -8579,7 +8621,7 @@ r.post('/conversations/:id/prova-social', async (req, res) => {
 r.post('/conversations/:id/significado-nome', async (req, res) => {
   try {
     const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
-    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!conv) return conversaSumiu(req.params.id, res);
     if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso.' });
     if (!temIA()) return res.status(400).json({ error: 'IA não configurada.' });
 
@@ -8660,7 +8702,7 @@ r.post('/conversations/:id/significado-nome', async (req, res) => {
 r.get('/conversations/:id/carteira', async (req, res) => {
   try {
     const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
-    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!conv) return conversaSumiu(req.params.id, res);
     if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso.' });
 
     const tel8 = String(conv.phone || '').replace(/\\D/g, '').slice(-8);
@@ -8755,7 +8797,7 @@ r.post('/conversations/:id/carteira', async (req, res) => {
     const marco = parseInt(req.body?.marco_mes);
     if (isNaN(marco)) return res.status(400).json({ error: 'Informe o marco.' });
     const { rows: [conv] } = await query('SELECT id, lead_id FROM conversas WHERE id = $1', [req.params.id]);
-    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!conv) return conversaSumiu(req.params.id, res);
     const vac = String(req.body?.vacina || '').trim().slice(0, 200);
     if (req.body?.aplicada === false) {
       // Sem vacina = limpa o marco inteiro; com vacina = tira só aquela dose
@@ -8793,7 +8835,7 @@ r.post('/conversations/:id/carteira/escolha', async (req, res) => {
     const vac = String(req.body?.vacina || '').trim().slice(0, 200);
     if (isNaN(marco) || !vac) return res.status(400).json({ error: 'Informe o marco e a vacina.' });
     const { rows: [conv] } = await query('SELECT id, lead_id FROM conversas WHERE id = $1', [req.params.id]);
-    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!conv) return conversaSumiu(req.params.id, res);
     const trocarDe = String(req.body?.substitui || '').trim();
     if (trocarDe && trocarDe.toLowerCase() !== vac.toLowerCase()) {
       await query(`DELETE FROM carteira_doses WHERE conversa_id = $1 AND marco_mes = $2 AND LOWER(TRIM(COALESCE(vacina,''))) = LOWER($3)`,
@@ -8814,7 +8856,7 @@ r.post('/conversations/:id/carteira/escolha', async (req, res) => {
 r.post('/conversations/:id/carteira/agendar', async (req, res) => {
   try {
     const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
-    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!conv) return conversaSumiu(req.params.id, res);
     if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso.' });
 
     const b = req.body || {};
@@ -9166,7 +9208,7 @@ r.post('/fidelidade/aplicar', async (req, res) => {
     const marco = parseInt(req.body?.marco);
     if (!convId || isNaN(marco)) return res.status(400).json({ error: 'Informe a conversa e a etapa.' });
     const { rows: [conv] } = await query('SELECT id, lead_id FROM conversas WHERE id = $1', [convId]);
-    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
     if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso.' });
 
     const data = /^\d{4}-\d{2}-\d{2}$/.test(req.body?.data || '')
@@ -9254,7 +9296,7 @@ r.post('/fidelidade/check', async (req, res) => {
 r.get('/conversations/:id/notas', async (req, res) => {
   try {
     const { rows: [conv] } = await query('SELECT id, lead_id FROM conversas WHERE id = $1', [req.params.id]);
-    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!conv) return conversaSumiu(req.params.id, res);
     if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso.' });
     const { rows } = await query(
       `SELECT id, texto, tipo, autor_id, autor_nome, created_at FROM cliente_notas
@@ -9271,7 +9313,7 @@ r.post('/conversations/:id/notas', async (req, res) => {
     if (!texto) return res.status(400).json({ error: 'Escreva a anotação.' });
     const tipo = ['nota', 'ligacao', 'visita', 'importante'].includes(req.body?.tipo) ? req.body.tipo : 'nota';
     const { rows: [conv] } = await query('SELECT id, lead_id FROM conversas WHERE id = $1', [req.params.id]);
-    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!conv) return conversaSumiu(req.params.id, res);
     if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso.' });
     const { rows: [n] } = await query(
       `INSERT INTO cliente_notas (conversa_id, lead_id, texto, tipo, autor_id, autor_nome)
@@ -9296,7 +9338,7 @@ r.delete('/notas/:id', async (req, res) => {
 r.get('/conversations/:id/ficha', async (req, res) => {
   try {
     const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
-    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!conv) return conversaSumiu(req.params.id, res);
     if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso.' });
     const ehGestaoF = ['master', 'supervisor'].includes(req.user.role);
 
@@ -9349,7 +9391,7 @@ r.get('/conversations/:id/ficha', async (req, res) => {
 r.put('/conversations/:id/ficha', async (req, res) => {
   try {
     const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
-    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!conv) return conversaSumiu(req.params.id, res);
     if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso.' });
     const leadId = await garanteLead(conv);
     if (!leadId) return res.status(500).json({ error: 'Não consegui abrir o cadastro.' });
@@ -9523,7 +9565,7 @@ r.put('/protocolo/config', async (req, res) => {
 r.get('/conversations/:id/protocolo', async (req, res) => {
   try {
     const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
-    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!conv) return conversaSumiu(req.params.id, res);
     if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso.' });
 
     const [passos, { rows: msgs }, { rows: [cfgRow] }, { rows: agendou }] = await Promise.all([
@@ -9671,7 +9713,7 @@ r.get('/conversations/:id/protocolo', async (req, res) => {
 r.get('/conversations/:id/resumo', async (req, res) => {
   try {
     const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
-    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    if (!conv) return conversaSumiu(req.params.id, res);
     if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso: esta conversa é de outro setor.' });
 
     // Avaliação do atendimento: gestão vê sempre; a atendente vê a DELA (auto-coaching)
@@ -10062,7 +10104,7 @@ r.post('/conversations/:id/transcrever-audios', async (req, res) => {
   try {
     if (!(['master', 'supervisor'].includes(req.user.role) || req.user.lider)) return res.status(403).json({ error: 'Acesso restrito à liderança.' });
     const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
-    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
+    if (!conv) return conversaSumiu(req.params.id, res);
     if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso: esta conversa é de outro setor.' });
     const out = await transcreverAudiosDaConversa(req.params.id, 40);
     res.json(out);
@@ -11186,6 +11228,10 @@ r.post('/whatsapp/merge-duplicadas', masterOnly, async (req, res) => {
         const mv = await query('UPDATE mensagens SET conversa_id = $1 WHERE conversa_id = $2', [canonica, dupId]).catch(() => ({ rowCount: 0 }));
         mensagensMovidas += mv.rowCount || 0;
         await query('DELETE FROM conversas WHERE id = $1', [dupId]).catch(() => {});
+        /* Some do banco E do cache. Era exatamente aqui que nascia a conversa
+           fantasma: a duplicada era apagada, continuava na lista de todo mundo
+           e qualquer ação nela dava "Conversa não encontrada". */
+        cacheRemove(dupId);
         conversasMescladas++;
       }
       // Atualiza a prévia (última mensagem) da canônica

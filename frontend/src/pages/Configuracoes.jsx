@@ -80,6 +80,19 @@ export default function Configuracoes() {
     setFatSaving(false);
   };
   const setFat = (grupo, setor, v) => setMetasFat(p => ({ ...p, [grupo]: { ...(p?.[grupo]||{}), [setor]: v } }));
+
+  /* 🎯 META DE VENDAS do mês por setor. O endpoint existia no backend e mandava
+     no placar do topo (meta, %, "falta R$"), mas NENHUMA tela chamava — não
+     havia onde digitar o número. Agora tem. */
+  const [metaVendas, setMetaVendas] = useState(null);
+  const [mvSaving, setMvSaving] = useState(false);
+  const [mvSaved, setMvSaved] = useState(false);
+  const salvarMetaVendas = async () => {
+    setMvSaving(true);
+    try { await api.put('/extras/vendas/meta', metaVendas); setMvSaved(true); setTimeout(()=>setMvSaved(false), 2000); }
+    catch (e) { window.alert('Erro: ' + e.message); }
+    setMvSaving(false);
+  };
   // ⭐ Link de avaliação no Google (pós-venda automático pede a avaliação)
   const [reviewUrl, setReviewUrl] = useState('');
   const [clin, setClin] = useState({});          // 📍 dados da clínica (protocolo)
@@ -149,6 +162,7 @@ export default function Configuracoes() {
     api.get('/auth/usuarios').then(setUsers).catch(()=>{});
     api.get('/inbox/exemplos').then(d=>setExemplos(Array.isArray(d)?d:[])).catch(()=>{});
     api.get('/extras/vendas/metas-faturamento').then(setMetasFat).catch(()=>{});
+    api.get('/extras/vendas/meta').then(setMetaVendas).catch(()=>{});
     api.get('/extras/config-review').then(d=>setReviewUrl(d?.url||'')).catch(()=>{});
     api.get('/inbox/protocolo/config').then(d=>{ setClin(d?.clinica||{}); setProtoPassos(d?.passos||[]); }).catch(()=>{});
     api.get('/extras/agenda/meta').then(d=>{
@@ -282,6 +296,23 @@ export default function Configuracoes() {
                 <button onClick={salvarMetaAg} disabled={metaSaving} className="btn btn-sm" style={{ fontWeight:700, marginTop:8, width:'100%' }}>{metaSaving?'…':metaSaved?'✅ Salvo!':'Salvar metas por setor'}</button>
                 <span style={{ fontSize:11, color:'var(--muted)', display:'block', marginTop:6 }}>Cada "Agendar" no chat abate da meta do setor. O Dashboard mostra feito/alvo e quanto falta.</span>
               </div>
+
+              {metaVendas && (
+                <div className="field" style={{ background:'var(--bg2,#f8fafc)', padding:'10px 12px', borderRadius:10 }}>
+                  <label>🎯 Meta de VENDAS do mês — por setor (R$)</label>
+                  <div style={{ display:'flex', gap:8, marginTop:3 }}>
+                    {[['vacinas','💉 Vacinas'],['consultas','🩺 Consultas'],['terapias','🧩 Terapias']].map(([st, lb]) => (
+                      <div key={st} style={{ flex:1 }}>
+                        <span style={{ fontSize:10.5, color:'var(--muted)' }}>{lb}</span>
+                        <input type="number" min={0} step={1000} value={metaVendas[st] ?? ''}
+                          onChange={e=>setMetaVendas(p=>({ ...p, [st]: e.target.value }))} />
+                      </div>
+                    ))}
+                  </div>
+                  <button onClick={salvarMetaVendas} disabled={mvSaving} className="btn btn-sm" style={{ fontWeight:700, marginTop:10, width:'100%' }}>{mvSaving?'…':mvSaved?'✅ Salvo!':'Salvar metas de vendas'}</button>
+                  <span style={{ fontSize:11, color:'var(--muted)', display:'block', marginTop:6 }}>É a meta do placar do topo: "R$ X de R$ Y · falta R$ Z". Cada setor vê a sua.</span>
+                </div>
+              )}
 
               {metasFat && (
                 <div className="field" style={{ background:'var(--bg2,#f8fafc)', padding:'10px 12px', borderRadius:10 }}>
