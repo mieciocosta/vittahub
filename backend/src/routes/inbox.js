@@ -1074,6 +1074,38 @@ async function guardarMidiaRecebida(msgId, url) {
   }
 }
 
+/* 👋 AVISO AO CLIENTE NA TRANSFERÊNCIA (ordem do master, 04/09: "ao transferir
+   mande uma mensagem: estou transferindo o atendimento para a especialista
+   xxx, coloca o nome da pessoa; melhore isso"). Quem transfere fala; a
+   colega que recebe já entra apresentada. Só quando a conversa já teve
+   fala nossa (cliente que nunca foi respondido não recebe aviso solto) e
+   sempre pelo Z-API; falhou o envio, não grava nada. Serve pro botão
+   Transferir e pra troca de responsável no cartão. */
+async function avisarClienteTransferencia(req, conv, paraNome, paraId) {
+  try {
+    if (!conv || !zapiOk() || !conv.phone) return;
+    const nome = String(paraNome || '').trim().split(/\s+/).filter(p => !/^(dr|dra|sr|sra)\.?$/i.test(p))[0];
+    if (!nome) return;
+    const { rows: [jaFalou] } = await query(
+      `SELECT 1 FROM mensagens WHERE conversa_id = $1 AND from_type IN ('me','bot') LIMIT 1`, [conv.id]);
+    if (!jaFalou) return;
+    let ph = String(conv.phone).replace(/\D/g, '');
+    if (ph.startsWith('55') && ph.length >= 12) ph = ph.slice(2);
+    const texto = `Oi! 💙 Estou transferindo o seu atendimento para a *${nome}*, nossa especialista, que vai continuar com você a partir de agora, já com tudo o que conversamos por aqui. Você está em ótimas mãos! 😊`;
+    const zr = await zapiCall('/send-text', 'POST', { phone: `55${ph}`, message: texto }).catch(() => null);
+    if (!zr?.ok) return;
+    const { rows: [m2] } = await query(
+      `INSERT INTO mensagens (conversa_id, from_type, sender_id, sender_nome, type, content, status)
+       VALUES ($1,'me',$2,$3,'text',$4,'delivered') RETURNING *`,
+      [conv.id, req.user?.id || null, req.user?.nome || 'Equipe', texto]).catch(() => ({ rows: [null] }));
+    await query("UPDATE conversas SET last_message = $1, last_from = 'me', last_message_at = NOW() WHERE id = $2",
+      [texto.slice(0, 100), conv.id]).catch(() => {});
+    const cached = convoCache.get(conv.id);
+    if (cached) cacheUpdate({ ...cached, last_message: texto.slice(0, 100), last_from: 'me', last_message_at: new Date().toISOString() });
+    if (m2) socketEmit('new_message', { convId: conv.id, message: m2, conv: cached || conv });
+  } catch (e) { console.error('avisarClienteTransferencia:', e.message); }
+}
+
 /* 🪶 MENSAGEM LEVE PRO FIO (cobrança do master, 03/09: "CRM travando demais").
    Mídia recebida agora fica em base64 dentro de `content` (até 12 MB). O
    histórico já trocava isso por [media:id] e o navegador busca o arquivo sob
@@ -5054,7 +5086,9 @@ r.patch('/conversations/:id/assign', async (req, res) => {
        Só dispara quando REALMENTE trocou de pessoa e a conversa já foi iniciada. */
     try {
       const trocouDePessoa = respId && antesConv?.responsavel_id && String(antesConv.responsavel_id) !== String(respId);
-      if (trocouDePessoa && req.body.avisar_cliente === true && zapiOk() && antesConv.phone) {
+      // 04/09: mudou de pessoa, o cliente é avisado (texto único em avisarClienteTransferencia)
+      if (trocouDePessoa) await avisarClienteTransferencia(req, { id: req.params.id, phone: antesConv.phone }, conv?.responsavel_nome, respId);
+      if (false && trocouDePessoa && req.body.avisar_cliente === true && zapiOk() && antesConv.phone) {
         const { rows: [jaFalou] } = await query(
           `SELECT 1 FROM mensagens WHERE conversa_id = $1 AND from_type IN ('me','bot') LIMIT 1`, [req.params.id]);
         if (jaFalou) {
@@ -5748,6 +5782,8 @@ r.patch('/conversations/:id/transferir', async (req, res) => {
        `${de} transferiu este atendimento para você. Dê uma olhada e continue de onde parou.`, conv.id]).catch(() => {});
     socketEmit('conv_assigned', { convId: conv.id, responsavel_id: paraId, responsavel_nome: dest.nome });
     socketEmit('conv_transferida', { convId: conv.id, para_id: paraId, para_nome: dest.nome, de_id: req.user?.id });
+    // 👋 04/09: o cliente fica sabendo pra quem foi (texto único)
+    await avisarClienteTransferencia(req, conv, dest.nome, paraId);
     if (sysMsg) socketEmit('new_message', { convId: conv.id, message: sysMsg, conv });
     res.json({ ok: true, responsavel_id: paraId, responsavel_nome: dest.nome, setor: conv.setor });
   } catch (err) { res.status(500).json({ error: err.message }); }
