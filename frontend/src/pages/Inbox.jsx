@@ -1090,18 +1090,8 @@ export default function Inbox({ onUnreadChange }) {
     try { localStorage.setItem('vh_proto_aberto', nova ? '1' : '0'); } catch { /* ok */ }
     return nova;
   });
-  /* 📌 A ÁREA DAS FIXADAS ENCOLHE (ordem do master, 01/09: "deixe uma seta que
-     eu possa reduzir o tamanho da tela de fixadas"). Com muitas fixadas ela
-     comia quase metade da lista e empurrava o resto pra baixo. A seta alterna
-     entre a faixa cheia e uma tira baixinha; a escolha fica guardada. */
-  const [fixadasBaixas, setFixadasBaixas] = useState(() => {
-    try { return localStorage.getItem('vh_fixadas_baixas') === '1'; } catch { return false; }
-  });
-  const alternarFixadas = () => setFixadasBaixas(v2 => {
-    const nova = !v2;
-    try { localStorage.setItem('vh_fixadas_baixas', nova ? '1' : '0'); } catch { /* ok */ }
-    return nova;
-  });
+  /* A seta que encolhia a área das fixadas saiu junto com a caixa dourada
+     (04/09, "não quero separação"): sem caixa separada, não há o que encolher. */
   /* 📋 A TABELA DE PREÇOS DENTRO DA CONVERSA (ordem do master, 02/09: "um
      botão igual ao de agendar sobre Tabela, onde puxe tudo da aba de tabela").
 
@@ -2496,19 +2486,16 @@ export default function Inbox({ onUnreadChange }) {
       // 📥 Fila de distribuição: só o que ainda não tem dona (visão do master)
       if (modo === 'distribuir') return convsG.filter(c => !c.responsavel_id);
       const base = quentesPrimeiro ? [...convsG].sort((a, b) => scoreRank(a.lead_score) - scoreRank(b.lead_score)) : convsG;
-      /* 📌 FIXAR PRECISA FAZER ALGO VISÍVEL EM QUALQUER LISTA (cobrança do
-         master, 02/09: "não está dando a possibilidade de fixar, não aparece
-         essa opção").
+      /* 📌 UMA LISTA SÓ (ordem do master, 04/09: "não quero separação").
 
-         O botão nunca saiu do lugar — o que sumiu foi o efeito. Desde que a
-         faixa dourada passou a existir só em "Meus atendimentos", fixar em
-         "Todas" não movia nada e parecia que o botão não funcionava.
+         A fixada morava numa caixa dourada própria, com cabeçalho, contador e
+         seta, e embaixo dela vinha outra barra escrito "Geral". Três divisórias
+         para dizer uma coisa que a borda dourada já dizia — e a lista de
+         verdade começava no terço de baixo da tela.
 
-         Agora: onde a faixa existe (Meus atendimentos), a lista não repete
-         quem já está lá em cima; nas outras, a fixada SOBE pro topo da própria
-         lista, com a borda dourada. Uma faixa só, e o alfinete valendo em
-         todo lugar. */
-      if (modo === 'minhas' && fixadasIds.size) return base.filter(c => !fixadasIds.has(c.id));
+         Agora é uma lista contínua: a fixada sobe para o topo, marcada só pela
+         borda dourada e pelo alfinete, e a conversa seguinte vem logo abaixo,
+         sem faixa nenhuma no meio. Vale em todas as abas, igual. */
       if (!fixadasIds.size) return base;
       const fixa = base.filter(c => fixadasIds.has(c.id));
       return fixa.length ? [...fixa, ...base.filter(c => !fixadasIds.has(c.id))] : base;
@@ -2630,55 +2617,9 @@ export default function Inbox({ onUnreadChange }) {
           </div>
         )}
 
-        {/* 📌 SEÇÃO FIXADAS — sem limite, por usuário; rola sozinha se crescer */}
-        {/* 📌 FIXADAS EM DESTAQUE (ordem do master, 24/08): faixa dourada, fundo
-            próprio e borda de ouro — as conversas que ela escolheu não se
-            perdem no meio da lista geral. */}
-        {/* 📌 A FAIXA DE FIXADAS MORA SÓ EM "MEUS ATENDIMENTOS" (ordem do master,
-            01/09: "tira fixação de todos exceto meus atendimentos").
-
-            Fixar é escolher prioridade DENTRO da própria carteira. Na fila de
-            Distribuição o lead é de passagem, e em "Todas" a faixa só roubava
-            altura de uma lista que já é grande. Ficou onde faz diferença.
-
-            O alfinete continua em cada conversa, em qualquer lista: dá pra
-            fixar de onde estiver — a fixada aparece na carteira dela. */}
-        {fixadas.length > 0 && modo === 'minhas' && (
-          <div style={{ flexShrink:0, maxHeight: fixadasBaixas ? 108 : '42%', overflowY:'auto',
-            background:'linear-gradient(180deg, rgba(196,151,59,.10), rgba(196,151,59,.03))',
-            borderTop:'2px solid #C4973B', borderBottom:'2px solid #C4973B',
-            boxShadow:'inset 0 0 0 1px rgba(196,151,59,.18)' }}>
-            <div style={{ padding:'7px 13px', fontSize:10.5, fontWeight:900, letterSpacing:.9, textTransform:'uppercase',
-              color:'#8a6417', background:'linear-gradient(120deg,#fdf0d5,#fdf6e7)', position:'sticky', top:0, zIndex:2,
-              display:'flex', alignItems:'center', justifyContent:'space-between', borderBottom:'1px solid rgba(196,151,59,.35)' }}>
-              <span style={{ display:'flex', alignItems:'center', gap:6 }}>
-                📌 Fixadas
-                <span style={{ textTransform:'none', fontWeight:700, fontSize:9.5, opacity:.75 }}>suas conversas de prioridade</span>
-              </span>
-              <span style={{ display:'flex', alignItems:'center', gap:6 }}>
-                <span style={{ background:'#C4973B', color:'#fff', borderRadius:99, padding:'1px 9px', fontSize:10, fontWeight:900 }}>{fixadas.length}</span>
-                {/* ▼▲ A seta que encolhe a área das fixadas (ordem do master) */}
-                <button onClick={alternarFixadas}
-                  title={fixadasBaixas ? 'Mostrar todas as fixadas' : 'Reduzir a área das fixadas'}
-                  style={{ border:'1px solid rgba(196,151,59,.45)', background:'rgba(255,255,255,.55)', color:'#8a6417',
-                    borderRadius:7, width:22, height:19, lineHeight:1, cursor:'pointer', fontSize:10, fontWeight:900, padding:0 }}>
-                  {fixadasBaixas ? '▼' : '▲'}
-                </button>
-              </span>
-            </div>
-            {fixadas.map(c => (
-              <div key={c.id} style={{ borderLeft:'3px solid #C4973B' }}>
-                <ConvoRow conv={c} selected={sel?.id === c.id} onSelect={openConvo} usersById={usersById}
-                  fixada onToggleFix={toggleFix} />
-              </div>
-            ))}
-          </div>
-        )}
-        {fixadas.length > 0 && modo === 'minhas' && (
-          <div style={{ flexShrink:0, padding:'6px 13px', fontSize:10, fontWeight:800, letterSpacing:.8, textTransform:'uppercase', color:'var(--muted)', background:'var(--bg2)', borderBottom:'1px solid var(--border)' }}>
-            💬 Geral
-          </div>
-        )}
+        {/* A faixa dourada das fixadas e a barra "💬 Geral" logo abaixo dela
+            saíram em 04/09 — ordem do master: "não quero separação". A fixada
+            agora é a primeira da MESMA lista, marcada pela borda dourada. */}
         {/* position:relative + inset:0 no rolador: a altura passa a ser o espaço
             que sobrou de verdade na tela, sem depender de conta nenhuma. */}
         <div ref={listContainerRef} style={{ flex:1, minHeight:0, position:'relative' }}>
