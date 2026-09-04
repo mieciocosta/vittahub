@@ -18,6 +18,12 @@ let io = null;
 // conversa só pra quem tem acesso àquele setor — sem vazar pra outros atendentes.
 let convGroupFn = null;
 export function setConvGroupFn(fn) { convGroupFn = fn; }
+/* 🔒 Régua fina (04/09): a MESMA regra de acesso da lista (podeVerSetor) decide
+   quem recebe cada evento com conversa. O grupo por setor era grosso demais —
+   a Gabriellen, de carteira fechada, recebia toda mensagem nova de consultas
+   e a tela dela colocava a conversa na lista sem ela ser responsável. */
+let convVisivelFn = null;
+export function setConvVisivelFn(fn) { convVisivelFn = fn; }
 // Resolve o setor de um usuário pelo id (injetado pelo inbox.js) — cobre tokens
 // antigos que não traziam o setor.
 let userSetorFn = null;
@@ -103,6 +109,14 @@ export function socketEmit(event, data) {
   if (!io) return;
   data = semBase64(data);
   try {
+    if (data && data.conv && convVisivelFn) {
+      for (const [, socket] of io.sockets.sockets) {
+        let pode = true;
+        try { pode = convVisivelFn(socket.user, data.conv) !== false; } catch { pode = true; }
+        if (pode) socket.emit(event, data);
+      }
+      return;
+    }
     if (data && data.conv && convGroupFn) {
       const grupo = convGroupFn(data.conv); // 'vacina' | 'nao-vacina' | null
       if (grupo) {

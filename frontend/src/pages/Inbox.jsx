@@ -1365,6 +1365,18 @@ export default function Inbox({ onUnreadChange }) {
         // Atualiza lista de conversas — move para o topo
         setConvos(prev => {
           const ex = prev.find(c => c.id === convId);
+          /* 🔒 Conversa que NÃO estava na lista só entra se a pessoa puder vê-la
+             (04/09: a Gabriellen recebia conversas que não eram dela por aqui).
+             Atendente comum: só a própria carteira e o pool sem dona. Carteira
+             fechada: só o que está no nome dela. Gestão e master: tudo. */
+          if (!ex) {
+            const u = userRef.current;
+            const gest = u?.role === 'master' || u?.role === 'supervisor' || u?.ve_tudo === true;
+            const minha = String(updConv?.responsavel_id || '') === String(u?.id || '');
+            if (carteiraFechada(u) && !soMinha(u, updConv || {})) return prev;
+            if (!gest && updConv?.responsavel_id && !minha) return prev;
+            if (ehGrupoConv(updConv || {}) && carteiraFechada(u)) return prev;
+          }
           return [{ ...(ex || {}), ...updConv }, ...prev.filter(c => c.id !== convId)];
         });
 

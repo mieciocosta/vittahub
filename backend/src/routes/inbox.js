@@ -6,7 +6,7 @@ import { query } from '../db/pool.js';
 import { auth, masterOnly, SECRET } from '../middleware/auth.js';
 import { ehGestao, mascararLista, registrarAberturaConversa } from '../middleware/privacidade.js';
 import jwt from 'jsonwebtoken';
-import { socketEmit, setConvGroupFn, setUserSetorFn, socketEmitToUsers } from '../socketServer.js';
+import { socketEmit, setConvGroupFn, setConvVisivelFn, setUserSetorFn, socketEmitToUsers } from '../socketServer.js';
 import * as propostaGen from '../services/proposta-gen.js';
 import { enviarPush, enviarPushEquipe } from '../services/push.js';
 import { getCalendario as getCalendarioVacinal } from '../services/calendario.js';
@@ -445,6 +445,8 @@ function grupoConversa(conv) {
 // Entrega de eventos em tempo real (socket) também respeita o acesso por setor.
 setConvGroupFn(grupoConversa);
 setUserSetorFn((userId) => usuariosSetor.get(String(userId)) || null);
+// 04/09: evento com conversa só chega pra quem a lista também mostraria
+setConvVisivelFn((user, conv) => podeVerSetor(user, conv));
 
 // Regra de acesso (gestão): master e quem não tem setor veem tudo. Quem é de
 // VACINAS só acessa conversa do grupo vacina; quem é de consultas/terapias acessa
