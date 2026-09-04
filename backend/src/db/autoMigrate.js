@@ -3035,6 +3035,7 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
   try { await metasPorSetor(); } catch (e) { console.error('metas por setor:', e.message); }
   try { await metaDiariaDosSetores(); } catch (e) { console.error('meta diaria dos setores:', e.message); }
   try { await carteiraLeadsParaJose(); } catch (e) { console.error('carteira de leads jose:', e.message); }
+  try { await gabriellenSoRepasse(); } catch (e) { console.error('gabriellen so repasse:', e.message); }
   try { await equipeDaCasa(); } catch (e) { console.error('equipe da casa:', e.message); }
   try { await donosDaCasa(); } catch (e) { console.error('donos da casa:', e.message); }
   try { await marketingForaDoPainel(); } catch (e) { console.error('marketing fora do painel:', e.message); }
@@ -3503,6 +3504,30 @@ async function carteiraLeadsParaJose() {
   if (!rowCount) { console.error('carteira de leads: nenhum usuário ativo chamado José encontrado'); return; }
   await query(`INSERT INTO configuracoes (chave, valor) VALUES ($1, '{"ok":true}') ON CONFLICT DO NOTHING`, [FLAG]).catch(() => {});
   console.log(`📊 Carteira de Leads liberada pro José (${rowCount} conta(s))`);
+}
+
+/* 🔒 GABRIELLEN SÓ RECEBE O QUE A DANIELLE PASSAR (ordem do master, 04/09:
+   "não quero mais que Danielle seja a distribuidora; só tem uma pessoa na
+   equipe que não pode pegar toda a demanda, somente o que Danielle passar:
+   Gabriellen"). A fila voltou a ser da equipe inteira; ela é a exceção. O
+   perfil que faz exatamente isso já existe: so_carteira (vê só o que está no
+   nome dela, nem o pool). Roda uma vez; depois é ajuste de cadastro. */
+async function gabriellenSoRepasse() {
+  const FLAG = 'seed_gabriellen_so_repasse_v1';
+  const SEM_ACENTO = "'áàâãäéèêëíìîïóòôõöúùûüç','aaaaaeeeeiiiiooooouuuuc'";
+  const { rows: [ja] } = await query('SELECT 1 FROM configuracoes WHERE chave = $1', [FLAG]).catch(() => ({ rows: [1] }));
+  if (ja) return;
+  const { rowCount } = await query(
+    `UPDATE usuarios SET so_carteira = true, distribuidor = false, updated_at = NOW()
+      WHERE ativo = true
+        AND (lower(COALESCE(email,'')) = 'gabriellen@vittalissaude.com.br'
+             OR lower(translate(COALESCE(nome,''), ${SEM_ACENTO})) ~ '^gabriel+en\\b')`)
+    .catch((e) => { console.error('gabriellen so_carteira:', e.message); return { rowCount: 0 }; });
+  if (!rowCount) { console.error('gabriellen so repasse: conta não encontrada'); return; }
+  await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('equipe', $1, $2, true)`,
+    ['🔓 Fila de leads aberta pra equipe', 'Lead sem dona aparece de novo pra equipe toda, cada uma no seu setor; quem responder duas vezes assume. A Gabriellen só recebe o que for entregue no nome dela.']).catch(() => {});
+  await query(`INSERT INTO configuracoes (chave, valor) VALUES ($1, '{"ok":true}') ON CONFLICT DO NOTHING`, [FLAG]).catch(() => {});
+  console.log(`🔒 Gabriellen: só recebe o que for repassado (${rowCount} conta(s))`);
 }
 
 async function donosDaCasa() {

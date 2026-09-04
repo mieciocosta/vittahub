@@ -479,18 +479,21 @@ export function podeVerSetor(viewer, conv) {
       && !ehGestao(viewer)) return false;   // 28/08: "só ela e a gestão" (master, supervisora, ve_tudo)
 
   if (viewer.ve_tudo) return true;
-  /* 📥 A FILA DE LEADS É DE QUEM DISTRIBUI (ordem do master, 28/08: "Danielle
-     recebe todos os leads e distribui... ela fica com essa responsabilidade, e
-     não o sistema"). Conversa SEM responsável some da tela da equipe: quem
-     enxerga é o master (dono) e quem tem a marca de distribuidor.
-
-     E o passado NÃO entra: conversa sem dona parada há mais de 7 dias fica fora
-     da fila (são quase 2 mil de antes deste modelo). Ela continua achável na
-     busca do master, mas não cai no colo de quem distribui. */
+  /* 📥 De 28/08 a 03/09 a fila de leads foi exclusiva de quem distribui (a
+     Danielle). Em 04/09 o master abriu de novo pra equipe — a regra atual está
+     logo abaixo. O que ficou daquele modelo: o passado NÃO entra (conversa sem
+     dona parada há mais de 7 dias fica fora da fila; continua achável na busca
+     do master). */
+  /* 🔓 FILA ABERTA PRA EQUIPE (ordem do master, 04/09: "não quero mais que
+     Danielle seja a distribuidora... só tem uma pessoa na equipe que não pode
+     pegar toda a demanda, somente o que Danielle passar: Gabriellen").
+     Lead sem dona volta a aparecer pra equipe toda, cada uma no seu setor
+     (a régua de setor logo abaixo continua valendo). O corte de 7 dias fica.
+     A Gabriellen tem `so_carteira` e já saiu desta função lá em cima: ela só
+     vê o que foi entregue no nome dela. */
   if (!conv.responsavel_id) {
-    if (!usuariosDistribuidores.has(String(viewer.id))) return false;
     const quando = new Date(conv.last_message_at || 0).getTime();
-    return Date.now() - quando < 7 * 24 * 3600 * 1000;
+    if (Date.now() - quando >= 7 * 24 * 3600 * 1000) return false;
   }
 
   /* 🎯 CONVERSA COM DONA É SÓ DELA (ordem do master, 24/08: "ao transferir para
@@ -4325,11 +4328,9 @@ r.get('/conversations', async (req, res) => {
           /* 📥 Lead sem dona é de quem distribui (28/08: "Danielle recebe todos
              os leads e distribui"), e só o que teve mensagem nos últimos 7 dias
              — o passado (quase 2 mil conversas) não cai no colo de ninguém. */
-          if (req.user.distribuidor === true) {
-            regras.push(`(c.responsavel_id IS NOT NULL OR c.last_message_at > NOW() - interval '7 days')`);
-          } else {
-            regras.push('c.responsavel_id IS NOT NULL');
-          }
+          /* 04/09: fila aberta pra equipe toda (a Gabriellen, so_carteira, caiu
+             no ramo de cima e só vê o que está no nome dela). */
+          regras.push(`(c.responsavel_id IS NOT NULL OR c.last_message_at > NOW() - interval '7 days')`);
           /* 🎯 Conversa com dona é só dela. A gestão (master, supervisora e quem
              tem ve_tudo) continua enxergando tudo, senão ninguém supervisiona. */
           if (!gestao) {
@@ -6427,8 +6428,14 @@ r.post('/conversations/:id/send', async (req, res) => {
        atendente, sem passar pela distribuição. Agora, quem não distribui pode
        responder à vontade que o lead continua na fila, esperando a entrega. */
     let autoAssign = null;
-    const podeAssumirSozinha = req.user?.role === 'master' || req.user?.distribuidor === true
-      || usuariosDistribuidores.has(String(req.user?.id));
+    /* 04/09, ordem do master: a fila é da equipe de novo — quem responder duas
+       vezes assume o lead. Ficam de fora só os perfis de carteira fechada
+       (so_carteira = Gabriellen, so_fidelidade = Poliana): elas recebem o
+       atendimento entregue, não pegam da fila — nem pela porta do
+       "visível pra equipe toda". */
+    const perfilFechado = req.user?.so_carteira === true || req.user?.so_fidelidade === true
+      || usuariosSoCarteira.has(String(req.user?.id)) || usuariosSoFidelidade.has(String(req.user?.id));
+    const podeAssumirSozinha = !perfilFechado;
     if (!conv.responsavel_id && req.user?.id && podeAssumirSozinha) {
       const { rows: [{ count }] } = await query(
         `SELECT COUNT(*) AS count FROM mensagens WHERE conversa_id = $1 AND from_type = 'me' AND sender_id = $2`,
