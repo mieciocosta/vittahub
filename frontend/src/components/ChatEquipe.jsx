@@ -58,7 +58,7 @@ function TextoComMencoes({ texto, meuPrimeiro }) {
 }
 
 /* ─── O BOTÃO DA LATERAL ──────────────────────────────────────────────────── */
-export function BotaoChatEquipe({ api, user, onAbrir, aberto }) {
+export function BotaoChatEquipe({ api, user, onAbrir, aberto, compacto = false, naBarra = false }) {
   const [st, setSt] = useState({ naoLidas: 0, chamado: false });
 
   const puxar = useCallback(() => {
@@ -86,11 +86,81 @@ export function BotaoChatEquipe({ api, user, onAbrir, aberto }) {
 
   const chamado = st.chamado && !aberto;
 
+  const pulso = (
+    <style>{`@keyframes vhChamado {
+      0%,100% { box-shadow: 0 0 0 0 rgba(22,163,74,.55); }
+      50%     { box-shadow: 0 0 0 7px rgba(22,163,74,0); } }`}</style>
+  );
+
+  /* ── DENTRO DA CONVERSA (pedido do master: "que fique do lado de cada chat") ──
+     Quem já entrou num atendimento não volta pra lista só pra ver o chat da
+     equipe — ou o botão está aqui, ou ela não vê o chamado. Mesmo comportamento
+     do botão da lateral (verde quando chamam), no tamanho da barra de ações
+     para não roubar a cena do "Registrar venda". */
+  /* ── NA FAIXA DO TOPO (ordem do master: "deixe o chat nessa barra de cima
+     chamativo") ─────────────────────────────────────────────────────────────
+     A faixa é roxa e disputada: metas, prêmio, ranking, registrar venda. Um
+     botão discreto ali dentro simplesmente não é visto. Então ele ganha anel
+     branco e brilho próprio — e continua ficando VERDE quando chamam, que é o
+     único momento em que ele precisa gritar mais alto que o resto da faixa. */
+  if (naBarra) {
+    return (
+      <>
+        {pulso}
+        <button onClick={onAbrir} title={chamado ? 'Te chamaram no chat da equipe!' : 'Chat da equipe — conversar com as meninas'}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 12,
+            cursor: 'pointer', whiteSpace: 'nowrap', fontSize: 12, fontWeight: 900, color: '#fff',
+            border: '1px solid rgba(255,255,255,.45)',
+            background: chamado
+              ? `linear-gradient(180deg, #22c55e, ${VERDE})`
+              : aberto ? 'linear-gradient(180deg,#0f766e,#115e59)' : `linear-gradient(180deg, #22d3ee, ${TURQ})`,
+            boxShadow: chamado ? '0 3px 14px rgba(34,197,94,.6)' : '0 3px 12px rgba(0,184,192,.5)',
+            animation: chamado ? 'vhChamado 1.6s ease-out infinite' : 'none',
+          }}>
+          <span style={{ fontSize: 14, lineHeight: 1 }}>{chamado ? '🔔' : '💬'}</span>
+          {chamado ? 'Te chamaram!' : 'Chat da equipe'}
+          {!aberto && st.naoLidas > 0 && (
+            <span style={{ background: '#fff', color: chamado ? VERDE : '#0e7490', borderRadius: 9,
+              padding: '0 6px', fontSize: 10, fontWeight: 900 }}>
+              {st.naoLidas > 99 ? '99+' : st.naoLidas}
+            </span>
+          )}
+        </button>
+      </>
+    );
+  }
+
+  if (compacto) {
+    return (
+      <>
+        {pulso}
+        <button onClick={onAbrir} title={chamado ? 'Te chamaram no chat da equipe!' : 'Chat da equipe'}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer',
+            padding: '6px 11px', borderRadius: 9, fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap',
+            color: '#fff', border: 'none',
+            background: chamado ? `linear-gradient(135deg, ${VERDE}, #22c55e)`
+              : aberto ? 'linear-gradient(135deg,#0f766e,#115e59)' : `linear-gradient(135deg, ${TURQ}, #0891b2)`,
+            boxShadow: chamado ? '0 2px 10px rgba(22,163,74,.4)' : '0 2px 8px rgba(0,184,192,.3)',
+            animation: chamado ? 'vhChamado 1.6s ease-out infinite' : 'none',
+          }}>
+          <span style={{ fontSize: 13, lineHeight: 1 }}>{chamado ? '🔔' : '💬'}</span>
+          {chamado ? 'Te chamaram!' : 'Equipe'}
+          {!aberto && st.naoLidas > 0 && (
+            <span style={{ background: 'rgba(255,255,255,.95)', color: chamado ? VERDE : '#0e7490',
+              borderRadius: 9, padding: '0 6px', fontSize: 10, fontWeight: 900 }}>
+              {st.naoLidas > 99 ? '99+' : st.naoLidas}
+            </span>
+          )}
+        </button>
+      </>
+    );
+  }
+
   return (
     <>
-      <style>{`@keyframes vhChamado {
-        0%,100% { box-shadow: 0 0 0 0 rgba(22,163,74,.55); }
-        50%     { box-shadow: 0 0 0 7px rgba(22,163,74,0); } }`}</style>
+      {pulso}
       <button onClick={onAbrir} title={chamado ? 'Te chamaram no chat da equipe!' : 'Conversar com a equipe'}
         style={{
           width: '100%', display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer',
@@ -119,7 +189,7 @@ export function BotaoChatEquipe({ api, user, onAbrir, aberto }) {
 }
 
 /* ─── O PAINEL ────────────────────────────────────────────────────────────── */
-export function PainelChatEquipe({ api, user, onFechar }) {
+export function PainelChatEquipe({ api, user, onFechar, modo = 'lateral' }) {
   const [msgs, setMsgs] = useState([]);
   const [equipe, setEquipe] = useState([]);
   const [txt, setTxt] = useState('');
@@ -193,11 +263,20 @@ export function PainelChatEquipe({ api, user, onFechar }) {
 
   let diaAnterior = null;
 
+  /* Aberto pela LISTA, ocupa a coluna da lista (a pessoa ainda não escolheu
+     conversa). Aberto DE DENTRO de um atendimento, vira gaveta à direita: cobrir
+     a conversa que ela está lendo para mostrar o chat interno seria trocar um
+     problema pelo outro. */
+  const gaveta = modo === 'gaveta';
+  const caixa = gaveta
+    ? { position: 'fixed', top: 0, right: 0, bottom: 0, width: 'min(420px, 100vw)', zIndex: 1200,
+        boxShadow: '-14px 0 40px rgba(15,23,42,.22)', borderLeft: '1px solid var(--border)' }
+    : { position: 'absolute', inset: 0, zIndex: 40 };
+
   return (
-    <div style={{
-      position: 'absolute', inset: 0, zIndex: 40, display: 'flex', flexDirection: 'column',
-      background: 'var(--card,#fff)',
-    }}>
+    <>
+      {gaveta && <div onClick={onFechar} style={{ position: 'fixed', inset: 0, zIndex: 1199, background: 'rgba(15,23,42,.35)' }} />}
+    <div style={{ ...caixa, display: 'flex', flexDirection: 'column', background: 'var(--card,#fff)' }}>
       {/* Cabeçalho */}
       <div style={{
         padding: '12px 14px', flexShrink: 0, color: '#fff',
@@ -313,5 +392,6 @@ export function PainelChatEquipe({ api, user, onFechar }) {
         </div>
       </div>
     </div>
+    </>
   );
 }

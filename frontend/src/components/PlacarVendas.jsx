@@ -3,6 +3,7 @@ import { aoVivo } from '../hooks/polling.js';
 import { useNavigate } from 'react-router-dom';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt } from '../hooks/utils.js';
+import { BotaoChatEquipe, PainelChatEquipe } from './ChatEquipe.jsx';
 
 /* PLACAR DE VENDAS — a faixa do topo é a primeira coisa que a equipe vê. 🔥
    Ela não está aqui pra informar: está aqui pra PROVOCAR a próxima venda.
@@ -79,6 +80,8 @@ const Barra = ({ pct, cor, largura = 62 }) => (
 );
 
 export default function PlacarVendas() {
+  // 💬 Chat da equipe também na faixa do topo — ela aparece em toda tela
+  const [chatAberto, setChatAberto] = useState(false);
   const api = useApi();
   const nav = useNavigate();
   const { user } = useAuth();
@@ -474,6 +477,16 @@ export default function PlacarVendas() {
             </>
           )}
         </div>
+      )}
+
+      {/* 💬 CHAT DA EQUIPE NA FAIXA (ordem do master, 04/09) — a faixa está em
+          toda tela do sistema, então o chat interno passa a estar também: some
+          a dependência de estar no Inbox pra saber que te chamaram. Verde
+          pulsando quando alguém escreve @NomeDela. */}
+      <BotaoChatEquipe api={api} user={user} naBarra aberto={chatAberto}
+        onAbrir={() => setChatAberto(v => !v)} />
+      {chatAberto && (
+        <PainelChatEquipe api={api} user={user} modo="gaveta" onFechar={() => setChatAberto(false)} />
       )}
 
       {/* 🏆 Atalho pro pódio — a disputa mora aqui em cima, não escondida no menu */}

@@ -878,7 +878,7 @@ export default function Inbox({ onUnreadChange }) {
 
   // ── UI state ───────────────────────────────────────────────────────────────
   const [listCollapsed, setListCollapsed] = useState(false);
-  const [chatEquipeAberto, setChatEquipeAberto] = useState(false);   // 💬 chat interno da equipe
+  const [chatEquipe, setChatEquipe] = useState(false);   // 💬 chat da equipe: false | 'lateral' | 'gaveta'
   const [sel, setSel]                     = useState(null);
   const [msgs, setMsgs]                   = useState([]);
   /* 📱 Conversa aberta = a barra de baixo do celular some (03/09). A marca vai
@@ -2558,12 +2558,12 @@ export default function Inbox({ onUnreadChange }) {
 
           {/* 💬 CHAT DA EQUIPE (pedido do master) — aparece para TODOS, no lugar
               onde a equipe passa o dia. Fica verde pulsando quando chamam. */}
-          <BotaoChatEquipe api={api} user={user} aberto={chatEquipeAberto}
-            onAbrir={()=>setChatEquipeAberto(v=>!v)} />
+          <BotaoChatEquipe api={api} user={user} aberto={chatEquipe === 'lateral'}
+            onAbrir={()=>setChatEquipe(v => v === 'lateral' ? false : 'lateral')} />
         </div>
 
-        {chatEquipeAberto && (
-          <PainelChatEquipe api={api} user={user} onFechar={()=>setChatEquipeAberto(false)} />
+        {chatEquipe === 'lateral' && (
+          <PainelChatEquipe api={api} user={user} modo="lateral" onFechar={()=>setChatEquipe(false)} />
         )}
 
         <SearchBar value={search} onChange={setSearch} filter={filter} setFilter={setFilter}
@@ -2886,6 +2886,15 @@ export default function Inbox({ onUnreadChange }) {
                       boxShadow:'0 2px 8px rgba(234,179,8,.5)' }}>
                     📌 {fixadasIds.has(sel.id) ? 'Conversa fixada' : 'Fixar conversa'}
                   </button>
+
+                  {/* 💬 CHAT DA EQUIPE DENTRO DA CONVERSA (ordem do master, 04/09:
+                      "quero que fique do lado de cada chat"). O da lateral esquerda
+                      continua onde estava — este é o segundo caminho, para quem já
+                      entrou no atendimento e não volta pra lista só pra ver se
+                      chamaram. Abre como gaveta à direita: cobrir a conversa que
+                      ela está lendo seria trocar um problema pelo outro. */}
+                  <BotaoChatEquipe api={api} user={user} compacto aberto={chatEquipe === 'gaveta'}
+                    onAbrir={()=>setChatEquipe(v => v === 'gaveta' ? false : 'gaveta')} />
 
                   {/* ⋯ Mais: tudo o que não é do dia a dia */}
                   <div style={{ position: 'relative' }}>
