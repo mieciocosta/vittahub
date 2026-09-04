@@ -13,6 +13,7 @@ export default function Equipe() {
   const api = useApi();
   const { user } = useAuth();
   const [contatos, setContatos] = useState([]);
+  const [erroLista, setErroLista] = useState('');   // por que a equipe não apareceu (04/09)
   const [sel, setSel] = useState(null);
   const [msgs, setMsgs] = useState([]);
   const [input, setInput] = useState('');
@@ -23,7 +24,12 @@ export default function Equipe() {
   const recRef = useRef(null);
   const chunksRef = useRef([]);
 
-  const loadContatos = () => api.get('/inbox/chat-interno/contatos').then(d => setContatos(Array.isArray(d) ? d : [])).catch(() => {});
+  /* A falha era engolida: a lista ficava vazia e ninguém sabia se o servidor
+     tinha caído ou se a equipe não existia (cobrança do master, 04/09: "no
+     chat da equipe não aparece a equipe"). Agora o motivo aparece na tela. */
+  const loadContatos = () => api.get('/inbox/chat-interno/contatos')
+    .then(d => { setContatos(Array.isArray(d) ? d : []); setErroLista(''); })
+    .catch(e => setErroLista(e?.message || 'Servidor sem resposta'));
   useEffect(() => { loadContatos(); return aoVivo(loadContatos, 8000); }, []); // eslint-disable-line
 
   const abrir = (c) => {
@@ -108,6 +114,15 @@ export default function Equipe() {
           <Users size={18} color="var(--tq)" /><span style={{ fontWeight: 800, fontSize: 15 }}>Equipe</span>
         </div>
         <div style={{ flex: 1, overflowY: 'auto' }}>
+          {erroLista && (
+            <div style={{ margin: 12, padding: '10px 12px', borderRadius: 10, background: 'var(--err2,#fde8e8)', color: 'var(--err,#dc2626)', fontSize: 12, fontWeight: 700, lineHeight: 1.5 }}>
+              Não consegui carregar a equipe: {erroLista}
+              <button onClick={loadContatos} style={{ display: 'block', marginTop: 8, padding: '6px 12px', borderRadius: 8, border: 'none', background: 'var(--err,#dc2626)', color: '#fff', fontWeight: 800, cursor: 'pointer', fontSize: 12 }}>Tentar de novo</button>
+            </div>
+          )}
+          {!erroLista && contatos.length === 0 && (
+            <div style={{ margin: 12, fontSize: 12.5, color: 'var(--muted)' }}>Carregando a equipe…</div>
+          )}
           {contatos.map(c => (
             <div key={c.id} onClick={() => abrir(c)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', cursor: 'pointer', background: sel?.id === c.id ? 'var(--bg2)' : 'transparent', borderBottom: '1px solid var(--border)' }}>
               <div style={{ width: 38, height: 38, borderRadius: '50%', background: c.cor || 'var(--tq)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 800, flexShrink: 0 }}>{fmt.initials(c.nome)}</div>

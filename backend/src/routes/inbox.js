@@ -5550,7 +5550,14 @@ r.get('/chat-interno/contatos', async (req, res) => {
         (SELECT COUNT(*) FROM chat_interno m WHERE m.de_id=u.id AND m.para_id=$1 AND m.lida=false)::int AS nao_lidas
       FROM usuarios u
       WHERE u.id <> $1 AND u.ativo = true AND u.role <> 'bot'
-      ORDER BY ultima_at DESC NULLS LAST, u.nome`, [req.user.id]);
+      ORDER BY ultima_at DESC NULLS LAST, u.nome`, [req.user.id])
+      /* 🛟 Se a tabela do chat interno faltar (banco recém-migrado), a EQUIPE
+         aparece mesmo assim — sem a última mensagem, mas com todo mundo. */
+      .catch(async (e) => {
+        console.error('chat-interno/contatos:', e.message);
+        return query(`SELECT u.id, u.nome, u.cor, u.avatar, u.setor, u.role, NULL AS ultima, NULL AS ultima_tipo, NULL AS ultima_at, 0 AS nao_lidas
+                        FROM usuarios u WHERE u.id <> $1 AND u.ativo = true AND u.role <> 'bot' ORDER BY u.nome`, [req.user.id]);
+      });
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
