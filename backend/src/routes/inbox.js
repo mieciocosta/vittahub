@@ -491,9 +491,13 @@ export function podeVerSetor(viewer, conv) {
      (a régua de setor logo abaixo continua valendo). O corte de 7 dias fica.
      A Gabriellen tem `so_carteira` e já saiu desta função lá em cima: ela só
      vê o que foi entregue no nome dela. */
+  /* 04/09, de novo, ordem do master: "quero que TODAS recebam o mesmo, exceto
+     as duas: Poliana e Gabriellen (apenas o que passarem a elas)". A fila de
+     leads sem dona é UMA só, igual pra todas — sem separar por setor. O setor
+     volta a valer só depois que a conversa tem dona. */
   if (!conv.responsavel_id) {
     const quando = new Date(conv.last_message_at || 0).getTime();
-    if (Date.now() - quando >= 7 * 24 * 3600 * 1000) return false;
+    return Date.now() - quando < 7 * 24 * 3600 * 1000;
   }
 
   /* 🎯 CONVERSA COM DONA É SÓ DELA (ordem do master, 24/08: "ao transferir para
@@ -4343,9 +4347,11 @@ r.get('/conversations', async (req, res) => {
              novo, e o dono dela já foi filtrado acima. */
           const meus = (Array.isArray(req.user.setores) && req.user.setores.length)
             ? req.user.setores : (req.user.setor ? [req.user.setor] : []);
+          /* 04/09: lead sem dona é igual pra todas (fila única); o setor só
+             separa conversa que já tem dona. */
           if (meus.length) {
             const setorConv = `COALESCE(c.setor, (SELECT u2.setor FROM usuarios u2 WHERE u2.id = c.responsavel_id))`;
-            regras.push(`(${setorConv} IS NULL OR ${setorConv} = ANY($${pi}::text[]))`);
+            regras.push(`(c.responsavel_id IS NULL OR ${setorConv} IS NULL OR ${setorConv} = ANY($${pi}::text[]))`);
             params.push(meus); pi++;
           }
         }
