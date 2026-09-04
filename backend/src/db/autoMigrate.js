@@ -3525,7 +3525,8 @@ async function gabriellenSoRepasse() {
     `UPDATE usuarios SET so_carteira = true, distribuidor = false, updated_at = NOW()
       WHERE ativo = true
         AND (lower(COALESCE(email,'')) = 'gabriellen@vittalissaude.com.br'
-             OR lower(translate(COALESCE(nome,''), ${SEM_ACENTO})) ~ '^gabriel+en\\b')`)
+             OR regexp_replace(COALESCE(cpf,''), '\\D', '', 'g') = '05678089390'
+             OR lower(translate(COALESCE(nome,''), ${SEM_ACENTO})) ~ '(^|[^a-z])gabriel+en([^a-z]|$)')`)
     .catch((e) => { console.error('gabriellen so_carteira:', e.message); return { rowCount: 0 }; });
   if (!rowCount) { console.error('gabriellen so repasse: conta não encontrada'); return; }
   await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('equipe', $1, $2, true)`,
@@ -3550,7 +3551,7 @@ async function gabriellenCarteiraConsultasTerapias() {
       WHERE ativo = true
         AND (lower(COALESCE(email,'')) = 'gabriellen@vittalissaude.com.br'
              OR regexp_replace(COALESCE(cpf,''), '\\D', '', 'g') = '05678089390'
-             OR lower(translate(COALESCE(nome,''), ${SEM_ACENTO})) ~ '^gabriel+en\\b')`)
+             OR lower(translate(COALESCE(nome,''), ${SEM_ACENTO})) ~ '(^|[^a-z])gabriel+en([^a-z]|$)')`)
     .catch((e) => { console.error('gabriellen carteira:', e.message); return { rowCount: 0 }; });
   if (!rowCount) { console.error('gabriellen carteira: conta não encontrada'); return; }
   await query(`INSERT INTO configuracoes (chave, valor) VALUES ($1, '{"ok":true}') ON CONFLICT DO NOTHING`, [FLAG]).catch(() => {});
@@ -3566,7 +3567,7 @@ async function gabriellenCarteiraConsultasTerapias() {
    ela tem. Aqui, uma vez: grupos e conversas da direção/equipe saem do nome
    delas e voltam pro pool. O que uma colega transferiu de verdade continua. */
 async function limparCarteirasFechadas() {
-  const FLAG = 'seed_limpar_carteiras_fechadas_v1';
+  const FLAG = 'seed_limpar_carteiras_fechadas_v2';
   const SEM_ACENTO = "'áàâãäéèêëíìîïóòôõöúùûüç','aaaaaeeeeiiiiooooouuuuc'";
   const { rows: [ja] } = await query('SELECT 1 FROM configuracoes WHERE chave = $1', [FLAG]).catch(() => ({ rows: [1] }));
   if (ja) return;
@@ -3579,8 +3580,15 @@ async function limparCarteirasFechadas() {
             OR length(regexp_replace(COALESCE(c.phone,''), '\\D', '', 'g')) > 13
             OR lower(translate(COALESCE(c.contact_name,''), ${SEM_ACENTO})) ~ '(^|[^a-z])(dr|dra)\\.?([^a-z]|$)|miecio|nagila|felipe')`)
     .catch((e) => { console.error('limpar carteiras fechadas:', e.message); return { rowCount: 0 }; });
-  await query(`INSERT INTO configuracoes (chave, valor) VALUES ($1, $2::jsonb) ON CONFLICT DO NOTHING`,
-    [FLAG, JSON.stringify({ ok: true, devolvidas: rowCount })]).catch(() => {});
+  /* Só carimba quando a Gabriellen JÁ está com so_carteira: se a marca ainda
+     não pegou (cadastro com "Dra." na frente do nome, 04/09), a limpeza roda
+     de novo no próximo boot em vez de se dar por feita sem fazer nada. */
+  const { rows: [temFechada] } = await query(
+    `SELECT 1 FROM usuarios WHERE ativo = true AND COALESCE(so_carteira,false) = true LIMIT 1`).catch(() => ({ rows: [] }));
+  if (temFechada) {
+    await query(`INSERT INTO configuracoes (chave, valor) VALUES ($1, $2::jsonb) ON CONFLICT DO NOTHING`,
+      [FLAG, JSON.stringify({ ok: true, devolvidas: rowCount })]).catch(() => {});
+  }
   if (rowCount) console.log(`🧹 Carteiras fechadas: ${rowCount} conversa(s) (grupos/direção) devolvidas ao pool`);
 }
 
