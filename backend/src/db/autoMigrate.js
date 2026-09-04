@@ -3568,7 +3568,7 @@ async function gabriellenCarteiraConsultasTerapias() {
    ela tem. Aqui, uma vez: grupos e conversas da direção/equipe saem do nome
    delas e voltam pro pool. O que uma colega transferiu de verdade continua. */
 async function limparCarteirasFechadas() {
-  const FLAG = 'seed_limpar_carteiras_fechadas_v3';   // v3 (04/09): + Ativos, Home, motorista
+  const FLAG = 'seed_limpar_carteiras_fechadas_v4';   // v4 (04/09): + Agenda espontâneo, transmissão, comunidade
   const SEM_ACENTO = "'áàâãäéèêëíìîïóòôõöúùûüç','aaaaaeeeeiiiiooooouuuuc'";
   const { rows: [ja] } = await query('SELECT 1 FROM configuracoes WHERE chave = $1', [FLAG]).catch(() => ({ rows: [1] }));
   if (ja) return;
@@ -3577,9 +3577,9 @@ async function limparCarteirasFechadas() {
       FROM usuarios u
      WHERE u.id = c.responsavel_id
        AND (COALESCE(u.so_carteira,false) = true OR COALESCE(u.so_fidelidade,false) = true)
-       AND (COALESCE(c.contact_id,'') LIKE '%g.us%'
+       AND (COALESCE(c.contact_id,'') ~* 'g\\.us|@broadcast|@lid|@newsletter'
             OR length(regexp_replace(COALESCE(c.phone,''), '\\D', '', 'g')) > 13
-            OR lower(translate(COALESCE(c.contact_name,''), ${SEM_ACENTO})) ~ '(^|[^a-z])(dr|dra)\\.?([^a-z]|$)|miecio|nagila|felipe|motorista|^\\s*ativos?\\s*$|^\\s*home\\s*$')`)
+            OR lower(translate(COALESCE(c.contact_name,''), ${SEM_ACENTO})) ~ '(^|[^a-z])(dr|dra)\\.?([^a-z]|$)|miecio|nagila|felipe|motorista|^\\s*ativos?\\s*$|^\\s*home\\s*$|agenda\\s*espont|espontane')`)
     .catch((e) => { console.error('limpar carteiras fechadas:', e.message); return { rowCount: 0 }; });
   /* Só carimba quando a Gabriellen JÁ está com so_carteira: se a marca ainda
      não pegou (cadastro com "Dra." na frente do nome, 04/09), a limpeza roda

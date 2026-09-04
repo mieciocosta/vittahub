@@ -365,7 +365,15 @@ Não invente o que não estiver legível — diga "não deu pra ler X". Sem mark
   } catch (e) { console.error('Análise de foto:', e.message); }
 }
 
-const ehGrupo = (c) => String(c.contact_id || '').includes('g.us') || String(c.phone || '').replace(/\D/g, '').length > 13;
+/* Grupo, lista de transmissão ou comunidade: tudo que não é UM cliente com
+   telefone. Cobre g.us, @broadcast, @lid e número que não parece telefone
+   (04/09: "Agenda espontâneo", "grupo Caixa" ainda apareciam na Gabriellen). */
+const ehGrupo = (c) => {
+  const cid = String(c.contact_id || '');
+  if (/g\.us|@broadcast|@lid|@newsletter/i.test(cid)) return true;
+  const dig = String(c.phone || '').replace(/\D/g, '');
+  return dig.length > 13 || (!!c.phone && dig.length < 8);
+};
 
 // Setor de cada usuário (id → setor), pra classificar a conversa pelo RESPONSÁVEL.
 // O cache de conversas não guarda o setor do responsável, então mantemos este mapa
