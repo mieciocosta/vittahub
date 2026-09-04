@@ -400,6 +400,16 @@ async function carregarUsuariosSetor() {
     usuariosNome = new Map(rows.map(u => [String(u.id), u.nome || null]));
     usuariosSoCarteira = new Set(rows.filter(u => u.so_carteira === true).map(u => String(u.id)));
     usuariosSoFidelidade = new Set(rows.filter(u => u.so_fidelidade === true).map(u => String(u.id)));
+    /* 🔒 ORDEM DO MASTER, PELO NOME (04/09: "deixa ela e Poliana restritas
+       somente se transferirem pra elas como responsável; as demais podem pegar
+       pra si"). A marca no cadastro continua valendo, mas a regra não depende
+       mais dela: Gabriellen e Poliana são carteira fechada pelo nome, mesmo
+       que o cadastro esteja sem a marca. */
+    for (const u of rows) {
+      const n = String(u.nome || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+      if (/(^|[^a-z])gabriel/.test(n)) usuariosSoCarteira.add(String(u.id));
+      if (/(^|[^a-z])poliana/.test(n)) usuariosSoFidelidade.add(String(u.id));
+    }
     usuariosDistribuidores = new Set(rows.filter(u => u.distribuidor === true).map(u => String(u.id)));
   } catch { /* banco ainda não pronto — tenta de novo no próximo tick */ }
 }

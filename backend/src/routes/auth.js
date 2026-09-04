@@ -79,6 +79,13 @@ function logAudit(req, usuarioId, usuarioNome, acao, detalhes) {
   ).catch(() => {});
 }
 
+/* 🔒 Carteira fechada PELO NOME (ordem do master, 04/09): Gabriellen só vê o
+   que for transferido pra ela; Poliana idem, na Fidelidade. A marca do
+   cadastro continua valendo, mas a tela não pode depender dela. */
+const semAcentoMin = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+const soCarteiraDe = (u) => u?.so_carteira === true || /(^|[^a-z])gabriel/.test(semAcentoMin(u?.nome));
+const soFidelidadeDe = (u) => u?.so_fidelidade === true || /(^|[^a-z])poliana/.test(semAcentoMin(u?.nome));
+
 r.post('/login', async (req, res) => {
   const ip = getRealIP(req);
   try {
@@ -132,7 +139,7 @@ r.post('/login', async (req, res) => {
            até dar F5: a aba de Distribuição e as duas fileiras simplesmente não
            apareciam no usuário da Danielle. O /auth/me já mandava certo; o
            login e o "entrar como" é que devolviam um usuário pela metade. */
-        distribuidor: u.distribuidor === true, so_carteira: u.so_carteira === true, so_fidelidade: u.so_fidelidade === true,
+        distribuidor: u.distribuidor === true, so_carteira: soCarteiraDe(u), so_fidelidade: soFidelidadeDe(u),
         ve_carteira_leads: u.ve_carteira_leads === true,   // 📊 relatório Carteira de Leads (José, 03/09)
         dono: ehDono(u) || u.pode_impersonar === true } });
   } catch (err) {
@@ -145,7 +152,7 @@ r.get('/me', auth, async (req, res) => {
   try {
     const { rows } = await query('SELECT id,nome,email,cpf,role,cor,avatar,setor,setores,lider,ve_tudo,ve_geral,so_carteira,so_fidelidade,distribuidor,ia_consultas,ia_ligada,pode_impersonar,baixa_supervisionada,ve_carteira_leads FROM usuarios WHERE id=$1', [req.user.id]);
     if (!rows[0]) return res.status(404).json({ error: 'Não encontrado' });
-    res.json({ ...rows[0], dono: ehDono(rows[0]) || rows[0].pode_impersonar === true });
+    res.json({ ...rows[0], so_carteira: soCarteiraDe(rows[0]), so_fidelidade: soFidelidadeDe(rows[0]), dono: ehDono(rows[0]) || rows[0].pode_impersonar === true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -208,7 +215,7 @@ r.patch('/me/nome', auth, async (req, res) => {
            até dar F5: a aba de Distribuição e as duas fileiras simplesmente não
            apareciam no usuário da Danielle. O /auth/me já mandava certo; o
            login e o "entrar como" é que devolviam um usuário pela metade. */
-        distribuidor: u.distribuidor === true, so_carteira: u.so_carteira === true, so_fidelidade: u.so_fidelidade === true,
+        distribuidor: u.distribuidor === true, so_carteira: soCarteiraDe(u), so_fidelidade: soFidelidadeDe(u),
         ve_carteira_leads: u.ve_carteira_leads === true,   // 📊 relatório Carteira de Leads (José, 03/09)
         dono: ehDono(u) || u.pode_impersonar === true } });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -339,7 +346,7 @@ r.post('/impersonar/:id', auth, async (req, res) => {
            até dar F5: a aba de Distribuição e as duas fileiras simplesmente não
            apareciam no usuário da Danielle. O /auth/me já mandava certo; o
            login e o "entrar como" é que devolviam um usuário pela metade. */
-        distribuidor: u.distribuidor === true, so_carteira: u.so_carteira === true, so_fidelidade: u.so_fidelidade === true,
+        distribuidor: u.distribuidor === true, so_carteira: soCarteiraDe(u), so_fidelidade: soFidelidadeDe(u),
         ve_carteira_leads: u.ve_carteira_leads === true,   // 📊 relatório Carteira de Leads (José, 03/09)
         dono: ehDono(u) || u.pode_impersonar === true } });
   } catch (err) { res.status(500).json({ error: err.message }); }
