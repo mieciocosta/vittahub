@@ -3405,7 +3405,9 @@ async function marketingForaDoPainel() {
 async function gestoraPodeObservar() {
   const { rowCount } = await query(
     `UPDATE usuarios SET pode_impersonar = true
-      WHERE COALESCE(distribuidor,false) = true AND ativo = true
+      WHERE (COALESCE(distribuidor,false) = true
+             OR lower(translate(COALESCE(nome,''), 'áàâãäéèêëíìîïóòôõöúùûüç','aaaaaeeeeiiiiooooouuuuc')) LIKE 'danielle%')
+        AND ativo = true
         AND COALESCE(pode_impersonar,false) = false
         AND COALESCE(dono_casa,false) = false`).catch(() => ({ rowCount: 0 }));
   if (rowCount) console.log(`👤 ${rowCount} gestora(s) de distribuição liberada(s) pra observar a equipe`);
@@ -3566,13 +3568,19 @@ async function donosDaCasa() {
   if (rowCount) console.log(`🏛️ ${rowCount} conta(s) marcadas como dono da casa (fora da lista de colaboradoras)`);
 }
 
+/* 🔚 DISTRIBUIÇÃO DESLIGADA (ordem do master, 04/09: "o botão Distribuição
+   ainda consta para Danielle; quero que seja conforme era antes"). Esta
+   função LIGAVA a marca da Danielle a cada boot — por isso a aba voltava.
+   Agora faz o contrário: ninguém fica com `distribuidor`; a aba Distribuição
+   e as duas fileiras ficam só com o master. A Danielle continua supervisora,
+   com o Painel Comercial, a troca de usuário e a transferência de dentro de
+   cada conversa (é por ali que ela passa atendimento pra Gabriellen e pra
+   Poliana). Roda todo boot, idempotente. */
 async function distribuidoraDosLeads() {
-  const SEM_ACENTO = "'áàâãäéèêëíìîïóòôõöúùûüç','aaaaaeeeeiiiiooooouuuuc'";
   const { rowCount } = await query(
-    `UPDATE usuarios SET distribuidor = true
-      WHERE lower(translate(COALESCE(nome,''), ${SEM_ACENTO})) LIKE '%danielle%'
-        AND COALESCE(distribuidor,false) = false`).catch(() => ({ rowCount: 0 }));
-  if (rowCount) console.log('📥 Danielle marcada como distribuidora dos leads');
+    `UPDATE usuarios SET distribuidor = false, updated_at = NOW()
+      WHERE COALESCE(distribuidor,false) = true`).catch(() => ({ rowCount: 0 }));
+  if (rowCount) console.log(`🔚 Distribuição desligada: ${rowCount} conta(s) deixaram de ser distribuidoras`);
 }
 
 async function colunasCriticas() {
