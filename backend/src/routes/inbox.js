@@ -4487,12 +4487,22 @@ r.get('/conversations', async (req, res) => {
   // Respeita o acesso por setor: cada um só conta o que pode ver. E não conta quem
   // foi movido pra uma pasta (Fidelidade/Banco), igual à lista.
   const tudo = Array.from(convoCache.values()).filter(c => !c.categoria && podeVerSetor(req.user, c));
+  /* 🔢 O NÚMERO DO CHIP É O NÚMERO DA LISTA (cobrança do master, 04/09: "não
+     está carregando todas as conversas"). Depois de "cada um constrói sua
+     carteira", a lista principal mostra só a carteira da pessoa e o pool, e
+     esconde quem está fora da fila — mas o chip "Todas" seguia contando a casa
+     inteira. Número maior que a lista vira "bug de carregamento". */
+  const veCasa = req.user.role === 'master' || req.user.ve_geral === true;
+  const naLista = tudo.filter(c => c.fora_da_fila !== true
+    && (veCasa || !c.responsavel_id || String(c.responsavel_id) === String(req.user.id)));
   result.counts = {
-    todas: tudo.length,
-    planos: tudo.filter(c => CLS_PLANOS.includes(c.classificacao)).length,   // 💎 botão da Danielle
+    todas: naLista.length,
+    planos: tudo.filter(c => CLS_PLANOS.includes(c.classificacao)).length,   // 💎 botões da Danielle (furam a régua da lista)
+    planosVacinais: tudo.filter(c => c.classificacao === 'planos_vacinais').length,
+    planosTerapeuticos: tudo.filter(c => c.classificacao === 'terapias').length,
     minhas: tudo.filter(c => c.responsavel_id === req.user.id).length,
-    naoLidas: tudo.filter(c => (c.unread || 0) > 0).length,
-    grupos: tudo.filter(c => ehGrupo(c)).length,
+    naoLidas: naLista.filter(c => (c.unread || 0) > 0).length,
+    grupos: naLista.filter(c => ehGrupo(c)).length,
     /* 📥 Quantos leads esperando distribuição. Só o master enxerga conversa sem
        dona, então pra equipe este número é sempre zero — e o chip nem aparece. */
     /* 📥 Quantos leads esperando distribuição — só quem distribui (e o master)

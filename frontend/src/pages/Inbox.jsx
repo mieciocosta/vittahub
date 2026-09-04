@@ -455,16 +455,24 @@ function SearchBar({ value, onChange, filter, setFilter, totalUnread, unreadOnly
           É a carteira que ela responde; um toque abre tudo, de quem quer que
           seja a conversa. */}
       {mostraPlanos && (
-        <button onClick={onPlanos} title="Todos os contatos classificados como Plano Vacinal ou Plano Terapêutico"
-          style={{ width: '100%', marginBottom: 8, border: 'none', borderRadius: 12, padding: '10px 12px', cursor: 'pointer',
-            background: planosAtivo ? 'linear-gradient(135deg,#7c3aed,#c026d3)' : 'linear-gradient(135deg,#f59e0b,#ef4444)',
-            color: '#fff', fontSize: 12.5, fontWeight: 900, letterSpacing: .4, textTransform: 'uppercase',
-            boxShadow: planosAtivo ? '0 4px 16px rgba(124,58,237,.45)' : '0 4px 16px rgba(239,68,68,.4)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-          💎 Planos vacinais e terapêuticos
-          {(counts?.planos || 0) > 0 && <span style={{ background: 'rgba(255,255,255,.28)', borderRadius: 20, padding: '1px 9px', fontSize: 11 }}>{counts.planos}</span>}
-          {planosAtivo && <span style={{ fontSize: 10, opacity: .9, textTransform: 'none', fontWeight: 700 }}>· toque pra voltar</span>}
-        </button>
+        /* Dois botões, um ao lado do outro (ordem do master, 04/09) */
+        <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+          {[['planos_vacinais', '💉 Planos vacinais', 'planosVacinais', '#3b82f6', '#1d4ed8'],
+            ['terapias', '🤲 Planos terapêuticos', 'planosTerapeuticos', '#f59e0b', '#d97706']].map(([cls, rot, ck, c1, c2]) => {
+            const ativo = planosAtivo === cls;
+            return (
+              <button key={cls} onClick={() => onPlanos(cls)} title={`Todos os contatos classificados como ${rot.slice(3)}`}
+                style={{ flex: 1, border: 'none', borderRadius: 12, padding: '10px 8px', cursor: 'pointer',
+                  background: ativo ? 'linear-gradient(135deg,#7c3aed,#c026d3)' : `linear-gradient(135deg,${c1},${c2})`,
+                  color: '#fff', fontSize: 11.5, fontWeight: 900, letterSpacing: .3, textTransform: 'uppercase',
+                  boxShadow: ativo ? '0 4px 16px rgba(124,58,237,.45)' : `0 4px 14px ${c2}66`,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, flexWrap: 'wrap' }}>
+                {rot}
+                {(counts?.[ck] || 0) > 0 && <span style={{ background: 'rgba(255,255,255,.28)', borderRadius: 20, padding: '1px 8px', fontSize: 11 }}>{counts[ck]}</span>}
+              </button>
+            );
+          })}
+        </div>
       )}
       <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
         {[['todas','Todas','todas'],
@@ -1630,6 +1638,9 @@ export default function Inbox({ onUnreadChange }) {
          pessoa lá abre o chat já filtrado nas conversas DELA (28/08). */
       if (modo === 'distribuir') { params.set('semDono', 'true'); if (verAntigos) params.set('antigos', 'true'); }
       if (respFiltro) params.set('responsavel', respFiltro);
+      /* 📂 A classificação (pasta/botão Planos) ia só na PRIMEIRA página: as
+         seguintes vinham sem filtro, e a pasta parava de carregar (04/09). */
+      if (clsFiltro !== 'all') params.set('classificacao', clsFiltro);
       const data = await api.get(`/inbox/conversations?${params}`);
       if (data.counts) setCounts(data.counts);
       const list = data.data || [];
@@ -2540,8 +2551,8 @@ export default function Inbox({ onUnreadChange }) {
           semGrupos={user?.so_carteira === true || user?.so_fidelidade === true}
           /* 💎 O botão dos planos é da Danielle (e do master, que entra como ela) */
           mostraPlanos={user?.role === 'master' || /(^|[^a-z])danielle/i.test(String(user?.nome || '').normalize('NFD').replace(/[\u0300-\u036f]/g, ''))}
-          planosAtivo={clsFiltro === 'planos'}
-          onPlanos={() => { const q = new URLSearchParams(searchParams); if (q.get('cls') === 'planos') q.delete('cls'); else q.set('cls', 'planos'); setSearchParams(q, { replace: true }); }}
+          planosAtivo={clsFiltro}
+          onPlanos={(cls) => { const q = new URLSearchParams(searchParams); if (q.get('cls') === cls) q.delete('cls'); else q.set('cls', cls); setSearchParams(q, { replace: true }); }}
           modo={modo} setModo={setModo} counts={{ ...(counts || {}), fixadas: fixadas.length }}
           /* A aba aparece pra quem distribui. O contador só vem preenchido do
              servidor pra essas pessoas, então ele serve de segunda garantia
