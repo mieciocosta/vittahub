@@ -3038,6 +3038,7 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
   try { await gabriellenSoRepasse(); } catch (e) { console.error('gabriellen so repasse:', e.message); }
   try { await gabriellenCarteiraConsultasTerapias(); } catch (e) { console.error('gabriellen carteira:', e.message); }
   try { await limparCarteirasFechadas(); } catch (e) { console.error('limpar carteiras fechadas:', e.message); }
+  try { await setoresDaEquipe(); } catch (e) { console.error('setores da equipe:', e.message); }
   try { await equipeDaCasa(); } catch (e) { console.error('equipe da casa:', e.message); }
   try { await donosDaCasa(); } catch (e) { console.error('donos da casa:', e.message); }
   try { await marketingForaDoPainel(); } catch (e) { console.error('marketing fora do painel:', e.message); }
@@ -3590,6 +3591,46 @@ async function limparCarteirasFechadas() {
       [FLAG, JSON.stringify({ ok: true, devolvidas: rowCount })]).catch(() => {});
   }
   if (rowCount) console.log(`🧹 Carteiras fechadas: ${rowCount} conversa(s) (grupos/direção) devolvidas ao pool`);
+}
+
+/* 🗂️ SETOR DE CADA UMA, DITADO PELO MASTER (04/09: "separe conforme o perfil
+   de cada uma"):
+     · consultas e terapias → Gabriellen, Suellen, Mayara
+     · Danielle → planos vacinais e planos terapêuticos (vacinas + consultas +
+       terapias: terapia mora na agenda de consultas)
+     · Raylane → vacinas · Poliana → vacinas (Fidelidade) · Stefany → vacinas
+   Casa por nome em QUALQUER posição (o "Dra." na frente já escondeu a
+   Gabriellen uma vez). Grava setor principal e a lista de setores; os perfis
+   de carteira (so_carteira, so_fidelidade) não são tocados aqui. Só carimba
+   quando achou todo mundo — quem faltar sai no log pro master conferir. */
+const SETORES_EQUIPE = [
+  { quem: 'gabriel+en', setor: 'consultas', setores: ['consultas', 'terapias'] },
+  { quem: 'suel+en',    setor: 'consultas', setores: ['consultas', 'terapias'] },
+  { quem: 'mayara',     setor: 'consultas', setores: ['consultas', 'terapias'] },
+  { quem: 'danielle',   setor: 'consultas', setores: ['vacinas', 'consultas', 'terapias'] },
+  { quem: 'raylane',    setor: 'vacinas',   setores: ['vacinas'] },
+  { quem: 'poliana',    setor: 'vacinas',   setores: ['vacinas'] },
+  { quem: 'stefan[yi]', setor: 'vacinas',   setores: ['vacinas'] },
+];
+async function setoresDaEquipe() {
+  const FLAG = 'seed_setores_equipe_0409_v1';
+  const SEM_ACENTO = "'áàâãäéèêëíìîïóòôõöúùûüç','aaaaaeeeeiiiiooooouuuuc'";
+  const { rows: [ja] } = await query('SELECT 1 FROM configuracoes WHERE chave = $1', [FLAG]).catch(() => ({ rows: [1] }));
+  if (ja) return;
+  const faltou = [];
+  for (const p of SETORES_EQUIPE) {
+    const { rowCount } = await query(
+      `UPDATE usuarios SET setor = $2, setores = $3::text[], updated_at = NOW()
+        WHERE ativo = true AND role <> 'master' AND COALESCE(dono_casa,false) = false
+          AND lower(translate(COALESCE(nome,''), ${SEM_ACENTO})) ~ ('(^|[^a-z])' || $1 || '([^a-z]|$)')`,
+      [p.quem, p.setor, p.setores]).catch((e) => { console.error('setores da equipe:', p.quem, e.message); return { rowCount: 0 }; });
+    if (!rowCount) faltou.push(p.quem);
+  }
+  if (faltou.length) { console.error(`setores da equipe: não achei ${faltou.join(', ')} — tenta de novo no próximo boot`); return; }
+  await query(`INSERT INTO configuracoes (chave, valor) VALUES ($1, '{"ok":true}') ON CONFLICT DO NOTHING`, [FLAG]).catch(() => {});
+  await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('equipe', $1, $2, true)`,
+    ['🗂️ Setores da equipe gravados', 'Consultas e terapias: Gabriellen, Suellen e Mayara. Danielle: vacinas, consultas e terapias. Vacinas: Raylane, Poliana (Fidelidade) e Stefany. Cada uma precisa sair e entrar de novo.']).catch(() => {});
+  console.log('🗂️ Setores da equipe gravados conforme o master (04/09)');
 }
 
 async function donosDaCasa() {
