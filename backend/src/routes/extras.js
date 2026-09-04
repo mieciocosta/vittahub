@@ -1197,7 +1197,10 @@ r.get('/meta-setor', async (req, res) => {
     };
     // Meta INDIVIDUAL do usuário (se definida no cadastro): produção própria no mês
     let individual = null;
-    const { rows: [meU] } = await query('SELECT meta_individual FROM usuarios WHERE id = $1', [req.user.id]).catch(() => ({ rows: [{}] }));
+    const { rows: [meU] } = await query(`SELECT meta_individual, COALESCE(regras_pessoais,'{}'::jsonb) AS regras_pessoais FROM usuarios WHERE id = $1`, [req.user.id]).catch(() => ({ rows: [{}] }));
+    /* 🎯 Meta do dia POR PESSOA (Gabriellen, 04/09): usuarios.regras_pessoais.foco_dia
+       sobrepõe os alvos padrão do setor. */
+    const focoPessoal = (meU?.regras_pessoais && meU.regras_pessoais.foco_dia) || null;
     const metaInd = parseFloat(meU?.meta_individual) || 0;
     if (metaInd > 0) {
       const { rows: [mv] } = await query(
@@ -1251,16 +1254,19 @@ r.get('/meta-setor', async (req, res) => {
             AND (created_at - interval '3 hours')::date = $2::date
             AND LOWER(COALESCE(status,'')) NOT LIKE 'cancel%'`,
         [req.user.id, hojeSLZ]).catch(() => ({ rows: [{ n: 0 }] }));
-      focoDia.consultas = [{ rotulo: 'Consultas', alvo: 10, feitos: c?.n || 0 }];
+      focoDia.consultas = [{ rotulo: 'Consultas', alvo: Math.max(1, parseInt(focoPessoal?.consultas) || 10), feitos: c?.n || 0 }];
     }
     if (setores.includes('terapias')) {
       const [planos, sessoes] = await Promise.all([
         contaVenda('Fidelidade Mensal', 'terapias'),
         contaVenda('Terapia', 'terapias'),
       ]);
+      /* Padrão da casa: 1 Plano Mensal OU 5 sessões. Regra pessoal (Gabriellen):
+         1 plano E 10 sessões, as duas valem (ou: false). */
+      const ouT = focoPessoal ? focoPessoal.ou !== false : true;
       focoDia.terapias = [
-        { rotulo: 'Plano Mensal', alvo: 1, feitos: planos, ou: true },
-        { rotulo: 'Sessões', alvo: 5, feitos: sessoes, ou: true },
+        { rotulo: 'Plano Mensal', alvo: Math.max(1, parseInt(focoPessoal?.plano_mensal) || 1), feitos: planos, ou: ouT },
+        { rotulo: 'Sessões', alvo: Math.max(1, parseInt(focoPessoal?.sessoes) || 5), feitos: sessoes, ou: ouT },
       ];
     }
     // Alternativas: bateu uma do grupo, o setor está cumprido — não cobra a outra
@@ -2473,6 +2479,22 @@ r.get('/vendas', async (req, res) => {
        num mês com mais de 500 vendas, as mais antigas caíam fora e o Caixa
        mostrava MENOS que o placar (mesma tabela, mesma régua, soma diferente).
        Achado na conferência do master (22/08): "veja se está batendo". */
+    /* 💰 COMISSÃO POR PESSOA (ordem do master, 04/09: "ela ganha R$ 20 em cada
+       consulta de até 400, acima de 400 R$ 35 — aplique isso ao caixa dela").
+       Quem tem regras_pessoais.comissao recebe `comissao_calc` em cada venda
+       de Consulta; o Caixa usa esse valor no lugar do 1% padrão. Ajuste manual
+       (v.repasse) continua mandando. */
+    const { rows: comRows } = await query(`SELECT id, regras_pessoais->'comissao' AS comissao FROM usuarios
+      WHERE regras_pessoais ? 'comissao'`).catch(() => ({ rows: [] }));
+    const comissaoDe = new Map(comRows.map(u => [String(u.id), u.comissao || {}]));
+    for (const v of rows) {
+      const c = comissaoDe.get(String(v.atendente_id));
+      if (!c) continue;
+      if (v.categoria === 'Consulta' && c.consulta) {
+        const val = parseFloat(v.valor) || 0;
+        v.comissao_calc = val <= (parseFloat(c.consulta.ate) || 400) ? (parseFloat(c.consulta.valor) || 0) : (parseFloat(c.consulta.acima) || 0);
+      }
+    }
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -2489,6 +2511,11 @@ r.get('/repasses-mes', async (req, res) => {
               COUNT(*)::int AS vendas,
               COALESCE(SUM(v.valor),0)::float AS vendido,
               COALESCE(SUM(CASE WHEN COALESCE(v.repasse,0) > 0 THEN v.repasse
+                                /* 💰 comissão pessoal por consulta (Gabriellen, 04/09) */
+                                WHEN v.categoria = 'Consulta' AND (u.regras_pessoais->'comissao'->'consulta') IS NOT NULL THEN
+                                  CASE WHEN v.valor <= COALESCE((u.regras_pessoais->'comissao'->'consulta'->>'ate')::numeric, 400)
+                                       THEN COALESCE((u.regras_pessoais->'comissao'->'consulta'->>'valor')::numeric, 0)
+                                       ELSE COALESCE((u.regras_pessoais->'comissao'->'consulta'->>'acima')::numeric, 0) END
                                 WHEN u.role = 'atendente' THEN v.valor * 0.01
                                 ELSE 0 END),0)::float AS repasse
          FROM vendas v LEFT JOIN usuarios u ON u.id = v.atendente_id

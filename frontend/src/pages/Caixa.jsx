@@ -465,8 +465,12 @@ export default function Caixa() {
   const repasseDe = (v) => {
     const m = parseFloat(v.repasse) || 0;
     if (m > 0) return m;
+    /* 💰 Comissão pessoal calculada pelo servidor (Gabriellen, 04/09: R$ 20 por
+       consulta até R$ 400, R$ 35 acima) vale no lugar do 1%. */
+    if (v.comissao_calc != null) return parseFloat(v.comissao_calc) || 0;
     return v.atendente_role === 'atendente' ? (parseFloat(v.valor) || 0) * TAXA_REPASSE : 0;
   };
+  const temComissaoPessoal = filtrada.some(v => v.comissao_calc != null && String(v.atendente_id) === String(user?.id));
   const totalRepasse = filtrada.reduce((s, v) => s + repasseDe(v), 0);
   const liquido = total - totalRepasse;
   const comComp = filtrada.filter(v => (v.n_comprovantes || 0) > 0).length;
@@ -735,7 +739,7 @@ Gerado em ${new Date().toLocaleString('pt-BR')} · Vittalis Saúde · documento 
         </div>
         <div style={{ display: 'flex', gap: 22, marginTop: 16, flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <div><div style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: .6, opacity: .8 }}>Total vendido{gestao ? '' : ' (suas)'}</div><div style={{ fontSize: 22, fontWeight: 900, color: '#a7f3d0' }}>{fmt.brl(total)}</div></div>
-          {veRepasse && <div><div style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: .6, opacity: .8 }}>{gestao ? 'Repasse (1%)' : 'Seu repasse (1%)'}</div><div style={{ fontSize: 22, fontWeight: 900, color: '#fca5a5' }}>{fmt.brl(totalRepasse)}</div></div>}
+          {veRepasse && <div><div style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: .6, opacity: .8 }}>{gestao ? 'Repasse (1%)' : temComissaoPessoal ? 'Seu ganho por consulta' : 'Seu repasse (1%)'}</div><div style={{ fontSize: 22, fontWeight: 900, color: '#fca5a5' }}>{fmt.brl(totalRepasse)}</div></div>}
           {gestao && <div><div style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: .6, opacity: .8 }}>Líquido</div><div style={{ fontSize: 22, fontWeight: 900, color: '#fde68a' }}>{fmt.brl(liquido)}</div></div>}
           <div><div style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: .6, opacity: .8 }}>Vendas</div><div style={{ fontSize: 22, fontWeight: 900 }}>{filtrada.length}</div></div>
           <div><div style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: .6, opacity: .8 }}>C/ comprovante</div><div style={{ fontSize: 20, fontWeight: 900, color: '#c7d2fe' }}>{comComp}/{filtrada.length}</div></div>

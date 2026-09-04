@@ -3040,6 +3040,7 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
   try { await gabriellenCarteiraConsultasTerapias(); } catch (e) { console.error('gabriellen carteira:', e.message); }
   try { await limparCarteirasFechadas(); } catch (e) { console.error('limpar carteiras fechadas:', e.message); }
   try { await setoresDaEquipe(); } catch (e) { console.error('setores da equipe:', e.message); }
+  try { await regrasGabriellen(); } catch (e) { console.error('regras gabriellen:', e.message); }
   try { await equipeDaCasa(); } catch (e) { console.error('equipe da casa:', e.message); }
   try { await donosDaCasa(); } catch (e) { console.error('donos da casa:', e.message); }
   try { await marketingForaDoPainel(); } catch (e) { console.error('marketing fora do painel:', e.message); }
@@ -3642,6 +3643,36 @@ async function tabelaOcultas() {
     PRIMARY KEY (usuario_id, conversa_id))`);
 }
 
+/* 🎯💰 METAS E COMISSÃO DA GABRIELLEN (ordem do master, 04/09: "metas dela:
+   10 sessões de terapias e 10 consultas e 1 plano mensal, de forma diária;
+   ela ganha R$ 20 em cada consulta de até 400, acima de 400 R$ 35; aplique
+   isso ao caixa dela"). Mora em usuarios.regras_pessoais:
+     foco_dia  → { consultas: 10, sessoes: 10, plano_mensal: 1, ou: false }
+     comissao  → { consulta: { ate: 400, valor: 20, acima: 35 } }
+   O placar lê foco_dia; o Caixa e os repasses do mês leem comissao. */
+async function regrasGabriellen() {
+  const FLAG = 'seed_regras_gabriellen_v1';
+  const SEM_ACENTO = "'áàâãäéèêëíìîïóòôõöúùûüç','aaaaaeeeeiiiiooooouuuuc'";
+  const { rows: [ja] } = await query('SELECT 1 FROM configuracoes WHERE chave = $1', [FLAG]).catch(() => ({ rows: [1] }));
+  if (ja) return;
+  const regras = {
+    foco_dia: { consultas: 10, sessoes: 10, plano_mensal: 1, ou: false },
+    comissao: { consulta: { ate: 400, valor: 20, acima: 35 } },
+  };
+  const { rowCount } = await query(
+    `UPDATE usuarios SET regras_pessoais = COALESCE(regras_pessoais,'{}'::jsonb) || $1::jsonb, updated_at = NOW()
+      WHERE ativo = true
+        AND (lower(COALESCE(email,'')) = 'gabriellen@vittalissaude.com.br'
+             OR regexp_replace(COALESCE(cpf,''), '\\D', '', 'g') = '05678089390'
+             OR lower(translate(COALESCE(nome,''), ${SEM_ACENTO})) ~ '(^|[^a-z])gabriel')`,
+    [JSON.stringify(regras)]).catch((e) => { console.error('regras gabriellen:', e.message); return { rowCount: 0 }; });
+  if (!rowCount) { console.error('regras gabriellen: conta não encontrada — tenta no próximo boot'); return; }
+  await query(`INSERT INTO configuracoes (chave, valor) VALUES ($1, '{"ok":true}') ON CONFLICT DO NOTHING`, [FLAG]).catch(() => {});
+  await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('meta', $1, $2, true)`,
+    ['🎯 Metas e comissão da Gabriellen', 'Meta do dia: 10 consultas, 10 sessões de terapia e 1 plano mensal. Comissão: R$ 20 por consulta até R$ 400 e R$ 35 acima disso, já no Caixa dela.']).catch(() => {});
+  console.log('🎯 Regras pessoais da Gabriellen gravadas (meta do dia + comissão)');
+}
+
 async function donosDaCasa() {
   const SEM_ACENTO = "'áàâãäéèêëíìîïóòôõöúùûüç','aaaaaeeeeiiiiooooouuuuc'";
   const { rowCount } = await query(
@@ -3686,6 +3717,7 @@ async function colunasCriticas() {
     ['usuarios',  'fora_do_painel',  'BOOLEAN DEFAULT false'],  // marketing: não é carteira a acompanhar
     ['usuarios',  'metas_setor',     "JSONB DEFAULT '{}'::jsonb"],  // meta e bônus por setor (03/09)
     ['usuarios',  've_carteira_leads', 'BOOLEAN DEFAULT false'],  // relatório Carteira de Leads liberado (José, 03/09)
+    ['usuarios',  'regras_pessoais',  "JSONB DEFAULT '{}'::jsonb"],  // meta do dia e comissão por pessoa (Gabriellen, 04/09)
     ['biblioteca_midias', 'ordem',   'INT DEFAULT 999'],        // ordem das figurinhas
   ];
   let criadas = 0;
