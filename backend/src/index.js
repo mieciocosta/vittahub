@@ -25,6 +25,18 @@ import { startPgListener, onNotify }       from './db/pgListener.js';
 import pool from './db/pool.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+/* 🛟 O SERVIDOR NÃO CAI POR ERRO SOLTO (04/09, login com "Falha ao buscar").
+   No Node, uma promise rejeitada sem catch ou uma exceção fora de rota
+   DERRUBA o processo inteiro — e no Railway isso vira reinício em loop, com o
+   CRM fora do ar pra todo mundo por causa de um webhook ou de um tick de
+   fundo. Aqui o erro é registrado com a pilha e o servidor segue de pé. */
+process.on('unhandledRejection', (err) => {
+  console.error('⚠️ Promise sem catch:', err?.stack || err?.message || err);
+});
+process.on('uncaughtException', (err) => {
+  console.error('⚠️ Exceção fora de rota:', err?.stack || err?.message || err);
+});
 const app    = express();
 const PORT   = process.env.PORT || 8080;
 const ORIGIN = process.env.FRONTEND_URL || 'http://localhost:5173';
