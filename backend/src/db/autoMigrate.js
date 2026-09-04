@@ -3010,6 +3010,27 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log('👀 Gestão na pasta Fidelidade:', nG);
     }
 
+    /* 💬 CHAT DA EQUIPE (pedido do master) — um canal interno para elas
+       conversarem entre si, sem misturar com o WhatsApp do cliente. Fica na
+       lateral do Inbox, à vista o dia inteiro.
+
+       Duas tabelas: as mensagens e o "até onde cada uma leu". A leitura por
+       pessoa é o que permite o botão acender só para quem tem coisa nova —
+       contar em cima da tabela de mensagens daria o mesmo número pra todo
+       mundo, e o aviso perderia sentido no dia seguinte. */
+    await query(`CREATE TABLE IF NOT EXISTS chat_equipe (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      autor_id TEXT, autor_nome TEXT, autor_cor TEXT,
+      texto TEXT NOT NULL,
+      mencoes TEXT[] DEFAULT '{}',
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS idx_chat_equipe_data ON chat_equipe (created_at DESC)`).catch(() => {});
+    await query(`CREATE TABLE IF NOT EXISTS chat_equipe_leitura (
+      usuario_id TEXT PRIMARY KEY,
+      lido_em TIMESTAMPTZ DEFAULT NOW()
+    )`).catch(() => {});
+
     /* 🎯 META DE VENDAS DO MÊS POR SETOR — número do master: R$ 19.000 para
        vacinas e o mesmo para consultas e terapias.
 

@@ -6079,3 +6079,136 @@ async function resgateProposta() {
   } catch (e) { console.error('Resgate de orçamento erro:', e.message); }
 }
 setInterval(resgateProposta, 30 * 60 * 1000);
+
+/* ═══ 💬 CHAT DA EQUIPE ════════════════════════════════════════════════════════
+   Pedido do master: um canal para a equipe conversar entre si, visível para
+   TODOS, dentro do próprio Inbox — sem precisar sair do lugar onde elas passam
+   o dia e sem misturar com o WhatsApp do cliente.
+
+   Duas coisas fazem o botão acender:
+   · mensagem nova que a pessoa ainda não leu  → aviso normal;
+   · alguém escreveu @NomeDela                 → aviso VERDE, "te chamaram".
+
+   A menção é reconhecida no SERVIDOR, comparando com o primeiro nome de quem
+   está ativo. Deixar isso no navegador significaria confiar numa lista que o
+   cliente do outro lado pode ter desatualizada — e chamado que não chega é
+   pior que chamado nenhum.                                                    */
+
+const CHAT_LIMITE = 120;   // mensagens que a tela carrega
+
+// Quem pode ser chamado por @: só gente ativa. Cacheado por 1 min (a lista quase não muda).
+let _equipeCache = { em: 0, lista: [] };
+async function equipeParaMencao() {
+  if (Date.now() - _equipeCache.em < 60000) return _equipeCache.lista;
+  const { rows } = await query('SELECT id, nome FROM usuarios WHERE ativo = true').catch(() => ({ rows: [] }));
+  _equipeCache = { em: Date.now(), lista: rows };
+  return rows;
+}
+
+const semAcento = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+/* Acha @fulano no texto. Compara pelo PRIMEIRO nome sem acento — é assim que a
+   equipe se chama ("@raylane"), não pelo nome completo do cadastro. */
+async function acharMencoes(texto) {
+  const marcados = (String(texto || '').match(/@([\p{L}]{2,})/gu) || []).map(m => semAcento(m.slice(1)));
+  if (!marcados.length) return [];
+  const equipe = await equipeParaMencao();
+  const ids = equipe
+    .filter(u => marcados.includes(semAcento(String(u.nome).trim().split(' ')[0])))
+    .map(u => u.id);
+  return [...new Set(ids)];
+}
+
+// As mensagens + o que ESTA pessoa ainda não viu
+r.get('/chat-equipe', async (req, res) => {
+  try {
+    const { rows } = await query(
+      `SELECT id, autor_id, autor_nome, autor_cor, texto, mencoes, created_at
+         FROM chat_equipe ORDER BY created_at DESC LIMIT $1`, [CHAT_LIMITE]);
+    const { rows: [l] } = await query('SELECT lido_em FROM chat_equipe_leitura WHERE usuario_id = $1', [req.user.id])
+      .catch(() => ({ rows: [] }));
+    const lidoEm = l?.lido_em ? new Date(l.lido_em).getTime() : 0;
+    const novas = rows.filter(m => m.autor_id !== req.user.id && new Date(m.created_at).getTime() > lidoEm);
+    res.json({
+      // Do mais antigo pro mais novo: é como se lê uma conversa
+      data: rows.reverse(),
+      naoLidas: novas.length,
+      chamado: novas.some(m => (m.mencoes || []).includes(req.user.id)),
+      eu: req.user.id,
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* Só o contador — é o que o botão da lateral consulta de tempo em tempo, sem
+   trazer as mensagens junto. */
+r.get('/chat-equipe/status', async (req, res) => {
+  try {
+    const { rows: [l] } = await query('SELECT lido_em FROM chat_equipe_leitura WHERE usuario_id = $1', [req.user.id])
+      .catch(() => ({ rows: [] }));
+    const desde = l?.lido_em || new Date(0).toISOString();
+    const { rows: [c] } = await query(
+      `SELECT COUNT(*)::int n,
+              COUNT(*) FILTER (WHERE $2 = ANY(mencoes))::int chamados
+         FROM chat_equipe WHERE created_at > $1 AND autor_id <> $2`, [desde, req.user.id]);
+    res.json({ naoLidas: c?.n || 0, chamado: (c?.chamados || 0) > 0 });
+  } catch (err) { res.json({ naoLidas: 0, chamado: false }); }
+});
+
+r.post('/chat-equipe', async (req, res) => {
+  try {
+    const texto = String(req.body?.texto || '').trim().slice(0, 2000);
+    if (!texto) return res.status(400).json({ error: 'Escreva alguma coisa 🙂' });
+    const mencoes = await acharMencoes(texto);
+    const { rows: [m] } = await query(
+      `INSERT INTO chat_equipe (autor_id, autor_nome, autor_cor, texto, mencoes)
+       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+      [req.user.id, req.user.nome, req.user.cor || null, texto, mencoes]);
+
+    // Chega na tela de todo mundo na hora, sem precisar recarregar
+    socketEmit('chat_equipe_msg', m);
+
+    /* O aviso de "te chamaram" NÃO vai para o sino: a tabela de notificações não
+       tem dono, e a mesma linha apareceria para a equipe inteira ("Fulana te
+       chamou" na tela de quem não foi chamada). O chamado viaja no próprio
+       evento acima — a mensagem carrega as menções e o botão de cada uma decide
+       se acende verde. Some quando ela abre o chat, que é o certo. */
+    // Quem escreve já leu o que escreveu
+    await query(
+      `INSERT INTO chat_equipe_leitura (usuario_id, lido_em) VALUES ($1, NOW())
+       ON CONFLICT (usuario_id) DO UPDATE SET lido_em = NOW()`, [req.user.id]).catch(() => {});
+    res.json({ ok: true, mensagem: m });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Abriu o chat = leu tudo. O botão apaga.
+r.post('/chat-equipe/li', async (req, res) => {
+  try {
+    await query(
+      `INSERT INTO chat_equipe_leitura (usuario_id, lido_em) VALUES ($1, NOW())
+       ON CONFLICT (usuario_id) DO UPDATE SET lido_em = NOW()`, [req.user.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* Apagar a própria mensagem (ou qualquer uma, se for o master). Escreveu errado
+   no canal da equipe inteira, tem que dar pra desfazer. */
+r.delete('/chat-equipe/:id', async (req, res) => {
+  try {
+    const { rows: [m] } = await query('SELECT autor_id FROM chat_equipe WHERE id = $1', [req.params.id]);
+    if (!m) return res.status(404).json({ error: 'Mensagem não encontrada' });
+    if (m.autor_id !== req.user.id && req.user.role !== 'master') {
+      return res.status(403).json({ error: 'Só dá pra apagar a sua própria mensagem.' });
+    }
+    await query('DELETE FROM chat_equipe WHERE id = $1', [req.params.id]);
+    socketEmit('chat_equipe_del', { id: req.params.id });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Quem pode ser chamado por @ — alimenta o autocomplete da caixa de escrever
+r.get('/chat-equipe/equipe', async (req, res) => {
+  try {
+    const { rows } = await query('SELECT id, nome, cor FROM usuarios WHERE ativo = true ORDER BY nome');
+    res.json(rows.map(u => ({ id: u.id, nome: u.nome, primeiro: String(u.nome).trim().split(' ')[0], cor: u.cor })));
+  } catch (err) { res.json([]); }
+});

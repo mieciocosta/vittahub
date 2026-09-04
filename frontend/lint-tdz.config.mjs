@@ -10,7 +10,7 @@ export default [
         setInterval:'readonly', clearInterval:'readonly', fetch:'readonly', Audio:'readonly', Image:'readonly',
         FormData:'readonly', Blob:'readonly', URL:'readonly', URLSearchParams:'readonly', requestAnimationFrame:'readonly',
         Notification:'readonly', caches:'readonly', AudioContext:'readonly', webkitAudioContext:'readonly',
-        __VH_BUILD__:'readonly', FileReader:'readonly', MediaRecorder:'readonly', alert:'readonly', confirm:'readonly',
+        __VH_BUILD__:'readonly', FileReader:'readonly', CustomEvent:'readonly', MediaRecorder:'readonly', alert:'readonly', confirm:'readonly',
         prompt:'readonly', getComputedStyle:'readonly', ResizeObserver:'readonly', IntersectionObserver:'readonly',
         atob:'readonly', btoa:'readonly', crypto:'readonly', performance:'readonly', location:'readonly', history:'readonly' },
     },

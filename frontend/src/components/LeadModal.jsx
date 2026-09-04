@@ -4,7 +4,10 @@ import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { mask } from '../hooks/utils.js';
 
 const ORIGENS = ['Instagram','Google','WhatsApp','Indicação','Facebook','Tráfego Pago','Orgânico','Outro'];
-const INTERESSES = ['Vacina','Plano Vacinal','Consulta','Terapia','Plano Infantil','Gestante','Outro'];
+/* Interesse do lead. "Cliente ativo vacinas" e "Cliente ativo terapia" entraram
+   a pedido do master: quem JÁ é cliente não é o mesmo caso de quem está pedindo
+   preço pela primeira vez — a conversa é outra e o acompanhamento também. */
+const INTERESSES = ['Vacina','Plano Vacinal','Consulta','Terapia','Plano Infantil','Gestante','Cliente ativo vacinas','Cliente ativo terapia','Outro'];
 const MOTIVOS = ['Preço','Concorrência','Sem interesse','Sem retorno','Adiou','Outro'];
 const TAGS = ['urgente','quente','plano','vip','infantil','retorno','casal','gestante','indicação','frio'];
 
