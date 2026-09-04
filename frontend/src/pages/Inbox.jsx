@@ -1427,7 +1427,8 @@ export default function Inbox({ onUnreadChange }) {
            atendente some; quem distribui (Danielle) também — a lista dela
            mostra só o que é dela e o que não tem dona. Supervisora de setor e
            master seguem vendo, com o nome novo. */
-        const minhaListaSoMinha = u?.role === 'atendente' || (u?.distribuidor === true && u?.role !== 'master');
+        // 04/09: cada um constrói a própria carteira — fora master e marketing, some pra quem não é a dona
+        const minhaListaSoMinha = u?.role !== 'master' && u?.ve_geral !== true;
         if ((euTransferi && u?.role !== 'master') || minhaListaSoMinha) {
           setConvos(prev => prev.filter(c => c.id !== convId));
           setSel(prev => prev?.id === convId ? null : prev);

@@ -660,10 +660,13 @@ function cacheGetList({ channel, search, unread_only, waiting, minhas, semDono, 
   const filtrouAlguem = (responsavel && responsavel !== 'all') || minhas === 'true'
     || semDono === 'true' || !!search || !!categoria || !!classificacao
     || (setor && setor !== 'all') || arquivadas === 'true';
-  /* Vale pra QUEM DISTRIBUI (a Danielle) — foi dela que o master falou. O
-     marketing (José e Carlos) e a supervisora de setor seguem enxergando a
-     casa inteira: ler conversa por conversa é o trabalho deles. */
-  if (viewer && viewer.role !== 'master' && viewer.distribuidor === true && !filtrouAlguem) {
+  /* 04/09, ordem do master: "quando a pessoa se coloca como responsável fica
+     só com ela e desaparece para a outra pessoa, pois assim cada um constrói
+     sua carteira". Vale pra TODO MUNDO fora o master e o marketing (José e
+     Carlos, ve_geral — ler conversa por conversa é o trabalho deles): a lista
+     principal mostra a própria carteira e o pool sem dona. A supervisora
+     olha a carteira de uma colega pela pasta dela (?responsavel=). */
+  if (viewer && viewer.role !== 'master' && viewer.ve_geral !== true && !filtrouAlguem) {
     list = list.filter(c => !c.responsavel_id || String(c.responsavel_id) === String(viewer.id));
   }
   if (unread_only === 'true') list = list.filter(c => (c.unread || 0) > 0);
