@@ -4967,6 +4967,12 @@ r.patch('/conversations/:id/assign', async (req, res) => {
     const { rows: [conv] } = await query(`
       SELECT c.id, c.responsavel_id, u.nome AS responsavel_nome, u.cor AS responsavel_cor
       FROM conversas c LEFT JOIN usuarios u ON u.id = c.responsavel_id WHERE c.id = $1`, [req.params.id]);
+    /* 📣 COLOCOU O NOME, SUMIU DAS OUTRAS TELAS NA HORA (ordem do master, 04/09:
+       "cada um pega a sua e ao colocarem o seu nome responsável sai da tela").
+       Antes a atribuição não avisava ninguém: a colega continuava vendo a
+       conversa até dar F5, e duas pessoas respondiam o mesmo cliente. */
+    socketEmit('conv_assigned', { convId: req.params.id, responsavel_id: respId, responsavel_nome: conv?.responsavel_nome || null });
+    if (respId) socketEmit('conv_transferida', { convId: req.params.id, para_id: respId, para_nome: conv?.responsavel_nome || null, de_id: req.user?.id || null });
 
     /* 👋 PASSAGEM DE BASTÃO (pedido do master): a triagem apresenta a atendente
        sorteada ("eu me chamo Maria"). Se a conversa depois muda de dono, o
@@ -6448,6 +6454,8 @@ r.post('/conversations/:id/send', async (req, res) => {
           cacheUpdate(c2);
           autoAssign = { responsavel_id: req.user.id, responsavel_nome: req.user.nome };
           socketEmit('conv_assigned', { convId: req.params.id, ...autoAssign });
+          // 04/09: assumiu pela regra das 2 respostas → some da tela das colegas na hora
+          socketEmit('conv_transferida', { convId: req.params.id, para_id: req.user.id, para_nome: req.user.nome, de_id: null });
         }
       }
     }

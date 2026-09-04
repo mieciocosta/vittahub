@@ -1391,7 +1391,12 @@ export default function Inbox({ onUnreadChange }) {
            também pra supervisora e pra quem tem ve_tudo. E segue saindo de
            quem era o dono anterior. O master continua vendo tudo. */
         const euTransferi = de_id && String(de_id) === String(me);
-        if ((euTransferi && u?.role !== 'master') || u?.role === 'atendente') {
+        /* 04/09 ("cada um pega a sua e ao colocarem o seu nome sai da tela"):
+           atendente some; quem distribui (Danielle) também — a lista dela
+           mostra só o que é dela e o que não tem dona. Supervisora de setor e
+           master seguem vendo, com o nome novo. */
+        const minhaListaSoMinha = u?.role === 'atendente' || (u?.distribuidor === true && u?.role !== 'master');
+        if ((euTransferi && u?.role !== 'master') || minhaListaSoMinha) {
           setConvos(prev => prev.filter(c => c.id !== convId));
           setSel(prev => prev?.id === convId ? null : prev);
         } else {
