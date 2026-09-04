@@ -693,9 +693,7 @@ export default function Copiloto({ conv, onUse, onClose }) {
             style={{ width: 26, height: 26, borderRadius: 7, background: 'rgba(255,255,255,.06)', border: 'none', cursor: 'pointer', color: P.txt2, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <RefreshCw size={12} className={loading ? 'spin' : ''} />
           </button>
-          <button onClick={onClose} style={{ width: 26, height: 26, borderRadius: 7, background: 'rgba(255,255,255,.06)', border: 'none', cursor: 'pointer', color: P.txt2, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <X size={13} />
-          </button>
+          <button onClick={onClose} className="vh-fechar">✕ Fechar</button>
         </div>
       </div>
 

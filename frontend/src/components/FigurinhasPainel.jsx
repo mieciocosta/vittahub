@@ -126,9 +126,7 @@ export default function FigurinhasPainel({ convId, api, onClose, onEnviada }) {
         <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar…"
           style={{ flex: 1, minWidth: 90, maxWidth: 190, border: '1px solid var(--border)', background: 'var(--bg)',
             borderRadius: 8, padding: '4px 10px', fontSize: 12, color: 'var(--txt)' }} />
-        <button onClick={onClose}
-          style={{ border: 'none', borderRadius: 8, padding: '3px 10px', cursor: 'pointer',
-            background: 'var(--err2,#fde8e8)', color: 'var(--err,#dc2626)', fontSize: 11, fontWeight: 900 }}>✕ Fechar</button>
+        <button onClick={onClose} className="vh-fechar">✕ Fechar</button>
       </div>
 
       <div style={{ display: 'flex', gap: 7, padding: '2px 12px 10px', overflowX: 'auto' }}>

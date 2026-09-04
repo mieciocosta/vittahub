@@ -117,7 +117,7 @@ export default function PropostaModal({ convId, token, contactName, atendente, o
             <div style={{ fontWeight: 800, fontSize: 16 }}>Montar Proposta</div>
             <div style={{ fontSize: 12, color: 'var(--muted)' }}>Para <b>{contactName || 'cliente'}</b> · enviada em PDF pelo WhatsApp</div>
           </div>
-          <button onClick={() => onClose(null)} style={{ width: 30, height: 30, borderRadius: 9, border: '1.5px solid var(--border)', background: 'var(--bg2)', color: 'var(--muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={15} /></button>
+          <button onClick={() => onClose(null)} className="vh-fechar">✕ Fechar</button>
         </div>
 
         {/* Sucesso */}

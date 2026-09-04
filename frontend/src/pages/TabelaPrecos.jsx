@@ -283,10 +283,19 @@ export default function TabelaPrecos() {
           <Paperclip size={15} color="var(--tq2)" />
           <span style={{ fontWeight: 800, fontSize: 14, flex: 1 }}>Tabelas anexadas {arqs.length > 0 && <span style={{ color: 'var(--muted)', fontWeight: 600 }}>({arqs.length})</span>}</span>
           <input ref={fileRef} type="file" accept="application/pdf,.doc,.docx,.xls,.xlsx,image/*" style={{ display: 'none' }} onChange={anexar} />
-          <button onClick={() => fileRef.current?.click()} disabled={enviando} className="btn btn-p btn-sm" style={{ gap: 6 }}>
-            <Plus size={13} /> {enviando ? 'Enviando…' : 'Anexar tabela'}
-          </button>
         </div>
+        {/* 📎 CLIPE EM EVIDÊNCIA (ordem do master, 04/09: "organiza Tabela, não
+            tem clipe pra anexar"). Era um botãozinho "+" no canto do cabeçalho,
+            que sumia no tablet. Virou a mesma faixa coral do painel Tabela do
+            chat: largura toda, clipe na frente, impossível não achar. */}
+        <button onClick={() => fileRef.current?.click()} disabled={enviando}
+          title="Anexar a tabela oficial (PDF, foto ou planilha) — fica publicada pra casa toda"
+          style={{ width: '100%', margin: '10px 0', border: 'none', borderRadius: 12, padding: '11px 16px',
+            cursor: enviando ? 'wait' : 'pointer', background: 'linear-gradient(135deg,#FF8A6B,#FF6B4A)', color: '#fff',
+            fontSize: 13.5, fontWeight: 800, boxShadow: '0 3px 12px rgba(255,107,74,.42)', opacity: enviando ? .6 : 1,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+          <Paperclip size={16} /> {enviando ? 'Enviando…' : 'Anexar tabela (PDF, foto ou planilha)'}
+        </button>
         {arqs.length === 0 && <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 8 }}>Anexe aqui a tabela oficial (PDF, planilha ou foto) — a equipe abre na tela quando precisar conferir.</div>}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           {arqs.map(a => (

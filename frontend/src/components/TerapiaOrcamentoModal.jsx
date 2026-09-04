@@ -36,7 +36,7 @@ export default function TerapiaOrcamentoModal({ contactName, atendente, onClose 
       <div className="card" style={{ width: 640, maxWidth: '100%', maxHeight: '92vh', padding: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div style={{ padding: '16px 20px', color: '#fff', background: 'linear-gradient(135deg,#06424A,#0E8C96 60%,#00B8C0)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 9, fontWeight: 800, fontSize: 16 }}><FileText size={18} /> Orçamento de Terapias</div>
-          <button onClick={onClose} style={{ background: 'rgba(255,255,255,.18)', border: 'none', borderRadius: 8, color: '#fff', cursor: 'pointer', padding: 6, display: 'flex' }}><X size={16} /></button>
+          <button onClick={onClose} className="vh-fechar">✕ Fechar</button>
         </div>
 
         <datalist id="terapias-cat">{CATALOGO.map(c => <option key={c} value={c} />)}</datalist>

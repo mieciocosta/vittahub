@@ -678,3 +678,17 @@ input::placeholder, textarea::placeholder { color: var(--light); }
   .vh-painel-equipe { position: static !important; max-height: none !important; display: flex !important; overflow-x: auto !important; gap: 8px !important; padding-bottom: 4px !important; }
   .vh-painel-equipe > * { flex: 0 0 auto !important; min-width: 132px !important; }
 }
+
+/* ✕ FECHAR BEM VISÍVEL (ordem do master, 04/09: "quero que em todos eles a
+   tecla de fechar esteja bem visível"). Um só botão pra todo painel e modal do
+   chat: pílula vermelha, texto "Fechar", altura de dedo. Antes cada tela tinha
+   um xzinho cinza diferente, e no tablet ninguém achava como sair. */
+.vh-fechar {
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  border: none; border-radius: 10px; padding: 7px 14px; min-height: 34px;
+  cursor: pointer; background: #dc2626; color: #fff; font-size: 12.5px; font-weight: 900;
+  letter-spacing: .2px; box-shadow: 0 3px 10px rgba(220,38,38,.35); flex-shrink: 0; white-space: nowrap;
+  transition: background .15s, transform .1s;
+}
+.vh-fechar:hover { background: #b91c1c; }
+.vh-fechar:active { transform: scale(.97); }

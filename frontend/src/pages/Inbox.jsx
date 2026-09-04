@@ -2938,7 +2938,7 @@ export default function Inbox({ onUnreadChange }) {
               <div style={{ width:'min(350px, 88vw)', flexShrink:0, borderLeft:'1px solid var(--border)', background:'var(--card,#fff)', overflowY:'auto', display:'flex', flexDirection:'column' }}>
                 <div style={{ padding:'14px 14px 10px', borderBottom:'1px solid var(--border)', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                   <span style={{ fontWeight:700, fontSize:13 }}>Informações</span>
-                  <button onClick={()=>setShowInfo(false)} style={{ padding:4, background:'none', border:'none', cursor:'pointer', color:'var(--muted)' }}>✕</button>
+                  <button onClick={()=>setShowInfo(false)} className="vh-fechar">✕ Fechar</button>
                 </div>
                 {/* 🩺 Prontuário sempre presente (não depende de lead) — pedido do master */}
                 <Prontuario sel={sel} api={api} user={user} />
@@ -3107,6 +3107,10 @@ export default function Inbox({ onUnreadChange }) {
           {/* Quick replies */}
           {showQR && (
             <div style={{ background:'var(--card,#fff)', borderTop:'1px solid var(--border)', padding:'8px 12px', flexShrink:0 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
+                <span style={{ flex:1, fontSize:10.5, fontWeight:800, color:'var(--muted)', textTransform:'uppercase', letterSpacing:.6 }}>📄 Modelos e mensagens rápidas</span>
+                <button onClick={()=>setShowQR(false)} className="vh-fechar">✕ Fechar</button>
+              </div>
               <div style={{ display:'flex', gap:5, flexWrap:'wrap', maxHeight:78, overflowY:'auto' }}>
                 <button onClick={()=>setQrNovo(p => p ? null : { titulo:'', texto:'' })}
                   style={{ padding:'4px 11px', borderRadius:8, background: qrNovo ? 'var(--tq)' : 'var(--card,#fff)', color: qrNovo ? '#fff' : 'var(--tq2)', border:'1.5px dashed var(--tq)', fontSize:12, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}>
@@ -3153,6 +3157,10 @@ export default function Inbox({ onUnreadChange }) {
           {/* Banco de documentos — envie os principais ao cliente em 1 clique */}
           {showDocs && (
             <div style={{ background:'var(--card,#fff)', borderTop:'1px solid var(--border)', padding:'8px 12px', flexShrink:0 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
+                <span style={{ flex:1, fontSize:10.5, fontWeight:800, color:'var(--muted)', textTransform:'uppercase', letterSpacing:.6 }}>📎 Documentos da casa</span>
+                <button onClick={()=>setShowDocs(false)} className="vh-fechar">✕ Fechar</button>
+              </div>
               <input ref={docFileRef} type="file" accept="application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,image/*" style={{ display:'none' }} onChange={anexarDoc} />
               <div style={{ display:'flex', gap:6, flexWrap:'wrap', maxHeight:110, overflowY:'auto', alignItems:'flex-start' }}>
                 <button onClick={()=>docFileRef.current?.click()}
@@ -3249,7 +3257,7 @@ export default function Inbox({ onUnreadChange }) {
                     📋 Tabela de preços <span style={{ textTransform:'none', fontWeight:600 }}>· escolha o que enviar</span>
                   </span>
                   <button onClick={()=>{ setShowTabela(false); setTabelaSel([]); }}
-                    style={{ border:'none', borderRadius:8, padding:'3px 10px', cursor:'pointer', background:'var(--err2,#fde8e8)', color:'var(--err,#dc2626)', fontSize:11, fontWeight:900, flexShrink:0 }}>
+                    className="vh-fechar">
                     ✕ Fechar
                   </button>
                 </div>
@@ -3502,7 +3510,7 @@ export default function Inbox({ onUnreadChange }) {
                     📝 Mensagens prontas da casa <span style={{ textTransform:'none', fontWeight:600 }}>· toque, ajuste os {'{campos}'} e envie</span>
                   </span>
                   <button onClick={()=>setShowProntas(false)}
-                    style={{ border:'none', borderRadius:8, padding:'3px 10px', cursor:'pointer', background:'var(--err2,#fde8e8)', color:'var(--err,#dc2626)', fontSize:11, fontWeight:900, flexShrink:0 }}>
+                    className="vh-fechar">
                     ✕ Fechar
                   </button>
                 </div>
@@ -3544,7 +3552,7 @@ export default function Inbox({ onUnreadChange }) {
                   💟 Figurinhas
                 </button>
                 <button onClick={()=>setShowEmoji(false)}
-                  style={{ border:'none', borderRadius:8, padding:'3px 10px', cursor:'pointer', background:'var(--err2,#fde8e8)', color:'var(--err,#dc2626)', fontSize:11, fontWeight:900 }}>
+                  className="vh-fechar">
                   ✕ Fechar
                 </button>
               </div>
@@ -4352,7 +4360,7 @@ export default function Inbox({ onUnreadChange }) {
                 <div style={{ fontWeight:800, fontSize:14 }}>Editar mensagem</div>
                 <div style={{ fontSize:11, color:'var(--muted)' }}>O cliente vê a mensagem marcada como editada.</div>
               </div>
-              <button onClick={()=>setEditMsg(null)} style={{ border:'none', background:'none', cursor:'pointer', color:'var(--muted)', fontSize:16 }}>✕</button>
+              <button onClick={()=>setEditMsg(null)} className="vh-fechar">✕ Fechar</button>
             </div>
             <textarea value={editTxt} onChange={e=>setEditTxt(e.target.value)} autoFocus
               onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) salvarEdicao(); }}
@@ -4533,7 +4541,7 @@ export default function Inbox({ onUnreadChange }) {
       {encOpen && sel && (
         <div onClick={()=>setEncOpen(false)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.5)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000, padding:16 }}>
           <div onClick={e=>e.stopPropagation()} className="card" style={{ width:380, maxWidth:'100%', padding:22 }}>
-            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}><span style={{ fontSize:17 }}>📤</span><h3 style={{ fontSize:16, fontWeight:800 }}>Encaminhar conversa</h3></div>
+            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}><span style={{ fontSize:17 }}>📤</span><h3 style={{ fontSize:16, fontWeight:800 }}>Encaminhar conversa</h3><button onClick={()=>setEncOpen(false)} className="vh-fechar" style={{ marginLeft:'auto' }}>✕ Fechar</button></div>
             <p style={{ fontSize:12, color:'var(--muted)', marginBottom:14, lineHeight:1.5 }}>
               Envia o histórico de <b>{sel.contact_name || fmt.phone(sel.phone)}</b> pro WhatsApp de outro canal/setor, já com o <b>link do cliente no final</b> pra equipe de lá chamar e agendar.
             </p>
@@ -4584,6 +4592,7 @@ export default function Inbox({ onUnreadChange }) {
             <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
               <RefreshCw size={18} color="var(--tq)"/>
               <h3 style={{ fontSize:16, fontWeight:800 }}>Transferir atendimento</h3>
+              <button onClick={()=>setTransfOpen(false)} className="vh-fechar" style={{ marginLeft:'auto' }}>✕ Fechar</button>
             </div>
             <p style={{ fontSize:12, color:'var(--muted)', marginBottom:14 }}>Ao transferir, este atendimento sai da sua lista e vai para a pessoa escolhida.</p>
             <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
@@ -4631,7 +4640,7 @@ export default function Inbox({ onUnreadChange }) {
       {followOpen && sel && (
         <div onClick={()=>setFollowOpen(false)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.5)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000, padding:16 }}>
           <div onClick={e=>e.stopPropagation()} className="card" style={{ width:360, maxWidth:'100%', padding:22 }}>
-            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}><span style={{ fontSize:18 }}>🔁</span><h3 style={{ fontSize:16, fontWeight:800 }}>Colocar no repique</h3></div>
+            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}><span style={{ fontSize:18 }}>🔁</span><h3 style={{ fontSize:16, fontWeight:800 }}>Colocar no repique</h3><button onClick={()=>setFollowOpen(false)} className="vh-fechar" style={{ marginLeft:'auto' }}>✕ Fechar</button></div>
             <p style={{ fontSize:12, color:'var(--muted)', marginBottom:16 }}>Cliente <b>{sel.contact_name || fmt.phone(sel.phone)}</b> vai dar retorno? Marque aqui e ele entra no painel de <b>Retornos</b> — ninguém esquece de recobrar. 💪</p>
             <div style={{ display:'flex', flexDirection:'column', gap:11 }}>
               <div className="field" style={{ margin:0 }}>
@@ -4899,7 +4908,7 @@ function BibliotecaPicker({ convId, setor, api, onClose, abaInicial = 'foto' }) 
             <div style={{ fontWeight:800, fontSize:14 }}>Biblioteca de Experiências</div>
             <div style={{ fontSize:11, color:'var(--muted)' }}>Clique pra enviar direto na conversa{setor ? ` · setor ${setor}` : ''}</div>
           </div>
-          <button onClick={onClose} style={{ width:28, height:28, borderRadius:8, border:'1px solid var(--border)', background:'var(--bg2)', color:'var(--muted)', cursor:'pointer' }}><X size={14}/></button>
+          <button onClick={onClose} className="vh-fechar">✕ Fechar</button>
         </div>
         <div style={{ display:'flex', gap:5, padding:'10px 18px 0', flexWrap:'wrap' }}>
           {ABAS.map(([k, l]) => (
@@ -5301,7 +5310,7 @@ function AgendarMsgModal({ sel, api, textoInicial, onClose }) {
       <div onClick={e => e.stopPropagation()} className="card" style={{ width: 460, maxWidth: '100%', maxHeight: '88vh', padding: 22, display: 'flex', flexDirection: 'column' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
           <h3 style={{ fontSize: 16, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 8 }}><Clock size={18} color="var(--tq2)" /> Agendar mensagem</h3>
-          <button onClick={() => onClose?.(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={16} /></button>
+          <button onClick={() => onClose?.(false)} className="vh-fechar">✕ Fechar</button>
         </div>
         <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12 }}>Para {sel?.contact_name || 'o cliente'} — será enviada automaticamente na hora marcada.</div>
         <div className="field" style={{ margin: 0, marginBottom: 10 }}><label>Mensagem</label>
@@ -5446,7 +5455,7 @@ function AgendarModal({ sel, api, onClose }) {
       <div style={{ width:'100%', maxWidth:480, maxHeight:'92vh', overflowY:'auto', background:'var(--card)', borderRadius:16, boxShadow:'var(--s4)', padding:'18px 22px' }}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
           <div style={{ fontWeight:800, fontSize:15 }}>📅 Agendar pra {sel?.contact_name?.split(' ')[0] || 'cliente'}</div>
-          <button onClick={() => onClose(false)} style={{ width:28, height:28, borderRadius:8, border:'1px solid var(--border)', background:'var(--bg2)', color:'var(--muted)', cursor:'pointer' }}><X size={14}/></button>
+          <button onClick={() => onClose(false)} className="vh-fechar">✕ Fechar</button>
         </div>
         <button onClick={puxarDaConversa} disabled={extraindo}
           style={{ width:'100%', marginBottom:12, padding:'8px 0', borderRadius:11, border:'1.5px dashed var(--tq)', background:'var(--tq4)', color:'var(--tq2)', fontWeight:800, fontSize:12, cursor:'pointer', opacity:extraindo?.6:1 }}>
@@ -5527,7 +5536,7 @@ function IndicarModal({ sel, api, onClose }) {
     <div onClick={e => e.target === e.currentTarget && onClose()}
       style={{ position:'fixed', inset:0, background:'rgba(3,43,48,.55)', zIndex:520, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
       <div style={{ width:'100%', maxWidth:380, background:'var(--card)', borderRadius:16, boxShadow:'var(--s4)', padding:'18px 22px' }}>
-        <div style={{ fontWeight:800, fontSize:15, marginBottom:3 }}>🎁 Registrar indicação</div>
+        <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:3 }}><div style={{ fontWeight:800, fontSize:15, flex:1 }}>🎁 Registrar indicação</div><button onClick={onClose} className="vh-fechar">✕ Fechar</button></div>
         <div style={{ fontSize:12, color:'var(--muted)', marginBottom:13 }}><b>{sel?.contact_name}</b> está indicando alguém — pontos e prêmios na página Indicações.</div>
         {erro && <div style={{ marginBottom:10, padding:'8px 12px', borderRadius:9, background:'var(--err2)', color:'var(--err)', fontSize:12, fontWeight:600 }}>{erro}</div>}
         <div className="field" style={{ marginBottom:10 }}><label>Nome do indicado *</label>

@@ -74,7 +74,7 @@ export default function LeadModal({ lead, onClose, onSave, prefill = {} }) {
               <p style={{ color:'var(--muted)', fontSize:12 }}>{isEdit?lead.nome:'Cadastro rápido · clique nos chips'}</p>
             </div>
           </div>
-          <button onClick={onClose} className="btn btn-g btn-ico"><X size={17} /></button>
+          <button onClick={onClose} className="vh-fechar">✕ Fechar</button>
         </div>
 
         <form onSubmit={save} style={{ padding:'20px 24px 24px', display:'flex', flexDirection:'column', gap:18 }}>
