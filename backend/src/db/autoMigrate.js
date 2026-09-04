@@ -3059,6 +3059,40 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log(`🎯 Meta de vendas por setor: ${JSON.stringify(vendas)}`);
     }
 
+    /* 🎯 META MÍNIMA DO MÊS = R$ 19.000 POR SETOR (ordem do master, 04/09).
+
+       A primeira tentativa mexeu no campo errado: gravei em `metas.vendas`, que
+       não é o número que a faixa do topo mostra. O que aparece na tela da equipe
+       — "mês R$ 19.192,00 de R$ 100.000,00" — é a META MÍNIMA (`metas.minimas`),
+       que estava no padrão de R$ 100 mil por setor. Por isso ele viu tudo igual.
+
+       R$ 100 mil por mês em consultas e terapias não era meta, era paisagem: a
+       equipe olhava, via que não dava, e parava de olhar. 19 mil é número que a
+       casa alcança — e meta que se alcança é a única que puxa alguém.
+
+       A meta IDEAL (global, R$ 500 mil) fica como está: ela é o teto do prêmio
+       grande, não a régua do dia a dia. Se quiser mudar, o campo já existe em
+       Configurações → Metas de FATURAMENTO do mês.
+
+       Roda uma vez (flag) e respeita valor já digitado pela gestão. */
+    const { rows: [flagMin19] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_meta_minima_19k_v1'");
+    if (!flagMin19) {
+      const { rows: [mCfg] } = await query("SELECT valor FROM configuracoes WHERE chave = 'metas'").catch(() => ({ rows: [] }));
+      const atuais = mCfg?.valor?.minimas || {};
+      /* "Já digitado" é o que a gestão escolheu — e 100000 aqui é o PADRÃO
+         antigo herdado, não escolha de ninguém: esse a gente troca. */
+      const manter = (s2) => {
+        const v = parseFloat(atuais[s2]);
+        return v > 0 && v !== 100000 ? v : 19000;
+      };
+      const minimas = { vacinas: manter('vacinas'), consultas: manter('consultas'), terapias: manter('terapias') };
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('metas', jsonb_build_object('minimas', $1::jsonb))
+                   ON CONFLICT (chave) DO UPDATE SET valor = jsonb_set(COALESCE(configuracoes.valor,'{}'::jsonb), '{minimas}', $1::jsonb), updated_at = NOW()`,
+        [JSON.stringify(minimas)]).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_meta_minima_19k_v1','{"ok":true}') ON CONFLICT DO NOTHING`);
+      console.log(`🎯 Meta mínima do mês por setor: ${JSON.stringify(minimas)}`);
+    }
+
     console.log('✅ Auto-migrate complete');
   } catch (err) {
     console.error('⚠️  Auto-migrate error (non-fatal):', err.message);
