@@ -446,7 +446,7 @@ const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect, usersB
 });
 
 /* ── SearchBar ───────────────────────────────────────────────────────────────── */
-function SearchBar({ value, onChange, filter, setFilter, totalUnread, unreadOnly, setUnreadOnly, waiting, setWaiting, setor, setSetor, mostraSetores, modo, setModo, counts, ehDistribuidor }) {
+function SearchBar({ value, onChange, filter, setFilter, totalUnread, unreadOnly, setUnreadOnly, waiting, setWaiting, setor, setSetor, mostraSetores, modo, setModo, counts, ehDistribuidor, semGrupos }) {
   return (
     <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
       <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
@@ -456,7 +456,10 @@ function SearchBar({ value, onChange, filter, setFilter, totalUnread, unreadOnly
              a lado"). Lado a lado, dentro da lista do chat, cada uma virava
              uma tira estreita demais e ainda espremia a conversa. */
           ...(ehDistribuidor ? [['distribuir','📥 Distribuição','aDistribuir']] : []),
-          [ 'minhas', ehDistribuidor ? '💬 Meus atendimentos' : 'Minhas', 'minhas'],['naolidas','Não lidas','naoLidas'],['grupos','Grupos','grupos'],['fixadas','📌 Fixadas','fixadas']].map(([k, l, ck]) => {
+          [ 'minhas', ehDistribuidor ? '💬 Meus atendimentos' : 'Minhas', 'minhas'],['naolidas','Não lidas','naoLidas'],
+          /* 🔒 Carteira fechada (Gabriellen, Poliana) não tem grupo (ordem do master, 04/09: "retira os grupos, proíbe para a Gabriellen") */
+          ...(semGrupos ? [] : [['grupos','Grupos','grupos']]),
+          ['fixadas','📌 Fixadas','fixadas']].map(([k, l, ck]) => {
           const ativo = modo === k;
           /* 📥 DISTRIBUIÇÃO EM DESTAQUE (ordem do master, 02/09: "deixa a aba
              Distribuição em destaque para lembrar ela de distribuir").
@@ -2485,6 +2488,7 @@ export default function Inbox({ onUnreadChange }) {
           totalUnread={totalUnread} unreadOnly={unreadOnly} setUnreadOnly={setUnreadOnly}
           waiting={waiting} setWaiting={setWaiting}
           setor={setorFiltro} setSetor={setSetorFiltro} mostraSetores={user?.role !== 'atendente'}
+          semGrupos={user?.so_carteira === true || user?.so_fidelidade === true}
           modo={modo} setModo={setModo} counts={{ ...(counts || {}), fixadas: fixadas.length }}
           /* A aba aparece pra quem distribui. O contador só vem preenchido do
              servidor pra essas pessoas, então ele serve de segunda garantia

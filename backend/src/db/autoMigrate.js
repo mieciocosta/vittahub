@@ -3527,7 +3527,7 @@ async function gabriellenSoRepasse() {
       WHERE ativo = true
         AND (lower(COALESCE(email,'')) = 'gabriellen@vittalissaude.com.br'
              OR regexp_replace(COALESCE(cpf,''), '\\D', '', 'g') = '05678089390'
-             OR lower(translate(COALESCE(nome,''), ${SEM_ACENTO})) ~ '(^|[^a-z])gabriel+en([^a-z]|$)')`)
+             OR lower(translate(COALESCE(nome,''), ${SEM_ACENTO})) ~ '(^|[^a-z])gabriel')`)   // Gabriellen/Gabrielle/Gabrielen: o começo basta
     .catch((e) => { console.error('gabriellen so_carteira:', e.message); return { rowCount: 0 }; });
   if (!rowCount) { console.error('gabriellen so repasse: conta não encontrada'); return; }
   await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('equipe', $1, $2, true)`,
@@ -3552,7 +3552,7 @@ async function gabriellenCarteiraConsultasTerapias() {
       WHERE ativo = true
         AND (lower(COALESCE(email,'')) = 'gabriellen@vittalissaude.com.br'
              OR regexp_replace(COALESCE(cpf,''), '\\D', '', 'g') = '05678089390'
-             OR lower(translate(COALESCE(nome,''), ${SEM_ACENTO})) ~ '(^|[^a-z])gabriel+en([^a-z]|$)')`)
+             OR lower(translate(COALESCE(nome,''), ${SEM_ACENTO})) ~ '(^|[^a-z])gabriel')`)   // Gabriellen/Gabrielle/Gabrielen: o começo basta
     .catch((e) => { console.error('gabriellen carteira:', e.message); return { rowCount: 0 }; });
   if (!rowCount) { console.error('gabriellen carteira: conta não encontrada'); return; }
   await query(`INSERT INTO configuracoes (chave, valor) VALUES ($1, '{"ok":true}') ON CONFLICT DO NOTHING`, [FLAG]).catch(() => {});
@@ -3604,7 +3604,7 @@ async function limparCarteirasFechadas() {
    de carteira (so_carteira, so_fidelidade) não são tocados aqui. Só carimba
    quando achou todo mundo — quem faltar sai no log pro master conferir. */
 const SETORES_EQUIPE = [
-  { quem: 'gabriel+en', setor: 'consultas', setores: ['consultas', 'terapias'] },
+  { quem: 'gabriel',    setor: 'consultas', setores: ['consultas', 'terapias'] },   // Gabriellen (qualquer grafia)
   { quem: 'suel+en',    setor: 'consultas', setores: ['consultas', 'terapias'] },
   { quem: 'mayara',     setor: 'consultas', setores: ['consultas', 'terapias'] },
   { quem: 'danielle',   setor: 'consultas', setores: ['vacinas', 'consultas', 'terapias'] },
@@ -3622,7 +3622,7 @@ async function setoresDaEquipe() {
     const { rowCount } = await query(
       `UPDATE usuarios SET setor = $2, setores = $3::text[], updated_at = NOW()
         WHERE ativo = true AND role <> 'master' AND COALESCE(dono_casa,false) = false
-          AND lower(translate(COALESCE(nome,''), ${SEM_ACENTO})) ~ ('(^|[^a-z])' || $1 || '([^a-z]|$)')`,
+          AND lower(translate(COALESCE(nome,''), ${SEM_ACENTO})) ~ ('(^|[^a-z])' || $1)`,
       [p.quem, p.setor, p.setores]).catch((e) => { console.error('setores da equipe:', p.quem, e.message); return { rowCount: 0 }; });
     if (!rowCount) faltou.push(p.quem);
   }
