@@ -446,9 +446,26 @@ const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect, usersB
 });
 
 /* ── SearchBar ───────────────────────────────────────────────────────────────── */
-function SearchBar({ value, onChange, filter, setFilter, totalUnread, unreadOnly, setUnreadOnly, waiting, setWaiting, setor, setSetor, mostraSetores, modo, setModo, counts, ehDistribuidor, semGrupos }) {
+function SearchBar({ value, onChange, filter, setFilter, totalUnread, unreadOnly, setUnreadOnly, waiting, setWaiting, setor, setSetor, mostraSetores, modo, setModo, counts, ehDistribuidor, semGrupos, mostraPlanos, planosAtivo, onPlanos }) {
   return (
     <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+      {/* 💎 PLANOS VACINAIS E TERAPÊUTICOS (ordem do master, 04/09: "quero que
+          para Danielle tenha um botão bem chamativo na parte de cima do chat,
+          onde todos os contatos com essa classificação apareçam pra ela").
+          É a carteira que ela responde; um toque abre tudo, de quem quer que
+          seja a conversa. */}
+      {mostraPlanos && (
+        <button onClick={onPlanos} title="Todos os contatos classificados como Plano Vacinal ou Plano Terapêutico"
+          style={{ width: '100%', marginBottom: 8, border: 'none', borderRadius: 12, padding: '10px 12px', cursor: 'pointer',
+            background: planosAtivo ? 'linear-gradient(135deg,#7c3aed,#c026d3)' : 'linear-gradient(135deg,#f59e0b,#ef4444)',
+            color: '#fff', fontSize: 12.5, fontWeight: 900, letterSpacing: .4, textTransform: 'uppercase',
+            boxShadow: planosAtivo ? '0 4px 16px rgba(124,58,237,.45)' : '0 4px 16px rgba(239,68,68,.4)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+          💎 Planos vacinais e terapêuticos
+          {(counts?.planos || 0) > 0 && <span style={{ background: 'rgba(255,255,255,.28)', borderRadius: 20, padding: '1px 9px', fontSize: 11 }}>{counts.planos}</span>}
+          {planosAtivo && <span style={{ fontSize: 10, opacity: .9, textTransform: 'none', fontWeight: 700 }}>· toque pra voltar</span>}
+        </button>
+      )}
       <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
         {[['todas','Todas','todas'],
           /* 📥 Distribuição e Meus atendimentos voltaram a ser DUAS ABAS
@@ -2521,6 +2538,10 @@ export default function Inbox({ onUnreadChange }) {
           waiting={waiting} setWaiting={setWaiting}
           setor={setorFiltro} setSetor={setSetorFiltro} mostraSetores={user?.role !== 'atendente'}
           semGrupos={user?.so_carteira === true || user?.so_fidelidade === true}
+          /* 💎 O botão dos planos é da Danielle (e do master, que entra como ela) */
+          mostraPlanos={user?.role === 'master' || /(^|[^a-z])danielle/i.test(String(user?.nome || '').normalize('NFD').replace(/[\u0300-\u036f]/g, ''))}
+          planosAtivo={clsFiltro === 'planos'}
+          onPlanos={() => { const q = new URLSearchParams(searchParams); if (q.get('cls') === 'planos') q.delete('cls'); else q.set('cls', 'planos'); setSearchParams(q, { replace: true }); }}
           modo={modo} setModo={setModo} counts={{ ...(counts || {}), fixadas: fixadas.length }}
           /* A aba aparece pra quem distribui. O contador só vem preenchido do
              servidor pra essas pessoas, então ele serve de segunda garantia

@@ -500,7 +500,8 @@ export function podeVerSetor(viewer, conv) {
   if (Array.isArray(conv.transferida_por) && conv.transferida_por.length
       && conv.transferida_por.map(String).includes(String(viewer.id))
       && String(conv.responsavel_id || '') !== String(viewer.id)
-      && viewer.distribuidor !== true) return false;
+      && viewer.distribuidor !== true
+      && viewer.role !== 'supervisor') return false;   // 04/09: supervisora vê o que passou adiante pelas pastas e pelo botão Planos
   /* 🏠 HOME OFFICE POR PRODUÇÃO (pedido do master): quem tem so_carteira só
      enxerga o que foi TRANSFERIDO pra ela — nem o pool sem dono. Vem antes de
      qualquer outra regra (inclusive ve_tudo): é o contrato desse perfil.
@@ -580,6 +581,7 @@ export function podeVerSetor(viewer, conv) {
   return ef === null || ef === viewerSetor;
 }
 
+const CLS_PLANOS = ['planos_vacinais', 'terapias'];   // planos vacinais + planos terapêuticos
 function cacheGetList({ channel, search, unread_only, waiting, minhas, semDono, responsavel, grupos, setor, categoria, classificacao, arquivadas, antigos, page = 1, limit = 100, extraIds = null, viewer = null }) {
   let list = Array.from(convoCache.values())
     .sort((a, b) => new Date(b.last_message_at || 0) - new Date(a.last_message_at || 0));
@@ -602,6 +604,10 @@ function cacheGetList({ channel, search, unread_only, waiting, minhas, semDono, 
   // Filtro por classificação fina (atalhos coloridos do menu). 'sem' = ainda não
   // classificadas (os leads novos que precisam ser organizados/distribuídos).
   if (classificacao === 'sem') list = list.filter(c => !c.classificacao);
+  /* 💎 'planos' = Planos Vacinais + Planos Terapêuticos (ordem do master,
+     04/09: botão chamativo no topo do chat da Danielle com TODOS os contatos
+     dessas classificações). */
+  else if (classificacao === 'planos') list = list.filter(c => CLS_PLANOS.includes(c.classificacao));
   else if (classificacao && classificacao !== 'all') list = list.filter(c => c.classificacao === classificacao);
   // Acesso por MACRO-grupo (regra da gestão): quem é de VACINAS só vê conversas
   // de vacina; quem NÃO é de vacina (consultas/terapias) vê tudo que não é vacina.
@@ -4382,7 +4388,9 @@ r.get('/conversations', async (req, res) => {
       let pi = 1;
       if (channel && channel !== 'all') { conditions.push(`c.channel = $${pi++}`); params.push(channel); }
       if (unread_only === 'true') conditions.push(`c.unread > 0`);
-      if (req.query.classificacao && req.query.classificacao !== 'all') {
+      if (req.query.classificacao === 'planos') {
+        conditions.push(`c.classificacao = ANY($${pi++}::text[])`); params.push(CLS_PLANOS);
+      } else if (req.query.classificacao && req.query.classificacao !== 'all') {
         conditions.push(`c.classificacao = $${pi++}`); params.push(req.query.classificacao);
       } else if (req.query.categoria) { conditions.push(`c.categoria = $${pi++}`); params.push(req.query.categoria); }
       // (sem filtro de pasta: ninguém some do atendimento geral — ordem do master)
@@ -4481,6 +4489,7 @@ r.get('/conversations', async (req, res) => {
   const tudo = Array.from(convoCache.values()).filter(c => !c.categoria && podeVerSetor(req.user, c));
   result.counts = {
     todas: tudo.length,
+    planos: tudo.filter(c => CLS_PLANOS.includes(c.classificacao)).length,   // 💎 botão da Danielle
     minhas: tudo.filter(c => c.responsavel_id === req.user.id).length,
     naoLidas: tudo.filter(c => (c.unread || 0) > 0).length,
     grupos: tudo.filter(c => ehGrupo(c)).length,
