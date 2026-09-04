@@ -539,6 +539,21 @@ const primeiroNomeUtil = (nome) => {
 const mensagemLeve = (m) => (m && typeof m.content === 'string' && m.content.startsWith('data:') && m.content.length > 500)
   ? { ...m, content: `[media:${m.id}]`, has_media: true } : m;
 
+/* 🔒 CARTEIRA FECHADA TAMBÉM NA TELA (cobrança do master, 04/09: "continua"
+   aparecendo Nágila, Miécio, grupos e fixadas na Gabriellen). O servidor já
+   barra, mas a tela sobe pelo GitHub e o servidor pelo Railway — quando um
+   demora, o outro segura. Quem tem so_carteira ou so_fidelidade só enxerga o
+   que está no nome dela, e nunca grupo, lista de transmissão ou comunidade. */
+const carteiraFechada = (u) => u?.so_carteira === true || u?.so_fidelidade === true;
+const ehGrupoConv = (c) => {
+  const cid = String(c?.contact_id || '');
+  if (/g\.us|@broadcast|@lid|@newsletter/i.test(cid)) return true;
+  const dig = String(c?.phone || '').replace(/\D/g, '');
+  return dig.length > 13;
+};
+const soMinha = (u, c) => !ehGrupoConv(c) && String(c?.responsavel_id || '') === String(u?.id || '');
+const filtraCarteira = (u, lista) => carteiraFechada(u) ? (lista || []).filter(c => soMinha(u, c)) : (lista || []);
+
 /* ── LazyMedia: carrega base64 sob demanda via endpoint ─────────────────────── */
 function LazyMedia({ msgId, type, filename, token, onLightbox, fotoSel }) {
   const [src, setSrc]     = useState(null);
@@ -1558,7 +1573,7 @@ export default function Inbox({ onUnreadChange }) {
       setConvos(list); setTotal(tot); setPage(1); setHasMore(list.length < tot);
       // 📌 Fixadas sempre em dia (pedido do master: "fixação fidedigna") —
       // recarrega junto pra não-lidas e última mensagem não ficarem velhas
-      api.get('/inbox/fixadas').then(d => Array.isArray(d) && setFixadas(d)).catch(() => {});
+      api.get('/inbox/fixadas').then(d => Array.isArray(d) && setFixadas(filtraCarteira(user, d))).catch(() => {});
       lastPollTs.current = new Date().toISOString();
       onUnreadChange?.(list.reduce((s, c) => s + (c.unread || 0), 0));
     } catch(err) { console.error('loadConvos:', err.message); }
@@ -2406,8 +2421,8 @@ export default function Inbox({ onUnreadChange }) {
      e a geral; cada um fixa a que quiser dentro do seu usuário"). */
   const [fixadas, setFixadas] = useState([]);
   const loadFixadas = useCallback(() => {
-    api.get('/inbox/fixadas').then(d => setFixadas(Array.isArray(d) ? d : [])).catch(() => {});
-  }, []); // eslint-disable-line
+    api.get('/inbox/fixadas').then(d => setFixadas(filtraCarteira(user, Array.isArray(d) ? d : []))).catch(() => {});
+  }, [user?.id, user?.so_carteira, user?.so_fidelidade]); // eslint-disable-line
   useEffect(() => { loadFixadas(); }, [loadFixadas]);
   const fixadasIds = useMemo(() => new Set(fixadas.map(c => c.id)), [fixadas]);
   const toggleFix = useCallback(async (conv) => {
@@ -2420,11 +2435,13 @@ export default function Inbox({ onUnreadChange }) {
 
   const convosExib = useMemo(
     () => {
+      // 🔒 Carteira fechada: só o que está no nome dela, em qualquer aba
+      const convsG = filtraCarteira(user, convos);
       // Aba "📌 Fixadas" (pedido do master): a lista vira só as fixadas
-      if (modo === 'fixadas') return fixadas;
+      if (modo === 'fixadas') return filtraCarteira(user, fixadas);
       // 📥 Fila de distribuição: só o que ainda não tem dona (visão do master)
-      if (modo === 'distribuir') return convos.filter(c => !c.responsavel_id);
-      const base = quentesPrimeiro ? [...convos].sort((a, b) => scoreRank(a.lead_score) - scoreRank(b.lead_score)) : convos;
+      if (modo === 'distribuir') return convsG.filter(c => !c.responsavel_id);
+      const base = quentesPrimeiro ? [...convsG].sort((a, b) => scoreRank(a.lead_score) - scoreRank(b.lead_score)) : convsG;
       /* 📌 FIXAR PRECISA FAZER ALGO VISÍVEL EM QUALQUER LISTA (cobrança do
          master, 02/09: "não está dando a possibilidade de fixar, não aparece
          essa opção").
@@ -2442,7 +2459,7 @@ export default function Inbox({ onUnreadChange }) {
       const fixa = base.filter(c => fixadasIds.has(c.id));
       return fixa.length ? [...fixa, ...base.filter(c => !fixadasIds.has(c.id))] : base;
     },
-    [convos, quentesPrimeiro, fixadasIds, modo, fixadas]
+    [convos, quentesPrimeiro, fixadasIds, modo, fixadas, user]
   );
 
   /* ✍️ A CAIXA DE DIGITAR CRESCE COM O TEXTO (ordem do master, 27/08: "aumenta

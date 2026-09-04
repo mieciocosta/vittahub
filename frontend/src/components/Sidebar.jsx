@@ -304,7 +304,11 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
      Vacinas. Agora falta de cadastro FECHA em vez de abrir — e o marketing
      (José e Carlos) recebe os três setores explicitamente no cadastro, em vez
      de depender de "não ter setor". */
-  const podeSetor = (s) => user?.role === 'master' || meusSetores.includes(s);
+  /* 🔒 so_carteira (Gabriellen) é consultas/terapias por ordem do master (04/09:
+     "retire as agendas e informações de vacinas"): vacinas nunca entra, mesmo
+     que o cadastro ainda traga o setor. */
+  const podeSetor = (s) => user?.role === 'master'
+    || (meusSetores.includes(s) && !(s === 'vacinas' && user?.so_carteira === true));
   /* 📅 As duas agendas juntas: master e a supervisora de consultas/terapias
      (Danielle). Raylane, supervisora de vacinas, vê só a de vacinas. */
   const duasAgendas = user?.role === 'master'
