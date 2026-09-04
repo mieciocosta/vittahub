@@ -3036,6 +3036,7 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
   try { await metaDiariaDosSetores(); } catch (e) { console.error('meta diaria dos setores:', e.message); }
   try { await carteiraLeadsParaJose(); } catch (e) { console.error('carteira de leads jose:', e.message); }
   try { await gabriellenSoRepasse(); } catch (e) { console.error('gabriellen so repasse:', e.message); }
+  try { await gabriellenCarteiraConsultasTerapias(); } catch (e) { console.error('gabriellen carteira:', e.message); }
   try { await equipeDaCasa(); } catch (e) { console.error('equipe da casa:', e.message); }
   try { await donosDaCasa(); } catch (e) { console.error('donos da casa:', e.message); }
   try { await marketingForaDoPainel(); } catch (e) { console.error('marketing fora do painel:', e.message); }
@@ -3528,6 +3529,29 @@ async function gabriellenSoRepasse() {
     ['🔓 Fila de leads aberta pra equipe', 'Lead sem dona aparece de novo pra equipe toda, cada uma no seu setor; quem responder duas vezes assume. A Gabriellen só recebe o que for entregue no nome dela.']).catch(() => {});
   await query(`INSERT INTO configuracoes (chave, valor) VALUES ($1, '{"ok":true}') ON CONFLICT DO NOTHING`, [FLAG]).catch(() => {});
   console.log(`🔒 Gabriellen: só recebe o que for repassado (${rowCount} conta(s))`);
+}
+
+/* 🧩🩺 A CARTEIRA DA GABRIELLEN É CONSULTAS E TERAPIAS (ordem do master,
+   04/09: "quero que a carteira dela seja consultas e terapias"). Ela segue
+   com so_carteira (só vê o que for entregue no nome dela); o setor define o
+   placar, a agenda, as pastas e as metas que ela enxerga. Grava no banco de
+   forma garantida, mesmo que o cadastro tenha sido mexido na mão. */
+async function gabriellenCarteiraConsultasTerapias() {
+  const FLAG = 'seed_gabriellen_carteira_consultas_terapias_v1';
+  const SEM_ACENTO = "'áàâãäéèêëíìîïóòôõöúùûüç','aaaaaeeeeiiiiooooouuuuc'";
+  const { rows: [ja] } = await query('SELECT 1 FROM configuracoes WHERE chave = $1', [FLAG]).catch(() => ({ rows: [1] }));
+  if (ja) return;
+  const { rowCount } = await query(
+    `UPDATE usuarios SET setor = 'consultas', setores = ARRAY['consultas','terapias']::text[],
+                         so_fidelidade = false, updated_at = NOW()
+      WHERE ativo = true
+        AND (lower(COALESCE(email,'')) = 'gabriellen@vittalissaude.com.br'
+             OR regexp_replace(COALESCE(cpf,''), '\\D', '', 'g') = '05678089390'
+             OR lower(translate(COALESCE(nome,''), ${SEM_ACENTO})) ~ '^gabriel+en\\b')`)
+    .catch((e) => { console.error('gabriellen carteira:', e.message); return { rowCount: 0 }; });
+  if (!rowCount) { console.error('gabriellen carteira: conta não encontrada'); return; }
+  await query(`INSERT INTO configuracoes (chave, valor) VALUES ($1, '{"ok":true}') ON CONFLICT DO NOTHING`, [FLAG]).catch(() => {});
+  console.log(`🧩🩺 Gabriellen: carteira de consultas e terapias (${rowCount} conta(s))`);
 }
 
 async function donosDaCasa() {
