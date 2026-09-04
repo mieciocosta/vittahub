@@ -3037,6 +3037,7 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
   try { await carteiraLeadsParaJose(); } catch (e) { console.error('carteira de leads jose:', e.message); }
   try { await gabriellenSoRepasse(); } catch (e) { console.error('gabriellen so repasse:', e.message); }
   try { await gabriellenCarteiraConsultasTerapias(); } catch (e) { console.error('gabriellen carteira:', e.message); }
+  try { await limparCarteirasFechadas(); } catch (e) { console.error('limpar carteiras fechadas:', e.message); }
   try { await equipeDaCasa(); } catch (e) { console.error('equipe da casa:', e.message); }
   try { await donosDaCasa(); } catch (e) { console.error('donos da casa:', e.message); }
   try { await marketingForaDoPainel(); } catch (e) { console.error('marketing fora do painel:', e.message); }
@@ -3554,6 +3555,33 @@ async function gabriellenCarteiraConsultasTerapias() {
   if (!rowCount) { console.error('gabriellen carteira: conta não encontrada'); return; }
   await query(`INSERT INTO configuracoes (chave, valor) VALUES ($1, '{"ok":true}') ON CONFLICT DO NOTHING`, [FLAG]).catch(() => {});
   console.log(`🧩🩺 Gabriellen: carteira de consultas e terapias (${rowCount} conta(s))`);
+}
+
+/* 🧹 O QUE CAIU NA CARTEIRA FECHADA POR ENGANO SAI DELA (ordem do master,
+   04/09: "grupos, mensagem da Dra, Dr e Felipe não é para aparecerem para
+   Gabriellen"). A migração "cliente volta pro nome de quem atendeu" (03/09)
+   deu a cada pessoa tudo em que ela foi a última a escrever — inclusive
+   grupos do WhatsApp e as conversas internas da casa. Pra quem tem carteira
+   fechada (so_carteira, so_fidelidade) isso vira ruído na única lista que
+   ela tem. Aqui, uma vez: grupos e conversas da direção/equipe saem do nome
+   delas e voltam pro pool. O que uma colega transferiu de verdade continua. */
+async function limparCarteirasFechadas() {
+  const FLAG = 'seed_limpar_carteiras_fechadas_v1';
+  const SEM_ACENTO = "'áàâãäéèêëíìîïóòôõöúùûüç','aaaaaeeeeiiiiooooouuuuc'";
+  const { rows: [ja] } = await query('SELECT 1 FROM configuracoes WHERE chave = $1', [FLAG]).catch(() => ({ rows: [1] }));
+  if (ja) return;
+  const { rowCount } = await query(
+    `UPDATE conversas c SET responsavel_id = NULL, responsavel_desde = NULL
+      FROM usuarios u
+     WHERE u.id = c.responsavel_id
+       AND (COALESCE(u.so_carteira,false) = true OR COALESCE(u.so_fidelidade,false) = true)
+       AND (COALESCE(c.contact_id,'') LIKE '%g.us%'
+            OR length(regexp_replace(COALESCE(c.phone,''), '\\D', '', 'g')) > 13
+            OR lower(translate(COALESCE(c.contact_name,''), ${SEM_ACENTO})) ~ '(^|[^a-z])(dr|dra)\\.?([^a-z]|$)|miecio|nagila|felipe')`)
+    .catch((e) => { console.error('limpar carteiras fechadas:', e.message); return { rowCount: 0 }; });
+  await query(`INSERT INTO configuracoes (chave, valor) VALUES ($1, $2::jsonb) ON CONFLICT DO NOTHING`,
+    [FLAG, JSON.stringify({ ok: true, devolvidas: rowCount })]).catch(() => {});
+  if (rowCount) console.log(`🧹 Carteiras fechadas: ${rowCount} conversa(s) (grupos/direção) devolvidas ao pool`);
 }
 
 async function donosDaCasa() {

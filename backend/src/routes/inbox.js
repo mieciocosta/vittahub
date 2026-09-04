@@ -425,6 +425,17 @@ function setorEfetivo(conv) {
 }
 export function podeVerSetor(viewer, conv) {
   if (!viewer || viewer.role === 'master') return true;
+  /* 🔒 CARTEIRA FECHADA NÃO VÊ GRUPO NEM A EXCEÇÃO DA CASA (ordem do master,
+     04/09: "grupos, mensagem da Dra, Dr e Felipe não é para aparecerem para
+     Gabriellen"). Quem tem so_carteira (Gabriellen) ou so_fidelidade (Poliana)
+     enxerga SÓ o que está no nome dela — nem grupo do WhatsApp, nem conversa
+     marcada como "visível pra equipe toda". Vem antes de tudo. */
+  const carteiraFechada = viewer.so_carteira === true || usuariosSoCarteira.has(String(viewer.id))
+    || viewer.so_fidelidade === true || usuariosSoFidelidade.has(String(viewer.id));
+  if (carteiraFechada) {
+    if (ehGrupo(conv)) return false;
+    return String(conv.responsavel_id || '') === String(viewer.id);
+  }
   /* 👁 EXCEÇÃO DA CASA (ordem do master, 27/08: "quero que Nágila Maria apareça
      para todos"): conversa marcada como visível pra todos passa por cima de
      setor, carteira e pasta — inclusive da carteira fechada da Fidelidade.
@@ -4318,8 +4329,10 @@ r.get('/conversations', async (req, res) => {
         if (req.user.so_carteira === true || req.user.so_fidelidade === true) {
           /* 🏠 Home office por produção e 💛 carteira da Fidelidade (28/08:
              "quero que a Poliana só veja os que ela já tem no nome dela"):
-             estes dois perfis enxergam APENAS o que está no nome delas. */
+             estes dois perfis enxergam APENAS o que está no nome delas —
+             e nunca grupo (04/09). */
           regras.push(`c.responsavel_id = $${pi}`); params.push(uid); pi++;
+          regras.push(`COALESCE(c.contact_id,'') NOT LIKE '%g.us%'`);
         } else {
           /* 💛 A pasta Fidelidade é fechada: só a gestão, a dona da carteira e
              quem for a responsável direta da conversa. */
@@ -4357,7 +4370,8 @@ r.get('/conversations', async (req, res) => {
         }
         /* 👁 A exceção da casa (Dra. Nágila, 27/08) fura tudo: conversa marcada
            como visível pra equipe toda entra mesmo contra as regras acima. */
-        conditions.push(`(COALESCE(c.visivel_todos,false) = true OR (${regras.join(' AND ')}))`);
+        const fechada = req.user.so_carteira === true || req.user.so_fidelidade === true;
+        conditions.push(fechada ? `(${regras.join(' AND ')})` : `(COALESCE(c.visivel_todos,false) = true OR (${regras.join(' AND ')}))`);
       }
       if (search) {
         conditions.push(`(unaccent(lower(c.contact_name)) ILIKE unaccent(lower($${pi})) OR c.phone ILIKE $${pi})`);
