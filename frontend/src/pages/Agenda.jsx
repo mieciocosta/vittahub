@@ -45,6 +45,16 @@ export default function Agenda() {
   // A aba do VittaMed é da equipe de CONSULTAS (e da gestão) — pedido do master.
   const meusSetores = (Array.isArray(user?.setores) && user.setores.length ? user.setores : [user?.setor]).filter(Boolean);
   const podeVerVittaMed = ['master', 'supervisor'].includes(user?.role) || meusSetores.includes('consultas');
+  /* 🗂️ A AGENDA SEGUE O SETOR DA PESSOA (ordem do master, 04/09: "a agenda
+     dela está cheia de classificação, quero apenas consultas e terapias").
+     Master vê os três setores e todas as abas; a equipe vê só os chips do
+     próprio setor, e a Logística (visita domiciliar de vacina) fica com quem é
+     de vacinas. Com um setor só, nem chip aparece. */
+  const isMasterAg = user?.role === 'master';
+  const SETORES_AG = [['vacinas', '💉 Vacinas'], ['consultas', '🩺 Consultas'], ['terapias', '🤲 Terapias']];
+  const setoresVisiveis = isMasterAg ? SETORES_AG : SETORES_AG.filter(([k]) => meusSetores.includes(k));
+  const podeLogistica = isMasterAg || meusSetores.includes('vacinas');
+  const setorPadrao = isMasterAg ? 'vacinas' : (setoresVisiveis[0]?.[0] || 'vacinas');
 
   // Sair de "Relatório do Dia" pra "Meu Relatório" é a MESMA rota, só muda a
   // busca — o componente não remonta e o estado inicial acima não roda de novo.
@@ -272,7 +282,7 @@ export default function Agenda() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 20 }}>
         <div>
           <h1 style={{ fontSize: 27, fontWeight: 800 }}>📅 Agenda</h1>
-          <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 2 }}>Consultas, vacinas, terapias, retornos e pós-vacinais</p>
+          <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 2 }}>{isMasterAg ? 'Consultas, vacinas, terapias, retornos e pós-vacinais' : `Agenda de ${setoresVisiveis.map(([, l]) => l.replace(/^\S+\s/, '').toLowerCase()).join(' e ') || 'atendimentos'}`}</p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <button onClick={() => mudaDia(-1)} className="btn btn-s" style={{ padding: '8px 10px' }}><ChevronLeft size={15} /></button>
@@ -283,14 +293,14 @@ export default function Agenda() {
           <button onClick={() => baixarPDF([...agendamentos, ...posVacinais], data, rotuloDia)} className="btn btn-s" style={{ gap: 6 }} title="Gera o PDF da agenda do dia pra imprimir ou salvar">
             ⬇ Baixar PDF
           </button>
-          <button onClick={() => setModal({ data, hora: '', setor: 'vacinas' })} className="btn btn-p" style={{ gap: 6 }}>
+          <button onClick={() => setModal({ data, hora: '', setor: setorPadrao })} className="btn btn-p" style={{ gap: 6 }}>
             <Plus size={14} /> Novo agendamento
           </button>
         </div>
       </div>
 
       <div style={{ display: 'flex', gap: 7, marginBottom: 12, flexWrap: 'wrap' }}>
-        {[['lista', '📅 Agenda do dia'], ...(podeVerVittaMed ? [['vittamed', '🏥 VittaMed']] : []), ['logistica', '🚚 Logística'], ['relatorio', '📋 Relatório e produtividade']].map(([k, l]) => (
+        {[['lista', '📅 Agenda do dia'], ...(podeVerVittaMed ? [['vittamed', '🏥 VittaMed']] : []), ...(podeLogistica ? [['logistica', '🚚 Logística']] : []), ['relatorio', '📋 Relatório e produtividade']].map(([k, l]) => (
           <button key={k} onClick={() => { setAba(k); if (k === 'relatorio') { setRel({ carregando: true }); api.get(`/extras/agenda/relatorio-dia?data=${data}`).then(setRel).catch(e => setRel({ erro: e.message })); } }}
             style={{ padding: '7px 15px', borderRadius: 10, fontSize: 12.5, fontWeight: 800, cursor: 'pointer',
               border: `1.5px solid ${aba === k ? 'var(--tq)' : 'var(--border)'}`,
@@ -301,9 +311,9 @@ export default function Agenda() {
       {/* 💉🩺 O recorte por setor — a "Agenda Vacinas" e a "Agenda Consultas"
           do menu caem aqui. Fica só na aba da agenda do dia: no relatório e na
           logística o corte é outro. */}
-      {aba === 'lista' && (
+      {aba === 'lista' && setoresVisiveis.length > 1 && (
         <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-          {[['', '📆 Todas'], ['vacinas', '💉 Vacinas'], ['consultas', '🩺 Consultas'], ['terapias', '🤲 Terapias']].map(([k, l]) => {
+          {[['', '📆 Todas'], ...setoresVisiveis].map(([k, l]) => {
             const n2 = k ? eventos.filter(ev => (ev.setor || 'vacinas') === k).length : eventos.length;
             return (
               <button key={k || 'todas'} onClick={() => setSetorAgenda(k)}
