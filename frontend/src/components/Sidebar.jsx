@@ -66,11 +66,18 @@ const NAV = [
      agendas para ela: Agenda vacinas e Agenda consultas"). São atalhos pro
      MESMO calendário, já com o recorte do setor — não duas telas, que
      envelheceriam separadas. A Agenda de cima continua mostrando o dia todo. */
-  { to:'/agenda?setor=vacinas',   icon:Syringe,     label:'Agenda Vacinas', cor:'#22c55e' },
-  { to:'/agenda?setor=consultas', icon:Stethoscope, label:'Agenda Consultas', cor:'#2563eb' },
+  /* 04/09 (cobrança do master: "está aparecendo Agenda de Vacinas pra
+     Gabriellen; o perfil dela é só consultas e terapias"): cada atalho segue
+     o SETOR da pessoa, igual ao resto do menu. */
+  /* E as DUAS juntas são só da Danielle ("agenda de consultas e vacinas de
+     forma simultânea é só para Danielle"): a supervisora de consultas/terapias
+     vê as duas; o resto vê a do próprio setor. */
+  { to:'/agenda?setor=vacinas',   icon:Syringe,     label:'Agenda Vacinas', agendaVacinas:true, cor:'#22c55e' },
+  { to:'/agenda?setor=consultas', icon:Stethoscope, label:'Agenda Consultas', agendaConsultas:true, cor:'#2563eb' },
   /* 👶 Painel do mês da carteira Fidelidade — primeira parada de quem cuida
      dos mensalistas (ordem do master, 24/08). */
-  { to:'/fidelidade-mes', icon:Heart, label:'Fidelidade do mês', cor:'#00B8C0' },
+  // Fidelidade é do setor de vacinas (e da Poliana): quem é só de consultas/terapias não vê
+  { to:'/fidelidade-mes', icon:Heart, label:'Fidelidade do mês', fidelidade:true, cor:'#00B8C0' },
   // 💲 Visível PRA TODOS (pedido do master): orçamento sem sair da conversa.
   { to:'/tabela-precos', icon:FileText,     label:'Tabela de Preços', cor:'#0ea5e9' },
 
@@ -298,6 +305,10 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
      (José e Carlos) recebe os três setores explicitamente no cadastro, em vez
      de depender de "não ter setor". */
   const podeSetor = (s) => user?.role === 'master' || meusSetores.includes(s);
+  /* 📅 As duas agendas juntas: master e a supervisora de consultas/terapias
+     (Danielle). Raylane, supervisora de vacinas, vê só a de vacinas. */
+  const duasAgendas = user?.role === 'master'
+    || (user?.role === 'supervisor' && (meusSetores.includes('consultas') || meusSetores.includes('terapias')));
   const ehDono = user?.dono === true || /mi[eé]cio/i.test(`${user?.nome || ''} ${user?.email || ''}`);
   const podeTrocar = (isMaster && ehDono) || !!localStorage.getItem('vh_token_master');
   const tokenMaster = () => localStorage.getItem('vh_token_master') || localStorage.getItem('vh_token') || '';
@@ -1014,6 +1025,9 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                quem não tem setor nenhum (marketing) — aí não há o que filtrar. */
             && (!n.terapias || podeSetor('terapias'))
             && (!n.vacinas || podeSetor('vacinas'))
+            && (!n.fidelidade || podeSetor('vacinas') || user?.so_fidelidade === true)
+            && (!n.agendaVacinas || duasAgendas || podeSetor('vacinas'))
+            && (!n.agendaConsultas || duasAgendas || podeSetor('consultas') || podeSetor('terapias'))
             && (!n.comercial || ['master','supervisor'].includes(user?.role) || user?.distribuidor === true)
             && (!n.lider || user?.lider || user?.role === 'master')
             && (!n.iaBotao || user?.ia_consultas === true || user?.role === 'master')

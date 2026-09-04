@@ -101,9 +101,15 @@ r.get('/agenda', async (req, res) => {
         .catch(() => ({ rows: [] }));
       distribui = ud?.distribuidor === true;
     }
-    const isGestao = req.user.role === 'master' || distribui;
     const meuSetor = req.user.setor;
     const meusSetores = Array.isArray(req.user.setores) && req.user.setores.length ? req.user.setores : null;
+    /* 04/09: a Danielle deixou de ser distribuidora, mas segue vendo as duas
+       agendas (ordem do master: "agenda de consultas e vacinas de forma
+       simultânea é só para Danielle"). A régua é o cargo: supervisora de
+       consultas/terapias vê tudo; Raylane (vacinas) vê só o setor dela. */
+    const supervisoraConsultas = req.user.role === 'supervisor'
+      && ((meusSetores || [meuSetor]).some(s => s === 'consultas' || s === 'terapias'));
+    const isGestao = req.user.role === 'master' || distribui || supervisoraConsultas;
     const out = isGestao
       ? rows
       : meusSetores
