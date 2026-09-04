@@ -316,6 +316,29 @@ export default function PlacarVendas() {
         );
       })}
 
+      {/* 🎯 METAS DO DIA POR SETOR DA PRÓPRIA PESSOA (Danielle: vacinas 19 mil,
+          consultas e terapias 19 mil, bônus 5 mil em cada). É o que ELA vendeu
+          hoje em cada frente — número dela, aparece sempre. */}
+      {(meta.metasPessoais || []).map((m) => {
+        const bateu = m.dia > 0 && m.falta <= 0;
+        const cor = m.setores?.includes('vacinas') ? (CORES.vacinas || '#c4b5fd') : (CORES.consultas || '#67e8f9');
+        return (
+          <Capsula key={`mp-${m.chave}`} title={`${m.rotulo}: ${fmt.brl(m.feito)} de ${fmt.brl(m.dia)} hoje · bônus ${fmt.brl(m.bonus)} ao bater`}>
+            <span style={{ fontSize: 15 }}>{m.setores?.includes('vacinas') ? '💉' : '🩺'}</span>
+            <div style={{ lineHeight: 1.12 }}>
+              <Rotulo>{m.rotulo} · sua meta de hoje</Rotulo>
+              <div style={{ fontSize: 13.5, fontWeight: 900, color: bateu ? '#6ee7b7' : cor, textShadow: '0 1px 3px rgba(0,0,0,.45)' }}>
+                {bateu ? `🏆 Bateu! +${fmt.brl(m.bonus)}` : `falta ${fmt.brl(m.falta)} de ${fmt.brl(m.dia)}`}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
+                <Barra pct={m.pct} cor={`linear-gradient(90deg,${cor},#fff8e1)`} largura={54} />
+                <span style={{ fontSize: 10, fontWeight: 800, color: 'rgba(255,255,255,.9)' }}>{fmt.brl(m.feito)} · bônus {fmt.brl(m.bonus)}</span>
+              </div>
+            </div>
+          </Capsula>
+        );
+      })}
+
       {/* 3️⃣ ALCANÇADO — regra do master: VACINAS (e terapias) mostra VALORES,
           quanto fez e quanto falta; SÓ CONSULTAS mostra porcentagem. Quem tem
           meta individual vê a própria cápsula mesmo sem ver valores do setor —

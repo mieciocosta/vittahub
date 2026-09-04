@@ -1373,6 +1373,34 @@ r.get('/meta-setor', async (req, res) => {
        valor e dentro do caixa está outro"): mesmo a SUPERVISORA vê no placar
        só os números DELA — a barra mostra a produção própria e o "falta" é o
        dela, contra a meta dela. O total do setor em R$ é visão do master. */
+    /* 🎯 METAS DO DIA POR SETOR DA PRÓPRIA PESSOA (ordem do master, 03/09 e
+       cobrança em 04/09: "colocou a meta da Danielle?"). Ficavam só no Painel
+       Comercial; agora vão no placar DELA: vacinas R$ 19 mil, consultas e
+       terapias R$ 19 mil, bônus R$ 5 mil em cada. Mede o que ELA vendeu hoje,
+       por setor — número dela, pode ver. */
+    let metasPessoais = [];
+    try {
+      const { rows: [mp] } = await query(`SELECT COALESCE(metas_setor,'{}'::jsonb) AS metas_setor FROM usuarios WHERE id = $1`, [req.user.id]);
+      const ms = mp?.metas_setor || {};
+      if (Object.keys(ms).length) {
+        const { rows: vh } = await query(`
+          SELECT COALESCE(NULLIF(v.setor,''),
+                   CASE WHEN v.categoria = 'Consulta' THEN 'consultas'
+                        WHEN v.categoria = 'Terapia'  THEN 'terapias'
+                        ELSE 'vacinas' END) AS setor,
+                 COALESCE(SUM(v.valor),0)::float total
+            FROM vendas v WHERE v.atendente_id = $1 AND v.data_venda = $2::date
+           GROUP BY 1`, [req.user.id, hojeSLZ]).catch(() => ({ rows: [] }));
+        const porS = Object.fromEntries(vh.map(r => [r.setor, r.total]));
+        metasPessoais = Object.entries(ms).map(([chave, m]) => {
+          const sets = Array.isArray(m.setores) && m.setores.length ? m.setores : [chave];
+          const feito = sets.reduce((t, s) => t + (porS[s] || 0), 0);
+          const dia = parseFloat(m.dia) || 0;
+          return { chave, rotulo: m.rotulo || chave, setores: sets, dia, bonus: parseFloat(m.bonus) || 0,
+            feito: +feito.toFixed(2), falta: Math.max(dia - feito, 0), pct: dia ? +Math.min((feito / dia) * 100, 100).toFixed(1) : 0 };
+        });
+      }
+    } catch (e) { console.error('metasPessoais:', e.message); }
     const podeValores = req.user.role === 'master';
     const porSetorSeguro = podeValores ? porSetor : porSetor.map(s => ({
       setor: s.setor, metaGlobal: s.metaGlobal, metaMinima: s.metaMinima, metaDia: s.metaDia,
@@ -1386,6 +1414,7 @@ r.get('/meta-setor', async (req, res) => {
       ...porSetorSeguro[0], porSetor: porSetorSeguro,
       multi: true, individual, focoDia, focoMes, mostra_valores: podeValores,
       premioMsg: premioMsgEu,   // 🏅 recado pessoal do prêmio (ex.: Raylane)
+      metasPessoais,            // 🎯 metas do dia POR SETOR da própria pessoa (Danielle, 03/09)
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
