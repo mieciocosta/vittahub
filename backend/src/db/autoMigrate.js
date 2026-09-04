@@ -3028,6 +3028,7 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
   try { await titulosDaEquipe(); } catch (e) { console.error('titulos da equipe:', e.message); }
   try { await bonusPessoais(); } catch (e) { console.error('bonus pessoais:', e.message); }
   try { await colunasCriticas(); } catch (e) { console.error('colunas criticas:', e.message); }
+  try { await tabelaOcultas(); } catch (e) { console.error('tabela ocultas:', e.message); }
   /* ⚠️ DEPOIS de colunasCriticas, sempre. As metas por setor gravam numa coluna
      que nasce lá — rodando antes, o UPDATE falhava calado (a coluna não existia
      ainda) e a meta da Danielle nunca mudava, sem erro nenhum na tela.
@@ -3631,6 +3632,14 @@ async function setoresDaEquipe() {
   await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('equipe', $1, $2, true)`,
     ['🗂️ Setores da equipe gravados', 'Consultas e terapias: Gabriellen, Suellen e Mayara. Danielle: vacinas, consultas e terapias. Vacinas: Raylane, Poliana (Fidelidade) e Stefany. Cada uma precisa sair e entrar de novo.']).catch(() => {});
   console.log('🗂️ Setores da equipe gravados conforme o master (04/09)');
+}
+
+/* 🙈 Conversas que cada usuário escondeu de si (ordem do master, 04/09). */
+async function tabelaOcultas() {
+  await query(`CREATE TABLE IF NOT EXISTS conversas_ocultas (
+    usuario_id TEXT NOT NULL, conversa_id TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (usuario_id, conversa_id))`);
 }
 
 async function donosDaCasa() {

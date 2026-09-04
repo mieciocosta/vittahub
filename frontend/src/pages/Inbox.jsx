@@ -899,6 +899,8 @@ export default function Inbox({ onUnreadChange }) {
      de ação do cabeçalho passam a ter UM visual calmo; cor forte fica reservada
      pra meta. E o que não é do dia a dia sai da barra e vai pro menu "Mais". */
   const [maisAberto, setMaisAberto] = useState(false);
+  const [ocultarConfirm, setOcultarConfirm] = useState(false);   // 🙈 não aparecer pra mim
+  const [ocultas, setOcultas] = useState(null);                 // lista do que escondi (popup)
   const [showProntas, setShowProntas] = useState(false); // 📝 mensagens prontas (pra quem não usa a IA)
   const [encOpen, setEncOpen] = useState(false);         // 📤 encaminhar conversa pra outro canal
   const [encForm, setEncForm] = useState({ destino: '', mensagens: 20, observacao: '' });
@@ -2834,6 +2836,15 @@ export default function Inbox({ onUnreadChange }) {
                           catch (e) { setResumo({ erro: e.message }); } setResumoLoad(false); }}>
                           📋 <span>Resumo da conversa</span>
                         </button>
+                        {/* 🙈 Ordem do master (04/09): "coloca um botão não aparecer pra
+                            mim, eu marco dentro do chat e nunca mais aparece". Só pra
+                            quem marcou; desfaz em "Conversas que escondi". */}
+                        <button style={{ ...itemMenu, color:'var(--err,#dc2626)', fontWeight:800 }} onClick={()=>{ fecharMais(); setOcultarConfirm(true); }}>
+                          🙈 <span>Não aparecer pra mim</span>
+                        </button>
+                        <button style={itemMenu} onClick={async ()=>{ fecharMais(); setOcultas([]); try { setOcultas(await api.get('/inbox/ocultas')); } catch { setOcultas([]); } }}>
+                          👁 <span>Conversas que escondi</span>
+                        </button>
                         <button style={itemMenu} onClick={()=>{ fecharMais(); abrirTransferir(); }}>
                           🔁 <span>Transferir atendimento</span>
                         </button>
@@ -4559,6 +4570,60 @@ export default function Inbox({ onUnreadChange }) {
         <TerapiaOrcamentoModal contactName={sel.contact_name} atendente={user?.nome} onClose={()=>setShowTerapia(false)} />
       )}
 
+      {/* 🙈 Confirmação do "não aparecer pra mim" */}
+      {ocultarConfirm && sel && (
+        <div onClick={()=>setOcultarConfirm(false)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.5)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000, padding:16 }}>
+          <div onClick={e=>e.stopPropagation()} className="card" style={{ width:380, maxWidth:'100%', padding:22 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
+              <span style={{ fontSize:18 }}>🙈</span><h3 style={{ fontSize:16, fontWeight:800, flex:1 }}>Não aparecer pra mim</h3>
+              <button onClick={()=>setOcultarConfirm(false)} className="vh-fechar">✕ Fechar</button>
+            </div>
+            <p style={{ fontSize:12.5, color:'var(--muted)', marginBottom:16, lineHeight:1.5 }}>
+              <b>{sel.contact_name || fmt.phone(sel.phone)}</b> some da sua lista, da busca e das fixadas, e não volta mais no seu usuário. Só você deixa de ver; pra equipe nada muda. Dá pra desfazer em ⋯ Mais → Conversas que escondi.
+            </p>
+            <button onClick={async ()=>{
+                const id = sel.id; setOcultarConfirm(false);
+                try {
+                  await api.post(`/inbox/conversations/${id}/ocultar`, {});
+                  setConvos(prev => prev.filter(c => c.id !== id));
+                  setFixadas(prev => prev.filter(c => c.id !== id));
+                  setSel(null);
+                  Toast.show('Pronto: essa conversa não aparece mais pra você 🙈', 'success');
+                } catch (e) { Toast.show(e.message || 'Não foi possível esconder', 'error'); }
+              }}
+              style={{ width:'100%', padding:'11px 0', borderRadius:11, border:'none', cursor:'pointer', background:'var(--err,#dc2626)', color:'#fff', fontWeight:900, fontSize:13.5 }}>
+              🙈 Esconder de mim
+            </button>
+          </div>
+        </div>
+      )}
+      {/* 👁 Conversas que escondi — pra desfazer */}
+      {ocultas && (
+        <div onClick={()=>setOcultas(null)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.5)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000, padding:16 }}>
+          <div onClick={e=>e.stopPropagation()} className="card" style={{ width:420, maxWidth:'100%', padding:22, maxHeight:'80vh', overflowY:'auto' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
+              <span style={{ fontSize:18 }}>👁</span><h3 style={{ fontSize:16, fontWeight:800, flex:1 }}>Conversas que escondi</h3>
+              <button onClick={()=>setOcultas(null)} className="vh-fechar">✕ Fechar</button>
+            </div>
+            {!ocultas.length && <div style={{ fontSize:12.5, color:'var(--muted)' }}>Você não escondeu nenhuma conversa.</div>}
+            {ocultas.map(c => (
+              <div key={c.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 0', borderBottom:'1px solid var(--border)' }}>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontWeight:700, fontSize:13, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{c.contact_name || fmt.phone(c.phone) || 'Conversa'}</div>
+                  {c.phone && <div style={{ fontSize:11, color:'var(--muted)' }}>{fmt.phone(c.phone)}</div>}
+                </div>
+                <button onClick={async ()=>{
+                    try { await api.del(`/inbox/ocultas/${c.id}`); setOcultas(prev => (prev || []).filter(x => x.id !== c.id)); loadConvos(); Toast.show('Conversa de volta na sua lista 👁', 'success'); }
+                    catch (e) { Toast.show(e.message, 'error'); }
+                  }}
+                  style={{ padding:'6px 12px', borderRadius:9, border:'1.5px solid var(--tq)', background:'var(--tq4)', color:'var(--tq2)', fontWeight:800, fontSize:11.5, cursor:'pointer', flexShrink:0 }}>
+                  Mostrar de novo
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {encOpen && sel && (
         <div onClick={()=>setEncOpen(false)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.5)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000, padding:16 }}>
           <div onClick={e=>e.stopPropagation()} className="card" style={{ width:380, maxWidth:'100%', padding:22 }}>

@@ -406,6 +406,29 @@ async function carregarUsuariosSetor() {
 carregarUsuariosSetor();
 setInterval(carregarUsuariosSetor, 30000);
 
+/* 🙈 "NÃO APARECER PRA MIM" (ordem do master, 04/09: "coloca um botão não
+   aparecer pra mim, eu marco dentro do chat e nunca mais aparece"). Cada
+   usuário esconde as conversas que quiser SÓ pra si: some da lista, da busca,
+   das fixadas e das atualizações. Vive em conversas_ocultas e no cache abaixo
+   (recarregado a cada minuto e a cada marcação). É a primeira regra do acesso —
+   vale pra qualquer perfil, inclusive o master no próprio usuário. */
+let ocultasPorUsuario = new Map();   // usuario_id → Set(conversa_id)
+async function carregarOcultas() {
+  try {
+    const { rows } = await query('SELECT usuario_id, conversa_id FROM conversas_ocultas');
+    const m = new Map();
+    for (const r0 of rows) {
+      const k = String(r0.usuario_id);
+      if (!m.has(k)) m.set(k, new Set());
+      m.get(k).add(String(r0.conversa_id));
+    }
+    ocultasPorUsuario = m;
+  } catch { /* tabela ainda nascendo */ }
+}
+carregarOcultas();
+setInterval(carregarOcultas, 60000);
+const ocultaPara = (viewer, conv) => !!(viewer && conv && ocultasPorUsuario.get(String(viewer.id))?.has(String(conv.id)));
+
 // Grupo EFETIVO da conversa (vacina | nao-vacina | null=indefinida). PRECEDÊNCIA:
 // 1º o SETOR da conversa (o assunto/triagem manda — conversa marcada 'vacinas' é
 // de vacina, não importa quem é o responsável). Só quando a conversa NÃO tem setor
@@ -432,6 +455,8 @@ function setorEfetivo(conv) {
   return conv.setor || respSetor || null;
 }
 export function podeVerSetor(viewer, conv) {
+  // 🙈 Escondida por quem está olhando: nunca mais aparece (vale até pro master)
+  if (ocultaPara(viewer, conv)) return false;
   if (!viewer || viewer.role === 'master') return true;
   /* 🔒 CARTEIRA FECHADA NÃO VÊ GRUPO NEM A EXCEÇÃO DA CASA (ordem do master,
      04/09: "grupos, mensagem da Dra, Dr e Felipe não é para aparecerem para
@@ -4381,6 +4406,11 @@ r.get('/conversations', async (req, res) => {
         const fechada = req.user.so_carteira === true || req.user.so_fidelidade === true;
         conditions.push(fechada ? `(${regras.join(' AND ')})` : `(COALESCE(c.visivel_todos,false) = true OR (${regras.join(' AND ')}))`);
       }
+      // 🙈 O que a pessoa escondeu pra si não volta nem pelo caminho do banco
+      if (req.user) {
+        conditions.push(`NOT EXISTS (SELECT 1 FROM conversas_ocultas o WHERE o.usuario_id = $${pi} AND o.conversa_id = c.id)`);
+        params.push(String(req.user.id)); pi++;
+      }
       if (search) {
         conditions.push(`(unaccent(lower(c.contact_name)) ILIKE unaccent(lower($${pi})) OR c.phone ILIKE $${pi})`);
         params.push(`%${search}%`); pi++;
@@ -5459,6 +5489,39 @@ r.get('/chat-interno-naolidas', async (req, res) => {
 
 /* 📌 CONVERSAS FIXADAS — cada usuário fixa as SUAS (sem limite), e elas viram
    a seção de cima da lista do Chat (pedido do master, 22/08). */
+/* 🙈 Não aparecer pra mim: marca, some pra sempre (só pra quem marcou).
+   Desfazer: lista em GET /ocultas e DELETE /ocultas/:id. */
+r.post('/conversations/:id/ocultar', async (req, res) => {
+  try {
+    await query('INSERT INTO conversas_ocultas (usuario_id, conversa_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+      [String(req.user.id), req.params.id]);
+    const k = String(req.user.id);
+    if (!ocultasPorUsuario.has(k)) ocultasPorUsuario.set(k, new Set());
+    ocultasPorUsuario.get(k).add(String(req.params.id));
+    await query('DELETE FROM conversas_fixadas WHERE usuario_id = $1 AND conversa_id = $2', [req.user.id, req.params.id]).catch(() => {});
+    res.json({ oculta: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+r.get('/ocultas', async (req, res) => {
+  try {
+    const { rows } = await query(`SELECT conversa_id FROM conversas_ocultas WHERE usuario_id = $1 ORDER BY created_at DESC`, [String(req.user.id)]);
+    const lista = [];
+    for (const r0 of rows) {
+      let c = convoCache.get(r0.conversa_id);
+      if (!c) { const { rows: [db] } = await query('SELECT id, contact_name, phone, contact_id FROM conversas WHERE id = $1', [r0.conversa_id]).catch(() => ({ rows: [] })); c = db || null; }
+      if (c) lista.push({ id: c.id, contact_name: c.contact_name, phone: c.phone, contact_id: c.contact_id });
+    }
+    res.json(mascararLista(lista, req.user));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+r.delete('/ocultas/:id', async (req, res) => {
+  try {
+    await query('DELETE FROM conversas_ocultas WHERE usuario_id = $1 AND conversa_id = $2', [String(req.user.id), req.params.id]);
+    ocultasPorUsuario.get(String(req.user.id))?.delete(String(req.params.id));
+    res.json({ oculta: false });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.get('/fixadas', async (req, res) => {
   try {
     const { rows } = await query(`SELECT conversa_id FROM conversas_fixadas
