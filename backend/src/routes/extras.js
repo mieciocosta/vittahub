@@ -3311,10 +3311,20 @@ r.get('/planos-fechados', async (req, res) => {
 
 r.get('/caixa/relatorio', async (req, res) => {
   try {
-    if (req.user.role !== 'master') return res.status(403).json({ error: 'Relatório da clínica inteira é do master.' });
+    /* 04/09, ordem do master: "relatório de venda deve vir junto com os
+       comprovantes, e não somente com as descrições". Este relatório passa a
+       ser O relatório de vendas (mês e dia). A casa inteira segue sendo do
+       master e do marketing; qualquer outra pessoa recebe SÓ as próprias
+       vendas (o número dela, com os comprovantes dela). */
+    const veCasa = req.user.role === 'master' || req.user.ve_geral === true;
     const mes = /^\d{4}-\d{2}$/.test(req.query.mes || '')
       ? req.query.mes : new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 7);
+    const dia = /^\d{4}-\d{2}-\d{2}$/.test(req.query.dia || '') ? req.query.dia : null;
     const setor = ['vacinas', 'consultas', 'terapias'].includes(req.query.setor) ? req.query.setor : null;
+    // Período: um dia exato (Caixa do dia) ou o mês inteiro
+    const PERIODO = (pre = '') => dia ? `${pre}data_venda = $1::date` : `to_char(${pre}data_venda,'YYYY-MM') = $1`;
+    const chavePeriodo = dia || mes;
+    const SO_MINHAS = (pre = '') => veCasa ? '' : ` AND ${pre}atendente_id = '${String(req.user.id).replace(/[^a-zA-Z0-9-]/g, '')}'`;
     /* Setor da venda, deduzido da categoria quando o campo veio vazio (dado
        antigo). Montado por função, com e sem o prefixo da tabela: trocar por
        replace corromperia o texto 'sem setor' no fim da expressão. */
@@ -3333,17 +3343,17 @@ r.get('/caixa/relatorio', async (req, res) => {
              COALESCE(SUM(valor),0)::float total,
              COALESCE(SUM(valor) FILTER (WHERE status_pagamento IN ('pago','cortesia')),0)::float recebido,
              COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM venda_comprovantes vc WHERE vc.venda_id = vendas.id))::int com_comp
-        FROM vendas WHERE to_char(data_venda,'YYYY-MM') = $1
-       GROUP BY 1 ORDER BY total DESC`, [mes]);
+        FROM vendas WHERE ${PERIODO()}${SO_MINHAS()}
+       GROUP BY 1 ORDER BY total DESC`, [chavePeriodo]);
 
     const { rows: vendas } = await query(`
       SELECT v.id, v.data_venda, v.cliente_nome, v.paciente_nome, v.servico, v.categoria,
              ${SETOR_V} AS setor,
              v.valor, v.desconto, v.forma_pagamento, v.status_pagamento, v.atendente_nome, v.conferido
         FROM vendas v
-       WHERE to_char(v.data_venda,'YYYY-MM') = $1
+       WHERE ${PERIODO('v.')}${SO_MINHAS('v.')}
          ${setor ? `AND ${SETOR_V} = $2` : ''}
-       ORDER BY v.data_venda, v.id`, setor ? [mes, setor] : [mes]);
+       ORDER BY v.data_venda, v.id`, setor ? [chavePeriodo, setor] : [chavePeriodo]);
 
     /* Comprovantes: um por venda, com teto de 22 MB no total. Passou do teto,
        a venda vem marcada como "comprovante grande demais pra imprimir" — o
@@ -3367,7 +3377,7 @@ r.get('/caixa/relatorio', async (req, res) => {
 
     const soma = (col) => resumo.reduce((t, r2) => t + (r2[col] || 0), 0);
     res.json({
-      mes, setor,
+      mes, dia, setor, so_minhas: !veCasa,
       resumo: resumo.map(r2 => ({ ...r2, total: Number(r2.total), recebido: Number(r2.recebido) })),
       total: { n: soma('n'), total: soma('total'), recebido: soma('recebido'), com_comp: soma('com_comp') },
       itens,

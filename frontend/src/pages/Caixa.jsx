@@ -561,11 +561,16 @@ export default function Caixa() {
      de cada setor, o total da casa, e depois cada venda com o comprovante do
      lado — é o documento de conferência. Só master. */
   const [relComp, setRelComp] = useState(false);
-  const relatorioComComprovantes = async () => {
+  /* 04/09, ordem do master: "relatório de venda deve vir junto com os
+     comprovantes, e não somente com as descrições". O PDF do mês e o Caixa do
+     dia passam a ser ESTE relatório (dia = só as vendas do dia). Quem não é
+     master recebe só as próprias vendas, com os próprios comprovantes. */
+  const relatorioComComprovantes = async (opts = {}) => {
     if (relComp) return;
     setRelComp(true);
     try {
       const q = new URLSearchParams({ mes });
+      if (opts.dia) q.set('dia', opts.dia);
       if (setor) q.set('setor', setor);
       const d = await api.get(`/extras/caixa/relatorio?${q}`);
       const esc = (t) => String(t ?? '').replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
@@ -623,14 +628,14 @@ tr.tot td{background:#f8fbfc;font-weight:900;color:#06424A;border-top:2px solid 
 @page{size:A4;margin:11mm}
 </style></head><body><div class="faixa"></div><div class="pg">
 <div class="cab"><img src="${window.location.origin}/logos/logo-v-color.png" alt="Vittalis Saúde"/>
-<div class="t"><h1>Caixa — conferência com comprovantes</h1>
-<div class="s">Cada venda do período com o comprovante anexado</div>
-<div class="p">${esc(d.mes)}${d.setor ? ` · ${esc(d.setor)}` : ' · todos os setores'}</div></div></div>
+<div class="t"><h1>${d.dia ? 'Caixa do dia' : 'Caixa do mês'} — vendas com comprovantes</h1>
+<div class="s">${d.so_minhas ? 'Suas vendas' : 'Cada venda'} do período com o comprovante anexado</div>
+<div class="p">${d.dia ? fmtData(d.dia) : esc(d.mes)}${d.setor ? ` · ${esc(d.setor)}` : ' · todos os setores'}</div></div></div>
 <div class="hr"></div>
 <h2>Resumo por setor</h2>
 <table><tr><th>Setor</th><th>Vendas</th><th>Faturado</th><th>Recebido</th><th>Com comprovante</th></tr>
 ${d.resumo.map(linhaSetor).join('')}
-<tr class="tot"><td>TOTAL DA CASA</td><td class="n">${d.total.n}</td>
+<tr class="tot"><td>${d.so_minhas ? 'TOTAL SEU' : 'TOTAL DA CASA'}</td><td class="n">${d.total.n}</td>
 <td class="n">${fmt.brl(d.total.total)}</td><td class="n">${fmt.brl(d.total.recebido)}</td>
 <td class="n">${d.total.com_comp}/${d.total.n}</td></tr></table>
 <h2>Vendas e comprovantes${d.setor ? ` · ${esc(d.setor)}` : ''}</h2>
@@ -749,18 +754,13 @@ Gerado em ${new Date().toLocaleString('pt-BR')} · Vittalis Saúde · documento 
             {gestao && (
               <button onClick={() => { setShowRep(true); loadRep(); }} className="btn btn-sm" style={{ gap: 6, background: '#fca5a5', color: '#7f1d1d', border: 'none', fontWeight: 800 }} title="Fechar os repasses do mês (marcar pagos)">💸 Repasses</button>
             )}
-            <button onClick={exportarCaixaDia} className="btn btn-sm" style={{ gap: 6, background: '#fde68a', color: '#7c2d12', border: 'none', fontWeight: 800 }} title="Fechamento do dia de hoje (PDF)"><CalendarCheck size={14} /> Caixa do dia{vendasHoje.length ? ` (${vendasHoje.length})` : ''}</button>
+            <button onClick={() => relatorioComComprovantes({ dia: hojeISO })} disabled={relComp} className="btn btn-sm" style={{ gap: 6, background: '#fde68a', color: '#7c2d12', border: 'none', fontWeight: 800, opacity: relComp ? .6 : 1 }} title="Fechamento do dia de hoje, com o comprovante de cada venda (PDF)"><CalendarCheck size={14} /> Caixa do dia{vendasHoje.length ? ` (${vendasHoje.length})` : ''}</button>
             <button onClick={() => abrirDia()} className="btn btn-sm" style={{ gap: 6, background: '#0E8C96', color: '#fff', border: 'none', fontWeight: 800 }} title="Conferir e fechar caixa e estoque do dia">🔒 Fechar o dia</button>
             <button onClick={exportarCSV} className="btn btn-sm" style={{ gap: 6, background: 'rgba(255,255,255,.92)', color: '#065f46', border: 'none', fontWeight: 800 }} title="Exportar planilha (CSV)"><FileSpreadsheet size={14} /> Planilha</button>
-            <button onClick={exportarPDF} className="btn btn-sm" style={{ gap: 6, background: 'rgba(255,255,255,.2)', color: '#fff', border: '1px solid rgba(255,255,255,.4)', fontWeight: 800 }} title="Gerar PDF do mês / imprimir"><Printer size={14} /> PDF do mês</button>
-            {/* 📄 Conferência de verdade: cada venda com o comprovante do lado */}
-            {user?.role === 'master' && (
-              <button onClick={relatorioComComprovantes} disabled={relComp} className="btn btn-sm"
-                style={{ gap: 6, background: '#C4973B', color: '#fff', border: 'none', fontWeight: 800, opacity: relComp ? .6 : 1 }}
-                title="Relatório do mês com o comprovante de cada venda — por setor e com o total">
-                <Printer size={14} /> {relComp ? 'Montando…' : 'Relatório com comprovantes'}
-              </button>
-            )}
+            <button onClick={() => relatorioComComprovantes()} disabled={relComp} className="btn btn-sm" style={{ gap: 6, background: 'rgba(255,255,255,.2)', color: '#fff', border: '1px solid rgba(255,255,255,.4)', fontWeight: 800, opacity: relComp ? .6 : 1 }} title="PDF do mês com o comprovante de cada venda"><Printer size={14} /> {relComp ? 'Montando…' : 'PDF do mês'}</button>
+            {/* Tabela resumida (sem comprovantes) continua disponível, discreta */}
+            <button onClick={exportarPDF} className="btn btn-sm" style={{ gap: 6, background: 'transparent', color: 'rgba(255,255,255,.75)', border: '1px dashed rgba(255,255,255,.4)', fontWeight: 700 }} title="Só a tabela, sem comprovantes">Tabela</button>
+            {/* 📄 O relatório com comprovantes virou o PDF do mês e o Caixa do dia (04/09) */}
           </div>
         </div>
       </div>
