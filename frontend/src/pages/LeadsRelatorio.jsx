@@ -57,11 +57,12 @@ export default function LeadsRelatorio() {
   const [dow, setDow] = useState(null);
   const [setor, setSetor] = useState('');
   const [origem, setOrigem] = useState('');
+  const [campanha, setCampanha] = useState('');   // 📣 clicar numa campanha filtra tudo (05/09)
   const [entrada, setEntrada] = useState(true);
   const [corte, setCorte] = useState('origem');
   const [busca, setBusca] = useState('');
 
-  const limparRecorte = () => { setMes(''); setDia(''); setDow(null); setSetor(''); setOrigem(''); };
+  const limparRecorte = () => { setMes(''); setDia(''); setDow(null); setSetor(''); setOrigem(''); setCampanha(''); };
 
   /* 📅 A data só vale quando está COMPLETA. O campo de data do navegador
      dispara a cada dígito do ano ("0002", "0020", "0202", "2026") — e cada
@@ -89,11 +90,12 @@ export default function LeadsRelatorio() {
     if (dow !== null) q.set('dow', dow);
     if (setor) q.set('setor', setor);
     if (origem) q.set('origem', origem);
+    if (campanha) q.set('campanha', campanha);
     api.get(`/reports/leads-novos?${q}`)
       .then(d => { if (meu !== pedidoRef.current) return; setDados(d); setCarregando(false); })
       .catch(e => { if (meu !== pedidoRef.current) return; setErro(e.message); setCarregando(false); });
   };
-  useEffect(() => { carregar(); }, [meses, de, ate, mes, dia, dow, setor, origem, entrada]); // eslint-disable-line
+  useEffect(() => { carregar(); }, [meses, de, ate, mes, dia, dow, setor, origem, campanha, entrada]); // eslint-disable-line
 
   const t = dados?.totais;
   const lista = useMemo(() => {
@@ -116,7 +118,7 @@ export default function LeadsRelatorio() {
     if (dia) return `dia ${fmt.date(dia)}`;
     const mesLabel = mes ? (dados.meses || []).find(m => m.chave === mes)?.label : '';
     const base = j.manual || de ? `${fmt.date(j.de)} a ${fmt.date(j.ate)}` : `últimos ${j.meses} meses`;
-    return [mes ? `mês ${mesLabel}` : base, dow !== null ? `só ${DOW[dow]}` : '', setor, origem].filter(Boolean).join(' · ');
+    return [mes ? `mês ${mesLabel}` : base, dow !== null ? `só ${DOW[dow]}` : '', setor, origem, campanha].filter(Boolean).join(' · ');
   };
 
   // ── Exportações ────────────────────────────────────────────────────────────
@@ -373,16 +375,29 @@ Agendamento e venda só contam se aconteceram DEPOIS da chegada do lead. Gerado 
           {!linhas.length && <div style={{ padding: '14px 0', fontSize: 12, color: 'var(--muted)' }}>Sem leads neste recorte.</div>}
           {linhas.map(l => {
             const maior = Math.max(1, ...linhas.map(x => x.leads));
-            const selecionavel = corte !== 'equipe';
-            const ativo = (corte === 'origem' && origem === l.chave) || (corte === 'setor' && setor === l.chave);
+            const selecionavel = corte === 'origem' || corte === 'setor' || corte === 'campanha';
+            const ativo = (corte === 'origem' && origem === l.chave) || (corte === 'setor' && setor === l.chave)
+              || (corte === 'campanha' && campanha === l.chave);
             return (
               <div key={l.chave} onClick={() => { if (!selecionavel) return;
-                  if (corte === 'origem') setOrigem(ativo ? '' : l.chave); else setSetor(ativo ? '' : l.chave); }}
+                  if (corte === 'origem') setOrigem(ativo ? '' : l.chave);
+                  else if (corte === 'campanha') setCampanha(ativo ? '' : l.chave);
+                  else setSetor(ativo ? '' : l.chave); }}
                 style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 46px 58px 58px 88px', alignItems: 'center', gap: 8,
                   padding: '8px 6px', borderTop: '1px solid var(--border)', cursor: selecionavel ? 'pointer' : 'default',
                   background: ativo ? 'var(--tq4)' : 'transparent', borderRadius: 8 }}>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--txt)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.chave}</div>
+                  {/* 📣 O que o Meta cobrou x o que realmente chegou (05/09) */}
+                  {corte === 'campanha' && (l.metaGasto != null || l.metaResultados != null) && (
+                    <div style={{ fontSize: 10, color: 'var(--light)', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {l.metaResultados != null && `Meta: ${n0(l.metaResultados)} conversas`}
+                      {l.chegouPct != null && ` · chegaram ${pct(l.chegouPct)}`}
+                      {l.metaGasto != null && ` · gasto ${fmt.brl(l.metaGasto)}`}
+                      {l.custoPorLead != null && ` · ${fmt.brl(l.custoPorLead)} por lead`}
+                      {l.setorAnuncio && ` · ${l.setorAnuncio}`}
+                    </div>
+                  )}
                   <div style={{ height: 5, background: 'var(--bg2)', borderRadius: 99, marginTop: 4, overflow: 'hidden' }}>
                     <div style={{ width: `${(l.leads / maior) * 100}%`, height: '100%', background: 'var(--tq)', borderRadius: 99 }} />
                   </div>
@@ -398,6 +413,40 @@ Agendamento e venda só contam se aconteceram DEPOIS da chegada do lead. Gerado 
             borderTop: '1px solid var(--border)', fontSize: 9.5, color: 'var(--light)', textTransform: 'uppercase', letterSpacing: .5, fontWeight: 700 }}>
             <div />{['Leads', 'Agenda', 'Fechou', 'R$'].map(x => <div key={x} style={{ textAlign: 'right' }}>{x}</div>)}
           </div>
+          {/* 🗣️ As frases que chegaram e o sistema não soube de qual anúncio são.
+              É daqui que sai o cadastro de uma campanha nova: a frase mais
+              repetida no topo, com quantas vezes veio. */}
+          {corte === 'campanha' && (dados?.textosNaoReconhecidos || []).length > 0 && (
+            <div style={{ marginTop: 14, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+              <div style={{ fontSize: 11, fontWeight: 800, color: '#7c3aed', textTransform: 'uppercase', letterSpacing: .5 }}>
+                🗣️ Primeiras mensagens sem campanha reconhecida
+              </div>
+              <div style={{ fontSize: 10.5, color: 'var(--muted)', margin: '3px 0 7px' }}>
+                Se alguma delas é a chamada de um anúncio, me mande a frase que eu cadastro a campanha.
+              </div>
+              {dados.textosNaoReconhecidos.map((t, i) => (
+                <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'baseline', padding: '4px 0', borderTop: i ? '1px dashed var(--border)' : 'none' }}>
+                  <span style={{ fontSize: 11.5, fontWeight: 800, color: '#7c3aed', minWidth: 26 }}>{t.n}×</span>
+                  <span style={{ fontSize: 11.5, color: 'var(--txt2)', flex: 1, minWidth: 0 }}>{t.texto}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {/* 💸 Campanha que o Meta cobrou e não trouxe ninguém no período */}
+          {corte === 'campanha' && (dados?.campanhasSemLead || []).length > 0 && (
+            <div style={{ marginTop: 14, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+              <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--err,#dc2626)', textTransform: 'uppercase', letterSpacing: .5 }}>
+                💸 Campanhas sem nenhum lead no período
+              </div>
+              {dados.campanhasSemLead.map(c => (
+                <div key={c.rotulo} style={{ display: 'flex', gap: 8, alignItems: 'baseline', padding: '4px 0', fontSize: 11.5 }}>
+                  <span style={{ flex: 1, minWidth: 0, color: 'var(--txt2)' }}>{c.rotulo}</span>
+                  {c.metaResultados != null && <span style={{ color: 'var(--muted)', fontSize: 10.5 }}>Meta: {n0(c.metaResultados)}</span>}
+                  {c.metaGasto != null && <span style={{ color: 'var(--err,#dc2626)', fontWeight: 700 }}>{fmt.brl(c.metaGasto)}</span>}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </Caixa>
 
@@ -425,6 +474,11 @@ Agendamento e venda só contam se aconteceram DEPOIS da chegada do lead. Gerado 
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.nome}</div>
                 <div style={{ fontSize: 11, color: 'var(--muted)' }}>{fmt.phone(l.telefone)} · {l.setor}{l.responsavel ? ` · ${l.responsavel}` : ''}</div>
+                {/* 📣 De qual anúncio este lead veio (ordem do master, 05/09) */}
+                {l.campanha && (
+                  <div style={{ fontSize: 10, fontWeight: 700, color: '#7c3aed', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                    title={l.primeiraMsg || ''}>📣 {l.campanha}</div>
+                )}
               </div>
               <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
                 {fmt.date(l.dia)}<br /><span style={{ fontSize: 10.5, color: 'var(--light)' }}>{DOW[l.dow]} · {l.chegou.slice(11)}</span>

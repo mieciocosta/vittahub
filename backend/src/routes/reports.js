@@ -300,8 +300,76 @@ const SINAL_OBJECAO =    // o cliente recuando (marketing caro / lead frio)
    marcado e entra no corte "Por campanha", com leads, agenda, fechamento e
    faturamento. Editável em configuracoes.campanhas_leads sem mexer em código. */
 const CAMPANHAS_PADRAO = [
-  { rotulo: 'Plano 2 meses (anúncio)',
+  // ── Consultas ────────────────────────────────────────────────────────────
+  { rotulo: 'Neuro · Nem todo desafio é falta de atenção', setor: 'consultas',
+    conjunto: 'NEUROPEDIATRIA.DRA HELENA BRANDÃO', meta_resultados: 89, meta_gasto: 330.03,
+    termos: ['nem todo desafio', 'falta de atencao', 'o que esta por tras'] },
+  { rotulo: 'Neuropediatria · Dra Helena Brandão', setor: 'consultas',
+    conjunto: 'CONJ.01 CONSULTAS', meta_resultados: 32, meta_gasto: 102.23,
+    termos: ['neuropediatria', 'helena brandao'] },
+  { rotulo: 'Sua saúde merece atenção no momento certo', setor: 'consultas',
+    conjunto: 'CONSULTASVITTALISSÃOLUIS', meta_resultados: 24, meta_gasto: 280.86,
+    termos: ['merece atencao no momento certo', 'momento certo'] },
+  { rotulo: 'Precisa de uma consulta?', setor: 'consultas',
+    conjunto: 'Novo conjunto de anúncios de Tráfego', meta_resultados: 10, meta_gasto: 177,
+    termos: ['precisa de uma consulta', 'conte com a vittalis'] },
+  { rotulo: 'A sua saúde não é perda de tempo (formulário)', setor: 'consultas',
+    conjunto: 'CONJUNTO PLANOS', meta_resultados: 8, meta_gasto: 223.55,
+    termos: ['perda de tempo'] },
+  { rotulo: 'Promoção · Consultas (formulário)', setor: 'consultas',
+    conjunto: 'CONJUNTO PLANOS', meta_resultados: 7, meta_gasto: 130.05,
+    termos: ['promocao|consultas', 'promocao consultas'] },
+  // ── Vacinas ──────────────────────────────────────────────────────────────
+  { rotulo: 'Plano 2 meses · proteção especial', setor: 'vacinas',
+    conjunto: null, meta_resultados: null, meta_gasto: null,
     termos: ['plano de 2 meses', 'plano 2 meses', 'primeiros meses do seu bebe merecem', 'protecao especial'] },
+  { rotulo: 'Proteção que cresce junto com quem você mais ama', setor: 'vacinas',
+    conjunto: 'VACINAÇÃO SÃO LUIS', meta_resultados: 22, meta_gasto: 187.82,
+    termos: ['protecao que cresce', 'quem voce mais ama'] },
+  { rotulo: 'Planos vacinais completos', setor: 'vacinas',
+    conjunto: 'PLANOS VACINAIS01.02', meta_resultados: 8, meta_gasto: 142.51,
+    termos: ['planos de vacinais completos', 'planos vacinais completos'] },
+  { rotulo: 'Plano de vacinação infantil 0 a 18 meses', setor: 'vacinas',
+    conjunto: 'PLANOS VACINAIS04/09/2026', meta_resultados: 13, meta_gasto: 158.32,
+    termos: ['vacinacao infantil', 'cuidado desde o comeco', '0 a 18 meses', '0 a 18meses'] },
+  { rotulo: 'Carteira em dia', setor: 'vacinas',
+    conjunto: 'CONJUNTO VACINA IP - 24/06', meta_resultados: 5, meta_gasto: 44.4,
+    termos: ['carteira em dia', 'vacinas em dia', 'esta com as vacinas em dia'] },
+  { rotulo: 'Vacinar também é cuidar', setor: 'vacinas',
+    conjunto: 'Conjunto up vacinação', meta_resultados: null, meta_gasto: 189.65,
+    termos: ['vacinar tambem e cuidar'] },
+  { rotulo: 'Próxima vacina do bebê', setor: 'vacinas',
+    conjunto: 'Novo conjunto de anúncios de Tráfego', meta_resultados: null, meta_gasto: 59.78,
+    termos: ['proxima vacina', 'qual proxima vacina'] },
+  { rotulo: 'Cuide hoje da proteção de quem você ama', setor: 'vacinas',
+    conjunto: 'CON.VACINA.27', meta_resultados: 2, meta_gasto: 6.02,
+    termos: ['cuide hoje da protecao'] },
+  { rotulo: 'Futuro do seu filho · proteção certa hoje', setor: 'vacinas',
+    conjunto: 'VCAINAS VITTALISPAIS', meta_resultados: null, meta_gasto: 62.48,
+    termos: ['futuro do seu filho', 'protecao certa hoje'] },
+  { rotulo: 'Formatura de vacinação', setor: 'vacinas',
+    conjunto: 'CONJUNTO VACINA IP - 24/06', meta_resultados: null, meta_gasto: 13.92,
+    termos: ['formatura de vacinacao', 'formatura'] },
+  { rotulo: 'Plano Diamante', setor: 'vacinas',
+    conjunto: 'CONJUNTO VACINA IP - 24/06', meta_resultados: null, meta_gasto: 5.16,
+    termos: ['plano diamante'] },
+  // ── Terapias e nutrição ──────────────────────────────────────────────────
+  { rotulo: 'Comportamento do seu pequeno (ABA)', setor: 'terapias',
+    conjunto: 'TERAPIA ABA VITTALIS SÃO LUIS', meta_resultados: null, meta_gasto: 17.54,
+    termos: ['comportamento do seu pequeno'] },
+  { rotulo: 'Alimentação do seu pequeno (seletividade)', setor: 'terapias',
+    conjunto: 'NUTRICIONISTA-SELETIVIDADE ALIMENTAR', meta_resultados: null, meta_gasto: 55.04,
+    termos: ['alimentacao do seu pequeno', 'seletividade alimentar'] },
+  { rotulo: 'Neuropsicologia · Dra Fernanda Ilkys', setor: 'consultas',
+    conjunto: 'CONJ.01 CONSULTAS', meta_resultados: null, meta_gasto: 0.65,
+    termos: ['neuropsicologia', 'fernanda ilkys'] },
+  // ── Geral ────────────────────────────────────────────────────────────────
+  { rotulo: 'Serviços · planos, consultas e terapias', setor: null,
+    conjunto: 'CAMPANHA PROSPECÇÃO WHATSSAP', meta_resultados: 2, meta_gasto: 6.67,
+    termos: ['servicos, planos vacinais', 'planos vacinais, consultas e terapias'] },
+  { rotulo: 'Experiência Vittalis', setor: null,
+    conjunto: 'CONJ.01 CONSULTAS', meta_resultados: null, meta_gasto: 1.06,
+    termos: ['experiencia vittalis'] },
 ];
 const semAcento = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 async function lerCampanhas() {
@@ -349,6 +417,7 @@ r.get('/leads-novos', async (req, res) => {
     const fDow    = /^[0-6]$/.test(String(req.query.dow ?? '')) ? parseInt(req.query.dow) : null;
     const fSetor  = String(req.query.setor  || '').slice(0, 30);
     const fOrigem = String(req.query.origem || '').slice(0, 40);
+    const fCampanha = String(req.query.campanha || '').slice(0, 80);   // 📣 clicar numa campanha filtra o relatório inteiro
 
     /* Janela: período escolhido à mão (de/até) ou os últimos N meses. Calculada
        aqui em JS já no horário de São Luís e mandada como data literal — assim
@@ -565,13 +634,18 @@ r.get('/leads-novos', async (req, res) => {
     /* Recorte escolhido (mês → dia da semana → dia exato → setor → origem).
        Os filtros se somam: "agosto + segunda" responde exatamente o exemplo do
        José ("os leads que nos mandaram mensagem na segunda, em agosto"). */
-    const recorte = universo.filter(l =>
+    /* A lista de campanhas é calculada ANTES do filtro de campanha — senão,
+       ao escolher uma, as outras sumiriam da tela e não daria pra trocar. */
+    const recorteSemCampanha = universo.filter(l =>
       (!fMes    || l.mes === fMes) &&
       (!fDia    || l.dia === fDia) &&
       (fDow === null || l.dow === fDow) &&
       (!fSetor  || l.setor === fSetor) &&
       (!fOrigem || l.origem === fOrigem)
     );
+    const recorte = fCampanha
+      ? recorteSemCampanha.filter(l => (l.campanha || 'Sem campanha identificada') === fCampanha)
+      : recorteSemCampanha;
 
     // Dias do mês escolhido (ou da janela toda, se nenhum mês foi clicado)
     const paraDias = universo.filter(l =>
@@ -594,7 +668,7 @@ r.get('/leads-novos', async (req, res) => {
 
     res.json({
       janela: { de, ate: ate || hojeSLZ, meses, manual: periodoManual, entradaSomente: soEntrada },
-      filtros: { mes: fMes, dia: fDia, dow: fDow, setor: fSetor, origem: fOrigem },
+      filtros: { mes: fMes, dia: fDia, dow: fDow, setor: fSetor, origem: fOrigem, campanha: fCampanha },
       totais: {
         ...taxas(tot),
         semResposta: recorte.filter(l => !l.respondido).length,
@@ -616,7 +690,40 @@ r.get('/leads-novos', async (req, res) => {
          mudar; o fechamento aparece como taxa de cada faixa. */
       horas: agrupar(recorte, l => `${String(l.hora).padStart(2, '0')}h`).sort((a, b) => a.chave.localeCompare(b.chave)),
       turnos: agrupar(recorte, l => l.turno).sort((a, b) => ORDEM_TURNO.indexOf(a.chave) - ORDEM_TURNO.indexOf(b.chave)),
-      campanhas: agrupar(recorte, l => l.campanha || 'Sem campanha identificada').sort((a, b) => b.leads - a.leads),
+      /* 📣 CHEGOU ATÉ NÓS? (ordem do master, 05/09: "quero saber se essas
+         campanhas realmente chegaram até nós"). Cada linha traz o que o Meta
+         PROMETEU (conversas iniciadas e quanto foi gasto) ao lado do que
+         REALMENTE apareceu no CRM — e o custo por lead que de fato chegou. */
+      campanhas: agrupar(recorteSemCampanha, l => l.campanha || 'Sem campanha identificada')
+        .map(c => {
+          const cfg = campanhas.find(x => x.rotulo === c.chave) || {};
+          const gasto = cfg.meta_gasto != null ? Number(cfg.meta_gasto) : null;
+          return { ...c, setorAnuncio: cfg.setor || null, conjunto: cfg.conjunto || null,
+            metaResultados: cfg.meta_resultados ?? null, metaGasto: gasto,
+            custoPorLead: gasto && c.leads ? Math.round((gasto / c.leads) * 100) / 100 : null,
+            chegouPct: cfg.meta_resultados ? Math.round((c.leads / cfg.meta_resultados) * 1000) / 10 : null };
+        })
+        .sort((a, b) => b.leads - a.leads),
+      /* 🗣️ O QUE O CLIENTE ESCREVEU E NINGUÉM RECONHECEU. É por aqui que se
+         descobre a frase real de um anúncio novo: as mais repetidas, no topo.
+         Basta o master mandar a frase que eu cadastro a campanha. */
+      textosNaoReconhecidos: (() => {
+        const m = new Map();
+        for (const l of recorteSemCampanha) {
+          if (l.campanha) continue;
+          const t = String(l.primeiraMsg || '').trim().slice(0, 90);
+          if (t.length < 12) continue;
+          const k = semAcento(t);
+          const at = m.get(k);
+          if (at) at.n++; else m.set(k, { texto: t, n: 1 });
+        }
+        return [...m.values()].sort((a, b) => b.n - a.n).slice(0, 25);
+      })(),
+      /* Campanhas do catálogo que NÃO trouxeram ninguém no período — o Meta
+         cobrou e nada chegou, ou a frase do anúncio mudou. */
+      campanhasSemLead: campanhas
+        .filter(c => !recorteSemCampanha.some(l => l.campanha === c.rotulo))
+        .map(c => ({ rotulo: c.rotulo, setor: c.setor || null, metaResultados: c.meta_resultados ?? null, metaGasto: c.meta_gasto ?? null })),
       origens: agrupar(recorte, l => l.origem).sort((a, b) => b.leads - a.leads),
       setores: agrupar(recorte, l => l.setor).sort((a, b) => b.leads - a.leads),
       equipe:  agrupar(recorte, l => l.responsavel || 'sem dono').sort((a, b) => b.leads - a.leads),
