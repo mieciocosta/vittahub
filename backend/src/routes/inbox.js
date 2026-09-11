@@ -3282,6 +3282,32 @@ r.post('/webhook/zapi', async (req, res) => {
     }
     console.log(`ZAPI_WH: ${JSON.stringify(body).slice(0, 300)}`);
 
+    /* 📣 DE QUAL ANÚNCIO ESTA CONVERSA NASCEU (ordem do master, 05/09: "quero
+       bater se os números do Meta batem com o atendimento no WhatsApp").
+       Quando o cliente chega clicando num anúncio, o WhatsApp manda junto a
+       referência da peça — título, corpo e o id do anúncio. É prova exata, não
+       adivinhação por texto. Cada gateway embrulha isso num lugar diferente,
+       então procuramos em todos os formatos conhecidos e guardamos o que
+       achar; não achando nada, o relatório continua lendo o texto. */
+    try {
+      const ad = body?.referral || body?.adReferral || body?.externalAdReply
+        || body?.message?.contextInfo?.externalAdReply || body?.contextInfo?.externalAdReply
+        || body?.message?.externalAdReply || null;
+      if (ad && (body.phone || body.connectedPhone)) {
+        const titulo = String(ad.title || ad.headline || ad.body || ad.sourceUrl || ad.source_url || '').slice(0, 200);
+        const adId = String(ad.sourceId || ad.source_id || ad.adId || ad.ad_id || ad.ctwaClid || '').slice(0, 120) || null;
+        if (titulo || adId) {
+          const tel = String(body.phone).replace(/\D/g, '');
+          await query(
+            `UPDATE conversas SET campanha_ad = COALESCE(NULLIF(campanha_ad,''), $1),
+                                  campanha_ad_id = COALESCE(NULLIF(campanha_ad_id,''), $2)
+              WHERE right(regexp_replace(COALESCE(phone,''), '\\D', '', 'g'), 8) = right($3, 8)`,
+            [titulo || null, adId, tel]).catch(() => {});
+          console.log(`📣 Anúncio de origem guardado: ${titulo.slice(0, 60)}${adId ? ` (${adId})` : ''}`);
+        }
+      }
+    } catch { /* referral é bônus: nunca atrapalha a entrada da mensagem */ }
+
     // ── Eventos de conexão/desconexão (vêm do webhook "Ao conectar/desconectar") ──
     const event = body.event || body.type || '';
     if (event === 'connected' || body.connected === true || body.status === 'open') {

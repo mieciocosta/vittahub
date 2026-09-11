@@ -279,6 +279,13 @@ const SINAL_PAGAMENTO =  // o cliente dizendo que pagou
   '(comprovante|acabei de pagar|j[aá] paguei|paguei|fiz o pix|pix (feito|enviado|realizado)|segue o (pix|comprovante|pagamento)|transferi|pagamento (feito|realizado|enviado)|efetuei o pagamento)';
 const SINAL_ACEITE =     // o cliente fechando o combinado
   '(pode (agendar|marcar|confirmar)|quero (agendar|marcar|fechar)|vamos (marcar|agendar|fechar)|pode deixar marcad|fechad[oa]|confirmo|confirmad[oa]|combinado|estarei|estaremos|vou levar|pode ser (esse|nesse|assim))';
+/* 🎫 O GATILHO PADRÃO DA CASA (ordem do master, 05/09: "tenta ver nas
+   conversas o gatilho, algo padrão, para que consideremos os números").
+   O cartão oficial de agendamento é o ÚNICO texto fixo que sai igual de todos
+   os caminhos (IA, agenda do CRM, menu, lembrete) — e ele só é enviado quando
+   o horário está firmado. As duas linhas abaixo ("Horário:" e "Serviço:") só
+   existem juntas nele. É a prova mais confiável que o sistema tem; melhor que
+   qualquer palavra solta de conversa. */
 const SINAL_OBJECAO =    // o cliente recuando (marketing caro / lead frio)
   '(n[aã]o (vou|quero|posso|tenho interesse)|desisti|muito caro|caro demais|vou pensar|depois eu (vejo|falo|retorno)|deixa pra depois|achei caro|t[aá] caro)';
 
@@ -400,6 +407,39 @@ const guardarCacheLeads = (k, leads) => {
   while (CACHE_LEADS_NOVOS.size > 12) CACHE_LEADS_NOVOS.delete(CACHE_LEADS_NOVOS.keys().next().value);
 };
 
+/* 📣 CATÁLOGO DE CAMPANHAS NA MÃO DO MASTER (05/09: "muitos com Sem campanha
+   identificada"). O anúncio manda no WhatsApp um texto que a gente não escolhe
+   ("Converse conosco"), então adivinhar pelo nome da peça falha. Aqui o master
+   lê as frases que chegaram de verdade e diz de qual campanha cada uma é —
+   sem depender de mim pra cada anúncio novo. */
+r.get('/campanhas', async (req, res) => {
+  if (req.user.role !== 'master') return res.status(403).json({ error: 'Só o master edita as campanhas.' });
+  try { res.json({ campanhas: await lerCampanhas() }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+r.put('/campanhas', async (req, res) => {
+  if (req.user.role !== 'master') return res.status(403).json({ error: 'Só o master edita as campanhas.' });
+  try {
+    const lista = (Array.isArray(req.body?.campanhas) ? req.body.campanhas : [])
+      .map(c => ({
+        rotulo: String(c.rotulo || '').trim().slice(0, 80),
+        setor: ['vacinas', 'consultas', 'terapias'].includes(c.setor) ? c.setor : null,
+        conjunto: c.conjunto ? String(c.conjunto).slice(0, 80) : null,
+        meta_resultados: c.meta_resultados != null ? Number(c.meta_resultados) || 0 : null,
+        meta_gasto: c.meta_gasto != null ? Number(c.meta_gasto) || 0 : null,
+        termos: (Array.isArray(c.termos) ? c.termos : []).map(t => String(t).trim().slice(0, 120)).filter(Boolean).slice(0, 20),
+      }))
+      .filter(c => c.rotulo && c.termos.length)
+      .slice(0, 80);
+    if (!lista.length) return res.status(400).json({ error: 'Cada campanha precisa de um nome e ao menos uma frase.' });
+    await query(`INSERT INTO configuracoes (chave, valor) VALUES ('campanhas_leads', $1::jsonb)
+                 ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`,
+      [JSON.stringify({ campanhas: lista })]);
+    CACHE_LEADS_NOVOS.clear();   // o recorte antigo foi montado com o catálogo velho
+    res.json({ ok: true, campanhas: lista });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.get('/leads-novos', async (req, res) => {
   /* Master sempre; fora dele, só quem o master liberou (usuarios.ve_carteira_leads
      — o José, 03/09). Lê do banco, não do token: liberar não pode depender de
@@ -475,7 +515,8 @@ r.get('/leads-novos', async (req, res) => {
                (a.pout IS NOT NULL AND a.pout < a.pin) AS nos_chamamos,
                EXTRACT(EPOCH FROM (a.pout - a.pin))/60 AS resp_min,
                a.msgs_cliente,
-               right(regexp_replace(COALESCE(c.phone, ''), '\\D', '', 'g'), 8) AS tel8
+               right(regexp_replace(COALESCE(c.phone, ''), '\\D', '', 'g'), 8) AS tel8,
+               c.campanha_ad, c.campanha_ad_id
           FROM agg a
           JOIN conversas c ON c.id = a.conversa_id
           LEFT JOIN usuarios u ON u.id = c.responsavel_id
@@ -501,7 +542,8 @@ r.get('/leads-novos', async (req, res) => {
                ${TXT(`MIN(created_at) FILTER (WHERE from_type IN ('me','bot') AND content ~* '${SINAL_CONFIRMACAO}')`)} AS t_conf,
                ${TXT(`MIN(created_at) FILTER (WHERE from_type = 'contact' AND content ~* '${SINAL_PAGAMENTO}')`)}      AS t_pago,
                ${TXT(`MIN(created_at) FILTER (WHERE from_type = 'contact' AND content ~* '${SINAL_ACEITE}')`)}         AS t_ok,
-               ${TXT(`MIN(created_at) FILTER (WHERE from_type = 'contact' AND content ~* '${SINAL_OBJECAO}')`)}        AS t_obj
+               ${TXT(`MIN(created_at) FILTER (WHERE from_type = 'contact' AND content ~* '${SINAL_OBJECAO}')`)}        AS t_obj,
+               ${TXT(`MIN(created_at) FILTER (WHERE from_type IN ('me','bot') AND content ~* 'hor[aá]rio:' AND content ~* 'servi[çc]o:')`)} AS t_cartao
              FROM mensagens
             WHERE ${DEPOIS_DE('created_at')} AND content IS NOT NULL
             GROUP BY conversa_id`),
@@ -552,6 +594,9 @@ r.get('/leads-novos', async (req, res) => {
       const dow = new Date(Y, M - 1, D).getDay();
       const hora = parseInt(chegou.slice(11, 13), 10) || 0;   // hora de São Luís em que o lead chegou
       const primeiraMsg = primeiraMsgDe.get(c.id) || '';
+      /* 📣 O anúncio informado pelo próprio WhatsApp vale mais que qualquer
+         palpite por texto: se veio, é ele. */
+      const adTitulo = String(c.campanha_ad || '').trim();
       const depois = (x) => !!x && x >= chegou;      // texto ISO compara igual a data
 
       const ags = [...(agConv.get(c.id) || []), ...(c.tel8 && c.tel8.length === 8 ? (agTel.get(c.tel8) || []) : [])]
@@ -564,15 +609,23 @@ r.get('/leads-novos', async (req, res) => {
       const s = sinalDe.get(c.id) || {};
       const confMsg = depois(s.t_conf), pagoMsg = depois(s.t_pago);
       const okMsg = depois(s.t_ok), objecao = depois(s.t_obj);
+      const cartaoMsg = depois(s.t_cartao);   // 🎫 cartão oficial: o gatilho padrão da casa
 
-      const agendou = ags.length > 0 || confMsg;
+      /* Cartão oficial conta como agendado mesmo sem linha na agenda: houve
+         casos de cartão mandado na conversa e o evento criado depois, ou em
+         outro dia — a promessa ao cliente já foi feita. */
+      const agendou = ags.length > 0 || cartaoMsg || confMsg;
       const fechou  = vds.length > 0 || pagoMsg;
-      const prova = vds.length ? 'venda lançada no caixa'
-                  : pagoMsg   ? 'cliente confirmou o pagamento na conversa'
-                  : ags.length ? 'agendamento na agenda'
-                  : confMsg   ? 'confirmação enviada na conversa'
-                  : okMsg     ? 'cliente disse que quer fechar'
-                  : objecao   ? 'cliente recuou (preço/depois)'
+      /* Ordem da prova: do mais duro (dinheiro no caixa) pro mais frouxo
+         (palavra solta). É esta etiqueta que diz ao master o quanto confiar
+         em cada linha do relatório. */
+      const prova = vds.length  ? 'venda lançada no caixa'
+                  : pagoMsg     ? 'cliente confirmou o pagamento na conversa'
+                  : ags.length  ? 'agendamento na agenda'
+                  : cartaoMsg   ? 'cartão oficial de agendamento enviado'
+                  : confMsg     ? 'confirmação enviada na conversa'
+                  : okMsg       ? 'cliente disse que quer fechar'
+                  : objecao     ? 'cliente recuou (preço/depois)'
                   : null;
 
       return {
@@ -583,13 +636,15 @@ r.get('/leads-novos', async (req, res) => {
         status: c.status_atend, perdido: c.perdido, temperatura: c.lead_score,
         chegou, dia, mes, dow, dowNome: DOW[dow],
         hora, turno: turnoDe(hora),
-        campanha: campanhaDoTexto(primeiraMsg),
+        campanha: (adTitulo && (campanhaDoTexto(adTitulo) || adTitulo.slice(0, 70))) || campanhaDoTexto(primeiraMsg),
+        campanhaProvada: !!adTitulo,   // veio do WhatsApp, não de adivinhação
         primeiraMsg: primeiraMsg.slice(0, 160),
         nosChamamos: c.nos_chamamos === true,
         respondido: c.teve_resposta === true,
         respMin: c.respondido_apos && c.resp_min != null ? Math.round(Number(c.resp_min)) : null,
         msgsCliente: c.msgs_cliente || 0,
-        agendou, agendouEm: ags[0]?.criado || (confMsg ? s.t_conf : null), agendaData: dataISO(ags[0]?.data),
+        agendou, agendouEm: ags[0]?.criado || (cartaoMsg ? s.t_cartao : confMsg ? s.t_conf : null), agendaData: dataISO(ags[0]?.data),
+        cartao: cartaoMsg, provaDura: vds.length > 0 || pagoMsg || ags.length > 0 || cartaoMsg,
         fechou, fechouEm: vds[0]?.criado || (pagoMsg ? s.t_pago : null),
         valor, temVenda: vds.length > 0, pagouNaConversa: pagoMsg && !vds.length,
         querFechar: okMsg && !fechou, objecao: objecao && !fechou,
@@ -685,6 +740,14 @@ r.get('/leads-novos', async (req, res) => {
         objecoes:    recorte.filter(l => l.objecao).length,
         respostaMediana: mediana,
         respostaAte5min: temposResp.filter(v => v <= 5).length,
+        /* 🎫 DE ONDE VEM CADA NÚMERO (05/09). O master pediu um gatilho padrão
+           para poder confiar; aqui está a conta aberta, da prova mais dura
+           pra mais frouxa. */
+        comCartao: recorte.filter(l => l.cartao).length,
+        provaDura: recorte.filter(l => l.provaDura).length,
+        porProva: Object.entries(
+          recorte.reduce((m, l) => { const k = l.prova || 'sem sinal na conversa'; m[k] = (m[k] || 0) + 1; return m; }, {})
+        ).map(([prova, n]) => ({ prova, n })).sort((a, b) => b.n - a.n),
       },
       meses: mesesLista,
       dias, semana,
@@ -730,7 +793,19 @@ r.get('/leads-novos', async (req, res) => {
         .map(c => ({ rotulo: c.rotulo, setor: c.setor || null, metaResultados: c.meta_resultados ?? null, metaGasto: c.meta_gasto ?? null })),
       origens: agrupar(recorte, l => l.origem).sort((a, b) => b.leads - a.leads),
       setores: agrupar(recorte, l => l.setor).sort((a, b) => b.leads - a.leads),
-      equipe:  agrupar(recorte, l => l.responsavel || 'sem dono').sort((a, b) => b.leads - a.leads),
+      /* 👥 QUEM RECEBEU E QUEM FECHOU (ordem do master, 05/09). Ordenado por
+         leads recebidos: a primeira pergunta é quem pegou mais, a segunda é o
+         que cada uma fez com o que pegou. */
+      equipe:  agrupar(recorte, l => l.responsavel || 'sem dono')
+        .map(e => ({ ...e,
+          semResposta: recorte.filter(l => (l.responsavel || 'sem dono') === e.chave && !l.respondido).length,
+          medianaResp: (() => {
+            const t2 = recorte.filter(l => (l.responsavel || 'sem dono') === e.chave && l.respMin != null && l.respMin >= 0)
+              .map(l => l.respMin).sort((a, b) => a - b);
+            return t2.length ? t2[Math.floor(t2.length / 2)] : null;
+          })(),
+        }))
+        .sort((a, b) => b.leads - a.leads),
       lista: recorte.slice(0, 600),
       truncada: recorte.length > 600 ? recorte.length : 0,
     });

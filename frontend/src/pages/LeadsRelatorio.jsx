@@ -61,6 +61,9 @@ export default function LeadsRelatorio() {
   const [entrada, setEntrada] = useState(true);
   const [corte, setCorte] = useState('origem');
   const [busca, setBusca] = useState('');
+  /* 📣 Cadastrar campanha a partir de uma frase real (05/09) */
+  const [novaCamp, setNovaCamp] = useState(null);   // { texto, rotulo }
+  const [salvandoCamp, setSalvandoCamp] = useState(false);
 
   const limparRecorte = () => { setMes(''); setDia(''); setDow(null); setSetor(''); setOrigem(''); setCampanha(''); };
 
@@ -111,6 +114,26 @@ export default function LeadsRelatorio() {
   const cortes = { origem: dados?.origens || [], setor: dados?.setores || [], equipe: dados?.equipe || [],
     turno: dados?.turnos || [], hora: dados?.horas || [], campanha: dados?.campanhas || [] };
   const linhas = cortes[corte] || [];
+
+  /* Pega o catálogo atual, junta a frase nova e grava. Se já existe campanha
+     com esse nome, a frase entra como mais um termo dela. */
+  const salvarCampanha = async () => {
+    if (!novaCamp?.rotulo?.trim() || salvandoCamp) return;
+    setSalvandoCamp(true);
+    try {
+      const atual = await api.get('/reports/campanhas');
+      const lista = Array.isArray(atual?.campanhas) ? atual.campanhas.map(c => ({ ...c })) : [];
+      const rot = novaCamp.rotulo.trim();
+      const termo = novaCamp.texto.trim().slice(0, 120);
+      const ja = lista.find(c => String(c.rotulo).toLowerCase() === rot.toLowerCase());
+      if (ja) { ja.termos = [...new Set([...(ja.termos || []), termo])]; }
+      else lista.unshift({ rotulo: rot, setor: null, conjunto: null, meta_resultados: null, meta_gasto: null, termos: [termo] });
+      await api.put('/reports/campanhas', { campanhas: lista });
+      setNovaCamp(null);
+      carregar(true);
+    } catch (e) { setErro(e.message || 'Não consegui salvar a campanha'); }
+    setSalvandoCamp(false);
+  };
 
   const periodoTxt = () => {
     if (!dados) return '';
@@ -279,6 +302,26 @@ Agendamento e venda só contam se aconteceram DEPOIS da chegada do lead. Gerado 
         )}
       </div>
 
+      {/* 🎯 TAXA DE CONVERSÃO EM PRIMEIRO LUGAR (ordem do master, 05/09:
+          "preciso saber a taxa de conversão"). Era uma linha no meio de cinco;
+          virou a manchete, com o caminho inteiro ao lado e a régua embaixo. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10, marginBottom: 12 }}>
+        {[
+          { rot: 'Leads que chegaram', val: n0(t?.leads), sub: `${n0(t?.semResposta)} sem resposta nossa`, cor: 'var(--txt)' },
+          { rot: 'Respondemos', val: pct(t?.txResposta), sub: `1ª resposta em ${tempoTxt(t?.respostaMediana)}`, cor: 'var(--tq2)' },
+          { rot: 'Agendaram', val: pct(t?.txAgenda), sub: `${n0(t?.agendados)} clientes`, cor: 'var(--pet,#7c3aed)' },
+          { rot: '🎯 Taxa de conversão', val: pct(t?.txFechou), sub: `${n0(t?.fechados)} fecharam de ${n0(t?.leads)}`, cor: 'var(--tq2)', forte: true },
+          { rot: 'Faturamento', val: fmt.brl(t?.valor), sub: `ticket ${fmt.brl(t?.ticket)}`, cor: 'var(--gold)' },
+        ].map(k => (
+          <Caixa key={k.rot} style={{ padding: '12px 14px', borderTop: `3px solid ${k.forte ? k.cor : 'transparent'}`,
+            background: k.forte ? 'var(--tq4)' : 'var(--card)' }}>
+            <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .6 }}>{k.rot}</div>
+            <div style={{ fontSize: k.forte ? 30 : 24, fontWeight: 900, letterSpacing: -1, color: k.cor, lineHeight: 1.15, marginTop: 2 }}>{k.val}</div>
+            <div style={{ fontSize: 10.5, color: 'var(--light)', marginTop: 2 }}>{k.sub}</div>
+          </Caixa>
+        ))}
+      </div>
+
       {/* 3 · Os quatro números + funil, lado a lado */}
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1.15fr)', gap: 12, marginBottom: 12 }} className="vh-leads-topo">
         <Caixa style={{ padding: '4px 0' }}>
@@ -323,6 +366,44 @@ Agendamento e venda só contam se aconteceram DEPOIS da chegada do lead. Gerado 
             <div style={{ marginTop: 10, paddingTop: 9, borderTop: '1px solid var(--border)', fontSize: 11.5, color: 'var(--muted)' }}>
               Na conversa: <b style={{ color: 'var(--tq2)' }}>{n0(t.querFechar)}</b> disseram que querem fechar e ainda não fecharam ·
               <b style={{ color: 'var(--err)' }}> {n0(t.objecoes)}</b> recuaram (preço / "vou pensar").
+            </div>
+          )}
+
+          {/* 🎫 A RÉGUA, ABERTA (ordem do master, 05/09: "tenta ver nas conversas
+              o gatilho, algo padrão, para que consideremos os números"). Cada
+              fechamento tem uma prova, e elas não valem o mesmo: dinheiro no
+              caixa é fato, palavra de conversa é indício. Aqui está a conta. */}
+          {(dados?.totais?.porProva || []).length > 0 && (
+            <div style={{ marginTop: 12, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+              <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--txt2)', display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
+                🎫 Em que estamos nos baseando
+                <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--tq2)' }}>
+                  {n0(dados?.totais?.provaDura)} de {n0(t?.leads)} com prova firme
+                </span>
+              </div>
+              <div style={{ fontSize: 10.5, color: 'var(--muted)', margin: '3px 0 7px', lineHeight: 1.5 }}>
+                O cartão oficial de agendamento é o gatilho padrão da casa: sai igual por todos os caminhos e só é enviado com o horário firmado.
+                {dados?.totais?.comCartao > 0 && ` Foram ${n0(dados.totais.comCartao)} neste recorte.`}
+              </div>
+              {dados.totais.porProva.map(p => {
+                const maior = Math.max(1, ...dados.totais.porProva.map(x => x.n));
+                const firme = /caixa|pagamento|agenda|cart[aã]o/i.test(p.prova);
+                return (
+                  <div key={p.prova} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 38px', alignItems: 'center', gap: 8, padding: '3px 0' }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 11, color: firme ? 'var(--txt2)' : 'var(--muted)', fontWeight: firme ? 700 : 500,
+                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {firme ? '✓' : '·'} {p.prova}
+                      </div>
+                      <div style={{ height: 4, background: 'var(--bg2)', borderRadius: 99, marginTop: 2, overflow: 'hidden' }}>
+                        <div style={{ width: `${(p.n / maior) * 100}%`, height: '100%', borderRadius: 99,
+                          background: firme ? 'var(--tq)' : 'var(--bord2,#cbd5e1)' }} />
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 11.5, fontWeight: 800, textAlign: 'right', color: 'var(--txt)' }}>{n0(p.n)}</div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </Caixa>
@@ -425,9 +506,35 @@ Agendamento e venda só contam se aconteceram DEPOIS da chegada do lead. Gerado 
                 Se alguma delas é a chamada de um anúncio, me mande a frase que eu cadastro a campanha.
               </div>
               {dados.textosNaoReconhecidos.map((t, i) => (
-                <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'baseline', padding: '4px 0', borderTop: i ? '1px dashed var(--border)' : 'none' }}>
-                  <span style={{ fontSize: 11.5, fontWeight: 800, color: '#7c3aed', minWidth: 26 }}>{t.n}×</span>
-                  <span style={{ fontSize: 11.5, color: 'var(--txt2)', flex: 1, minWidth: 0 }}>{t.texto}</span>
+                <div key={i} style={{ padding: '4px 0', borderTop: i ? '1px dashed var(--border)' : 'none' }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
+                    <span style={{ fontSize: 11.5, fontWeight: 800, color: '#7c3aed', minWidth: 26 }}>{t.n}×</span>
+                    <span style={{ fontSize: 11.5, color: 'var(--txt2)', flex: 1, minWidth: 0 }}>{t.texto}</span>
+                    <button onClick={() => setNovaCamp({ texto: t.texto, rotulo: '' })}
+                      title="Dizer de qual campanha é esta frase"
+                      style={{ border: '1px solid #7c3aed', background: 'transparent', color: '#7c3aed', borderRadius: 8,
+                        padding: '2px 9px', fontSize: 10.5, fontWeight: 800, cursor: 'pointer', flexShrink: 0 }}>
+                      📣 é campanha
+                    </button>
+                  </div>
+                  {novaCamp?.texto === t.texto && (
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', margin: '6px 0 6px 34px', flexWrap: 'wrap' }}>
+                      <input autoFocus value={novaCamp.rotulo} maxLength={80}
+                        onChange={e => setNovaCamp({ ...novaCamp, rotulo: e.target.value })}
+                        onKeyDown={e => { if (e.key === 'Enter') salvarCampanha(); if (e.key === 'Escape') setNovaCamp(null); }}
+                        placeholder="Nome da campanha (ex.: Planos vacinais 0 a 18 meses)"
+                        style={{ flex: 1, minWidth: 220, border: '1px solid var(--border)', background: 'var(--bg)', borderRadius: 8,
+                          padding: '6px 10px', fontSize: 11.5, color: 'var(--txt)' }} />
+                      <button onClick={salvarCampanha} disabled={salvandoCamp || !novaCamp.rotulo.trim()}
+                        style={{ border: 'none', background: '#7c3aed', color: '#fff', borderRadius: 8, padding: '6px 13px',
+                          fontSize: 11.5, fontWeight: 800, cursor: 'pointer', opacity: salvandoCamp || !novaCamp.rotulo.trim() ? .5 : 1 }}>
+                        {salvandoCamp ? 'Salvando…' : 'Salvar'}
+                      </button>
+                      <button onClick={() => setNovaCamp(null)}
+                        style={{ border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', borderRadius: 8,
+                          padding: '6px 11px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>Cancelar</button>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -449,6 +556,51 @@ Agendamento e venda só contam se aconteceram DEPOIS da chegada do lead. Gerado 
           )}
         </div>
       </Caixa>
+
+      {/* 👥 QUEM RECEBEU E QUEM FECHOU (ordem do master, 05/09: "quero ver com
+          atendente, quem recebeu mais leads e quanto fechou"). Estava escondido
+          numa aba; virou quadro próprio, ordenado por quem mais recebeu. */}
+      {(dados?.equipe || []).length > 0 && (
+        <Caixa style={{ marginBottom: 12 }}>
+          <div style={{ padding: '13px 15px 4px' }}>
+            <div style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--txt)' }}>👥 Por atendente — quem recebeu e quanto fechou</div>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{periodoTxt()}</div>
+          </div>
+          <div style={{ padding: '0 15px 14px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) 54px 62px 62px 62px 92px', gap: 8, padding: '7px 6px 5px',
+              fontSize: 9.5, color: 'var(--light)', textTransform: 'uppercase', letterSpacing: .5, fontWeight: 700 }}>
+              <div>Atendente</div>
+              {['Recebeu', '1ª resp.', 'Agendou', 'Fechou', 'R$'].map((x, i) => <div key={x} style={{ textAlign: i === 0 ? 'right' : 'right' }}>{x}</div>)}
+            </div>
+            {dados.equipe.map((e, i) => {
+              const maior = Math.max(1, ...dados.equipe.map(x => x.leads));
+              const medalha = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '';
+              return (
+                <div key={e.chave} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) 54px 62px 62px 62px 92px', alignItems: 'center', gap: 8,
+                  padding: '8px 6px', borderTop: '1px solid var(--border)', borderRadius: 8,
+                  background: i === 0 ? 'var(--tq4)' : 'transparent' }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--txt)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {medalha} {e.chave}
+                    </div>
+                    <div style={{ height: 5, background: 'var(--bg2)', borderRadius: 99, marginTop: 4, overflow: 'hidden' }}>
+                      <div style={{ width: `${(e.leads / maior) * 100}%`, height: '100%', background: 'var(--tq)', borderRadius: 99 }} />
+                    </div>
+                    {e.semResposta > 0 && (
+                      <div style={{ fontSize: 10, color: 'var(--err,#dc2626)', fontWeight: 700, marginTop: 2 }}>{n0(e.semResposta)} sem resposta</div>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 14, fontWeight: 900, textAlign: 'right', color: 'var(--txt)' }}>{n0(e.leads)}</div>
+                  <div style={{ fontSize: 11, textAlign: 'right', color: 'var(--muted)' }}>{tempoTxt(e.medianaResp)}</div>
+                  <div style={{ fontSize: 11.5, textAlign: 'right', color: 'var(--muted)' }}>{pct(e.txAgenda)}</div>
+                  <div style={{ fontSize: 13, textAlign: 'right', fontWeight: 800, color: e.txFechou > 0 ? 'var(--tq2)' : 'var(--muted)' }}>{pct(e.txFechou)}</div>
+                  <div style={{ fontSize: 11.5, textAlign: 'right', fontWeight: 700, color: 'var(--gold)' }}>{fmt.brl(e.valor)}</div>
+                </div>
+              );
+            })}
+          </div>
+        </Caixa>
+      )}
 
       {/* 5 · Quem são */}
       <Caixa>
@@ -477,7 +629,7 @@ Agendamento e venda só contam se aconteceram DEPOIS da chegada do lead. Gerado 
                 {/* 📣 De qual anúncio este lead veio (ordem do master, 05/09) */}
                 {l.campanha && (
                   <div style={{ fontSize: 10, fontWeight: 700, color: '#7c3aed', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
-                    title={l.primeiraMsg || ''}>📣 {l.campanha}</div>
+                    title={l.primeiraMsg || ''}>📣 {l.campanha}{l.campanhaProvada ? ' ✓' : ''}</div>
                 )}
               </div>
               <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>

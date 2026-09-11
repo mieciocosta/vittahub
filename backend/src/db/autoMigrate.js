@@ -3792,6 +3792,8 @@ async function colunasCriticas() {
     ['conversas', 'fora_da_fila',    'BOOLEAN DEFAULT false'],  // atendida: vive só na pasta
     ['conversas', 'arquivada',       'BOOLEAN DEFAULT false'],
     ['conversas', 'simulacao',       'BOOLEAN DEFAULT false'],
+    ['conversas', 'campanha_ad',     'TEXT'],      // 📣 anúncio que originou a conversa (referral do WhatsApp)
+    ['conversas', 'campanha_ad_id',  'TEXT'],      // id do anúncio no Meta, quando vier
     ['usuarios',  'titulo',          'TEXT'],                   // carteira na transferência
     ['usuarios',  'distribuidor',    'BOOLEAN DEFAULT false'],   // recebe a fila de leads novos
     ['usuarios',  'so_fidelidade',   'BOOLEAN DEFAULT false'],
