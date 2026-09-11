@@ -102,7 +102,12 @@ export default function LeadsRelatorio() {
     return b ? l.filter(i => `${i.nome} ${i.telefone || ''}`.toLowerCase().includes(b)) : l;
   }, [dados, busca]);
 
-  const cortes = { origem: dados?.origens || [], setor: dados?.setores || [], equipe: dados?.equipe || [] };
+  /* ⏰📣 Turno, horário e campanha entram como cortes (ordem do master, 05/09:
+     "quero saber, além do setor, horários e turnos de maiores fechamento" e
+     "tem uma chamada de uma campanha, a mensagem vem como plano de 2 meses").
+     Mesmo quadro, mesma leitura: leads, agenda, fechamento e faturamento. */
+  const cortes = { origem: dados?.origens || [], setor: dados?.setores || [], equipe: dados?.equipe || [],
+    turno: dados?.turnos || [], hora: dados?.horas || [], campanha: dados?.campanhas || [] };
   const linhas = cortes[corte] || [];
 
   const periodoTxt = () => {
@@ -116,10 +121,11 @@ export default function LeadsRelatorio() {
 
   // ── Exportações ────────────────────────────────────────────────────────────
   const COLS = ['Nome', 'Telefone', 'Chegou em', 'Dia da semana', 'Setor', 'Origem', 'Responsavel',
-    'Respondido', 'Tempo 1a resposta (min)', 'Agendou', 'Fechou', 'Prova do fechamento', 'Valor'];
+    'Respondido', 'Tempo 1a resposta (min)', 'Agendou', 'Fechou', 'Prova do fechamento', 'Valor',
+    'Campanha', 'Turno', 'Primeira mensagem'];   // 05/09: de onde veio e a que horas
   const linhaDe = (l) => [l.nome, l.telefone || '', l.chegou, l.dowNome, l.setor, l.origem, l.responsavel || '',
     l.respondido ? 'sim' : 'nao', l.respMin ?? '', l.agendou ? 'sim' : 'nao', l.fechou ? 'sim' : 'nao',
-    l.prova || '', l.valor || 0];
+    l.prova || '', l.valor || 0, l.campanha || '', l.turno || '', l.primeiraMsg || ''];
 
   const baixarCSV = () => {
     const csv = [COLS, ...(dados?.lista || []).map(l => linhaDe(l).map((c, i) => (i === 12 ? String(c).replace('.', ',') : c)))]
@@ -359,7 +365,7 @@ Agendamento e venda só contam se aconteceram DEPOIS da chegada do lead. Gerado 
 
         {/* Cortes em abas — três quadros viraram um */}
         <div style={{ borderTop: '1px solid var(--border)', padding: '11px 15px 0', display: 'flex', gap: 6 }}>
-          {[['origem', 'Por origem'], ['setor', 'Por setor'], ['equipe', 'Por atendente']].map(([k, rot]) => (
+          {[['origem', 'Por origem'], ['campanha', '📣 Por campanha'], ['turno', '⏰ Por turno'], ['hora', '🕐 Por horário'], ['setor', 'Por setor'], ['equipe', 'Por atendente']].map(([k, rot]) => (
             <button key={k} onClick={() => setCorte(k)} style={btn(corte === k)}>{rot}</button>
           ))}
         </div>

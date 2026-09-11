@@ -290,6 +290,34 @@ const SINAL_OBJECAO =    // o cliente recuando (marketing caro / lead frio)
    mesmo assim cada clique refazia tudo no banco. Agora a janela fica guardada
    por 3 minutos: o primeiro clique paga o preço, os seguintes respondem na
    hora. O botão "Atualizar" da tela manda fresh=1 e fura o cache. */
+/* 📣 CAMPANHAS RECONHECIDAS PELA PRIMEIRA MENSAGEM (ordem do master, 05/09:
+   "tem uma chamada de uma campanha, a mensagem vem como 'plano de 2 meses',
+   'os primeiros meses do seu bebê merecem uma proteção especial'").
+
+   Anúncio no Instagram/Facebook abre o WhatsApp com um texto pronto — é a
+   única pegada que diz de qual peça o lead veio. Aqui a primeira mensagem do
+   cliente é comparada com os termos de cada campanha; bateu, o lead fica
+   marcado e entra no corte "Por campanha", com leads, agenda, fechamento e
+   faturamento. Editável em configuracoes.campanhas_leads sem mexer em código. */
+const CAMPANHAS_PADRAO = [
+  { rotulo: 'Plano 2 meses (anúncio)',
+    termos: ['plano de 2 meses', 'plano 2 meses', 'primeiros meses do seu bebe merecem', 'protecao especial'] },
+];
+const semAcento = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+async function lerCampanhas() {
+  try {
+    const { rows: [c] } = await query("SELECT valor FROM configuracoes WHERE chave = 'campanhas_leads'");
+    const lista = Array.isArray(c?.valor?.campanhas) ? c.valor.campanhas : null;
+    if (lista?.length) return lista.filter(x => x?.rotulo && Array.isArray(x.termos) && x.termos.length);
+  } catch { /* sem config: usa o padrão */ }
+  return CAMPANHAS_PADRAO;
+}
+/* Turnos como a clínica fala, não como o relógio conta */
+const turnoDe = (h) => (h >= 6 && h < 12) ? 'Manhã · 6h às 12h'
+  : (h >= 12 && h < 18) ? 'Tarde · 12h às 18h'
+  : (h >= 18) ? 'Noite · 18h às 0h' : 'Madrugada · 0h às 6h';
+const ORDEM_TURNO = ['Manhã · 6h às 12h', 'Tarde · 12h às 18h', 'Noite · 18h às 0h', 'Madrugada · 0h às 6h'];
+
 const CACHE_LEADS_NOVOS = new Map();          // 'de|ate' → { em, leads }
 const CACHE_LEADS_TTL = 3 * 60 * 1000;
 const lerCacheLeads = (k) => {
@@ -349,7 +377,8 @@ r.get('/leads-novos', async (req, res) => {
     const fresh = String(req.query.fresh || '') === '1';
     let leads = fresh ? null : lerCacheLeads(chaveCache);
     if (!leads) {
-    const [base, agenda, vendas, sinais] = await Promise.all([
+    const campanhas = await lerCampanhas();
+    const [base, agenda, vendas, sinais, primeiras] = await Promise.all([
       /* Chegada de cada conversa: primeira mensagem DO CLIENTE (pin) e primeira
          nossa (pout). Uma varredura só em mensagens, agrupada por conversa. */
       query(`
@@ -403,7 +432,21 @@ r.get('/leads-novos', async (req, res) => {
              FROM mensagens
             WHERE ${DEPOIS_DE('created_at')} AND content IS NOT NULL
             GROUP BY conversa_id`),
+      /* 📣 A PRIMEIRA FALA DO CLIENTE — é ela que carrega o texto do anúncio.
+         DISTINCT ON pega uma linha por conversa, a mais antiga da janela. */
+      query(`SELECT DISTINCT ON (m.conversa_id) m.conversa_id, left(m.content, 300) AS texto
+               FROM mensagens m
+              WHERE m.from_type = 'contact' AND m.content IS NOT NULL
+                AND ${DEPOIS_DE('m.created_at')}
+              ORDER BY m.conversa_id, m.created_at ASC`).catch(() => ({ rows: [] })),
     ]);
+    const primeiraMsgDe = new Map(primeiras.rows.map(p => [p.conversa_id, p.texto || '']));
+    const campanhaDoTexto = (txt) => {
+      const t = semAcento(txt);
+      if (!t) return null;
+      for (const c of campanhas) if (c.termos.some(x => t.includes(semAcento(x)))) return c.rotulo;
+      return null;
+    };
 
     /* Índices de conversão. Guardo LISTA por chave (não só o primeiro) porque o
        mesmo telefone pode ter agendamento antigo e outro depois da campanha —
@@ -434,6 +477,8 @@ r.get('/leads-novos', async (req, res) => {
       const dia = chegou.slice(0, 10), mes = chegou.slice(0, 7);
       const [Y, M, D] = dia.split('-').map(Number);
       const dow = new Date(Y, M - 1, D).getDay();
+      const hora = parseInt(chegou.slice(11, 13), 10) || 0;   // hora de São Luís em que o lead chegou
+      const primeiraMsg = primeiraMsgDe.get(c.id) || '';
       const depois = (x) => !!x && x >= chegou;      // texto ISO compara igual a data
 
       const ags = [...(agConv.get(c.id) || []), ...(c.tel8 && c.tel8.length === 8 ? (agTel.get(c.tel8) || []) : [])]
@@ -464,6 +509,9 @@ r.get('/leads-novos', async (req, res) => {
         categoria: c.categoria, classificacao: c.classificacao,
         status: c.status_atend, perdido: c.perdido, temperatura: c.lead_score,
         chegou, dia, mes, dow, dowNome: DOW[dow],
+        hora, turno: turnoDe(hora),
+        campanha: campanhaDoTexto(primeiraMsg),
+        primeiraMsg: primeiraMsg.slice(0, 160),
         nosChamamos: c.nos_chamamos === true,
         respondido: c.teve_resposta === true,
         respMin: c.respondido_apos && c.resp_min != null ? Math.round(Number(c.resp_min)) : null,
@@ -562,6 +610,13 @@ r.get('/leads-novos', async (req, res) => {
       },
       meses: mesesLista,
       dias, semana,
+      /* ⏰ QUANDO O LEAD CHEGA E QUANDO ELE FECHA (ordem do master, 05/09:
+         "quero saber, além do setor, horários e turnos de maiores fechamento").
+         Hora e turno da CHEGADA — é a hora que a campanha e a escala podem
+         mudar; o fechamento aparece como taxa de cada faixa. */
+      horas: agrupar(recorte, l => `${String(l.hora).padStart(2, '0')}h`).sort((a, b) => a.chave.localeCompare(b.chave)),
+      turnos: agrupar(recorte, l => l.turno).sort((a, b) => ORDEM_TURNO.indexOf(a.chave) - ORDEM_TURNO.indexOf(b.chave)),
+      campanhas: agrupar(recorte, l => l.campanha || 'Sem campanha identificada').sort((a, b) => b.leads - a.leads),
       origens: agrupar(recorte, l => l.origem).sort((a, b) => b.leads - a.leads),
       setores: agrupar(recorte, l => l.setor).sort((a, b) => b.leads - a.leads),
       equipe:  agrupar(recorte, l => l.responsavel || 'sem dono').sort((a, b) => b.leads - a.leads),
