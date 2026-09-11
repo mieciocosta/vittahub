@@ -2637,6 +2637,32 @@ export default function Inbox({ onUnreadChange }) {
               containerHeight={listH} loadMore={loadMore} hasMore={hasMore} loadingMore={loadingMore}
               fixadasIds={fixadasIds} onToggleFix={toggleFix}/>
           )}
+          {/* 🫙 LISTA VAZIA EXPLICA O PORQUÊ (cobrança do master, 05/09: "o
+              usuário da Dra Gabriellen não está funcionando"). A tela em branco
+              parecia sistema quebrado — e era só a carteira dela ainda sem
+              nenhum atendimento transferido. Quem lê o motivo sabe o que fazer. */}
+          {convosExib.length === 0 && modo !== 'distribuir' && !loadingMore && (
+            <div style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
+              gap:10, padding:'22px 26px', textAlign:'center', pointerEvents:'none' }}>
+              <span style={{ fontSize:34 }}>{search ? '🔍' : carteiraFechada(user) ? '📥' : '💬'}</span>
+              <div style={{ fontSize:13.5, fontWeight:800, color:'var(--txt2)' }}>
+                {search ? 'Nada encontrado nessa busca'
+                  : carteiraFechada(user) ? 'Nenhum atendimento no seu nome ainda'
+                  : modo === 'minhas' ? 'Você ainda não assumiu nenhuma conversa'
+                  : modo === 'naolidas' ? 'Nenhuma conversa não lida'
+                  : modo === 'grupos' ? 'Nenhum grupo por aqui'
+                  : modo === 'fixadas' ? 'Você ainda não fixou nenhuma conversa'
+                  : 'Nenhuma conversa nesta lista'}
+              </div>
+              <div style={{ fontSize:11.5, color:'var(--muted)', lineHeight:1.6, maxWidth:250 }}>
+                {search ? 'Tente outro nome, telefone ou trecho da mensagem.'
+                  : carteiraFechada(user)
+                    ? 'A sua tela mostra só os atendimentos transferidos pro seu nome. Assim que a gestão passar um cliente pra você, ele aparece aqui na hora.'
+                    : modo === 'todas' ? 'Cliente novo cai aqui assim que manda mensagem.'
+                    : 'Volte pra aba Todas pra ver a fila.'}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Rodapé da lista: resumo do dia + controle de som (ocupa o espaço ocioso) */}
