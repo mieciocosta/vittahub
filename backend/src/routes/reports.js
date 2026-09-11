@@ -444,9 +444,13 @@ r.get('/leads-novos', async (req, res) => {
     const DOW = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
     const chaveCache = `${de}|${ate}`;
     const fresh = String(req.query.fresh || '') === '1';
+    /* A lista de campanhas vive FORA do bloco do cache: ela é usada lá embaixo,
+       no cruzamento com os números do Meta, mesmo quando os leads vieram
+       prontos do cache (05/09: "campanhas is not defined" derrubava o
+       relatório inteiro com erro 500). */
+    const campanhas = await lerCampanhas();
     let leads = fresh ? null : lerCacheLeads(chaveCache);
     if (!leads) {
-    const campanhas = await lerCampanhas();
     const [base, agenda, vendas, sinais, primeiras] = await Promise.all([
       /* Chegada de cada conversa: primeira mensagem DO CLIENTE (pin) e primeira
          nossa (pout). Uma varredura só em mensagens, agrupada por conversa. */
