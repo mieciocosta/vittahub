@@ -897,6 +897,7 @@ export default function Inbox({ onUnreadChange }) {
   const [sending, setSending] = useState(false); // guard: evita envios duplos
   const [recording, setRecording] = useState(false);
   const [recorder, setRecorder]   = useState(null);
+  const [recPausado, setRecPausado] = useState(false);   // ⏸️ pausar a gravação (ordem do master, 05/09)
   /* 🤖 Assistente de vendas: FORA do lado da conversa por padrão (ordem do
      master, 24/08: "retira a IA que fica do lado direito"). Ela só aparece se
      a atendente pedir, no botão 🤖 IA do cabeçalho. */
@@ -2096,7 +2097,7 @@ export default function Inbox({ onUnreadChange }) {
         } catch (e) { Toast.show(e.message || 'Não consegui enviar o áudio', 'error'); }
       };
       mr.start(250);   // fatias periódicas: tem aparelho que só entrega no stop e perde o começo
-      setRecorder(mr); setRecording(true);
+      setRecorder(mr); setRecording(true); setRecPausado(false);
     } catch (e) {
       const nome = e?.name || '';
       Toast.show(
@@ -2107,7 +2108,21 @@ export default function Inbox({ onUnreadChange }) {
           : `Não consegui ligar o microfone (${nome || e?.message || 'erro'}).`, 'error');
     }
   };
-  const stopRec = () => { recorder?.stop(); setRecording(false); setRecorder(null); };
+  const stopRec = () => { try { recorder?.stop(); } catch { /* já parado */ } setRecording(false); setRecorder(null); setRecPausado(false); };
+  /* ⏸️ PAUSAR E CONTINUAR (ordem do master, 05/09: "coloca a opção de pausar
+     áudio"). Gravar um recado comprido sem poder respirar obrigava a mandar
+     dois áudios ou recomeçar do zero. Pausado, o microfone para de captar e o
+     que já foi falado continua guardado; ao continuar, emenda no mesmo áudio.
+     Aparelho antigo que não sabe pausar não mostra o botão — em vez de mostrar
+     um botão que não faz nada. */
+  const podePausar = () => !!recorder && typeof recorder.pause === 'function';
+  const pausarRec = () => {
+    if (!recorder) return;
+    try {
+      if (recorder.state === 'recording') { recorder.pause(); setRecPausado(true); }
+      else if (recorder.state === 'paused') { recorder.resume(); setRecPausado(false); }
+    } catch { Toast.show('Este aparelho não consegue pausar a gravação.', 'info'); }
+  };
 
   const toLead = async () => {
     const d = await api.post(`/inbox/conversations/${sel.id}/to-lead`, {});
@@ -4169,14 +4184,26 @@ export default function Inbox({ onUnreadChange }) {
                   enviar"). Era o único cinza no meio de quatro coloridos, e
                   parecia desligado. Ganhou o verde do WhatsApp; gravando fica
                   vermelho pulsando, impossível de esquecer ligado. */}
+              {/* ⏸️ Pausar/continuar, só enquanto grava (ordem do master, 05/09) */}
+              {recording && podePausar() && (
+                <button onClick={pausarRec}
+                  title={recPausado ? 'Continuar a gravação de onde parou' : 'Pausar a gravação — o que já foi falado fica guardado'}
+                  style={{ display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, border:'none',
+                    width:36, height:36, borderRadius:'50%', cursor:'pointer', color:'#fff',
+                    background: recPausado ? 'linear-gradient(135deg,#4ade80,#16a34a)' : 'linear-gradient(135deg,#fbbf24,#d97706)',
+                    boxShadow: recPausado ? '0 3px 12px rgba(22,163,74,.42)' : '0 3px 12px rgba(217,119,6,.45)' }}>
+                  <span style={{ fontSize:14, fontWeight:900, lineHeight:1 }}>{recPausado ? '▶' : '❚❚'}</span>
+                </button>
+              )}
               <button onClick={recording?stopRec:startRec}
-                title={recording ? 'Parar a gravação e enviar' : 'Gravar um áudio — voz converte mais que textão'}
+                title={recording ? (recPausado ? 'Enviar o áudio gravado até aqui' : 'Parar a gravação e enviar') : 'Gravar um áudio — voz converte mais que textão'}
                 style={{ display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, border:'none',
                   width:36, height:36, borderRadius:'50%', cursor:'pointer',
                   background: recording ? 'linear-gradient(135deg,#f87171,#dc2626)' : 'linear-gradient(135deg,#4ade80,#16a34a)',
                   color:'#fff',
                   boxShadow: recording ? '0 3px 14px rgba(220,38,38,.55)' : '0 3px 12px rgba(22,163,74,.42)',
-                  animation: recording ? 'vhPulseVermelho 1.1s ease-in-out infinite' : 'none' }}>
+                  /* Pausado não pulsa: pulsar em pausa diz "estou gravando" e é mentira */
+                  animation: recording && !recPausado ? 'vhPulseVermelho 1.1s ease-in-out infinite' : 'none' }}>
                 {recording?<MicOff size={16} strokeWidth={2.4}/>:<Mic size={16} strokeWidth={2.4}/>}
               </button>
               {/* ➤ VIDA NO ENVIAR (ordem do master, 03/09). Ele era um quadradinho

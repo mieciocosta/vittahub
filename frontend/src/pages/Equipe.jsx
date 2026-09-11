@@ -18,6 +18,7 @@ export default function Equipe() {
   const [msgs, setMsgs] = useState([]);
   const [input, setInput] = useState('');
   const [gravando, setGravando] = useState(false);
+  const [pausado, setPausado] = useState(false);   // ⏸️ pausar a gravação (ordem do master, 05/09)
   const [enviandoMidia, setEnviandoMidia] = useState(false);
   const endRef = useRef(null);
   const fileRef = useRef(null);
@@ -88,7 +89,7 @@ export default function Equipe() {
   };
 
   const toggleGravacao = async () => {
-    if (gravando) { recRef.current?.stop(); return; }
+    if (gravando) { try { recRef.current?.stop(); } catch { /* já parado */ } setPausado(false); return; }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const rec = new MediaRecorder(stream);
@@ -102,7 +103,7 @@ export default function Equipe() {
         const arquivo = await fileToDataUrl(blob);
         enviarMidia({ tipo: 'audio', arquivo, filename: 'audio.webm', mimetype: blob.type });
       };
-      recRef.current = rec; rec.start(); setGravando(true);
+      recRef.current = rec; rec.start(); setGravando(true); setPausado(false);
     } catch { window.alert('Não consegui acessar o microfone. Verifique a permissão do navegador.'); }
   };
 
@@ -177,11 +178,25 @@ export default function Equipe() {
             <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8, alignItems: 'flex-end' }}>
               <input ref={fileRef} type="file" accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt" style={{ display: 'none' }} onChange={anexar} />
               <button onClick={() => fileRef.current?.click()} disabled={enviandoMidia} title="Anexar documento ou imagem" className="btn btn-s btn-ico" style={{ alignSelf: 'flex-end' }}><Paperclip size={16} /></button>
+              {/* ⏸️ Pausar e continuar sem perder o que já foi falado (05/09) */}
+              {gravando && typeof recRef.current?.pause === 'function' && (
+                <button onClick={() => {
+                    const r = recRef.current; if (!r) return;
+                    try {
+                      if (r.state === 'recording') { r.pause(); setPausado(true); }
+                      else if (r.state === 'paused') { r.resume(); setPausado(false); }
+                    } catch { /* aparelho sem pausa */ }
+                  }}
+                  title={pausado ? 'Continuar a gravação' : 'Pausar a gravação'} className="btn btn-ico"
+                  style={{ alignSelf: 'flex-end', background: pausado ? '#16a34a' : '#d97706', color: '#fff', border: 'none', fontWeight: 900 }}>
+                  {pausado ? '▶' : '❚❚'}
+                </button>
+              )}
               <button onClick={toggleGravacao} disabled={enviandoMidia} title={gravando ? 'Parar e enviar áudio' : 'Gravar áudio'} className="btn btn-ico" style={{ alignSelf: 'flex-end', background: gravando ? 'var(--err,#dc2626)' : 'var(--bg2)', color: gravando ? '#fff' : 'var(--txt2)', border: '1px solid var(--border)' }}>
                 {gravando ? <Square size={15} /> : <Mic size={16} />}
               </button>
               <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviar(); } }}
-                placeholder={gravando ? '🎤 Gravando… toque no quadrado para enviar' : 'Mensagem para a equipe… (Enter envia)'} rows={1} disabled={gravando}
+                placeholder={gravando ? (pausado ? '⏸️ Pausado — toque em ▶ para continuar' : '🎤 Gravando… toque no quadrado para enviar') : 'Mensagem para a equipe… (Enter envia)'} rows={1} disabled={gravando}
                 style={{ flex: 1, padding: '9px 12px', border: '1.5px solid var(--border)', borderRadius: 10, fontSize: 13, resize: 'none', outline: 'none', maxHeight: 100, background: 'var(--card)', color: 'var(--text)' }} />
               <button onClick={enviar} className="btn btn-p btn-ico" style={{ alignSelf: 'flex-end' }}><Send size={16} /></button>
             </div>
