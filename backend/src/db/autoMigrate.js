@@ -210,6 +210,8 @@ export default async function runMigrate() {
     await query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_msg_wa_id ON mensagens(wa_msg_id) WHERE wa_msg_id IS NOT NULL`).catch(() => {});
 
     await query(`CREATE INDEX IF NOT EXISTS idx_msg_conv ON mensagens(conversa_id, created_at)`);
+    // 📊 Carteira de Leads (05/09, desempenho): achar quem falou na janela sem varrer a tabela
+    await query(`CREATE INDEX IF NOT EXISTS idx_msg_from_created ON mensagens(from_type, created_at)`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS idx_msg_conv_desc ON mensagens(conversa_id, created_at DESC)`);
     await query(`CREATE INDEX IF NOT EXISTS idx_conv_last_desc ON conversas(last_message_at DESC)`).catch(()=>{});
 

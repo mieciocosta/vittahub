@@ -431,7 +431,7 @@ const turnoDe = (h) => (h >= 6 && h < 12) ? 'Manhã · 6h às 12h'
 const ORDEM_TURNO = ['Manhã · 6h às 12h', 'Tarde · 12h às 18h', 'Noite · 18h às 0h', 'Madrugada · 0h às 6h'];
 
 const CACHE_LEADS_NOVOS = new Map();          // 'de|ate' → { em, leads }
-const CACHE_LEADS_TTL = 3 * 60 * 1000;
+const CACHE_LEADS_TTL = 12 * 60 * 1000;   // o aquecimento renova a cada 8 min; o botão Atualizar fura
 const lerCacheLeads = (k) => {
   const c = CACHE_LEADS_NOVOS.get(k);
   if (!c) return null;
@@ -443,6 +443,220 @@ const guardarCacheLeads = (k, leads) => {
   // Não deixa crescer: guarda as últimas janelas pedidas, não todas da história
   while (CACHE_LEADS_NOVOS.size > 12) CACHE_LEADS_NOVOS.delete(CACHE_LEADS_NOVOS.keys().next().value);
 };
+
+/* 🏗️ MONTAR OS LEADS DE UMA JANELA — separado da rota (05/09, "demora pra
+   carregar"): é o trabalho pesado (varredura de mensagens, agenda, vendas e
+   sinais). Roda pela rota quando o cache não tem a janela, e roda SOZINHO em
+   segundo plano pras janelas que a tela mais pede (hoje, este mês, 6 meses),
+   pra o relatório abrir na hora. */
+async function montarLeads(de, ate, campanhas) {
+    const SLZ  = (col) => `((${col} - interval '3 hours') AT TIME ZONE 'UTC')`;
+    const TXT  = (col) => `to_char(${SLZ(col)}, 'YYYY-MM-DD HH24:MI')`;
+    const DEPOIS_DE = (col) => `${SLZ(col)} >= TIMESTAMP '${de} 00:00:00'`;
+    const ATE_FIM = ate ? ` AND ${SLZ('a.pin')} < TIMESTAMP '${ate} 00:00:00' + interval '1 day'` : '';
+    const DOW = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+    const [base, agenda, vendas, sinais, primeiras] = await Promise.all([
+      /* Chegada de cada conversa: primeira mensagem DO CLIENTE (pin) e primeira
+         nossa (pout). Uma varredura só em mensagens, agrupada por conversa. */
+      query(`
+        WITH cand AS (
+          /* Só quem MANDOU mensagem dentro da janela entra no agrupamento
+             (05/09, desempenho): antes o GROUP BY passava por todas as
+             conversas da história pra depois jogar quase tudo fora. */
+          SELECT DISTINCT conversa_id FROM mensagens
+           WHERE from_type = 'contact' AND ${DEPOIS_DE('created_at')}
+        ), agg AS (
+          SELECT m.conversa_id,
+                 MIN(m.created_at) FILTER (WHERE m.from_type = 'contact')     AS pin,   -- chegada do lead
+                 MIN(m.created_at) FILTER (WHERE m.from_type IN ('me','bot')) AS pout,
+                 MAX(m.created_at) FILTER (WHERE m.from_type IN ('me','bot')) AS pout_fim,
+                 COUNT(*) FILTER (WHERE m.from_type = 'contact')::int         AS msgs_cliente
+            FROM mensagens m
+           WHERE m.conversa_id IN (SELECT conversa_id FROM cand)
+           GROUP BY m.conversa_id
+        )
+        SELECT c.id, c.contact_name AS nome, c.phone, c.setor, c.categoria, c.classificacao,
+               c.status_atend, COALESCE(c.perdido,false) AS perdido, c.lead_score, c.lead_id,
+               u.nome AS responsavel,
+               COALESCE(NULLIF(l.origem, ''), 'WhatsApp') AS origem,
+               ${TXT('a.pin')}  AS chegou,
+               ${TXT('a.pout')} AS respondeu,
+               (a.pout IS NOT NULL AND a.pout >= a.pin) AS respondido_apos,
+               (a.pout_fim IS NOT NULL AND a.pout_fim >= a.pin) AS teve_resposta,
+               (a.pout IS NOT NULL AND a.pout < a.pin) AS nos_chamamos,
+               EXTRACT(EPOCH FROM (a.pout - a.pin))/60 AS resp_min,
+               a.msgs_cliente,
+               right(regexp_replace(COALESCE(c.phone, ''), '\\D', '', 'g'), 8) AS tel8,
+               c.campanha_ad, c.campanha_ad_id
+          FROM agg a
+          JOIN conversas c ON c.id = a.conversa_id
+          LEFT JOIN usuarios u ON u.id = c.responsavel_id
+          LEFT JOIN leads    l ON l.id = c.lead_id
+         WHERE a.pin IS NOT NULL
+           AND ${DEPOIS_DE('a.pin')}${ATE_FIM}
+           AND COALESCE(c.simulacao, false) = false
+           AND COALESCE(c.arquivada,  false) = false
+         ORDER BY a.pin DESC
+         LIMIT 20000`),
+      // Agendamentos criados na janela (casam por conversa OU por telefone)
+      query(`SELECT conversa_id, data, ${TXT('created_at')} AS criado,
+                    right(regexp_replace(COALESCE(telefone,''), '\\D', '', 'g'), 8) AS tel8
+               FROM agenda_eventos WHERE ${DEPOIS_DE('created_at')}`),
+      // Vendas lançadas no caixa
+      query(`SELECT conversa_id, lead_id, COALESCE(valor,0) AS valor, data_venda,
+                    ${TXT('created_at')} AS criado
+               FROM vendas WHERE ${DEPOIS_DE('created_at')}`),
+      /* 💬 O QUE A CONVERSA DIZ (pedido do master): o fechamento real aparece no
+         texto antes de virar lançamento. Pego a PRIMEIRA vez que cada sinal
+         apareceu — depois comparo com a chegada do lead. */
+      query(`SELECT conversa_id,
+               ${TXT(`MIN(created_at) FILTER (WHERE from_type IN ('me','bot') AND content ~* '${SINAL_CONFIRMACAO}')`)} AS t_conf,
+               ${TXT(`MIN(created_at) FILTER (WHERE from_type = 'contact' AND content ~* '${SINAL_PAGAMENTO}')`)}      AS t_pago,
+               ${TXT(`MIN(created_at) FILTER (WHERE from_type = 'contact' AND content ~* '${SINAL_ACEITE}')`)}         AS t_ok,
+               ${TXT(`MIN(created_at) FILTER (WHERE from_type = 'contact' AND content ~* '${SINAL_OBJECAO}')`)}        AS t_obj,
+               ${TXT(`MIN(created_at) FILTER (WHERE from_type IN ('me','bot') AND content ~* 'hor[aá]rio:' AND content ~* 'servi[çc]o:')`)} AS t_cartao
+             FROM mensagens
+            WHERE ${DEPOIS_DE('created_at')} AND content IS NOT NULL
+            GROUP BY conversa_id`),
+      /* 📣 A PRIMEIRA FALA DO CLIENTE — é ela que carrega o texto do anúncio.
+         DISTINCT ON pega uma linha por conversa, a mais antiga da janela. */
+      /* 📣 AS TRÊS PRIMEIRAS FALAS DO CLIENTE (ordem do master, 05/09: "depois do
+         Converse conosco o cliente manda a mensagem, temos uma resposta
+         automática, daí podemos rastrear"). A primeira costuma ser o texto
+         pronto do anúncio; a resposta automática pergunta o que ele quer; a
+         segunda e a terceira falas dele é que dizem de que campanha veio. A
+         detecção lê as três juntas; a primeira fica guardada à parte. */
+      query(`SELECT x.conversa_id,
+                    MIN(x.texto) FILTER (WHERE x.rn = 1) AS primeira,
+                    string_agg(x.texto, ' | ' ORDER BY x.rn) AS iniciais
+               FROM (SELECT m.conversa_id, left(m.content, 200) AS texto,
+                            row_number() OVER (PARTITION BY m.conversa_id ORDER BY m.created_at) AS rn
+                       FROM mensagens m
+                      WHERE m.from_type = 'contact' AND m.content IS NOT NULL AND m.content NOT LIKE 'data:%'
+                        AND ${DEPOIS_DE('m.created_at')}) x
+              WHERE x.rn <= 3
+              GROUP BY x.conversa_id`).catch(() => ({ rows: [] })),
+    ]);
+    const primeiraMsgDe = new Map(primeiras.rows.map(p => [p.conversa_id, p.primeira || '']));
+    const iniciaisDe = new Map(primeiras.rows.map(p => [p.conversa_id, p.iniciais || '']));
+    const campanhaDoTexto = montarDetector(campanhas);
+
+    /* Índices de conversão. Guardo LISTA por chave (não só o primeiro) porque o
+       mesmo telefone pode ter agendamento antigo e outro depois da campanha —
+       e só o que veio DEPOIS da chegada é conversão. */
+    const push = (mapa, chave, item) => {
+      if (!chave) return;
+      const arr = mapa.get(chave); if (arr) arr.push(item); else mapa.set(chave, [item]);
+    };
+    const agConv = new Map(), agTel = new Map();
+    for (const a of agenda.rows) {
+      const it = { criado: a.criado, data: a.data };
+      push(agConv, a.conversa_id, it);
+      if (a.tel8 && a.tel8.length === 8) push(agTel, a.tel8, it);
+    }
+    const vdConv = new Map();
+    for (const v of vendas.rows) {
+      const it = { criado: v.criado, valor: parseFloat(v.valor) || 0, data: v.data_venda };
+      push(vdConv, v.conversa_id, it);
+      push(vdConv, v.lead_id, it);
+    }
+    const sinalDe = new Map(sinais.rows.map(s => [s.conversa_id, s]));
+
+    const dataISO = (d) => (d instanceof Date ? d.toISOString().slice(0, 10) : (d ? String(d).slice(0, 10) : null));
+
+    // ── Monta o lead: chegada + tudo que aconteceu DEPOIS dela ───────────────
+    const leads = base.rows.map(c => {
+      const chegou = c.chegou;                       // 'YYYY-MM-DD HH:MM' (São Luís)
+      const dia = chegou.slice(0, 10), mes = chegou.slice(0, 7);
+      const [Y, M, D] = dia.split('-').map(Number);
+      const dow = new Date(Y, M - 1, D).getDay();
+      const hora = parseInt(chegou.slice(11, 13), 10) || 0;   // hora de São Luís em que o lead chegou
+      const primeiraMsg = primeiraMsgDe.get(c.id) || '';
+      /* 📣 O anúncio informado pelo próprio WhatsApp vale mais que qualquer
+         palpite por texto: se veio, é ele. */
+      const adTitulo = String(c.campanha_ad || '').trim();
+      const depois = (x) => !!x && x >= chegou;      // texto ISO compara igual a data
+
+      const ags = [...(agConv.get(c.id) || []), ...(c.tel8 && c.tel8.length === 8 ? (agTel.get(c.tel8) || []) : [])]
+        .filter(a => depois(a.criado)).sort((a, b) => a.criado.localeCompare(b.criado));
+      const vds = [...new Set([...(vdConv.get(c.id) || []), ...(c.lead_id ? (vdConv.get(c.lead_id) || []) : [])])]
+        .filter(v => depois(v.criado)).sort((a, b) => a.criado.localeCompare(b.criado));
+      const valor = vds.reduce((s, v) => s + v.valor, 0);
+
+      // O que a CONVERSA conta (só o que veio depois da chegada)
+      const s = sinalDe.get(c.id) || {};
+      const confMsg = depois(s.t_conf), pagoMsg = depois(s.t_pago);
+      const okMsg = depois(s.t_ok), objecao = depois(s.t_obj);
+      const cartaoMsg = depois(s.t_cartao);   // 🎫 cartão oficial: o gatilho padrão da casa
+
+      /* Cartão oficial conta como agendado mesmo sem linha na agenda: houve
+         casos de cartão mandado na conversa e o evento criado depois, ou em
+         outro dia — a promessa ao cliente já foi feita. */
+      const agendou = ags.length > 0 || cartaoMsg || confMsg;
+      const fechou  = vds.length > 0 || pagoMsg;
+      /* Ordem da prova: do mais duro (dinheiro no caixa) pro mais frouxo
+         (palavra solta). É esta etiqueta que diz ao master o quanto confiar
+         em cada linha do relatório. */
+      const prova = vds.length  ? 'venda lançada no caixa'
+                  : pagoMsg     ? 'cliente confirmou o pagamento na conversa'
+                  : ags.length  ? 'agendamento na agenda'
+                  : cartaoMsg   ? 'cartão oficial de agendamento enviado'
+                  : confMsg     ? 'confirmação enviada na conversa'
+                  : okMsg       ? 'cliente disse que quer fechar'
+                  : objecao     ? 'cliente recuou (preço/depois)'
+                  : null;
+
+      return {
+        id: c.id, nome: c.nome || 'Contato', telefone: c.phone,
+        setor: c.setor || 'sem setor', origem: c.origem,
+        responsavel: c.responsavel || null,
+        categoria: c.categoria, classificacao: c.classificacao,
+        status: c.status_atend, perdido: c.perdido, temperatura: c.lead_score,
+        chegou, dia, mes, dow, dowNome: DOW[dow],
+        hora, turno: turnoDe(hora),
+        campanha: (adTitulo && (campanhaDoTexto(adTitulo) || adTitulo.slice(0, 70))) || campanhaDoTexto(iniciaisDe.get(c.id) || primeiraMsg),
+        campanhaProvada: !!adTitulo,   // veio do WhatsApp, não de adivinhação
+        primeiraMsg: primeiraMsg.slice(0, 160),
+        nosChamamos: c.nos_chamamos === true,
+        respondido: c.teve_resposta === true,
+        respMin: c.respondido_apos && c.resp_min != null ? Math.round(Number(c.resp_min)) : null,
+        msgsCliente: c.msgs_cliente || 0,
+        agendou, agendouEm: ags[0]?.criado || (cartaoMsg ? s.t_cartao : confMsg ? s.t_conf : null), agendaData: dataISO(ags[0]?.data),
+        cartao: cartaoMsg, provaDura: vds.length > 0 || pagoMsg || ags.length > 0 || cartaoMsg,
+        fechou, fechouEm: vds[0]?.criado || (pagoMsg ? s.t_pago : null),
+        valor, temVenda: vds.length > 0, pagouNaConversa: pagoMsg && !vds.length,
+        querFechar: okMsg && !fechou, objecao: objecao && !fechou,
+        prova,
+      };
+    });
+    return leads;
+}
+
+/* 🔥 AQUECIMENTO (05/09, "ele demora pra carregar a tela"): as janelas que a
+   tela mais pede — hoje, este mês e os 6 meses padrão — são montadas em
+   segundo plano logo depois do boot e renovadas a cada 8 minutos. Quem abre o
+   relatório encontra o cache pronto e a tela vem na hora; o preço pesado é
+   pago pelo servidor quando ninguém está esperando. Uma janela por vez, pra
+   não disputar o banco com o atendimento. */
+async function aquecerCarteira() {
+  try {
+    const hoje = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+    const [Y, M] = hoje.split('-').map(Number);
+    const primeiroMes = `${hoje.slice(0, 7)}-01`;
+    const ultimoMes = new Date(Date.UTC(Y, M, 0)).toISOString().slice(0, 10);
+    const seisMeses = new Date(Date.UTC(Y, M - 1 - 5, 1)).toISOString().slice(0, 10);
+    const janelas = [[hoje, hoje], [primeiroMes, ultimoMes], [seisMeses, '']];
+    const campanhas = await lerCampanhas();
+    for (const [de, ate] of janelas) {
+      const t0 = Date.now();
+      const leads = await montarLeads(de, ate, campanhas);
+      guardarCacheLeads(`${de}|${ate}`, leads);
+      console.log(`🔥 Carteira de Leads aquecida ${de}${ate ? ` a ${ate}` : '+'}: ${leads.length} leads em ${Date.now() - t0} ms`);
+    }
+  } catch (e) { console.error('aquecerCarteira:', e.message); }
+}
+setTimeout(aquecerCarteira, 2 * 60 * 1000);
+setInterval(aquecerCarteira, 8 * 60 * 1000);
 
 /* 📣 CATÁLOGO DE CAMPANHAS NA MÃO DO MASTER (05/09: "muitos com Sem campanha
    identificada"). O anúncio manda no WhatsApp um texto que a gente não escolhe
@@ -578,164 +792,7 @@ r.get('/leads-novos', async (req, res) => {
        relatório inteiro com erro 500). */
     const campanhas = await lerCampanhas();
     let leads = fresh ? null : lerCacheLeads(chaveCache);
-    if (!leads) {
-    const [base, agenda, vendas, sinais, primeiras] = await Promise.all([
-      /* Chegada de cada conversa: primeira mensagem DO CLIENTE (pin) e primeira
-         nossa (pout). Uma varredura só em mensagens, agrupada por conversa. */
-      query(`
-        WITH agg AS (
-          SELECT conversa_id,
-                 MIN(created_at) FILTER (WHERE from_type = 'contact')     AS pin,   -- chegada do lead
-                 MIN(created_at) FILTER (WHERE from_type IN ('me','bot')) AS pout,
-                 MAX(created_at) FILTER (WHERE from_type IN ('me','bot')) AS pout_fim,
-                 COUNT(*) FILTER (WHERE from_type = 'contact')::int       AS msgs_cliente
-            FROM mensagens
-           GROUP BY conversa_id
-        )
-        SELECT c.id, c.contact_name AS nome, c.phone, c.setor, c.categoria, c.classificacao,
-               c.status_atend, COALESCE(c.perdido,false) AS perdido, c.lead_score, c.lead_id,
-               u.nome AS responsavel,
-               COALESCE(NULLIF(l.origem, ''), 'WhatsApp') AS origem,
-               ${TXT('a.pin')}  AS chegou,
-               ${TXT('a.pout')} AS respondeu,
-               (a.pout IS NOT NULL AND a.pout >= a.pin) AS respondido_apos,
-               (a.pout_fim IS NOT NULL AND a.pout_fim >= a.pin) AS teve_resposta,
-               (a.pout IS NOT NULL AND a.pout < a.pin) AS nos_chamamos,
-               EXTRACT(EPOCH FROM (a.pout - a.pin))/60 AS resp_min,
-               a.msgs_cliente,
-               right(regexp_replace(COALESCE(c.phone, ''), '\\D', '', 'g'), 8) AS tel8,
-               c.campanha_ad, c.campanha_ad_id
-          FROM agg a
-          JOIN conversas c ON c.id = a.conversa_id
-          LEFT JOIN usuarios u ON u.id = c.responsavel_id
-          LEFT JOIN leads    l ON l.id = c.lead_id
-         WHERE a.pin IS NOT NULL
-           AND ${DEPOIS_DE('a.pin')}${ATE_FIM}
-           AND COALESCE(c.simulacao, false) = false
-           AND COALESCE(c.arquivada,  false) = false
-         ORDER BY a.pin DESC
-         LIMIT 20000`),
-      // Agendamentos criados na janela (casam por conversa OU por telefone)
-      query(`SELECT conversa_id, data, ${TXT('created_at')} AS criado,
-                    right(regexp_replace(COALESCE(telefone,''), '\\D', '', 'g'), 8) AS tel8
-               FROM agenda_eventos WHERE ${DEPOIS_DE('created_at')}`),
-      // Vendas lançadas no caixa
-      query(`SELECT conversa_id, lead_id, COALESCE(valor,0) AS valor, data_venda,
-                    ${TXT('created_at')} AS criado
-               FROM vendas WHERE ${DEPOIS_DE('created_at')}`),
-      /* 💬 O QUE A CONVERSA DIZ (pedido do master): o fechamento real aparece no
-         texto antes de virar lançamento. Pego a PRIMEIRA vez que cada sinal
-         apareceu — depois comparo com a chegada do lead. */
-      query(`SELECT conversa_id,
-               ${TXT(`MIN(created_at) FILTER (WHERE from_type IN ('me','bot') AND content ~* '${SINAL_CONFIRMACAO}')`)} AS t_conf,
-               ${TXT(`MIN(created_at) FILTER (WHERE from_type = 'contact' AND content ~* '${SINAL_PAGAMENTO}')`)}      AS t_pago,
-               ${TXT(`MIN(created_at) FILTER (WHERE from_type = 'contact' AND content ~* '${SINAL_ACEITE}')`)}         AS t_ok,
-               ${TXT(`MIN(created_at) FILTER (WHERE from_type = 'contact' AND content ~* '${SINAL_OBJECAO}')`)}        AS t_obj,
-               ${TXT(`MIN(created_at) FILTER (WHERE from_type IN ('me','bot') AND content ~* 'hor[aá]rio:' AND content ~* 'servi[çc]o:')`)} AS t_cartao
-             FROM mensagens
-            WHERE ${DEPOIS_DE('created_at')} AND content IS NOT NULL
-            GROUP BY conversa_id`),
-      /* 📣 A PRIMEIRA FALA DO CLIENTE — é ela que carrega o texto do anúncio.
-         DISTINCT ON pega uma linha por conversa, a mais antiga da janela. */
-      query(`SELECT DISTINCT ON (m.conversa_id) m.conversa_id, left(m.content, 300) AS texto
-               FROM mensagens m
-              WHERE m.from_type = 'contact' AND m.content IS NOT NULL
-                AND ${DEPOIS_DE('m.created_at')}
-              ORDER BY m.conversa_id, m.created_at ASC`).catch(() => ({ rows: [] })),
-    ]);
-    const primeiraMsgDe = new Map(primeiras.rows.map(p => [p.conversa_id, p.texto || '']));
-    const campanhaDoTexto = montarDetector(campanhas);
-
-    /* Índices de conversão. Guardo LISTA por chave (não só o primeiro) porque o
-       mesmo telefone pode ter agendamento antigo e outro depois da campanha —
-       e só o que veio DEPOIS da chegada é conversão. */
-    const push = (mapa, chave, item) => {
-      if (!chave) return;
-      const arr = mapa.get(chave); if (arr) arr.push(item); else mapa.set(chave, [item]);
-    };
-    const agConv = new Map(), agTel = new Map();
-    for (const a of agenda.rows) {
-      const it = { criado: a.criado, data: a.data };
-      push(agConv, a.conversa_id, it);
-      if (a.tel8 && a.tel8.length === 8) push(agTel, a.tel8, it);
-    }
-    const vdConv = new Map();
-    for (const v of vendas.rows) {
-      const it = { criado: v.criado, valor: parseFloat(v.valor) || 0, data: v.data_venda };
-      push(vdConv, v.conversa_id, it);
-      push(vdConv, v.lead_id, it);
-    }
-    const sinalDe = new Map(sinais.rows.map(s => [s.conversa_id, s]));
-
-    const dataISO = (d) => (d instanceof Date ? d.toISOString().slice(0, 10) : (d ? String(d).slice(0, 10) : null));
-
-    // ── Monta o lead: chegada + tudo que aconteceu DEPOIS dela ───────────────
-    leads = base.rows.map(c => {
-      const chegou = c.chegou;                       // 'YYYY-MM-DD HH:MM' (São Luís)
-      const dia = chegou.slice(0, 10), mes = chegou.slice(0, 7);
-      const [Y, M, D] = dia.split('-').map(Number);
-      const dow = new Date(Y, M - 1, D).getDay();
-      const hora = parseInt(chegou.slice(11, 13), 10) || 0;   // hora de São Luís em que o lead chegou
-      const primeiraMsg = primeiraMsgDe.get(c.id) || '';
-      /* 📣 O anúncio informado pelo próprio WhatsApp vale mais que qualquer
-         palpite por texto: se veio, é ele. */
-      const adTitulo = String(c.campanha_ad || '').trim();
-      const depois = (x) => !!x && x >= chegou;      // texto ISO compara igual a data
-
-      const ags = [...(agConv.get(c.id) || []), ...(c.tel8 && c.tel8.length === 8 ? (agTel.get(c.tel8) || []) : [])]
-        .filter(a => depois(a.criado)).sort((a, b) => a.criado.localeCompare(b.criado));
-      const vds = [...new Set([...(vdConv.get(c.id) || []), ...(c.lead_id ? (vdConv.get(c.lead_id) || []) : [])])]
-        .filter(v => depois(v.criado)).sort((a, b) => a.criado.localeCompare(b.criado));
-      const valor = vds.reduce((s, v) => s + v.valor, 0);
-
-      // O que a CONVERSA conta (só o que veio depois da chegada)
-      const s = sinalDe.get(c.id) || {};
-      const confMsg = depois(s.t_conf), pagoMsg = depois(s.t_pago);
-      const okMsg = depois(s.t_ok), objecao = depois(s.t_obj);
-      const cartaoMsg = depois(s.t_cartao);   // 🎫 cartão oficial: o gatilho padrão da casa
-
-      /* Cartão oficial conta como agendado mesmo sem linha na agenda: houve
-         casos de cartão mandado na conversa e o evento criado depois, ou em
-         outro dia — a promessa ao cliente já foi feita. */
-      const agendou = ags.length > 0 || cartaoMsg || confMsg;
-      const fechou  = vds.length > 0 || pagoMsg;
-      /* Ordem da prova: do mais duro (dinheiro no caixa) pro mais frouxo
-         (palavra solta). É esta etiqueta que diz ao master o quanto confiar
-         em cada linha do relatório. */
-      const prova = vds.length  ? 'venda lançada no caixa'
-                  : pagoMsg     ? 'cliente confirmou o pagamento na conversa'
-                  : ags.length  ? 'agendamento na agenda'
-                  : cartaoMsg   ? 'cartão oficial de agendamento enviado'
-                  : confMsg     ? 'confirmação enviada na conversa'
-                  : okMsg       ? 'cliente disse que quer fechar'
-                  : objecao     ? 'cliente recuou (preço/depois)'
-                  : null;
-
-      return {
-        id: c.id, nome: c.nome || 'Contato', telefone: c.phone,
-        setor: c.setor || 'sem setor', origem: c.origem,
-        responsavel: c.responsavel || null,
-        categoria: c.categoria, classificacao: c.classificacao,
-        status: c.status_atend, perdido: c.perdido, temperatura: c.lead_score,
-        chegou, dia, mes, dow, dowNome: DOW[dow],
-        hora, turno: turnoDe(hora),
-        campanha: (adTitulo && (campanhaDoTexto(adTitulo) || adTitulo.slice(0, 70))) || campanhaDoTexto(primeiraMsg),
-        campanhaProvada: !!adTitulo,   // veio do WhatsApp, não de adivinhação
-        primeiraMsg: primeiraMsg.slice(0, 160),
-        nosChamamos: c.nos_chamamos === true,
-        respondido: c.teve_resposta === true,
-        respMin: c.respondido_apos && c.resp_min != null ? Math.round(Number(c.resp_min)) : null,
-        msgsCliente: c.msgs_cliente || 0,
-        agendou, agendouEm: ags[0]?.criado || (cartaoMsg ? s.t_cartao : confMsg ? s.t_conf : null), agendaData: dataISO(ags[0]?.data),
-        cartao: cartaoMsg, provaDura: vds.length > 0 || pagoMsg || ags.length > 0 || cartaoMsg,
-        fechou, fechouEm: vds[0]?.criado || (pagoMsg ? s.t_pago : null),
-        valor, temVenda: vds.length > 0, pagouNaConversa: pagoMsg && !vds.length,
-        querFechar: okMsg && !fechou, objecao: objecao && !fechou,
-        prova,
-      };
-    });
-    guardarCacheLeads(chaveCache, leads);
-    }
+    if (!leads) { leads = await montarLeads(de, ate, campanhas); guardarCacheLeads(chaveCache, leads); }
 
     // Universo de marketing: por padrão só quem NOS PROCUROU primeiro.
     const universo = leads.filter(l => (soEntrada ? !l.nosChamamos : true));

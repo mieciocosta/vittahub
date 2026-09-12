@@ -334,6 +334,8 @@ Agendamento e venda só contam se aconteceram DEPOIS da chegada do lead. Gerado 
       </div>
 
       <Caixa style={{ padding: '9px 12px', marginBottom: 12, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        {/* 📆 HOJE (ordem do master, 05/09): só os leads que chegaram hoje */}
+        {atalho('Hoje', () => { periodoManual(hojeSLZ(), hojeSLZ()); limparRecorte(); }, de === hojeSLZ() && ate === hojeSLZ())}
         {atalho('Este mês', () => { periodoManual(primeiroDoMes(0), ultimoDoMes(0)); limparRecorte(); }, de === primeiroDoMes(0))}
         {atalho('Mês passado', () => { periodoManual(primeiroDoMes(1), ultimoDoMes(1)); limparRecorte(); }, de === primeiroDoMes(1))}
         {[3, 6, 12].map(m => atalho(`${m} meses`, () => { periodoManual('', ''); setMeses(m); limparRecorte(); }, semPeriodoManual && meses === m))}
