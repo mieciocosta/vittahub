@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Download, FileText, RefreshCw, MessageSquare } from 'lucide-react';
+import { Download, FileText, RefreshCw, MessageSquare, Upload } from 'lucide-react';
 import { useApi } from '../context/AuthContext.jsx';
 import { fmt } from '../hooks/utils.js';
 
@@ -64,6 +64,67 @@ export default function LeadsRelatorio() {
   /* 📣 Cadastrar campanha a partir de uma frase real (05/09) */
   const [novaCamp, setNovaCamp] = useState(null);   // { texto, rotulo }
   const [salvandoCamp, setSalvandoCamp] = useState(false);
+  const [importando, setImportando] = useState(false);
+  const csvRef = useRef(null);
+
+  /* 📥 IMPORTAR O CSV DO META (ordem do master, 05/09: "preciso rastrear isso").
+     O arquivo que ele já baixa do Gerenciador entra aqui e vira o catálogo:
+     cada anúncio vira campanha, com conversas e gasto ao lado. O parser lida
+     com aspas, vírgula dentro do texto, BOM e ';' do Excel brasileiro. */
+  const lerCSV = (texto) => {
+    const t = texto.replace(/^\uFEFF/, '');
+    const primeira = t.split(/\r?\n/)[0] || '';
+    const sep = (primeira.match(/;/g) || []).length > (primeira.match(/,/g) || []).length ? ';' : ',';
+    const linhas = []; let linha = [], cel = '', aspas = false;
+    for (let i = 0; i < t.length; i++) {
+      const c = t[i];
+      if (aspas) { if (c === '"') { if (t[i + 1] === '"') { cel += '"'; i++; } else aspas = false; } else cel += c; }
+      else if (c === '"') aspas = true;
+      else if (c === sep) { linha.push(cel); cel = ''; }
+      else if (c === '\n') { linha.push(cel); linhas.push(linha); linha = []; cel = ''; }
+      else if (c !== '\r') cel += c;
+    }
+    if (cel || linha.length) { linha.push(cel); linhas.push(linha); }
+    return linhas.filter(l => l.some(x => String(x).trim()));
+  };
+  const importarCSV = async (file) => {
+    if (!file || importando) return;
+    setImportando(true); setErro('');
+    try {
+      const linhas = lerCSV(await file.text());
+      const cab = (linhas[0] || []).map(h => String(h).trim().toLowerCase());
+      const col = (...prefixos) => cab.findIndex(h => prefixos.some(p => h.startsWith(p)));
+      const iNome = col('nome do anúncio', 'nome do anuncio', 'ad name');
+      if (iNome < 0) throw new Error('Não achei a coluna "Nome do anúncio" nesse arquivo.');
+      const iTot = col('total de contatos por mensagem');
+      const iNovos = col('novos contatos de mensagem');
+      const iRes = col('resultados');
+      const iGasto = col('valor gasto', 'amount spent');
+      const iConj = col('nome do conjunto de anúncios', 'nome do conjunto de anuncios');
+      const num = (v) => { const n = parseFloat(String(v ?? '').replace(/\./g, '').replace(',', '.')); return Number.isFinite(n) ? n : (parseFloat(String(v ?? '')) || 0); };
+      const porNome = new Map();
+      for (const l of linhas.slice(1)) {
+        const nome = String(l[iNome] || '').trim();
+        if (!nome) continue;
+        const k = nome.replace(/\s*—\s*C[óo]pia/gi, '').trim().toLowerCase();
+        const r = iTot >= 0 && String(l[iTot]).trim() ? num(l[iTot])
+          : iNovos >= 0 && String(l[iNovos]).trim() ? num(l[iNovos])
+          : iRes >= 0 ? num(l[iRes]) : 0;
+        const g = iGasto >= 0 ? num(l[iGasto]) : 0;
+        const at = porNome.get(k) || { nome, resultados: 0, gasto: 0, conjunto: iConj >= 0 ? String(l[iConj] || '').trim() : '' };
+        at.resultados += r; at.gasto += g;
+        porNome.set(k, at);
+      }
+      const anuncios = [...porNome.values()];
+      if (!anuncios.length) throw new Error('O arquivo não tem nenhum anúncio.');
+      const r2 = await api.post('/reports/campanhas/importar', { anuncios });
+      setCorte('campanha');
+      carregar(true);
+      window.alert(`Catálogo atualizado: ${r2.novas} campanha(s) nova(s), ${r2.atualizadas} atualizada(s), ${r2.total} no total.`);
+    } catch (e) { setErro(e.message || 'Não consegui ler o CSV'); }
+    setImportando(false);
+    if (csvRef.current) csvRef.current.value = '';
+  };
 
   const limparRecorte = () => { setMes(''); setDia(''); setDow(null); setSetor(''); setOrigem(''); setCampanha(''); };
 
@@ -262,6 +323,13 @@ Agendamento e venda só contam se aconteceram DEPOIS da chegada do lead. Gerado 
           <button onClick={() => carregar(true)} title="Atualizar" style={{ ...btn(false), padding: '5px 9px' }}><RefreshCw size={13} /></button>
           <button onClick={gerarPDF} style={{ ...btn(false), display: 'flex', alignItems: 'center', gap: 5 }}><FileText size={13} /> PDF</button>
           <button onClick={baixarCSV} style={{ ...btn(false), display: 'flex', alignItems: 'center', gap: 5 }}><Download size={13} /> Excel</button>
+          {/* 📥 O CSV do Gerenciador do Meta entra aqui e vira o catálogo de campanhas */}
+          <input ref={csvRef} type="file" accept=".csv,text/csv" style={{ display: 'none' }} onChange={e => importarCSV(e.target.files?.[0])} />
+          <button onClick={() => csvRef.current?.click()} disabled={importando}
+            title="Suba o relatório de anúncios do Meta (CSV): cada anúncio vira uma campanha, com conversas e gasto ao lado"
+            style={{ ...btn(false), display: 'flex', alignItems: 'center', gap: 5, background: '#7c3aed', color: '#fff', borderColor: '#7c3aed', opacity: importando ? .6 : 1 }}>
+            <Upload size={13} /> {importando ? 'Importando…' : 'Importar CSV do Meta'}
+          </button>
         </div>
       </div>
 

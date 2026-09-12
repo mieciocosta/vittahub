@@ -379,6 +379,43 @@ const CAMPANHAS_PADRAO = [
     termos: ['experiencia vittalis'] },
 ];
 const semAcento = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+/* 🔎 CASAMENTO POR PALAVRAS, NÃO POR FRASE EXATA (ordem do master, 05/09:
+   "muitos aparecem como sem campanha; tenta detectar de acordo com o
+   relatório").
+
+   O cliente nunca manda a frase do anúncio letra por letra: ele apaga, ele
+   completa, ele escreve em cima ("Olá! Quero saber do plano de vacinação de 0
+   a 18 meses"). Exigir a frase inteira jogava quase tudo em "sem campanha".
+   Agora cada anúncio vira um punhado de palavras que importam (fora artigos e
+   preposições) e a mensagem é PONTUADA contra todas: frase inteira vale muito,
+   cada palavra em comum vale um tanto, e ganha a campanha de maior pontuação —
+   desde que passe do mínimo, senão fica "sem campanha" mesmo. */
+const PALAVRAS_VAZIAS = new Set(['de','da','do','das','dos','para','pra','por','com','que','uma','uns','umas','seu','sua','seus','suas','mais','como','aqui','nos','nas','num','numa','sobre','quero','gostaria','saber','informacao','informacoes','ola','oi','bom','boa','dia','tarde','noite','favor','vittalis','saude','voce','vocês','voces']);
+const palavrasUteis = (t) => [...new Set(semAcento(t).replace(/[^a-z0-9\s]/g, ' ').split(/\s+/)
+  .filter(w => w.length >= 4 && !PALAVRAS_VAZIAS.has(w)))];
+function montarDetector(campanhas) {
+  const idx = campanhas.map(c => ({
+    rotulo: c.rotulo,
+    frases: (c.termos || []).map(semAcento).filter(f => f.length >= 8),
+    palavras: [...new Set([...palavrasUteis(c.rotulo), ...(c.termos || []).flatMap(palavrasUteis)])],
+  }));
+  return (txt) => {
+    const t = semAcento(txt);
+    if (!t || t.length < 8) return null;
+    const pw = new Set(palavrasUteis(txt));
+    let melhor = null, ponto = 0;
+    for (const c of idx) {
+      let p = 0;
+      if (c.frases.some(f => t.includes(f))) p += 10;              // frase inteira: quase certeza
+      const hits = c.palavras.filter(w => pw.has(w));
+      p += hits.length * 2;                                        // cada palavra que importa
+      if (hits.some(w => w.length >= 9)) p += 2;                   // palavra longa é distintiva
+      if (p > ponto) { ponto = p; melhor = c.rotulo; }
+    }
+    return ponto >= 6 ? melhor : null;   // frase inteira, ou 3 palavras, ou 2 + uma bem distintiva
+  };
+}
 async function lerCampanhas() {
   try {
     const { rows: [c] } = await query("SELECT valor FROM configuracoes WHERE chave = 'campanhas_leads'");
@@ -437,6 +474,57 @@ r.put('/campanhas', async (req, res) => {
       [JSON.stringify({ campanhas: lista })]);
     CACHE_LEADS_NOVOS.clear();   // o recorte antigo foi montado com o catálogo velho
     res.json({ ok: true, campanhas: lista });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* 📥 IMPORTAR O RELATÓRIO DO META (ordem do master, 05/09: "preciso rastrear
+   isso"). Em vez de eu cadastrar anúncio por anúncio, o master sobe o CSV que
+   já baixa do Gerenciador e o catálogo se monta sozinho: nome do anúncio vira
+   campanha, as palavras do nome viram a chave de detecção, e os números do
+   Meta (conversas e gasto) ficam ao lado pra comparar com o WhatsApp. Anúncio
+   que já existe no catálogo é ATUALIZADO, sem perder as frases que o master
+   ensinou na mão. */
+r.post('/campanhas/importar', async (req, res) => {
+  if (req.user.role !== 'master') return res.status(403).json({ error: 'Só o master importa campanhas.' });
+  try {
+    const linhas = Array.isArray(req.body?.anuncios) ? req.body.anuncios : [];
+    if (!linhas.length) return res.status(400).json({ error: 'Nenhum anúncio no arquivo.' });
+    const setorDoNome = (n) => {
+      const t = semAcento(n);
+      if (/vacin|imuniz|carteira|dose/.test(t)) return 'vacinas';
+      if (/terapia|\baba\b|fono|psico|nutri|seletividade|comportamento/.test(t)) return 'terapias';
+      if (/consulta|pediatr|neuro|medic/.test(t)) return 'consultas';
+      return null;
+    };
+    const atual = await lerCampanhas();
+    const porRotulo = new Map(atual.map(c => [String(c.rotulo).toLowerCase(), { ...c }]));
+    let novas = 0, atualizadas = 0;
+    for (const a of linhas) {
+      const nome = String(a.nome || '').replace(/\s*—\s*C[óo]pia/gi, '').trim().slice(0, 80);
+      if (!nome || nome.length < 4) continue;
+      const k = nome.toLowerCase();
+      const res2 = a.resultados != null ? Number(a.resultados) || 0 : null;
+      const gasto = a.gasto != null ? Math.round((Number(a.gasto) || 0) * 100) / 100 : null;
+      const ja = porRotulo.get(k);
+      if (ja) {
+        ja.termos = [...new Set([...(ja.termos || []), nome])].slice(0, 20);
+        if (res2 != null) ja.meta_resultados = (ja.meta_resultados || 0) + res2;
+        if (gasto != null) ja.meta_gasto = Math.round(((ja.meta_gasto || 0) + gasto) * 100) / 100;
+        if (!ja.conjunto && a.conjunto) ja.conjunto = String(a.conjunto).slice(0, 80);
+        atualizadas++;
+      } else {
+        porRotulo.set(k, { rotulo: nome, setor: setorDoNome(nome),
+          conjunto: a.conjunto ? String(a.conjunto).slice(0, 80) : null,
+          meta_resultados: res2, meta_gasto: gasto, termos: [nome] });
+        novas++;
+      }
+    }
+    const lista = [...porRotulo.values()].filter(c => c.rotulo && (c.termos || []).length).slice(0, 200);
+    await query(`INSERT INTO configuracoes (chave, valor) VALUES ('campanhas_leads', $1::jsonb)
+                 ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`,
+      [JSON.stringify({ campanhas: lista })]);
+    CACHE_LEADS_NOVOS.clear();
+    res.json({ ok: true, novas, atualizadas, total: lista.length });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -556,12 +644,7 @@ r.get('/leads-novos', async (req, res) => {
               ORDER BY m.conversa_id, m.created_at ASC`).catch(() => ({ rows: [] })),
     ]);
     const primeiraMsgDe = new Map(primeiras.rows.map(p => [p.conversa_id, p.texto || '']));
-    const campanhaDoTexto = (txt) => {
-      const t = semAcento(txt);
-      if (!t) return null;
-      for (const c of campanhas) if (c.termos.some(x => t.includes(semAcento(x)))) return c.rotulo;
-      return null;
-    };
+    const campanhaDoTexto = montarDetector(campanhas);
 
     /* Índices de conversão. Guardo LISTA por chave (não só o primeiro) porque o
        mesmo telefone pode ter agendamento antigo e outro depois da campanha —
