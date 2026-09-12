@@ -3301,26 +3301,44 @@ r.post('/webhook/zapi', async (req, res) => {
     /* 📣 DE QUAL ANÚNCIO ESTA CONVERSA NASCEU (ordem do master, 05/09: "quero
        bater se os números do Meta batem com o atendimento no WhatsApp").
        Quando o cliente chega clicando num anúncio, o WhatsApp manda junto a
-       referência da peça — título, corpo e o id do anúncio. É prova exata, não
-       adivinhação por texto. Cada gateway embrulha isso num lugar diferente,
-       então procuramos em todos os formatos conhecidos e guardamos o que
-       achar; não achando nada, o relatório continua lendo o texto. */
+       referência da peça — título, corpo e o id. É prova exata, não
+       adivinhação por texto. Cada gateway embrulha isso num lugar e com um
+       nome diferente, então o corpo do webhook é VARRIDO inteiro atrás de
+       qualquer chave que cheire a anúncio (referral, adReply, ctwa, sourceUrl,
+       headline). Só se ACHA aqui; a gravação acontece lá embaixo, DEPOIS do
+       upsert da conversa — antes, num lead novo, não havia conversa pra
+       receber a marca (12/09: todos os leads do dia sem campanha). */
+    let adRef = null;
     try {
-      const ad = body?.referral || body?.adReferral || body?.externalAdReply
-        || body?.message?.contextInfo?.externalAdReply || body?.contextInfo?.externalAdReply
-        || body?.message?.externalAdReply || null;
-      if (ad && (body.phone || body.connectedPhone)) {
-        const titulo = String(ad.title || ad.headline || ad.body || ad.sourceUrl || ad.source_url || '').slice(0, 200);
-        const adId = String(ad.sourceId || ad.source_id || ad.adId || ad.ad_id || ad.ctwaClid || '').slice(0, 120) || null;
-        if (titulo || adId) {
-          const tel = String(body.phone).replace(/\D/g, '');
-          await query(
-            `UPDATE conversas SET campanha_ad = COALESCE(NULLIF(campanha_ad,''), $1),
-                                  campanha_ad_id = COALESCE(NULLIF(campanha_ad_id,''), $2)
-              WHERE right(regexp_replace(COALESCE(phone,''), '\\D', '', 'g'), 8) = right($3, 8)`,
-            [titulo || null, adId, tel]).catch(() => {});
-          console.log(`📣 Anúncio de origem guardado: ${titulo.slice(0, 60)}${adId ? ` (${adId})` : ''}`);
-        }
+      /* Formato confirmado na doc oficial da Z-API (on-message-received):
+         `externalAdReply` no TOPO do webhook, com title, body, sourceType "ad",
+         sourceId (id da peça no Meta), ctwaClid (id do clique) e sourceUrl.
+         Nos outros webhooks vem `externalAdReply: null`. O caminho principal é
+         esse; a varredura ancorada abaixo é só rede pra outro gateway. */
+      const ehAnuncio = (o) => !!o && typeof o === 'object'
+        && (o.sourceType === 'ad' || o.source_type === 'ad' || o.showAdAttribution === true
+            || !!(o.sourceId || o.source_id || o.ctwaClid || o.ctwa_clid));
+      let ad = ehAnuncio(body?.externalAdReply) ? body.externalAdReply : null;
+      if (!ad) {
+        const acharAd = (o, prof = 0) => {
+          if (!o || typeof o !== 'object' || prof > 4) return null;
+          for (const [k, v] of Object.entries(o)) {
+            if (/^(externalAdReply|referral|adReferral|adReply)$/i.test(k) && ehAnuncio(v)) return v;
+            if (v && typeof v === 'object' && !Array.isArray(v)) { const r0 = acharAd(v, prof + 1); if (r0) return r0; }
+          }
+          return null;
+        };
+        ad = acharAd(body);
+      }
+      if (ad) {
+        const titulo = String(ad.title || ad.headline || '').trim().slice(0, 200);
+        const corpo = String(ad.body || ad.description || '').trim().slice(0, 300);
+        const adId = String(ad.sourceId || ad.source_id || '').trim().slice(0, 120) || null;
+        const clid = String(ad.ctwaClid || ad.ctwa_clid || '').trim().slice(0, 160) || null;
+        // Objeto enxuto: sem miniatura/base64 e sem strings gigantes — cabe sempre no jsonb
+        const raw = Object.fromEntries(Object.entries(ad)
+          .filter(([k, v]) => !/thumb|media|render|show/i.test(k) && (typeof v !== 'string' || v.length <= 500) && (v === null || typeof v !== 'object')));
+        adRef = { titulo: titulo || corpo.slice(0, 120) || null, corpo: corpo || null, adId, clid, raw };
       }
     } catch { /* referral é bônus: nunca atrapalha a entrada da mensagem */ }
 
@@ -3574,15 +3592,60 @@ r.post('/webhook/zapi', async (req, res) => {
     // Atualiza cache em memória imediatamente
     cacheUpdate(conv);
 
+    /* 📣 Agora sim, com a conversa existindo: grava o anúncio de origem (só a
+       primeira vez) e, no PRIMEIRO contato de um cliente, as chaves que o
+       WhatsApp mandou — é o que permite descobrir o nome do campo do anúncio
+       sem depender de adivinhar (Diagnóstico de anúncios, só master). */
+    if (!isMe && !isGroupMsg) {
+      try {
+        if (adRef && (adRef.titulo || adRef.adId || adRef.clid)) {
+          /* Dois passos de propósito: título/id primeiro (o que o relatório usa),
+             o objeto bruto depois com catch próprio — um jsonb inválido nunca
+             pode derrubar a gravação do que importa. */
+          const { rows: [cAd] } = await query(
+            `UPDATE conversas SET campanha_ad = COALESCE(NULLIF(campanha_ad,''), $1),
+                                  campanha_ad_id = COALESCE(NULLIF(campanha_ad_id,''), $2)
+              WHERE id = $3 RETURNING campanha_ad, campanha_ad_id`,
+            [adRef.titulo, adRef.adId || adRef.clid, conv.id]);
+          await query(`UPDATE conversas SET campanha_ad_raw = COALESCE(campanha_ad_raw, $1::jsonb) WHERE id = $2`,
+            [JSON.stringify({ ...adRef.raw, corpo: adRef.corpo, ctwaClid: adRef.clid }), conv.id]).catch(e => console.error('campanha_ad_raw:', e.message));
+          if (cAd) cacheUpdate({ ...(convoCache.get(conv.id) || conv), ...cAd });
+          console.log(`📣 Anúncio de origem guardado: ${String(adRef.titulo || adRef.adId || adRef.clid).slice(0, 60)}`);
+        }
+        if (!conv.primeiro_webhook_chaves) {
+          const chaves = [];
+          for (const [k, v] of Object.entries(body || {})) {
+            chaves.push(k);
+            if (v && typeof v === 'object' && !Array.isArray(v)) for (const k2 of Object.keys(v).slice(0, 12)) chaves.push(`${k}.${k2}`);
+          }
+          await query(`UPDATE conversas SET primeiro_webhook_chaves = $1::text[] WHERE id = $2 AND primeiro_webhook_chaves IS NULL`,
+            [chaves.slice(0, 80), conv.id]).catch(() => {});
+        }
+      } catch (e) { console.error('anúncio de origem:', e.message); }
+    }
+
     // Salva mensagem
     const finalContent = mediaData || content;
+    /* 🖼️ A LEGENDA DA FOTO NÃO SOME MAIS (05/09): "quero esse plano" escrito
+       embaixo do print do anúncio é primeiro contato comum vindo do Instagram,
+       e ia embora porque o content vira a mídia. Fica em `caption`. */
+    const caption = (type !== 'text' && mediaData && String(content || '').trim() && content !== '[mensagem]') ? String(content).slice(0, 1000) : null;
     const { rows: [newMsg] } = await query(
-      `INSERT INTO mensagens (conversa_id, from_type, type, content, filename, created_at, wa_msg_id, status)
-       SELECT $1, $7, $2, $3, $4, $5, $6, $8
+      `INSERT INTO mensagens (conversa_id, from_type, type, content, filename, created_at, wa_msg_id, status, caption)
+       SELECT $1, $7, $2, $3, $4, $5, $6, $8, $9
        WHERE NOT EXISTS (SELECT 1 FROM mensagens WHERE wa_msg_id = $6 AND $6 IS NOT NULL)
        RETURNING *`,
-      [conv.id, type, finalContent, filename, ts, msgId, isMe ? 'me' : 'contact', isMe ? 'delivered' : 'sent']
-    );
+      [conv.id, type, finalContent, filename, ts, msgId, isMe ? 'me' : 'contact', isMe ? 'delivered' : 'sent', caption]
+    ).catch(async (e) => {
+      // banco ainda sem a coluna: entra sem a legenda, mas entra
+      console.error('insert mensagem (sem caption):', e.message);
+      return query(
+        `INSERT INTO mensagens (conversa_id, from_type, type, content, filename, created_at, wa_msg_id, status)
+         SELECT $1, $7, $2, $3, $4, $5, $6, $8
+         WHERE NOT EXISTS (SELECT 1 FROM mensagens WHERE wa_msg_id = $6 AND $6 IS NOT NULL)
+         RETURNING *`,
+        [conv.id, type, finalContent, filename, ts, msgId, isMe ? 'me' : 'contact', isMe ? 'delivered' : 'sent']);
+    });
 
     // Cliente respondeu → o resgate automático para aqui. Continuar insistindo
     // com quem já voltou a falar é o jeito mais rápido de queimar o lead.

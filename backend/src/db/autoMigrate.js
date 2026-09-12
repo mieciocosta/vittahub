@@ -3796,6 +3796,9 @@ async function colunasCriticas() {
     ['conversas', 'simulacao',       'BOOLEAN DEFAULT false'],
     ['conversas', 'campanha_ad',     'TEXT'],      // 📣 anúncio que originou a conversa (referral do WhatsApp)
     ['conversas', 'campanha_ad_id',  'TEXT'],      // id do anúncio no Meta, quando vier
+    ['conversas', 'campanha_ad_raw', 'JSONB'],     // o objeto do anúncio como veio (pra reler quando o formato mudar)
+    ['conversas', 'primeiro_webhook_chaves', 'TEXT[]'],   // que campos o WhatsApp mandou no 1º contato (diagnóstico)
+    ['mensagens', 'caption',         'TEXT'],      // legenda da foto/vídeo (o texto ia embora junto com a mídia)
     ['usuarios',  'titulo',          'TEXT'],                   // carteira na transferência
     ['usuarios',  'distribuidor',    'BOOLEAN DEFAULT false'],   // recebe a fila de leads novos
     ['usuarios',  'so_fidelidade',   'BOOLEAN DEFAULT false'],

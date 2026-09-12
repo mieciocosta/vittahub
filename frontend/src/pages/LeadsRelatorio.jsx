@@ -65,6 +65,8 @@ export default function LeadsRelatorio() {
   const [novaCamp, setNovaCamp] = useState(null);   // { texto, rotulo }
   const [salvandoCamp, setSalvandoCamp] = useState(false);
   const [importando, setImportando] = useState(false);
+  const [diag, setDiag] = useState(null);           // 🔬 diagnóstico de anúncios (master)
+  const [diagAberto, setDiagAberto] = useState(false);
   const csvRef = useRef(null);
 
   /* 📥 IMPORTAR O CSV DO META (ordem do master, 05/09: "preciso rastrear isso").
@@ -101,6 +103,9 @@ export default function LeadsRelatorio() {
       const iRes = col('resultados');
       const iGasto = col('valor gasto', 'amount spent');
       const iConj = col('nome do conjunto de anúncios', 'nome do conjunto de anuncios');
+      const iId = col('identificação do anúncio', 'identificacao do anuncio', 'id do anúncio', 'id do anuncio', 'ad id');
+      const iDe = col('início dos relatórios', 'inicio dos relatorios', 'reporting starts');
+      const iAte = col('encerramento dos relatórios', 'encerramento dos relatorios', 'término dos relatórios', 'reporting ends');
       const num = (v) => { const n = parseFloat(String(v ?? '').replace(/\./g, '').replace(',', '.')); return Number.isFinite(n) ? n : (parseFloat(String(v ?? '')) || 0); };
       const porNome = new Map();
       for (const l of linhas.slice(1)) {
@@ -111,8 +116,10 @@ export default function LeadsRelatorio() {
           : iNovos >= 0 && String(l[iNovos]).trim() ? num(l[iNovos])
           : iRes >= 0 ? num(l[iRes]) : 0;
         const g = iGasto >= 0 ? num(l[iGasto]) : 0;
-        const at = porNome.get(k) || { nome, resultados: 0, gasto: 0, conjunto: iConj >= 0 ? String(l[iConj] || '').trim() : '' };
+        const at = porNome.get(k) || { nome, resultados: 0, gasto: 0, conjunto: iConj >= 0 ? String(l[iConj] || '').trim() : '',
+          ad_id: iId >= 0 ? String(l[iId] || '').trim() : '', de: iDe >= 0 ? String(l[iDe] || '').trim() : '', ate: iAte >= 0 ? String(l[iAte] || '').trim() : '' };
         at.resultados += r; at.gasto += g;
+        if (!at.ad_id && iId >= 0) at.ad_id = String(l[iId] || '').trim();
         porNome.set(k, at);
       }
       const anuncios = [...porNome.values()];
@@ -185,7 +192,7 @@ export default function LeadsRelatorio() {
       const atual = await api.get('/reports/campanhas');
       const lista = Array.isArray(atual?.campanhas) ? atual.campanhas.map(c => ({ ...c })) : [];
       const rot = novaCamp.rotulo.trim();
-      const termo = novaCamp.texto.trim().slice(0, 120);
+      const termo = String(novaCamp.termo || novaCamp.texto).trim().slice(0, 120);   // o miolo, sem 'olá'/'quero saber'
       const ja = lista.find(c => String(c.rotulo).toLowerCase() === rot.toLowerCase());
       if (ja) { ja.termos = [...new Set([...(ja.termos || []), termo])]; }
       else lista.unshift({ rotulo: rot, setor: null, conjunto: null, meta_resultados: null, meta_gasto: null, termos: [termo] });
@@ -208,10 +215,10 @@ export default function LeadsRelatorio() {
   // ── Exportações ────────────────────────────────────────────────────────────
   const COLS = ['Nome', 'Telefone', 'Chegou em', 'Dia da semana', 'Setor', 'Origem', 'Responsavel',
     'Respondido', 'Tempo 1a resposta (min)', 'Agendou', 'Fechou', 'Prova do fechamento', 'Valor',
-    'Campanha', 'Turno', 'Primeira mensagem'];   // 05/09: de onde veio e a que horas
+    'Campanha', 'Turno', 'Primeira mensagem', 'Origem do lead'];   // 05/09: de onde veio e a que horas
   const linhaDe = (l) => [l.nome, l.telefone || '', l.chegou, l.dowNome, l.setor, l.origem, l.responsavel || '',
     l.respondido ? 'sim' : 'nao', l.respMin ?? '', l.agendou ? 'sim' : 'nao', l.fechou ? 'sim' : 'nao',
-    l.prova || '', l.valor || 0, l.campanha || '', l.turno || '', l.primeiraMsg || ''];
+    l.prova || '', l.valor || 0, l.campanha || '', l.turno || '', l.primeiraMsg || '', l.origemLead || ''];
 
   const baixarCSV = () => {
     const csv = [COLS, ...(dados?.lista || []).map(l => linhaDe(l).map((c, i) => (i === 12 ? String(c).replace('.', ',') : c)))]
@@ -352,6 +359,7 @@ Agendamento e venda só contam se aconteceram DEPOIS da chegada do lead. Gerado 
       </Caixa>
 
       {erro && <Caixa style={{ padding: 14, marginBottom: 12, color: 'var(--err)', fontSize: 12.5 }}>{erro}</Caixa>}
+      {(dados?.avisos || []).map(a => <Caixa key={a} style={{ padding: 12, marginBottom: 12, color: 'var(--err)', fontSize: 12, borderLeft: '4px solid var(--err,#dc2626)' }}>⚠️ {a}</Caixa>)}
 
       {/* 2 · Meses — o primeiro clique */}
       <div style={{ display: 'flex', gap: 8, overflowX: 'auto', marginBottom: 12, paddingBottom: 2 }}>
@@ -567,6 +575,69 @@ Agendamento e venda só contam se aconteceram DEPOIS da chegada do lead. Gerado 
           {/* 🗣️ As frases que chegaram e o sistema não soube de qual anúncio são.
               É daqui que sai o cadastro de uma campanha nova: a frase mais
               repetida no topo, com quantas vezes veio. */}
+          {/* 🏷️ DE ONDE VIERAM (05/09): anúncio confirmado pelo WhatsApp, reconhecido
+              pelo texto, mensagem pronta repetida, ou orgânico. Responde de cara
+              "por que tantos sem campanha": porque não vieram de anúncio. */}
+          {corte === 'campanha' && (dados?.totais?.porOrigem || []).length > 0 && (
+            <div style={{ marginTop: 12, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+              <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--txt2)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 6 }}>🏷️ De onde vieram os leads</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {dados.totais.porOrigem.map(o => (
+                  <span key={o.origem} style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20,
+                    background: /organico|orgânico/i.test(o.origem) ? 'var(--bg2)' : /nao identificado|não identificado|prov[aá]vel/i.test(o.origem) ? '#fef3c7' : 'var(--tq4)',
+                    color: /organico|orgânico/i.test(o.origem) ? 'var(--muted)' : /nao identificado|não identificado|prov[aá]vel/i.test(o.origem) ? '#92400e' : 'var(--tq2)' }}>
+                    {n0(o.n)} · {o.origem}
+                  </span>
+                ))}
+              </div>
+              <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 6, lineHeight: 1.5 }}>
+"WhatsApp confirmou" é prova exata (o anúncio veio junto da mensagem). "Pelo texto" e "mensagem pronta" são reconhecimento pela conversa. "Não identificado" falou em anúncio ou Instagram, mas não deu pra saber qual. "Orgânico" não deixou pista nenhuma. Compare com "Meta: X conversas" nas linhas acima.
+              </div>
+            </div>
+          )}
+          {/* 🔬 DIAGNÓSTICO DE ANÚNCIOS (só master): o que o WhatsApp mandou no 1º contato */}
+          {corte === 'campanha' && (
+            <div style={{ marginTop: 12, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+              <button onClick={async () => {
+                  if (diagAberto) { setDiagAberto(false); return; }
+                  setDiagAberto(true);
+                  try { const j = dados?.janela || {}; setDiag(await api.get(`/reports/diagnostico-anuncios?de=${j.de || ''}&ate=${j.ate || ''}`)); }
+                  catch (e) { setDiag({ erro: e.message }); }
+                }}
+                style={{ ...btn(diagAberto), display: 'flex', alignItems: 'center', gap: 6 }}>
+                🔬 {diagAberto ? 'Fechar diagnóstico' : 'Diagnóstico de anúncios: o que o WhatsApp mandou no 1º contato'}
+              </button>
+              {diagAberto && (
+                <div style={{ marginTop: 8, fontSize: 11.5, color: 'var(--txt2)', lineHeight: 1.6 }}>
+                  {!diag && 'Carregando…'}
+                  {diag?.erro && <span style={{ color: 'var(--err,#dc2626)' }}>{diag.erro}</span>}
+                  {diag && !diag.erro && (
+                    <>
+                      <div>
+                        <b>{n0(diag.total)}</b> lead(s) de {fmt.date(diag.de)}{diag.ate !== diag.de ? ` a ${fmt.date(diag.ate)}` : ''} ·
+                        {' '}<b style={{ color: diag.com_anuncio ? 'var(--tq2)' : 'var(--err,#dc2626)' }}>{n0(diag.com_anuncio)}</b> com referência de anúncio enviada pelo WhatsApp ·
+                        {' '}{n0(diag.com_chaves_gravadas)} com as chaves do 1º webhook gravadas
+                      </div>
+                      {diag.chaves_de_anuncio_vistas?.length > 0 ? (
+                        <div style={{ color: 'var(--tq2)', fontWeight: 700 }}>Chaves de anúncio vistas: {diag.chaves_de_anuncio_vistas.map(c => `${c.chave} (${c.n})`).join(', ')}</div>
+                      ) : diag.com_chaves_gravadas > 0 ? (
+                        <div style={{ color: 'var(--muted)' }}>Nenhuma chave com cara de anúncio nos primeiros contatos gravados. Chaves que chegaram: {diag.chaves_mais_comuns.map(c => c.chave).join(', ')}</div>
+                      ) : (
+                        <div style={{ color: 'var(--muted)' }}>Ainda não há primeiro contato gravado depois desta versão. Os próximos leads novos alimentam este painel sozinhos.</div>
+                      )}
+                      {diag.itens?.slice(0, 40).map(i => (
+                        <div key={i.id} style={{ display: 'flex', gap: 8, alignItems: 'baseline', padding: '3px 0', borderTop: '1px dashed var(--border)' }}>
+                          <span style={{ minWidth: 120, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{i.nome || i.phone || 'Contato'}</span>
+                          <span style={{ flex: 1, minWidth: 0, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={i.primeira_msg || ''}>{i.primeira_msg || '(mídia / sem texto)'}</span>
+                          <span style={{ fontSize: 10.5, fontWeight: 800, color: i.anuncio ? 'var(--tq2)' : 'var(--light)' }}>{i.anuncio ? `📣 ${String(i.anuncio).slice(0, 40)}` : i.chaves_de_anuncio?.length ? `🔑 ${i.chaves_de_anuncio.join(', ')}` : '—'}</span>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
           {corte === 'campanha' && (dados?.textosNaoReconhecidos || []).length > 0 && (
             <div style={{ marginTop: 14, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
               <div style={{ fontSize: 11, fontWeight: 800, color: '#7c3aed', textTransform: 'uppercase', letterSpacing: .5 }}>
@@ -579,8 +650,8 @@ Agendamento e venda só contam se aconteceram DEPOIS da chegada do lead. Gerado 
                 <div key={i} style={{ padding: '4px 0', borderTop: i ? '1px dashed var(--border)' : 'none' }}>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
                     <span style={{ fontSize: 11.5, fontWeight: 800, color: '#7c3aed', minWidth: 26 }}>{t.n}×</span>
-                    <span style={{ fontSize: 11.5, color: 'var(--txt2)', flex: 1, minWidth: 0 }}>{t.texto}</span>
-                    <button onClick={() => setNovaCamp({ texto: t.texto, rotulo: '' })}
+                    <span style={{ fontSize: 11.5, color: 'var(--txt2)', flex: 1, minWidth: 0 }}>{t.pista ? '📣 ' : ''}{t.texto}</span>
+                    <button onClick={() => setNovaCamp({ texto: t.texto, termo: t.termo || t.texto, rotulo: '' })}
                       title="Dizer de qual campanha é esta frase"
                       style={{ border: '1px solid #7c3aed', background: 'transparent', color: '#7c3aed', borderRadius: 8,
                         padding: '2px 9px', fontSize: 10.5, fontWeight: 800, cursor: 'pointer', flexShrink: 0 }}>
@@ -697,9 +768,12 @@ Agendamento e venda só contam se aconteceram DEPOIS da chegada do lead. Gerado 
                 <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.nome}</div>
                 <div style={{ fontSize: 11, color: 'var(--muted)' }}>{fmt.phone(l.telefone)} · {l.setor}{l.responsavel ? ` · ${l.responsavel}` : ''}</div>
                 {/* 📣 De qual anúncio este lead veio (ordem do master, 05/09) */}
-                {l.campanha && (
+                {l.campanha ? (
                   <div style={{ fontSize: 10, fontWeight: 700, color: '#7c3aed', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
-                    title={l.primeiraMsg || ''}>📣 {l.campanha}{l.campanhaProvada ? ' ✓' : ''}</div>
+                    title={`${l.origemLead || ''}${l.primeiraMsg ? ` · "${l.primeiraMsg}"` : ''}`}>📣 {l.campanha}{l.campanhaProvada ? ' ✓' : ''}</div>
+                ) : (
+                  <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--light)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                    title={l.primeiraMsg || ''}>🌱 orgânico{l.primeiraMsg ? ` · "${l.primeiraMsg.slice(0, 40)}"` : ''}</div>
                 )}
               </div>
               <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>

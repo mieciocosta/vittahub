@@ -325,7 +325,7 @@ const CAMPANHAS_PADRAO = [
     termos: ['perda de tempo'] },
   { rotulo: 'Promoção · Consultas (formulário)', setor: 'consultas',
     conjunto: 'CONJUNTO PLANOS', meta_resultados: 7, meta_gasto: 130.05,
-    termos: ['promocao|consultas', 'promocao consultas'] },
+    termos: ['promocao de consultas', 'promocao consultas', 'consulta em promocao'] },
   // ── Vacinas ──────────────────────────────────────────────────────────────
   { rotulo: 'Plano 2 meses · proteção especial', setor: 'vacinas',
     conjunto: null, meta_resultados: null, meta_gasto: null,
@@ -363,7 +363,7 @@ const CAMPANHAS_PADRAO = [
   // ── Terapias e nutrição ──────────────────────────────────────────────────
   { rotulo: 'Comportamento do seu pequeno (ABA)', setor: 'terapias',
     conjunto: 'TERAPIA ABA VITTALIS SÃO LUIS', meta_resultados: null, meta_gasto: 17.54,
-    termos: ['comportamento do seu pequeno'] },
+    termos: ['comportamento do seu pequeno', 'terapia aba', 'aba'] },
   { rotulo: 'Alimentação do seu pequeno (seletividade)', setor: 'terapias',
     conjunto: 'NUTRICIONISTA-SELETIVIDADE ALIMENTAR', meta_resultados: null, meta_gasto: 55.04,
     termos: ['alimentacao do seu pequeno', 'seletividade alimentar'] },
@@ -391,31 +391,75 @@ const semAcento = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036
    preposições) e a mensagem é PONTUADA contra todas: frase inteira vale muito,
    cada palavra em comum vale um tanto, e ganha a campanha de maior pontuação —
    desde que passe do mínimo, senão fica "sem campanha" mesmo. */
-const PALAVRAS_VAZIAS = new Set(['de','da','do','das','dos','para','pra','por','com','que','uma','uns','umas','seu','sua','seus','suas','mais','como','aqui','nos','nas','num','numa','sobre','quero','gostaria','saber','informacao','informacoes','ola','oi','bom','boa','dia','tarde','noite','favor','vittalis','saude','voce','vocês','voces']);
-const palavrasUteis = (t) => [...new Set(semAcento(t).replace(/[^a-z0-9\s]/g, ' ').split(/\s+/)
-  .filter(w => w.length >= 4 && !PALAVRAS_VAZIAS.has(w)))];
+/* Cumprimento, cortesia e conversa: entram em qualquer mensagem e não dizem
+   de que anúncio ela veio. Palavras de SETOR (vacina, consulta, terapia, plano,
+   agendar) também ficam fora do rótulo: toda clínica de vacinas ouve "plano de
+   vacinação" o dia inteiro — isso diz o setor, não a campanha. */
+const PALAVRAS_VAZIAS = new Set(('de da do das dos para pra por com que uma uns umas seu sua seus suas mais como aqui nos nas num numa sobre '
+  + 'quero gostaria saber informacao informacoes ola oi bom boa dia tarde noite favor vittalis saude voce voces '
+  + 'pelo pela pelos pelas esta este esse essa isso meu minha tenho preciso queria quanto custa valor preco qual quais '
+  + 'tudo bem hoje quem todo toda sim nao vim estou sou tem ser fazer tambem ainda muito obrigado obrigada '
+  + 'agendar marcar consulta consultas vacina vacinas vacinacao vacinar vacinais vacinal plano planos terapia terapias atendimento').split(' '));
+const SIGLAS = new Set(['aba', 'tea', 'tdah', 'bcg', 'hpv', 'dra', 'dr']);
+/* Radical simples: tira terminações de gênero/número/sufixo (até duas vezes)
+   e corta em 7 letras. neuropediatr(a|ia) casa; neurops(icologia) NÃO casa
+   com neurope(diatria); complet(o|os), helen(a), formatur(a) casam. */
+const radical = (w) => {
+  if (w.length < 5) return w;
+  let r = w.replace(/(coes|cao)$/, 'c');
+  for (let i = 0; i < 2 && r.length > 4; i++) r = r.replace(/(ais|eis|ois|es|is|as|os|ia|io|s|a|o|e)$/, '');
+  return r.slice(0, 7);
+};
+const palavrasUteis = (t) => {
+  const toks = semAcento(t).replace(/(\d+)\s*(meses|mes|anos|ano)\b/g, '$1$2 ')   // "2 meses" vira "2meses"
+    .replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(Boolean);
+  return [...new Set(toks.filter(w => (w.length >= 4 || SIGLAS.has(w) || /^\d+(meses|mes|anos|ano)$/.test(w)) && !PALAVRAS_VAZIAS.has(w)).map(radical))];
+};
+const SAUDACAO = /^\s*(ola|oi|bom dia|boa tarde|boa noite|olá)?[!,.\s]*(tudo bem|tudo bom|td bem)?[?!.\s]*$/;
+/* 🔎 DETECTOR (05/09, refinado pela auditoria): cada anúncio vira frases (>= 2
+   palavras úteis) e palavras, pesadas por EXCLUSIVIDADE — palavra que só um
+   anúncio usa vale 3, que dois ou três usam vale 2, quatro ou mais vale 1.
+   Frase inteira vale 10. Sem frase, só casa com ao menos uma palavra exclusiva.
+   Empate sem frase prefere o anúncio do setor da conversa; se ainda empatar,
+   devolve null: melhor "não sei" do que chutar. */
 function montarDetector(campanhas) {
-  const idx = campanhas.map(c => ({
-    rotulo: c.rotulo,
-    frases: (c.termos || []).map(semAcento).filter(f => f.length >= 8),
-    palavras: [...new Set([...palavrasUteis(c.rotulo), ...(c.termos || []).flatMap(palavrasUteis)])],
-  }));
-  return (txt) => {
+  const freqCat = new Map();
+  const idx = campanhas.map(c => {
+    const termos = (c.termos || []).flatMap(t => String(t).split('|')).map(t => t.trim()).filter(Boolean);
+    const frases = termos.map(semAcento).filter(f => palavrasUteis(f).length >= 2 || f.length >= 14);
+    const palavras = [...new Set(termos.flatMap(palavrasUteis))];
+    for (const w of palavras) freqCat.set(w, (freqCat.get(w) || 0) + 1);
+    return { rotulo: c.rotulo, setor: c.setor || null, frases, palavras };
+  });
+  const peso = (w) => { const n = freqCat.get(w) || 0; return n <= 1 ? 3 : n <= 3 ? 2 : n <= 5 ? 1 : 0; };
+  return (txt, setorConv = null) => {
     const t = semAcento(txt);
     if (!t || t.length < 8) return null;
     const pw = new Set(palavrasUteis(txt));
-    let melhor = null, ponto = 0;
-    for (const c of idx) {
-      let p = 0;
-      if (c.frases.some(f => t.includes(f))) p += 10;              // frase inteira: quase certeza
+    const pontos = idx.map(c => {
+      const porFrase = c.frases.some(f => t.includes(f));
       const hits = c.palavras.filter(w => pw.has(w));
-      p += hits.length * 2;                                        // cada palavra que importa
-      if (hits.some(w => w.length >= 9)) p += 2;                   // palavra longa é distintiva
-      if (p > ponto) { ponto = p; melhor = c.rotulo; }
+      const exclusiva = hits.some(w => peso(w) === 3);
+      const ponto = (porFrase ? 10 : 0) + hits.reduce((a, w) => a + peso(w), 0);
+      return { rotulo: c.rotulo, setor: c.setor, ponto, porFrase, exclusiva };
+    }).filter(x => x.porFrase || (x.exclusiva && x.ponto >= 3)).sort((a, b) => b.ponto - a.ponto);   // uma palavra que SÓ este anúncio usa já basta (marcado como 'provável')
+    if (!pontos.length) return null;
+    const [a, b] = pontos;
+    if (b && !a.porFrase && a.ponto - b.ponto <= 1) {
+      const doSetor = pontos.filter(x => x.ponto >= a.ponto - 1 && setorConv && x.setor === setorConv);
+      if (doSetor.length === 1) return { rotulo: doSetor[0].rotulo, ponto: doSetor[0].ponto, porFrase: false };
+      return null;   // ambíguo
     }
-    return ponto >= 6 ? melhor : null;   // frase inteira, ou 3 palavras, ou 2 + uma bem distintiva
+    return { rotulo: a.rotulo, ponto: a.ponto, porFrase: a.porFrase };
   };
 }
+/* O "miolo" de uma mensagem: sem cumprimento e cortesia. É o que se repete
+   entre leads do mesmo anúncio e o que vira termo quando o master clica "é
+   campanha". */
+const miolo = (t) => semAcento(t).replace(/\s+/g, ' ')
+  .replace(/\b(ola|oi|bom dia|boa tarde|boa noite|tudo bem|tudo bom|por favor|obrigad[ao]|gostaria de|quero|queria|saber|mais informacoes|informacoes|informacao|sobre)\b/g, ' ')
+  .replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+const PISTA_ANUNCIO = /(anuncio|instagram|\binsta\b|facebook|\bface\b|patrocinad|publicac|\bpost\b|vi (o|seu|esse|este) (video|anuncio|post)|vim pelo|vim pela|tenho interesse|mais informacoes sobre|saber mais sobre|quero saber mais)/;
 async function lerCampanhas() {
   try {
     const { rows: [c] } = await query("SELECT valor FROM configuracoes WHERE chave = 'campanhas_leads'");
@@ -430,12 +474,24 @@ const turnoDe = (h) => (h >= 6 && h < 12) ? 'Manhã · 6h às 12h'
   : (h >= 18) ? 'Noite · 18h às 0h' : 'Madrugada · 0h às 6h';
 const ORDEM_TURNO = ['Manhã · 6h às 12h', 'Tarde · 12h às 18h', 'Noite · 18h às 0h', 'Madrugada · 0h às 6h'];
 
+/* 🧷 MENSAGEM PRONTA DE ANÚNCIO = CAMPANHA (05/09, "ainda aparece como sem
+   campanha"). Gente de verdade nunca digita a mesma primeira frase; quando
+   três leads chegam com o MESMO texto, letra por letra, é a mensagem
+   pré-preenchida de um anúncio. O texto repetido vira a identidade da
+   campanha ("Anúncio · frase"), mesmo sem saber qual peça do Meta é — e o
+   master pode ligar essa frase ao anúncio certo com o botão "é campanha".
+   O conjunto aprendido na janela grande (6 meses) vale pra qualquer janela,
+   inclusive "hoje", onde uma frase ainda não teria repetido 3 vezes. */
+let PRESETS_APRENDIDOS = new Map();   // texto normalizado → texto original
 const CACHE_LEADS_NOVOS = new Map();          // 'de|ate' → { em, leads }
 const CACHE_LEADS_TTL = 12 * 60 * 1000;   // o aquecimento renova a cada 8 min; o botão Atualizar fura
+let VERSAO_CATALOGO = 0;   // sobe a cada import/edição: aquecimento em curso descarta o resultado velho
 const lerCacheLeads = (k) => {
   const c = CACHE_LEADS_NOVOS.get(k);
   if (!c) return null;
-  if (Date.now() - c.em > CACHE_LEADS_TTL) { CACHE_LEADS_NOVOS.delete(k); return null; }
+  // A janela de HOJE envelhece rápido (lead chega a toda hora): 2 min
+  const ttl = /^(\d{4}-\d{2}-\d{2})\|\1$/.test(k) ? 2 * 60 * 1000 : CACHE_LEADS_TTL;
+  if (Date.now() - c.em > ttl) { CACHE_LEADS_NOVOS.delete(k); return null; }
   return c.leads;
 };
 const guardarCacheLeads = (k, leads) => {
@@ -529,16 +585,24 @@ async function montarLeads(de, ate, campanhas) {
       query(`SELECT x.conversa_id,
                     MIN(x.texto) FILTER (WHERE x.rn = 1) AS primeira,
                     string_agg(x.texto, ' | ' ORDER BY x.rn) AS iniciais
-               FROM (SELECT m.conversa_id, left(m.content, 200) AS texto,
-                            row_number() OVER (PARTITION BY m.conversa_id ORDER BY m.created_at) AS rn
-                       FROM mensagens m
-                      WHERE m.from_type = 'contact' AND m.content IS NOT NULL AND m.content NOT LIKE 'data:%'
-                        AND ${DEPOIS_DE('m.created_at')}) x
+               FROM (SELECT y.conversa_id, y.texto,
+                            row_number() OVER (PARTITION BY y.conversa_id ORDER BY y.created_at) AS rn
+                       FROM (SELECT m.conversa_id, m.created_at,
+                                    left(COALESCE(NULLIF(btrim(m.caption), ''), NULLIF(btrim(m.transcricao), ''),
+                                                  CASE WHEN m.type = 'text' THEN NULLIF(btrim(m.content), '') END), 200) AS texto
+                               FROM mensagens m
+                              WHERE m.from_type = 'contact' AND ${DEPOIS_DE('m.created_at')}) y
+                      WHERE y.texto IS NOT NULL
+                        AND y.texto NOT LIKE 'http%' AND y.texto NOT LIKE 'data:%'
+                        AND y.texto NOT ILIKE '[mensagem n%'
+                        AND y.texto !~* '^\\s*([1-5]|vacinas?|consultas?|terapias?|outro assunto|outro)\\s*[.!]?\\s*$') x
               WHERE x.rn <= 3
-              GROUP BY x.conversa_id`).catch(() => ({ rows: [] })),
+              GROUP BY x.conversa_id`).catch((e) => { console.error('leads: primeiras falas falhou:', e.message); return { rows: [], erro: e.message }; }),
     ]);
     const primeiraMsgDe = new Map(primeiras.rows.map(p => [p.conversa_id, p.primeira || '']));
     const iniciaisDe = new Map(primeiras.rows.map(p => [p.conversa_id, p.iniciais || '']));
+    const avisos = [];
+    if (primeiras.erro) avisos.push('Detecção por texto indisponível neste carregamento (falha ao ler as primeiras mensagens).');
     const campanhaDoTexto = montarDetector(campanhas);
 
     /* Índices de conversão. Guardo LISTA por chave (não só o primeiro) porque o
@@ -573,8 +637,17 @@ async function montarLeads(de, ate, campanhas) {
       const hora = parseInt(chegou.slice(11, 13), 10) || 0;   // hora de São Luís em que o lead chegou
       const primeiraMsg = primeiraMsgDe.get(c.id) || '';
       /* 📣 O anúncio informado pelo próprio WhatsApp vale mais que qualquer
-         palpite por texto: se veio, é ele. */
+         palpite por texto: primeiro pelo ID da peça (bate com o CSV do Meta),
+         depois pelo texto do anúncio (título + corpo), e por último um rótulo
+         com o próprio id, pra o master ligar ao anúncio certo. */
       const adTitulo = String(c.campanha_ad || '').trim();
+      const adId = String(c.campanha_ad_id || '').trim();
+      const adCorpo = String(c.campanha_ad_raw?.corpo || c.campanha_ad_raw?.body || '').trim();
+      const porId = adId ? campanhas.find(x => x.meta_ad_id && String(x.meta_ad_id) === adId) : null;
+      const detAd = (adTitulo || adCorpo) ? campanhaDoTexto(`${adTitulo} ${adCorpo}`, c.setor) : null;
+      const campanhaAd = porId ? porId.rotulo : detAd ? detAd.rotulo
+        : (adTitulo || adId) ? `Anúncio · ${adTitulo ? adTitulo.slice(0, 60) : adId}` : null;
+      const detTxt = campanhaDoTexto(iniciaisDe.get(c.id) || primeiraMsg, c.setor);
       const depois = (x) => !!x && x >= chegou;      // texto ISO compara igual a data
 
       const ags = [...(agConv.get(c.id) || []), ...(c.tel8 && c.tel8.length === 8 ? (agTel.get(c.tel8) || []) : [])]
@@ -614,8 +687,10 @@ async function montarLeads(de, ate, campanhas) {
         status: c.status_atend, perdido: c.perdido, temperatura: c.lead_score,
         chegou, dia, mes, dow, dowNome: DOW[dow],
         hora, turno: turnoDe(hora),
-        campanha: (adTitulo && (campanhaDoTexto(adTitulo) || adTitulo.slice(0, 70))) || campanhaDoTexto(iniciaisDe.get(c.id) || primeiraMsg),
-        campanhaProvada: !!adTitulo,   // veio do WhatsApp, não de adivinhação
+        campanha: campanhaAd || detTxt?.rotulo || null,
+        campanhaProvada: !!campanhaAd,   // veio do WhatsApp, não de adivinhação
+        campanhaForca: campanhaAd ? 'whatsapp' : detTxt ? (detTxt.porFrase ? 'frase' : 'palavras') : null,
+        iniciais: (iniciaisDe.get(c.id) || '').slice(0, 300),
         primeiraMsg: primeiraMsg.slice(0, 160),
         nosChamamos: c.nos_chamamos === true,
         respondido: c.teve_resposta === true,
@@ -629,7 +704,34 @@ async function montarLeads(de, ate, campanhas) {
         prova,
       };
     });
-    return leads;
+    /* 🧷 MENSAGEM PRONTA e 🏷️ ESCADA DE ORIGEM (refinadas pela auditoria de
+       05/09). Mensagem pronta = miolo (sem cumprimento) com >= 2 palavras úteis
+       que se repete em >= 3 leads da janela, ou já aprendido na janela grande.
+       Cumprimento repetido ("bom dia, tudo bem?") nunca vira anúncio. A escada
+       de origem só sobe degrau com evidência positiva; sem pista é "orgânico". */
+    const freq = new Map();
+    const chaveDe = (l) => { const k = miolo(l.primeiraMsg); return (k.length >= 12 && palavrasUteis(k).length >= 2 && !SAUDACAO.test(semAcento(l.primeiraMsg))) ? k : null; };
+    for (const l of leads) { const k = chaveDe(l); if (k && !l.nosChamamos) freq.set(k, (freq.get(k) || 0) + 1); }
+    for (const [k, n] of freq) if (n >= 3 && !PRESETS_APRENDIDOS.has(k)) {
+      PRESETS_APRENDIDOS.set(k, (leads.find(l => chaveDe(l) === k)?.primeiraMsg || k).slice(0, 60));
+    }
+    const presetDe = (k) => {
+      if (!k) return null;
+      if (PRESETS_APRENDIDOS.has(k) || (freq.get(k) || 0) >= 3) return k;
+      for (const p of PRESETS_APRENDIDOS.keys()) if (p.length >= 20 && (k.startsWith(p) || p.startsWith(k))) return p;
+      return null;
+    };
+    for (const l of leads) {
+      const k = chaveDe(l);
+      const preset = presetDe(k);
+      if (l.campanhaProvada) l.origemLead = 'anúncio · WhatsApp confirmou';
+      else if (preset && l.campanhaForca === 'frase') l.origemLead = 'anúncio · mensagem pronta';
+      else if (preset) { l.campanha = `Anúncio · "${(PRESETS_APRENDIDOS.get(preset) || l.primeiraMsg).slice(0, 60)}"`; l.campanhaForca = 'pronta'; l.origemLead = 'anúncio · mensagem pronta'; }
+      else if (l.campanha) l.origemLead = l.campanhaForca === 'frase' ? 'anúncio · pelo texto' : 'anúncio · pelo texto (provável)';
+      else if (PISTA_ANUNCIO.test(semAcento(l.iniciais || l.primeiraMsg))) l.origemLead = 'anúncio · não identificado';
+      else l.origemLead = 'orgânico';
+    }
+    return { leads, avisos };
 }
 
 /* 🔥 AQUECIMENTO (05/09, "ele demora pra carregar a tela"): as janelas que a
@@ -645,12 +747,16 @@ async function aquecerCarteira() {
     const primeiroMes = `${hoje.slice(0, 7)}-01`;
     const ultimoMes = new Date(Date.UTC(Y, M, 0)).toISOString().slice(0, 10);
     const seisMeses = new Date(Date.UTC(Y, M - 1 - 5, 1)).toISOString().slice(0, 10);
-    const janelas = [[hoje, hoje], [primeiroMes, ultimoMes], [seisMeses, '']];
+    // 6 meses PRIMEIRO: é dela que as mensagens prontas são aprendidas; hoje vem por último
+    const janelas = [[seisMeses, ''], [primeiroMes, ultimoMes], [hoje, hoje]];
     const campanhas = await lerCampanhas();
+    const versao = VERSAO_CATALOGO;
     for (const [de, ate] of janelas) {
       const t0 = Date.now();
-      const leads = await montarLeads(de, ate, campanhas);
-      guardarCacheLeads(`${de}|${ate}`, leads);
+      const { leads, avisos } = await montarLeads(de, ate, campanhas);
+      // catálogo mudou no meio (import/edição): este resultado já nasceu velho
+      if (versao !== VERSAO_CATALOGO) { console.log('🔥 aquecimento descartado: catálogo mudou'); return; }
+      if (!avisos.length) guardarCacheLeads(`${de}|${ate}`, leads);
       console.log(`🔥 Carteira de Leads aquecida ${de}${ate ? ` a ${ate}` : '+'}: ${leads.length} leads em ${Date.now() - t0} ms`);
     }
   } catch (e) { console.error('aquecerCarteira:', e.message); }
@@ -678,7 +784,9 @@ r.put('/campanhas', async (req, res) => {
         conjunto: c.conjunto ? String(c.conjunto).slice(0, 80) : null,
         meta_resultados: c.meta_resultados != null ? Number(c.meta_resultados) || 0 : null,
         meta_gasto: c.meta_gasto != null ? Number(c.meta_gasto) || 0 : null,
-        termos: (Array.isArray(c.termos) ? c.termos : []).map(t => String(t).trim().slice(0, 120)).filter(Boolean).slice(0, 20),
+        meta_ad_id: c.meta_ad_id ? String(c.meta_ad_id).slice(0, 40) : null,
+        meta_periodo: c.meta_periodo && typeof c.meta_periodo === 'object' ? c.meta_periodo : null,
+        termos: (Array.isArray(c.termos) ? c.termos : []).flatMap(t => String(t).split('|')).map(t => t.trim().slice(0, 120)).filter(Boolean).slice(0, 20),
       }))
       .filter(c => c.rotulo && c.termos.length)
       .slice(0, 80);
@@ -686,7 +794,7 @@ r.put('/campanhas', async (req, res) => {
     await query(`INSERT INTO configuracoes (chave, valor) VALUES ('campanhas_leads', $1::jsonb)
                  ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`,
       [JSON.stringify({ campanhas: lista })]);
-    CACHE_LEADS_NOVOS.clear();   // o recorte antigo foi montado com o catálogo velho
+    CACHE_LEADS_NOVOS.clear(); VERSAO_CATALOGO++;   // o recorte antigo foi montado com o catálogo velho
     res.json({ ok: true, campanhas: lista });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -719,17 +827,23 @@ r.post('/campanhas/importar', async (req, res) => {
       const k = nome.toLowerCase();
       const res2 = a.resultados != null ? Number(a.resultados) || 0 : null;
       const gasto = a.gasto != null ? Math.round((Number(a.gasto) || 0) * 100) / 100 : null;
-      const ja = porRotulo.get(k);
+      const adId = a.ad_id ? String(a.ad_id).replace(/\D/g, '').slice(0, 40) || null : null;
+      const periodo = (a.de || a.ate) ? { de: a.de || null, ate: a.ate || null } : null;
+      const ja = porRotulo.get(k) || (adId ? [...porRotulo.values()].find(c => c.meta_ad_id && c.meta_ad_id === adId) : null);
       if (ja) {
+        /* SUBSTITUI, não soma: o master reimporta o mesmo relatório toda semana
+           (achado da auditoria: somar dobrava 'Meta: X conversas' e o gasto). */
         ja.termos = [...new Set([...(ja.termos || []), nome])].slice(0, 20);
-        if (res2 != null) ja.meta_resultados = (ja.meta_resultados || 0) + res2;
-        if (gasto != null) ja.meta_gasto = Math.round(((ja.meta_gasto || 0) + gasto) * 100) / 100;
+        if (res2 != null) ja.meta_resultados = res2;
+        if (gasto != null) ja.meta_gasto = gasto;
+        if (adId) ja.meta_ad_id = adId;
+        if (periodo) ja.meta_periodo = periodo;
         if (!ja.conjunto && a.conjunto) ja.conjunto = String(a.conjunto).slice(0, 80);
         atualizadas++;
       } else {
         porRotulo.set(k, { rotulo: nome, setor: setorDoNome(nome),
           conjunto: a.conjunto ? String(a.conjunto).slice(0, 80) : null,
-          meta_resultados: res2, meta_gasto: gasto, termos: [nome] });
+          meta_resultados: res2, meta_gasto: gasto, meta_ad_id: adId, meta_periodo: periodo, termos: [nome] });
         novas++;
       }
     }
@@ -737,8 +851,50 @@ r.post('/campanhas/importar', async (req, res) => {
     await query(`INSERT INTO configuracoes (chave, valor) VALUES ('campanhas_leads', $1::jsonb)
                  ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`,
       [JSON.stringify({ campanhas: lista })]);
-    CACHE_LEADS_NOVOS.clear();
+    CACHE_LEADS_NOVOS.clear(); VERSAO_CATALOGO++;
     res.json({ ok: true, novas, atualizadas, total: lista.length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* 🔬 DIAGNÓSTICO DE ANÚNCIOS (só master, 05/09): mostra, lead a lead, o que
+   o WhatsApp mandou no primeiro contato — a referência do anúncio (quando
+   veio) e as chaves do webhook. É o que diz se o gateway entrega a origem do
+   anúncio ou não, sem ninguém precisar adivinhar. */
+r.get('/diagnostico-anuncios', async (req, res) => {
+  if (req.user.role !== 'master') return res.status(403).json({ error: 'Só o master.' });
+  try {
+    const dt = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(v || '') ? v : '');
+    const hoje = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+    const de = dt(req.query.de) || hoje, ate = dt(req.query.ate) || de;
+    const { rows } = await query(`
+      SELECT c.id, c.contact_name, c.phone, c.campanha_ad, c.campanha_ad_id, c.campanha_ad_raw, c.primeiro_webhook_chaves,
+             (SELECT left(m.content, 160) FROM mensagens m WHERE m.conversa_id = c.id AND m.from_type = 'contact' AND m.content IS NOT NULL
+                AND m.content NOT LIKE 'data:%' ORDER BY m.created_at ASC LIMIT 1) AS primeira_msg,
+             (SELECT MIN(m.created_at) FROM mensagens m WHERE m.conversa_id = c.id AND m.from_type = 'contact') AS chegou
+        FROM conversas c
+       WHERE COALESCE(c.simulacao,false) = false AND COALESCE(c.arquivada,false) = false
+         AND EXISTS (SELECT 1 FROM mensagens m WHERE m.conversa_id = c.id AND m.from_type = 'contact'
+                       AND ((m.created_at - interval '3 hours') AT TIME ZONE 'UTC')::date BETWEEN $1::date AND $2::date)
+         AND NOT EXISTS (SELECT 1 FROM mensagens m WHERE m.conversa_id = c.id AND m.from_type = 'contact'
+                       AND ((m.created_at - interval '3 hours') AT TIME ZONE 'UTC')::date < $1::date)
+       ORDER BY chegou DESC LIMIT 200`, [de, ate]);
+    const CHAVE_AD = /referral|adreply|ctwa|sourceurl|source_url|sourceid|source_id|headline|adid|ad_id/i;
+    const chavesVistas = new Map();
+    const itens = rows.map(r0 => {
+      const chaves = Array.isArray(r0.primeiro_webhook_chaves) ? r0.primeiro_webhook_chaves : [];
+      for (const k of chaves) chavesVistas.set(k, (chavesVistas.get(k) || 0) + 1);
+      return { id: r0.id, nome: r0.contact_name, primeira_msg: r0.primeira_msg, chegou: r0.chegou,
+        anuncio: r0.campanha_ad || null, anuncio_id: r0.campanha_ad_id || null, anuncio_raw: r0.campanha_ad_raw || null,
+        chaves_de_anuncio: chaves.filter(k => CHAVE_AD.test(k)), tem_chaves: chaves.length > 0 };
+    });
+    res.json({
+      de, ate, total: itens.length,
+      com_anuncio: itens.filter(i => i.anuncio || i.anuncio_id).length,
+      com_chaves_gravadas: itens.filter(i => i.tem_chaves).length,
+      chaves_de_anuncio_vistas: [...chavesVistas.entries()].filter(([k]) => CHAVE_AD.test(k)).map(([k, n]) => ({ chave: k, n })),
+      chaves_mais_comuns: [...chavesVistas.entries()].sort((a, b) => b[1] - a[1]).slice(0, 40).map(([k, n]) => ({ chave: k, n })),
+      itens,   // só o master chega aqui: telefone completo é dele
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -792,7 +948,12 @@ r.get('/leads-novos', async (req, res) => {
        relatório inteiro com erro 500). */
     const campanhas = await lerCampanhas();
     let leads = fresh ? null : lerCacheLeads(chaveCache);
-    if (!leads) { leads = await montarLeads(de, ate, campanhas); guardarCacheLeads(chaveCache, leads); }
+    let avisos = [];
+    if (!leads) {
+      const m0 = await montarLeads(de, ate, campanhas);
+      leads = m0.leads; avisos = m0.avisos;
+      if (!avisos.length) guardarCacheLeads(chaveCache, leads);   // resultado capenga não fica no cache
+    }
 
     // Universo de marketing: por padrão só quem NOS PROCUROU primeiro.
     const universo = leads.filter(l => (soEntrada ? !l.nosChamamos : true));
@@ -843,7 +1004,7 @@ r.get('/leads-novos', async (req, res) => {
       (!fOrigem || l.origem === fOrigem)
     );
     const recorte = fCampanha
-      ? recorteSemCampanha.filter(l => (l.campanha || 'Sem campanha identificada') === fCampanha)
+      ? recorteSemCampanha.filter(l => (l.campanha || 'Orgânico · sem anúncio') === fCampanha)
       : recorteSemCampanha;
 
     // Dias do mês escolhido (ou da janela toda, se nenhum mês foi clicado)
@@ -867,6 +1028,7 @@ r.get('/leads-novos', async (req, res) => {
 
     res.json({
       janela: { de, ate: ate || hojeSLZ, meses, manual: periodoManual, entradaSomente: soEntrada },
+      avisos,
       filtros: { mes: fMes, dia: fDia, dow: fDow, setor: fSetor, origem: fOrigem, campanha: fCampanha },
       totais: {
         ...taxas(tot),
@@ -884,6 +1046,10 @@ r.get('/leads-novos', async (req, res) => {
            para poder confiar; aqui está a conta aberta, da prova mais dura
            pra mais frouxa. */
         comCartao: recorte.filter(l => l.cartao).length,
+        /* 🏷️ De onde veio (05/09): anúncio confirmado pelo WhatsApp, anúncio
+           reconhecido pelo texto, mensagem pronta repetida, ou orgânico. */
+        porOrigem: Object.entries(recorte.reduce((m, l) => { const k = l.origemLead || 'orgânico'; m[k] = (m[k] || 0) + 1; return m; }, {}))
+          .map(([origem, n]) => ({ origem, n })).sort((a, b) => b.n - a.n),
         provaDura: recorte.filter(l => l.provaDura).length,
         porProva: Object.entries(
           recorte.reduce((m, l) => { const k = l.prova || 'sem sinal na conversa'; m[k] = (m[k] || 0) + 1; return m; }, {})
@@ -901,7 +1067,7 @@ r.get('/leads-novos', async (req, res) => {
          campanhas realmente chegaram até nós"). Cada linha traz o que o Meta
          PROMETEU (conversas iniciadas e quanto foi gasto) ao lado do que
          REALMENTE apareceu no CRM — e o custo por lead que de fato chegou. */
-      campanhas: agrupar(recorteSemCampanha, l => l.campanha || 'Sem campanha identificada')
+      campanhas: agrupar(recorteSemCampanha, l => l.campanha || 'Orgânico · sem anúncio')
         .map(c => {
           const cfg = campanhas.find(x => x.rotulo === c.chave) || {};
           const gasto = cfg.meta_gasto != null ? Number(cfg.meta_gasto) : null;
@@ -919,12 +1085,14 @@ r.get('/leads-novos', async (req, res) => {
         for (const l of recorteSemCampanha) {
           if (l.campanha) continue;
           const t = String(l.primeiraMsg || '').trim().slice(0, 90);
-          if (t.length < 12) continue;
-          const k = semAcento(t);
+          const k = miolo(t);
+          if (k.length < 8 || palavrasUteis(k).length < 1) continue;   // cumprimento puro não ensina nada
           const at = m.get(k);
-          if (at) at.n++; else m.set(k, { texto: t, n: 1 });
+          if (at) { at.n++; if (l.origemLead === 'anúncio · não identificado') at.pista = true; }
+          else m.set(k, { texto: t, termo: k, n: 1, pista: l.origemLead === 'anúncio · não identificado' });
         }
-        return [...m.values()].sort((a, b) => b.n - a.n).slice(0, 25);
+        // Quem tem pista de anúncio vem primeiro; depois, os mais repetidos
+        return [...m.values()].sort((a, b) => (b.pista - a.pista) || (b.n - a.n)).slice(0, 25);
       })(),
       /* Campanhas do catálogo que NÃO trouxeram ninguém no período — o Meta
          cobrou e nada chegou, ou a frase do anúncio mudou. */
