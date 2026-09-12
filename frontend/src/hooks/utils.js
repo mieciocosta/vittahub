@@ -127,3 +127,14 @@ export function tituloUsuario(u) {
   if (!setores.length) return base;
   return `${base} · ${setores.map(_CAP).join(' e ')}`;
 }
+
+/* 🔒 CARTEIRA FECHADA (ordem do master, 04-05/09): Gabriellen e Poliana só
+   enxergam o que estiver no nome delas. A marca do cadastro vale, mas o NOME
+   também — assim a trava funciona mesmo com login antigo, cadastro não
+   aplicado ou servidor recém-reiniciado. O master nunca entra na regra. */
+export const carteiraFechada = (u) => {
+  if (!u || u.role === 'master') return false;
+  if (u.so_carteira === true || u.so_fidelidade === true) return true;
+  const n = String(u.nome || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  return /(^|[^a-z])(gabriel|poliana)/.test(n);
+};

@@ -12,7 +12,7 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { aoVivo } from '../hooks/polling.js';
 import { useApi } from '../context/AuthContext.jsx';
 import { setToken } from '../hooks/api.js';
-import { fmt, clarear, escurecer, tituloUsuario } from '../hooks/utils.js';
+import { fmt, clarear, escurecer, tituloUsuario, carteiraFechada } from '../hooks/utils.js';
 import { versiculoDoDia } from '../hooks/versiculos.js';
 
 // 4 tons por família: p<0 clareia, p>0 escurece. Quatro é o ponto em que a
@@ -308,11 +308,14 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
      "retire as agendas e informações de vacinas"): vacinas nunca entra, mesmo
      que o cadastro ainda traga o setor. */
   const podeSetor = (s) => user?.role === 'master'
-    || (meusSetores.includes(s) && !(s === 'vacinas' && user?.so_carteira === true));
+    || (meusSetores.includes(s) && !(s === 'vacinas' && carteiraFechada(user)));
   /* 📅 As duas agendas juntas: master e a supervisora de consultas/terapias
      (Danielle). Raylane, supervisora de vacinas, vê só a de vacinas. */
+  /* Carteira fechada nunca entra aqui, nem sendo supervisora: era por esta
+     porta que a Agenda Vacinas voltava pra Gabriellen (05/09). */
   const duasAgendas = user?.role === 'master'
-    || (user?.role === 'supervisor' && (meusSetores.includes('consultas') || meusSetores.includes('terapias')));
+    || (!carteiraFechada(user) && user?.role === 'supervisor'
+        && (meusSetores.includes('consultas') || meusSetores.includes('terapias')));
   const ehDono = user?.dono === true || /mi[eé]cio/i.test(`${user?.nome || ''} ${user?.email || ''}`);
   const podeTrocar = (isMaster && ehDono) || !!localStorage.getItem('vh_token_master');
   const tokenMaster = () => localStorage.getItem('vh_token_master') || localStorage.getItem('vh_token') || '';

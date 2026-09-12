@@ -4,7 +4,7 @@ import RelatorioLider from '../components/RelatorioLider.jsx';
 import { mensagemAgendamento } from '../hooks/celebra.js';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
-import { fmt } from '../hooks/utils.js';
+import { fmt, carteiraFechada } from '../hooks/utils.js';
 
 /* ─── Agenda — controle de consultas, vacinas, terapias e retornos ─────────── */
 
@@ -43,17 +43,23 @@ export default function Agenda() {
   const [vmed, setVmed] = useState(null);
   const [vmedSetor, setVmedSetor] = useState('');
   // A aba do VittaMed é da equipe de CONSULTAS (e da gestão) — pedido do master.
-  const meusSetores = (Array.isArray(user?.setores) && user.setores.length ? user.setores : [user?.setor]).filter(Boolean);
-  const podeVerVittaMed = ['master', 'supervisor'].includes(user?.role) || meusSetores.includes('consultas');
+  const meusSetoresCad = (Array.isArray(user?.setores) && user.setores.length ? user.setores : [user?.setor]).filter(Boolean);
+  /* 🔒 Carteira fechada (Gabriellen) é consultas e terapias por ordem do
+     master — vacinas sai mesmo que o cadastro ainda traga (05/09). */
+  const meusSetores = carteiraFechada(user)
+    ? meusSetoresCad.filter(s => s !== 'vacinas').length ? meusSetoresCad.filter(s => s !== 'vacinas') : ['consultas', 'terapias']
+    : meusSetoresCad;
+  const podeVerVittaMed = user?.role === 'master' || (!carteiraFechada(user) && (user?.role === 'supervisor' || meusSetoresCad.includes('consultas')));
   /* 🗂️ A AGENDA SEGUE O SETOR DA PESSOA (ordem do master, 04/09: "a agenda
      dela está cheia de classificação, quero apenas consultas e terapias").
      Master vê os três setores e todas as abas; a equipe vê só os chips do
      próprio setor, e a Logística (visita domiciliar de vacina) fica com quem é
      de vacinas. Com um setor só, nem chip aparece. */
   const isMasterAg = user?.role === 'master';
+  const fechadaAg = carteiraFechada(user);
   const SETORES_AG = [['vacinas', '💉 Vacinas'], ['consultas', '🩺 Consultas'], ['terapias', '🤲 Terapias']];
   const setoresVisiveis = isMasterAg ? SETORES_AG : SETORES_AG.filter(([k]) => meusSetores.includes(k));
-  const podeLogistica = isMasterAg || meusSetores.includes('vacinas');
+  const podeLogistica = isMasterAg || (!fechadaAg && meusSetores.includes('vacinas'));
   const setorPadrao = isMasterAg ? 'vacinas' : (setoresVisiveis[0]?.[0] || 'vacinas');
 
   // Sair de "Relatório do Dia" pra "Meu Relatório" é a MESMA rota, só muda a

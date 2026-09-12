@@ -8,7 +8,7 @@ import {
   MailOpen, VolumeX, CalendarDays, Bell, Trash2, Sticker, MessageSquare, ChevronLeft, MapPin } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { fmt, openWA, avatarGrad } from '../hooks/utils.js';
+import { fmt, openWA, avatarGrad, carteiraFechada } from '../hooks/utils.js';
 import { Toast } from '../hooks/toast.js';
 
 // Mesma lista do cadastro de lead (LeadModal) — duas listas divergentes fariam
@@ -573,7 +573,7 @@ const mensagemLeve = (m) => (m && typeof m.content === 'string' && m.content.sta
    barra, mas a tela sobe pelo GitHub e o servidor pelo Railway — quando um
    demora, o outro segura. Quem tem so_carteira ou so_fidelidade só enxerga o
    que está no nome dela, e nunca grupo, lista de transmissão ou comunidade. */
-const carteiraFechada = (u) => u?.so_carteira === true || u?.so_fidelidade === true;
+// a régua mora no utils, uma só pra tela inteira
 const ehGrupoConv = (c) => {
   const cid = String(c?.contact_id || '');
   if (/g\.us|@broadcast|@lid|@newsletter/i.test(cid)) return true;
@@ -2573,7 +2573,7 @@ export default function Inbox({ onUnreadChange }) {
           totalUnread={totalUnread} unreadOnly={unreadOnly} setUnreadOnly={setUnreadOnly}
           waiting={waiting} setWaiting={setWaiting}
           setor={setorFiltro} setSetor={setSetorFiltro} mostraSetores={user?.role !== 'atendente'}
-          semGrupos={user?.so_carteira === true || user?.so_fidelidade === true}
+          semGrupos={carteiraFechada(user)}
           /* 💎 O botão dos planos é da Danielle (e do master, que entra como ela) */
           mostraPlanos={user?.role === 'master' || /(^|[^a-z])danielle/i.test(String(user?.nome || '').normalize('NFD').replace(/[\u0300-\u036f]/g, ''))}
           planosAtivo={clsFiltro}

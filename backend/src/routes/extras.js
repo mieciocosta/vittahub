@@ -1205,7 +1205,17 @@ r.get('/meta-setor', async (req, res) => {
     const { rows: [meU] } = await query(`SELECT meta_individual, COALESCE(regras_pessoais,'{}'::jsonb) AS regras_pessoais FROM usuarios WHERE id = $1`, [req.user.id]).catch(() => ({ rows: [{}] }));
     /* 🎯 Meta do dia POR PESSOA (Gabriellen, 04/09): usuarios.regras_pessoais.foco_dia
        sobrepõe os alvos padrão do setor. */
-    const focoPessoal = (meU?.regras_pessoais && meU.regras_pessoais.foco_dia) || null;
+    /* 🎯 Regra pessoal por NOME quando o cadastro ainda não recebeu a
+       migração (05/09: "nada do que te pedi a respeito do usuário dela você
+       fez"). A ordem do master não pode depender de um seed ter casado. */
+    const REGRAS_POR_NOME = [
+      { re: /(^|[^a-z])gabriel/, regras: { foco_dia: { consultas: 10, sessoes: 10, plano_mensal: 1, ou: false },
+                                           comissao: { consulta: { ate: 400, valor: 20, acima: 35 } } } },
+    ];
+    const semAcentoU = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const regraNome = REGRAS_POR_NOME.find(r => r.re.test(semAcentoU(req.user.nome)))?.regras || null;
+    const regrasEu = (meU?.regras_pessoais && Object.keys(meU.regras_pessoais).length ? meU.regras_pessoais : null) || regraNome;
+    const focoPessoal = regrasEu?.foco_dia || null;
     const metaInd = parseFloat(meU?.meta_individual) || 0;
     if (metaInd > 0) {
       const { rows: [mv] } = await query(
@@ -2518,9 +2528,18 @@ r.get('/vendas', async (req, res) => {
        Quem tem regras_pessoais.comissao recebe `comissao_calc` em cada venda
        de Consulta; o Caixa usa esse valor no lugar do 1% padrão. Ajuste manual
        (v.repasse) continua mandando. */
-    const { rows: comRows } = await query(`SELECT id, regras_pessoais->'comissao' AS comissao FROM usuarios
-      WHERE regras_pessoais ? 'comissao'`).catch(() => ({ rows: [] }));
-    const comissaoDe = new Map(comRows.map(u => [String(u.id), u.comissao || {}]));
+    const { rows: comRows } = await query(`SELECT id, nome, regras_pessoais->'comissao' AS comissao FROM usuarios
+      WHERE regras_pessoais ? 'comissao'
+         OR lower(translate(COALESCE(nome,''), 'áàâãäéèêëíìîïóòôõöúùûüç','aaaaaeeeeiiiiooooouuuuc')) ~ '(^|[^a-z])gabriel'`)
+      .catch(() => ({ rows: [] }));
+    /* Sem regra no cadastro, vale a regra por nome (ordem do master, 04/09:
+       R$ 20 na consulta até 400, R$ 35 acima) — a comissão dela não pode
+       depender de uma migração ter casado o nome. */
+    const COMISSAO_POR_NOME = { consulta: { ate: 400, valor: 20, acima: 35 } };
+    const comissaoDe = new Map(comRows.map(u => {
+      const temCfg = u.comissao && Object.keys(u.comissao).length;
+      return [String(u.id), temCfg ? u.comissao : COMISSAO_POR_NOME];
+    }));
     for (const v of rows) {
       const c = comissaoDe.get(String(v.atendente_id));
       if (!c) continue;

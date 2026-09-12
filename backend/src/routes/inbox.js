@@ -508,6 +508,24 @@ function setorEfetivo(conv) {
   const respSetor = conv.responsavel_id ? usuariosSetor.get(String(conv.responsavel_id)) : null;
   return conv.setor || respSetor || null;
 }
+/* 🔒 CARTEIRA FECHADA — UMA RÉGUA SÓ, À PROVA DE TUDO (05/09: "a Gabriellen
+   está olhando todos os atendimentos").
+
+   A regra existia em três lugares e cada um checava de um jeito: a lista do
+   cache olhava o cadastro, o caminho do banco olhava só o login, e o login
+   podia ser antigo. Bastava o servidor reiniciar (o cache demora a montar) pra
+   tudo aparecer pra ela. Agora é uma função só, que aceita QUALQUER das três
+   provas — inclusive o NOME que vem dentro do próprio login, que não depende
+   de cadastro, de cache nem de a pessoa sair e entrar de novo. */
+const NOME_CARTEIRA_FECHADA = /(^|[^a-z])(gabriel|poliana)/;
+export function carteiraFechadaDe(v) {
+  if (!v || v.role === 'master') return false;
+  if (v.so_carteira === true || v.so_fidelidade === true) return true;
+  if (usuariosSoCarteira.has(String(v.id)) || usuariosSoFidelidade.has(String(v.id))) return true;
+  const n = String(v.nome || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  return NOME_CARTEIRA_FECHADA.test(n);
+}
+
 export function podeVerSetor(viewer, conv) {
   // 🙈 Escondida por quem está olhando: nunca mais aparece (vale até pro master)
   if (ocultaPara(viewer, conv)) return false;
@@ -517,9 +535,7 @@ export function podeVerSetor(viewer, conv) {
      Gabriellen"). Quem tem so_carteira (Gabriellen) ou so_fidelidade (Poliana)
      enxerga SÓ o que está no nome dela — nem grupo do WhatsApp, nem conversa
      marcada como "visível pra equipe toda". Vem antes de tudo. */
-  const carteiraFechada = viewer.so_carteira === true || usuariosSoCarteira.has(String(viewer.id))
-    || viewer.so_fidelidade === true || usuariosSoFidelidade.has(String(viewer.id));
-  if (carteiraFechada) {
+  if (carteiraFechadaDe(viewer)) {
     if (ehGrupo(conv)) return false;
     return String(conv.responsavel_id || '') === String(viewer.id);
   }
@@ -4482,7 +4498,7 @@ r.get('/conversations', async (req, res) => {
                       OR COALESCE(c.responsavel_id::text,'') = $${pi})`);
         params.push(String(uid)); pi++;
 
-        if (req.user.so_carteira === true || req.user.so_fidelidade === true) {
+        if (carteiraFechadaDe(req.user)) {
           /* 🏠 Home office por produção e 💛 carteira da Fidelidade (28/08:
              "quero que a Poliana só veja os que ela já tem no nome dela"):
              estes dois perfis enxergam APENAS o que está no nome delas —
@@ -4526,7 +4542,7 @@ r.get('/conversations', async (req, res) => {
         }
         /* 👁 A exceção da casa (Dra. Nágila, 27/08) fura tudo: conversa marcada
            como visível pra equipe toda entra mesmo contra as regras acima. */
-        const fechada = req.user.so_carteira === true || req.user.so_fidelidade === true;
+        const fechada = carteiraFechadaDe(req.user);
         conditions.push(fechada ? `(${regras.join(' AND ')})` : `(COALESCE(c.visivel_todos,false) = true OR (${regras.join(' AND ')}))`);
       }
       // 🙈 O que a pessoa escondeu pra si não volta nem pelo caminho do banco
