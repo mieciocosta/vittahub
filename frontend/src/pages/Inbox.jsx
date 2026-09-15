@@ -4040,6 +4040,26 @@ export default function Inbox({ onUnreadChange }) {
 
           {/* Input bar */}
           <div className="chat-input-bar" style={{ background:'var(--card,#fff)', padding:'9px 12px', borderTop:'1px solid var(--border)', flexShrink:0 }}>
+            {/* 💟 FIGURINHAS EM DESTAQUE (ordem do master, 15/09: "quero um botão
+                igual do Agendar, só de figurinhas, posicionado acima dessa lista
+                de 4 botões"). Mesmo feitio do Agendar (tamanho, raio, sombra,
+                fonte), numa linha própria ACIMA da fileira Agendar / Endereço /
+                Tabela / Prova social. Turquesa da casa, a cor que a figurinha
+                já tinha no ícone pequeno. Abre o mesmo painel de figurinhas. */}
+            {sel && (
+              <div style={{ display:'flex', gap:6, alignItems:'center', marginBottom:6 }}>
+                <button onClick={()=>{ setShowFigus(p=>!p); setShowEmoji(false); setShowQR(false); setShowProntas(false); }}
+                  title="Figurinhas da Vittalis — escolhe e manda na hora"
+                  style={{ display:'flex', alignItems:'center', gap:6, flexShrink:0, border:'none',
+                    padding:'7px 11px', borderRadius:9, cursor:'pointer',
+                    background: showFigus ? 'linear-gradient(135deg,#0E8C96,#0b6f78)' : 'linear-gradient(135deg,#22d3ee,#0E8C96)',
+                    color:'#fff', fontSize:11.5, fontWeight:800, letterSpacing:-.2,
+                    boxShadow:'0 3px 12px rgba(14,140,150,.42)' }}>
+                  <Sticker size={13} strokeWidth={2.4}/>
+                  <span>{showFigus ? 'Fechar figurinhas' : 'Figurinhas'}</span>
+                </button>
+              </div>
+            )}
             <div style={{ display:'flex', gap:6, alignItems:'flex-end' }}>
               {/* Cápsula única com as ferramentas — lado a lado, mas lidas como
                   UM objeto. A divisória separa o que é conteúdo (mensagens,
@@ -4096,9 +4116,10 @@ export default function Inbox({ onUnreadChange }) {
                     foto, a tela Biblioteca continua no menu. */}
                 <button onClick={()=>{setShowEmoji(p=>!p);setShowQR(false);setShowProntas(false);}} title="Emojis"
                   className={`tb-ico-color${showEmoji?' tb-on':''}`} style={{ '--ic':'#f59e0b' }}><Smile size={16} strokeWidth={2.3}/></button>
-                {/* 💟 Figurinhas coladas nos emojis (ordem do master, 24/08) */}
-                <button onClick={()=>{setShowFigus(p=>!p);setShowEmoji(false);setShowQR(false);setShowProntas(false);}} title="Figurinhas da Vittalis"
-                  className={`tb-ico-color${showFigus?' tb-on':''}`} style={{ '--ic':'#00B8C0' }}><Sticker size={16} strokeWidth={2.3}/></button>
+                {/* 💟 O ícone pequeno de figurinha SAIU daqui (ordem do master,
+                    15/09: "retire daqui e transfira para o botão"). A figurinha
+                    agora mora no botão grande acima da fileira Agendar /
+                    Endereço / Tabela / Prova social. */}
                 {/* 📝 MENSAGENS PRONTAS (pedido do master: tem atendente que não
                     usa a IA cem por cento) — os textos oficiais da casa em 1 toque */}
                 {/* 📝 As mensagens prontas saíram da barra (ordem do master,
