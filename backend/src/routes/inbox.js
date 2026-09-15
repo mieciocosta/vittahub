@@ -1170,6 +1170,32 @@ async function avisarClienteTransferencia(req, conv, paraNome, paraId) {
   } catch (e) { console.error('avisarClienteTransferencia:', e.message); }
 }
 
+/* 🖼️ Baixa a miniatura do criativo e guarda na conversa (data URL, até 2 MB).
+   Só grava se ainda não tinha: a primeira foto é a do anúncio que trouxe o
+   cliente, e é essa que o marketing quer ver. */
+async function guardarFotoAnuncio(convId, adRef) {
+  try {
+    if (!convId || !adRef) return;
+    let dataUrl = null;
+    if (adRef.fotoB64) {
+      const b64 = adRef.fotoB64.replace(/^data:[^,]*,/, '');
+      dataUrl = `data:image/jpeg;base64,${b64}`;
+    } else if (adRef.fotoUrl) {
+      const { default: fetch } = await import('node-fetch');
+      const r = await fetch(adRef.fotoUrl, { timeout: 20000 });
+      if (!r.ok) return;
+      const buf = Buffer.from(await r.arrayBuffer());
+      if (!buf.length || buf.length > 2 * 1024 * 1024) return;
+      const mime = String(r.headers.get('content-type') || 'image/jpeg').split(';')[0].trim();
+      if (!/^image\//.test(mime)) return;
+      dataUrl = `data:${mime};base64,${buf.toString('base64')}`;
+    }
+    if (!dataUrl) return;
+    await query(`UPDATE conversas SET campanha_ad_foto = COALESCE(campanha_ad_foto, $1) WHERE id = $2`, [dataUrl, convId]);
+    console.log(`🖼️ Foto do criativo guardada (${Math.round(dataUrl.length / 1024)} KB)`);
+  } catch (e) { console.error('guardarFotoAnuncio:', e.message); }
+}
+
 /* 🪶 MENSAGEM LEVE PRO FIO (cobrança do master, 03/09: "CRM travando demais").
    Mídia recebida agora fica em base64 dentro de `content` (até 12 MB). O
    histórico já trocava isso por [media:id] e o navegador busca o arquivo sob
@@ -3337,8 +3363,15 @@ r.post('/webhook/zapi', async (req, res) => {
         const clid = String(ad.ctwaClid || ad.ctwa_clid || '').trim().slice(0, 160) || null;
         // Objeto enxuto: sem miniatura/base64 e sem strings gigantes — cabe sempre no jsonb
         const raw = Object.fromEntries(Object.entries(ad)
-          .filter(([k, v]) => !/thumb|media|render|show/i.test(k) && (typeof v !== 'string' || v.length <= 500) && (v === null || typeof v !== 'object')));
-        adRef = { titulo: titulo || corpo.slice(0, 120) || null, corpo: corpo || null, adId, clid, raw };
+          .filter(([k, v]) => !/render|show/i.test(k) && (typeof v !== 'string' || v.length <= 500) && (v === null || typeof v !== 'object')));
+        /* 🖼️ A FOTO DO CRIATIVO (ordem do master, 15/09: "a cada conversa, a
+           foto do anúncio"). A Z-API manda `thumbnailUrl` (a miniatura da peça);
+           outros gateways mandam `thumbnail` em base64. A URL vence (some em
+           dias), então a imagem é BAIXADA e guardada na conversa. */
+        const fotoUrl = String(ad.thumbnailUrl || ad.thumbnail_url || '').trim();
+        const fotoB64 = typeof ad.thumbnail === 'string' && ad.thumbnail.length > 200 ? ad.thumbnail : null;
+        adRef = { titulo: titulo || corpo.slice(0, 120) || null, corpo: corpo || null, adId, clid, raw,
+          fotoUrl: /^https?:\/\//i.test(fotoUrl) ? fotoUrl : null, fotoB64 };
       }
     } catch { /* referral é bônus: nunca atrapalha a entrada da mensagem */ }
 
@@ -3611,6 +3644,7 @@ r.post('/webhook/zapi', async (req, res) => {
             [JSON.stringify({ ...adRef.raw, corpo: adRef.corpo, ctwaClid: adRef.clid }), conv.id]).catch(e => console.error('campanha_ad_raw:', e.message));
           if (cAd) cacheUpdate({ ...(convoCache.get(conv.id) || conv), ...cAd });
           console.log(`📣 Anúncio de origem guardado: ${String(adRef.titulo || adRef.adId || adRef.clid).slice(0, 60)}`);
+          guardarFotoAnuncio(conv.id, adRef).catch(() => {});   // em segundo plano: a entrada da mensagem não espera download
         }
         if (!conv.primeiro_webhook_chaves) {
           const chaves = [];

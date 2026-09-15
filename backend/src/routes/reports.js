@@ -543,7 +543,7 @@ async function montarLeads(de, ate, campanhas) {
                EXTRACT(EPOCH FROM (a.pout - a.pin))/60 AS resp_min,
                a.msgs_cliente,
                right(regexp_replace(COALESCE(c.phone, ''), '\\D', '', 'g'), 8) AS tel8,
-               c.campanha_ad, c.campanha_ad_id
+               c.campanha_ad, c.campanha_ad_id, (c.campanha_ad_foto IS NOT NULL) AS tem_foto_ad
           FROM agg a
           JOIN conversas c ON c.id = a.conversa_id
           LEFT JOIN usuarios u ON u.id = c.responsavel_id
@@ -689,6 +689,7 @@ async function montarLeads(de, ate, campanhas) {
         hora, turno: turnoDe(hora),
         campanha: campanhaAd || detTxt?.rotulo || null,
         campanhaProvada: !!campanhaAd,   // veio do WhatsApp, não de adivinhação
+        temFotoAd: c.tem_foto_ad === true,   // 🖼️ miniatura do criativo guardada na conversa
         campanhaForca: campanhaAd ? 'whatsapp' : detTxt ? (detTxt.porFrase ? 'frase' : 'palavras') : null,
         iniciais: (iniciaisDe.get(c.id) || '').slice(0, 300),
         primeiraMsg: primeiraMsg.slice(0, 160),
@@ -771,7 +772,7 @@ setInterval(aquecerCarteira, 8 * 60 * 1000);
    sem depender de mim pra cada anúncio novo. */
 r.get('/campanhas', async (req, res) => {
   if (req.user.role !== 'master') return res.status(403).json({ error: 'Só o master edita as campanhas.' });
-  try { res.json({ campanhas: await lerCampanhas() }); }
+  try { res.json({ campanhas: (await lerCampanhas()).map(c => ({ ...c, foto: undefined, temFoto: !!c.foto })) }); }
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 r.put('/campanhas', async (req, res) => {
@@ -791,6 +792,9 @@ r.put('/campanhas', async (req, res) => {
       .filter(c => c.rotulo && c.termos.length)
       .slice(0, 80);
     if (!lista.length) return res.status(400).json({ error: 'Cada campanha precisa de um nome e ao menos uma frase.' });
+    // 🖼️ A foto do criativo não viaja no PUT (é pesada): preserva a que já existe
+    const antes = await lerCampanhas();
+    for (const c of lista) { const a = antes.find(x => x.rotulo === c.rotulo); if (a?.foto) c.foto = a.foto; }
     await query(`INSERT INTO configuracoes (chave, valor) VALUES ('campanhas_leads', $1::jsonb)
                  ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`,
       [JSON.stringify({ campanhas: lista })]);
@@ -895,6 +899,59 @@ r.get('/diagnostico-anuncios', async (req, res) => {
       chaves_mais_comuns: [...chavesVistas.entries()].sort((a, b) => b[1] - a[1]).slice(0, 40).map(([k, n]) => ({ chave: k, n })),
       itens,   // só o master chega aqui: telefone completo é dele
     });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* 🖼️ FOTO DO CRIATIVO (ordem do master, 15/09: "cada nome de cliente com a
+   foto do anúncio"). Duas fontes: a miniatura que o WhatsApp mandou junto com
+   o clique (exata, por conversa) e a foto que o master anexa na campanha
+   (vale pra todos os leads daquela campanha). As imagens saem por aqui, sob
+   demanda, em bytes — nunca dentro do JSON do relatório. */
+const mandarDataUrl = (res, dataUrl) => {
+  const comma = String(dataUrl || '').indexOf(',');
+  if (comma < 0) return res.status(404).end();
+  const mime = dataUrl.slice(5, comma).replace(';base64', '') || 'image/jpeg';
+  const buf = Buffer.from(dataUrl.slice(comma + 1), 'base64');
+  res.set('Content-Type', mime); res.set('Cache-Control', 'private, max-age=86400');
+  res.send(buf);
+};
+r.get('/leads/:convId/foto', async (req, res) => {
+  try {
+    const { rows: [c] } = await query('SELECT campanha_ad_foto FROM conversas WHERE id = $1', [req.params.convId]);
+    if (c?.campanha_ad_foto) return mandarDataUrl(res, c.campanha_ad_foto);
+    const rot = String(req.query.rotulo || '');
+    const cfg = rot ? (await lerCampanhas()).find(x => x.rotulo === rot) : null;
+    if (cfg?.foto) return mandarDataUrl(res, cfg.foto);
+    res.status(404).end();
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+r.get('/campanhas/foto', async (req, res) => {
+  try {
+    const cfg = (await lerCampanhas()).find(x => x.rotulo === String(req.query.rotulo || ''));
+    if (!cfg?.foto) return res.status(404).end();
+    mandarDataUrl(res, cfg.foto);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+r.put('/campanhas/foto', async (req, res) => {
+  if (req.user.role !== 'master') return res.status(403).json({ error: 'Só o master anexa a foto do criativo.' });
+  try {
+    const rotulo = String(req.body?.rotulo || '').trim();
+    const foto = String(req.body?.foto || '');
+    if (!rotulo) return res.status(400).json({ error: 'Campanha não informada.' });
+    if (foto && !/^data:image\/[a-z0-9.+-]+;base64,/i.test(foto)) return res.status(400).json({ error: 'A foto precisa ser uma imagem.' });
+    if (foto.length > 1.6 * 1024 * 1024) return res.status(400).json({ error: 'Foto grande demais (máx. 1,2 MB).' });
+    const lista = (await lerCampanhas()).map(c => ({ ...c }));
+    let alvo = lista.find(c => c.rotulo === rotulo);
+    if (!alvo) {
+      // Campanha automática ("Anúncio · frase") ou orgânica ainda não está no catálogo: entra com o próprio nome como termo
+      alvo = { rotulo, setor: null, conjunto: null, meta_resultados: null, meta_gasto: null, termos: [rotulo.replace(/^Anúncio · /, '').replace(/^"|"$/g, '')] };
+      lista.unshift(alvo);
+    }
+    if (foto) alvo.foto = foto; else delete alvo.foto;
+    await query(`INSERT INTO configuracoes (chave, valor) VALUES ('campanhas_leads', $1::jsonb)
+                 ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`, [JSON.stringify({ campanhas: lista })]);
+    CACHE_LEADS_NOVOS.clear(); VERSAO_CATALOGO++;
+    res.json({ ok: true, temFoto: !!foto });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1067,11 +1124,14 @@ r.get('/leads-novos', async (req, res) => {
          campanhas realmente chegaram até nós"). Cada linha traz o que o Meta
          PROMETEU (conversas iniciadas e quanto foi gasto) ao lado do que
          REALMENTE apareceu no CRM — e o custo por lead que de fato chegou. */
+      /* 🖼️ Quais campanhas têm a foto do criativo anexada (a imagem em si vem por
+         /reports/campanhas/foto, sob demanda — não incha este JSON). */
+      fotosCampanha: campanhas.filter(c => c.foto).map(c => c.rotulo),
       campanhas: agrupar(recorteSemCampanha, l => l.campanha || 'Orgânico · sem anúncio')
         .map(c => {
           const cfg = campanhas.find(x => x.rotulo === c.chave) || {};
           const gasto = cfg.meta_gasto != null ? Number(cfg.meta_gasto) : null;
-          return { ...c, setorAnuncio: cfg.setor || null, conjunto: cfg.conjunto || null,
+          return { ...c, setorAnuncio: cfg.setor || null, conjunto: cfg.conjunto || null, temFoto: !!cfg.foto,
             metaResultados: cfg.meta_resultados ?? null, metaGasto: gasto,
             custoPorLead: gasto && c.leads ? Math.round((gasto / c.leads) * 100) / 100 : null,
             chegouPct: cfg.meta_resultados ? Math.round((c.leads / cfg.meta_resultados) * 1000) / 10 : null };

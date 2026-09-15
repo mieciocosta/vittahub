@@ -36,6 +36,50 @@ const ultimoDoMes = (v = 0) => {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - v + 1, 0)).toISOString().slice(0, 10);
 };
 
+/* 🖼️ FOTO DO CRIATIVO (ordem do master, 15/09: "cada nome de cliente com a
+   foto do anúncio"). A imagem vem por rota autenticada (o <img> não manda o
+   token), vira blob e fica em cache por sessão: o mesmo criativo aparece em
+   dezenas de leads e é baixado uma vez só. */
+const fotoCache = new Map();
+function FotoAd({ src, tam = 44, titulo }) {
+  const [url, setUrl] = useState(() => fotoCache.get(src) || null);
+  const [falhou, setFalhou] = useState(false);
+  useEffect(() => {
+    let vivo = true;
+    if (!src) return undefined;
+    if (fotoCache.has(src)) { setUrl(fotoCache.get(src)); return undefined; }
+    const BASE = import.meta.env.VITE_API_URL || '';
+    fetch(`${BASE}/api${src}`, { headers: { Authorization: `Bearer ${localStorage.getItem('vh_token') || ''}` } })
+      .then(r => { if (!r.ok) throw new Error('sem foto'); return r.blob(); })
+      .then(b => { const u = URL.createObjectURL(b); fotoCache.set(src, u); if (vivo) setUrl(u); })
+      .catch(() => { if (vivo) setFalhou(true); });
+    return () => { vivo = false; };
+  }, [src]);
+  if (!src || falhou) return (
+    <div title="Sem foto do criativo" style={{ width: tam, height: tam, borderRadius: 9, background: 'var(--bg2)', color: 'var(--light)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: tam * .38, flexShrink: 0 }}>🖼️</div>
+  );
+  return url
+    ? <img src={url} alt={titulo || 'criativo'} title={titulo || ''} onClick={e => { e.stopPropagation(); window.open(url, '_blank'); }}
+        style={{ width: tam, height: tam, borderRadius: 9, objectFit: 'cover', flexShrink: 0, cursor: 'zoom-in', border: '1px solid var(--border)' }} />
+    : <div style={{ width: tam, height: tam, borderRadius: 9, background: 'var(--bg2)', flexShrink: 0 }} />;
+}
+/* Reduz a foto antes de subir (máx. 720 px, JPEG): criativo de anúncio em
+   4 MB viraria 5 MB de base64 no banco por campanha. */
+const reduzirImagem = (file) => new Promise((ok, erro) => {
+  const img = new Image();
+  const u = URL.createObjectURL(file);
+  img.onload = () => {
+    const esc = Math.min(1, 720 / Math.max(img.width, img.height));
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.width * esc); c.height = Math.round(img.height * esc);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    URL.revokeObjectURL(u);
+    ok(c.toDataURL('image/jpeg', 0.82));
+  };
+  img.onerror = () => { URL.revokeObjectURL(u); erro(new Error('Não consegui ler a imagem')); };
+  img.src = u;
+});
+
 const Caixa = ({ children, style }) => (
   <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 14, boxShadow: 'var(--s1)', ...style }}>{children}</div>
 );
@@ -67,6 +111,21 @@ export default function LeadsRelatorio() {
   const [importando, setImportando] = useState(false);
   const [diag, setDiag] = useState(null);           // 🔬 diagnóstico de anúncios (master)
   const [diagAberto, setDiagAberto] = useState(false);
+  const fotoRef = useRef(null);
+  const [fotoPara, setFotoPara] = useState('');     // 🖼️ campanha que vai receber a foto
+  const [subindoFoto, setSubindoFoto] = useState(false);
+  const enviarFoto = async (file) => {
+    if (!file || !fotoPara) return;
+    setSubindoFoto(true); setErro('');
+    try {
+      const foto = await reduzirImagem(file);
+      await api.put('/reports/campanhas/foto', { rotulo: fotoPara, foto });
+      for (const k of [...fotoCache.keys()]) if (k.includes(encodeURIComponent(fotoPara)) || k.includes('/leads/')) fotoCache.delete(k);
+      carregar(true);
+    } catch (e) { setErro(e.message || 'Não consegui anexar a foto'); }
+    setSubindoFoto(false); setFotoPara('');
+    if (fotoRef.current) fotoRef.current.value = '';
+  };
   const csvRef = useRef(null);
 
   /* 📥 IMPORTAR O CSV DO META (ordem do master, 05/09: "preciso rastrear isso").
@@ -332,6 +391,7 @@ Agendamento e venda só contam se aconteceram DEPOIS da chegada do lead. Gerado 
           <button onClick={baixarCSV} style={{ ...btn(false), display: 'flex', alignItems: 'center', gap: 5 }}><Download size={13} /> Excel</button>
           {/* 📥 O CSV do Gerenciador do Meta entra aqui e vira o catálogo de campanhas */}
           <input ref={csvRef} type="file" accept=".csv,text/csv" style={{ display: 'none' }} onChange={e => importarCSV(e.target.files?.[0])} />
+          <input ref={fotoRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={e => enviarFoto(e.target.files?.[0])} />
           <button onClick={() => csvRef.current?.click()} disabled={importando}
             title="Suba o relatório de anúncios do Meta (CSV): cada anúncio vira uma campanha, com conversas e gasto ao lado"
             style={{ ...btn(false), display: 'flex', alignItems: 'center', gap: 5, background: '#7c3aed', color: '#fff', borderColor: '#7c3aed', opacity: importando ? .6 : 1 }}>
@@ -545,7 +605,16 @@ Agendamento e venda só contam se aconteceram DEPOIS da chegada do lead. Gerado 
                 style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 46px 58px 58px 88px', alignItems: 'center', gap: 8,
                   padding: '8px 6px', borderTop: '1px solid var(--border)', cursor: selecionavel ? 'pointer' : 'default',
                   background: ativo ? 'var(--tq4)' : 'transparent', borderRadius: 8 }}>
-                <div style={{ minWidth: 0 }}>
+                <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {/* 🖼️ O criativo da campanha (15/09): a foto anexada, ou o botão pra anexar */}
+                  {corte === 'campanha' && !/organico|orgânico/i.test(l.chave) && (
+                    l.temFoto
+                      ? <span onClick={e => { e.stopPropagation(); setFotoPara(l.chave); fotoRef.current?.click(); }} title="Trocar a foto do criativo"><FotoAd src={`/reports/campanhas/foto?rotulo=${encodeURIComponent(l.chave)}`} tam={40} titulo={l.chave} /></span>
+                      : <button onClick={e => { e.stopPropagation(); setFotoPara(l.chave); fotoRef.current?.click(); }} disabled={subindoFoto}
+                          title="Anexar a foto do criativo deste anúncio: ela aparece em cada lead que veio dele"
+                          style={{ width: 40, height: 40, borderRadius: 9, border: '1.5px dashed #7c3aed', background: 'transparent', color: '#7c3aed', cursor: 'pointer', fontSize: 15, flexShrink: 0 }}>📷</button>
+                  )}
+                  <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--txt)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.chave}</div>
                   {/* 📣 O que o Meta cobrou x o que realmente chegou (05/09) */}
                   {corte === 'campanha' && (l.metaGasto != null || l.metaResultados != null) && (
@@ -559,6 +628,7 @@ Agendamento e venda só contam se aconteceram DEPOIS da chegada do lead. Gerado 
                   )}
                   <div style={{ height: 5, background: 'var(--bg2)', borderRadius: 99, marginTop: 4, overflow: 'hidden' }}>
                     <div style={{ width: `${(l.leads / maior) * 100}%`, height: '100%', background: 'var(--tq)', borderRadius: 99 }} />
+                  </div>
                   </div>
                 </div>
                 <div style={{ fontSize: 13, fontWeight: 800, textAlign: 'right', color: 'var(--txt)' }}>{n0(l.leads)}</div>
@@ -760,10 +830,15 @@ Agendamento e venda só contam se aconteceram DEPOIS da chegada do lead. Gerado 
           {!lista.length && <div style={{ padding: '18px 8px', fontSize: 12.5, color: 'var(--muted)' }}>{carregando ? 'Carregando…' : 'Nenhum lead neste recorte.'}</div>}
           {lista.map(l => (
             <div key={l.id} onClick={() => nav(`/inbox?conv=${l.id}`)}
-              style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.4fr) 104px minmax(0,1.1fr) 26px', alignItems: 'center', gap: 10,
+              style={{ display: 'grid', gridTemplateColumns: '44px minmax(0,1.4fr) 104px minmax(0,1.1fr) 26px', alignItems: 'center', gap: 10,
                 padding: '9px 8px', borderTop: '1px solid var(--border)', cursor: 'pointer', borderRadius: 8 }}
               onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg)'; }}
               onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}>
+              {/* 🖼️ A foto do criativo que trouxe ESTE cliente: a miniatura que o
+                  WhatsApp mandou no clique, ou a foto anexada na campanha dele */}
+              <FotoAd tam={44} titulo={l.campanha || ''}
+                src={l.temFotoAd ? `/reports/leads/${l.id}/foto${l.campanha ? `?rotulo=${encodeURIComponent(l.campanha)}` : ''}`
+                  : (l.campanha && (dados?.fotosCampanha || []).includes(l.campanha)) ? `/reports/campanhas/foto?rotulo=${encodeURIComponent(l.campanha)}` : null} />
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.nome}</div>
                 <div style={{ fontSize: 11, color: 'var(--muted)' }}>{fmt.phone(l.telefone)} · {l.setor}{l.responsavel ? ` · ${l.responsavel}` : ''}</div>

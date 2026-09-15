@@ -3797,6 +3797,7 @@ async function colunasCriticas() {
     ['conversas', 'campanha_ad',     'TEXT'],      // 📣 anúncio que originou a conversa (referral do WhatsApp)
     ['conversas', 'campanha_ad_id',  'TEXT'],      // id do anúncio no Meta, quando vier
     ['conversas', 'campanha_ad_raw', 'JSONB'],     // o objeto do anúncio como veio (pra reler quando o formato mudar)
+    ['conversas', 'campanha_ad_foto', 'TEXT'],     // 🖼️ a foto do criativo (miniatura que o WhatsApp manda), em data URL
     ['conversas', 'primeiro_webhook_chaves', 'TEXT[]'],   // que campos o WhatsApp mandou no 1º contato (diagnóstico)
     ['mensagens', 'caption',         'TEXT'],      // legenda da foto/vídeo (o texto ia embora junto com a mídia)
     ['usuarios',  'titulo',          'TEXT'],                   // carteira na transferência
