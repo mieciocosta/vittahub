@@ -513,6 +513,221 @@ export default r;
 export { getRealIP };
 
 
+/* 🛡️ RESUMO DE SEGURANÇA — o veredito que a gestão pediu (ordem do master,
+   15/09: "quero saber se a equipe acessa só da clínica; se for fora, o
+   endereço exato, o bairro; um alerta por usuário, uma nota, um resumo").
+   Uma linha por pessoa: só da clínica ou não; onde esteve fora (endereço
+   pelo GPS, bairro pelo IP); alertas; nota de 0 a 10; e um resumo escrito.
+
+   O que é "a clínica": as redes que 3 ou mais pessoas usam no horário
+   comercial (é o Wi-Fi da casa — ninguém divide 4G com o colega) mais o que
+   o master marcar à mão, e o ponto do endereço oficial (geocodificado uma
+   vez) com raio de 250 m. */
+const RAIO_CLINICA_M = 250;
+const distM = (a, b, c, d) => {
+  const R = 6371000, t = Math.PI / 180;
+  const x = Math.sin((c - a) * t / 2) ** 2 + Math.cos(a * t) * Math.cos(c * t) * Math.sin((d - b) * t / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(x));
+};
+async function lerConfigClinica() {
+  const { rows: [c] } = await query("SELECT valor FROM configuracoes WHERE chave = 'clinica_seguranca'").catch(() => ({ rows: [] }));
+  const v = (c?.valor && typeof c.valor === 'object') ? c.valor : {};
+  return { ips_manuais: Array.isArray(v.ips_manuais) ? v.ips_manuais : [], ips_excluidos: Array.isArray(v.ips_excluidos) ? v.ips_excluidos : [],
+    lat: typeof v.lat === 'number' ? v.lat : null, lng: typeof v.lng === 'number' ? v.lng : null, endereco: v.endereco || null, raio_m: v.raio_m || RAIO_CLINICA_M };
+}
+async function salvarConfigClinica(v) {
+  await query(`INSERT INTO configuracoes (chave, valor) VALUES ('clinica_seguranca', $1::jsonb)
+               ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`, [JSON.stringify(v)]);
+}
+/* Nominatim (OpenStreetMap): grátis, pede só um User-Agent e no máximo uma
+   consulta por segundo. Resultado fica em cache por coordenada (3 casas ≈ 110 m). */
+const geoFetch = async (url) => {
+  const { default: fetch } = await import('node-fetch');
+  const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 6000);
+  try {
+    const r = await fetch(url, { signal: ctrl.signal, headers: { 'User-Agent': 'VittaHub CRM/2.4 (vittalissaude.com.br)', 'Accept-Language': 'pt-BR' } });
+    return r.ok ? await r.json() : null;
+  } catch { return null; } finally { clearTimeout(t); }
+};
+async function enderecoDoPonto(lat, lng) {
+  const chave = `georev_${Number(lat).toFixed(3)}_${Number(lng).toFixed(3)}`;
+  const { rows: [c] } = await query('SELECT valor FROM configuracoes WHERE chave = $1', [chave]).catch(() => ({ rows: [] }));
+  if (c?.valor) return c.valor.vazio ? null : c.valor;
+  const j = await geoFetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`);
+  const a = j?.address || null;
+  const end = a ? {
+    rua: a.road || a.pedestrian || a.footway || null, numero: a.house_number || null,
+    bairro: a.suburb || a.neighbourhood || a.quarter || a.city_district || null,
+    cidade: a.city || a.town || a.village || a.municipality || null, uf: a.state || null, cep: a.postcode || null,
+    texto: String(j.display_name || '').slice(0, 160),
+  } : null;
+  await query(`INSERT INTO configuracoes (chave, valor) VALUES ($1, $2::jsonb) ON CONFLICT (chave) DO UPDATE SET valor = $2::jsonb, updated_at = NOW()`,
+    [chave, JSON.stringify(end || { vazio: true })]).catch(() => {});
+  return end;
+}
+async function pontoDaClinica(cfg) {
+  if (cfg.lat != null && cfg.lng != null) return cfg;
+  const j = await geoFetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=' + encodeURIComponent('Av. Cel. Colares Moreira, 3A, Renascença, São Luís, MA, Brasil'));
+  const hit = Array.isArray(j) ? j[0] : null;
+  if (hit?.lat && hit?.lon) {
+    const novo = { ...cfg, lat: parseFloat(hit.lat), lng: parseFloat(hit.lon), endereco: 'Av. Cel. Colares Moreira, 3A, Renascença · Ed. Business Center' };
+    await salvarConfigClinica(novo).catch(() => {});
+    return novo;
+  }
+  return cfg;
+}
+
+r.get('/resumo-seguranca', onlyMaster, async (req, res) => {
+  try {
+    const dias = Math.min(180, Math.max(1, parseInt(req.query.dias, 10) || 30));
+    const cfg = await pontoDaClinica(await lerConfigClinica());
+
+    // 1) Redes da clínica: usadas por 3+ pessoas em horário comercial, mais as marcadas à mão
+    const { rows: compart } = await query(`
+      SELECT ip, COUNT(DISTINCT usuario_id)::int pessoas, COUNT(*)::int n
+        FROM audit_logs
+       WHERE created_at > NOW() - ($1 || ' days')::interval AND ip IS NOT NULL AND usuario_id IS NOT NULL
+         AND EXTRACT(HOUR FROM created_at - interval '3 hours') BETWEEN 7 AND 19
+       GROUP BY ip HAVING COUNT(DISTINCT usuario_id) >= 3 ORDER BY n DESC LIMIT 20`, [dias]).catch(() => ({ rows: [] }));
+    const ipsClinica = new Set([...compart.map(x => x.ip), ...cfg.ips_manuais].filter(ip => !cfg.ips_excluidos.includes(ip)));
+
+    // 2) Tudo que cada pessoa fez, por rede e por ponto
+    const { rows: redes } = await query(`
+      SELECT a.usuario_id, MAX(a.usuario_nome) nome, a.ip, COUNT(*)::int n, COUNT(DISTINCT (a.created_at - interval '3 hours')::date)::int dias,
+             MIN(a.created_at) de, MAX(a.created_at) ate,
+             COUNT(*) FILTER (WHERE EXTRACT(HOUR FROM a.created_at - interval '3 hours') < 6)::int madrugada
+        FROM audit_logs a JOIN usuarios u ON u.id = a.usuario_id
+       WHERE a.created_at > NOW() - ($1 || ' days')::interval AND a.ip IS NOT NULL AND u.role <> 'master' AND u.role <> 'bot' AND u.ativo = true
+       GROUP BY a.usuario_id, a.ip`, [dias]).catch(() => ({ rows: [] }));
+    const { rows: pontos } = await query(`
+      SELECT usuario_id, ROUND(latitude::numeric,3) lat, ROUND(longitude::numeric,3) lng, COUNT(*)::int n,
+             COUNT(DISTINCT (created_at - interval '3 hours')::date)::int dias, MIN(precisao_m) precisao_m, MAX(created_at) ultimo
+        FROM audit_logs
+       WHERE created_at > NOW() - ($1 || ' days')::interval AND latitude IS NOT NULL AND usuario_id IS NOT NULL
+       GROUP BY 1, 2, 3`, [dias]).catch(() => ({ rows: [] }));
+    const { rows: sinais } = await query(`
+      SELECT usuario_id,
+             COUNT(*) FILTER (WHERE acao = 'captura_tela')::int prints,
+             COUNT(*) FILTER (WHERE acao = 'copia_telefone_bloqueada')::int copias,
+             COUNT(*) FILTER (WHERE gps_estado = 'negado')::int gps_negado,
+             COUNT(*)::int total, COUNT(*) FILTER (WHERE latitude IS NOT NULL)::int com_gps
+        FROM audit_logs WHERE created_at > NOW() - ($1 || ' days')::interval AND usuario_id IS NOT NULL GROUP BY 1`, [dias]).catch(() => ({ rows: [] }));
+    const { rows: simult } = await query(`
+      SELECT usuario_id, COUNT(*)::int episodios, COUNT(DISTINCT dia)::int dias FROM (
+        SELECT usuario_id, to_char(bloco - interval '3 hours', 'YYYY-MM-DD') dia, bloco
+          FROM (SELECT usuario_id, ip, to_timestamp(floor(extract(epoch FROM created_at) / 600) * 600) bloco
+                  FROM audit_logs WHERE created_at > NOW() - ($1 || ' days')::interval AND usuario_id IS NOT NULL AND ip IS NOT NULL
+                 GROUP BY 1, 2, 3) t
+         GROUP BY 1, 2, 3 HAVING COUNT(DISTINCT ip) > 1) s
+       GROUP BY 1`, [dias]).catch(() => ({ rows: [] }));
+
+    // Geo dos IPs (cache do login)
+    const ipsUnicos = [...new Set(redes.map(r2 => r2.ip))].slice(0, 400);
+    const geo = {};
+    if (ipsUnicos.length) {
+      const { rows: g } = await query(`SELECT chave, valor FROM configuracoes WHERE chave = ANY($1::text[])`, [ipsUnicos.map(ip => `geoip_${ip}`)]).catch(() => ({ rows: [] }));
+      for (const x of g) geo[String(x.chave).replace('geoip_', '')] = x.valor || {};
+    }
+
+    // 3) Monta o veredito por pessoa
+    const porUser = new Map();
+    for (const r2 of redes) {
+      const u = porUser.get(r2.usuario_id) || { usuario_id: r2.usuario_id, nome: r2.nome, redes: [], pontos: [], acoes: 0, madrugada: 0, dias: new Set() };
+      const g = geo[r2.ip] || {};
+      const daClinica = ipsClinica.has(r2.ip);
+      u.redes.push({ ip: r2.ip, n: r2.n, dias: r2.dias, clinica: daClinica, provedor: g.provedor || null, movel: !!g.movel,
+        bairro: g.bairro || null, cidade: g.cidade || null, precisao: g.precisao || null, raio_km: g.raio_km || null });
+      u.acoes += r2.n; u.madrugada += r2.madrugada;
+      porUser.set(r2.usuario_id, u);
+    }
+    let lookups = 0;
+    for (const p of pontos) {
+      const u = porUser.get(p.usuario_id); if (!u) continue;
+      const lat = Number(p.lat), lng = Number(p.lng);
+      const dist = (cfg.lat != null) ? Math.round(distM(cfg.lat, cfg.lng, lat, lng)) : null;
+      const dentro = dist != null ? dist <= cfg.raio_m : null;
+      u.pontos.push({ lat, lng, n: p.n, dias: p.dias, precisao_m: p.precisao_m == null ? null : Number(p.precisao_m), ultimo: p.ultimo, dist_m: dist, dentro });
+    }
+    // Endereço (rua, número, bairro) dos pontos FORA da clínica — os mais usados primeiro, poucos por vez
+    const fora = [...porUser.values()].flatMap(u => u.pontos.filter(p => p.dentro === false).map(p => ({ u, p }))).sort((a, b) => b.p.n - a.p.n);
+    for (const { p } of fora) {
+      const chave = `georev_${p.lat.toFixed(3)}_${p.lng.toFixed(3)}`;
+      const { rows: [c] } = await query('SELECT valor FROM configuracoes WHERE chave = $1', [chave]).catch(() => ({ rows: [] }));
+      if (c?.valor) { p.endereco = c.valor.vazio ? null : c.valor; continue; }
+      if (lookups >= 6) continue;   // o resto entra nas próximas aberturas
+      lookups++;
+      p.endereco = await enderecoDoPonto(p.lat, p.lng);
+      await new Promise(ok => setTimeout(ok, 1100));
+    }
+    const sinalDe = Object.fromEntries(sinais.map(x => [x.usuario_id, x]));
+    const simDe = Object.fromEntries(simult.map(x => [x.usuario_id, x]));
+
+    const pessoas = [...porUser.values()].map(u => {
+      const s2 = sinalDe[u.usuario_id] || {}; const sm = simDe[u.usuario_id] || {};
+      const acoesFora = u.redes.filter(r2 => !r2.clinica).reduce((t, r2) => t + r2.n, 0);
+      const diasFora = new Set(); // aproximação: dias das redes de fora
+      const pctFora = u.acoes ? Math.round((acoesFora / u.acoes) * 100) : 0;
+      const pontosFora = u.pontos.filter(p => p.dentro === false).sort((a, b) => b.n - a.n);
+      const redesFora = u.redes.filter(r2 => !r2.clinica).sort((a, b) => b.n - a.n);
+      const gpsNegado = (s2.gps_negado || 0) > 0;
+      const semGps = s2.total ? Math.round(100 - (s2.com_gps / s2.total) * 100) : 100;
+      const alertas = [];
+      if ((sm.episodios || 0) > 0) alertas.push({ tipo: 'simultaneo', nivel: sm.episodios >= 3 ? 'alto' : 'medio', txt: `login em 2 lugares ao mesmo tempo: ${sm.episodios} vez(es) em ${sm.dias} dia(s)` });
+      if (pctFora >= 20) alertas.push({ tipo: 'fora', nivel: pctFora >= 50 ? 'alto' : 'medio', txt: `${pctFora}% do uso fora das redes da clínica` });
+      else if (acoesFora > 0) alertas.push({ tipo: 'fora', nivel: 'baixo', txt: `${acoesFora} ação(ões) fora da clínica` });
+      if (u.madrugada > 0) alertas.push({ tipo: 'madrugada', nivel: u.madrugada >= 20 ? 'medio' : 'baixo', txt: `${u.madrugada} ação(ões) de madrugada (0h às 6h)` });
+      if ((s2.prints || 0) > 0) alertas.push({ tipo: 'prints', nivel: s2.prints >= 5 ? 'alto' : 'medio', txt: `${s2.prints} captura(s) de tela` });
+      if ((s2.copias || 0) > 0) alertas.push({ tipo: 'copias', nivel: 'alto', txt: `${s2.copias} tentativa(s) de copiar telefone` });
+      if (gpsNegado) alertas.push({ tipo: 'gps', nivel: 'medio', txt: 'negou a localização no navegador' });
+      else if (semGps >= 80) alertas.push({ tipo: 'gps', nivel: 'baixo', txt: `${semGps}% dos acessos sem GPS` });
+      let nota = 10;
+      nota -= (sm.episodios || 0) >= 3 ? 3 : (sm.episodios || 0) > 0 ? 1.5 : 0;
+      nota -= pctFora >= 50 ? 3 : pctFora >= 20 ? 2 : acoesFora > 0 ? 0.5 : 0;
+      nota -= (s2.prints || 0) >= 5 ? 2 : (s2.prints || 0) > 0 ? 1 : 0;
+      nota -= (s2.copias || 0) > 0 ? 2 : 0;
+      nota -= gpsNegado ? 1 : 0;
+      nota -= u.madrugada >= 20 ? 1 : 0;
+      nota = Math.max(0, Math.round(nota * 10) / 10);
+      const cor = nota >= 8.5 ? 'verde' : nota >= 6 ? 'amarelo' : 'vermelho';
+      const soClinica = acoesFora === 0;
+      const lugares = pontosFora.slice(0, 4).map(p => p.endereco
+        ? `${[p.endereco.rua, p.endereco.numero].filter(Boolean).join(', ') || 'rua não identificada'}${p.endereco.bairro ? ` · ${p.endereco.bairro}` : ''}${p.endereco.cidade ? ` · ${p.endereco.cidade}` : ''} (GPS${p.precisao_m != null ? ` ±${Math.round(p.precisao_m)} m` : ''}, ${p.dias} dia(s))`
+        : `ponto ${p.lat.toFixed(3)}, ${p.lng.toFixed(3)} (${p.dias} dia(s))`);
+      const bairrosIp = [...new Set(redesFora.map(r2 => r2.movel ? `4G ${r2.provedor || ''}`.trim() : [r2.bairro, r2.cidade].filter(Boolean).join(' · ') || r2.provedor || r2.ip))].slice(0, 4);
+      const primeiro = String(u.nome || '').split(' ')[0];
+      const resumo = soClinica
+        ? `${primeiro} usou o CRM só das redes da clínica nos últimos ${dias} dias (${u.acoes} ações).`
+        : `${primeiro}: ${pctFora}% das ${u.acoes} ações vieram de fora das redes da clínica${lugares.length ? ` — ${lugares.join('; ')}` : bairrosIp.length ? ` — pelo IP: ${bairrosIp.join('; ')} (aproximado)` : ''}.`
+          + ((sm.episodios || 0) > 0 ? ` Login em dois lugares ao mesmo tempo ${sm.episodios} vez(es).` : '')
+          + (gpsNegado ? ' Negou a localização no navegador.' : '');
+      return { usuario_id: u.usuario_id, nome: u.nome, nota, cor, so_clinica: soClinica, acoes: u.acoes, acoes_fora: acoesFora, pct_fora: pctFora,
+        redes: u.redes.sort((a, b) => b.n - a.n), pontos_fora: pontosFora.slice(0, 8), pontos_dentro: u.pontos.filter(p => p.dentro === true).length,
+        sem_gps_pct: semGps, gps_negado: gpsNegado, alertas, resumo };
+    }).sort((a, b) => a.nota - b.nota || b.acoes - a.acoes);
+
+    res.json({ dias, clinica: { ips: [...ipsClinica], ips_auto: compart.map(x => ({ ip: x.ip, pessoas: x.pessoas, n: x.n, provedor: geo[x.ip]?.provedor || null })),
+      ips_manuais: cfg.ips_manuais, ips_excluidos: cfg.ips_excluidos, lat: cfg.lat, lng: cfg.lng, endereco: cfg.endereco, raio_m: cfg.raio_m },
+      pessoas });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+r.put('/clinica', onlyMaster, async (req, res) => {
+  try {
+    const cfg = await lerConfigClinica();
+    const b = req.body || {};
+    const ip = String(b.ip || '').trim();
+    if (ip) {
+      // marcar: entra nas manuais e sai das excluídas; desmarcar: o inverso
+      if (b.clinica === true) { cfg.ips_manuais = [...new Set([...cfg.ips_manuais, ip])]; cfg.ips_excluidos = cfg.ips_excluidos.filter(x => x !== ip); }
+      else { cfg.ips_excluidos = [...new Set([...cfg.ips_excluidos, ip])]; cfg.ips_manuais = cfg.ips_manuais.filter(x => x !== ip); }
+    }
+    if (typeof b.raio_m === 'number' && b.raio_m >= 50 && b.raio_m <= 2000) cfg.raio_m = Math.round(b.raio_m);
+    if (typeof b.lat === 'number' && typeof b.lng === 'number') { cfg.lat = b.lat; cfg.lng = b.lng; }
+    await salvarConfigClinica(cfg);
+    res.json({ ok: true, clinica: cfg });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+
 /* 🌐 COMPLETAR A LOCALIZAÇÃO DOS IPs ANTIGOS (ordem do master, 15/09: "atualiza
    tudo isso no sistema, sem perder os dados atuais"). Os IPs já registrados
    ganham bairro, CEP, operadora e o raio de precisão — nada é apagado, só

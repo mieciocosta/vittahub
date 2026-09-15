@@ -136,7 +136,11 @@ o sinal clássico de senha emprestada. Gerado em ${new Date().toLocaleString('pt
 export default function Auditoria() {
   const api = useApi();
   const { isMaster } = useAuth();
-  const [nivel, setNivel] = useState('presenca'); // presenca | usuarios | dias | timeline
+  const [nivel, setNivel] = useState('resumo'); // resumo | presenca | usuarios | dias | timeline | locais | seguranca
+  const [resumoSeg, setResumoSeg] = useState(null);   // 🛡️ veredito por pessoa (15/09)
+  const [resumoDias, setResumoDias] = useState(30);
+  const carregarResumo = () => api.get(`/auditoria/resumo-seguranca?dias=${resumoDias}`).then(setResumoSeg).catch(() => setResumoSeg({ pessoas: [], clinica: null }));
+  useEffect(() => { if (nivel === 'resumo') { setResumoSeg(null); carregarResumo(); } }, [nivel, resumoDias]); // eslint-disable-line
   const [selUser, setSelUser] = useState(null);
   const [selDia, setSelDia] = useState(null);
   const [stats, setStats] = useState(null);
@@ -230,13 +234,13 @@ export default function Auditoria() {
           <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 2 }}>Presença, localização, atividades e ociosidade da equipe</p>
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
-          {['presenca', 'usuarios', 'locais', 'seguranca'].map(n => (
+          {['resumo', 'presenca', 'usuarios', 'locais', 'seguranca'].map(n => (
             <button key={n} onClick={() => { setNivel(n); setSelUser(null); setSelDia(null); }}
               style={{ padding: '7px 15px', borderRadius: 10, fontSize: 12.5, fontWeight: 700, cursor: 'pointer',
                 border: `1.5px solid ${nivel === n || (n === 'usuarios' && ['dias', 'timeline'].includes(nivel)) ? 'var(--tq)' : 'var(--border)'}`,
                 background: nivel === n || (n === 'usuarios' && ['dias', 'timeline'].includes(nivel)) ? 'var(--tq)' : '#fff',
                 color: nivel === n || (n === 'usuarios' && ['dias', 'timeline'].includes(nivel)) ? '#fff' : 'var(--muted)' }}>
-              {n === 'presenca' ? '🟢 Tempo Real' : n === 'usuarios' ? '📊 Histórico' : n === 'locais' ? '📍 Localizações' : '🔒 Segurança'}
+              {n === 'resumo' ? '🛡️ Resumo' : n === 'presenca' ? '🟢 Tempo Real' : n === 'usuarios' ? '📊 Histórico' : n === 'locais' ? '📍 Localizações' : '🔒 Segurança'}
             </button>
           ))}
         </div>
@@ -258,6 +262,113 @@ export default function Auditoria() {
              (preciso, mas só existe com permissão) e IP (sempre existe, mas
              diz rede, não endereço). A tela mostra as duas e diz qual é qual —
              conclusão sobre gente não se tira de dado que finge precisão. */}
+      {/* 🛡️ RESUMO DE SEGURANÇA — o veredito (ordem do master, 15/09: "não consigo
+          fazer uma leitura clara; quero saber se a equipe acessa só da clínica,
+          e se não, o endereço, o bairro; alerta, nota e resumo por usuário"). */}
+      {nivel === 'resumo' && (
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>Período:</span>
+            {[7, 30, 90].map(d => (
+              <button key={d} onClick={() => setResumoDias(d)} style={{ padding: '5px 12px', borderRadius: 20, fontSize: 11.5, fontWeight: 800, cursor: 'pointer',
+                border: `1.5px solid ${resumoDias === d ? 'var(--tq)' : 'var(--border)'}`, background: resumoDias === d ? 'var(--tq)' : 'var(--card)', color: resumoDias === d ? '#fff' : 'var(--muted)' }}>{d} dias</button>
+            ))}
+            {resumoSeg && <span style={{ fontSize: 11.5, color: 'var(--muted)', marginLeft: 'auto' }}>
+              {resumoSeg.pessoas.filter(p => p.cor === 'vermelho').length} em vermelho · {resumoSeg.pessoas.filter(p => p.cor === 'amarelo').length} em amarelo · {resumoSeg.pessoas.filter(p => p.cor === 'verde').length} em verde
+            </span>}
+          </div>
+
+          {/* 🏥 O que o sistema considera "a clínica" — e o master ajusta com um clique */}
+          {resumoSeg?.clinica && (
+            <div className="card" style={{ padding: '12px 16px', marginBottom: 14, borderLeft: '4px solid var(--tq)' }}>
+              <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 4 }}>🏥 O que conta como "dentro da clínica"</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
+                Ponto: <b style={{ color: 'var(--txt2)' }}>{resumoSeg.clinica.endereco || 'endereço oficial'}</b>, raio de {resumoSeg.clinica.raio_m} m pelo GPS.
+                Redes: as que 3 ou mais pessoas usam no horário comercial (é o Wi-Fi da casa; ninguém divide 4G com o colega), mais as que o senhor marcar.
+              </div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+                {[...new Set([...resumoSeg.clinica.ips_auto.map(x => x.ip), ...resumoSeg.clinica.ips_manuais, ...resumoSeg.clinica.ips_excluidos])].map(ip => {
+                  const auto = resumoSeg.clinica.ips_auto.find(x => x.ip === ip);
+                  const ativa = resumoSeg.clinica.ips.includes(ip);
+                  return (
+                    <button key={ip} onClick={() => api.put('/auditoria/clinica', { ip, clinica: !ativa }).then(() => carregarResumo()).catch(() => {})}
+                      title={ativa ? 'Clique para deixar de contar como rede da clínica' : 'Clique para contar como rede da clínica'}
+                      style={{ fontSize: 11, fontFamily: 'monospace', fontWeight: 700, padding: '4px 10px', borderRadius: 20, cursor: 'pointer',
+                        border: `1.5px solid ${ativa ? 'var(--tq)' : 'var(--border)'}`, background: ativa ? 'var(--tq4)' : 'var(--bg2)', color: ativa ? 'var(--tq2)' : 'var(--muted)' }}>
+                      {ativa ? '✓ ' : '✕ '}{ip}{auto ? ` · ${auto.pessoas} pessoas` : ''}{auto?.provedor ? ` · ${auto.provedor.split(' ')[0]}` : ''}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {!resumoSeg && <div style={{ fontSize: 13, color: 'var(--muted)', padding: 20 }}>Montando o resumo…</div>}
+          {resumoSeg?.pessoas?.map(p => {
+            const corBorda = p.cor === 'vermelho' ? '#dc2626' : p.cor === 'amarelo' ? '#d97706' : '#16a34a';
+            const corFundo = p.cor === 'vermelho' ? '#fef2f2' : p.cor === 'amarelo' ? '#fffbeb' : '#f0fdf4';
+            return (
+              <div key={p.usuario_id} className="card" style={{ padding: '14px 16px', marginBottom: 12, borderLeft: `5px solid ${corBorda}` }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                  <div style={{ width: 46, height: 46, borderRadius: 12, background: corFundo, color: corBorda, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontWeight: 900, lineHeight: 1 }}>
+                    <span style={{ fontSize: 17 }}>{String(p.nota).replace('.', ',')}</span><span style={{ fontSize: 8.5, fontWeight: 700, opacity: .8 }}>nota</span>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 220 }}>
+                    <div style={{ fontWeight: 800, fontSize: 15 }}>{p.nome}</div>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: p.so_clinica ? '#16a34a' : corBorda, marginTop: 2 }}>
+                      {p.so_clinica ? '✅ Só da clínica' : `⚠️ ${p.pct_fora}% do uso fora da clínica`}
+                      <span style={{ fontWeight: 600, color: 'var(--muted)' }}> · {p.acoes} ações</span>
+                    </div>
+                  </div>
+                  <button onClick={() => { setLocUser({ usuario_id: p.usuario_id, usuario_nome: p.nome }); setNivel('locais'); }}
+                    style={{ padding: '6px 12px', borderRadius: 9, border: '1px solid var(--border)', background: 'var(--card)', color: 'var(--tq2)', fontWeight: 800, fontSize: 11.5, cursor: 'pointer' }}>
+                    Ver dia a dia →
+                  </button>
+                </div>
+                <div style={{ fontSize: 12.5, color: 'var(--txt2)', lineHeight: 1.6, marginTop: 10, padding: '8px 12px', background: 'var(--bg2)', borderRadius: 10 }}>📝 {p.resumo}</div>
+                {p.alertas.length > 0 && (
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+                    {p.alertas.map((a, i) => (
+                      <span key={i} style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 20,
+                        background: a.nivel === 'alto' ? '#fee2e2' : a.nivel === 'medio' ? '#fef3c7' : 'var(--bg2)',
+                        color: a.nivel === 'alto' ? '#991b1b' : a.nivel === 'medio' ? '#92400e' : 'var(--muted)' }}>
+                        {a.nivel === 'alto' ? '🚨' : a.nivel === 'medio' ? '⚠️' : '•'} {a.txt}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {(p.pontos_fora.length > 0 || p.redes.some(r2 => !r2.clinica)) && (
+                  <div style={{ marginTop: 10 }}>
+                    <div style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 5 }}>📍 Onde esteve fora da clínica</div>
+                    {p.pontos_fora.map((pt, i) => (
+                      <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'baseline', fontSize: 12.5, padding: '4px 0', borderTop: i ? '1px dashed var(--border)' : 'none' }}>
+                        <a href={`https://www.google.com/maps?q=${pt.lat},${pt.lng}`} target="_blank" rel="noreferrer" style={{ color: 'var(--tq2)', fontWeight: 800, textDecoration: 'none', flex: 1, minWidth: 0 }}>
+                          {pt.endereco
+                            ? `${[pt.endereco.rua, pt.endereco.numero].filter(Boolean).join(', ') || 'rua não identificada'}${pt.endereco.bairro ? ` · ${pt.endereco.bairro}` : ''}${pt.endereco.cidade ? ` · ${pt.endereco.cidade}` : ''}`
+                            : `${pt.lat.toFixed(4)}, ${pt.lng.toFixed(4)} (endereço sendo buscado)`} 🗺️
+                        </a>
+                        <span style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>GPS{pt.precisao_m != null ? ` ±${Math.round(pt.precisao_m)} m` : ''} · {pt.dias} dia(s) · {pt.n} ações{pt.dist_m != null ? ` · a ${pt.dist_m >= 1000 ? `${(pt.dist_m / 1000).toFixed(1)} km` : `${pt.dist_m} m`} da clínica` : ''}</span>
+                      </div>
+                    ))}
+                    {p.redes.filter(r2 => !r2.clinica).slice(0, 4).map((r2, i) => (
+                      <div key={r2.ip} style={{ display: 'flex', gap: 8, alignItems: 'baseline', fontSize: 12, padding: '4px 0', borderTop: (i || p.pontos_fora.length) ? '1px dashed var(--border)' : 'none', color: 'var(--muted)' }}>
+                        <span style={{ flex: 1, minWidth: 0 }}>🌐 {r2.movel ? `rede móvel (4G) ${r2.provedor || ''} — o IP não diz onde ela está` : `${[r2.bairro, r2.cidade].filter(Boolean).join(' · ') || r2.ip}${r2.provedor ? ` · ${r2.provedor}` : ''} (aproximado pelo IP${r2.raio_km ? `, raio ${r2.raio_km} km` : ''})`}</span>
+                        <span style={{ fontSize: 11, whiteSpace: 'nowrap' }}>{r2.dias} dia(s) · {r2.n} ações</span>
+                      </div>
+                    ))}
+                    {p.pontos_fora.length === 0 && p.gps_negado && <div style={{ fontSize: 11.5, color: '#991b1b', marginTop: 4 }}>Sem endereço exato: ela negou a localização no navegador. Só o IP, que é aproximado.</div>}
+                    {p.pontos_fora.length === 0 && !p.gps_negado && p.sem_gps_pct >= 80 && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Sem endereço exato: o navegador dela ainda não enviou GPS ({p.sem_gps_pct}% dos acessos sem localização).</div>}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          <div style={{ fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.6, marginTop: 6 }}>
+            <b style={{ color: 'var(--txt2)' }}>Como a nota é dada:</b> começa em 10. Login em dois lugares ao mesmo tempo tira até 3; uso fora da clínica tira até 3; capturas de tela até 2; tentativa de copiar telefone 2; negar a localização 1; madrugada 1. Verde a partir de 8,5; amarelo de 6 a 8,4; vermelho abaixo de 6.
+          </div>
+        </div>
+      )}
+
       {nivel === 'locais' && (
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
