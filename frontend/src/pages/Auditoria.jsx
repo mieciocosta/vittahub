@@ -17,6 +17,8 @@ const ACOES = {
   abrir_conversa: ['💬', '#0E8C96'], responder: ['↩️', '#0369a1'], copiar: ['📋', '#7c3aed'],
   registrar_venda: ['💰', '#16a34a'], transferir: ['🔁', '#d97706'], classificar: ['🏷️', '#2563eb'],
   mover_pasta: ['📁', '#C4973B'], toggle_bot: ['🤖', '#0E8C96'],
+  // 🧩 rastros de outras tabelas (15/09): o que a pessoa mandou, vendeu, agendou e falou
+  mensagem_enviada: ['📤', '#0369a1'], venda: ['💰', '#16a34a'], agendamento: ['📅', '#0E8C96'], chat_equipe: ['👥', '#7c3aed'],
 };
 const CRIT = ['excluir', 'editar_lead', 'apagar_mensagem', 'editar_mensagem', 'login_falha'];
 
@@ -976,6 +978,7 @@ export default function Auditoria() {
                         <span style={{ padding: '2px 8px', borderRadius: 4, fontSize: isCrit ? 11 : 10, fontWeight: 700, color: '#fff', background: color }}>{e.acao.toUpperCase().replace(/_/g, ' ')}</span>
                         {e.entidade && <span style={{ padding: '2px 6px', borderRadius: 4, fontSize: 10, background: 'var(--bg2)', color: 'var(--muted)', fontWeight: 600 }}>{e.entidade}</span>}
                         {e.entidade_id && <span style={{ fontSize: 10, color: 'var(--muted)', fontFamily: 'monospace' }}>#{String(e.entidade_id).slice(0, 12)}</span>}
+                        {e.fonte && e.fonte !== 'auditoria' && <span title="Rastro vindo de outra tabela do sistema, não do log de auditoria" style={{ fontSize: 9.5, padding: '1px 6px', borderRadius: 4, background: '#ede9fe', color: '#5b21b6', fontWeight: 700 }}>rastro · {e.fonte.replace('_', ' ')}</span>}
                         {e.latitude && (
                           <a href={`https://www.google.com/maps?q=${e.latitude},${e.longitude}`} target="_blank" rel="noreferrer"
                             title={`${e.latitude}, ${e.longitude}${e.precisao_m != null ? ` · ±${e.precisao_m} m` : ''}`}

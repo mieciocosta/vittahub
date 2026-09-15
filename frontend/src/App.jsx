@@ -203,6 +203,58 @@ function aplicarCorDoDia(theme) {
   return c;
 }
 
+/* 📍 LOCALIZAÇÃO OBRIGATÓRIA (ordem do master, 15/09: "o VittaHub só funciona
+   com a localização ativada"). Quem NEGA a localização no navegador fica
+   diante de uma tela que explica como liberar, e nada por trás responde.
+   Só o master passa sem GPS (senão ele mesmo ficaria trancado numa máquina
+   sem localização). Timeout ou GPS indisponível não travam: a pessoa não
+   negou nada — e o sistema tenta de novo sozinho. */
+function TravaLocalizacao({ user }) {
+  const [negado, setNegado] = React.useState(false);
+  const [tentando, setTentando] = React.useState(false);
+  const isMaster = user?.role === 'master';
+  const pedir = React.useCallback(() => {
+    if (isMaster || !navigator.geolocation) return;
+    setTentando(true);
+    navigator.geolocation.getCurrentPosition(
+      () => { setNegado(false); setTentando(false); },
+      (e) => { setTentando(false); if (e && e.code === 1) setNegado(true); },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 });
+  }, [isMaster]);
+  React.useEffect(() => {
+    if (isMaster) return undefined;
+    pedir();
+    // Se a permissão mudar no cadeado, reage na hora (onde o navegador avisa)
+    let perm = null;
+    try {
+      navigator.permissions?.query({ name: 'geolocation' }).then(p => {
+        perm = p; p.onchange = () => { if (p.state === 'denied') setNegado(true); else pedir(); };
+        if (p.state === 'denied') setNegado(true);
+      }).catch(() => {});
+    } catch { /* navegador sem a API: fica só com o pedido direto */ }
+    const t = setInterval(pedir, 5 * 60 * 1000);
+    return () => { clearInterval(t); if (perm) perm.onchange = null; };
+  }, [isMaster, pedir]);
+  if (isMaster || !negado) return null;
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 100000, background: 'rgba(3,43,48,.96)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ maxWidth: 460, textAlign: 'center' }}>
+        <div style={{ fontSize: 54, marginBottom: 10 }}>📍</div>
+        <div style={{ fontSize: 22, fontWeight: 900, marginBottom: 8 }}>O VittaHub só funciona com a localização ativada</div>
+        <div style={{ fontSize: 14, lineHeight: 1.6, opacity: .92, marginBottom: 18 }}>
+          A localização foi negada neste navegador. Toque no <b>cadeado</b> ao lado do endereço do site, procure <b>Localização</b> e mude para <b>Permitir</b>. Depois toque em "Tentar de novo".
+          <br /><span style={{ fontSize: 12.5, opacity: .8 }}>No celular: Configurações do navegador → Permissões do site → Localização.</span>
+        </div>
+        <button onClick={pedir} disabled={tentando}
+          style={{ padding: '12px 22px', borderRadius: 12, border: 'none', background: '#00B8C0', color: '#fff', fontWeight: 900, fontSize: 15, cursor: 'pointer', opacity: tentando ? .6 : 1 }}>
+          {tentando ? 'Verificando…' : 'Tentar de novo'}
+        </button>
+        <div style={{ fontSize: 11.5, opacity: .7, marginTop: 14 }}>Regra da direção: o acesso ao sistema é registrado com o local de onde é feito.</div>
+      </div>
+    </div>
+  );
+}
+
 // Heartbeat isolado — roda em background, sem afetar o render do App
 function Heartbeat({ userId }) {
   const started = React.useRef(false);
@@ -611,6 +663,7 @@ export default function App() {
         <BarraCelular unread={unread} onAbrirMenu={() => setMobileMenu(true)} />
       </ErrorBoundary>
       {user && <Heartbeat userId={user.id} />}
+      {user && <TravaLocalizacao user={user} />}
       <main className='vh-main' style={{ marginLeft:'var(--sw)', flex:1, minHeight:'100vh', overflowX:'hidden', transition:'margin-left .2s ease' }}>
         {/* 👤 Troca de usuário no topo de TODAS as telas. Substituiu a barra
             roxa flutuante: ela só avisava que você estava impersonando, mas não

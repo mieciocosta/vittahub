@@ -608,13 +608,17 @@ r.get('/usuarios', onlyMaster, async (req, res) => {
 // Level 2: Dias de um usuário
 r.get('/usuario/:id/dias', onlyMaster, async (req, res) => {
   try {
+    /* 🕘 DIA NO RELÓGIO DE SÃO LUÍS (cobrança do master, 15/09: "26/08 o José
+       conectou por volta das 21h e não tem o histórico detalhado"). O dia era
+       cortado em UTC: às 21h daqui já é meia-noite lá, e tudo que vinha depois
+       ia parar no dia seguinte. Agora o dia é o dia de verdade. */
     const { rows } = await query(`
-      SELECT created_at::date AS data, COUNT(*) AS total,
+      SELECT to_char((created_at - interval '3 hours')::date, 'YYYY-MM-DD') AS data, COUNT(*) AS total,
         COUNT(*) FILTER (WHERE acao IN ('excluir','editar_lead','apagar_mensagem')) AS criticos,
         MIN(created_at) AS primeiro, MAX(created_at) AS ultimo,
         EXTRACT(EPOCH FROM (MAX(created_at) - MIN(created_at))) / 60 AS duracao_min
       FROM audit_logs WHERE usuario_id = $1
-      GROUP BY created_at::date ORDER BY data DESC LIMIT 60`, [req.params.id]);
+      GROUP BY (created_at - interval '3 hours')::date ORDER BY data DESC LIMIT 90`, [req.params.id]);
     res.json(rows.map(d => ({ ...d, duracao_min: Math.round(d.duracao_min || 0) })));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -622,10 +626,42 @@ r.get('/usuario/:id/dias', onlyMaster, async (req, res) => {
 // Level 3: Timeline de um dia
 r.get('/usuario/:id/dia/:data', onlyMaster, async (req, res) => {
   try {
-    const { rows: events } = await query(`
+    const { rows: eventsLog } = await query(`
       SELECT id, created_at, acao, entidade, entidade_id, detalhes, ip, user_agent, latitude, longitude, precisao_m
-      FROM audit_logs WHERE usuario_id = $1 AND created_at::date = $2
+      FROM audit_logs WHERE usuario_id = $1 AND (created_at - interval '3 hours')::date = $2::date
       ORDER BY created_at DESC`, [req.params.id, req.params.data]);
+    /* 🧩 RASTROS DE OUTRAS TABELAS (15/09, "preciso desses dados"): o que a
+       pessoa mandou, vendeu, agendou e falou no chat interno naquele dia mora
+       fora do log de auditoria — e conta a história mesmo onde o log foi
+       curto. Entram na mesma linha do tempo, marcados pela fonte. */
+    const [msgs, vendas, agenda, chat] = await Promise.all([
+      query(`SELECT m.id, m.created_at, m.type, left(COALESCE(m.caption, m.content), 120) trecho, c.contact_name, c.phone, m.conversa_id
+               FROM mensagens m JOIN conversas c ON c.id = m.conversa_id
+              WHERE m.sender_id = $1 AND m.from_type = 'me' AND (m.created_at - interval '3 hours')::date = $2::date
+              ORDER BY m.created_at DESC LIMIT 400`, [req.params.id, req.params.data]).catch(() => ({ rows: [] })),
+      query(`SELECT id, created_at, cliente_nome, servico, categoria, valor, forma_pagamento, conversa_id
+               FROM vendas WHERE atendente_id = $1 AND (created_at - interval '3 hours')::date = $2::date
+              ORDER BY created_at DESC LIMIT 100`, [req.params.id, req.params.data]).catch(() => ({ rows: [] })),
+      query(`SELECT id, created_at, paciente, servico, data, hora, setor, conversa_id
+               FROM agenda_eventos WHERE responsavel_id = $1 AND (created_at - interval '3 hours')::date = $2::date
+              ORDER BY created_at DESC LIMIT 100`, [req.params.id, req.params.data]).catch(() => ({ rows: [] })),
+      query(`SELECT ci.id, ci.created_at, left(ci.conteudo, 120) trecho, u.nome para
+               FROM chat_interno ci LEFT JOIN usuarios u ON u.id = ci.para_id
+              WHERE ci.de_id = $1 AND (ci.created_at - interval '3 hours')::date = $2::date
+              ORDER BY ci.created_at DESC LIMIT 200`, [req.params.id, req.params.data]).catch(() => ({ rows: [] })),
+    ]);
+    const extras = [
+      ...msgs.rows.map(m => ({ id: `m-${m.id}`, created_at: m.created_at, acao: 'mensagem_enviada', entidade: 'conversa', entidade_id: m.conversa_id,
+        detalhes: { cliente: m.contact_name || null, telefone: m.phone || null, tipo: m.type, trecho: /^data:/.test(m.trecho || '') ? '[mídia]' : m.trecho }, fonte: 'mensagens' })),
+      ...vendas.rows.map(v => ({ id: `v-${v.id}`, created_at: v.created_at, acao: 'venda', entidade: 'venda', entidade_id: v.id,
+        detalhes: { cliente: v.cliente_nome, servico: v.servico || v.categoria, valor: v.valor, pagamento: v.forma_pagamento }, fonte: 'vendas' })),
+      ...agenda.rows.map(a => ({ id: `a-${a.id}`, created_at: a.created_at, acao: 'agendamento', entidade: 'agenda', entidade_id: a.id,
+        detalhes: { paciente: a.paciente, servico: a.servico, data: a.data, hora: a.hora, setor: a.setor }, fonte: 'agenda' })),
+      ...chat.rows.map(c => ({ id: `c-${c.id}`, created_at: c.created_at, acao: 'chat_equipe', entidade: 'chat interno', entidade_id: null,
+        detalhes: { para: c.para, trecho: c.trecho }, fonte: 'chat_interno' })),
+    ].filter(x => !eventsLog.some(e => e.created_at && x.created_at && Math.abs(e.created_at.getTime() - x.created_at.getTime()) < 1500 && (
+      (x.acao === 'mensagem_enviada' && e.acao === 'responder') || (x.acao === 'venda' && e.acao === 'registrar_venda') || (x.acao === 'agendamento' && e.acao === 'agendar'))));
+    const events = [...eventsLog, ...extras].sort((a, b) => b.created_at - a.created_at);
 
     // endereço de cada ponto do dia (cache) — o 📍 da linha vira rua e bairro
     const ends = await enderecosDoCache(events.filter(e => e.latitude && e.longitude).map(e => ({ lat: e.latitude, lng: e.longitude })));
@@ -642,10 +678,11 @@ r.get('/usuario/:id/dia/:data', onlyMaster, async (req, res) => {
       const device = (ua.includes('Mobile') || ua.includes('Android') || ua.includes('iPhone')) ? '📱' : '🖥️';
       return {
         id: e.id, hora: e.created_at, acao: e.acao, entidade: e.entidade, entidade_id: e.entidade_id,
-        detalhes: e.detalhes, ip: e.ip, browser, device, latitude: e.latitude, longitude: e.longitude,
+        detalhes: e.detalhes, ip: e.ip || null, browser: e.user_agent ? browser : null, device: e.user_agent ? device : null,
+        latitude: e.latitude || null, longitude: e.longitude || null,
         precisao_m: e.precisao_m == null ? null : Math.round(Number(e.precisao_m)),
         endereco: e.latitude && e.longitude ? textoEndereco(ends[chaveGeo(e.latitude, e.longitude)]) : null,
-        gap_seconds: gap, critico: CRIT.includes(e.acao),
+        gap_seconds: gap, critico: CRIT.includes(e.acao), fonte: e.fonte || 'auditoria',
       };
     });
 
@@ -655,7 +692,8 @@ r.get('/usuario/:id/dia/:data', onlyMaster, async (req, res) => {
     const idle = timeline.reduce((s, e) => (e.gap_seconds && e.gap_seconds > 300) ? s + Math.round(e.gap_seconds / 60) : s, 0);
 
     res.json({
-      sessao: { primeiro: first, ultimo: last, duracao_min: dur, ativo_min: dur - idle, ocioso_min: idle, total_eventos: events.length },
+      sessao: { primeiro: first, ultimo: last, duracao_min: dur, ativo_min: dur - idle, ocioso_min: idle, total_eventos: events.length,
+        no_log: eventsLog.length, rastros: extras.length },
       timeline,
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
