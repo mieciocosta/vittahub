@@ -30,52 +30,12 @@ function limpaFalhasLogin(ip) { loginFalhas.delete(ip); }
 setInterval(() => { const now = Date.now(); for (const [k, v] of loginFalhas) if (v.until < now) loginFalhas.delete(k); }, 10 * 60 * 1000);
 
 /* 📍 DE ONDE ELA ENTROU (ordem do master, 24/08: "histórico de localização de
-   acesso de cada usuário, de cada dia"). O IP vira cidade e estado por um
-   serviço público de geolocalização, com CACHE no banco pra não consultar duas
-   vezes o mesmo endereço. É melhor esforço: falhou, o acesso é registrado do
-   mesmo jeito, só sem a cidade. IP de rede interna não tem cidade. */
-export async function localizarIP(ip) {
-  const limpo = String(ip || '').trim();
-  if (!limpo || limpo === 'unknown' || /^(10\.|127\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|::1)/.test(limpo)) return null;
-  try {
-    const { rows: [cache] } = await query("SELECT valor FROM configuracoes WHERE chave = $1", [`geoip_${limpo}`]);
-    /* Cache antigo não tem bairro nem coordenada: refaz uma vez pra completar
-       (senão o painel ficaria pra sempre sem o bairro dos IPs já conhecidos). */
-    if (cache?.valor?.vazio) return null;
-    // Formato novo tem `precisao`; o antigo é refeito uma vez pra ganhar bairro/CEP/operadora
-    if (cache?.valor?.cidade && cache.valor.lat !== undefined && cache.valor.precisao) return cache.valor;
-  } catch { /* sem cache, segue */ }
-  try {
-    const { default: fetch } = await import('node-fetch');
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 3500);
-    /* Pede também BAIRRO, CEP e coordenadas (ordem do master, 28/08: "quero o
-       bairro na descrição e a opção de abrir a localização"). É melhor esforço:
-       em rede móvel o bairro costuma vir vazio, e aí o painel mostra a cidade. */
-    const r = await fetch(`http://ip-api.com/json/${encodeURIComponent(limpo)}?fields=status,country,regionName,city,district,zip,lat,lon,isp,org,as,mobile,proxy,hosting&lang=pt-BR`, { signal: ctrl.signal });
-    clearTimeout(t);
-    const j = await r.json().catch(() => null);
-    const loc = j && j.status === 'success'
-      ? { cidade: j.city || null, estado: j.regionName || null, pais: j.country || null,
-          bairro: j.district || null, cep: j.zip || null,
-          lat: typeof j.lat === 'number' ? j.lat : null, lng: typeof j.lon === 'number' ? j.lon : null,
-          provedor: String(j.isp || '').slice(0, 60), org: String(j.org || '').slice(0, 60), asn: String(j.as || '').slice(0, 40),
-          movel: !!j.mobile, proxy: !!j.proxy, hosting: !!j.hosting,
-          /* 🎯 O QUE ESTA COORDENADA VALE (ordem do master, 15/09: "preciso da
-             localização exata de cada IP"). Não existe endereço exato por IP:
-             o provedor dá um ponto do bairro ou da cidade, e em rede móvel nem
-             o bairro. Aqui fica escrito o raio, pra ninguém ler ponto de mapa
-             como se fosse porta de casa. */
-          precisao: j.mobile ? 'movel' : j.district ? 'bairro' : 'cidade',
-          raio_km: j.mobile ? 30 : j.district ? 1.5 : 8,
-          atualizado: new Date().toISOString() }
-      : null;
-    await query(`INSERT INTO configuracoes (chave, valor) VALUES ($1, $2::jsonb)
-                 ON CONFLICT (chave) DO UPDATE SET valor = $2::jsonb, updated_at = NOW()`,
-      [`geoip_${limpo}`, JSON.stringify(loc || { vazio: true })]).catch(() => {});
-    return loc;
-  } catch { return null; }
-}
+   acesso de cada usuário, de cada dia"). O IP vira cidade, bairro, provedor e
+   raio de precisão pelo serviço de geolocalização (services/geo.js — desde
+   15/09 também com as marcas de proxy/VPN e a fila que completa os IPs
+   antigos). Melhor esforço: falhou, o acesso é registrado do mesmo jeito. */
+import { localizarIP } from '../services/geo.js';
+export { localizarIP };
 
 // Auditoria fire-and-forget — registra a ação SEM nunca lançar erro
 // (uma falha de log jamais pode derrubar o login).

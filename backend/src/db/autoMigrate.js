@@ -798,6 +798,8 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       latitude NUMERIC(10,7), longitude NUMERIC(10,7), created_at TIMESTAMPTZ DEFAULT NOW()
     )`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS idx_audit_user_date ON audit_logs (usuario_id, created_at DESC)`).catch(() => {});
+    // 📍 15/09: o painel de localização agrupa por rede — índice por IP
+    await query(`CREATE INDEX IF NOT EXISTS idx_audit_ip_date ON audit_logs (ip, created_at DESC)`).catch(() => {});
     await query(`CREATE TABLE IF NOT EXISTS presenca (
       usuario_id TEXT PRIMARY KEY, socket_id TEXT, status TEXT DEFAULT 'online',
       ultimo_heartbeat TIMESTAMPTZ DEFAULT NOW(), latitude NUMERIC(10,7), longitude NUMERIC(10,7),

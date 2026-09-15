@@ -228,7 +228,7 @@ function Heartbeat({ userId }) {
         { enableHighAccuracy: true, timeout: 15000, maximumAge: 120000 });
     };
     lerPosicao();
-    const releitura = setInterval(lerPosicao, 10 * 60 * 1000);
+    const releitura = setInterval(lerPosicao, 5 * 60 * 1000);   // 5 min: o trajeto do dia é de verdade (15/09)
 
     /* O ACESSO em si vira um registro próprio. Sem isso o histórico só tinha
        navegação: dava pra ver onde a pessoa clicou, não de onde ela entrou —

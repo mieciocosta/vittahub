@@ -23,6 +23,7 @@ import { sincronizarFidelidadeVittasys, pontePronta } from './services/fidelidad
 import { createSocketServer, socketEmit } from './socketServer.js';
 import { startPgListener, onNotify }       from './db/pgListener.js';
 import pool from './db/pool.js';
+import { iniciarFilaGeo } from './services/geo.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -140,6 +141,12 @@ async function start() {
       console.log('✅ Migrations executadas');
 
       await startPgListener();
+
+      // 📍 Endereços da auditoria em segundo plano (15/09/2026): pontos do
+      // aparelho viram rua/bairro e IPs viram área da operadora, 1 por vez,
+      // inclusive o histórico já gravado. Desliga com GEO_DESLIGADO=1.
+      iniciarFilaGeo();
+      console.log('✅ Fila de endereços da auditoria ligada (geocodificação em segundo plano)');
 
       onNotify(async ({ event, convId, messageId, conv }) => {
         if (event !== 'new_message' || !messageId) return;

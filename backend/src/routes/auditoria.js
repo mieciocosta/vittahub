@@ -1,5 +1,5 @@
 import express from 'express';
-import { localizarIP } from './auth.js';
+import { enderecosDoCache, ipsDoCache, pedirEndereco, pedirIP, chaveGeo, textoEndereco, distanciaKm, rotuloPrecisao, tamanhoFila } from '../services/geo.js';
 import { query } from '../db/pool.js';
 import { auth } from '../middleware/auth.js';
 
@@ -20,6 +20,17 @@ const onlyMaster = (req, res, next) => {
   next();
 };
 
+/* Cada IP e cada ponto novos vão UMA vez para a fila de endereço por
+   processo (15/09/2026); a fila e o cache do banco cuidam do resto. */
+const geoVistos = new Set();
+function lembrarGeo(ip, lat, lng) {
+  try {
+    if (geoVistos.size > 5000) geoVistos.clear();
+    if (ip && !geoVistos.has(`ip:${ip}`)) { geoVistos.add(`ip:${ip}`); pedirIP(ip); }
+    if (lat && lng) { const k = chaveGeo(lat, lng); if (!geoVistos.has(k)) { geoVistos.add(k); pedirEndereco(lat, lng); } }
+  } catch { /* nunca atrapalha o registro */ }
+}
+
 // ── LOG: frontend envia a cada ação relevante ────────────────────────────────
 r.post('/log', async (req, res) => {
   try {
@@ -29,7 +40,9 @@ r.post('/log', async (req, res) => {
        b.detalhes ? JSON.stringify(b.detalhes) : null,
        getRealIP(req), req.get('user-agent')?.slice(0, 300),
        b.latitude || null, b.longitude || null];
-    const precisao = Number.isFinite(Number(b.precisao)) ? Math.min(99999, Math.round(Number(b.precisao) * 10) / 10) : null;
+    const precRaw = b.precisao_m ?? b.precisao;   // o navegador manda 'precisao'; a API aceita os dois nomes
+    // metros inteiros: cabe tanto na coluna NUMERIC quanto numa INTEGER (banco antigo recusava "17.6")
+    const precisao = Number.isFinite(Number(precRaw)) && precRaw !== null && precRaw !== '' ? Math.min(99999, Math.max(0, Math.round(Number(precRaw)))) : null;
     const gps = ['ok', 'negado', 'indisponivel'].includes(b.gps) ? b.gps : (b.latitude ? 'ok' : null);
     // 📍 15/09: guarda o raio do GPS e se a pessoa negou a localização (com fallback pro banco antigo)
     await query(`INSERT INTO audit_logs (usuario_id, usuario_nome, acao, entidade, entidade_id, detalhes, ip, user_agent, latitude, longitude, precisao_m, gps_estado)
@@ -37,6 +50,8 @@ r.post('/log', async (req, res) => {
       .catch(() => query(`INSERT INTO audit_logs (usuario_id, usuario_nome, acao, entidade, entidade_id, detalhes, ip, user_agent, latitude, longitude)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, base));
     res.json({ ok: true });
+    // Rede nova ou ponto novo entram na fila de endereço (sem segurar a resposta)
+    lembrarGeo(getRealIP(req), b.latitude, b.longitude);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -87,12 +102,29 @@ r.get('/acessos', onlyMaster, async (req, res) => {
         FROM audit_logs
        WHERE acao = 'login' AND created_at > NOW() - interval '7 days'
        GROUP BY 1, 2, 3 ORDER BY 2, ultimo DESC`);
+    /* 📍 Por rede: a área da operadora (IP) e o ponto do APARELHO enquanto
+       ela esteve nessa rede — com endereço (15/09/2026). */
+    const geoIp = await ipsDoCache(rows.map(r2 => r2.ip));
+    const { rows: pontosIp } = await query(`
+      SELECT usuario_id, ip,
+             COALESCE(AVG(latitude) FILTER (WHERE precisao_m IS NULL OR precisao_m <= 500), AVG(latitude))::float lat,
+             COALESCE(AVG(longitude) FILTER (WHERE precisao_m IS NULL OR precisao_m <= 500), AVG(longitude))::float lng,
+             MIN(precisao_m)::int precisao, COUNT(*)::int n
+        FROM audit_logs
+       WHERE created_at > NOW() - interval '7 days' AND ip IS NOT NULL AND latitude IS NOT NULL
+       GROUP BY 1, 2`).catch(() => ({ rows: [] }));
+    const ends = await enderecosDoCache(pontosIp);
+    const pontoDe = {};
+    for (const p of pontosIp) pontoDe[`${p.usuario_id}|${p.ip}`] = formatarPonto(p, ends);
     const porUser = {};
     for (const r2 of rows) {
       const k = r2.usuario_id || r2.nome;
+      const g = geoIp[r2.ip] || null;
+      if (!g) pedirIP(r2.ip);
       (porUser[k] ||= { nome: r2.nome, ips: [] }).ips.push({
         ip: r2.ip, ultimo: r2.ultimo, logins: r2.logins,
         aparelho: String(r2.exemplo_aparelho || '').replace(/^Mozilla\/[\d.]+\s*/, '').slice(0, 90),
+        rede: resumoRede(g), ponto: pontoDe[`${r2.usuario_id}|${r2.ip}`] || null,
       });
     }
     const itens = Object.values(porUser).map(u => ({
@@ -122,7 +154,8 @@ r.post('/heartbeat', async (req, res) => {
     const b = req.body || {};
     const baseP = [req.user.id, b.latitude || null, b.longitude || null,
        req.get('user-agent')?.slice(0, 300), getRealIP(req), (b.pagina || '').slice(0, 60)];
-    const precisaoP = Number.isFinite(Number(b.precisao)) ? Math.min(99999, Math.round(Number(b.precisao) * 10) / 10) : null;
+    const precRawP = b.precisao_m ?? b.precisao;
+    const precisaoP = Number.isFinite(Number(precRawP)) && precRawP !== null && precRawP !== '' ? Math.min(99999, Math.max(0, Math.round(Number(precRawP)))) : null;
     const gpsP = ['ok', 'negado', 'indisponivel'].includes(b.gps) ? b.gps : (b.latitude ? 'ok' : null);
     await query(`INSERT INTO presenca (usuario_id, status, ultimo_heartbeat, latitude, longitude, user_agent, ip, pagina, precisao_m, gps_estado)
       VALUES ($1, 'online', NOW(), $2, $3, $4, $5, $6, $7, $8)
@@ -136,6 +169,7 @@ r.post('/heartbeat', async (req, res) => {
         latitude = COALESCE($2, presenca.latitude), longitude = COALESCE($3, presenca.longitude),
         user_agent = $4, ip = $5, pagina = $6`, baseP));
     res.json({ ok: true });
+    lembrarGeo(getRealIP(req), b.latitude, b.longitude);
   } catch (err) { res.json({ ok: true }); }
 });
 
@@ -155,6 +189,32 @@ r.post('/heartbeat', async (req, res) => {
    Acesso SEM localização não é escondido — vira uma linha própria dizendo
    que não houve permissão, senão o histórico daria a entender que a pessoa
    não acessou. */
+/* ── Formatação compartilhada: ponto do aparelho e área da rede ─────────── */
+function formatarPonto(p, ends) {
+  if (!p || p.lat === null || p.lat === undefined || p.lng === null || p.lng === undefined) return null;
+  const lat = Number(p.lat), lng = Number(p.lng);
+  const e = ends[chaveGeo(lat, lng)];
+  const pendente = !e;
+  if (pendente) pedirEndereco(lat, lng);
+  const prec = rotuloPrecisao(p.precisao ?? null);
+  /* Ponto que veio só da rede (±2 km ou pior) não ganha rua e número: seria
+     fingir precisão. Fica "região de <bairro · cidade>", com a margem ao lado. */
+  const impreciso = p.precisao !== null && p.precisao !== undefined && Number(p.precisao) > 2000;
+  const texto = impreciso && e && !e.vazio
+    ? `região de ${[e.bairro, e.cidade].filter(Boolean).join(' · ') || textoEndereco(e) || '?'}`
+    : textoEndereco(e);
+  return { lat: Math.round(lat * 1e5) / 1e5, lng: Math.round(lng * 1e5) / 1e5,
+    endereco: texto, endereco_detalhe: e && !e.vazio ? e : null, pendente, impreciso,
+    precisao: p.precisao ?? null, precisao_txt: prec.txt, precisao_nivel: prec.nivel,
+    registros: p.n ?? null, de: p.de || null, ate: p.ate || null };
+}
+function resumoRede(g) {
+  if (!g || g.vazio) return null;
+  return { cidade: g.cidade ? `${g.cidade}${g.estado ? ` / ${g.estado}` : ''}` : null,
+    bairro: g.bairro || null, cep: g.cep || null, lat: g.lat ?? null, lng: g.lng ?? null,
+    provedor: g.provedor || null, org: g.org || null, movel: !!g.movel, proxy: !!g.proxy, hosting: !!g.hosting };
+}
+
 r.get('/localizacoes', onlyMaster, async (req, res) => {
   try {
     const dias = Math.min(365, Math.max(1, parseInt(req.query.dias, 10) || 30));
@@ -164,17 +224,21 @@ r.get('/localizacoes', onlyMaster, async (req, res) => {
     let filtro = '';
     if (usuarioId) { params.push(usuarioId); filtro = `AND usuario_id = $${params.length}`; }
 
+    /* Cada lugar traz também o CENTRO MÉDIO das leituras (é ele que vira
+       endereço — a coordenada arredondada em 3 casas cai no meio do quarteirão)
+       e a melhor precisão registrada ali (15/09/2026). */
     const { rows } = await query(`
       SELECT usuario_id, usuario_nome,
              ROUND(latitude::numeric, 3)  AS lat,
              ROUND(longitude::numeric, 3) AS lng,
+             AVG(latitude)::float lat_med, AVG(longitude)::float lng_med,
+             MIN(precisao_m)::int precisao,
              MIN(created_at) AS primeiro,
              MAX(created_at) AS ultimo,
              COUNT(*)::int   AS eventos,
              COUNT(DISTINCT created_at::date)::int AS dias_distintos,
              MODE() WITHIN GROUP (ORDER BY ip) AS ip,
              MODE() WITHIN GROUP (ORDER BY user_agent) AS user_agent,
-             MIN(precisao_m) AS precisao_m,
              COUNT(*) FILTER (WHERE gps_estado = 'negado')::int AS negados
         FROM audit_logs
        WHERE created_at > NOW() - ($1 || ' days')::interval
@@ -185,14 +249,51 @@ r.get('/localizacoes', onlyMaster, async (req, res) => {
        ORDER BY usuario_nome, MAX(created_at) DESC
        LIMIT 800`, params);
 
+    /* 📍 Os pontos do aparelho por DIA e por REDE: é o que liga "esta rede" a
+       "este endereço" — a pergunta do master (15/09: "a localização exata do
+       endereço de cada IP que está sendo logado"). */
+    const { rows: pontosRows } = await query(`
+      SELECT usuario_id, to_char((created_at - interval '3 hours')::date, 'YYYY-MM-DD') dia, ip,
+             ROUND(latitude::numeric, 3) lat3, ROUND(longitude::numeric, 3) lng3,
+             AVG(latitude)::float lat, AVG(longitude)::float lng, MIN(precisao_m)::int precisao,
+             COUNT(*)::int n, MIN(created_at) de, MAX(created_at) ate
+        FROM audit_logs
+       WHERE created_at > NOW() - ($1 || ' days')::interval AND usuario_id IS NOT NULL
+         AND latitude IS NOT NULL AND longitude IS NOT NULL ${filtro}
+       GROUP BY 1, 2, 3, 4, 5`, params).catch(() => ({ rows: [] }));
+
+    /* O ponto do aparelho em cada BLOCO de 10 min, por rede: é o que diz, num
+       episódio de uso simultâneo, onde estava cada uma das duas redes — e a
+       distância entre elas. */
+    const { rows: blocoRows } = await query(`
+      SELECT usuario_id, ip, to_timestamp(floor(extract(epoch FROM created_at) / 600) * 600) bloco,
+             COALESCE(AVG(latitude) FILTER (WHERE precisao_m IS NULL OR precisao_m <= 500), AVG(latitude))::float lat,
+             COALESCE(AVG(longitude) FILTER (WHERE precisao_m IS NULL OR precisao_m <= 500), AVG(longitude))::float lng,
+             MIN(precisao_m)::int precisao, COUNT(*)::int n
+        FROM audit_logs
+       WHERE created_at > NOW() - ($1 || ' days')::interval AND usuario_id IS NOT NULL AND ip IS NOT NULL
+         AND latitude IS NOT NULL AND longitude IS NOT NULL ${filtro}
+       GROUP BY 1, 2, 3`, params).catch(() => ({ rows: [] }));
+
+    // Endereços já conhecidos de TODOS os pontos desta resposta (uma consulta)
+    const todosPontos = [
+      ...rows.filter(x => x.lat_med !== null).map(x => ({ lat: x.lat_med, lng: x.lng_med })),
+      ...pontosRows.map(x => ({ lat: x.lat, lng: x.lng })),
+      ...blocoRows.map(x => ({ lat: x.lat, lng: x.lng })),
+    ];
+    const ends = await enderecosDoCache(todosPontos);
+
     const lugares = rows.map(x => {
       const ua = x.user_agent || '';
+      const ponto = formatarPonto({ lat: x.lat_med, lng: x.lng_med, precisao: x.precisao, n: x.eventos }, ends);
       return {
         usuario_id: x.usuario_id, usuario_nome: x.usuario_nome,
         latitude: x.lat === null ? null : Number(x.lat),
         longitude: x.lng === null ? null : Number(x.lng),
         sem_localizacao: x.lat === null || x.lng === null,
-        precisao_m: x.precisao_m === null || x.precisao_m === undefined ? null : Number(x.precisao_m),
+        endereco: ponto?.endereco || null, endereco_pendente: !!ponto?.pendente,
+        precisao: ponto?.precisao ?? null, precisao_txt: ponto?.precisao_txt || null, precisao_nivel: ponto?.precisao_nivel || null,
+        precisao_m: x.precisao === null || x.precisao === undefined ? null : Number(x.precisao),
         gps_negado: (x.negados || 0) > 0,   // a pessoa negou a localização no navegador
         primeiro: x.primeiro, ultimo: x.ultimo,
         eventos: x.eventos, dias: x.dias_distintos, ip: x.ip,
@@ -260,10 +361,22 @@ r.get('/localizacoes', onlyMaster, async (req, res) => {
       HAVING COUNT(DISTINCT ip) > 1
        ORDER BY dia DESC, hora DESC LIMIT 200`, params).catch(() => ({ rows: [] }));
 
-    const simultaneos = simultRows.map(r2 => ({
-      usuario_id: r2.usuario_id, usuario_nome: r2.usuario_nome,
-      dia: r2.dia, hora: r2.hora, ips: r2.ips || [], eventos: r2.eventos,
-    }));
+    // ponto do aparelho de cada rede em cada bloco (chave usuario|dia|hora|ip)
+    const pontoBloco = {};
+    for (const b of blocoRows) {
+      const d = new Date(new Date(b.bloco).getTime() - 3 * 3600 * 1000).toISOString();
+      pontoBloco[`${b.usuario_id}|${d.slice(0, 10)}|${d.slice(11, 16)}|${b.ip}`] = formatarPonto(b, ends);
+    }
+    const simultaneos = simultRows.map(r2 => {
+      const lugaresEp = (r2.ips || []).map(ip => ({ ip, ponto: pontoBloco[`${r2.usuario_id}|${r2.dia}|${r2.hora}|${ip}`] || null }));
+      const comPonto = lugaresEp.filter(x => x.ponto);
+      /* Distância entre os dois aparelhos no mesmo bloco: casa × clínica a
+         12 km é prova; 40 m um do outro é a mesma sala com Wi-Fi e 4G. */
+      const distancia_km = comPonto.length >= 2 ? distanciaKm(comPonto[0].ponto, comPonto[1].ponto) : null;
+      return { usuario_id: r2.usuario_id, usuario_nome: r2.usuario_nome,
+        dia: r2.dia, hora: r2.hora, ips: r2.ips || [], eventos: r2.eventos,
+        lugares: lugaresEp, distancia_km, mesmo_lugar: distancia_km !== null ? distancia_km <= 0.3 : null };
+    });
     const alertaPorUser = {};
     for (const e of simultaneos) alertaPorUser[e.usuario_id] = (alertaPorUser[e.usuario_id] || 0) + 1;
 
@@ -281,31 +394,51 @@ r.get('/localizacoes', onlyMaster, async (req, res) => {
          AND usuario_id IS NOT NULL AND ip IS NOT NULL ${filtro}
        GROUP BY 1, 2, 3 ORDER BY 2 DESC, 4`, params).catch(() => ({ rows: [] }));
 
-    // Cidade e provedor vêm do cache de geolocalização gravado no login
+    // Cidade e provedor vêm do cache de geolocalização (login + fila); IP sem
+    // cache entra na fila e aparece na próxima abertura do painel.
     const ipsUnicos = [...new Set(redesRows.map(r2 => r2.ip))].slice(0, 400);
-    const geo = {};
-    if (ipsUnicos.length) {
-      const { rows: geoRows } = await query(
-        `SELECT chave, valor FROM configuracoes WHERE chave = ANY($1::text[])`,
-        [ipsUnicos.map(ip => `geoip_${ip}`)]).catch(() => ({ rows: [] }));
-      for (const g of geoRows) geo[String(g.chave).replace('geoip_', '')] = g.valor || {};
-    }
+    const geo = await ipsDoCache(ipsUnicos);
+    for (const ip of ipsUnicos) if (!geo[ip] || (!geo[ip].vazio && geo[ip].proxy === undefined)) pedirIP(ip);
     const hhmm = (t) => new Date(new Date(t).getTime() - 3 * 3600 * 1000).toISOString().slice(11, 16);
+    // pontos do aparelho por (usuario|dia|ip) e por (usuario|dia)
+    const pontosRede = {}, pontosDia = {};
+    for (const p of pontosRows) {
+      const fp = formatarPonto(p, ends);
+      if (!fp) continue;
+      (pontosRede[`${p.usuario_id}|${p.dia}|${p.ip}`] ||= []).push({ ...fp, ip: p.ip });
+      const kd = `${p.usuario_id}|${p.dia}`, k3 = `${p.lat3},${p.lng3}`;
+      (pontosDia[kd] ||= {});
+      const ja = pontosDia[kd][k3];
+      if (!ja) pontosDia[kd][k3] = { ...fp, ips: [p.ip].filter(Boolean) };
+      else {
+        ja.registros = (ja.registros || 0) + (fp.registros || 0);
+        if (fp.precisao !== null && (ja.precisao === null || fp.precisao < ja.precisao)) { ja.precisao = fp.precisao; ja.precisao_txt = fp.precisao_txt; ja.precisao_nivel = fp.precisao_nivel; }
+        if (p.ip && !ja.ips.includes(p.ip)) ja.ips.push(p.ip);
+        if (fp.de && (!ja.de || new Date(fp.de) < new Date(ja.de))) ja.de = fp.de;
+        if (fp.ate && (!ja.ate || new Date(fp.ate) > new Date(ja.ate))) ja.ate = fp.ate;
+      }
+    }
     const redesPorDia = {};
     for (const r2 of redesRows) {
       const ua = String(r2.ua || '');
       const g = geo[r2.ip] || {};
+      const pts = (pontosRede[`${r2.usuario_id}|${r2.dia}|${r2.ip}`] || []).sort((a, b) => (b.registros || 0) - (a.registros || 0));
       (redesPorDia[`${r2.usuario_id}|${r2.dia}`] ||= []).push({
         ip: r2.ip, de: hhmm(r2.de), ate: hhmm(r2.ate), acoes: r2.n,
+        /* 🌐 A área da operadora — é o que o IP sabe dizer (o centro da cidade
+           onde a rede está registrada), NÃO onde a pessoa está. */
         cidade: g.cidade ? `${g.cidade}${g.estado ? ` / ${g.estado}` : ''}` : null,
         bairro: g.bairro || null, cep: g.cep || null,
-        // Coordenada da rede: é o que abre o mapa no painel
         lat: g.lat ?? null, lng: g.lng ?? null,
-        provedor: g.provedor || null, movel: !!g.movel, org: g.org || null,
-        /* 🎯 A precisão vai junto, escrita: 'bairro' (≈1,5 km), 'cidade'
-           (≈8 km) ou 'movel' (rede 4G: o IP não diz onde a pessoa está). */
+        provedor: g.provedor || null, org: g.org || null, movel: !!g.movel, proxy: !!g.proxy, hosting: !!g.hosting,
+        /* 🎯 O que a coordenada do IP vale, escrito: 'bairro' (≈1,5 km),
+           'cidade' (≈8 km) ou 'movel' (4G: o IP não diz onde a pessoa está). */
         precisao: g.precisao || (g.movel ? 'movel' : g.bairro ? 'bairro' : g.cidade ? 'cidade' : null),
         raio_km: g.raio_km ?? (g.movel ? 30 : g.bairro ? 1.5 : g.cidade ? 8 : null),
+        rede_pendente: !g.cidade && !g.vazio,
+        /* 📍 O que o APARELHO disse enquanto estava nesta rede — o endereço de
+           verdade, com a margem de erro. */
+        pontos: pts,
         aparelho: /Mobile|Android|iPhone/.test(ua) ? 'celular' : 'computador',
         navegador: ua.includes('Edg/') ? 'Edge' : ua.includes('Chrome/') ? 'Chrome'
                  : ua.includes('Firefox/') ? 'Firefox' : ua.includes('Safari') ? 'Safari' : null,
@@ -341,9 +474,11 @@ r.get('/localizacoes', onlyMaster, async (req, res) => {
       primeiro: d.primeiro, ultimo: d.ultimo, eventos: d.eventos,
       redes: d.redes, ips: d.ips || [], lugares: d.lugares || 0,
       coords: (d.coords || []).map(c => { const [la, lo] = String(c).split(','); return { lat: Number(la), lng: Number(lo) }; }),
+      // os mesmos lugares, agora com endereço, precisão e as redes em que foram vistos
+      pontos: Object.values(pontosDia[`${d.usuario_id}|${d.dia}`] || {}).sort((a, b) => (b.registros || 0) - (a.registros || 0)),
       redes_detalhe: redesPorDia[`${d.usuario_id}|${d.dia}`] || [],
       episodios: simultaneos.filter(x => x.usuario_id === d.usuario_id && x.dia === d.dia)
-        .map(x => ({ hora: x.hora, ips: x.ips, eventos: x.eventos })),
+        .map(x => ({ hora: x.hora, ips: x.ips, eventos: x.eventos, lugares: x.lugares, distancia_km: x.distancia_km, mesmo_lugar: x.mesmo_lugar })),
       sinais: (() => {
         const sg = sinaisPorDia[`${d.usuario_id}|${d.dia}`] || {};
         const m = mediaUser[d.usuario_id];
@@ -359,6 +494,10 @@ r.get('/localizacoes', onlyMaster, async (req, res) => {
       simultaneo: simultaneos.some(x => x.usuario_id === d.usuario_id && x.dia === d.dia),
     }));
 
+    // Quantos endereços desta resposta ainda estão sendo localizados (a fila
+    // resolve em segundo plano; o painel avisa e o master recarrega depois)
+    const pendentes = new Set(todosPontos.filter(p => p.lat !== null && p.lat !== undefined && !ends[chaveGeo(p.lat, p.lng)]).map(p => chaveGeo(p.lat, p.lng))).size;
+
     res.json({
       dias,
       usuarios: [...porUsuario.values()]
@@ -367,6 +506,7 @@ r.get('/localizacoes', onlyMaster, async (req, res) => {
       lugares,
       por_dia: porDia,
       simultaneos,
+      pendentes, fila_geo: tamanhoFila(),
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -428,15 +568,20 @@ r.get('/presenca', onlyMaster, async (req, res) => {
   try {
     const { rows } = await query(`
       SELECT p.usuario_id, u.nome, u.role, u.setor, u.avatar, u.cor,
-             p.status, p.ultimo_heartbeat, p.latitude, p.longitude, p.user_agent, p.ip, p.pagina,
+             p.status, p.ultimo_heartbeat, p.latitude, p.longitude, p.precisao_m, p.user_agent, p.ip, p.pagina,
              EXTRACT(EPOCH FROM (NOW() - p.ultimo_heartbeat)) AS seg_desde_heartbeat
       FROM presenca p JOIN usuarios u ON u.id = p.usuario_id
       WHERE u.ativo = true ORDER BY p.ultimo_heartbeat DESC`);
+    // Endereço legível e área da rede (15/09/2026) — do cache, sem esperar a rede
+    const ends = await enderecosDoCache(rows.filter(r => r.latitude && r.longitude).map(r => ({ lat: r.latitude, lng: r.longitude })));
+    const geoIp = await ipsDoCache(rows.map(r => r.ip));
     // online: <60s, ocioso: 60s–300s, offline: >300s
     const result = rows.map(r => ({
       ...r,
       status_calc: r.seg_desde_heartbeat <= 60 ? 'online' : r.seg_desde_heartbeat <= 300 ? 'ocioso' : 'offline',
       tempo_ocioso: r.seg_desde_heartbeat > 60 ? Math.round(r.seg_desde_heartbeat / 60) : 0,
+      ponto: r.latitude && r.longitude ? formatarPonto({ lat: r.latitude, lng: r.longitude, precisao: r.precisao_m == null ? null : Math.round(Number(r.precisao_m)) }, ends) : null,
+      rede: resumoRede(geoIp[r.ip]),
     }));
     res.json(result);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -478,10 +623,15 @@ r.get('/usuario/:id/dias', onlyMaster, async (req, res) => {
 r.get('/usuario/:id/dia/:data', onlyMaster, async (req, res) => {
   try {
     const { rows: events } = await query(`
-      SELECT id, created_at, acao, entidade, entidade_id, detalhes, ip, user_agent, latitude, longitude
+      SELECT id, created_at, acao, entidade, entidade_id, detalhes, ip, user_agent, latitude, longitude, precisao_m
       FROM audit_logs WHERE usuario_id = $1 AND created_at::date = $2
       ORDER BY created_at DESC`, [req.params.id, req.params.data]);
 
+    // endereço de cada ponto do dia (cache) — o 📍 da linha vira rua e bairro
+    const ends = await enderecosDoCache(events.filter(e => e.latitude && e.longitude).map(e => ({ lat: e.latitude, lng: e.longitude })));
+    { let n = 0; const vistos = new Set();
+      for (const e of events) { if (!e.latitude || !e.longitude) continue; const k = chaveGeo(e.latitude, e.longitude);
+        if (ends[k] || vistos.has(k)) continue; vistos.add(k); pedirEndereco(e.latitude, e.longitude); if (++n >= 20) break; } }
     const CRIT = ['excluir', 'editar_lead', 'apagar_mensagem', 'editar_mensagem'];
     let nextTs = null;
     const timeline = events.map(e => {
@@ -493,6 +643,8 @@ r.get('/usuario/:id/dia/:data', onlyMaster, async (req, res) => {
       return {
         id: e.id, hora: e.created_at, acao: e.acao, entidade: e.entidade, entidade_id: e.entidade_id,
         detalhes: e.detalhes, ip: e.ip, browser, device, latitude: e.latitude, longitude: e.longitude,
+        precisao_m: e.precisao_m == null ? null : Math.round(Number(e.precisao_m)),
+        endereco: e.latitude && e.longitude ? textoEndereco(ends[chaveGeo(e.latitude, e.longitude)]) : null,
         gap_seconds: gap, critico: CRIT.includes(e.acao),
       };
     });
@@ -549,22 +701,6 @@ const geoFetch = async (url) => {
     return r.ok ? await r.json() : null;
   } catch { return null; } finally { clearTimeout(t); }
 };
-async function enderecoDoPonto(lat, lng) {
-  const chave = `georev_${Number(lat).toFixed(3)}_${Number(lng).toFixed(3)}`;
-  const { rows: [c] } = await query('SELECT valor FROM configuracoes WHERE chave = $1', [chave]).catch(() => ({ rows: [] }));
-  if (c?.valor) return c.valor.vazio ? null : c.valor;
-  const j = await geoFetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`);
-  const a = j?.address || null;
-  const end = a ? {
-    rua: a.road || a.pedestrian || a.footway || null, numero: a.house_number || null,
-    bairro: a.suburb || a.neighbourhood || a.quarter || a.city_district || null,
-    cidade: a.city || a.town || a.village || a.municipality || null, uf: a.state || null, cep: a.postcode || null,
-    texto: String(j.display_name || '').slice(0, 160),
-  } : null;
-  await query(`INSERT INTO configuracoes (chave, valor) VALUES ($1, $2::jsonb) ON CONFLICT (chave) DO UPDATE SET valor = $2::jsonb, updated_at = NOW()`,
-    [chave, JSON.stringify(end || { vazio: true })]).catch(() => {});
-  return end;
-}
 async function pontoDaClinica(cfg) {
   if (cfg.lat != null && cfg.lng != null) return cfg;
   const j = await geoFetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=' + encodeURIComponent('Av. Cel. Colares Moreira, 3A, Renascença, São Luís, MA, Brasil'));
@@ -650,14 +786,16 @@ r.get('/resumo-seguranca', onlyMaster, async (req, res) => {
     }
     // Endereço (rua, número, bairro) dos pontos FORA da clínica — os mais usados primeiro, poucos por vez
     const fora = [...porUser.values()].flatMap(u => u.pontos.filter(p => p.dentro === false).map(p => ({ u, p }))).sort((a, b) => b.p.n - a.p.n);
+    /* O endereço vem do cache do serviço de geo (15/09): o que ainda não foi
+       localizado entra na FILA em segundo plano e aparece na próxima abertura
+       — a requisição nunca espera o mapa público. */
+    const endsFora = await enderecosDoCache(fora.map(({ p }) => ({ lat: p.lat, lng: p.lng })));
     for (const { p } of fora) {
-      const chave = `georev_${p.lat.toFixed(3)}_${p.lng.toFixed(3)}`;
-      const { rows: [c] } = await query('SELECT valor FROM configuracoes WHERE chave = $1', [chave]).catch(() => ({ rows: [] }));
-      if (c?.valor) { p.endereco = c.valor.vazio ? null : c.valor; continue; }
-      if (lookups >= 6) continue;   // o resto entra nas próximas aberturas
-      lookups++;
-      p.endereco = await enderecoDoPonto(p.lat, p.lng);
-      await new Promise(ok => setTimeout(ok, 1100));
+      const e = endsFora[chaveGeo(p.lat, p.lng)];
+      if (e && !e.vazio) { p.endereco = e; continue; }
+      p.endereco = null;
+      if (lookups >= 60) continue;
+      lookups++; pedirEndereco(p.lat, p.lng);
     }
     const sinalDe = Object.fromEntries(sinais.map(x => [x.usuario_id, x]));
     const simDe = Object.fromEntries(simult.map(x => [x.usuario_id, x]));
@@ -726,23 +864,6 @@ r.put('/clinica', onlyMaster, async (req, res) => {
     res.json({ ok: true, clinica: cfg });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
-
-
-/* 🌐 COMPLETAR A LOCALIZAÇÃO DOS IPs ANTIGOS (ordem do master, 15/09: "atualiza
-   tudo isso no sistema, sem perder os dados atuais"). Os IPs já registrados
-   ganham bairro, CEP, operadora e o raio de precisão — nada é apagado, só
-   completado. Devagar (40 por rodada, a cada 10 min) porque o serviço gratuito
-   aceita 45 consultas por minuto. */
-async function completarGeoIP() {
-  try {
-    const { rows } = await query(`
-      SELECT DISTINCT a.ip FROM audit_logs a
-       WHERE a.ip IS NOT NULL AND a.created_at > NOW() - interval '120 days'
-         AND NOT EXISTS (SELECT 1 FROM configuracoes c WHERE c.chave = 'geoip_' || a.ip AND (c.valor ? 'precisao' OR c.valor ? 'vazio'))
-       LIMIT 40`).catch(() => ({ rows: [] }));
-    for (const r0 of rows) { await localizarIP(r0.ip); await new Promise(ok => setTimeout(ok, 1500)); }
-    if (rows.length) console.log(`🌐 GeoIP completado em ${rows.length} rede(s) antigas`);
-  } catch (e) { console.error('completarGeoIP:', e.message); }
-}
-setTimeout(completarGeoIP, 4 * 60 * 1000);
-setInterval(completarGeoIP, 10 * 60 * 1000);
+/* 🌐 Os IPs e pontos antigos são completados pela fila do serviço de geo
+   (services/geo.js › varrerPendentes): bairro, operadora, raio, proxy/VPN e o
+   endereço de cada ponto do aparelho — nada é apagado, só completado. */

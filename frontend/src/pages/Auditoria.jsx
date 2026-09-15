@@ -20,6 +20,56 @@ const ACOES = {
 };
 const CRIT = ['excluir', 'editar_lead', 'apagar_mensagem', 'editar_mensagem', 'login_falha'];
 
+/* 📍 Como cada ponto do aparelho e cada rede aparecem na tela (15/09/2026,
+   ordem do master: "a localização exata do endereço de cada IP"). O ponto do
+   aparelho vem com ENDEREÇO (rua, nº, bairro) e PRECISÃO; a rede (IP) vem
+   como "área da operadora" — o centro da cidade ou do bairro, que é tudo o
+   que um IP sabe dizer. Nunca mais os dois se confundem na leitura. */
+const mapsPonto = (p) => `https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lng}`;
+const corPrecisao = (nivel) => nivel === 'alta' ? '#059669' : nivel === 'media' ? '#0E8C96' : nivel === 'baixa' ? '#d97706' : 'var(--muted)';
+function PontoChip({ p, rotulo, destaque }) {
+  if (!p) return null;
+  const txt = p.endereco || (p.pendente ? '⏳ localizando o endereço…' : `${Number(p.lat).toFixed(4)}, ${Number(p.lng).toFixed(4)}`);
+  return (
+    <a href={mapsPonto(p)} target="_blank" rel="noreferrer"
+      title={`Abrir no Google Maps: ${p.lat}, ${p.lng}${p.registros ? ` · ${p.registros} registro(s)` : ''}${p.precisao_txt ? ` · ${p.precisao_txt}` : ''}`}
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 800, textDecoration: 'none',
+        padding: '3px 10px', borderRadius: 99, maxWidth: '100%',
+        background: destaque ? 'var(--tq3)' : 'var(--bg2)', color: 'var(--tq2)', border: `1px solid ${destaque ? 'var(--tq)' : 'var(--border)'}` }}>
+      <span>📍</span>
+      {rotulo && <span style={{ color: 'var(--muted)', fontWeight: 700 }}>{rotulo}</span>}
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{txt}</span>
+      {p.precisao_txt && <span style={{ fontWeight: 700, color: corPrecisao(p.precisao_nivel) }}>{p.precisao_txt}</span>}
+    </a>
+  );
+}
+function RedeArea({ rd }) {
+  const badges = [];
+  if (rd.proxy) badges.push(['🕵️ proxy/VPN', '#dc2626']);
+  if (rd.hosting) badges.push(['🏢 datacenter', '#dc2626']);
+  if (rd.movel) badges.push(['📶 rede móvel', 'var(--muted)']);
+  /* 🎯 O que a coordenada do IP vale, escrito (sessão de 15/09): bairro ≈1,5 km,
+     cidade ≈8 km, e em 4G o IP não localiza. */
+  const raio = rd.precisao === 'movel' ? '📱 4G: IP não localiza' : rd.precisao === 'bairro' ? `≈ bairro · raio ${rd.raio_km || 1.5} km` : rd.precisao === 'cidade' ? `≈ cidade · raio ${rd.raio_km || 8} km` : null;
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', fontSize: 11 }}>
+      {rd.cidade ? (
+        <a href={rd.lat && rd.lng ? mapsPonto(rd) : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([rd.bairro, rd.cidade].filter(Boolean).join(' '))}`}
+          target="_blank" rel="noreferrer" title="Área onde a operadora registra esta rede — o centro da cidade ou do bairro, NÃO o endereço da pessoa"
+          style={{ color: 'var(--muted)', textDecoration: 'underline', textUnderlineOffset: 2 }}>
+          🌐 área da operadora: {[rd.bairro, rd.cidade].filter(Boolean).join(' · ')}
+        </a>
+      ) : rd.rede_pendente ? <span style={{ color: 'var(--muted)' }}>🌐 ⏳ localizando a rede…</span>
+        : <span style={{ color: 'var(--muted)' }}>🌐 rede sem área conhecida</span>}
+      {raio && <span title="Localização pelo IP: o provedor entrega um ponto aproximado, não o endereço" style={{ fontWeight: 800, padding: '1px 7px', borderRadius: 20,
+        background: rd.precisao === 'movel' ? '#fee2e2' : rd.precisao === 'bairro' ? '#dcfce7' : '#fef3c7',
+        color: rd.precisao === 'movel' ? '#991b1b' : rd.precisao === 'bairro' ? '#166534' : '#92400e' }}>{raio}</span>}
+      {rd.provedor && <span style={{ color: 'var(--muted)' }}>{rd.provedor}</span>}
+      {badges.map(([t, c]) => <span key={t} style={{ fontWeight: 800, color: c, background: c === '#dc2626' ? '#fee2e2' : 'transparent', borderRadius: 8, padding: '1px 7px' }}>{t}</span>)}
+    </span>
+  );
+}
+
 /* 📄 RELATÓRIO COMPLETO DE ACESSOS (ordem do master, 28/08: "quero um relatório
    mais completo e onde eu possa abrir pelo Google Maps"). Abre a folha pronta
    pra imprimir ou salvar em PDF, com tudo o que o painel mostra: resumo de cada
@@ -43,23 +93,21 @@ function relatorioAcessos(locais, dias, alvo) {
       </div>
       ${(d.sinais || []).length ? `<div class="sin">${d.sinais.map(sg => `<span class="${sg.grave ? 'g' : 'a'}">${esc(sg.txt)}</span>`).join('')}</div>` : ''}
       ${(d.episodios || []).length ? `<div class="epi">${d.episodios.map(e =>
-        `<div>🚨 <b>${esc(e.hora)}</b> — ${esc((e.ips || []).join(' e '))} ativas ao mesmo tempo (${e.eventos} ações)</div>`).join('')}</div>` : ''}
+        `<div>🚨 <b>${esc(e.hora)}</b> — ${(e.lugares && e.lugares.length ? e.lugares : (e.ips || []).map(ip => ({ ip }))).map(l => `${esc(l.ip)}${l.ponto ? ` (📍 ${esc(l.ponto.endereco || `${l.ponto.lat}, ${l.ponto.lng}`)})` : ' (aparelho sem localização)'}`).join(' e ')} ativas ao mesmo tempo (${e.eventos} ações)${e.distancia_km !== null && e.distancia_km !== undefined ? ` — <b>${String(e.distancia_km).replace('.', ',')} km entre os dois aparelhos</b>` : ''}</div>`).join('')}</div>` : ''}
       <table class="redes">
-        <tr><th>Rede (IP)</th><th>Horário</th><th>Ações</th><th>Aparelho</th><th>Onde</th><th>Provedor</th><th>Mapa</th></tr>
-        ${(d.redes_detalhe || []).map(rd => `<tr>
+        <tr><th>Rede (IP)</th><th>Horário</th><th>Ações</th><th>Aparelho</th><th>Endereço pelo aparelho</th><th>Área da operadora (IP)</th><th>Provedor</th></tr>
+        ${(d.redes_detalhe || []).map(rd => { const pt = (rd.pontos || [])[0]; return `<tr>
           <td class="mono">${esc(rd.ip)}</td>
           <td>${esc(rd.de)} às ${esc(rd.ate)}</td>
           <td class="n">${rd.acoes}</td>
           <td>${rd.aparelho === 'celular' ? 'Celular' : 'Computador'}${rd.navegador ? ` · ${esc(rd.navegador)}` : ''}</td>
-          <td>${esc([rd.bairro, rd.cidade].filter(Boolean).join(' · ') || '—')}</td>
+          <td>${pt ? `<a href="${maps(pt)}">📍 ${esc(pt.endereco || `${pt.lat}, ${pt.lng}`)}</a>${pt.precisao_txt ? ` <small>(${esc(pt.precisao_txt)})</small>` : ''}${(rd.pontos || []).length > 1 ? ` <small>+${rd.pontos.length - 1} lugar(es)</small>` : ''}` : '<small>sem localização do aparelho nesta rede</small>'}</td>
+          <td>${rd.cidade ? `<a href="${rd.lat && rd.lng ? maps(rd) : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([rd.bairro, rd.cidade].filter(Boolean).join(' '))}`}">${esc([rd.bairro, rd.cidade].filter(Boolean).join(' · '))}</a>${rd.raio_km ? ` <small>(raio ${rd.raio_km} km)</small>` : ''}` : '—'}${rd.proxy ? ' <b class="bad">proxy/VPN</b>' : ''}${rd.hosting ? ' <b class="bad">datacenter</b>' : ''}</td>
           <td>${esc(rd.provedor || '—')}${rd.movel ? ' (móvel)' : ''}</td>
-          <td>${rd.lat && rd.lng
-            ? `<a href="https://www.google.com/maps/search/?api=1&query=${rd.lat},${rd.lng}">abrir</a>`
-            : (rd.cidade ? `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([rd.bairro, rd.cidade].filter(Boolean).join(' '))}">região</a>` : '—')}</td>
-        </tr>`).join('')}
+        </tr>`; }).join('')}
       </table>
-      ${(d.coords || []).length ? `<div class="pts"><b>Onde esteve (aparelho):</b> ${(d.coords || []).map((c, i) =>
-        `<a href="${maps(c)}">📍 Ponto ${i + 1} (${c.lat}, ${c.lng})</a>`).join(' · ')}
+      ${(d.pontos || d.coords || []).length ? `<div class="pts"><b>Onde esteve (aparelho):</b> ${(d.pontos && d.pontos.length ? d.pontos : d.coords).map((c, i) =>
+        `<a href="${maps(c)}">📍 ${esc(c.endereco || `Ponto ${i + 1} (${c.lat}, ${c.lng})`)}</a>${c.precisao_txt ? ` <small>(${esc(c.precisao_txt)})</small>` : ''}`).join(' · ')}
         ${(d.coords || []).length > 1 ? ` · <a href="https://www.google.com/maps/dir/${d.coords.map(c => `${c.lat},${c.lng}`).join('/')}">ver trajeto</a>` : ''}</div>` : ''}
     </div>`;
 
@@ -123,8 +171,8 @@ a{color:#0e7490}
   <div class="p">Últimos ${dias} dias${alvo ? ` · ${esc(alvo.usuario_nome)}` : ' · equipe toda'}</div></div>
 </div><div class="hr"></div>
 ${usuarios.map(blocoUsuario).join('')}
-<div class="rod">Como ler: a localização por IP é aproximada — mostra a região do provedor, não o endereço exato; em rede móvel o bairro costuma vir vazio.
-Os pontos em "Onde esteve" vêm do aparelho e são precisos. "Uso simultâneo" é o mesmo login ativo de duas redes diferentes no mesmo bloco de 10 minutos,
+<div class="rod">Como ler: "Endereço pelo aparelho" é o GPS/Wi-Fi do navegador convertido em rua e bairro, com a margem de erro ao lado (±10 m é GPS; ±10 km é só a rede, sem GPS).
+"Área da operadora" é o que o IP sabe dizer: o bairro ou a cidade onde a rede está registrada (por isso cai no centro), nunca o endereço da pessoa; em 4G nem isso. "Uso simultâneo" é o mesmo login ativo de duas redes diferentes no mesmo bloco de 10 minutos,
 o sinal clássico de senha emprestada. Gerado em ${new Date().toLocaleString('pt-BR')} · Vittalis Saúde · documento interno.</div>
 </div></body></html>`;
   const w = window.open('', '_blank');
@@ -401,6 +449,11 @@ export default function Auditoria() {
           )}
           {locais?.erro && <div style={{ padding: 12, borderRadius: 10, background: 'var(--err2,#fdecec)', color: 'var(--err,#dc2626)', fontSize: 13 }}>{locais.erro}</div>}
           {!locais && <div style={{ color: 'var(--muted)', fontSize: 13 }}>Carregando…</div>}
+          {locais && !locais.erro && (locais.pendentes || 0) > 0 && (
+            <div style={{ padding: '8px 12px', borderRadius: 10, background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', fontSize: 12, marginBottom: 12 }}>
+              ⏳ {locais.pendentes} endereço(s) ainda sendo localizado(s) em segundo plano (1 por vez, pelo mapa público) — recarregue esta aba em alguns minutos.
+            </div>
+          )}
 
           {locais && !locais.erro && !locUser && (
             <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fill,minmax(270px,1fr))' }}>
@@ -444,13 +497,25 @@ export default function Auditoria() {
                 <div className="card" style={{ padding: 14, marginBottom: 12, borderLeft: '3px solid #dc2626', background: 'rgba(220,38,38,.05)' }}>
                   <div style={{ fontWeight: 800, fontSize: 13.5, color: '#dc2626' }}>🚨 Login usado em dois lugares ao mesmo tempo</div>
                   <div style={{ fontSize: 11.5, color: 'var(--muted)', margin: '4px 0 9px', lineHeight: 1.5 }}>
-                    Duas redes diferentes ativas no mesmo intervalo de 10 minutos. Isso não é troca de Wi-Fi para 4G, é o mesmo acesso sendo usado por mais de uma pessoa.
+                    Duas redes diferentes ativas no mesmo intervalo de 10 minutos. Olhe a <b>distância entre os dois aparelhos</b>: quilômetros de diferença é o mesmo acesso sendo usado por mais de uma pessoa; poucos metros é Wi-Fi e 4G juntos no mesmo lugar. Sem localização do aparelho numa das redes, não dá para concluir só pela rede.
                   </div>
                   {(locais.simultaneos || []).filter(e => e.usuario_id === locUser.usuario_id).map((e, i) => (
-                    <div key={i} style={{ fontSize: 12, color: 'var(--txt2)', display: 'flex', gap: 10, flexWrap: 'wrap', padding: '4px 0', borderTop: i ? '1px solid var(--border)' : 'none' }}>
+                    <div key={i} style={{ fontSize: 12, color: 'var(--txt2)', display: 'flex', gap: 10, flexWrap: 'wrap', padding: '5px 0', borderTop: i ? '1px solid var(--border)' : 'none', alignItems: 'center' }}>
                       <b>{e.dia.split('-').reverse().join('/')} às {e.hora}</b>
                       <span style={{ fontFamily: 'monospace', color: '#dc2626' }}>{e.ips.join('  ×  ')}</span>
                       <span style={{ color: 'var(--muted)' }}>{e.eventos} ações</span>
+                      {/* 📍 onde estava cada aparelho naquele bloco — e a distância entre eles */}
+                      {(e.lugares || []).map(l => (
+                        <span key={l.ip} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11 }}>
+                          <span style={{ fontFamily: 'monospace', color: 'var(--muted)' }}>{l.ip}:</span>
+                          {l.ponto ? <PontoChip p={l.ponto} /> : <span style={{ color: 'var(--muted)' }}>📵 aparelho sem localização</span>}
+                        </span>
+                      ))}
+                      {e.distancia_km !== null && e.distancia_km !== undefined && (
+                        <span style={{ fontSize: 11, fontWeight: 900, borderRadius: 8, padding: '2px 8px', background: e.mesmo_lugar ? '#ecfdf5' : '#fee2e2', color: e.mesmo_lugar ? '#047857' : '#b91c1c' }}>
+                          {e.mesmo_lugar ? `mesmo lugar (${String(e.distancia_km).replace('.', ',')} km) — Wi-Fi e 4G juntos` : `${String(e.distancia_km).replace('.', ',')} km entre os dois aparelhos`}
+                        </span>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -503,10 +568,21 @@ export default function Auditoria() {
                       {(d.episodios || []).length > 0 && (
                         <div style={{ flexBasis: '100%', marginTop: 5, padding: '7px 10px', borderRadius: 9, background: 'rgba(220,38,38,.07)', border: '1px solid rgba(220,38,38,.3)' }}>
                           {(d.episodios || []).map((ep, k) => (
-                            <div key={k} style={{ fontSize: 11.5, color: '#b91c1c', display: 'flex', gap: 9, flexWrap: 'wrap' }}>
+                            <div key={k} style={{ fontSize: 11.5, color: '#b91c1c', display: 'flex', gap: 9, flexWrap: 'wrap', alignItems: 'center' }}>
                               <b>🚨 {ep.hora}</b>
                               <span style={{ fontFamily: 'monospace' }}>{ep.ips.join('  e  ')}</span>
                               <span style={{ color: 'var(--muted)' }}>ativas ao mesmo tempo · {ep.eventos} ações</span>
+                              {(ep.lugares || []).map(l => (
+                                <span key={l.ip} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                                  <span style={{ fontFamily: 'monospace', color: 'var(--muted)' }}>{l.ip}:</span>
+                                  {l.ponto ? <PontoChip p={l.ponto} /> : <span style={{ color: 'var(--muted)', fontSize: 11 }}>📵 sem localização</span>}
+                                </span>
+                              ))}
+                              {ep.distancia_km !== null && ep.distancia_km !== undefined && (
+                                <b style={{ color: ep.mesmo_lugar ? '#047857' : '#b91c1c' }}>
+                                  {ep.mesmo_lugar ? `mesmo lugar (${String(ep.distancia_km).replace('.', ',')} km)` : `${String(ep.distancia_km).replace('.', ',')} km entre os aparelhos`}
+                                </b>
+                              )}
                             </div>
                           ))}
                         </div>
@@ -516,12 +592,14 @@ export default function Auditoria() {
                           abrir pelo Google Maps"). São as coordenadas que o
                           aparelho enviou — bem mais precisas que o IP. Cada uma
                           abre o mapa; nunca eram mostradas na tela até agora. */}
-                      {(d.coords || []).length > 0 && (
+                      {((d.pontos || []).length > 0 || (d.coords || []).length > 0) && (
                         <div style={{ flexBasis: '100%', marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                           <span style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5 }}>
-                            Onde esteve
+                            Onde esteve (aparelho)
                           </span>
-                          {(d.coords || []).map((c, k) => (
+                          {(d.pontos || []).length > 0
+                            ? (d.pontos || []).map((c, k) => <PontoChip key={k} p={c} rotulo={`${k + 1}.`} destaque />)
+                            : (d.coords || []).map((c, k) => (
                             <a key={k} href={`https://www.google.com/maps/search/?api=1&query=${c.lat},${c.lng}`}
                               target="_blank" rel="noreferrer"
                               title={`Abrir no Google Maps: ${c.lat}, ${c.lng}`}
@@ -553,31 +631,19 @@ export default function Auditoria() {
                               <span style={{ color: 'var(--muted)' }}>das {rd.de} às {rd.ate}</span>
                               <span style={{ color: 'var(--muted)' }}>{rd.acoes} ações</span>
                               <span style={{ color: 'var(--muted)' }}>{rd.aparelho === 'celular' ? '📱 celular' : '🖥️ computador'}{rd.navegador ? ` · ${rd.navegador}` : ''}</span>
-                              {/* 📍 O ENDEREÇO É O PRÓPRIO LINK (ordem do master, 28/08:
-                                  "que eu possa acessar o endereço clicando em um link").
-                                  Clicou no bairro/cidade, abriu o Google Maps. Em rede
-                                  móvel o bairro costuma vir vazio — aí fica a cidade. */}
-                              {(rd.bairro || rd.cidade) && (
-                                <a href={rd.lat && rd.lng
-                                    ? `https://www.google.com/maps/search/?api=1&query=${rd.lat},${rd.lng}`
-                                    : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([rd.bairro, rd.cidade].filter(Boolean).join(' '))}`}
-                                  target="_blank" rel="noreferrer"
-                                  title={rd.lat ? 'Abrir esta localização no Google Maps' : 'Abrir a região no Google Maps (sem coordenada exata)'}
-                                  style={{ color: 'var(--tq2)', fontWeight: 800, textDecoration: 'underline', textUnderlineOffset: 2 }}>
-                                  🌐 {[rd.bairro, rd.cidade].filter(Boolean).join(' · ')} 🗺️
-                                </a>
-                              )}
-                              {/* 🎯 O QUE ESSA LOCALIZAÇÃO VALE (ordem do master, 15/09): IP não
-                                  é endereço. Fica escrito o raio — e em rede móvel, que o IP
-                                  não diz onde a pessoa está. */}
-                              {rd.precisao && (
-                                <span title="Localização pelo IP: o provedor entrega um ponto aproximado, não o endereço" style={{ fontSize: 10.5, fontWeight: 800, padding: '1px 7px', borderRadius: 20,
-                                  background: rd.precisao === 'movel' ? '#fee2e2' : rd.precisao === 'bairro' ? '#dcfce7' : '#fef3c7',
-                                  color: rd.precisao === 'movel' ? '#991b1b' : rd.precisao === 'bairro' ? '#166534' : '#92400e' }}>
-                                  {rd.precisao === 'movel' ? '📱 4G: IP não localiza' : rd.precisao === 'bairro' ? `≈ bairro · raio ${rd.raio_km || 1.5} km` : `≈ cidade · raio ${rd.raio_km || 8} km`}
-                                </span>
-                              )}
-                              {rd.provedor && <span style={{ color: 'var(--muted)' }}>{rd.provedor}{rd.movel ? ' (rede móvel)' : ''}</span>}
+                              {/* 📍 O ENDEREÇO DE VERDADE desta rede (15/09/2026): o que o
+                                  APARELHO disse enquanto estava nela — rua, nº, bairro e a
+                                  margem de erro. O link abre o Google Maps no ponto exato. */}
+                              <div style={{ flexBasis: '100%', display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                                {(rd.pontos || []).length
+                                  ? (rd.pontos || []).slice(0, 3).map((p, j) => <PontoChip key={j} p={p} rotulo={j === 0 ? 'aparelho:' : ''} destaque={j === 0} />)
+                                  : <span style={{ fontSize: 11, color: '#92400e', fontWeight: 700 }}>📵 aparelho sem localização nesta rede (permissão de localização negada ou ainda não lida)</span>}
+                                {(rd.pontos || []).length > 3 && <span style={{ fontSize: 11, color: 'var(--muted)' }}>+{rd.pontos.length - 3} lugar(es)</span>}
+                              </div>
+                              {/* 🌐 A área da operadora é só contexto — o centro do bairro ou da
+                                  cidade onde a rede está registrada, com o raio escrito e as
+                                  marcas de proxy/VPN e datacenter (acesso escondido é sinal). */}
+                              <div style={{ flexBasis: '100%' }}><RedeArea rd={rd} /></div>
                             </div>
                           ))}
                         </div>
@@ -597,8 +663,10 @@ export default function Auditoria() {
                         </div>
                       ) : (
                         <a href={`https://www.google.com/maps?q=${l.latitude},${l.longitude}`} target="_blank" rel="noreferrer"
+                          title={`GPS ${l.latitude.toFixed(4)}, ${l.longitude.toFixed(4)}`}
                           style={{ fontWeight: 700, fontSize: 13, color: 'var(--tq2)', textDecoration: 'none' }}>
-                          📍 GPS {l.latitude.toFixed(4)}, {l.longitude.toFixed(4)}{l.precisao_m != null ? ` · ±${Math.round(l.precisao_m)} m` : ''} — abrir no mapa
+                          📍 {l.endereco || (l.endereco_pendente ? '⏳ localizando o endereço…' : `GPS ${l.latitude.toFixed(4)}, ${l.longitude.toFixed(4)}`)} — abrir no mapa
+                          {l.precisao_txt && <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 800, color: corPrecisao(l.precisao_nivel) }}>{l.precisao_txt}</span>}
                         </a>
                       )}
                       <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3 }}>
@@ -613,10 +681,13 @@ export default function Auditoria() {
                 ))}
               </div>
               <div style={{ marginTop: 14, padding: 12, borderRadius: 10, background: 'var(--bg2,#f8fafc)', fontSize: 12, color: 'var(--muted)', lineHeight: 1.65 }}>
-                <b style={{ color: 'var(--txt2)' }}>Como ler isso:</b> 📍 GPS é o aparelho da pessoa, com o raio em metros (é a localização de verdade). 🌐 IP é o provedor: entrega um ponto do bairro ou da cidade, nunca o endereço, e em 4G nem isso. Os pontos são agrupados num raio de ~110 m, então casa e clínica
-                aparecem separadas, mas duas salas do mesmo prédio não. A <b>rede</b> (IP) muda ao trocar de Wi-Fi para 4G sem a pessoa
-                sair do lugar — mudança de rede sozinha não quer dizer mudança de lugar. E acesso sem localização quase sempre é permissão
-                negada no navegador, não acesso escondido.
+                <b style={{ color: 'var(--txt2)' }}>Como ler isso:</b> <b>📍 aparelho</b> é o GPS/Wi-Fi do navegador convertido em rua e bairro
+                — a margem ao lado diz o quanto vale (±10 m é GPS; ±10 km é só a rede, sem GPS). <b>🌐 área da operadora</b> é o que o IP sabe
+                dizer: o bairro ou a cidade onde a rede está registrada (por isso cai no centro) — nunca o endereço da pessoa, e em 4G nem isso.
+                Os pontos são agrupados num raio de ~110 m, então casa e clínica aparecem separadas, mas duas salas do mesmo prédio não. A rede
+                muda ao trocar de Wi-Fi para 4G sem a pessoa sair do lugar; por isso o uso simultâneo mostra a <b>distância entre os dois
+                aparelhos</b>: 12 km é gente diferente, 40 m é a mesma sala. Acesso sem localização quase sempre é permissão negada no navegador,
+                não acesso escondido.
               </div>
             </div>
           )}
@@ -662,6 +733,8 @@ export default function Auditoria() {
                             <span>{x.logins} login(s)</span>
                             <span>último: {new Date(x.ultimo).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
                             {x.aparelho && <span style={{ opacity: .8, overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 260, whiteSpace: 'nowrap' }}>{x.aparelho}</span>}
+                            {x.ponto ? <PontoChip p={x.ponto} rotulo="aparelho:" destaque /> : <span style={{ color: '#92400e' }}>📵 aparelho sem localização</span>}
+                            {x.rede && <RedeArea rd={x.rede} />}
                           </div>
                         ))}
                       </div>
@@ -786,9 +859,14 @@ export default function Auditoria() {
                   </div>
                   {p.latitude && p.longitude && (
                     <a href={`https://www.google.com/maps?q=${p.latitude},${p.longitude}`} target="_blank" rel="noreferrer"
-                      style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--tq2)', fontWeight: 700, textDecoration: 'none' }}>
-                      <MapPin size={11} /> Ver localização
+                      title={p.ponto?.precisao_txt || ''}
+                      style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--tq2)', fontWeight: 700, textDecoration: 'none', maxWidth: 320 }}>
+                      <MapPin size={11} /> {p.ponto?.endereco || 'Ver localização'}
+                      {p.ponto?.precisao_txt && <span style={{ color: corPrecisao(p.ponto.precisao_nivel), fontWeight: 800 }}>{p.ponto.precisao_txt}</span>}
                     </a>
+                  )}
+                  {p.rede?.cidade && (
+                    <span style={{ fontSize: 10.5, color: 'var(--muted)' }}>🌐 {p.rede.cidade}{p.rede.proxy ? ' · 🕵️ proxy/VPN' : ''}{p.rede.hosting ? ' · 🏢 datacenter' : ''}</span>
                   )}
                 </div>
               </div>
@@ -900,7 +978,8 @@ export default function Auditoria() {
                         {e.entidade_id && <span style={{ fontSize: 10, color: 'var(--muted)', fontFamily: 'monospace' }}>#{String(e.entidade_id).slice(0, 12)}</span>}
                         {e.latitude && (
                           <a href={`https://www.google.com/maps?q=${e.latitude},${e.longitude}`} target="_blank" rel="noreferrer"
-                            style={{ fontSize: 10, color: 'var(--tq2)', fontWeight: 700, textDecoration: 'none' }}>📍</a>
+                            title={`${e.latitude}, ${e.longitude}${e.precisao_m != null ? ` · ±${e.precisao_m} m` : ''}`}
+                            style={{ fontSize: 10, color: 'var(--tq2)', fontWeight: 700, textDecoration: 'none' }}>📍{e.endereco ? ` ${e.endereco}` : ''}{e.precisao_m != null ? ` (±${e.precisao_m} m)` : ''}</a>
                         )}
                       </div>
                       <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 10, color: 'var(--muted)' }}>
