@@ -20,6 +20,8 @@ export const ENDERECO = [
   '🗺️ Nosso endereço pelo Google Maps: https://share.google/cJwx0T5DVaCxZyc6I',
 ];
 export const INSTAGRAM = '📸 Acompanhe momentos de cuidado no nosso Instagram: https://www.instagram.com/vittalissaudeslz/';
+// Frase final do cartão, ditada pelo master (15/09). Verbatim.
+export const FECHAMENTO = 'Vittalis Saúde cuidando do que mais importa 🩵';
 
 /* 📍 MENSAGEM SÓ DO ENDEREÇO (ordem do master, 01/09: "cria um botão só de
    Endereço da Clínica que já vai com essa mensagem padrão, assim como já existe
@@ -77,12 +79,11 @@ export async function cartaoAgendamento(dados = {}, opts = {}) {
   const dataBR = dataISO ? dataISO.split('-').reverse().join('/') : '';
   const hora = String(dados.hora || '').replace(/hs?$/i, '').trim();
   const localTxt = String(dados.local || '').trim() || 'Na Clínica Vittalis Saúde (Renascença)';
-  const trat = ['papai', 'mamãe'].includes(String(dados.tratamento || '')) ? dados.tratamento : '';
 
   /* 🧑 NEM TODO PACIENTE É BEBÊ. A casa também vacina adulto (HPV, Influenza) —
      e o cartão fechava dizendo "seu Baby" pra uma senhora tomando HPV nela
      mesma (caso da Sra. Isabel, 27/08). Quando paciente e cliente são a mesma
-     pessoa (ou vem marcado adulto), o ícone e a frase final mudam. */
+     pessoa (ou vem marcado adulto), o ícone muda (a frase final é fixa desde 15/09). */
   const soLetras = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[^a-z ]/g, '').trim();
   const adulto = dados.adulto === true
     || (!!dados.paciente && !!dados.cliente && soLetras(dados.paciente) === soLetras(dados.cliente));
@@ -120,9 +121,12 @@ export async function cartaoAgendamento(dados = {}, opts = {}) {
     linhas.push('Este horário fica reservado para você. Me confirma que está bom que eu fecho na agenda 💙');
     linhas.push('');
   }
-  linhas.push(adulto
-    ? 'Parabéns pelo cuidado com a sua saúde 🩵'
-    : `Parabéns ${trat ? trat + ' ' : ''}pelo investimento na saúde do seu Baby 🩵`);
+  /* 🩵 FECHAMENTO FIXO (ordem do master, 15/09): a frase "Parabéns pelo
+     investimento na saúde do seu Baby / pelo cuidado com a sua saúde" dependia
+     de adivinhar se o paciente era bebê ou adulto e saía errada conforme o
+     serviço escolhido. Agora é UMA frase só, ditada por ele, igual pra vacinas,
+     consultas e terapias, bebê ou adulto. Texto verbatim, não reescrever. */
+  linhas.push(FECHAMENTO);
   linhas.push('');
   linhas.push(INSTAGRAM);
   return linhas.join('\n');
