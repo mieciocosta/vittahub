@@ -1,4 +1,5 @@
 import express from 'express';
+import { localizarIP } from './auth.js';
 import { query } from '../db/pool.js';
 import { auth } from '../middleware/auth.js';
 
@@ -23,13 +24,18 @@ const onlyMaster = (req, res, next) => {
 r.post('/log', async (req, res) => {
   try {
     const b = req.body || {};
-    await query(`INSERT INTO audit_logs (usuario_id, usuario_nome, acao, entidade, entidade_id, detalhes, ip, user_agent, latitude, longitude)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-      [req.user.id, req.user.nome, String(b.acao || 'navegacao').slice(0, 40),
+    const base = [req.user.id, req.user.nome, String(b.acao || 'navegacao').slice(0, 40),
        (b.entidade || '').slice(0, 40) || null, (b.entidade_id || '').slice(0, 60) || null,
        b.detalhes ? JSON.stringify(b.detalhes) : null,
        getRealIP(req), req.get('user-agent')?.slice(0, 300),
-       b.latitude || null, b.longitude || null]);
+       b.latitude || null, b.longitude || null];
+    const precisao = Number.isFinite(Number(b.precisao)) ? Math.min(99999, Math.round(Number(b.precisao) * 10) / 10) : null;
+    const gps = ['ok', 'negado', 'indisponivel'].includes(b.gps) ? b.gps : (b.latitude ? 'ok' : null);
+    // 📍 15/09: guarda o raio do GPS e se a pessoa negou a localização (com fallback pro banco antigo)
+    await query(`INSERT INTO audit_logs (usuario_id, usuario_nome, acao, entidade, entidade_id, detalhes, ip, user_agent, latitude, longitude, precisao_m, gps_estado)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, [...base, precisao, gps])
+      .catch(() => query(`INSERT INTO audit_logs (usuario_id, usuario_nome, acao, entidade, entidade_id, detalhes, ip, user_agent, latitude, longitude)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, base));
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -114,13 +120,21 @@ r.get('/prints/:id/imagem', onlyMaster, async (req, res) => {
 r.post('/heartbeat', async (req, res) => {
   try {
     const b = req.body || {};
-    await query(`INSERT INTO presenca (usuario_id, status, ultimo_heartbeat, latitude, longitude, user_agent, ip, pagina)
+    const baseP = [req.user.id, b.latitude || null, b.longitude || null,
+       req.get('user-agent')?.slice(0, 300), getRealIP(req), (b.pagina || '').slice(0, 60)];
+    const precisaoP = Number.isFinite(Number(b.precisao)) ? Math.min(99999, Math.round(Number(b.precisao) * 10) / 10) : null;
+    const gpsP = ['ok', 'negado', 'indisponivel'].includes(b.gps) ? b.gps : (b.latitude ? 'ok' : null);
+    await query(`INSERT INTO presenca (usuario_id, status, ultimo_heartbeat, latitude, longitude, user_agent, ip, pagina, precisao_m, gps_estado)
+      VALUES ($1, 'online', NOW(), $2, $3, $4, $5, $6, $7, $8)
+      ON CONFLICT (usuario_id) DO UPDATE SET status = 'online', ultimo_heartbeat = NOW(),
+        latitude = COALESCE($2, presenca.latitude), longitude = COALESCE($3, presenca.longitude),
+        user_agent = $4, ip = $5, pagina = $6, precisao_m = COALESCE($7, presenca.precisao_m), gps_estado = COALESCE($8, presenca.gps_estado)`,
+      [...baseP, precisaoP, gpsP])
+      .catch(() => query(`INSERT INTO presenca (usuario_id, status, ultimo_heartbeat, latitude, longitude, user_agent, ip, pagina)
       VALUES ($1, 'online', NOW(), $2, $3, $4, $5, $6)
       ON CONFLICT (usuario_id) DO UPDATE SET status = 'online', ultimo_heartbeat = NOW(),
         latitude = COALESCE($2, presenca.latitude), longitude = COALESCE($3, presenca.longitude),
-        user_agent = $4, ip = $5, pagina = $6`,
-      [req.user.id, b.latitude || null, b.longitude || null,
-       req.get('user-agent')?.slice(0, 300), getRealIP(req), (b.pagina || '').slice(0, 60)]);
+        user_agent = $4, ip = $5, pagina = $6`, baseP));
     res.json({ ok: true });
   } catch (err) { res.json({ ok: true }); }
 });
@@ -159,7 +173,9 @@ r.get('/localizacoes', onlyMaster, async (req, res) => {
              COUNT(*)::int   AS eventos,
              COUNT(DISTINCT created_at::date)::int AS dias_distintos,
              MODE() WITHIN GROUP (ORDER BY ip) AS ip,
-             MODE() WITHIN GROUP (ORDER BY user_agent) AS user_agent
+             MODE() WITHIN GROUP (ORDER BY user_agent) AS user_agent,
+             MIN(precisao_m) AS precisao_m,
+             COUNT(*) FILTER (WHERE gps_estado = 'negado')::int AS negados
         FROM audit_logs
        WHERE created_at > NOW() - ($1 || ' days')::interval
          AND usuario_id IS NOT NULL
@@ -176,6 +192,8 @@ r.get('/localizacoes', onlyMaster, async (req, res) => {
         latitude: x.lat === null ? null : Number(x.lat),
         longitude: x.lng === null ? null : Number(x.lng),
         sem_localizacao: x.lat === null || x.lng === null,
+        precisao_m: x.precisao_m === null || x.precisao_m === undefined ? null : Number(x.precisao_m),
+        gps_negado: (x.negados || 0) > 0,   // a pessoa negou a localização no navegador
         primeiro: x.primeiro, ultimo: x.ultimo,
         eventos: x.eventos, dias: x.dias_distintos, ip: x.ip,
         dispositivo: (ua.includes('Mobile') || ua.includes('Android') || ua.includes('iPhone')) ? 'celular' : 'computador',
@@ -283,7 +301,11 @@ r.get('/localizacoes', onlyMaster, async (req, res) => {
         bairro: g.bairro || null, cep: g.cep || null,
         // Coordenada da rede: é o que abre o mapa no painel
         lat: g.lat ?? null, lng: g.lng ?? null,
-        provedor: g.provedor || null, movel: !!g.movel,
+        provedor: g.provedor || null, movel: !!g.movel, org: g.org || null,
+        /* 🎯 A precisão vai junto, escrita: 'bairro' (≈1,5 km), 'cidade'
+           (≈8 km) ou 'movel' (rede 4G: o IP não diz onde a pessoa está). */
+        precisao: g.precisao || (g.movel ? 'movel' : g.bairro ? 'bairro' : g.cidade ? 'cidade' : null),
+        raio_km: g.raio_km ?? (g.movel ? 30 : g.bairro ? 1.5 : g.cidade ? 8 : null),
         aparelho: /Mobile|Android|iPhone/.test(ua) ? 'celular' : 'computador',
         navegador: ua.includes('Edg/') ? 'Edge' : ua.includes('Chrome/') ? 'Chrome'
                  : ua.includes('Firefox/') ? 'Firefox' : ua.includes('Safari') ? 'Safari' : null,
@@ -489,3 +511,23 @@ r.get('/usuario/:id/dia/:data', onlyMaster, async (req, res) => {
 
 export default r;
 export { getRealIP };
+
+
+/* 🌐 COMPLETAR A LOCALIZAÇÃO DOS IPs ANTIGOS (ordem do master, 15/09: "atualiza
+   tudo isso no sistema, sem perder os dados atuais"). Os IPs já registrados
+   ganham bairro, CEP, operadora e o raio de precisão — nada é apagado, só
+   completado. Devagar (40 por rodada, a cada 10 min) porque o serviço gratuito
+   aceita 45 consultas por minuto. */
+async function completarGeoIP() {
+  try {
+    const { rows } = await query(`
+      SELECT DISTINCT a.ip FROM audit_logs a
+       WHERE a.ip IS NOT NULL AND a.created_at > NOW() - interval '120 days'
+         AND NOT EXISTS (SELECT 1 FROM configuracoes c WHERE c.chave = 'geoip_' || a.ip AND (c.valor ? 'precisao' OR c.valor ? 'vazio'))
+       LIMIT 40`).catch(() => ({ rows: [] }));
+    for (const r0 of rows) { await localizarIP(r0.ip); await new Promise(ok => setTimeout(ok, 1500)); }
+    if (rows.length) console.log(`🌐 GeoIP completado em ${rows.length} rede(s) antigas`);
+  } catch (e) { console.error('completarGeoIP:', e.message); }
+}
+setTimeout(completarGeoIP, 4 * 60 * 1000);
+setInterval(completarGeoIP, 10 * 60 * 1000);

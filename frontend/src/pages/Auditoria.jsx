@@ -453,8 +453,18 @@ export default function Auditoria() {
                                   target="_blank" rel="noreferrer"
                                   title={rd.lat ? 'Abrir esta localização no Google Maps' : 'Abrir a região no Google Maps (sem coordenada exata)'}
                                   style={{ color: 'var(--tq2)', fontWeight: 800, textDecoration: 'underline', textUnderlineOffset: 2 }}>
-                                  📍 {[rd.bairro, rd.cidade].filter(Boolean).join(' · ')} 🗺️
+                                  🌐 {[rd.bairro, rd.cidade].filter(Boolean).join(' · ')} 🗺️
                                 </a>
+                              )}
+                              {/* 🎯 O QUE ESSA LOCALIZAÇÃO VALE (ordem do master, 15/09): IP não
+                                  é endereço. Fica escrito o raio — e em rede móvel, que o IP
+                                  não diz onde a pessoa está. */}
+                              {rd.precisao && (
+                                <span title="Localização pelo IP: o provedor entrega um ponto aproximado, não o endereço" style={{ fontSize: 10.5, fontWeight: 800, padding: '1px 7px', borderRadius: 20,
+                                  background: rd.precisao === 'movel' ? '#fee2e2' : rd.precisao === 'bairro' ? '#dcfce7' : '#fef3c7',
+                                  color: rd.precisao === 'movel' ? '#991b1b' : rd.precisao === 'bairro' ? '#166534' : '#92400e' }}>
+                                  {rd.precisao === 'movel' ? '📱 4G: IP não localiza' : rd.precisao === 'bairro' ? `≈ bairro · raio ${rd.raio_km || 1.5} km` : `≈ cidade · raio ${rd.raio_km || 8} km`}
+                                </span>
                               )}
                               {rd.provedor && <span style={{ color: 'var(--muted)' }}>{rd.provedor}{rd.movel ? ' (rede móvel)' : ''}</span>}
                             </div>
@@ -471,11 +481,13 @@ export default function Auditoria() {
                     borderLeft: `3px solid ${l.sem_localizacao ? 'var(--light)' : 'var(--tq)'}` }}>
                     <div style={{ flex: '1 1 220px', minWidth: 0 }}>
                       {l.sem_localizacao ? (
-                        <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--muted)' }}>Sem localização — permissão não concedida</div>
+                        <div style={{ fontWeight: 700, fontSize: 13, color: l.gps_negado ? 'var(--err,#dc2626)' : 'var(--muted)' }}>
+                          {l.gps_negado ? '🚫 GPS negado no navegador (ela recusou a localização)' : 'Sem localização — permissão não concedida'}
+                        </div>
                       ) : (
                         <a href={`https://www.google.com/maps?q=${l.latitude},${l.longitude}`} target="_blank" rel="noreferrer"
                           style={{ fontWeight: 700, fontSize: 13, color: 'var(--tq2)', textDecoration: 'none' }}>
-                          📍 {l.latitude.toFixed(3)}, {l.longitude.toFixed(3)} — abrir no mapa
+                          📍 GPS {l.latitude.toFixed(4)}, {l.longitude.toFixed(4)}{l.precisao_m != null ? ` · ±${Math.round(l.precisao_m)} m` : ''} — abrir no mapa
                         </a>
                       )}
                       <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3 }}>
@@ -490,7 +502,7 @@ export default function Auditoria() {
                 ))}
               </div>
               <div style={{ marginTop: 14, padding: 12, borderRadius: 10, background: 'var(--bg2,#f8fafc)', fontSize: 12, color: 'var(--muted)', lineHeight: 1.65 }}>
-                <b style={{ color: 'var(--txt2)' }}>Como ler isso:</b> os pontos são agrupados num raio de ~110 m, então casa e clínica
+                <b style={{ color: 'var(--txt2)' }}>Como ler isso:</b> 📍 GPS é o aparelho da pessoa, com o raio em metros (é a localização de verdade). 🌐 IP é o provedor: entrega um ponto do bairro ou da cidade, nunca o endereço, e em 4G nem isso. Os pontos são agrupados num raio de ~110 m, então casa e clínica
                 aparecem separadas, mas duas salas do mesmo prédio não. A <b>rede</b> (IP) muda ao trocar de Wi-Fi para 4G sem a pessoa
                 sair do lugar — mudança de rede sozinha não quer dizer mudança de lugar. E acesso sem localização quase sempre é permissão
                 negada no navegador, não acesso escondido.

@@ -34,7 +34,7 @@ setInterval(() => { const now = Date.now(); for (const [k, v] of loginFalhas) if
    serviço público de geolocalização, com CACHE no banco pra não consultar duas
    vezes o mesmo endereço. É melhor esforço: falhou, o acesso é registrado do
    mesmo jeito, só sem a cidade. IP de rede interna não tem cidade. */
-async function localizarIP(ip) {
+export async function localizarIP(ip) {
   const limpo = String(ip || '').trim();
   if (!limpo || limpo === 'unknown' || /^(10\.|127\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|::1)/.test(limpo)) return null;
   try {
@@ -42,7 +42,8 @@ async function localizarIP(ip) {
     /* Cache antigo não tem bairro nem coordenada: refaz uma vez pra completar
        (senão o painel ficaria pra sempre sem o bairro dos IPs já conhecidos). */
     if (cache?.valor?.vazio) return null;
-    if (cache?.valor?.cidade && cache.valor.lat !== undefined) return cache.valor;
+    // Formato novo tem `precisao`; o antigo é refeito uma vez pra ganhar bairro/CEP/operadora
+    if (cache?.valor?.cidade && cache.valor.lat !== undefined && cache.valor.precisao) return cache.valor;
   } catch { /* sem cache, segue */ }
   try {
     const { default: fetch } = await import('node-fetch');
@@ -51,14 +52,23 @@ async function localizarIP(ip) {
     /* Pede também BAIRRO, CEP e coordenadas (ordem do master, 28/08: "quero o
        bairro na descrição e a opção de abrir a localização"). É melhor esforço:
        em rede móvel o bairro costuma vir vazio, e aí o painel mostra a cidade. */
-    const r = await fetch(`http://ip-api.com/json/${encodeURIComponent(limpo)}?fields=status,country,regionName,city,district,zip,lat,lon,isp,mobile&lang=pt-BR`, { signal: ctrl.signal });
+    const r = await fetch(`http://ip-api.com/json/${encodeURIComponent(limpo)}?fields=status,country,regionName,city,district,zip,lat,lon,isp,org,as,mobile,proxy,hosting&lang=pt-BR`, { signal: ctrl.signal });
     clearTimeout(t);
     const j = await r.json().catch(() => null);
     const loc = j && j.status === 'success'
       ? { cidade: j.city || null, estado: j.regionName || null, pais: j.country || null,
           bairro: j.district || null, cep: j.zip || null,
           lat: typeof j.lat === 'number' ? j.lat : null, lng: typeof j.lon === 'number' ? j.lon : null,
-          provedor: String(j.isp || '').slice(0, 60), movel: !!j.mobile }
+          provedor: String(j.isp || '').slice(0, 60), org: String(j.org || '').slice(0, 60), asn: String(j.as || '').slice(0, 40),
+          movel: !!j.mobile, proxy: !!j.proxy, hosting: !!j.hosting,
+          /* 🎯 O QUE ESTA COORDENADA VALE (ordem do master, 15/09: "preciso da
+             localização exata de cada IP"). Não existe endereço exato por IP:
+             o provedor dá um ponto do bairro ou da cidade, e em rede móvel nem
+             o bairro. Aqui fica escrito o raio, pra ninguém ler ponto de mapa
+             como se fosse porta de casa. */
+          precisao: j.mobile ? 'movel' : j.district ? 'bairro' : 'cidade',
+          raio_km: j.mobile ? 30 : j.district ? 1.5 : 8,
+          atualizado: new Date().toISOString() }
       : null;
     await query(`INSERT INTO configuracoes (chave, valor) VALUES ($1, $2::jsonb)
                  ON CONFLICT (chave) DO UPDATE SET valor = $2::jsonb, updated_at = NOW()`,

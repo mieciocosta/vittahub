@@ -206,19 +206,26 @@ function aplicarCorDoDia(theme) {
 // Heartbeat isolado — roda em background, sem afetar o render do App
 function Heartbeat({ userId }) {
   const started = React.useRef(false);
+  const [gpsNegado, setGpsNegado] = React.useState(false);   // 📍 pede pra liberar a localização (15/09)
   React.useEffect(() => {
     if (!userId || started.current) return;
     started.current = true;
-    let lat = null, lng = null;
+    let lat = null, lng = null, acc = null, gps = null;   // 📍 raio (m) e estado do GPS (15/09)
     /* A posição é RELIDA de tempos em tempos, não uma vez só por sessão.
        Lendo uma vez, quem abriu o sistema em casa e foi pra clínica aparecia
        a manhã inteira em casa — e quem negou a permissão no primeiro segundo
        ficava sem localização até deslogar. */
     const lerPosicao = () => {
       if (!navigator.geolocation) return;
+      /* 🎯 ALTA PRECISÃO (ordem do master, 15/09: "preciso da localização
+         exata"). O IP só dá o bairro ou a cidade; endereço de verdade vem do
+         GPS do aparelho, e só quando a pessoa permite. Guarda o raio (metros)
+         e, se negou, o estado — o painel mostra "GPS negado" em vez de um
+         ponto no centro da cidade. */
       navigator.geolocation.getCurrentPosition(
-        p => { lat = p.coords.latitude; lng = p.coords.longitude; },
-        () => {}, { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 });
+        p => { lat = p.coords.latitude; lng = p.coords.longitude; acc = p.coords.accuracy ?? null; gps = 'ok'; },
+        e => { gps = e && e.code === 1 ? 'negado' : 'indisponivel'; if (gps === 'negado') setGpsNegado(true); },
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 120000 });
     };
     lerPosicao();
     const releitura = setInterval(lerPosicao, 10 * 60 * 1000);
@@ -231,20 +238,20 @@ function Heartbeat({ userId }) {
       fetch(`${import.meta.env.VITE_API_URL || ''}/api/auditoria/log`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('vh_token') || ''}` },
-        body: JSON.stringify({ acao: 'acesso', detalhes: { entrada: true }, latitude: lat, longitude: lng }),
+        body: JSON.stringify({ acao: 'acesso', detalhes: { entrada: true }, latitude: lat, longitude: lng, precisao: acc, gps }),
       }).catch(() => {});
     }, 12000);
     const tk = () => localStorage.getItem('vh_token') || '';
     const BASE = import.meta.env.VITE_API_URL || '';
     const beat = () => {
       const pagina = location.pathname.replace(/\//g, '') || 'dashboard';
-      fetch(`${BASE}/api/auditoria/heartbeat`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk()}` }, body: JSON.stringify({ latitude: lat, longitude: lng, pagina }) }).catch(() => {});
+      fetch(`${BASE}/api/auditoria/heartbeat`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk()}` }, body: JSON.stringify({ latitude: lat, longitude: lng, precisao: acc, gps, pagina }) }).catch(() => {});
     };
     const logNav = () => {
-      fetch(`${BASE}/api/auditoria/log`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk()}` }, body: JSON.stringify({ acao: 'navegacao', detalhes: { pagina: location.pathname }, latitude: lat, longitude: lng }) }).catch(() => {});
+      fetch(`${BASE}/api/auditoria/log`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk()}` }, body: JSON.stringify({ acao: 'navegacao', detalhes: { pagina: location.pathname }, latitude: lat, longitude: lng, precisao: acc, gps }) }).catch(() => {});
     };
     window.__auditLog = (acao, entidade, entidade_id, detalhes) => {
-      fetch(`${BASE}/api/auditoria/log`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk()}` }, body: JSON.stringify({ acao, entidade, entidade_id, detalhes, latitude: lat, longitude: lng }) }).catch(() => {});
+      fetch(`${BASE}/api/auditoria/log`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk()}` }, body: JSON.stringify({ acao, entidade, entidade_id, detalhes, latitude: lat, longitude: lng, precisao: acc, gps }) }).catch(() => {});
     };
     beat();
     const hb = setInterval(beat, 30000);
@@ -272,6 +279,16 @@ function Heartbeat({ userId }) {
     return () => document.removeEventListener('copy', onCopy);
   }, [userId]);
 
+  /* 📍 Aviso discreto a quem negou a localização (ordem do master, 15/09): a
+     auditoria precisa do GPS de verdade, e o IP não substitui. Some sozinho
+     ao fechar; volta na próxima sessão enquanto a permissão seguir negada. */
+  if (gpsNegado) return (
+    <div style={{ position: 'fixed', left: 12, bottom: 12, zIndex: 9000, maxWidth: 360, background: '#fff7ed', color: '#7c2d12',
+      border: '1px solid #fdba74', borderRadius: 12, padding: '10px 12px', fontSize: 12.5, lineHeight: 1.5, boxShadow: '0 6px 20px rgba(0,0,0,.15)' }}>
+      <b>📍 Localização desligada.</b> Toque no cadeado ao lado do endereço e permita a localização pro VittaHub. É o que registra de onde você está atendendo.
+      <button onClick={() => setGpsNegado(false)} style={{ marginLeft: 8, border: 'none', background: '#ea580c', color: '#fff', borderRadius: 8, padding: '3px 9px', fontWeight: 800, cursor: 'pointer' }}>ok</button>
+    </div>
+  );
   return null; // never renders anything
 }
 

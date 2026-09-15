@@ -3800,6 +3800,10 @@ async function colunasCriticas() {
     ['conversas', 'campanha_ad_foto', 'TEXT'],     // 🖼️ a foto do criativo (miniatura que o WhatsApp manda), em data URL
     ['conversas', 'primeiro_webhook_chaves', 'TEXT[]'],   // que campos o WhatsApp mandou no 1º contato (diagnóstico)
     ['mensagens', 'caption',         'TEXT'],      // legenda da foto/vídeo (o texto ia embora junto com a mídia)
+    ['audit_logs', 'precisao_m',     'NUMERIC(8,1)'],   // 📍 raio de precisão do GPS (m) — 15/09, auditoria
+    ['audit_logs', 'gps_estado',     'TEXT'],           // ok | negado | indisponivel
+    ['presenca',   'precisao_m',     'NUMERIC(8,1)'],
+    ['presenca',   'gps_estado',     'TEXT'],
     ['usuarios',  'titulo',          'TEXT'],                   // carteira na transferência
     ['usuarios',  'distribuidor',    'BOOLEAN DEFAULT false'],   // recebe a fila de leads novos
     ['usuarios',  'so_fidelidade',   'BOOLEAN DEFAULT false'],
