@@ -191,6 +191,7 @@ export default function Caixa() {
     if (setor) qs.set('setor', setor);
     if (status) qs.set('status', status);
     api.get('/extras/meta-setor').then(d => { setMetasSetor(d?.porSetor || []); setMetaEu(d?.individual || null); }).catch(() => {});
+    if (gestao) api.get('/extras/bonus-caixa/regras').then(d => d && setRegrasBonus(d)).catch(() => {});
     api.get('/extras/comprovantes/divergencias').then(d => setDivergencias(Array.isArray(d?.itens) ? d.itens : [])).catch(() => {});
     api.get('/extras/caixa/fechar-meu/status').then(setFechStatus).catch(() => {});
     api.get('/extras/baixas-pendentes').then(d => setBaixasPend(Array.isArray(d?.itens) ? d.itens : [])).catch(() => {});
@@ -267,6 +268,29 @@ export default function Caixa() {
   };
 
   const [editRepasse, setEditRepasse] = useState(null); // { id, valor }
+  /* 🎁 BÔNUS DO CAIXA (ordem do master, 16/09): total com cada venda
+     especificada, regra própria da Influenza e ajuste manual por venda. */
+  const [regrasBonus, setRegrasBonus] = useState({ padrao: { pct: 1 }, influenza: { tipo: 'pct', valor: 1 }, so_com_comprovante: true, definido: false });
+  const [showBonus, setShowBonus] = useState(false);
+  const [bonusEdit, setBonusEdit] = useState(null);     // { id, valor }
+  const [regrasEdit, setRegrasEdit] = useState(null);   // cópia editável das regras (master)
+  const [regrasSalvando, setRegrasSalvando] = useState(false);
+  const salvarBonusVenda = async () => {
+    if (!bonusEdit) return;
+    const bruto = String(bonusEdit.valor).trim();
+    const val = bruto === '' ? null : (parseFloat(bruto.replace(',', '.')) || 0);
+    const id = bonusEdit.id; setBonusEdit(null);
+    setLista(p => p.map(x => x.id === id ? { ...x, bonus_manual: val } : x));
+    try { await api.patch(`/extras/vendas/${id}/bonus`, { bonus: val }); }
+    catch (err) { setErro(err.message || 'Falha ao salvar o bônus.'); load(); }
+  };
+  const salvarRegrasBonus = async () => {
+    if (!regrasEdit) return;
+    setRegrasSalvando(true);
+    try { const d = await api.put('/extras/bonus-caixa/regras', regrasEdit); setRegrasBonus(d); setRegrasEdit(null); }
+    catch (err) { setErro(err.message || 'Falha ao salvar as regras do bônus.'); }
+    finally { setRegrasSalvando(false); }
+  };
   // Fechamento de repasses do mês (gestão)
   const [showRep, setShowRep] = useState(false);
   const [repDados, setRepDados] = useState(null);
@@ -565,10 +589,31 @@ export default function Caixa() {
   // Saldo real do caixa: entrou (recebido) − saiu (despesas + repasses)
   const saidas = despTotal + totalRepasse;
   const saldo = recebido - saidas;
-  // Bônus: 1% SÓ das vendas COM comprovante (venda concluída/comprovada).
-  // Venda sem comprovante NÃO conta pro bônus (pode ter sido registrada antes do pagamento).
-  const baseBonus = filtrada.filter(v => (v.n_comprovantes || 0) > 0).reduce((s, v) => s + (parseFloat(v.valor) || 0), 0);
-  const bonus = baseBonus * 0.01;
+  /* 🎁 BÔNUS POR VENDA (ordem do master, 16/09): o total é a soma de cada
+     venda, e cada venda diz qual regra usou. Ordem: ajuste manual da gestão >
+     sem comprovante (não entra) > Influenza (regra própria: % ou valor fixo)
+     > padrão (1% da venda). */
+  const ehInfluenza = (v) => /influenza|gripe/i.test(`${v.servico || ''} ${v.categoria || ''}`);
+  const bonusDe = (v) => {
+    if (v.bonus_manual != null && v.bonus_manual !== '') return { valor: parseFloat(v.bonus_manual) || 0, regra: 'manual', rotulo: 'Ajustado à mão' };
+    if (regrasBonus.so_com_comprovante !== false && !(v.n_comprovantes || 0)) return { valor: 0, regra: 'sem_comprovante', rotulo: 'Sem comprovante' };
+    const val = parseFloat(v.valor) || 0;
+    if (ehInfluenza(v)) {
+      const r = regrasBonus.influenza || {};
+      return r.tipo === 'fixo'
+        ? { valor: parseFloat(r.valor) || 0, regra: 'influenza', rotulo: `Influenza · ${fmt.brl(parseFloat(r.valor) || 0)} fixo` }
+        : { valor: val * ((parseFloat(r.valor) || 0) / 100), regra: 'influenza', rotulo: `Influenza · ${parseFloat(r.valor) || 0}%` };
+    }
+    const pct = parseFloat(regrasBonus.padrao?.pct) || 0;
+    return { valor: val * (pct / 100), regra: 'padrao', rotulo: `Padrão · ${pct}%` };
+  };
+  const bonus = filtrada.reduce((s, v) => s + bonusDe(v).valor, 0);
+  const bonusPorRegra = filtrada.reduce((acc, v) => {
+    const b = bonusDe(v); const k = b.regra;
+    acc[k] = acc[k] || { n: 0, base: 0, bonus: 0 };
+    acc[k].n += 1; acc[k].base += parseFloat(v.valor) || 0; acc[k].bonus += b.valor;
+    return acc;
+  }, {});
   const semComprovante = filtrada.filter(v => !(v.n_comprovantes || 0)).length;
   // Caixa do DIA: vendas de hoje (dentro do filtro atual)
   const hojeISO = hojeLocalISO();
@@ -723,7 +768,7 @@ Gerado em ${new Date().toLocaleString('pt-BR')} · Vittalis Saúde · documento 
         <span class="box"><b>Repasse:</b> ${fmt.brl(totalRepasse)}</span>
         <span class="box"><b>Líquido:</b> ${fmt.brl(liquido)}</span>
         <span class="box"><b>Descontos:</b> ${fmt.brl(totalDesc)}</span>
-        <span class="box"><b>Bônus (1% c/ comprovante):</b> ${fmt.brl(bonus)}</span>
+        <span class="box"><b>Bônus total:</b> ${fmt.brl(bonus)}</span>
         <span class="box"><b>Sem comprovante:</b> ${semComprovante}</span>
         <span class="box"><b>Conferidas:</b> ${conferidas}/${filtrada.length}</span>
       </div>
@@ -740,7 +785,7 @@ Gerado em ${new Date().toLocaleString('pt-BR')} · Vittalis Saúde · documento 
     const aRecDia = dia.filter(v => ARECEBER_ST.includes(v.status_pagamento)).reduce((s, v) => s + (parseFloat(v.valor) || 0), 0);
     const formaDia = {}; dia.forEach(v => { const f = ['Pix', 'Cartão', 'Dinheiro'].includes(v.forma_pagamento) ? v.forma_pagamento : 'Outros'; formaDia[f] = (formaDia[f] || 0) + (parseFloat(v.valor) || 0); });
     const resumoForma = Object.entries(formaDia).map(([f, val]) => `<span style="margin-right:16px"><b>${f}:</b> ${fmt.brl(val)}</span>`).join('') || '—';
-    const bonusDia = dia.filter(v => (v.n_comprovantes || 0) > 0).reduce((s, v) => s + (parseFloat(v.valor) || 0), 0) * 0.01;
+    const bonusDia = dia.reduce((s, v) => s + bonusDe(v).valor, 0);
     const semCompDia = dia.filter(v => !(v.n_comprovantes || 0)).length;
     const linhas = dia.map(v => {
       const semC = !(v.n_comprovantes || 0);
@@ -767,7 +812,7 @@ Gerado em ${new Date().toLocaleString('pt-BR')} · Vittalis Saúde · documento 
         <span class="box"><b>Total do dia:</b> ${fmt.brl(totDia)}</span>
         <span class="box"><b>Recebido:</b> ${fmt.brl(recDia)}</span>
         <span class="box"><b>A receber:</b> ${fmt.brl(aRecDia)}</span>
-        ${gestao ? `<span class="box"><b>Bônus (1% c/ comprovante):</b> ${fmt.brl(bonusDia)}</span>` : ''}
+        ${gestao ? `<span class="box"><b>Bônus:</b> ${fmt.brl(bonusDia)}</span>` : ''}
       </div>
       <script>window.onload=()=>window.print()</script></body></html>`);
     w.document.close();
@@ -848,18 +893,19 @@ Gerado em ${new Date().toLocaleString('pt-BR')} · Vittalis Saúde · documento 
           {[
             { rot: 'Recebido', val: fmt.brl(recebido), cor: '#16a34a', sub: 'pago / cortesia' },
             { rot: 'A receber', val: fmt.brl(aReceber), cor: '#d97706', sub: `${nAReceber} pendente(s)`, click: 'areceber', destaque: aReceber > 0 },
-            ...(gestao ? [{ rot: 'Bônus (1%)', val: fmt.brl(bonus), cor: '#C4973B', sub: 'só vendas c/ comprovante' }] : []),
-            ...(gestao ? [{ rot: 'Saídas', val: fmt.brl(saidas), cor: '#dc2626', sub: 'despesas + repasse' }] : []),
-            ...(gestao ? [{ rot: 'Saldo', val: fmt.brl(saldo), cor: saldo >= 0 ? '#0891b2' : '#dc2626', sub: 'recebido − saídas', destaque: false }] : []),
+            /* 🎁 Bônus total abre o detalhamento venda a venda (ordem do master,
+               16/09). O card "Saídas: despesas + repasse" saiu a pedido dele. */
+            ...(gestao ? [{ rot: 'Bônus total', val: fmt.brl(bonus), cor: '#C4973B', sub: `${filtrada.length - (bonusPorRegra.sem_comprovante?.n || 0)} venda(s) · toque para detalhar`, abrir: () => setShowBonus(true), destaque: true }] : []),
+            ...(gestao ? [{ rot: 'Saldo', val: fmt.brl(saldo), cor: saldo >= 0 ? '#0891b2' : '#dc2626', sub: 'recebido − despesas − repasse', destaque: false }] : []),
           ].map(t => {
             const ativo = t.click && filtroRapido === t.click;
             return (
-              <div key={t.rot} onClick={t.click ? () => setFiltroRapido(f => f === t.click ? '' : t.click) : undefined}
-                title={t.click ? 'Clique para ver quem está a receber' : undefined}
-                style={{ flex: '1 1 130px', minWidth: 120, textAlign: 'center', borderRadius: 11, padding: '9px 10px', cursor: t.click ? 'pointer' : 'default',
+              <div key={t.rot} onClick={t.abrir ? t.abrir : (t.click ? () => setFiltroRapido(f => f === t.click ? '' : t.click) : undefined)}
+                title={t.abrir ? 'Ver o bônus de cada venda e as regras' : (t.click ? 'Clique para ver quem está a receber' : undefined)}
+                style={{ flex: '1 1 130px', minWidth: 120, textAlign: 'center', borderRadius: 11, padding: '9px 10px', cursor: (t.click || t.abrir) ? 'pointer' : 'default',
                   background: ativo ? t.cor + '18' : (t.destaque ? '#fdf3e5' : 'var(--card)'),
                   border: `1.5px solid ${ativo ? t.cor : (t.destaque ? '#f5d9ad' : 'var(--border)')}`, transition: 'all .15s' }}>
-                <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .4 }}>{t.rot}{t.click ? (ativo ? ' ▾' : ' →') : ''}</div>
+                <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .4 }}>{t.rot}{t.abrir ? ' →' : (t.click ? (ativo ? ' ▾' : ' →') : '')}</div>
                 <div style={{ fontSize: 16.5, fontWeight: 900, color: t.cor, marginTop: 2 }}>{t.val}</div>
                 <div style={{ fontSize: 10, color: 'var(--light)' }}>{t.sub}</div>
               </div>
@@ -1410,6 +1456,112 @@ Gerado em ${new Date().toLocaleString('pt-BR')} · Vittalis Saúde · documento 
           </div>
         </div>
       )}
+
+      {/* 🎁 BONIFICAÇÃO — total, cada venda especificada, regras (ordem do master, 16/09) */}
+      {showBonus && gestao && (() => {
+        const ORDEM = ['padrao', 'influenza', 'manual', 'sem_comprovante'];
+        const ROT = { padrao: `Padrão · ${parseFloat(regrasBonus.padrao?.pct) || 0}% da venda`, influenza: regrasBonus.influenza?.tipo === 'fixo' ? `Influenza · ${fmt.brl(parseFloat(regrasBonus.influenza?.valor) || 0)} por venda` : `Influenza · ${parseFloat(regrasBonus.influenza?.valor) || 0}% da venda`, manual: 'Ajustado à mão', sem_comprovante: 'Sem comprovante (não entra)' };
+        const COR = { padrao: '#C4973B', influenza: '#0891b2', manual: '#b45309', sem_comprovante: '#9ca3af' };
+        const vendasOrd = [...filtrada].sort((a, b) => String(b.data_venda || '').localeCompare(String(a.data_venda || '')));
+        const re = regrasEdit;
+        return (
+        <div onClick={() => { setShowBonus(false); setRegrasEdit(null); setBonusEdit(null); }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
+          <div onClick={e => e.stopPropagation()} className="card" style={{ width: 760, maxWidth: '100%', maxHeight: '90vh', padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ padding: '16px 20px', color: '#fff', background: 'linear-gradient(135deg,#92400e,#C4973B)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 16 }}>🎁 Bonificação de {mes}{setor ? ` · ${setorMeta[setor]?.l || setor}` : ''}</div>
+                <div style={{ fontSize: 12, opacity: .9, marginTop: 2 }}>Total do bônus com cada venda especificada. Toque no valor de uma venda para ajustar à mão.</div>
+              </div>
+              <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                <div style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: .6, opacity: .85 }}>Bônus total</div>
+                <div style={{ fontSize: 24, fontWeight: 900 }}>{fmt.brl(bonus)}</div>
+              </div>
+              <button onClick={() => { setShowBonus(false); setRegrasEdit(null); setBonusEdit(null); }} className="vh-fechar" style={{ flexShrink: 0 }}>✕ Fechar</button>
+            </div>
+            <div style={{ padding: 18, overflowY: 'auto', flex: 1 }}>
+              {/* Resumo por regra */}
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+                {ORDEM.filter(k => bonusPorRegra[k]).map(k => (
+                  <div key={k} style={{ flex: '1 1 150px', minWidth: 140, borderRadius: 11, padding: '9px 12px', background: 'var(--bg2)', borderLeft: `3px solid ${COR[k]}` }}>
+                    <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--muted)' }}>{ROT[k]}</div>
+                    <div style={{ fontSize: 16, fontWeight: 900, color: COR[k] }}>{fmt.brl(bonusPorRegra[k].bonus)}</div>
+                    <div style={{ fontSize: 10.5, color: 'var(--light)' }}>{bonusPorRegra[k].n} venda(s) · base {fmt.brl(bonusPorRegra[k].base)}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Regras (master edita) */}
+              <div style={{ borderRadius: 11, padding: '10px 12px', background: '#fffbeb', border: '1px solid #fcd34d', marginBottom: 14, fontSize: 12.5 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <b style={{ color: '#92400e' }}>Regras do bônus</b>
+                  <span style={{ color: 'var(--muted)' }}>{ROT.padrao} · {ROT.influenza} · {regrasBonus.so_com_comprovante !== false ? 'só vendas com comprovante' : 'com ou sem comprovante'}</span>
+                  {!regrasBonus.definido && <span style={{ fontSize: 10.5, fontWeight: 800, color: '#b91c1c', background: '#fee2e2', borderRadius: 20, padding: '2px 8px' }}>Influenza ainda no padrão — defina a regra dela</span>}
+                  {user?.role === 'master' && !re && <button onClick={() => setRegrasEdit({ padrao: { pct: regrasBonus.padrao?.pct ?? 1 }, influenza: { tipo: regrasBonus.influenza?.tipo || 'pct', valor: regrasBonus.influenza?.valor ?? 1 }, so_com_comprovante: regrasBonus.so_com_comprovante !== false })} className="btn btn-sm" style={{ marginLeft: 'auto', gap: 4, background: '#fde68a', color: '#92400e', border: '1.5px solid #fcd34d', fontWeight: 800 }}><Pencil size={12} /> Editar regras</button>}
+                </div>
+                {re && (
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap', marginTop: 10 }}>
+                    <label style={{ fontSize: 11, fontWeight: 800, color: '#92400e' }}>Padrão (% da venda)<br />
+                      <input value={re.padrao.pct} onChange={e => setRegrasEdit(p => ({ ...p, padrao: { pct: e.target.value } }))} inputMode="decimal" style={{ width: 80, padding: '6px 9px', border: '1.5px solid #fcd34d', borderRadius: 8, fontSize: 13, fontWeight: 800 }} /></label>
+                    <label style={{ fontSize: 11, fontWeight: 800, color: '#92400e' }}>Influenza: tipo<br />
+                      <select value={re.influenza.tipo} onChange={e => setRegrasEdit(p => ({ ...p, influenza: { ...p.influenza, tipo: e.target.value } }))} style={{ padding: '6px 9px', border: '1.5px solid #fcd34d', borderRadius: 8, fontSize: 13, fontWeight: 700 }}>
+                        <option value="pct">% da venda</option>
+                        <option value="fixo">Valor fixo por venda (R$)</option>
+                      </select></label>
+                    <label style={{ fontSize: 11, fontWeight: 800, color: '#92400e' }}>Influenza: {re.influenza.tipo === 'fixo' ? 'R$ por venda' : '% da venda'}<br />
+                      <input value={re.influenza.valor} onChange={e => setRegrasEdit(p => ({ ...p, influenza: { ...p.influenza, valor: e.target.value } }))} inputMode="decimal" style={{ width: 90, padding: '6px 9px', border: '1.5px solid #fcd34d', borderRadius: 8, fontSize: 13, fontWeight: 800 }} /></label>
+                    <label style={{ fontSize: 11, fontWeight: 800, color: '#92400e', display: 'flex', alignItems: 'center', gap: 6, paddingBottom: 6 }}>
+                      <input type="checkbox" checked={re.so_com_comprovante} onChange={e => setRegrasEdit(p => ({ ...p, so_com_comprovante: e.target.checked }))} /> só com comprovante</label>
+                    <button onClick={salvarRegrasBonus} disabled={regrasSalvando} className="btn btn-sm" style={{ background: '#b45309', color: '#fff', border: 'none', fontWeight: 800 }}>{regrasSalvando ? 'Salvando…' : 'Salvar regras'}</button>
+                    <button onClick={() => setRegrasEdit(null)} className="vh-fechar">✕ Cancelar</button>
+                  </div>
+                )}
+              </div>
+
+              {/* Venda a venda */}
+              {vendasOrd.length === 0 ? (
+                <div style={{ textAlign: 'center', color: 'var(--muted)', padding: 30 }}>Nenhuma venda no período.</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <div style={{ display: 'flex', gap: 8, fontSize: 10, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .4, padding: '2px 8px' }}>
+                    <span style={{ width: 42 }}>Data</span><span style={{ flex: 1, minWidth: 160 }}>Cliente · serviço</span><span style={{ width: 96, textAlign: 'right' }}>Venda</span><span style={{ width: 150 }}>Regra</span><span style={{ width: 100, textAlign: 'right' }}>Bônus</span>
+                  </div>
+                  {vendasOrd.map(v => {
+                    const b = bonusDe(v);
+                    const ed = bonusEdit && bonusEdit.id === v.id;
+                    return (
+                      <div key={v.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, padding: '5px 8px', borderRadius: 8, background: b.regra === 'manual' ? '#fffbeb' : b.regra === 'sem_comprovante' ? 'var(--bg2)' : 'transparent', opacity: b.regra === 'sem_comprovante' ? .75 : 1, flexWrap: 'wrap' }}>
+                        <span style={{ color: 'var(--muted)', width: 42, flexShrink: 0 }}>{fmtData(v.data_venda).slice(0, 5)}</span>
+                        <span style={{ flex: 1, minWidth: 160, fontWeight: 600 }}>{v.cliente_nome || v.paciente_nome || '—'} <span style={{ color: 'var(--muted)', fontWeight: 500 }}>· {v.servico || v.categoria || ''}{v.atendente_nome ? ` · ${String(v.atendente_nome).split(' ')[0]}` : ''}</span></span>
+                        <span style={{ width: 96, textAlign: 'right' }}>{fmt.brl(v.valor)}</span>
+                        <span style={{ width: 150, fontSize: 10.5, fontWeight: 800, color: COR[b.regra] }}>{b.rotulo}</span>
+                        {ed ? (
+                          <span style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                            <input value={bonusEdit.valor} onChange={e => setBonusEdit(p => ({ ...p, valor: e.target.value }))} inputMode="decimal" autoFocus placeholder="vazio = automático"
+                              onKeyDown={e => { if (e.key === 'Enter') salvarBonusVenda(); if (e.key === 'Escape') setBonusEdit(null); }}
+                              style={{ width: 96, padding: '4px 8px', border: '1.5px solid #fcd34d', borderRadius: 6, fontSize: 12.5, fontWeight: 800 }} />
+                            <button onClick={salvarBonusVenda} className="btn btn-sm" style={{ background: '#b45309', color: '#fff', border: 'none', fontWeight: 800, padding: '3px 8px' }}>OK</button>
+                            <button onClick={() => setBonusEdit(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 11 }}>✕</button>
+                          </span>
+                        ) : (
+                          <button onClick={() => setBonusEdit({ id: v.id, valor: b.regra === 'manual' ? String(b.valor).replace('.', ',') : '' })}
+                            title={b.regra === 'manual' ? 'Bônus ajustado à mão — clique para mudar (vazio volta ao automático)' : 'Clique para ajustar o bônus só desta venda'}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, color: COR[b.regra], fontWeight: 800, fontSize: 12.5, width: 100, justifyContent: 'flex-end' }}>
+                            {fmt.brl(b.valor)} <Pencil size={10} style={{ opacity: .6 }} />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 8px', borderTop: '2px solid var(--border)', fontWeight: 900, fontSize: 14, marginTop: 4 }}>
+                    <span>Bônus total</span><span style={{ color: '#92400e' }}>{fmt.brl(bonus)}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+        );
+      })()}
 
       {/* Fechamento de repasses do mês */}
       {showRep && (

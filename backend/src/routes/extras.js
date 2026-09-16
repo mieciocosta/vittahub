@@ -2514,7 +2514,7 @@ r.get('/vendas', async (req, res) => {
       SELECT v.id, v.conversa_id, v.lead_id, v.atendente_id, v.atendente_nome, v.setor, v.categoria,
              v.cliente_nome, v.paciente_nome, v.servico, v.valor, v.desconto, v.forma_pagamento,
              v.status_pagamento, v.data_venda, v.data_atendimento, v.origem, v.observacao,
-             v.conferido, v.conferido_em, v.conferido_por, v.repasse, v.ligou,
+             v.conferido, v.conferido_em, v.conferido_por, v.repasse, v.ligou, v.bonus_manual,
              (SELECT u.role FROM usuarios u WHERE u.id = v.atendente_id) AS atendente_role,
              COALESCE((SELECT COUNT(*) FROM venda_comprovantes c WHERE c.venda_id = v.id),0)::int n_comprovantes,
              v.created_at, v.updated_at
@@ -2723,6 +2723,56 @@ r.patch('/vendas/:id', async (req, res) => {
     if (!v) return res.status(404).json({ error: 'Venda não encontrada' });
     socketEmit('venda_registrada', { id: v.id, setor: v.setor, valor: v.valor, editada: true });
     res.json(v);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* 🎁 BÔNUS DO CAIXA — regras e ajuste por venda (ordem do master, 16/09).
+   O bônus padrão é 1% da venda COM comprovante. A Influenza tem cálculo
+   próprio, definido pela gestão aqui (percentual ou valor fixo por venda).
+   Fica em configuracoes.bonus_caixa; sem nada gravado vale o padrão. */
+const BONUS_PADRAO = { padrao: { pct: 1 }, influenza: { tipo: 'pct', valor: 1 }, so_com_comprovante: true };
+const lerRegrasBonus = async () => {
+  const { rows: [c] } = await query("SELECT valor FROM configuracoes WHERE chave = 'bonus_caixa'").catch(() => ({ rows: [] }));
+  const v = c?.valor || {};
+  return {
+    padrao: { pct: Math.max(0, parseFloat(v.padrao?.pct)) || BONUS_PADRAO.padrao.pct },
+    influenza: { tipo: v.influenza?.tipo === 'fixo' ? 'fixo' : 'pct',
+      valor: Math.max(0, parseFloat(v.influenza?.valor)) || (v.influenza?.tipo === 'fixo' ? 0 : BONUS_PADRAO.influenza.valor) },
+    so_com_comprovante: v.so_com_comprovante !== false,
+    definido: !!c, atualizado_por: v.atualizado_por || null, atualizado_em: v.atualizado_em || null,
+  };
+};
+r.get('/bonus-caixa/regras', async (req, res) => {
+  try {
+    if (!gestao(req) && !veGeral(req)) return res.status(403).json({ error: 'Apenas a gestão vê as regras do bônus.' });
+    res.json(await lerRegrasBonus());
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+r.put('/bonus-caixa/regras', async (req, res) => {
+  try {
+    if (req.user.role !== 'master') return res.status(403).json({ error: 'Só o master define as regras do bônus.' });
+    const b = req.body || {};
+    const num = (x, max) => Math.max(0, Math.min(parseFloat(String(x ?? '').replace(',', '.')) || 0, max));
+    const regras = {
+      padrao: { pct: num(b.padrao?.pct, 100) },
+      influenza: { tipo: b.influenza?.tipo === 'fixo' ? 'fixo' : 'pct', valor: num(b.influenza?.valor, b.influenza?.tipo === 'fixo' ? 100000 : 100) },
+      so_com_comprovante: b.so_com_comprovante !== false,
+      atualizado_por: req.user.nome, atualizado_em: new Date().toISOString(),
+    };
+    await query(`INSERT INTO configuracoes (chave, valor) VALUES ('bonus_caixa', $1::jsonb)
+                 ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`, [JSON.stringify(regras)]);
+    res.json({ ok: true, ...regras, definido: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+// Ajuste manual do bônus de UMA venda (gestão). `bonus: null` volta ao automático.
+r.patch('/vendas/:id/bonus', async (req, res) => {
+  try {
+    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão ajusta o bônus.' });
+    const raw = (req.body || {}).bonus;
+    const val = raw === null || raw === '' || raw === undefined ? null : Math.max(0, Math.min(parseFloat(String(raw).replace(',', '.')) || 0, 1000000));
+    const { rows: [v] } = await query(`UPDATE vendas SET bonus_manual = $1, updated_at = NOW() WHERE id = $2 RETURNING id, bonus_manual`, [val, req.params.id]);
+    if (!v) return res.status(404).json({ error: 'Venda não encontrada' });
+    res.json({ ok: true, id: v.id, bonus_manual: v.bonus_manual });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

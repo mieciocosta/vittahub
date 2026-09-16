@@ -850,6 +850,10 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
        de repasse possa ser alterado manual a fim do repasse ser certinho").
        Um valor fechado por pessoa e mês, com motivo e quem ajustou; o cálculo
        automático continua guardado do lado pra comparação. */
+    /* 🎁 BÔNUS AJUSTADO À MÃO por venda (ordem do master, 16/09: "o relatório
+       de bônus possa ser alterado manual, e que especifique dentro do bônus
+       total o que foi cada venda"). NULL = automático (regra do Caixa). */
+    await query(`ALTER TABLE vendas ADD COLUMN IF NOT EXISTS bonus_manual NUMERIC(10,2)`).catch(() => {});
     await query(`CREATE TABLE IF NOT EXISTS repasses_ajustes (
       id SERIAL PRIMARY KEY,
       mes TEXT NOT NULL,
