@@ -138,3 +138,17 @@ export const carteiraFechada = (u) => {
   const n = String(u.nome || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   return /(^|[^a-z])(gabriel|poliana)/.test(n);
 };
+
+/* 🔒 Carteira fechada SEM vacinas = só a Gabriellen (so_carteira: consultas e
+   terapias). A Poliana também é carteira fechada, mas a dela é VACINAS
+   fidelidade: precisa do Vittasys, da Agenda Vacinas e da Logística. Em 15/09
+   a trava "carteira fechada não vê vacinas" pegou as duas e o Vittasys sumiu
+   do menu da Poliana ("desde ontem não aparece"). Use ESTA função pra tirar
+   vacinas; carteiraFechada() continua sendo a regra de "só vê o que é dela". */
+export const carteiraSemVacinas = (u) => {
+  if (!u || u.role === 'master') return false;
+  if (u.so_carteira === true) return true;
+  if (u.so_fidelidade === true) return false;
+  const n = String(u.nome || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  return /(^|[^a-z])gabriel/.test(n);
+};

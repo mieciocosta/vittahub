@@ -12,7 +12,7 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { aoVivo } from '../hooks/polling.js';
 import { useApi } from '../context/AuthContext.jsx';
 import { setToken } from '../hooks/api.js';
-import { fmt, clarear, escurecer, tituloUsuario, carteiraFechada } from '../hooks/utils.js';
+import { fmt, clarear, escurecer, tituloUsuario, carteiraFechada, carteiraSemVacinas } from '../hooks/utils.js';
 import { versiculoDoDia } from '../hooks/versiculos.js';
 
 // 4 tons por família: p<0 clareia, p>0 escurece. Quatro é o ponto em que a
@@ -307,8 +307,10 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
   /* 🔒 so_carteira (Gabriellen) é consultas/terapias por ordem do master (04/09:
      "retire as agendas e informações de vacinas"): vacinas nunca entra, mesmo
      que o cadastro ainda traga o setor. */
+  /* Só a Gabriellen perde vacinas — a Poliana é carteira fechada de VACINAS
+     fidelidade e precisa do Vittasys (cobrança dela, 16/09). */
   const podeSetor = (s) => user?.role === 'master'
-    || (meusSetores.includes(s) && !(s === 'vacinas' && carteiraFechada(user)));
+    || (meusSetores.includes(s) && !(s === 'vacinas' && carteiraSemVacinas(user)));
   /* 📅 As duas agendas juntas: master e a supervisora de consultas/terapias
      (Danielle). Raylane, supervisora de vacinas, vê só a de vacinas. */
   /* Carteira fechada nunca entra aqui, nem sendo supervisora: era por esta
