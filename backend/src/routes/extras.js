@@ -2554,37 +2554,108 @@ r.get('/vendas', async (req, res) => {
 
 // REPASSES DO MÊS — extrato por atendente (1% das vendas da função atendente,
 // respeitando ajuste manual por venda) + controle de pagamento (marcar pago).
+/* Régua ÚNICA do repasse de uma venda (SQL), usada no extrato do mês e na
+   lista venda a venda — as duas telas têm que bater no centavo. */
+const SQL_REPASSE_VENDA = `CASE WHEN COALESCE(v.repasse,0) > 0 THEN v.repasse
+        /* 💰 comissão pessoal por consulta (Gabriellen, 04/09) */
+        WHEN v.categoria = 'Consulta' AND (u.regras_pessoais->'comissao'->'consulta') IS NOT NULL THEN
+          CASE WHEN v.valor <= COALESCE((u.regras_pessoais->'comissao'->'consulta'->>'ate')::numeric, 400)
+               THEN COALESCE((u.regras_pessoais->'comissao'->'consulta'->>'valor')::numeric, 0)
+               ELSE COALESCE((u.regras_pessoais->'comissao'->'consulta'->>'acima')::numeric, 0) END
+        WHEN u.role = 'atendente' THEN v.valor * 0.01
+        ELSE 0 END`;
+const mesValido = (m) => /^\d{4}-\d{2}$/.test(m || '') ? m : null;
+
 r.get('/repasses-mes', async (req, res) => {
   try {
     // Quanto cada colega recebe é assunto do dono, não da supervisora de setor
     if (!veGeral(req)) return res.status(403).json({ error: 'Apenas a gestão e o marketing veem os repasses.' });
-    const mes = /^\d{4}-\d{2}$/.test(req.query.mes || '') ? req.query.mes : new Date().toISOString().slice(0, 7);
+    const mes = mesValido(req.query.mes) || new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 7);
     const { rows } = await query(
       `SELECT v.atendente_id, COALESCE(NULLIF(v.atendente_nome,''), u.nome, '—') AS nome,
               COUNT(*)::int AS vendas,
               COALESCE(SUM(v.valor),0)::float AS vendido,
-              COALESCE(SUM(CASE WHEN COALESCE(v.repasse,0) > 0 THEN v.repasse
-                                /* 💰 comissão pessoal por consulta (Gabriellen, 04/09) */
-                                WHEN v.categoria = 'Consulta' AND (u.regras_pessoais->'comissao'->'consulta') IS NOT NULL THEN
-                                  CASE WHEN v.valor <= COALESCE((u.regras_pessoais->'comissao'->'consulta'->>'ate')::numeric, 400)
-                                       THEN COALESCE((u.regras_pessoais->'comissao'->'consulta'->>'valor')::numeric, 0)
-                                       ELSE COALESCE((u.regras_pessoais->'comissao'->'consulta'->>'acima')::numeric, 0) END
-                                WHEN u.role = 'atendente' THEN v.valor * 0.01
-                                ELSE 0 END),0)::float AS repasse
+              COALESCE(SUM(${SQL_REPASSE_VENDA}),0)::float AS repasse,
+              COUNT(*) FILTER (WHERE COALESCE(v.repasse,0) > 0)::int AS vendas_ajustadas
          FROM vendas v LEFT JOIN usuarios u ON u.id = v.atendente_id
         WHERE to_char(v.data_venda,'YYYY-MM') = $1
         GROUP BY v.atendente_id, COALESCE(NULLIF(v.atendente_nome,''), u.nome, '—')
         ORDER BY 5 DESC`, [mes]);
     const { rows: pagos } = await query(`SELECT * FROM repasses_pagamentos WHERE mes = $1`, [mes]);
     const pagoPor = Object.fromEntries(pagos.map(p2 => [String(p2.atendente_id), p2]));
-    const itens = rows.filter(x => (x.repasse || 0) > 0.004).map(x => ({
-      ...x, repasse: +(+x.repasse).toFixed(2),
+    /* 💸 Ajuste manual do mês (pedido do master, 16/09): quando existe, é o
+       valor que vale — o calculado fica ao lado só pra conferência. */
+    const { rows: ajustes } = await query(`SELECT * FROM repasses_ajustes WHERE mes = $1`, [mes]).catch(() => ({ rows: [] }));
+    const ajustePor = Object.fromEntries(ajustes.map(a => [String(a.atendente_id), a]));
+    const vistos = new Set();
+    const itens = rows.map(x => {
+      vistos.add(String(x.atendente_id));
+      const aj = ajustePor[String(x.atendente_id)];
+      const calc = +(+x.repasse).toFixed(2);
+      return { ...x, repasse_calculado: calc, repasse: aj ? +(+aj.valor).toFixed(2) : calc,
+        ajuste: aj ? { valor: +(+aj.valor).toFixed(2), motivo: aj.motivo || '', por: aj.ajustado_por || null, em: aj.ajustado_em } : null };
+    })
+    /* Pessoa que só tem ajuste (sem venda calculada no mês) também entra —
+       senão o ajuste some da tela e o pagamento fica sem linha. */
+    .concat(ajustes.filter(a => !vistos.has(String(a.atendente_id))).map(a => ({
+      atendente_id: a.atendente_id, nome: a.atendente_nome || '—', vendas: 0, vendido: 0, vendas_ajustadas: 0,
+      repasse_calculado: 0, repasse: +(+a.valor).toFixed(2),
+      ajuste: { valor: +(+a.valor).toFixed(2), motivo: a.motivo || '', por: a.ajustado_por || null, em: a.ajustado_em } })))
+    .filter(x => (x.repasse || 0) > 0.004 || x.ajuste)
+    .map(x => ({
+      ...x,
       pago: !!pagoPor[String(x.atendente_id)],
       pago_em: pagoPor[String(x.atendente_id)]?.pago_em || null,
       pago_por: pagoPor[String(x.atendente_id)]?.pago_por || null,
       valor_pago: pagoPor[String(x.atendente_id)] ? +pagoPor[String(x.atendente_id)].valor : null,
-    }));
+    }))
+    .sort((a, b) => b.repasse - a.repasse);
     res.json({ mes, itens, total: +itens.reduce((s2, x) => s2 + x.repasse, 0).toFixed(2) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* 💸 AJUSTE MANUAL do repasse do mês por pessoa (pedido do master, 16/09: "o
+   relatório de repasse possa ser alterado manual a fim do repasse ser
+   certinho"). Só gestão. Mandar `remover: true` volta ao automático. */
+r.put('/repasses-mes/ajuste', async (req, res) => {
+  try {
+    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão ajusta o repasse.' });
+    const b = req.body || {};
+    const mes = mesValido(b.mes);
+    if (!mes || !b.atendente_id) return res.status(400).json({ error: 'Informe mes e atendente.' });
+    if (b.remover) {
+      await query(`DELETE FROM repasses_ajustes WHERE mes = $1 AND atendente_id = $2`, [mes, String(b.atendente_id)]);
+      return res.json({ ok: true, removido: true });
+    }
+    const valor = Math.max(0, Math.min(parseFloat(String(b.valor ?? '').replace(',', '.')) || 0, 1000000));
+    await query(
+      `INSERT INTO repasses_ajustes (mes, atendente_id, atendente_nome, valor, motivo, ajustado_por)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       ON CONFLICT (mes, atendente_id) DO UPDATE SET valor = EXCLUDED.valor, motivo = EXCLUDED.motivo,
+         atendente_nome = COALESCE(EXCLUDED.atendente_nome, repasses_ajustes.atendente_nome),
+         ajustado_em = NOW(), ajustado_por = EXCLUDED.ajustado_por`,
+      [mes, String(b.atendente_id), cut(b.atendente_nome, 120) || null, valor, cut(b.motivo, 300) || null, req.user.nome]);
+    res.json({ ok: true, valor });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* 💸 As vendas de UMA pessoa no mês, cada uma com o repasse calculado e o
+   ajuste manual (se houver) — é a lupa do extrato, pra gestão conferir e
+   corrigir venda a venda pelo PATCH /vendas/:id/repasse. */
+r.get('/repasses-mes/vendas', async (req, res) => {
+  try {
+    if (!veGeral(req)) return res.status(403).json({ error: 'Apenas a gestão e o marketing veem os repasses.' });
+    const mes = mesValido(req.query.mes);
+    const att = String(req.query.atendente_id || '');
+    if (!mes || !att) return res.status(400).json({ error: 'Informe mes e atendente.' });
+    const { rows } = await query(
+      `SELECT v.id, v.data_venda, v.cliente_nome, v.paciente_nome, v.servico, v.categoria, v.setor,
+              v.valor::float AS valor, v.repasse::float AS repasse_manual,
+              (${SQL_REPASSE_VENDA})::float AS repasse_calc
+         FROM vendas v LEFT JOIN usuarios u ON u.id = v.atendente_id
+        WHERE to_char(v.data_venda,'YYYY-MM') = $1 AND v.atendente_id = $2
+        ORDER BY v.data_venda DESC, v.created_at DESC LIMIT 1000`, [mes, att]);
+    res.json({ mes, atendente_id: att, vendas: rows.map(v => ({ ...v, repasse_calc: +(+(v.repasse_calc || 0)).toFixed(2) })) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

@@ -846,6 +846,21 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       pago_por TEXT,
       UNIQUE (mes, atendente_id)
     )`).catch(() => {});
+    /* 💸 AJUSTE MANUAL DO REPASSE DO MÊS (pedido do master, 16/09: "o relatório
+       de repasse possa ser alterado manual a fim do repasse ser certinho").
+       Um valor fechado por pessoa e mês, com motivo e quem ajustou; o cálculo
+       automático continua guardado do lado pra comparação. */
+    await query(`CREATE TABLE IF NOT EXISTS repasses_ajustes (
+      id SERIAL PRIMARY KEY,
+      mes TEXT NOT NULL,
+      atendente_id TEXT,
+      atendente_nome TEXT,
+      valor NUMERIC(10,2) DEFAULT 0,
+      motivo TEXT,
+      ajustado_em TIMESTAMPTZ DEFAULT NOW(),
+      ajustado_por TEXT,
+      UNIQUE (mes, atendente_id)
+    )`).catch(() => {});
     await query(`ALTER TABLE agenda_eventos ADD COLUMN IF NOT EXISTS local_link TEXT`).catch(() => {});
     await query(`ALTER TABLE agenda_eventos ADD COLUMN IF NOT EXISTS email TEXT`).catch(() => {});
     await query(`ALTER TABLE agenda_eventos ADD COLUMN IF NOT EXISTS valor NUMERIC(10,2)`).catch(() => {});

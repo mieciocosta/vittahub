@@ -276,6 +276,51 @@ export default function Caixa() {
     try { await api.post('/extras/repasses-mes/pagar', { mes, atendente_id: it.atendente_id, atendente_nome: it.nome, valor: it.repasse, desfazer }); loadRep(); }
     catch (e) { setErro(e.message || 'Erro ao salvar pagamento.'); }
   };
+  /* 💸 AJUSTE MANUAL DO RELATÓRIO DE REPASSE (pedido do master, 16/09: "o
+     relatório de repasse possa ser alterado manual a fim do repasse ser
+     certinho"). Dois níveis: o valor fechado da pessoa no mês (com motivo e
+     quem ajustou) e, na lupa, o repasse de cada venda. O automático fica
+     sempre visível ao lado pra conferência, e dá pra voltar pra ele. */
+  const [repEdit, setRepEdit] = useState(null);        // { atendente_id, nome, valor, motivo }
+  const [repAberto, setRepAberto] = useState(null);    // atendente_id com a lupa aberta
+  const [repVendas, setRepVendas] = useState({});      // atendente_id -> vendas do mês
+  const [repVendaEdit, setRepVendaEdit] = useState(null); // { id, valor }
+  const [repSalvando, setRepSalvando] = useState(false);
+  const salvarAjusteRep = async () => {
+    if (!repEdit) return;
+    setRepSalvando(true);
+    try {
+      await api.put('/extras/repasses-mes/ajuste', { mes, atendente_id: repEdit.atendente_id, atendente_nome: repEdit.nome, valor: repEdit.valor, motivo: repEdit.motivo });
+      setRepEdit(null); loadRep();
+    } catch (e) { setErro(e.message || 'Falha ao ajustar o repasse.'); }
+    finally { setRepSalvando(false); }
+  };
+  const removerAjusteRep = async (it) => {
+    try { await api.put('/extras/repasses-mes/ajuste', { mes, atendente_id: it.atendente_id, remover: true }); loadRep(); }
+    catch (e) { setErro(e.message || 'Falha ao voltar ao automático.'); }
+  };
+  const verVendasRep = async (it) => {
+    const id = String(it.atendente_id);
+    if (repAberto === id) { setRepAberto(null); return; }
+    setRepAberto(id);
+    if (!repVendas[id]) {
+      try { const d = await api.get(`/extras/repasses-mes/vendas?mes=${mes}&atendente_id=${encodeURIComponent(id)}`); setRepVendas(p => ({ ...p, [id]: d.vendas || [] })); }
+      catch (e) { setErro(e.message || 'Falha ao carregar as vendas.'); setRepVendas(p => ({ ...p, [id]: [] })); }
+    }
+  };
+  const salvarRepVenda = async (attId) => {
+    if (!repVendaEdit) return;
+    const val = parseFloat(String(repVendaEdit.valor).replace(',', '.')) || 0;
+    const id = repVendaEdit.id; setRepVendaEdit(null);
+    try {
+      await api.patch(`/extras/vendas/${id}/repasse`, { repasse: val });
+      // Recarrega a lupa e o extrato: a soma da pessoa muda junto
+      const d = await api.get(`/extras/repasses-mes/vendas?mes=${mes}&atendente_id=${encodeURIComponent(attId)}`);
+      setRepVendas(p => ({ ...p, [attId]: d.vendas || [] }));
+      setLista(p => p.map(x => x.id === id ? { ...x, repasse: val } : x));
+      loadRep();
+    } catch (e) { setErro(e.message || 'Falha ao salvar o repasse da venda.'); }
+  };
   const salvarRepasse = async () => {
     if (!editRepasse) return;
     const val = parseFloat(String(editRepasse.valor).replace(',', '.')) || 0;
@@ -1373,7 +1418,7 @@ Gerado em ${new Date().toLocaleString('pt-BR')} · Vittalis Saúde · documento 
             <div style={{ padding: '16px 20px', color: '#fff', background: 'linear-gradient(135deg,#7f1d1d,#b91c1c)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div>
                 <div style={{ fontWeight: 800, fontSize: 16 }}>💸 Repasses de {mes}</div>
-                <div style={{ fontSize: 12, opacity: .85, marginTop: 2 }}>1% por venda da função atendente (ajustes manuais respeitados). Marque como pago ao acertar.</div>
+                <div style={{ fontSize: 12, opacity: .85, marginTop: 2 }}>1% por venda da função atendente, ou a comissão pessoal. Ajuste o valor de quem precisar (✏️) ou corrija venda a venda (🔍). Marque como pago ao acertar.</div>
               </div>
               <button onClick={() => setShowRep(false)} style={{ background: 'rgba(255,255,255,.18)', border: 'none', borderRadius: 8, color: '#fff', cursor: 'pointer', padding: 6, display: 'flex' }}><X size={16} /></button>
             </div>
@@ -1384,23 +1429,100 @@ Gerado em ${new Date().toLocaleString('pt-BR')} · Vittalis Saúde · documento 
                 <div style={{ textAlign: 'center', color: 'var(--muted)', padding: 30 }}>Nenhum repasse a pagar neste mês.</div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {repDados.itens.map(it => (
-                    <div key={String(it.atendente_id)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 14px', borderRadius: 12, background: it.pago ? '#e7f8ef' : 'var(--bg2)', border: `1.5px solid ${it.pago ? '#a7f3d0' : 'var(--border)'}`, flexWrap: 'wrap' }}>
-                      <div style={{ flex: 1, minWidth: 150 }}>
-                        <div style={{ fontWeight: 800, fontSize: 13.5 }}>{it.nome}</div>
-                        <div style={{ fontSize: 11, color: 'var(--muted)' }}>{it.vendas} venda(s) · vendeu {fmt.brl(it.vendido)}</div>
-                      </div>
-                      <div style={{ fontWeight: 900, fontSize: 15, color: it.pago ? '#16a34a' : '#b91c1c' }}>{fmt.brl(it.repasse)}</div>
-                      {it.pago ? (
-                        <div style={{ textAlign: 'right' }}>
-                          <div style={{ fontSize: 11, fontWeight: 800, color: '#16a34a' }}>✓ PAGO {it.pago_em ? `em ${fmtData(it.pago_em)}` : ''}</div>
-                          <div style={{ fontSize: 10, color: 'var(--muted)' }}>{it.pago_por ? `por ${String(it.pago_por).split(' ')[0]}` : ''} · <button onClick={() => pagarRep(it, true)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 10, textDecoration: 'underline', padding: 0 }}>desfazer</button></div>
+                  {repDados.itens.map(it => {
+                    const attId = String(it.atendente_id);
+                    const editando = repEdit && String(repEdit.atendente_id) === attId;
+                    const aberto = repAberto === attId;
+                    const vendasDela = repVendas[attId];
+                    const pagoDiferente = it.pago && it.valor_pago != null && Math.abs(it.valor_pago - it.repasse) > 0.004;
+                    return (
+                    <div key={attId} style={{ padding: '11px 14px', borderRadius: 12, background: it.pago ? '#e7f8ef' : 'var(--bg2)', border: `1.5px solid ${it.pago ? '#a7f3d0' : it.ajuste ? '#fcd34d' : 'var(--border)'}` }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                        <div style={{ flex: 1, minWidth: 150 }}>
+                          <div style={{ fontWeight: 800, fontSize: 13.5 }}>{it.nome}</div>
+                          <div style={{ fontSize: 11, color: 'var(--muted)' }}>{it.vendas} venda(s) · vendeu {fmt.brl(it.vendido)}{it.vendas_ajustadas > 0 ? ` · ${it.vendas_ajustadas} com repasse corrigido` : ''}</div>
+                          {it.ajuste && (
+                            <div style={{ fontSize: 11, color: '#b45309', fontWeight: 700, marginTop: 2 }}>
+                              ✏️ Ajustado à mão{it.ajuste.por ? ` por ${String(it.ajuste.por).split(' ')[0]}` : ''} · automático seria {fmt.brl(it.repasse_calculado)}{it.ajuste.motivo ? ` · ${it.ajuste.motivo}` : ''}
+                              {' · '}<button onClick={() => removerAjusteRep(it)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#b45309', fontSize: 11, textDecoration: 'underline', padding: 0 }}>voltar ao automático</button>
+                            </div>
+                          )}
+                          {pagoDiferente && <div style={{ fontSize: 11, color: '#b91c1c', fontWeight: 700, marginTop: 2 }}>⚠️ Foi pago {fmt.brl(it.valor_pago)}, mas o valor atual é {fmt.brl(it.repasse)}. Desfaça e marque de novo se precisar acertar.</div>}
                         </div>
-                      ) : (
-                        <button onClick={() => pagarRep(it)} className="btn btn-sm" style={{ gap: 5, background: '#16a34a', color: '#fff', border: 'none', fontWeight: 800 }}>Marcar pago</button>
+                        <div style={{ fontWeight: 900, fontSize: 15, color: it.pago ? '#16a34a' : it.ajuste ? '#b45309' : '#b91c1c' }}>{fmt.brl(it.repasse)}</div>
+                        <button onClick={() => setRepEdit(editando ? null : { atendente_id: it.atendente_id, nome: it.nome, valor: String(it.repasse).replace('.', ','), motivo: it.ajuste?.motivo || '' })}
+                          title="Ajustar o valor do repasse desta pessoa no mês"
+                          className="btn btn-sm" style={{ gap: 4, background: editando ? '#fde68a' : 'var(--card,#fff)', color: '#92400e', border: '1.5px solid #fcd34d', fontWeight: 800 }}>
+                          <Pencil size={12} /> Ajustar
+                        </button>
+                        <button onClick={() => verVendasRep(it)} title="Ver e corrigir o repasse venda a venda"
+                          className="btn btn-sm" style={{ gap: 4, background: aberto ? 'var(--bg2)' : 'var(--card,#fff)', color: 'var(--txt)', border: '1.5px solid var(--border)', fontWeight: 800 }}>
+                          <Search size={12} /> {aberto ? 'Fechar' : 'Vendas'}
+                        </button>
+                        {it.pago ? (
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontSize: 11, fontWeight: 800, color: '#16a34a' }}>✓ PAGO {it.pago_em ? `em ${fmtData(it.pago_em)}` : ''}</div>
+                            <div style={{ fontSize: 10, color: 'var(--muted)' }}>{it.pago_por ? `por ${String(it.pago_por).split(' ')[0]}` : ''} · <button onClick={() => pagarRep(it, true)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 10, textDecoration: 'underline', padding: 0 }}>desfazer</button></div>
+                          </div>
+                        ) : (
+                          <button onClick={() => pagarRep(it)} className="btn btn-sm" style={{ gap: 5, background: '#16a34a', color: '#fff', border: 'none', fontWeight: 800 }}>Marcar pago</button>
+                        )}
+                      </div>
+                      {editando && (
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 10, padding: '10px 12px', borderRadius: 10, background: '#fffbeb', border: '1px solid #fcd34d' }}>
+                          <div style={{ fontSize: 11.5, fontWeight: 800, color: '#92400e', width: '100%' }}>Valor certo do repasse de {String(it.nome).split(' ')[0]} em {mes} (automático: {fmt.brl(it.repasse_calculado)})</div>
+                          <input value={repEdit.valor} onChange={e => setRepEdit(p => ({ ...p, valor: e.target.value }))} inputMode="decimal" placeholder="0,00" autoFocus
+                            onKeyDown={e => { if (e.key === 'Enter') salvarAjusteRep(); if (e.key === 'Escape') setRepEdit(null); }}
+                            style={{ width: 110, padding: '7px 10px', border: '1.5px solid #fcd34d', borderRadius: 8, fontSize: 14, fontWeight: 800 }} />
+                          <input value={repEdit.motivo} onChange={e => setRepEdit(p => ({ ...p, motivo: e.target.value }))} placeholder="Motivo (opcional): ex. desconto combinado, venda dividida…"
+                            onKeyDown={e => { if (e.key === 'Enter') salvarAjusteRep(); if (e.key === 'Escape') setRepEdit(null); }}
+                            style={{ flex: 1, minWidth: 180, padding: '7px 10px', border: '1.5px solid var(--border)', borderRadius: 8, fontSize: 12.5 }} />
+                          <button onClick={salvarAjusteRep} disabled={repSalvando} className="btn btn-sm" style={{ background: '#b45309', color: '#fff', border: 'none', fontWeight: 800 }}>{repSalvando ? 'Salvando…' : 'Salvar'}</button>
+                          <button onClick={() => setRepEdit(null)} className="vh-fechar">✕ Cancelar</button>
+                        </div>
+                      )}
+                      {aberto && (
+                        <div style={{ marginTop: 10, borderTop: '1px dashed var(--border)', paddingTop: 8 }}>
+                          {!vendasDela ? (
+                            <div style={{ fontSize: 12, color: 'var(--muted)', padding: 6 }}>Carregando vendas…</div>
+                          ) : vendasDela.length === 0 ? (
+                            <div style={{ fontSize: 12, color: 'var(--muted)', padding: 6 }}>Nenhuma venda registrada no nome dela neste mês.</div>
+                          ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                              {vendasDela.map(v => {
+                                const ed = repVendaEdit && repVendaEdit.id === v.id;
+                                const manual = (parseFloat(v.repasse_manual) || 0) > 0;
+                                return (
+                                  <div key={v.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, padding: '5px 8px', borderRadius: 8, background: manual ? '#fffbeb' : 'transparent', flexWrap: 'wrap' }}>
+                                    <span style={{ color: 'var(--muted)', width: 42, flexShrink: 0 }}>{fmtData(v.data_venda).slice(0, 5)}</span>
+                                    <span style={{ flex: 1, minWidth: 140, fontWeight: 600 }}>{v.cliente_nome || v.paciente_nome || '—'} <span style={{ color: 'var(--muted)', fontWeight: 500 }}>· {v.servico || v.categoria || ''}</span></span>
+                                    <span style={{ width: 88, textAlign: 'right' }}>{fmt.brl(v.valor)}</span>
+                                    {ed ? (
+                                      <>
+                                        <input value={repVendaEdit.valor} onChange={e => setRepVendaEdit(p => ({ ...p, valor: e.target.value }))} inputMode="decimal" autoFocus
+                                          onKeyDown={e => { if (e.key === 'Enter') salvarRepVenda(attId); if (e.key === 'Escape') setRepVendaEdit(null); }}
+                                          style={{ width: 80, padding: '4px 8px', border: '1.5px solid #fcd34d', borderRadius: 6, fontSize: 12.5, fontWeight: 800 }} />
+                                        <button onClick={() => salvarRepVenda(attId)} className="btn btn-sm" style={{ background: '#b45309', color: '#fff', border: 'none', fontWeight: 800, padding: '3px 8px' }}>OK</button>
+                                        <button onClick={() => setRepVendaEdit(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 11 }}>✕</button>
+                                      </>
+                                    ) : (
+                                      <button onClick={() => setRepVendaEdit({ id: v.id, valor: String(v.repasse_calc).replace('.', ',') })}
+                                        title={manual ? 'Repasse desta venda corrigido à mão — clique para mudar' : 'Repasse automático — clique para corrigir só esta venda'}
+                                        style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, color: manual ? '#b45309' : 'var(--txt)', fontWeight: 800, fontSize: 12.5, width: 96, justifyContent: 'flex-end' }}>
+                                        {fmt.brl(v.repasse_calc)} <Pencil size={10} style={{ opacity: .6 }} />
+                                      </button>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                              <div style={{ fontSize: 11, color: 'var(--muted)', padding: '4px 8px' }}>Corrigir uma venda aqui muda a soma automática da pessoa. Se você já fixou o valor do mês à mão (✏️), o fixado continua valendo.</div>
+                            </div>
+                          )}
+                        </div>
                       )}
                     </div>
-                  ))}
+                    );
+                  })}
                   <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 14px', borderTop: '2px solid var(--border)', fontWeight: 900, fontSize: 14 }}>
                     <span>Total do mês</span><span style={{ color: '#b91c1c' }}>{fmt.brl(repDados.total)}</span>
                   </div>
