@@ -4091,7 +4091,9 @@ export default function Inbox({ onUnreadChange }) {
                 Tabela / Prova social. Turquesa da casa, a cor que a figurinha
                 já tinha no ícone pequeno. Abre o mesmo painel de figurinhas. */}
             {sel && (
-              <div style={{ display:'flex', gap:6, alignItems:'center', marginBottom:6 }}>
+              {/* À direita, logo acima da fileira colorida (ordem do master, 19/09:
+                  "Pix e Figurinhas do lado direito logo acima dos que já tem") */}
+              <div style={{ display:'flex', gap:6, alignItems:'center', justifyContent:'flex-end', marginBottom:6 }}>
                 <button onClick={()=>{ setShowFigus(p=>!p); setShowEmoji(false); setShowQR(false); setShowProntas(false); }}
                   title="Figurinhas da Vittalis — escolhe e manda na hora"
                   style={{ display:'flex', alignItems:'center', gap:6, flexShrink:0, border:'none',
