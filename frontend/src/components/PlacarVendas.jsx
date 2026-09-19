@@ -88,6 +88,7 @@ export default function PlacarVendas() {
   const [meta, setMeta] = useState(null);
   const [hoje, setHoje] = useState(null);
   const [pulse, setPulse] = useState(false);
+  const [festaBusy, setFestaBusy] = useState(false); // 🥳 botão do master soltando a festa
   const [festa, setFesta] = useState(false);   // comemoração de venda ao vivo
   const [pausa, setPausa] = useState(null);    // ⏸️ chaves do automático
   const [painel, setPainel] = useState(false); // painel de chaves (master)
@@ -284,6 +285,18 @@ export default function PlacarVendas() {
                   : foco
                   ? (focoOk ? '✅ Feita! Bora além' : foco.map(qtdTexto).join(' ou '))
                   : (faltaMin <= 0 ? '🏆 Meta batida!' : `falta ${fmt.brl(faltaMin)}`)}
+                {/* 🥳 SOLTAR A FESTA (ordem do master, 19/09): a festa da meta do
+                    dia nasce sozinha quando a venda bate a meta; este botão é
+                    pra ele soltar na hora, pra todo mundo, quando quiser. */}
+                {user?.role === 'master' && s.setor && s.setor !== 'geral' && (
+                  <button onClick={(e) => { e.stopPropagation(); if (festaBusy) return; setFestaBusy(true);
+                      api.post('/extras/festa-meta-dia', { setor: s.setor }).catch(() => {}).finally(() => setFestaBusy(false)); }}
+                    title={`Soltar a festa da meta do dia de ${nome} em todas as telas`}
+                    style={{ marginLeft: 6, background: 'rgba(255,255,255,.18)', border: '1px solid rgba(255,255,255,.4)', borderRadius: 8,
+                      color: '#fff', cursor: 'pointer', padding: '1px 6px', fontSize: 12, verticalAlign: 'middle', opacity: festaBusy ? .6 : 1 }}>
+                    🥳
+                  </button>
+                )}
               </div>
               {/* A mínima do MÊS não some: desce pra linha de baixo, miúda */}
               {usaDia && !mes && (

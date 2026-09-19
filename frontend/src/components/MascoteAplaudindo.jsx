@@ -222,3 +222,80 @@ export default function MascoteAplaudindo({ nome, valor }) {
     </div>
   );
 }
+
+
+/* 🕺 A VITINHA DANÇANDO (ordem do master, 19/09: "boneco dançando"). Mesmo
+   personagem da casa, coreografia nova: rebola, balança os braços pro alto
+   um de cada vez, pula no ritmo e solta estrelinhas. `lado` espelha a dança
+   pra ter uma de cada canto. Tudo em CSS, sem imagem. */
+export function MascoteDancando({ lado = 'direita', fala = 'Bateu a meta!', sub = 'Parabéns, equipe!' }) {
+  const [p] = React.useState(escolherPersonagem);
+  const dir = lado === 'esquerda';
+  return (
+    <div style={{ position: 'fixed', [dir ? 'left' : 'right']: 18, bottom: 16, zIndex: 1001, pointerEvents: 'none',
+      display: 'flex', alignItems: 'flex-end', gap: 10, flexDirection: dir ? 'row-reverse' : 'row',
+      animation: 'vh-mascote-entra .5s cubic-bezier(.2,1.5,.4,1)' }}>
+      <div style={{ background: 'var(--card,#fff)', border: '2px solid #C4973B', borderRadius: 16,
+        padding: '10px 15px', boxShadow: '0 10px 30px rgba(196,151,59,.35)', marginBottom: 30, textAlign: dir ? 'left' : 'right',
+        animation: 'vh-balao-pula .9s ease-in-out infinite' }}>
+        <div style={{ fontSize: 13.5, fontWeight: 900, color: '#92400e', whiteSpace: 'nowrap' }}>🎉 {fala}</div>
+        <div style={{ fontSize: 11.5, color: 'var(--muted,#5a7285)', fontWeight: 700, whiteSpace: 'nowrap' }}>{sub}</div>
+      </div>
+      <div style={{ position: 'relative', width: 150, height: 170, transform: dir ? 'scaleX(-1)' : 'none',
+        animation: 'vh-danca-pula .62s ease-in-out infinite' }}>
+        {[['8%', '14%', '0s'], ['84%', '6%', '.2s'], ['48%', '0%', '.4s'], ['94%', '44%', '.1s'], ['2%', '52%', '.3s']].map(([l, t, d], i) => (
+          <span key={i} style={{ position: 'absolute', left: l, top: t, fontSize: 17, animation: `vh-estrela .62s ${d} ease-out infinite` }}>{i % 2 ? '🎊' : '✨'}</span>
+        ))}
+        <svg viewBox="0 0 130 150" width="150" height="170" aria-label="Mascote dançando">
+          <defs>
+            <linearGradient id={`vh-danca-${p.id}`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={p.cores[0]} /><stop offset="100%" stopColor={p.cores[1]} />
+            </linearGradient>
+          </defs>
+          <ellipse cx="65" cy="143" rx="30" ry="6" fill="rgba(6,66,74,.18)" />
+          {/* Corpo rebolando */}
+          <g style={{ transformOrigin: '65px 130px', animation: 'vh-rebola 1.24s ease-in-out infinite' }}>
+            <path d="M65 34c22 0 36 16 36 40 0 26-16 44-36 44S29 100 29 74c0-24 14-40 36-40z" fill={`url(#vh-danca-${p.id})`} />
+            <path d="M65 84l-9-10h18l-9 10zm-9-13l4-6h10l4 6H56z" fill="#fff" opacity=".95" />
+            {p.enfeite}
+            <g style={{ transformOrigin: '52px 62px', animation: 'vh-piscar 3.4s infinite' }}>
+              <ellipse cx="52" cy="62" rx="6.5" ry="8" fill="#06424A" /><circle cx="54" cy="59" r="2.4" fill="#fff" />
+            </g>
+            <g style={{ transformOrigin: '80px 62px', animation: 'vh-piscar 3.4s infinite' }}>
+              <ellipse cx="80" cy="62" rx="6.5" ry="8" fill="#06424A" /><circle cx="82" cy="59" r="2.4" fill="#fff" />
+            </g>
+            <ellipse cx="40" cy="74" rx="7" ry="5" fill="#f9a8d4" opacity=".75" />
+            <ellipse cx="92" cy="74" rx="7" ry="5" fill="#f9a8d4" opacity=".75" />
+            {/* Boca aberta de alegria */}
+            <path d="M53 76q12 16 24 0z" fill="#06424A" />
+            <path d="M58 79q7 6 14 0z" fill="#fb7185" />
+            {/* Braços pro alto, um de cada vez */}
+            <g style={{ transformOrigin: '42px 96px', animation: 'vh-braco-esq 1.24s ease-in-out infinite' }}>
+              <path d="M42 96L26 72" stroke={p.cores[1]} strokeWidth="9" strokeLinecap="round" />
+              <circle cx="24" cy="68" r="10" fill={p.cores[0]} stroke={p.borda} strokeWidth="2.5" />
+            </g>
+            <g style={{ transformOrigin: '88px 96px', animation: 'vh-braco-dir 1.24s ease-in-out infinite' }}>
+              <path d="M88 96l16-24" stroke={p.cores[1]} strokeWidth="9" strokeLinecap="round" />
+              <circle cx="106" cy="68" r="10" fill={p.cores[0]} stroke={p.borda} strokeWidth="2.5" />
+            </g>
+          </g>
+          {/* Pézinhos batendo no ritmo */}
+          <ellipse cx="53" cy="130" rx="11" ry="7" fill={p.cores[1]} style={{ transformOrigin: '53px 130px', animation: 'vh-pe 1.24s ease-in-out infinite' }} />
+          <ellipse cx="77" cy="130" rx="11" ry="7" fill={p.cores[1]} style={{ transformOrigin: '77px 130px', animation: 'vh-pe 1.24s .62s ease-in-out infinite' }} />
+        </svg>
+      </div>
+      <style>{`
+        @keyframes vh-mascote-entra { 0% { transform: translateY(60px) scale(.7); opacity: 0; } 100% { transform: none; opacity: 1; } }
+        @keyframes vh-balao-pula    { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+        @keyframes vh-danca-pula    { 0%,100% { transform: translateY(0) ; } 50% { transform: translateY(-14px); } }
+        @keyframes vh-rebola        { 0%,100% { transform: rotate(-9deg) translateX(-4px); } 50% { transform: rotate(9deg) translateX(4px); } }
+        @keyframes vh-braco-esq     { 0%,100% { transform: rotate(0deg); } 50% { transform: rotate(-70deg); } }
+        @keyframes vh-braco-dir     { 0%,100% { transform: rotate(70deg); } 50% { transform: rotate(0deg); } }
+        @keyframes vh-pe            { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+        @keyframes vh-piscar        { 0%,92%,100% { transform: scaleY(1); } 96% { transform: scaleY(.12); } }
+        @keyframes vh-estrela       { 0% { transform: scale(.4); opacity: 0; } 40% { transform: scale(1.15); opacity: 1; } 100% { transform: scale(.5); opacity: 0; } }
+        @media (prefers-reduced-motion: reduce) { [aria-label="Mascote dançando"] *, [aria-label="Mascote dançando"] { animation: none !important; } }
+      `}</style>
+    </div>
+  );
+}

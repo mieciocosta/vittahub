@@ -3133,6 +3133,33 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
   try { await consertarAssinaturas(); } catch (e) { console.error('assinaturas:', e.message); }
   try { await titulosDaEquipe(); } catch (e) { console.error('titulos da equipe:', e.message); }
   try { await bonusPessoais(); } catch (e) { console.error('bonus pessoais:', e.message); }
+  /* 🥳 FESTA DE HOJE (ordem do master, 19/09: "foi ultrapassada a meta do dia
+     do setor de vacinas; quero que seja ativado agora"). No primeiro boot do
+     dia 19/09 (relógio de São Luís) a festa entra em configuracoes.festa_ativa
+     até o fim do dia: toda tela aberta pergunta e comemora. Só nesse dia; depois a
+     festa nasce sozinha quando a venda bate a meta. */
+  try {
+    const hojeSLZ = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+    if (hojeSLZ === '2026-09-19') {
+      const { rowCount } = await query(`INSERT INTO configuracoes (chave, valor) VALUES ('festa_meta_dia:vacinas:2026-09-19', '{"ok":true,"manual":true}') ON CONFLICT DO NOTHING`);
+      if (rowCount) {
+        const { rows: [hd] } = await query(`SELECT COALESCE(SUM(valor),0)::float vendido FROM vendas WHERE COALESCE(setor,'vacinas') = 'vacinas' AND data_venda = $1::date`, [hojeSLZ]).catch(() => ({ rows: [{ vendido: 0 }] }));
+        const { rows: [cl] } = await query("SELECT valor FROM configuracoes WHERE chave = 'relatorio_lider'").catch(() => ({ rows: [] }));
+        const meta = Math.max(0, parseFloat(cl?.valor?.setores?.vacinas?.dia) || parseFloat(cl?.valor?.meta_diaria_setor) || 19000);
+        const brl = (n) => (parseFloat(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
+        const agora = Date.now();
+        const festa = { id: `vacinas-${hojeSLZ}-${agora}`, tipo: 'marco', festa: 'meta_dia', setor: 'vacinas', setorNome: 'Vacinas',
+          vendido: hd?.vendido || 0, meta, por: 'Dr. Miécio', titulo: '🥳 Dia de celebração!',
+          texto: `O setor de Vacinas ultrapassou a meta do dia: ${brl(hd?.vendido || 0)} de ${brl(meta)}!`,
+          /* Expediente de sábado vai até 12h (aviso do master): a festa vale até
+             12:30 de São Luís, ou 1h depois do boot se o deploy subir tarde. */
+          em: new Date(agora).toISOString(), ate: new Date(Math.max(new Date(hojeSLZ + 'T12:30:00-03:00').getTime(), agora + 3600 * 1000)).toISOString() };
+        await query(`INSERT INTO configuracoes (chave, valor) VALUES ('festa_ativa', $1::jsonb)
+                     ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`, [JSON.stringify(festa)]);
+        console.log('🥳 Festa da meta do dia (vacinas, 19/09) ativada até o fim do dia');
+      }
+    }
+  } catch (e) { console.error('festa 19/09:', e.message); }
   try { await colunasCriticas(); } catch (e) { console.error('colunas criticas:', e.message); }
   try { await tabelaOcultas(); } catch (e) { console.error('tabela ocultas:', e.message); }
   /* ⚠️ DEPOIS de colunasCriticas, sempre. As metas por setor gravam numa coluna

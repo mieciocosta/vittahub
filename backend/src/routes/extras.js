@@ -589,6 +589,8 @@ r.post('/vendas', async (req, res) => {
       texto: `${String(atendenteNome || 'A equipe').split(' ')[0]} fechou mais uma em ${setor}`,
     });
     console.log(`VENDA OK: ${categoria} R$${valor} (id=${v.id})`);
+    // 🥳 Bateu a meta do dia do setor? Festa pra todo mundo (uma vez por dia)
+    dispararFestaMetaDia(setor).catch((e) => console.error('festa meta dia:', e.message));
 
     // ── 🔁 PRÓXIMA DOSE (recompra automática de vacinas) ─────────────────────
     // Venda de pacote mensal ("vacinas de X meses") agenda sozinha um lembrete
@@ -2554,6 +2556,83 @@ r.get('/vendas', async (req, res) => {
 
 // REPASSES DO MÊS — extrato por atendente (1% das vendas da função atendente,
 // respeitando ajuste manual por venda) + controle de pagamento (marcar pago).
+/* ═══ 🥳 DIA DE CELEBRAÇÃO — festa em TODAS as telas quando um setor bate a
+   meta do dia (ordem do master, 19/09: "faz o CRM de todos ficar em festa,
+   cheio de confetes e palmas, pois foi ultrapassada a meta do dia do setor
+   de vacinas; quero que apareça para todos; confetes, fogos e boneco
+   dançando").
+
+   Como funciona:
+   · a cada venda registrada/editada, o servidor confere se o setor passou a
+     meta do dia (a mesma régua da cápsula do placar: relatorio_lider →
+     setores[setor].dia) e, se passou, solta a festa UMA vez por setor/dia;
+   · a festa fica guardada até o FIM DO DIA em configuracoes.festa_ativa
+     (ordem dele: "comemorar o dia todo"), pra quem abrir o CRM depois também
+     ver (a tela pergunta ao entrar e a cada 90 s);
+   · o master pode soltar na hora pelo botão 🥳 do placar (POST). */
+const NOME_SETOR = { vacinas: 'Vacinas', consultas: 'Consultas', terapias: 'Terapias' };
+const brlFesta = (n) => (parseFloat(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
+export async function dispararFestaMetaDia(setor, { forcar = false, por = null } = {}) {
+  const st = ['vacinas', 'consultas', 'terapias'].includes(setor) ? setor : 'vacinas';
+  const hojeSLZ = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+  const cfg = await cfgRelatorioLider();
+  const doSetor = cfg.setores?.[st] || {};
+  const metaDia = Math.max(0, parseFloat(doSetor.dia) || parseFloat(cfg.meta_diaria_setor) || 0);
+  const { rows: [hd] } = await query(
+    `SELECT COALESCE(SUM(valor),0)::float vendido FROM vendas WHERE COALESCE(setor,'vacinas') = $1 AND data_venda = $2::date`,
+    [st, hojeSLZ]).catch(() => ({ rows: [{ vendido: 0 }] }));
+  const vendido = hd?.vendido || 0;
+  if (!forcar) {
+    if (!(metaDia > 0) || vendido < metaDia) return null;
+    // Uma festa por setor e dia: a marca é gravada ANTES de emitir, pra duas
+    // vendas no mesmo segundo não soltarem duas festas.
+    const flag = `festa_meta_dia:${st}:${hojeSLZ}`;
+    const { rowCount } = await query(`INSERT INTO configuracoes (chave, valor) VALUES ($1, '{"ok":true}') ON CONFLICT DO NOTHING`, [flag]);
+    if (!rowCount) return null;
+  }
+  const agora = Date.now();
+  const festa = {
+    id: `${st}-${hojeSLZ}-${agora}`, tipo: 'marco', festa: 'meta_dia', setor: st, setorNome: NOME_SETOR[st],
+    vendido, meta: metaDia, por,
+    titulo: '🥳 Dia de celebração!',
+    texto: metaDia > 0
+      ? `O setor de ${NOME_SETOR[st]} ultrapassou a meta do dia: ${brlFesta(vendido)} de ${brlFesta(metaDia)}!`
+      : `O setor de ${NOME_SETOR[st]} bateu a meta do dia com ${brlFesta(vendido)}!`,
+    em: new Date(agora).toISOString(), ate: new Date(hojeSLZ + 'T23:59:59-03:00').toISOString(),
+  };
+  await query(`INSERT INTO configuracoes (chave, valor) VALUES ('festa_ativa', $1::jsonb)
+               ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`, [JSON.stringify(festa)]).catch(() => {});
+  socketEmit('celebracao', festa);
+  console.log(`🥳 Festa da meta do dia: ${st} ${brlFesta(vendido)} / ${brlFesta(metaDia)}${forcar ? ' (manual)' : ''}`);
+  return festa;
+}
+// A festa em curso (até o fim do dia), pra quem abre o CRM depois
+r.get('/festa-ativa', async (req, res) => {
+  try {
+    const { rows: [c] } = await query("SELECT valor FROM configuracoes WHERE chave = 'festa_ativa'").catch(() => ({ rows: [] }));
+    const f = c?.valor;
+    if (!f?.id || !f.ate || new Date(f.ate).getTime() < Date.now()) return res.json({});
+    res.json(f);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+// Master solta a festa na hora (mesmo que a meta ainda não tenha batido)
+r.post('/festa-meta-dia', async (req, res) => {
+  try {
+    if (req.user.role !== 'master') return res.status(403).json({ error: 'Só o master solta a festa.' });
+    const festa = await dispararFestaMetaDia(req.body?.setor || 'vacinas', { forcar: true, por: req.user.nome });
+    res.json({ ok: true, festa });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+// Encerrar a festa antes do fim do dia (master)
+r.delete('/festa-ativa', async (req, res) => {
+  try {
+    if (req.user.role !== 'master') return res.status(403).json({ error: 'Só o master.' });
+    await query("DELETE FROM configuracoes WHERE chave = 'festa_ativa'").catch(() => {});
+    socketEmit('festa_encerrada', {});
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 /* Régua ÚNICA do repasse de uma venda (SQL), usada no extrato do mês e na
    lista venda a venda — as duas telas têm que bater no centavo. */
 const SQL_REPASSE_VENDA = `CASE WHEN COALESCE(v.repasse,0) > 0 THEN v.repasse
@@ -2722,6 +2801,7 @@ r.patch('/vendas/:id', async (req, res) => {
     const { rows: [v] } = await query(`UPDATE vendas SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${i} RETURNING *`, params);
     if (!v) return res.status(404).json({ error: 'Venda não encontrada' });
     socketEmit('venda_registrada', { id: v.id, setor: v.setor, valor: v.valor, editada: true });
+    if (b.valor !== undefined) dispararFestaMetaDia(v.setor).catch((e) => console.error('festa meta dia:', e.message));
     res.json(v);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
