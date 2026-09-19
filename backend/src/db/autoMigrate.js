@@ -3164,6 +3164,18 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       }
     }
   } catch (e) { console.error('festa 19/09:', e.message); }
+  /* 🔁 VERSÃO 2 DA FESTA (ordem do master, 19/09: "após corrigir meu texto e
+     a música, apareça para a pessoa independente do que ela esteja fazendo").
+     A tela guarda "já li" por id + versão; subir a versão faz a abertura
+     voltar pra todo mundo, e zera a lista de quem leu. */
+  try {
+    const { rowCount } = await query(`INSERT INTO configuracoes (chave, valor) VALUES ('festa_versao2_2026-09-19', '{"ok":true}') ON CONFLICT DO NOTHING`);
+    if (rowCount) {
+      const { rowCount: n } = await query(`UPDATE configuracoes SET valor = valor || '{"versao":2,"lidas":{}}'::jsonb, updated_at = NOW()
+        WHERE chave = 'festa_ativa' AND valor->>'id' LIKE 'vacinas-2026-09-19-%'`);
+      if (n) console.log('🥳 Festa 19/09: versão 2 (texto e música novos) reaberta pra todos');
+    }
+  } catch (e) { console.error('festa v2:', e.message); }
   try { await colunasCriticas(); } catch (e) { console.error('colunas criticas:', e.message); }
   try { await tabelaOcultas(); } catch (e) { console.error('tabela ocultas:', e.message); }
   /* ⚠️ DEPOIS de colunasCriticas, sempre. As metas por setor gravam numa coluna

@@ -466,7 +466,9 @@ function FestaDoDia({ festa, api, user, onReabrir, mudo, onMudo }) {
 }
 
 function MegaFesta({ festa, api, user }) {
-  const chaveLida = `vh_festa_lida:${festa.id}`;
+  // id + versão: quando o servidor sobe a versão (texto/música novos), a
+  // abertura volta pra todo mundo (ordem do master, 19/09)
+  const chaveLida = `vh_festa_lida:${festa.id}:${festa.versao || 1}`;
   const [lida, setLida] = useState(() => { try { return !!localStorage.getItem(chaveLida); } catch { return false; } });
   const [mudo, setMudo] = useState(() => { try { return localStorage.getItem('vh_festa_mudo') === festa.id; } catch { return false; } });
   const marcarMudo = () => { setMudo(true); try { localStorage.setItem('vh_festa_mudo', festa.id); } catch { /* ok */ } };
@@ -520,7 +522,7 @@ export default function CelebracaoGlobal() {
   }, [user]); // eslint-disable-line
 
   // A festa do dia convive com as comemorações de venda (a venda aparece por cima)
-  const megaEl = mega ? <MegaFesta key={mega.id} festa={mega} api={api} user={user} /> : null;
+  const megaEl = mega ? <MegaFesta key={`${mega.id}:${mega.versao || 1}`} festa={mega} api={api} user={user} /> : null;
   if (!festa) return megaEl;
   const grande = festa.tipo === 'marco';
 
