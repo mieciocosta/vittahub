@@ -2595,9 +2595,11 @@ export async function dispararFestaMetaDia(setor, { forcar = false, por = null }
     id: `${st}-${hojeSLZ}-${agora}`, tipo: 'marco', festa: 'meta_dia', setor: st, setorNome: NOME_SETOR[st],
     vendido, meta: metaDia, por,
     titulo: '🥳 Dia de celebração!',
-    texto: metaDia > 0
+    // Botão do master não depende de venda registrada: só mostra os números
+    // quando o registrado de fato passou a meta.
+    texto: metaDia > 0 && vendido >= metaDia
       ? `O setor de ${NOME_SETOR[st]} ultrapassou a meta do dia: ${brlFesta(vendido)} de ${brlFesta(metaDia)}!`
-      : `O setor de ${NOME_SETOR[st]} bateu a meta do dia com ${brlFesta(vendido)}!`,
+      : `O setor de ${NOME_SETOR[st]} ultrapassou a meta do dia! Parabéns, equipe!`,
     em: new Date(agora).toISOString(), ate: new Date(hojeSLZ + 'T23:59:59-03:00').toISOString(),
   };
   await query(`INSERT INTO configuracoes (chave, valor) VALUES ('festa_ativa', $1::jsonb)

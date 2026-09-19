@@ -281,7 +281,7 @@ function AberturaFesta({ festa, onLiberar, mudo, onMudo }) {
           {TEXTO_DIRECAO(setorNome)}
           <div style={{ marginTop: 8, fontWeight: 900, color: '#0E8C96' }}>Dr. Miécio e a Direção da Vittalis Saúde 🩵</div>
         </div>
-        {festa.vendido > 0 && (
+        {festa.vendido > 0 && festa.meta > 0 && festa.vendido >= festa.meta && (
           <div style={{ display: 'inline-flex', gap: 16, marginTop: 14, background: 'rgba(255,255,255,.18)', borderRadius: 14, padding: '8px 16px', flexWrap: 'wrap', justifyContent: 'center' }}>
             <span style={{ fontSize: 12, fontWeight: 800, opacity: .9 }}>Vendido hoje <b style={{ fontSize: 17, display: 'block' }}>{brl0(festa.vendido)}</b></span>
             {festa.meta > 0 && <span style={{ fontSize: 12, fontWeight: 800, opacity: .9 }}>Meta do dia <b style={{ fontSize: 17, display: 'block' }}>{brl0(festa.meta)}</b></span>}

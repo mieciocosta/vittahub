@@ -3150,7 +3150,11 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
         const agora = Date.now();
         const festa = { id: `vacinas-${hojeSLZ}-${agora}`, tipo: 'marco', festa: 'meta_dia', setor: 'vacinas', setorNome: 'Vacinas',
           vendido: hd?.vendido || 0, meta, por: 'Dr. Miécio', titulo: '🥳 Dia de celebração!',
-          texto: `O setor de Vacinas ultrapassou a meta do dia: ${brl(hd?.vendido || 0)} de ${brl(meta)}!`,
+          // Sem depender de venda registrada (ordem do master): se o registrado
+          // ainda não passou a meta, o texto não mostra número nenhum.
+          texto: (hd?.vendido || 0) >= meta && meta > 0
+            ? `O setor de Vacinas ultrapassou a meta do dia: ${brl(hd?.vendido || 0)} de ${brl(meta)}!`
+            : 'O setor de Vacinas ultrapassou a meta do dia! Parabéns, equipe!',
           /* Expediente de sábado vai até 12h (aviso do master): a festa vale até
              12:30 de São Luís, ou 1h depois do boot se o deploy subir tarde. */
           em: new Date(agora).toISOString(), ate: new Date(Math.max(new Date(hojeSLZ + 'T12:30:00-03:00').getTime(), agora + 3600 * 1000)).toISOString() };
