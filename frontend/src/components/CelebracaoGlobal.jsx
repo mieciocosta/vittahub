@@ -159,7 +159,12 @@ const sortearChuva = () => {
    tela de quem está atendendo.                                             */
 const ABERTURA_SOM_MS = 30000;
 const LEITURA_MIN_S = 12;
-const TROCA_ATO_MS = 10000; // ordem do master (19/09): "confetes lindos a cada 10 segundos"
+// Ordem do master (19/09): "confetes lindos a cada 10 segundos, 2 bonecos
+// dançando nas laterais o dia todo, somente na data de hoje". A festa de
+// hoje vem do servidor marcada `intensa`; as próximas (automáticas, quando
+// bater a meta) ficam no ritmo normal: um efeito a cada 30 s.
+const TROCA_ATO_MS = 30000;
+const TROCA_ATO_INTENSA_MS = 10000;
 
 // Texto da Direção. O começo é ditado pelo master (verbatim); o resto fala
 // só da equipe, do valor dela e do quanto ele acredita em cada uma (ordem
@@ -421,13 +426,15 @@ function AberturaFesta({ festa, onLiberar, mudo, onMudo }) {
 
 /* O DIA TODO: faixa no topo + um ato diferente a cada 30 s */
 function FestaDoDia({ festa, api, user, onReabrir, mudo, onMudo }) {
-  const [ato, setAto] = useState(() => Math.floor(Date.now() / TROCA_ATO_MS) % ATOS.length);
+  const intensa = festa.intensa === true;
+  const passo = intensa ? TROCA_ATO_INTENSA_MS : TROCA_ATO_MS;
+  const [ato, setAto] = useState(() => Math.floor(Date.now() / passo) % ATOS.length);
   const [lidas, setLidas] = useState(null); // 📖 só gestão: quem leu / quem falta
   const calarRef = useRef(null);
   const ehGestao = user?.role === 'master' || user?.role === 'supervisor';
   useEffect(() => {
     // Todo mundo troca de ato no mesmo instante (relógio), a cada 30 s
-    const t = setInterval(() => setAto(Math.floor(Date.now() / TROCA_ATO_MS) % ATOS.length), 1000);
+    const t = setInterval(() => setAto(Math.floor(Date.now() / passo) % ATOS.length), 1000);
     let parar = null;
     if (ehGestao && api) {
       const ler = () => api.get('/extras/festa-ativa/lidas').then(setLidas).catch(() => {});
@@ -446,8 +453,18 @@ function FestaDoDia({ festa, api, user, onReabrir, mudo, onMudo }) {
       {/* 🕺 Os dois bonecos dançam nas laterais O DIA TODO (ordem do master,
           19/09: "2 bonecos fique dançando nas laterais"). Cada um troca de
           personagem a cada 10 atos (100 s) pra não enjoar. */}
-      <MascoteDancando key={`md${Math.floor(ato / 10)}`} lado="direita" fala="Bateu a meta!" sub={`Setor de ${festa.setorNome || 'Vacinas'} 🏆`} />
-      <MascoteDancando key={`me${Math.floor(ato / 10) + 1}`} lado="esquerda" fala="Dia de celebração!" sub="Parabéns, equipe! 👏" />
+      {intensa ? (
+        <>
+          <MascoteDancando key={`md${Math.floor(ato / 10)}`} lado="direita" fala="Bateu a meta!" sub={`Setor de ${festa.setorNome || 'Vacinas'} 🏆`} />
+          <MascoteDancando key={`me${Math.floor(ato / 10) + 1}`} lado="esquerda" fala="Dia de celebração!" sub="Parabéns, equipe! 👏" />
+        </>
+      ) : (
+        <>
+          {a.mascote === 'danca-dir' && <MascoteDancando key={`m${ato}`} lado="direita" fala="Bateu a meta!" sub={`Setor de ${festa.setorNome || 'Vacinas'} 🏆`} />}
+          {a.mascote === 'danca-esq' && <MascoteDancando key={`m${ato}`} lado="esquerda" fala="Dia de celebração!" sub="Parabéns, equipe! 👏" />}
+          {a.mascote === 'palmas' && <MascoteAplaudindo key={`m${ato}`} nome="equipe" valor="" />}
+        </>
+      )}
       {/* Faixa fixa no topo */}
       <div onClick={onReabrir} title="Abrir a mensagem da Direção de novo"
         style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 1500, cursor: 'pointer',

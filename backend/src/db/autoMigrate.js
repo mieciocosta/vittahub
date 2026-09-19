@@ -3192,6 +3192,13 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
         WHERE chave = 'festa_ativa' AND valor->>'id' LIKE 'vacinas-2026-09-19-%'`);
     }
   } catch (e) { console.error('festa v4:', e.message); }
+  // 🎊 Só a festa de HOJE é a intensa (bonecos nas laterais + confete a cada
+  // 10 s); as próximas ficam no ritmo normal (ordem do master, 19/09:
+  // "somente na data de hoje"). Sem subir a versão: não reabre a tela.
+  try {
+    await query(`UPDATE configuracoes SET valor = valor || '{"intensa":true}'::jsonb, updated_at = NOW()
+      WHERE chave = 'festa_ativa' AND valor->>'id' LIKE 'vacinas-2026-09-19-%' AND COALESCE(valor->>'intensa','') <> 'true'`);
+  } catch (e) { console.error('festa intensa:', e.message); }
   try { await colunasCriticas(); } catch (e) { console.error('colunas criticas:', e.message); }
   try { await tabelaOcultas(); } catch (e) { console.error('tabela ocultas:', e.message); }
   /* ⚠️ DEPOIS de colunasCriticas, sempre. As metas por setor gravam numa coluna
