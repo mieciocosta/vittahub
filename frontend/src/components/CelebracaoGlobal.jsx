@@ -161,12 +161,15 @@ const ABERTURA_SOM_MS = 30000;
 const LEITURA_MIN_S = 12;
 const TROCA_ATO_MS = 30000;
 
-// Texto da Direção. O começo é ditado pelo master (verbatim); o resto
-// completa a mensagem. Sem travessão, sem aspas.
+// Texto da Direção. O começo é ditado pelo master (verbatim); o resto fala
+// só da equipe, do valor dela e do quanto ele acredita em cada uma (ordem
+// dele, 19/09). Sem travessão, sem aspas.
 const TEXTO_DIRECAO = (setorNome) =>
   `A Direção da Vittalis Saúde parabeniza a equipe pelo alcance da meta do dia do setor de ${setorNome}. ` +
-  'Cada família acolhida, cada atendimento bem feito e cada venda fechada construíram esse resultado. ' +
-  'Obrigado pela dedicação, pelo cuidado e pela garra de cada uma de vocês. Hoje é dia de celebração!';
+  'Mas o que eu quero dizer hoje é sobre vocês. O valor desta equipe não está no número: está no cuidado com que cada uma atende, ' +
+  'na paciência com cada mãe e cada pai, e na garra de não desistir de nenhuma família. ' +
+  'Eu acredito em cada uma de vocês. Acredito no talento, no coração e na capacidade que vocês têm de ir muito além. ' +
+  'Vocês são o maior patrimônio da Vittalis. Obrigado por serem quem são.';
 
 // Segunda mensagem, assinada pela Dra. Nágila (ordem do master, 19/09:
 // "faz outro assinado Dra Nágila"). Sem travessão, sem aspas.
@@ -223,44 +226,123 @@ const ATOS = [
   { chuvas: ['fita', 'serpentina', 'fogos'], fogos: true, mascote: 'danca-dir' },
 ];
 
-// Palmas e fogos sintetizados: ruído curto filtrado (palma) e grave que
-// desce com estalos (fogo). Devolve a função que cala tudo.
+/* 🎵 MÚSICA DA FESTA (ordem do master, 19/09: "melhora o som, quero uma
+   música bonita"). Não dá pra puxar música pronta: o CRM não carrega
+   arquivo de fora e música de terceiros tem direitos. Então a melodia é
+   NOSSA, composta aqui e tocada pelo sintetizador do navegador (Web Audio):
+   fanfarra de abertura, melodia alegre em Dó maior sobre C, G, Am, F, baixo
+   marcando o tempo, sininhos em arpejo e palmas leves só nos primeiros
+   segundos. Sem arquivo, sem biblioteca. Devolve a função que cala tudo. */
+const NOTA = (n) => 440 * Math.pow(2, (n - 69) / 12);           // MIDI → Hz
+const N = { C4: 60, D4: 62, E4: 64, F4: 65, G4: 67, A4: 69, B4: 71, C5: 72, D5: 74, E5: 76, F5: 77, G5: 79, A5: 81, B5: 83, C6: 84, D6: 86, E6: 88 };
+// Acordes por compasso (2 s cada, 120 bpm): raiz do baixo + notas do acorde
+const ACORDES = [
+  { baixo: 36, notas: [N.C4, N.E4, N.G4] },   // C
+  { baixo: 43, notas: [N.G4, N.B4, N.D5] },   // G
+  { baixo: 45, notas: [N.A4, N.C5, N.E5] },   // Am
+  { baixo: 41, notas: [N.F4, N.A4, N.C5] },   // F
+];
+// Melodia: [nota, duração em tempos]; 8 compassos de 4 tempos + final
+const MELODIA = [
+  [N.E5, 1], [N.G5, 1], [N.C6, 2],
+  [N.D6, 1], [N.B5, 1], [N.G5, 2],
+  [N.A5, 1], [N.C6, 1], [N.E6, 1.5], [N.D6, .5],
+  [N.C6, 2], [N.A5, 1], [N.G5, 1],
+  [N.E5, .5], [N.G5, .5], [N.C6, 1], [N.E6, 2],
+  [N.D6, 1], [N.B5, 1], [N.D6, 1], [N.G5, 1],
+  [N.A5, 1.5], [N.G5, .5], [N.E5, 2],
+  [N.F5, 1], [N.G5, 1], [N.A5, 1], [N.B5, 1],
+  [N.C6, 4],
+];
+const TEMPO = .5;              // segundos por tempo (120 bpm)
+const DURACAO_LOOP = 36 * TEMPO; // 9 compassos = 18 s
+
 function tocarFesta(ms) {
   try {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return null;
     const ctx = new AC();
     ctx.resume?.().catch?.(() => {});
-    const master = ctx.createGain(); master.gain.value = .55; master.connect(ctx.destination);
-    const t0 = ctx.currentTime;
+    const master = ctx.createGain(); master.gain.value = .5; master.connect(ctx.destination);
+    // Um pouco de reverb barato: eco curto e baixo, pra soar "de salão"
+    const eco = ctx.createDelay(1); eco.delayTime.value = .21;
+    const ecoG = ctx.createGain(); ecoG.gain.value = .18;
+    eco.connect(ecoG); ecoG.connect(master); ecoG.connect(eco);
+    const t0 = ctx.currentTime + .05;
     const seg = ms / 1000;
+
+    const nota = (freq, t, dur, { tipo = 'triangle', vol = .2, ataque = .02, solta = .12, eco: comEco = true, detune = 0 } = {}) => {
+      if (t > t0 + seg) return;
+      const o = ctx.createOscillator(); o.type = tipo; o.frequency.value = freq; o.detune.value = detune;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(vol, t + ataque);
+      g.gain.setValueAtTime(vol, Math.max(t + ataque, t + dur - solta));
+      g.gain.linearRampToValueAtTime(0, t + dur);
+      o.connect(g); g.connect(master); if (comEco) g.connect(eco);
+      o.start(t); o.stop(t + dur + .02);
+    };
     const palma = (t, vol) => {
-      const dur = .07;
+      if (t > t0 + seg) return;
+      const dur = .06;
       const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * dur), ctx.sampleRate);
       const d = buf.getChannelData(0);
       for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 2.2);
       const src = ctx.createBufferSource(); src.buffer = buf;
-      const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1400 + Math.random() * 1800; f.Q.value = .9;
+      const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1600 + Math.random() * 1600; f.Q.value = .9;
       const g = ctx.createGain(); g.gain.value = vol;
       src.connect(f); f.connect(g); g.connect(master); src.start(t);
     };
-    // Plateia: muitas palmas fora de sincronia, mais forte nos 12 s iniciais
-    for (let t = .05; t < seg; t += .035 + Math.random() * .07) palma(t0 + t, (t < 12 ? .22 : .12) + Math.random() * .18);
-    const fogo = (t) => {
-      const o = ctx.createOscillator(); o.type = 'sine';
-      o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(38, t + .55);
-      const g = ctx.createGain(); g.gain.setValueAtTime(.55, t); g.gain.exponentialRampToValueAtTime(.001, t + .7);
-      o.connect(g); g.connect(master); o.start(t); o.stop(t + .75);
-      for (let i = 0; i < 14; i++) palma(t + .12 + Math.random() * .6, .07);
-    };
-    for (let t = .4; t < seg; t += 1.3 + Math.random() * 1.4) fogo(t0 + t);
+
+    // 🎺 Fanfarra de abertura (Dó, Mi, Sol, Dó agudo), com dobra de oitava
+    const FANFARRA = [[N.C5, .25], [N.E5, .25], [N.G5, .25], [N.C6, 1.1]];
+    let tf = t0;
+    for (const [n, d] of FANFARRA) {
+      nota(NOTA(n), tf, d * TEMPO * 1.6, { tipo: 'square', vol: .09, ataque: .01 });
+      nota(NOTA(n), tf, d * TEMPO * 1.6, { tipo: 'triangle', vol: .22, ataque: .01, detune: 4 });
+      nota(NOTA(n - 12), tf, d * TEMPO * 1.6, { tipo: 'triangle', vol: .12, ataque: .01 });
+      tf += d * TEMPO * 1.6;
+    }
+    // 👏 Palmas leves só nos 5 primeiros segundos, por baixo da fanfarra
+    for (let t = .05; t < 5; t += .04 + Math.random() * .08) palma(t0 + t, .06 + Math.random() * .08);
+
+    // 🎶 A música em loop, começando depois da fanfarra
+    const inicio = tf + .1;
+    for (let loop = 0; inicio + loop * DURACAO_LOOP < t0 + seg; loop++) {
+      const base = inicio + loop * DURACAO_LOOP;
+      // Acordes, baixo e sininhos: 8 compassos rodando C G Am F, e o 9º em C
+      for (let c = 0; c < 9; c++) {
+        const ac = ACORDES[c === 8 ? 0 : c % 4];
+        const tc = base + c * 4 * TEMPO;
+        // pad do acorde (suave, com eco)
+        for (const n of ac.notas) nota(NOTA(n), tc, 4 * TEMPO, { tipo: 'sine', vol: .06, ataque: .25, solta: .5 });
+        // baixo marcando 1 e 3
+        nota(NOTA(ac.baixo), tc, .9 * TEMPO, { tipo: 'triangle', vol: .16, ataque: .01, eco: false });
+        nota(NOTA(ac.baixo), tc + 2 * TEMPO, .9 * TEMPO, { tipo: 'triangle', vol: .13, ataque: .01, eco: false });
+        // sininhos em arpejo (colcheias), uma oitava acima
+        for (let i = 0; i < 8; i++) {
+          const n = ac.notas[i % 3] + 12;
+          nota(NOTA(n), tc + i * TEMPO / 2, TEMPO * .45, { tipo: 'sine', vol: .05, ataque: .005, solta: .2 });
+        }
+      }
+      // Melodia por cima
+      let tm = base;
+      for (const [n, d] of MELODIA) {
+        nota(NOTA(n), tm, d * TEMPO * .95, { tipo: 'triangle', vol: .2, ataque: .015 });
+        nota(NOTA(n), tm, d * TEMPO * .95, { tipo: 'sine', vol: .08, ataque: .015, detune: 6 });
+        tm += d * TEMPO;
+      }
+    }
     return () => {
-      try { master.gain.setTargetAtTime(0, ctx.currentTime, .08); setTimeout(() => ctx.close().catch(() => {}), 600); } catch { /* ok */ }
+      try { master.gain.setTargetAtTime(0, ctx.currentTime, .12); setTimeout(() => ctx.close().catch(() => {}), 900); } catch { /* ok */ }
     };
   } catch { return null; }
 }
 
 const brl0 = (n) => (parseFloat(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
+// Frase do título (ordem do master, 19/09: "no título é que ultrapassamos a
+// meta diária que é 19 mil"). A meta vem do servidor; sem ela, 19 mil.
+const fraseMeta = (festa) => `Ultrapassamos a meta diária de ${brl0(festa.meta > 0 ? festa.meta : 19000)} do setor de ${festa.setorNome || 'Vacinas'}! 🏆`;
 
 /* A ABERTURA: tela inteira, obrigatória, com o texto da Direção */
 function AberturaFesta({ festa, onLiberar, mudo, onMudo }) {
@@ -287,12 +369,12 @@ function AberturaFesta({ festa, onLiberar, mudo, onMudo }) {
           style={{ position: 'absolute', top: 10, right: 10, background: 'rgba(255,255,255,.22)', border: 'none', borderRadius: 9, color: '#fff', cursor: 'pointer', padding: '5px 9px', fontSize: 13, fontWeight: 900 }}>{mudo ? '🔇' : '🔊'}</button>
         <div style={{ fontSize: 62, lineHeight: 1, animation: 'vh-mega-trofeu 1s ease-in-out infinite' }}>🏆</div>
         <div style={{ fontSize: 32, fontWeight: 900, letterSpacing: -.5, marginTop: 8, textShadow: '0 3px 12px rgba(0,0,0,.35)' }}>{festa.titulo || '🥳 Dia de celebração!'}</div>
-        <div style={{ fontSize: 15.5, fontWeight: 800, marginTop: 6, opacity: .97 }}>{festa.texto}</div>
+        <div style={{ fontSize: 19, fontWeight: 900, marginTop: 8, opacity: .98, textShadow: '0 2px 8px rgba(0,0,0,.3)' }}>{fraseMeta(festa)}</div>
         {/* 📜 A mensagem da Direção, pra ler */}
         <div style={{ margin: '16px auto 0', background: 'rgba(255,255,255,.94)', color: '#06424A', borderRadius: 16, padding: '14px 18px', textAlign: 'left', fontSize: 14.5, lineHeight: 1.55, fontWeight: 600, boxShadow: '0 8px 24px rgba(0,0,0,.18)' }}>
           <div style={{ fontSize: 11, fontWeight: 900, textTransform: 'uppercase', letterSpacing: .8, color: '#92400e', marginBottom: 6 }}>📜 Mensagem da Direção</div>
           {TEXTO_DIRECAO(setorNome)}
-          <div style={{ marginTop: 8, fontWeight: 900, color: '#0E8C96' }}>Dr. Miécio e a Direção da Vittalis Saúde 🩵</div>
+          <div style={{ marginTop: 8, fontWeight: 900, color: '#0E8C96' }}>Dr. Miécio, Direção da Vittalis Saúde 🩵</div>
         </div>
         {/* 💌 A segunda mensagem, da Dra. Nágila */}
         <div style={{ margin: '10px auto 0', background: 'rgba(255,255,255,.94)', color: '#06424A', borderRadius: 16, padding: '14px 18px', textAlign: 'left', fontSize: 14.5, lineHeight: 1.55, fontWeight: 600, boxShadow: '0 8px 24px rgba(0,0,0,.18)' }}>
@@ -326,17 +408,24 @@ function AberturaFesta({ festa, onLiberar, mudo, onMudo }) {
 }
 
 /* O DIA TODO: faixa no topo + um ato diferente a cada 30 s */
-function FestaDoDia({ festa, onReabrir, mudo, onMudo }) {
+function FestaDoDia({ festa, api, user, onReabrir, mudo, onMudo }) {
   const [ato, setAto] = useState(() => Math.floor(Date.now() / TROCA_ATO_MS) % ATOS.length);
+  const [lidas, setLidas] = useState(null); // 📖 só gestão: quem leu / quem falta
   const calarRef = useRef(null);
+  const ehGestao = user?.role === 'master' || user?.role === 'supervisor';
   useEffect(() => {
     // Todo mundo troca de ato no mesmo instante (relógio), a cada 30 s
     const t = setInterval(() => setAto(Math.floor(Date.now() / TROCA_ATO_MS) % ATOS.length), 1000);
-    return () => { clearInterval(t); calarRef.current?.(); };
-  }, []);
+    let parar = null;
+    if (ehGestao && api) {
+      const ler = () => api.get('/extras/festa-ativa/lidas').then(setLidas).catch(() => {});
+      ler(); parar = aoVivo(ler, 45000);
+    }
+    return () => { clearInterval(t); calarRef.current?.(); parar?.(); };
+  }, []); // eslint-disable-line
   const a = ATOS[ato];
   const frase = FRASES_PARABENS[ato % FRASES_PARABENS.length];
-  const tocar = () => { calarRef.current?.(); calarRef.current = tocarFesta(8000); };
+  const tocar = () => { calarRef.current?.(); calarRef.current = tocarFesta(Math.round((DURACAO_LOOP + 4) * 1000)); };
   const calar = () => { calarRef.current?.(); calarRef.current = null; onMudo(); };
   return (
     <>
@@ -352,12 +441,19 @@ function FestaDoDia({ festa, onReabrir, mudo, onMudo }) {
         <span style={{ fontSize: 18, animation: 'vh-mega-trofeu 1s ease-in-out infinite', flexShrink: 0 }}>🏆</span>
         <div style={{ flex: 1, minWidth: 0, lineHeight: 1.25 }}>
           <div style={{ fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            🥳 Dia de celebração! Meta do dia do setor de {festa.setorNome || 'Vacinas'} batida. Toque aqui pra reler a mensagem da Direção.
+            🥳 Dia de celebração! {fraseMeta(festa)} Toque aqui pra reler as mensagens.
           </div>
           <div key={ato} style={{ fontWeight: 800, fontSize: 12.5, opacity: .95, animation: 'vh-frase-entra .6s ease-out', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{frase}</div>
+          {/* 📖 Gestão vê quem leu a mensagem e quem ainda falta */}
+          {ehGestao && lidas && (
+            <div style={{ fontSize: 11, fontWeight: 800, opacity: .95, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              📖 Leram {lidas.leram.length} de {lidas.total}
+              {lidas.faltam.length ? ` · faltam: ${lidas.faltam.map(u => String(u.nome).split(' ')[0]).join(', ')}` : ' · todo mundo leu ✅'}
+            </div>
+          )}
         </div>
-        <button onClick={(e) => { e.stopPropagation(); if (mudo) { onMudo(); } tocar(); }} title="Tocar as palmas"
-          style={{ background: 'rgba(255,255,255,.2)', border: 'none', borderRadius: 8, color: '#fff', cursor: 'pointer', padding: '4px 8px', fontSize: 13, fontWeight: 900, flexShrink: 0 }}>👏</button>
+        <button onClick={(e) => { e.stopPropagation(); if (mudo) { onMudo(); } tocar(); }} title="Tocar a música da festa"
+          style={{ background: 'rgba(255,255,255,.2)', border: 'none', borderRadius: 8, color: '#fff', cursor: 'pointer', padding: '4px 8px', fontSize: 13, fontWeight: 900, flexShrink: 0 }}>🎵</button>
         <button onClick={(e) => { e.stopPropagation(); calar(); }} title="Calar o som"
           style={{ background: 'rgba(255,255,255,.2)', border: 'none', borderRadius: 8, color: '#fff', cursor: 'pointer', padding: '4px 8px', fontSize: 13, fontWeight: 900, flexShrink: 0 }}>🔇</button>
       </div>
@@ -369,15 +465,19 @@ function FestaDoDia({ festa, onReabrir, mudo, onMudo }) {
   );
 }
 
-function MegaFesta({ festa }) {
+function MegaFesta({ festa, api, user }) {
   const chaveLida = `vh_festa_lida:${festa.id}`;
   const [lida, setLida] = useState(() => { try { return !!localStorage.getItem(chaveLida); } catch { return false; } });
   const [mudo, setMudo] = useState(() => { try { return localStorage.getItem('vh_festa_mudo') === festa.id; } catch { return false; } });
   const marcarMudo = () => { setMudo(true); try { localStorage.setItem('vh_festa_mudo', festa.id); } catch { /* ok */ } };
   const desmutar = () => { setMudo(false); try { localStorage.removeItem('vh_festa_mudo'); } catch { /* ok */ } };
-  const liberar = () => { setLida(true); try { localStorage.setItem(chaveLida, '1'); } catch { /* ok */ } };
+  const liberar = () => {
+    setLida(true); try { localStorage.setItem(chaveLida, '1'); } catch { /* ok */ }
+    // 📖 Avisa o servidor que leu: o master vê quem leu e quem falta
+    api?.post('/extras/festa-ativa/lida', { id: festa.id }).catch(() => {});
+  };
   if (!lida) return <AberturaFesta festa={festa} onLiberar={liberar} mudo={mudo} onMudo={marcarMudo} />;
-  return <FestaDoDia festa={festa} onReabrir={() => setLida(false)} mudo={mudo} onMudo={mudo ? desmutar : marcarMudo} />;
+  return <FestaDoDia festa={festa} api={api} user={user} onReabrir={() => setLida(false)} mudo={mudo} onMudo={mudo ? desmutar : marcarMudo} />;
 }
 
 const festaVigente = (f) => !!(f?.id && f.ate && new Date(f.ate).getTime() > Date.now());
@@ -420,7 +520,7 @@ export default function CelebracaoGlobal() {
   }, [user]); // eslint-disable-line
 
   // A festa do dia convive com as comemorações de venda (a venda aparece por cima)
-  const megaEl = mega ? <MegaFesta key={mega.id} festa={mega} /> : null;
+  const megaEl = mega ? <MegaFesta key={mega.id} festa={mega} api={api} user={user} /> : null;
   if (!festa) return megaEl;
   const grande = festa.tipo === 'marco';
 

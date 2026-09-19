@@ -2617,6 +2617,31 @@ r.get('/festa-ativa', async (req, res) => {
     res.json(f);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
+/* 📖 QUEM LEU (pedido do master, 19/09: "sabe me confirmar se todos leram?").
+   O "Li e comemorei" de cada pessoa fica gravado na própria festa
+   (festa_ativa.lidas), e o master vê na faixa quem leu e quem falta. */
+r.post('/festa-ativa/lida', async (req, res) => {
+  try {
+    const { rows: [c] } = await query("SELECT valor FROM configuracoes WHERE chave = 'festa_ativa'").catch(() => ({ rows: [] }));
+    const f = c?.valor;
+    if (!f?.id || (req.body?.id && req.body.id !== f.id)) return res.json({ ok: false });
+    const lidas = { ...(f.lidas || {}), [String(req.user.id)]: { nome: req.user.nome, em: new Date().toISOString() } };
+    await query(`UPDATE configuracoes SET valor = valor || $1::jsonb, updated_at = NOW() WHERE chave = 'festa_ativa'`, [JSON.stringify({ lidas })]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+r.get('/festa-ativa/lidas', async (req, res) => {
+  try {
+    if (!gestao(req)) return res.status(403).json({ error: 'Apenas a gestão.' });
+    const { rows: [c] } = await query("SELECT valor FROM configuracoes WHERE chave = 'festa_ativa'").catch(() => ({ rows: [] }));
+    const f = c?.valor || {};
+    const lidas = f.lidas || {};
+    const { rows: eq } = await query(`SELECT id, nome FROM usuarios WHERE ativo = true AND role <> 'master' ORDER BY nome`).catch(() => ({ rows: [] }));
+    const leram = eq.filter(u => lidas[String(u.id)]).map(u => ({ id: u.id, nome: u.nome, em: lidas[String(u.id)].em }));
+    const faltam = eq.filter(u => !lidas[String(u.id)]).map(u => ({ id: u.id, nome: u.nome }));
+    res.json({ id: f.id || null, leram, faltam, total: eq.length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 // Master solta a festa na hora (mesmo que a meta ainda não tenha batido)
 r.post('/festa-meta-dia', async (req, res) => {
   try {
