@@ -4102,6 +4102,20 @@ export default function Inbox({ onUnreadChange }) {
                   <Sticker size={13} strokeWidth={2.4}/>
                   <span>{showFigus ? 'Fechar figurinhas' : 'Figurinhas'}</span>
                 </button>
+                {/* 💠 PIX ao lado das Figurinhas, na linha de cima (ordem do master,
+                    19/09: "quero que fique em cima desses botões coloridos, do
+                    lado do de figurinhas"). Manda a chave do setor com o botão
+                    Copiar do WhatsApp. */}
+                <button onClick={() => mandarPix()} disabled={pixBusy}
+                  title="Envia a chave Pix do setor com o botão Copiar chave Pix do WhatsApp"
+                  style={{ display:'flex', alignItems:'center', gap:6, flexShrink:0, border:'none',
+                    padding:'7px 11px', borderRadius:9, cursor: pixBusy ? 'wait' : 'pointer',
+                    background:'linear-gradient(135deg,#38bdf8,#0369a1)', color:'#fff',
+                    fontSize:11.5, fontWeight:800, letterSpacing:-.2,
+                    boxShadow:'0 3px 12px rgba(3,105,161,.4)', opacity: pixBusy ? .65 : 1 }}>
+                  {pixBusy ? <Loader2 size={15} className="spin"/> : <span style={{ fontSize:13, lineHeight:1 }}>💠</span>}
+                  <span>{pixBusy ? 'Enviando…' : 'Pix'}</span>
+                </button>
               </div>
             )}
             <div style={{ display:'flex', gap:6, alignItems:'flex-end' }}>
@@ -4243,19 +4257,6 @@ export default function Inbox({ onUnreadChange }) {
                   boxShadow:'0 3px 12px rgba(217,119,6,.38)', opacity: provaEnviando ? .65 : 1 }}>
                 {provaEnviando ? <Loader2 size={15} className="spin"/> : <Image size={13} strokeWidth={2.4}/>}
                 <span className="vh-so-desktop">{provaEnviando ? 'Enviando…' : 'Prova social'}</span>
-              </button>
-              {/* 💠 PIX — o quinto irmão (ordem do master, 19/09). Azul-céu, cor
-                  que ainda não existia na fileira. Manda a chave do setor com
-                  o botão Copiar do WhatsApp. */}
-              <button onClick={() => mandarPix()} disabled={pixBusy}
-                title="Envia a chave Pix do setor com o botão Copiar chave Pix do WhatsApp"
-                style={{ display:'flex', alignItems:'center', gap:6, flexShrink:0, border:'none',
-                  padding:'7px 11px', borderRadius:9, cursor: pixBusy ? 'wait' : 'pointer',
-                  background:'linear-gradient(135deg,#38bdf8,#0369a1)', color:'#fff',
-                  fontSize:11.5, fontWeight:800, letterSpacing:-.2,
-                  boxShadow:'0 3px 12px rgba(3,105,161,.4)', opacity: pixBusy ? .65 : 1 }}>
-                {pixBusy ? <Loader2 size={15} className="spin"/> : <span style={{ fontSize:13, lineHeight:1 }}>💠</span>}
-                <span className="vh-so-desktop">{pixBusy ? 'Enviando…' : 'Pix'}</span>
               </button>
               {/* 🎤 VIDA NO MICROFONE, NO MESMO LUGAR (ordem do master, 03/09:
                   "não mude ele de lugar, só dê vida para ele e para o botão de
