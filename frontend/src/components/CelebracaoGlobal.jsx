@@ -174,12 +174,15 @@ const TEXTO_DIRECAO = (setorNome) =>
 // Segunda mensagem, assinada pela Dra. Nágila (ordem do master, 19/09:
 // "faz outro assinado Dra Nágila"). Sem travessão, sem aspas.
 // Ditado pelo master (19/09): "a meta do dia é 19 mil e a equipe
-// ultrapassou; dê os parabéns e diga eu amo vocês, Dra. Nágila".
+// ultrapassou; dê os parabéns e diga eu amo vocês, Dra. Nágila"; depois:
+// "retire do texto criança e coloque uma mensagem mais linda do que a de
+// Miécio elogiando a equipe".
 const TEXTO_NAGILA = (setorNome) =>
   `Parabéns, equipe! A meta do dia do setor de ${setorNome} era de R$ 19 mil e vocês ultrapassaram! ` +
-  'Cada atendimento de hoje é uma criança mais protegida e uma família mais tranquila. ' +
-  'Vocês cuidam das pessoas com carinho e competência, e isso aparece no resultado. ' +
-  'Estou muito orgulhosa desse time. Eu amo vocês!';
+  'Mas nenhum número é capaz de medir o que vocês são. Vocês são a alma desta casa: o sorriso que acalma, ' +
+  'a palavra certa na hora certa, o cuidado que transforma um atendimento em um abraço. ' +
+  'Cada uma de vocês carrega um talento que me emociona e uma força que inspira todas as outras. ' +
+  'Eu me orgulho de cada conquista, de cada esforço e, principalmente, de cada uma de vocês. Eu amo vocês!';
 
 // Frases que se revezam na faixa, uma a cada 30 s
 const FRASES_PARABENS = [
@@ -200,7 +203,7 @@ const FRASES_PARABENS = [
   'Essa vitória tem o nome de cada uma 🌟',
   'Orgulho define. Parabéns, time Vittalis! 🎊',
   'Dra. Nágila: parabéns, a meta de 19 mil caiu! Eu amo vocês 💗',
-  'Dra. Nágila: cada atendimento de hoje protegeu uma criança 🩺',
+  'Dra. Nágila: vocês são a alma desta casa 🩺',
   'Dr. Miécio: obrigado pela dedicação e pela garra de cada uma 🩵',
 ];
 
