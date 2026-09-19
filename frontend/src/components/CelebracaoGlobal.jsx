@@ -350,18 +350,27 @@ const fraseMeta = (festa) => `Ultrapassamos a meta diária de ${brl0(festa.meta 
 /* A ABERTURA: tela inteira, obrigatória, com o texto da Direção */
 function AberturaFesta({ festa, onLiberar, mudo, onMudo }) {
   const [seg, setSeg] = useState(LEITURA_MIN_S);
+  // 🎊 Confete SEM PARAR na abertura (ordem do master, 19/09: "quero com
+  // confetes"): a cada 2,4 s nasce uma chuva nova, revezando os tipos, e os
+  // fogos estouram junto. Antes caía uma chuva só e a tela ficava limpa
+  // enquanto a pessoa lia.
+  const [tick, setTick] = useState(0);
   const calarRef = useRef(null);
   useEffect(() => {
     const t = setInterval(() => setSeg(x => (x > 0 ? x - 1 : 0)), 1000);
+    const c = setInterval(() => setTick(x => x + 1), 2400);
     if (!mudo) calarRef.current = tocarFesta(ABERTURA_SOM_MS);
-    return () => { clearInterval(t); calarRef.current?.(); };
+    return () => { clearInterval(t); clearInterval(c); calarRef.current?.(); };
   }, []); // eslint-disable-line
+  const TIPOS_AB = ['fita', 'serpentina', 'estrelas', 'coracoes', 'moedas', 'fita', 'petalas', 'baloes'];
   const calar = () => { calarRef.current?.(); calarRef.current = null; onMudo(); };
   const setorNome = festa.setorNome || 'Vacinas';
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 3000, background: 'rgba(3,32,38,.82)', backdropFilter: 'blur(3px)',
       display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, overflowY: 'auto' }}>
-      <Chuva tipo="fita" grande /><Chuva tipo="fogos" grande />
+      <Chuva key={`c${tick}`} tipo={TIPOS_AB[tick % TIPOS_AB.length]} grande />
+      <Chuva key={`d${tick}`} tipo="fita" grande />
+      <Chuva key={`f${tick}`} tipo="fogos" grande />
       <MascoteDancando lado="direita" fala="Bateu a meta!" sub={`Setor de ${setorNome} 🏆`} />
       <MascoteDancando lado="esquerda" fala="Dia de celebração!" sub="Parabéns, equipe! 👏" />
       <div style={{ position: 'relative', zIndex: 3001, width: 'min(94vw, 620px)', borderRadius: 28, padding: '28px 30px 24px', textAlign: 'center', color: '#fff',

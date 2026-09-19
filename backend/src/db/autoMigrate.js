@@ -3184,6 +3184,14 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
         WHERE chave = 'festa_ativa' AND valor->>'id' LIKE 'vacinas-2026-09-19-%'`);
     }
   } catch (e) { console.error('festa v3:', e.message); }
+  // 🔁 Versão 4: confete sem parar na abertura (ordem do master, 19/09)
+  try {
+    const { rowCount } = await query(`INSERT INTO configuracoes (chave, valor) VALUES ('festa_versao4_2026-09-19', '{"ok":true}') ON CONFLICT DO NOTHING`);
+    if (rowCount) {
+      await query(`UPDATE configuracoes SET valor = valor || '{"versao":4,"lidas":{}}'::jsonb, updated_at = NOW()
+        WHERE chave = 'festa_ativa' AND valor->>'id' LIKE 'vacinas-2026-09-19-%'`);
+    }
+  } catch (e) { console.error('festa v4:', e.message); }
   try { await colunasCriticas(); } catch (e) { console.error('colunas criticas:', e.message); }
   try { await tabelaOcultas(); } catch (e) { console.error('tabela ocultas:', e.message); }
   /* ⚠️ DEPOIS de colunasCriticas, sempre. As metas por setor gravam numa coluna
