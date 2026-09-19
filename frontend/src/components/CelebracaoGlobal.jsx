@@ -527,7 +527,7 @@ export default function CelebracaoGlobal() {
     // comemora; e a festa some sozinha quando o dia vira.
     const conferir = () => api.get('/extras/festa-ativa').then(f => setMega(festaVigente(f) ? f : null)).catch(() => {});
     conferir();
-    const pararPoll = aoVivo(conferir, 90000);
+    const pararPoll = aoVivo(conferir, 30000); // 30 s: "apareça agora, independente do que estão fazendo"
     const relogio = setInterval(() => setMega(m => (m && !festaVigente(m) ? null : m)), 60000);
 
     return () => { socket.disconnect(); clearTimeout(timerRef.current); pararPoll(); clearInterval(relogio); };
