@@ -168,6 +168,14 @@ const TEXTO_DIRECAO = (setorNome) =>
   'Cada família acolhida, cada atendimento bem feito e cada venda fechada construíram esse resultado. ' +
   'Obrigado pela dedicação, pelo cuidado e pela garra de cada uma de vocês. Hoje é dia de celebração!';
 
+// Segunda mensagem, assinada pela Dra. Nágila (ordem do master, 19/09:
+// "faz outro assinado Dra Nágila"). Sem travessão, sem aspas.
+const TEXTO_NAGILA = (setorNome) =>
+  `Que alegria ver a nossa equipe bater a meta do dia do setor de ${setorNome}! ` +
+  'Cada atendimento de hoje é uma criança mais protegida e uma família mais tranquila. ' +
+  'Vocês cuidam das pessoas com carinho e competência, e isso aparece no resultado. ' +
+  'Parabéns a cada uma de vocês. Estou muito orgulhosa desse time!';
+
 // Frases que se revezam na faixa, uma a cada 30 s
 const FRASES_PARABENS = [
   'Parabéns, equipe! Meta do dia batida 🏆',
@@ -186,6 +194,9 @@ const FRASES_PARABENS = [
   'A Direção agradece e comemora com vocês 🥳',
   'Essa vitória tem o nome de cada uma 🌟',
   'Orgulho define. Parabéns, time Vittalis! 🎊',
+  'Dra. Nágila: estou muito orgulhosa desse time 💗',
+  'Dra. Nágila: cada atendimento de hoje protegeu uma criança 🩺',
+  'Dr. Miécio: obrigado pela dedicação e pela garra de cada uma 🩵',
 ];
 
 /* Os 17 atos: cada um dura 30 s e traz um efeito diferente. Rodam em ordem
@@ -280,6 +291,12 @@ function AberturaFesta({ festa, onLiberar, mudo, onMudo }) {
           <div style={{ fontSize: 11, fontWeight: 900, textTransform: 'uppercase', letterSpacing: .8, color: '#92400e', marginBottom: 6 }}>📜 Mensagem da Direção</div>
           {TEXTO_DIRECAO(setorNome)}
           <div style={{ marginTop: 8, fontWeight: 900, color: '#0E8C96' }}>Dr. Miécio e a Direção da Vittalis Saúde 🩵</div>
+        </div>
+        {/* 💌 A segunda mensagem, da Dra. Nágila */}
+        <div style={{ margin: '10px auto 0', background: 'rgba(255,255,255,.94)', color: '#06424A', borderRadius: 16, padding: '14px 18px', textAlign: 'left', fontSize: 14.5, lineHeight: 1.55, fontWeight: 600, boxShadow: '0 8px 24px rgba(0,0,0,.18)' }}>
+          <div style={{ fontSize: 11, fontWeight: 900, textTransform: 'uppercase', letterSpacing: .8, color: '#be185d', marginBottom: 6 }}>💌 Mensagem da Dra. Nágila</div>
+          {TEXTO_NAGILA(setorNome)}
+          <div style={{ marginTop: 8, fontWeight: 900, color: '#be185d' }}>Com orgulho e gratidão, Dra. Nágila 💗</div>
         </div>
         {festa.vendido > 0 && festa.meta > 0 && festa.vendido >= festa.meta && (
           <div style={{ display: 'inline-flex', gap: 16, marginTop: 14, background: 'rgba(255,255,255,.18)', borderRadius: 14, padding: '8px 16px', flexWrap: 'wrap', justifyContent: 'center' }}>
