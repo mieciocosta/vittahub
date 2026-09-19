@@ -6616,6 +6616,100 @@ r.get('/mensagem-endereco', (req, res) => {
   res.json({ texto: mensagemEndereco() });
 });
 
+/* 💠 PIX EM UM TOQUE (ordem do master, 19/09: "faz o botão de Pix onde fique
+   no ponto do cliente colar, que nem aquela função do WhatsApp; Pix para
+   vacinas: 35857936000118; Pix para consultas e terapias: 54799354000177;
+   lembrando que cada usuário com seu tipo de Pix").
+
+   Cada setor tem a sua chave (CNPJ). Quem atende um setor só manda a chave
+   do próprio setor sem escolher nada; quem tem os dois (master, marketing,
+   Danielle) escolhe na hora. Sai pelo botão NATIVO de Pix do WhatsApp
+   (Z-API /send-button-pix: o cliente toca em "Copiar chave Pix" e cola no
+   banco); se a Z-API recusar, vai em texto com a chave sozinha numa linha,
+   que também dá pra copiar com um toque. As chaves ficam em
+   configuracoes.pix_chaves (a gestão pode trocar pelo PUT). */
+const PIX_PADRAO = {
+  vacinas:   { chave: '35857936000118', tipo: 'CNPJ', rotulo: 'Vacinas' },
+  consultas: { chave: '54799354000177', tipo: 'CNPJ', rotulo: 'Consultas e terapias' },
+  terapias:  { chave: '54799354000177', tipo: 'CNPJ', rotulo: 'Consultas e terapias' },
+};
+async function lerPixChaves() {
+  const { rows: [c] } = await query("SELECT valor FROM configuracoes WHERE chave = 'pix_chaves'").catch(() => ({ rows: [] }));
+  const v = c?.valor || {};
+  const out = {};
+  for (const st of ['vacinas', 'consultas', 'terapias']) {
+    const x = v[st] || {};
+    out[st] = { chave: String(x.chave || PIX_PADRAO[st].chave).replace(/\s/g, ''), tipo: x.tipo || PIX_PADRAO[st].tipo, rotulo: PIX_PADRAO[st].rotulo };
+  }
+  return out;
+}
+const setoresDoUsuario = (u) => (Array.isArray(u?.setores) && u.setores.length) ? u.setores : (u?.setor ? [u.setor] : []);
+r.get('/pix/chaves', async (req, res) => {
+  try {
+    const chaves = await lerPixChaves();
+    // Quais o usuário pode mandar: master/marketing/sem setor = todos; senão só os dele
+    const meus = req.user.role === 'master' || req.user.ve_geral === true ? ['vacinas', 'consultas', 'terapias'] : setoresDoUsuario(req.user);
+    const opcoes = [];
+    if (!meus.length || meus.includes('vacinas')) opcoes.push({ setor: 'vacinas', ...chaves.vacinas });
+    if (!meus.length || meus.includes('consultas') || meus.includes('terapias')) opcoes.push({ setor: 'consultas', ...chaves.consultas });
+    res.json({ opcoes });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+r.put('/pix/chaves', async (req, res) => {
+  try {
+    if (!['master', 'supervisor'].includes(req.user.role)) return res.status(403).json({ error: 'Apenas a gestão altera as chaves Pix.' });
+    const b = req.body || {};
+    const atual = await lerPixChaves();
+    const novo = {};
+    for (const st of ['vacinas', 'consultas', 'terapias']) {
+      const x = b[st] || {};
+      novo[st] = { chave: String(x.chave || atual[st].chave).replace(/\s/g, '').slice(0, 80), tipo: ['CPF', 'CNPJ', 'PHONE', 'EMAIL', 'EVP'].includes(x.tipo) ? x.tipo : atual[st].tipo };
+    }
+    await query(`INSERT INTO configuracoes (chave, valor) VALUES ('pix_chaves', $1::jsonb)
+                 ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`, [JSON.stringify(novo)]);
+    res.json({ ok: true, ...novo });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+r.post('/conversations/:id/pix', async (req, res) => {
+  try {
+    const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [req.params.id]);
+    if (!conv) return res.status(404).json({ error: 'Não encontrado' });
+    if (!podeVerSetor(req.user, conv)) return res.status(403).json({ error: 'Sem acesso: esta conversa é de outro setor.' });
+    const chaves = await lerPixChaves();
+    // Setor: o pedido > o único setor do usuário > o setor da conversa > vacinas
+    const meus = setoresDoUsuario(req.user);
+    let st = ['vacinas', 'consultas', 'terapias'].includes(req.body?.setor) ? req.body.setor
+      : (meus.length && !meus.includes('vacinas') ? 'consultas' : (meus.length === 1 ? meus[0] : null))
+      || (['vacinas', 'consultas', 'terapias'].includes(conv.setor) ? conv.setor : 'vacinas');
+    if (st === 'terapias') st = 'consultas';
+    const px = chaves[st];
+    const nome = usuariosNome.get(String(req.user.id)) || req.user.nome;
+    const primeiro = String(nome || '').split(' ')[0];
+    const textoFallback = `💠 *Pix da Vittalis Saúde (${px.rotulo})*\nChave ${px.tipo}:\n${px.chave}\n\nÉ só copiar a chave acima e colar no seu banco. Depois me manda o comprovante por aqui, tá? 😊`;
+    let modo = 'texto';
+    if (conv.channel === 'whatsapp' && zapiOk()) {
+      const waNumber = conv.contact_id ? conv.contact_id.replace('@s.whatsapp.net', '') : `55${conv.phone}`;
+      const phone55 = waNumber.startsWith('55') ? waNumber : `55${waNumber}`;
+      // 1º o botão nativo de Pix do WhatsApp; se a Z-API recusar, texto
+      const zr = await zapiCall('/send-button-pix', 'POST', { phone: phone55, pixKey: px.chave, type: px.tipo, merchantName: `Vittalis Saúde · ${px.rotulo}` }).catch(() => null);
+      if (zr && !zr.error && (zr.messageId || zr.zaapId || zr.id)) modo = 'botao';
+      else await zapiCall('/send-text', 'POST', { phone: phone55, message: textoFallback });
+    }
+    const conteudo = modo === 'botao'
+      ? `💠 Pix da Vittalis Saúde (${px.rotulo})\nChave ${px.tipo}: ${px.chave}\n(botão Copiar chave Pix do WhatsApp)`
+      : textoFallback;
+    const { rows: [msg] } = await query(`
+      INSERT INTO mensagens (conversa_id, from_type, type, content, sender_id, sender_nome, status)
+      VALUES ($1, 'me', 'text', $2, $3, $4, 'sent') RETURNING *`, [conv.id, conteudo, req.user.id, nome]);
+    const { rows: [convUpd] } = await query(
+      `UPDATE conversas SET last_message = $1, last_from = 'me', last_message_at = NOW(), bot_ativo = false WHERE id = $2 RETURNING *`,
+      [`💠 Pix (${px.rotulo})`, conv.id]);
+    if (convUpd) cacheUpdate(convUpd);
+    socketEmit('new_message', { convId: conv.id, message: mensagemLeve(msg), conv: convUpd || conv });
+    res.json({ ok: true, modo, setor: st, chave: px.chave, rotulo: px.rotulo, por: primeiro });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 /* 🗓️ LER O AGENDAMENTO QUE JÁ ESTÁ NA CONVERSA (ordem do master, 27/08: "quando
    eu clicar em Agendar, ele puxa tudo de dentro da conversa; mandamos a mensagem
    de agendamento, então que já vá pra agenda").

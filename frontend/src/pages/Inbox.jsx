@@ -1283,6 +1283,36 @@ export default function Inbox({ onUnreadChange }) {
      sozinho: quem atende lê, ajusta o cumprimento se quiser, e envia. Mandar
      direto seria tirar dela a última conferência antes de o cliente receber. */
   const [endBusy, setEndBusy] = useState(false);
+  /* 💠 PIX EM UM TOQUE (ordem do master, 19/09: "faz o botão de Pix onde fique
+     no ponto do cliente colar, que nem aquela função do WhatsApp; cada
+     usuário com seu tipo de Pix"). Quem atende um setor só manda direto a
+     chave do setor; quem tem os dois escolhe num popup próprio (nada de
+     window.confirm, que falha no celular). O servidor manda o botão nativo
+     de Pix do WhatsApp; se a Z-API recusar, vai em texto com a chave numa
+     linha só. */
+  const [pixBusy, setPixBusy] = useState(false);
+  const [pixOpcoes, setPixOpcoes] = useState(null);
+  const [pixEscolha, setPixEscolha] = useState(false);
+  const carregarPix = async () => {
+    if (pixOpcoes) return pixOpcoes;
+    try { const d = await api.get('/inbox/pix/chaves'); const op = Array.isArray(d?.opcoes) ? d.opcoes : []; setPixOpcoes(op); return op; }
+    catch { return []; }
+  };
+  const mandarPix = async (setor) => {
+    if (!sel || pixBusy) return;
+    const op = await carregarPix();
+    if (!setor && op.length > 1) { setPixEscolha(true); return; }
+    setPixEscolha(false);
+    setPixBusy(true);
+    try {
+      const r = await api.post(`/inbox/conversations/${sel.id}/pix`, { setor: setor || op[0]?.setor });
+      Toast.show(r?.modo === 'botao'
+        ? `Pix de ${r.rotulo} enviado com o botão Copiar chave 💠`
+        : `Pix de ${r?.rotulo || ''} enviado em texto, com a chave pronta pra copiar 💠`, 'success');
+    } catch (e) { Toast.show(e.message || 'Não consegui enviar o Pix', 'error'); }
+    setPixBusy(false);
+  };
+
   const mandarEndereco = async () => {
     if (endBusy) return;
     setEndBusy(true);
@@ -3624,6 +3654,20 @@ export default function Inbox({ onUnreadChange }) {
           })()}
 
           {/* Emoji picker */}
+          {/* 💠 Escolha do Pix (só pra quem tem os dois setores) */}
+          {pixEscolha && sel && (
+            <div style={{ background:'var(--card,#fff)', borderTop:'1px solid var(--border)', padding:'10px 12px', flexShrink:0, display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+              <span style={{ fontSize:12.5, fontWeight:800, color:'var(--txt)' }}>💠 Qual Pix mandar?</span>
+              {(pixOpcoes || []).map(o => (
+                <button key={o.setor} onClick={() => mandarPix(o.setor)} disabled={pixBusy}
+                  style={{ border:'none', borderRadius:9, padding:'7px 12px', cursor:'pointer', color:'#fff', fontSize:12, fontWeight:800,
+                    background: o.setor === 'vacinas' ? 'linear-gradient(135deg,#a78bfa,#7c3aed)' : 'linear-gradient(135deg,#22d3ee,#0E8C96)' }}>
+                  {o.setor === 'vacinas' ? '💉 Vacinas' : '🩺 Consultas e terapias'} <span style={{ opacity:.85, fontWeight:600 }}>· {o.chave}</span>
+                </button>
+              ))}
+              <button onClick={() => setPixEscolha(false)} className="vh-fechar" style={{ marginLeft:'auto' }}>✕ Fechar</button>
+            </div>
+          )}
           {/* 💟 ABA DAS FIGURINHAS — vive no chat, fora da Biblioteca */}
           {showFigus && sel && (
             <FigurinhasPainel convId={sel.id} api={api} onClose={()=>setShowFigus(false)}
@@ -4199,6 +4243,19 @@ export default function Inbox({ onUnreadChange }) {
                   boxShadow:'0 3px 12px rgba(217,119,6,.38)', opacity: provaEnviando ? .65 : 1 }}>
                 {provaEnviando ? <Loader2 size={15} className="spin"/> : <Image size={13} strokeWidth={2.4}/>}
                 <span className="vh-so-desktop">{provaEnviando ? 'Enviando…' : 'Prova social'}</span>
+              </button>
+              {/* 💠 PIX — o quinto irmão (ordem do master, 19/09). Azul-céu, cor
+                  que ainda não existia na fileira. Manda a chave do setor com
+                  o botão Copiar do WhatsApp. */}
+              <button onClick={() => mandarPix()} disabled={pixBusy}
+                title="Envia a chave Pix do setor com o botão Copiar chave Pix do WhatsApp"
+                style={{ display:'flex', alignItems:'center', gap:6, flexShrink:0, border:'none',
+                  padding:'7px 11px', borderRadius:9, cursor: pixBusy ? 'wait' : 'pointer',
+                  background:'linear-gradient(135deg,#38bdf8,#0369a1)', color:'#fff',
+                  fontSize:11.5, fontWeight:800, letterSpacing:-.2,
+                  boxShadow:'0 3px 12px rgba(3,105,161,.4)', opacity: pixBusy ? .65 : 1 }}>
+                {pixBusy ? <Loader2 size={15} className="spin"/> : <span style={{ fontSize:13, lineHeight:1 }}>💠</span>}
+                <span className="vh-so-desktop">{pixBusy ? 'Enviando…' : 'Pix'}</span>
               </button>
               {/* 🎤 VIDA NO MICROFONE, NO MESMO LUGAR (ordem do master, 03/09:
                   "não mude ele de lugar, só dê vida para ele e para o botão de
