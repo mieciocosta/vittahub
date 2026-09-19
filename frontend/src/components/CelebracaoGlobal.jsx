@@ -149,17 +149,17 @@ const sortearChuva = () => {
       cartão com o texto da Direção, valores, duas mascotes dançando, chuva
       de confete, fogos e palmas no som. Ninguém passa sem ler: o botão
       "Li e comemorei" só libera depois de 12 segundos.
-   2) O DIA TODO (até 23:59 de São Luís): uma faixa dourada fixa no topo com
-      a mensagem da Direção e uma frase de parabéns que muda a cada 30 s, e
-      a cada 30 s um EFEITO diferente (17 atos que se revezam: chuvas,
-      fogos, balões, mascote dançando ou aplaudindo). Nada bloqueia o
-      trabalho: os efeitos não capturam o clique. Um toque na faixa reabre
+   2) O DIA TODO: uma faixa dourada fixa no topo com uma frase de parabéns
+      que muda a cada 10 s, dois bonecos dançando nas laterais o tempo
+      inteiro e, a cada 10 s, uma chuva de confete diferente (17 atos que
+      se revezam: fitas, corações, fogos, balões, moedas, serpentinas).
+      Nada bloqueia o trabalho: os efeitos não capturam o clique. Um toque na faixa reabre
       a abertura; 🔊 toca as palmas de novo; 🔇 cala.
    Som só na abertura (30 s) e quando a pessoa pede, senão vira tortura na
    tela de quem está atendendo.                                             */
 const ABERTURA_SOM_MS = 30000;
 const LEITURA_MIN_S = 12;
-const TROCA_ATO_MS = 30000;
+const TROCA_ATO_MS = 10000; // ordem do master (19/09): "confetes lindos a cada 10 segundos"
 
 // Texto da Direção. O começo é ditado pelo master (verbatim); o resto fala
 // só da equipe, do valor dela e do quanto ele acredita em cada uma (ordem
@@ -207,8 +207,8 @@ const FRASES_PARABENS = [
   'Dr. Miécio: obrigado pela dedicação e pela garra de cada uma 🩵',
 ];
 
-/* Os 17 atos: cada um dura 30 s e traz um efeito diferente. Rodam em ordem
-   e recomeçam, então em 8 minutos e meio a pessoa viu todos. */
+/* Os 17 atos: cada um dura 10 s e traz um confete diferente. Rodam em ordem
+   e recomeçam, então em menos de 3 minutos a pessoa viu todos. */
 const ATOS = [
   { chuvas: ['fita'], fogos: true,  mascote: 'danca-dir' },
   { chuvas: ['coracoes'],           mascote: 'danca-esq' },
@@ -408,7 +408,7 @@ function AberturaFesta({ festa, onLiberar, mudo, onMudo }) {
             boxShadow: seg > 0 ? 'none' : '0 10px 30px rgba(0,0,0,.3)', transition: 'all .3s' }}>
           {seg > 0 ? `Lendo a mensagem… ${seg}s` : '🎉 Li e comemorei! Voltar ao trabalho'}
         </button>
-        <div style={{ fontSize: 11.5, marginTop: 8, opacity: .85 }}>A festa segue o dia inteiro na faixa do topo, com efeitos novos a cada 30 segundos.</div>
+        <div style={{ fontSize: 11.5, marginTop: 8, opacity: .85 }}>A festa segue o dia inteiro: bonecos dançando nas laterais e confete novo a cada 10 segundos.</div>
       </div>
       <style>{`
         @keyframes vh-mega-pop    { 0% { transform: scale(.4) rotate(-6deg); opacity: 0; } 100% { transform: scale(1) rotate(0); opacity: 1; } }
@@ -441,10 +441,13 @@ function FestaDoDia({ festa, api, user, onReabrir, mudo, onMudo }) {
   const calar = () => { calarRef.current?.(); calarRef.current = null; onMudo(); };
   return (
     <>
+      {/* 🎊 Confete novo a cada 10 s, sempre com pelo menos uma chuva grande */}
       {a.chuvas.map((c, i) => <Chuva key={`${ato}-${c}-${i}`} tipo={c} grande={i === 0} />)}
-      {a.mascote === 'danca-dir' && <MascoteDancando key={`m${ato}`} lado="direita" fala="Bateu a meta!" sub={`Setor de ${festa.setorNome || 'Vacinas'} 🏆`} />}
-      {a.mascote === 'danca-esq' && <MascoteDancando key={`m${ato}`} lado="esquerda" fala="Dia de celebração!" sub="Parabéns, equipe! 👏" />}
-      {a.mascote === 'palmas' && <MascoteAplaudindo key={`m${ato}`} nome="equipe" valor="" />}
+      {/* 🕺 Os dois bonecos dançam nas laterais O DIA TODO (ordem do master,
+          19/09: "2 bonecos fique dançando nas laterais"). Cada um troca de
+          personagem a cada 10 atos (100 s) pra não enjoar. */}
+      <MascoteDancando key={`md${Math.floor(ato / 10)}`} lado="direita" fala="Bateu a meta!" sub={`Setor de ${festa.setorNome || 'Vacinas'} 🏆`} />
+      <MascoteDancando key={`me${Math.floor(ato / 10) + 1}`} lado="esquerda" fala="Dia de celebração!" sub="Parabéns, equipe! 👏" />
       {/* Faixa fixa no topo */}
       <div onClick={onReabrir} title="Abrir a mensagem da Direção de novo"
         style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 1500, cursor: 'pointer',
