@@ -1,0 +1,51 @@
+name: Checagem antes do deploy
+
+# 🛡️ TRAVA DE DEPLOY (nasceu em 19/09, quando um commit com erro de JSX chegou
+# à main e o build do Railway falhou). Roda em todo push na main e em PRs:
+#   · backend: node --check em todos os arquivos
+#   · frontend: build + teste de fumaça (abre o dist num Chromium e importa
+#     todos os chunks — pega tela branca que o build não pega)
+# Pra o Railway SÓ publicar quando isto passar: no serviço, Settings →
+# Deploy → "Wait for CI" (Check Suites) ligado.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: checar-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Backend · sintaxe de todos os arquivos
+        run: find backend/src -name '*.js' -print0 | xargs -0 -n1 node --check
+
+      - name: Frontend · dependências
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+
+      - name: Frontend · build
+        working-directory: frontend
+        run: npm run build
+
+      - name: Frontend · Chromium para o teste de fumaça
+        working-directory: frontend
+        run: npm i --no-save --no-audit --no-fund puppeteer
+
+      - name: Frontend · teste de fumaça (todos os chunks carregam)
+        working-directory: frontend
+        run: node scripts/fumaca.cjs
