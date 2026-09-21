@@ -2556,6 +2556,69 @@ r.get('/vendas', async (req, res) => {
 
 // REPASSES DO MÊS — extrato por atendente (1% das vendas da função atendente,
 // respeitando ajuste manual por venda) + controle de pagamento (marcar pago).
+/* ═══ 💾 BACKUP DO BANCO (pedido do master, 21/09: "arruma tudo isso",
+   item backup). O Railway tem backup automático do PostgreSQL, mas é uma
+   opção do painel deles, fora do nosso alcance. Este endpoint dá ao master
+   uma cópia do banco INTEIRO pra baixar quando quiser: um JSON comprimido
+   (gzip), tabela por tabela, em lotes, pra não estourar a memória do
+   servidor. Colunas de arquivo (base64 de comprovante, foto, áudio) ficam
+   de fora: são gigantes e não são o dado; o que importa é conversa, venda,
+   agenda, lead, usuário, configuração. Só o master baixa. */
+const COLUNA_ARQUIVO = /(data_url|^data$|base64|imagem|foto|thumb|arquivo|comprovante$|mediadata|midia)/i;
+r.get('/backup', async (req, res) => {
+  if (req.user.role !== 'master') return res.status(403).json({ error: 'Só o master baixa o backup.' });
+  const { createGzip } = await import('zlib');
+  const hojeSLZ = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 19).replace(/[:T]/g, '-');
+  res.setHeader('Content-Type', 'application/gzip');
+  res.setHeader('Content-Disposition', `attachment; filename="vittahub-backup-${hojeSLZ}.json.gz"`);
+  const gz = createGzip({ level: 6 });
+  gz.pipe(res);
+  const w = (t) => new Promise((ok) => (gz.write(t) ? ok() : gz.once('drain', ok)));
+  try {
+    const { rows: tabelas } = await query(`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY table_name`);
+    await w(`{"gerado_em":${JSON.stringify(new Date().toISOString())},"por":${JSON.stringify(req.user.nome)},"tabelas":{`);
+    let primeiraTab = true;
+    for (const { table_name: t } of tabelas) {
+      const { rows: cols } = await query(`SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1 ORDER BY ordinal_position`, [t]);
+      const nomes = cols.map(c => c.column_name);
+      const usar = nomes.filter(c => !COLUNA_ARQUIVO.test(c));
+      const omitidas = nomes.filter(c => COLUNA_ARQUIVO.test(c));
+      const sel = usar.map(c => `"${c.replace(/"/g, '""')}"`).join(', ');
+      await w(`${primeiraTab ? '' : ','}${JSON.stringify(t)}:{"colunas_omitidas":${JSON.stringify(omitidas)},"linhas":[`);
+      primeiraTab = false;
+      let off = 0, primeira = true;
+      const LOTE = 3000;
+      while (true) {
+        const { rows } = await query(`SELECT ${sel} FROM "${t}" ORDER BY 1 LIMIT ${LOTE} OFFSET ${off}`).catch(() => ({ rows: [] }));
+        for (const r0 of rows) {
+          // mídia guardada em texto (data:...) também fica de fora
+          for (const k of Object.keys(r0)) if (typeof r0[k] === 'string' && r0[k].startsWith('data:') && r0[k].length > 200) r0[k] = '[arquivo omitido]';
+          await w(`${primeira ? '' : ','}${JSON.stringify(r0)}`);
+          primeira = false;
+        }
+        if (rows.length < LOTE) break;
+        off += LOTE;
+      }
+      await w(']}');
+    }
+    await w('}}');
+    gz.end();
+    await query(`INSERT INTO configuracoes (chave, valor) VALUES ('ultimo_backup', $1::jsonb)
+                 ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`,
+      [JSON.stringify({ em: new Date().toISOString(), por: req.user.nome, tabelas: tabelas.length })]).catch(() => {});
+  } catch (err) {
+    console.error('backup:', err.message);
+    try { gz.end(); } catch { /* ok */ }
+  }
+});
+r.get('/backup/ultimo', async (req, res) => {
+  try {
+    if (req.user.role !== 'master') return res.status(403).json({ error: 'Só o master.' });
+    const { rows: [c] } = await query("SELECT valor FROM configuracoes WHERE chave = 'ultimo_backup'").catch(() => ({ rows: [] }));
+    res.json(c?.valor || {});
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 /* ═══ 🥳 DIA DE CELEBRAÇÃO — festa em TODAS as telas quando um setor bate a
    meta do dia (ordem do master, 19/09: "faz o CRM de todos ficar em festa,
    cheio de confetes e palmas, pois foi ultrapassada a meta do dia do setor

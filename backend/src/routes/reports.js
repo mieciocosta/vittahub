@@ -690,6 +690,7 @@ async function montarLeads(de, ate, campanhas) {
         campanha: campanhaAd || detTxt?.rotulo || null,
         campanhaProvada: !!campanhaAd,   // veio do WhatsApp, não de adivinhação
         temFotoAd: c.tem_foto_ad === true,   // 🖼️ miniatura do criativo guardada na conversa
+        campanhaAdId: adId || null,          // id do anúncio no Meta (Excel, 21/09)
         campanhaForca: campanhaAd ? 'whatsapp' : detTxt ? (detTxt.porFrase ? 'frase' : 'palavras') : null,
         iniciais: (iniciaisDe.get(c.id) || '').slice(0, 300),
         primeiraMsg: primeiraMsg.slice(0, 160),

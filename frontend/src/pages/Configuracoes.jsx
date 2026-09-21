@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Bot, MessageSquare, Plus, Trash2, Save, Users, ExternalLink, Pencil, X, Check, UserPlus } from 'lucide-react';
 import { mask, tituloUsuario } from '../hooks/utils.js';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
+import ConfigFinanceiro from '../components/ConfigFinanceiro.jsx';
 
 export default function Configuracoes() {
   const api = useApi();
@@ -745,6 +746,9 @@ export default function Configuracoes() {
           </div>
         </div>
       </div>
+
+      {/* 💠 Pix, bônus e backup (21/09) */}
+      {isMaster && <ConfigFinanceiro />}
 
       {isMaster && (
         <div className="card" style={{ padding:'16px 18px', marginTop:16 }}>

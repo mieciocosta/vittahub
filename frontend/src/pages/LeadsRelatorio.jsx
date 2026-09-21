@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Download, FileText, RefreshCw, MessageSquare, Upload } from 'lucide-react';
-import { useApi } from '../context/AuthContext.jsx';
+import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { fmt } from '../hooks/utils.js';
 
 /* 📊 CARTEIRA DE LEADS — pedido do José, repassado pelo master (27/08), e
@@ -41,6 +41,7 @@ const ultimoDoMes = (v = 0) => {
    token), vira blob e fica em cache por sessão: o mesmo criativo aparece em
    dezenas de leads e é baixado uma vez só. */
 const fotoCache = new Map();
+const fotoDataCache = new Map();   // src → Promise<dataURL> (pro PDF)
 function FotoAd({ src, tam = 44, titulo }) {
   const [url, setUrl] = useState(() => fotoCache.get(src) || null);
   const [falhou, setFalhou] = useState(false);
@@ -109,6 +110,31 @@ export default function LeadsRelatorio() {
   const [novaCamp, setNovaCamp] = useState(null);   // { texto, rotulo }
   const [salvandoCamp, setSalvandoCamp] = useState(false);
   const [importando, setImportando] = useState(false);
+  /* ✏️ EDITOR DE CAMPANHAS (pedido do master, 21/09): mexer no catálogo sem
+     importar CSV. Nome, setor, conjunto, id do anúncio e as frases que
+     identificam o lead (uma por linha). Só o master salva (o servidor barra). */
+  const { user: usuarioAtual } = useAuth();
+  const [editCamp, setEditCamp] = useState(null);   // lista em edição, ou null
+  const [campSalvando, setCampSalvando] = useState(false);
+  const abrirEditorCampanhas = async () => {
+    try {
+      const d = await api.get('/reports/campanhas');
+      setEditCamp((d?.campanhas || []).map(c => ({ ...c, termosTxt: (c.termos || []).join('\n') })));
+    } catch (e) { setErro(e.message || 'Não consegui carregar as campanhas'); }
+  };
+  const salvarCampanhas = async () => {
+    if (!editCamp) return;
+    setCampSalvando(true);
+    try {
+      const campanhas = editCamp.map(c => ({ rotulo: c.rotulo, setor: c.setor || null, conjunto: c.conjunto || null,
+        meta_resultados: c.meta_resultados ?? null, meta_gasto: c.meta_gasto ?? null, meta_ad_id: c.meta_ad_id || null, meta_periodo: c.meta_periodo || null,
+        termos: String(c.termosTxt || '').split(/\n|\|/).map(t => t.trim()).filter(Boolean) }))
+        .filter(c => c.rotulo && c.termos.length);
+      await api.put('/reports/campanhas', { campanhas });
+      setEditCamp(null); carregar(true);
+    } catch (e) { setErro(e.message || 'Falha ao salvar as campanhas'); }
+    setCampSalvando(false);
+  };
   const [diag, setDiag] = useState(null);           // 🔬 diagnóstico de anúncios (master)
   const [diagAberto, setDiagAberto] = useState(false);
   const fotoRef = useRef(null);
@@ -274,10 +300,28 @@ export default function LeadsRelatorio() {
   // ── Exportações ────────────────────────────────────────────────────────────
   const COLS = ['Nome', 'Telefone', 'Chegou em', 'Dia da semana', 'Setor', 'Origem', 'Responsavel',
     'Respondido', 'Tempo 1a resposta (min)', 'Agendou', 'Fechou', 'Prova do fechamento', 'Valor',
-    'Campanha', 'Turno', 'Primeira mensagem', 'Origem do lead'];   // 05/09: de onde veio e a que horas
+    'Campanha', 'Turno', 'Primeira mensagem', 'Origem do lead',   // 05/09: de onde veio e a que horas
+    'ID do anuncio (Meta)', 'Criativo com foto'];                  // 21/09: a foto vai no PDF; no Excel fica o id e o sim/nao
   const linhaDe = (l) => [l.nome, l.telefone || '', l.chegou, l.dowNome, l.setor, l.origem, l.responsavel || '',
     l.respondido ? 'sim' : 'nao', l.respMin ?? '', l.agendou ? 'sim' : 'nao', l.fechou ? 'sim' : 'nao',
-    l.prova || '', l.valor || 0, l.campanha || '', l.turno || '', l.primeiraMsg || '', l.origemLead || ''];
+    l.prova || '', l.valor || 0, l.campanha || '', l.turno || '', l.primeiraMsg || '', l.origemLead || '',
+    l.campanhaAdId || l.adId || '', fotoSrcDe(l) ? 'sim' : 'nao'];
+  // 🖼️ De onde vem a foto do criativo de um lead (a mesma regra da lista na tela)
+  const fotoSrcDe = (l) => l.temFotoAd ? `/reports/leads/${l.id}/foto${l.campanha ? `?rotulo=${encodeURIComponent(l.campanha)}` : ''}`
+    : (l.campanha && (dados?.fotosCampanha || []).includes(l.campanha)) ? `/reports/campanhas/foto?rotulo=${encodeURIComponent(l.campanha)}` : null;
+  /* Baixa uma foto (com o token) e devolve como data URL, pra entrar no PDF.
+     Cache por src: o mesmo criativo aparece em dezenas de leads. */
+  const fotoDataUrl = async (src) => {
+    if (!src) return null;
+    if (fotoDataCache.has(src)) return fotoDataCache.get(src);
+    const BASE = import.meta.env.VITE_API_URL || '';
+    const p2 = fetch(`${BASE}/api${src}`, { headers: { Authorization: `Bearer ${localStorage.getItem('vh_token') || ''}` } })
+      .then(r => { if (!r.ok) throw new Error('sem foto'); return r.blob(); })
+      .then(b => new Promise((ok) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.onerror = () => ok(null); fr.readAsDataURL(b); }))
+      .catch(() => null);
+    fotoDataCache.set(src, p2);
+    return p2;
+  };
 
   const baixarCSV = () => {
     const csv = [COLS, ...(dados?.lista || []).map(l => linhaDe(l).map((c, i) => (i === 12 ? String(c).replace('.', ',') : c)))]
@@ -290,8 +334,18 @@ export default function LeadsRelatorio() {
 
   /* PDF: abre a folha pronta pra impressão (o navegador salva como PDF). Mesmo
      caminho do Relatório Comercial — sem servidor no meio, imprime na hora. */
-  const gerarPDF = () => {
+  const gerarPDF = async () => {
     const cel = (v, cls = '') => `<td class="${cls}">${v ?? ''}</td>`;
+    /* 🖼️ FOTOS DOS CRIATIVOS NO PDF (pedido do master, 21/09). Antes de montar
+       a folha, baixa cada foto distinta (com o token) e embute como data URL;
+       o navegador de impressão não tem o token, então <img src=/api/...> não
+       carregaria. Até 80 fotos distintas por relatório, pra folha não pesar. */
+    const listaPDF = (dados?.lista || []).slice(0, 200);
+    const srcs = [...new Set(listaPDF.map(fotoSrcDe).filter(Boolean))].slice(0, 80);
+    const srcsCamp = [...new Set((dados?.campanhas || []).filter(c => (dados?.fotosCampanha || []).includes(c.chave)).map(c => `/reports/campanhas/foto?rotulo=${encodeURIComponent(c.chave)}`))].slice(0, 40);
+    const fotos = new Map();
+    await Promise.all([...new Set([...srcs, ...srcsCamp])].map(async (src) => { const d = await fotoDataUrl(src); if (d) fotos.set(src, d); }));
+    const img = (src, tam = 34) => (src && fotos.get(src)) ? `<img src="${fotos.get(src)}" style="width:${tam}px;height:${tam}px;object-fit:cover;border-radius:6px;vertical-align:middle;border:1px solid #e3ebf1"/>` : '';
     const linhaCorte = (l) => `<tr>${cel(l.chave)}${cel(n0(l.leads), 'n')}${cel(pct(l.txAgenda), 'n')}${cel(pct(l.txFechou), 'n')}${cel(fmt.brl(l.valor), 'n')}</tr>`;
     const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"/>
 <title>Carteira de Leads — Vittalis Saúde</title><style>
@@ -347,9 +401,11 @@ ${(dados?.meses || []).map(linhaCorte).join('')}</table></div>
 ${(dados?.origens || []).map(linhaCorte).join('')}</table></div>
 <div class="sec"><h2>Por setor</h2><table><tr><th>Setor</th><th>Leads</th><th>Agendaram</th><th>Fecharam</th><th>Faturamento</th></tr>
 ${(dados?.setores || []).map(linhaCorte).join('')}</table></div>
+${(dados?.campanhas || []).length ? `<div class="sec"><h2>Por campanha</h2><table><tr><th>Criativo</th><th>Campanha</th><th>Leads</th><th>Agendaram</th><th>Fecharam</th><th>Faturamento</th></tr>
+${(dados?.campanhas || []).map(l => `<tr>${cel(img(`/reports/campanhas/foto?rotulo=${encodeURIComponent(l.chave)}`, 40))}${cel(l.chave)}${cel(n0(l.leads), 'n')}${cel(pct(l.txAgenda), 'n')}${cel(pct(l.txFechou), 'n')}${cel(fmt.brl(l.valor), 'n')}</tr>`).join('')}</table></div>` : ''}
 <div class="sec"><h2>Leads do período (${n0((dados?.lista || []).length)})</h2><table>
-<tr><th>Cliente</th><th>Chegou</th><th>Setor</th><th>Origem</th><th>Situação</th><th>Valor</th></tr>
-${(dados?.lista || []).slice(0, 200).map(l => `<tr>${cel(l.nome)}${cel(`${fmt.date(l.dia)} ${DOW[l.dow]}`)}${cel(l.setor)}${cel(l.origem)}${cel(l.fechou ? 'Fechou · ' + (l.prova || '') : l.agendou ? 'Agendou' : l.respondido ? 'Em conversa' : 'Sem resposta')}${cel(l.valor ? fmt.brl(l.valor) : '', 'n')}</tr>`).join('')}
+<tr><th>Criativo</th><th>Cliente</th><th>Chegou</th><th>Setor</th><th>Origem · campanha</th><th>Situação</th><th>Valor</th></tr>
+${listaPDF.map(l => `<tr>${cel(img(fotoSrcDe(l)))}${cel(l.nome)}${cel(`${fmt.date(l.dia)} ${DOW[l.dow]}`)}${cel(l.setor)}${cel(l.campanha ? `${l.origem} · ${l.campanha}` : l.origem)}${cel(l.fechou ? 'Fechou · ' + (l.prova || '') : l.agendou ? 'Agendou' : l.respondido ? 'Em conversa' : 'Sem resposta')}${cel(l.valor ? fmt.brl(l.valor) : '', 'n')}</tr>`).join('')}
 </table></div>
 <div class="rod">Como a conta é feita: o lead entra no dia da PRIMEIRA mensagem que ele nos mandou (horário de São Luís) e cada conversa conta uma vez só.
 Agendou = evento na agenda ou confirmação enviada na conversa. Fechou = venda lançada no caixa ou o próprio cliente confirmando o pagamento na conversa.
@@ -370,10 +426,47 @@ Agendamento e venda só contam se aconteceram DEPOIS da chegada do lead. Gerado 
   });
   const dataInput = { border: '1px solid var(--border)', background: 'var(--card)', borderRadius: 8, padding: '4px 8px', fontSize: 11.5, color: 'var(--txt)' };
 
+  // ✏️ Modal do editor de campanhas
+  const modalCampanhas = editCamp && (
+    <div onClick={() => setEditCamp(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
+      <div onClick={e => e.stopPropagation()} className="card" style={{ width: 920, maxWidth: '100%', maxHeight: '90vh', padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ padding: '14px 18px', color: '#fff', background: 'linear-gradient(135deg,#6d28d9,#7c3aed)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 15 }}>✏️ Campanhas ({editCamp.length})</div>
+            <div style={{ fontSize: 12, opacity: .9 }}>Nome, setor, id do anúncio e as frases que identificam o lead (uma por linha). A foto do criativo você troca na aba Por campanha.</div>
+          </div>
+          <button onClick={() => setEditCamp(null)} className="vh-fechar" style={{ background: 'rgba(255,255,255,.22)', color: '#fff', border: 'none' }}>✕ Fechar</button>
+        </div>
+        <div style={{ padding: 14, overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {editCamp.map((c, i) => (
+            <div key={i} style={{ display: 'grid', gridTemplateColumns: '1.4fr 120px 1fr 130px 1.6fr 30px', gap: 6, alignItems: 'start', padding: '8px 10px', borderRadius: 10, background: 'var(--bg2)' }}>
+              <input value={c.rotulo} onChange={e => setEditCamp(p => p.map((x, j) => j === i ? { ...x, rotulo: e.target.value } : x))} placeholder="Nome da campanha" style={{ ...dataInput, fontWeight: 800 }} />
+              <select value={c.setor || ''} onChange={e => setEditCamp(p => p.map((x, j) => j === i ? { ...x, setor: e.target.value } : x))} style={dataInput}>
+                <option value="">setor…</option><option value="vacinas">Vacinas</option><option value="consultas">Consultas</option><option value="terapias">Terapias</option>
+              </select>
+              <input value={c.conjunto || ''} onChange={e => setEditCamp(p => p.map((x, j) => j === i ? { ...x, conjunto: e.target.value } : x))} placeholder="Conjunto (Meta)" style={dataInput} />
+              <input value={c.meta_ad_id || ''} onChange={e => setEditCamp(p => p.map((x, j) => j === i ? { ...x, meta_ad_id: e.target.value } : x))} placeholder="ID do anúncio" style={dataInput} />
+              <textarea value={c.termosTxt} onChange={e => setEditCamp(p => p.map((x, j) => j === i ? { ...x, termosTxt: e.target.value } : x))} rows={2} placeholder={'frases que identificam\numa por linha'} style={{ ...dataInput, resize: 'vertical', fontFamily: 'inherit' }} />
+              <button onClick={() => setEditCamp(p => p.filter((_, j) => j !== i))} title="Remover" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--err)', fontSize: 14 }}>🗑</button>
+            </div>
+          ))}
+          <button onClick={() => setEditCamp(p => [...p, { rotulo: '', setor: '', conjunto: '', meta_ad_id: '', termosTxt: '' }])} style={{ ...btn(false), alignSelf: 'flex-start' }}>➕ Nova campanha</button>
+        </div>
+        <div style={{ padding: '12px 18px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <button onClick={() => setEditCamp(null)} className="vh-fechar">Cancelar</button>
+          <button onClick={salvarCampanhas} disabled={campSalvando} style={{ ...btn(true), background: '#7c3aed', color: '#fff', borderColor: '#7c3aed' }}>{campSalvando ? 'Salvando…' : 'Salvar campanhas'}</button>
+        </div>
+      </div>
+    </div>
+  );
+
+
   const atalho = (rot, fn, ativo) => <button key={rot} onClick={fn} style={btn(ativo)}>{rot}</button>;
   const semPeriodoManual = !de;
 
   return (
+    <>
+    {modalCampanhas}
     <div style={{ padding: '18px 20px 40px', maxWidth: 1180, margin: '0 auto' }}>
 
       {/* 1 · Cabeçalho e período */}
@@ -392,6 +485,10 @@ Agendamento e venda só contam se aconteceram DEPOIS da chegada do lead. Gerado 
           {/* 📥 O CSV do Gerenciador do Meta entra aqui e vira o catálogo de campanhas */}
           <input ref={csvRef} type="file" accept=".csv,text/csv" style={{ display: 'none' }} onChange={e => importarCSV(e.target.files?.[0])} />
           <input ref={fotoRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={e => enviarFoto(e.target.files?.[0])} />
+          {usuarioAtual?.role === 'master' && (
+            <button onClick={abrirEditorCampanhas} title="Editar o catálogo de campanhas: nome, setor, frases que identificam o lead"
+              style={{ ...btn(false), display: 'flex', alignItems: 'center', gap: 5 }}>✏️ Campanhas</button>
+          )}
           <button onClick={() => csvRef.current?.click()} disabled={importando}
             title="Suba o relatório de anúncios do Meta (CSV): cada anúncio vira uma campanha, com conversas e gasto ao lado"
             style={{ ...btn(false), display: 'flex', alignItems: 'center', gap: 5, background: '#7c3aed', color: '#fff', borderColor: '#7c3aed', opacity: importando ? .6 : 1 }}>
@@ -886,5 +983,6 @@ Agendamento e venda só contam se aconteceram DEPOIS da chegada do lead. Gerado 
         confirmando o pagamento na conversa. Agenda e venda só contam se aconteceram <b>depois</b> da chegada do lead.
       </div>
     </div>
+    </>
   );
 }
