@@ -6698,8 +6698,12 @@ r.post('/conversations/:id/pix', async (req, res) => {
     const servicoTxt = st === 'vacinas' ? 'da vacinação' : 'da consulta ou terapia';
     // "Sinalizar o nome Pix e logo em seguida deixar só no ponto de copiar"
     // (master, 22/09): a última linha aponta pra chave, que vem sozinha.
-    const textoAviso = `💠 *Pix para o pagamento ${servicoTxt}*\nClínica Vittalis Saúde · chave ${px.tipo}\n\nCopie a chave abaixo e cole no seu banco.\nDepois, me envie o comprovante por gentileza, para a devida baixa.\n\nVittalis Saúde cuidando do que mais importa 🩵\n\n*Chave Pix* 👇`;
+    /* TRÊS mensagens (ordem do master, 22/09: "após a chave Pix, logo abaixo,
+       termine com a frase sobre o envio do comprovante"): 1) o que é o Pix e
+       o que fazer, 2) a chave sozinha (copia com um toque), 3) o comprovante. */
+    const textoAviso = `💠 *Pix para o pagamento ${servicoTxt}*\nClínica Vittalis Saúde · chave ${px.tipo}\n\nCopie a chave abaixo e cole no seu banco.\n\n*Chave Pix* 👇`;
     const textoChave = px.chave;
+    const textoComprovante = 'Após o pagamento, me envie o comprovante por gentileza, para a devida baixa 🩵';
     let modo = 'texto';
     if (conv.channel === 'whatsapp' && zapiOk()) {
       const waNumber = conv.contact_id ? conv.contact_id.replace('@s.whatsapp.net', '') : `55${conv.phone}`;
@@ -6711,11 +6715,12 @@ r.post('/conversations/:id/pix', async (req, res) => {
         if (zr?.error) console.warn('Pix: botão nativo recusado pela Z-API →', String(zr.error).slice(0, 160));
         await zapiCall('/send-text', 'POST', { phone: phone55, message: textoAviso });
         await zapiCall('/send-text', 'POST', { phone: phone55, message: textoChave });
+        await zapiCall('/send-text', 'POST', { phone: phone55, message: textoComprovante });
       }
     }
     const conteudos = modo === 'botao'
-      ? [`💠 Pix da Vittalis Saúde (${px.rotulo})\nChave ${px.tipo}: ${px.chave}\n(botão Copiar chave Pix do WhatsApp)`]
-      : [textoAviso, textoChave];
+      ? [`💠 Pix da Vittalis Saúde (${px.rotulo})\nChave ${px.tipo}: ${px.chave}\n(botão Copiar chave Pix do WhatsApp)`, textoComprovante]
+      : [textoAviso, textoChave, textoComprovante];
     let msg = null;
     for (const conteudo of conteudos) {
       const { rows: [m] } = await query(`
