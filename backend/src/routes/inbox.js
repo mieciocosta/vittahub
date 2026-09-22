@@ -6692,12 +6692,11 @@ r.post('/conversations/:id/pix', async (req, res) => {
        número. Antes disso ainda tentamos o botão nativo de Pix; se a Z-API
        aceitar, o cliente ganha o "Copiar chave Pix" e as duas mensagens
        nem precisam sair. */
-    /* Texto ditado pelo master (22/09): "Prezado cliente, segue abaixo o Pix
-       da Clínica Vittalis Saúde... copie e cole", com a frase do comprovante
-       dele e o fecho "Vittalis Saúde cuidando do que mais importa" (a mesma
-       do cartão de agendamento). Tom formal; muda só o serviço e a chave. */
+    /* Texto curto (ordem do master, 22/09: "não quero um grande texto; o
+       cliente precisa entender o que é o Pix"). Diz o que é (pagamento de
+       quê, de quem, tipo da chave), o que fazer, e o fecho da casa. */
     const servicoTxt = st === 'vacinas' ? 'da vacinação' : 'da consulta ou terapia';
-    const textoAviso = `Prezado(a) cliente,\n\nSegue abaixo a chave Pix da Clínica Vittalis Saúde para o pagamento ${servicoTxt}.\n\nA chave vai sozinha na próxima mensagem: é só tocar nela, copiar e colar no aplicativo do seu banco.\n\nApós o pagamento, me envie o comprovante por gentileza, a fim de anexarmos em nosso sistema para a devida baixa.\n\nVittalis Saúde cuidando do que mais importa 🩵`;
+    const textoAviso = `💠 *Pix para o pagamento ${servicoTxt}*\nClínica Vittalis Saúde · chave ${px.tipo}\n\nCopie a chave da próxima mensagem e cole no seu banco.\nDepois, me envie o comprovante por gentileza, para a devida baixa.\n\nVittalis Saúde cuidando do que mais importa 🩵`;
     const textoChave = px.chave;
     let modo = 'texto';
     if (conv.channel === 'whatsapp' && zapiOk()) {
