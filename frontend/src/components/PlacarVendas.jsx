@@ -89,6 +89,17 @@ export default function PlacarVendas() {
   const [hoje, setHoje] = useState(null);
   const [pulse, setPulse] = useState(false);
   const [festaBusy, setFestaBusy] = useState(false); // 🥳 botão do master soltando a festa
+  const [festaPopup, setFestaPopup] = useState(null); // { setor, nome, vendido } — popup próprio (sem window.prompt)
+  const soltarFesta = async () => {
+    if (!festaPopup || festaBusy) return;
+    setFestaBusy(true);
+    try {
+      const vendido = parseFloat(String(festaPopup.vendido).replace(/\./g, '').replace(',', '.'));
+      await api.post('/extras/festa-meta-dia', { setor: festaPopup.setor, vendido: Number.isFinite(vendido) ? vendido : null });
+      setFestaPopup(null);
+    } catch { /* o servidor já registra */ }
+    setFestaBusy(false);
+  };
   const [festa, setFesta] = useState(false);   // comemoração de venda ao vivo
   const [pausa, setPausa] = useState(null);    // ⏸️ chaves do automático
   const [painel, setPainel] = useState(false); // painel de chaves (master)
@@ -215,7 +226,30 @@ export default function PlacarVendas() {
     : restaHoje ? 'A primeira do dia é sua — ainda dá tempo! 🚀'
     : 'A primeira venda do dia é sua! 🚀';
 
+  /* 🥳 Popup do master: informa o vendido de hoje e solta a festa. Abaixo da
+     meta sai como "Rumo à meta" com a porcentagem; na meta, meta batida. */
+  const popupFesta = festaPopup && (
+    <div onClick={() => setFestaPopup(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: 'var(--card,#fff)', color: 'var(--txt)', borderRadius: 16, padding: '18px 20px', width: 380, maxWidth: '100%', boxShadow: '0 20px 60px rgba(0,0,0,.4)' }}>
+        <div style={{ fontWeight: 900, fontSize: 15, marginBottom: 4 }}>🥳 Soltar a festa de {festaPopup.nome}</div>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>Informe quanto o setor vendeu hoje. Abaixo da meta ({fmt.brl(festaPopup.meta)}) a festa sai como "Rumo à meta", com a porcentagem; na meta ou acima, sai como meta batida.</div>
+        <label style={{ fontSize: 11, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase' }}>Vendido hoje (R$)</label>
+        <input value={festaPopup.vendido} onChange={e => setFestaPopup(p => ({ ...p, vendido: e.target.value }))} inputMode="decimal" autoFocus
+          onKeyDown={e => { if (e.key === 'Enter') soltarFesta(); if (e.key === 'Escape') setFestaPopup(null); }}
+          style={{ width: '100%', padding: '9px 12px', border: '1.5px solid var(--border)', borderRadius: 10, fontSize: 16, fontWeight: 900, marginTop: 4, marginBottom: 12, background: 'var(--bg)', color: 'var(--txt)' }} />
+        {(() => { const v = parseFloat(String(festaPopup.vendido).replace(/\./g, '').replace(',', '.')) || 0; const m = festaPopup.meta || 0;
+          return m > 0 ? <div style={{ fontSize: 12.5, fontWeight: 800, marginBottom: 12, color: v >= m ? '#16a34a' : '#b45309' }}>{v >= m ? '🏆 Meta batida!' : `🚀 ${String(Math.round((v / m) * 1000) / 10).replace('.', ',')}% da meta · faltam ${fmt.brl(Math.max(0, m - v))}`}</div> : null; })()}
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button onClick={() => setFestaPopup(null)} className="vh-fechar">✕ Cancelar</button>
+          <button onClick={soltarFesta} disabled={festaBusy} style={{ border: 'none', borderRadius: 10, padding: '8px 16px', fontWeight: 900, cursor: 'pointer', color: '#fff', background: 'linear-gradient(135deg,#C4973B,#92400e)' }}>{festaBusy ? 'Soltando…' : '🥳 Soltar em todas as telas'}</button>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
+    <>
+    {popupFesta}
     <div className="vh-placar" style={{ position: 'sticky', top: 0, zIndex: 90, display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap',
       padding: '9px 18px 11px', color: '#fff', overflow: 'hidden',
       background: festa ? 'linear-gradient(90deg,#78350f,#b45309,#f59e0b)'
@@ -289,9 +323,8 @@ export default function PlacarVendas() {
                     dia nasce sozinha quando a venda bate a meta; este botão é
                     pra ele soltar na hora, pra todo mundo, quando quiser. */}
                 {user?.role === 'master' && s.setor && s.setor !== 'geral' && (
-                  <button onClick={(e) => { e.stopPropagation(); if (festaBusy) return; setFestaBusy(true);
-                      api.post('/extras/festa-meta-dia', { setor: s.setor }).catch(() => {}).finally(() => setFestaBusy(false)); }}
-                    title={`Soltar a festa da meta do dia de ${nome} em todas as telas`}
+                  <button onClick={(e) => { e.stopPropagation(); setFestaPopup({ setor: s.setor, nome, meta: metaDia, vendido: String(Math.round(s.confirmadoHoje || 0)) }); }}
+                    title={`Soltar a festa do dia de ${nome} em todas as telas (meta batida ou porcentagem alcançada)`}
                     style={{ marginLeft: 6, background: 'rgba(255,255,255,.18)', border: '1px solid rgba(255,255,255,.4)', borderRadius: 8,
                       color: '#fff', cursor: 'pointer', padding: '1px 6px', fontSize: 12, verticalAlign: 'middle', opacity: festaBusy ? .6 : 1 }}>
                     🥳
@@ -618,5 +651,6 @@ export default function PlacarVendas() {
         @keyframes vh-placar-cai { 0% { transform: translateY(0) rotate(0); opacity: 1; } 100% { transform: translateY(90px) rotate(220deg); opacity: 0; } }
       `}</style>
     </div>
+    </>
   );
 }

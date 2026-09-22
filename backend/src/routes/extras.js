@@ -2635,7 +2635,7 @@ r.get('/backup/ultimo', async (req, res) => {
    · o master pode soltar na hora pelo botão 🥳 do placar (POST). */
 const NOME_SETOR = { vacinas: 'Vacinas', consultas: 'Consultas', terapias: 'Terapias' };
 const brlFesta = (n) => (parseFloat(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
-export async function dispararFestaMetaDia(setor, { forcar = false, por = null } = {}) {
+export async function dispararFestaMetaDia(setor, { forcar = false, por = null, vendidoManual = null } = {}) {
   const st = ['vacinas', 'consultas', 'terapias'].includes(setor) ? setor : 'vacinas';
   const hojeSLZ = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
   const cfg = await cfgRelatorioLider();
@@ -2644,7 +2644,12 @@ export async function dispararFestaMetaDia(setor, { forcar = false, por = null }
   const { rows: [hd] } = await query(
     `SELECT COALESCE(SUM(valor),0)::float vendido FROM vendas WHERE COALESCE(setor,'vacinas') = $1 AND data_venda = $2::date`,
     [st, hojeSLZ]).catch(() => ({ rows: [{ vendido: 0 }] }));
-  const vendido = hd?.vendido || 0;
+  /* 🥳 FESTA DE PROGRESSO (ordem do master, 22/09: "faz uma festa informando
+     a porcentagem que alcançamos hoje"): o master pode informar o vendido do
+     dia (o Caixa nem sempre está com tudo lançado). Abaixo da meta, a festa
+     sai como "Rumo à meta", com a porcentagem; na meta ou acima, é a festa
+     de meta batida. */
+  const vendido = vendidoManual != null ? Math.max(0, parseFloat(vendidoManual) || 0) : (hd?.vendido || 0);
   if (!forcar) {
     if (!(metaDia > 0) || vendido < metaDia) return null;
     // Uma festa por setor e dia: a marca é gravada ANTES de emitir, pra duas
@@ -2654,13 +2659,17 @@ export async function dispararFestaMetaDia(setor, { forcar = false, por = null }
     if (!rowCount) return null;
   }
   const agora = Date.now();
+  const progresso = forcar && vendidoManual != null && metaDia > 0 && vendido < metaDia;
+  const pct = metaDia > 0 ? Math.round((vendido / metaDia) * 1000) / 10 : null;
   const festa = {
     id: `${st}-${hojeSLZ}-${agora}`, tipo: 'marco', festa: 'meta_dia', setor: st, setorNome: NOME_SETOR[st],
-    vendido, meta: metaDia, por,
-    titulo: '🥳 Dia de celebração!',
+    vendido, meta: metaDia, pct, por, progresso,
+    titulo: progresso ? '🥳 Rumo à meta!' : '🥳 Dia de celebração!',
     // Botão do master não depende de venda registrada: só mostra os números
     // quando o registrado de fato passou a meta.
-    texto: metaDia > 0 && vendido >= metaDia
+    texto: progresso
+      ? `Já alcançamos ${String(pct).replace('.', ',')}% da meta do dia do setor de ${NOME_SETOR[st]}: ${brlFesta(vendido)} de ${brlFesta(metaDia)}. Vamos juntas até os 100%!`
+      : metaDia > 0 && vendido >= metaDia
       ? `O setor de ${NOME_SETOR[st]} ultrapassou a meta do dia: ${brlFesta(vendido)} de ${brlFesta(metaDia)}!`
       : `O setor de ${NOME_SETOR[st]} ultrapassou a meta do dia! Parabéns, equipe!`,
     em: new Date(agora).toISOString(), ate: new Date(hojeSLZ + 'T23:59:59-03:00').toISOString(),
@@ -2709,7 +2718,8 @@ r.get('/festa-ativa/lidas', async (req, res) => {
 r.post('/festa-meta-dia', async (req, res) => {
   try {
     if (req.user.role !== 'master') return res.status(403).json({ error: 'Só o master solta a festa.' });
-    const festa = await dispararFestaMetaDia(req.body?.setor || 'vacinas', { forcar: true, por: req.user.nome });
+    const festa = await dispararFestaMetaDia(req.body?.setor || 'vacinas', { forcar: true, por: req.user.nome,
+      vendidoManual: req.body?.vendido != null && req.body.vendido !== '' ? req.body.vendido : null });
     res.json({ ok: true, festa });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

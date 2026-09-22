@@ -350,7 +350,19 @@ function tocarFesta(ms) {
 const brl0 = (n) => (parseFloat(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
 // Frase do título (ordem do master, 19/09: "no título é que ultrapassamos a
 // meta diária que é 19 mil"). A meta vem do servidor; sem ela, 19 mil.
-const fraseMeta = (festa) => `Ultrapassamos a meta diária de ${brl0(festa.meta > 0 ? festa.meta : 19000)} do setor de ${festa.setorNome || 'Vacinas'}! 🏆`;
+const pctTxt = (festa) => String(festa.pct ?? (festa.meta > 0 ? Math.round((festa.vendido / festa.meta) * 1000) / 10 : 0)).replace('.', ',');
+const fraseMeta = (festa) => festa.progresso
+  ? `Já alcançamos ${pctTxt(festa)}% da meta diária de ${brl0(festa.meta > 0 ? festa.meta : 19000)} do setor de ${festa.setorNome || 'Vacinas'}! Faltam ${brl0(Math.max(0, (festa.meta || 0) - (festa.vendido || 0)))} e o dia ainda não terminou 🚀`
+  : `Ultrapassamos a meta diária de ${brl0(festa.meta > 0 ? festa.meta : 19000)} do setor de ${festa.setorNome || 'Vacinas'}! 🏆`;
+// 🥳 Festa de PROGRESSO (ordem do master, 22/09: "faz uma festa informando a
+// porcentagem que alcançamos hoje"): mensagem própria, sem falar em meta batida.
+// Ordem do master (22/09): "parabenizar e dizer o quanto falta para alcançar
+// 100%, pois o dia ainda não terminou".
+const TEXTO_PROGRESSO = (festa) =>
+  `A Direção da Vittalis Saúde parabeniza a equipe: já alcançamos ${pctTxt(festa)}% da meta do dia do setor de ${festa.setorNome || 'Vacinas'}, ` +
+  `${brl0(festa.vendido)} de ${brl0(festa.meta)}. Parabéns pelo que vocês construíram até agora! ` +
+  `Faltam ${brl0(Math.max(0, (festa.meta || 0) - (festa.vendido || 0)))} para os 100%, e o dia ainda não terminou. ` +
+  'Eu acredito em cada uma de vocês. Bora fechar o dia com chave de ouro!';
 
 /* A ABERTURA: tela inteira, obrigatória, com o texto da Direção */
 function AberturaFesta({ festa, onLiberar, mudo, onMudo }) {
@@ -376,8 +388,8 @@ function AberturaFesta({ festa, onLiberar, mudo, onMudo }) {
       <Chuva key={`c${tick}`} tipo={TIPOS_AB[tick % TIPOS_AB.length]} grande />
       <Chuva key={`d${tick}`} tipo="fita" grande />
       <Chuva key={`f${tick}`} tipo="fogos" grande />
-      <MascoteDancando lado="direita" fala="Bateu a meta!" sub={`Setor de ${setorNome} 🏆`} />
-      <MascoteDancando lado="esquerda" fala="Dia de celebração!" sub="Parabéns, equipe! 👏" />
+      <MascoteDancando lado="direita" fala={festa.progresso ? `${pctTxt(festa)}% da meta!` : 'Bateu a meta!'} sub={`Setor de ${setorNome} 🏆`} />
+      <MascoteDancando lado="esquerda" fala={festa.progresso ? 'Rumo à meta!' : 'Dia de celebração!'} sub="Parabéns, equipe! 👏" />
       <div style={{ position: 'relative', zIndex: 3001, width: 'min(94vw, 620px)', borderRadius: 28, padding: '28px 30px 24px', textAlign: 'center', color: '#fff',
         background: 'linear-gradient(135deg,#0E8C96 0%,#00B8C0 40%,#C4973B 100%)',
         boxShadow: '0 30px 90px rgba(0,0,0,.55), 0 0 0 6px rgba(255,255,255,.35)', border: '3px solid #fff',
@@ -390,15 +402,26 @@ function AberturaFesta({ festa, onLiberar, mudo, onMudo }) {
         {/* 📜 A mensagem da Direção, pra ler */}
         <div style={{ margin: '16px auto 0', background: 'rgba(255,255,255,.94)', color: '#06424A', borderRadius: 16, padding: '14px 18px', textAlign: 'left', fontSize: 14.5, lineHeight: 1.55, fontWeight: 600, boxShadow: '0 8px 24px rgba(0,0,0,.18)' }}>
           <div style={{ fontSize: 11, fontWeight: 900, textTransform: 'uppercase', letterSpacing: .8, color: '#92400e', marginBottom: 6 }}>📜 Mensagem da Direção</div>
-          {TEXTO_DIRECAO(setorNome)}
+          {festa.progresso ? TEXTO_PROGRESSO(festa) : TEXTO_DIRECAO(setorNome)}
           <div style={{ marginTop: 8, fontWeight: 900, color: '#0E8C96' }}>Dr. Miécio, Direção da Vittalis Saúde 🩵</div>
         </div>
-        {/* 💌 A segunda mensagem, da Dra. Nágila */}
-        <div style={{ margin: '10px auto 0', background: 'rgba(255,255,255,.94)', color: '#06424A', borderRadius: 16, padding: '14px 18px', textAlign: 'left', fontSize: 14.5, lineHeight: 1.55, fontWeight: 600, boxShadow: '0 8px 24px rgba(0,0,0,.18)' }}>
-          <div style={{ fontSize: 11, fontWeight: 900, textTransform: 'uppercase', letterSpacing: .8, color: '#be185d', marginBottom: 6 }}>💌 Mensagem da Dra. Nágila</div>
-          {TEXTO_NAGILA(setorNome)}
-          <div style={{ marginTop: 8, fontWeight: 900, color: '#be185d' }}>Eu amo vocês! Dra. Nágila 💗</div>
-        </div>
+        {/* 💌 A segunda mensagem, da Dra. Nágila (só na festa de meta batida) */}
+        {!festa.progresso && (
+          <div style={{ margin: '10px auto 0', background: 'rgba(255,255,255,.94)', color: '#06424A', borderRadius: 16, padding: '14px 18px', textAlign: 'left', fontSize: 14.5, lineHeight: 1.55, fontWeight: 600, boxShadow: '0 8px 24px rgba(0,0,0,.18)' }}>
+            <div style={{ fontSize: 11, fontWeight: 900, textTransform: 'uppercase', letterSpacing: .8, color: '#be185d', marginBottom: 6 }}>💌 Mensagem da Dra. Nágila</div>
+            {TEXTO_NAGILA(setorNome)}
+            <div style={{ marginTop: 8, fontWeight: 900, color: '#be185d' }}>Eu amo vocês! Dra. Nágila 💗</div>
+          </div>
+        )}
+        {/* 📊 No progresso, a barra da porcentagem */}
+        {festa.progresso && festa.meta > 0 && (
+          <div style={{ margin: '12px auto 0', maxWidth: 420 }}>
+            <div style={{ height: 14, borderRadius: 8, background: 'rgba(255,255,255,.3)', overflow: 'hidden' }}>
+              <div style={{ width: `${Math.min(100, (festa.vendido / festa.meta) * 100)}%`, height: '100%', background: '#fff', borderRadius: 8, transition: 'width 1.2s' }} />
+            </div>
+            <div style={{ fontSize: 13, fontWeight: 900, marginTop: 6 }}>{pctTxt(festa)}% · {brl0(festa.vendido)} de {brl0(festa.meta)} · faltam {brl0(Math.max(0, festa.meta - festa.vendido))}</div>
+          </div>
+        )}
         {festa.vendido > 0 && festa.meta > 0 && festa.vendido >= festa.meta && (
           <div style={{ display: 'inline-flex', gap: 16, marginTop: 14, background: 'rgba(255,255,255,.18)', borderRadius: 14, padding: '8px 16px', flexWrap: 'wrap', justifyContent: 'center' }}>
             <span style={{ fontSize: 12, fontWeight: 800, opacity: .9 }}>Vendido hoje <b style={{ fontSize: 17, display: 'block' }}>{brl0(festa.vendido)}</b></span>
@@ -473,7 +496,7 @@ function FestaDoDia({ festa, api, user, onReabrir, mudo, onMudo }) {
         <span style={{ fontSize: 18, animation: 'vh-mega-trofeu 1s ease-in-out infinite', flexShrink: 0 }}>🏆</span>
         <div style={{ flex: 1, minWidth: 0, lineHeight: 1.25 }}>
           <div style={{ fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            🥳 Dia de celebração! {fraseMeta(festa)} Toque aqui pra reler as mensagens.
+            {festa.progresso ? '🥳 Rumo à meta!' : '🥳 Dia de celebração!'} {fraseMeta(festa)} Toque aqui pra reler as mensagens.
           </div>
           <div key={ato} style={{ fontWeight: 800, fontSize: 12.5, opacity: .95, animation: 'vh-frase-entra .6s ease-out', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{frase}</div>
           {/* 📖 Gestão vê quem leu a mensagem e quem ainda falta */}
