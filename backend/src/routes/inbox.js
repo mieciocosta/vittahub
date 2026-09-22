@@ -6692,7 +6692,9 @@ r.post('/conversations/:id/pix', async (req, res) => {
        número. Antes disso ainda tentamos o botão nativo de Pix; se a Z-API
        aceitar, o cliente ganha o "Copiar chave Pix" e as duas mensagens
        nem precisam sair. */
-    const textoAviso = `💠 *Pix da Vittalis Saúde*\n${px.rotulo} · chave ${px.tipo}\n\nPara pagar, é só copiar a chave que vou mandar na próxima mensagem e colar no seu banco 😊\nDepois me envia o comprovante por aqui, tá? 💙`;
+    // Texto por setor (ordem do master, 22/09: "melhore os dois")
+    const confianca = st === 'vacinas' ? 'a proteção da sua família' : 'o cuidado da sua família';
+    const textoAviso = `💠 *Pix da Vittalis Saúde · ${px.rotulo}*\n\nObrigado por confiar ${confianca} a nós 💙\nPara pagar, é só copiar a chave Pix que vou mandar na próxima mensagem e colar no seu banco 😊\n\nAssim que fizer, me envia o comprovante por aqui, tá? Eu confirmo na hora 🥰`;
     const textoChave = px.chave;
     let modo = 'texto';
     if (conv.channel === 'whatsapp' && zapiOk()) {
