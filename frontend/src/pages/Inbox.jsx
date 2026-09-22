@@ -1308,7 +1308,7 @@ export default function Inbox({ onUnreadChange }) {
       const r = await api.post(`/inbox/conversations/${sel.id}/pix`, { setor: setor || op[0]?.setor });
       Toast.show(r?.modo === 'botao'
         ? `Pix de ${r.rotulo} enviado com o botão Copiar chave 💠`
-        : `Pix de ${r?.rotulo || ''} enviado em texto, com a chave pronta pra copiar 💠`, 'success');
+        : `Pix de ${r?.rotulo || ''} enviado: texto + a chave sozinha na mensagem seguinte 💠`, 'success');
     } catch (e) { Toast.show(e.message || 'Não consegui enviar o Pix', 'error'); }
     setPixBusy(false);
   };

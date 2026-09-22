@@ -6685,27 +6685,43 @@ r.post('/conversations/:id/pix', async (req, res) => {
     const px = chaves[st];
     const nome = usuariosNome.get(String(req.user.id)) || req.user.nome;
     const primeiro = String(nome || '').split(' ')[0];
-    const textoFallback = `💠 *Pix da Vittalis Saúde (${px.rotulo})*\nChave ${px.tipo}:\n${px.chave}\n\nÉ só copiar a chave acima e colar no seu banco. Depois me manda o comprovante por aqui, tá? 😊`;
+    /* ✉️ DUAS MENSAGENS (ordem do master, 22/09: "deixe a linha do Pix em
+       evidência de forma que ele consiga copiar apenas o número"). No
+       WhatsApp, segurar o dedo copia a mensagem INTEIRA; então o texto vai
+       numa mensagem e a chave vai SOZINHA na seguinte: um toque, copiou só o
+       número. Antes disso ainda tentamos o botão nativo de Pix; se a Z-API
+       aceitar, o cliente ganha o "Copiar chave Pix" e as duas mensagens
+       nem precisam sair. */
+    const textoAviso = `💠 *Pix da Vittalis Saúde*\n${px.rotulo} · chave ${px.tipo}\n\nPara pagar, é só copiar a chave que vou mandar na próxima mensagem e colar no seu banco 😊\nDepois me envia o comprovante por aqui, tá? 💙`;
+    const textoChave = px.chave;
     let modo = 'texto';
     if (conv.channel === 'whatsapp' && zapiOk()) {
       const waNumber = conv.contact_id ? conv.contact_id.replace('@s.whatsapp.net', '') : `55${conv.phone}`;
       const phone55 = waNumber.startsWith('55') ? waNumber : `55${waNumber}`;
-      // 1º o botão nativo de Pix do WhatsApp; se a Z-API recusar, texto
-      const zr = await zapiCall('/send-button-pix', 'POST', { phone: phone55, pixKey: px.chave, type: px.tipo, merchantName: `Vittalis Saúde · ${px.rotulo}` }).catch(() => null);
+      // 1º o botão nativo de Pix do WhatsApp; se a Z-API recusar, texto + chave sozinha
+      const zr = await zapiCall('/send-button-pix', 'POST', { phone: phone55, pixKey: px.chave, type: px.tipo, merchantName: `Vittalis Saúde · ${px.rotulo}` }).catch((e) => ({ error: e.message }));
       if (zr && !zr.error && (zr.messageId || zr.zaapId || zr.id)) modo = 'botao';
-      else await zapiCall('/send-text', 'POST', { phone: phone55, message: textoFallback });
+      else {
+        if (zr?.error) console.warn('Pix: botão nativo recusado pela Z-API →', String(zr.error).slice(0, 160));
+        await zapiCall('/send-text', 'POST', { phone: phone55, message: textoAviso });
+        await zapiCall('/send-text', 'POST', { phone: phone55, message: textoChave });
+      }
     }
-    const conteudo = modo === 'botao'
-      ? `💠 Pix da Vittalis Saúde (${px.rotulo})\nChave ${px.tipo}: ${px.chave}\n(botão Copiar chave Pix do WhatsApp)`
-      : textoFallback;
-    const { rows: [msg] } = await query(`
-      INSERT INTO mensagens (conversa_id, from_type, type, content, sender_id, sender_nome, status)
-      VALUES ($1, 'me', 'text', $2, $3, $4, 'sent') RETURNING *`, [conv.id, conteudo, req.user.id, nome]);
+    const conteudos = modo === 'botao'
+      ? [`💠 Pix da Vittalis Saúde (${px.rotulo})\nChave ${px.tipo}: ${px.chave}\n(botão Copiar chave Pix do WhatsApp)`]
+      : [textoAviso, textoChave];
+    let msg = null;
+    for (const conteudo of conteudos) {
+      const { rows: [m] } = await query(`
+        INSERT INTO mensagens (conversa_id, from_type, type, content, sender_id, sender_nome, status)
+        VALUES ($1, 'me', 'text', $2, $3, $4, 'sent') RETURNING *`, [conv.id, conteudo, req.user.id, nome]);
+      msg = m;
+      socketEmit('new_message', { convId: conv.id, message: mensagemLeve(m), conv });
+    }
     const { rows: [convUpd] } = await query(
       `UPDATE conversas SET last_message = $1, last_from = 'me', last_message_at = NOW(), bot_ativo = false WHERE id = $2 RETURNING *`,
       [`💠 Pix (${px.rotulo})`, conv.id]);
-    if (convUpd) cacheUpdate(convUpd);
-    socketEmit('new_message', { convId: conv.id, message: mensagemLeve(msg), conv: convUpd || conv });
+    if (convUpd) { cacheUpdate(convUpd); socketEmit('new_message', { convId: conv.id, message: mensagemLeve(msg), conv: convUpd }); }
     res.json({ ok: true, modo, setor: st, chave: px.chave, rotulo: px.rotulo, por: primeiro });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
