@@ -6696,7 +6696,9 @@ r.post('/conversations/:id/pix', async (req, res) => {
        cliente precisa entender o que é o Pix"). Diz o que é (pagamento de
        quê, de quem, tipo da chave), o que fazer, e o fecho da casa. */
     const servicoTxt = st === 'vacinas' ? 'da vacinação' : 'da consulta ou terapia';
-    const textoAviso = `💠 *Pix para o pagamento ${servicoTxt}*\nClínica Vittalis Saúde · chave ${px.tipo}\n\nCopie a chave da próxima mensagem e cole no seu banco.\nDepois, me envie o comprovante por gentileza, para a devida baixa.\n\nVittalis Saúde cuidando do que mais importa 🩵`;
+    // "Sinalizar o nome Pix e logo em seguida deixar só no ponto de copiar"
+    // (master, 22/09): a última linha aponta pra chave, que vem sozinha.
+    const textoAviso = `💠 *Pix para o pagamento ${servicoTxt}*\nClínica Vittalis Saúde · chave ${px.tipo}\n\nCopie a chave abaixo e cole no seu banco.\nDepois, me envie o comprovante por gentileza, para a devida baixa.\n\nVittalis Saúde cuidando do que mais importa 🩵\n\n*Chave Pix* 👇`;
     const textoChave = px.chave;
     let modo = 'texto';
     if (conv.channel === 'whatsapp' && zapiOk()) {
