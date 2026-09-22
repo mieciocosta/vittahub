@@ -6695,7 +6695,7 @@ r.post('/conversations/:id/pix', async (req, res) => {
     /* Texto ditado pelo master (22/09): "Prezado cliente, segue abaixo o Pix
        da Clínica Vittalis Saúde... copie e cole". Tom formal, o mesmo pros
        dois setores; muda só o nome do setor. */
-    const textoAviso = `Prezado(a) cliente,\n\nSegue abaixo a chave Pix da Clínica Vittalis Saúde (${px.rotulo}) para o pagamento.\n\nCopie a chave na mensagem seguinte e cole no aplicativo do seu banco.\n\nApós o pagamento, por gentileza, envie o comprovante por aqui para confirmarmos 💙`;
+    const textoAviso = `Prezado(a) cliente,\n\nSegue abaixo a chave Pix da Clínica Vittalis Saúde (${px.rotulo}) para o pagamento.\n\nCopie a chave na mensagem seguinte e cole no aplicativo do seu banco.\n\nApós o pagamento me envie o comprovante por gentileza, afim de anexarmos em nosso sistema, para devida baixa.`;
     const textoChave = px.chave;
     let modo = 'texto';
     if (conv.channel === 'whatsapp' && zapiOk()) {
