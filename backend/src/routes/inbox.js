@@ -6693,9 +6693,11 @@ r.post('/conversations/:id/pix', async (req, res) => {
        aceitar, o cliente ganha o "Copiar chave Pix" e as duas mensagens
        nem precisam sair. */
     /* Texto ditado pelo master (22/09): "Prezado cliente, segue abaixo o Pix
-       da Clínica Vittalis Saúde... copie e cole". Tom formal, o mesmo pros
-       dois setores; muda só o nome do setor. */
-    const textoAviso = `Prezado(a) cliente,\n\nSegue abaixo a chave Pix da Clínica Vittalis Saúde (${px.rotulo}) para o pagamento.\n\nCopie a chave na mensagem seguinte e cole no aplicativo do seu banco.\n\nApós o pagamento me envie o comprovante por gentileza, afim de anexarmos em nosso sistema, para devida baixa.`;
+       da Clínica Vittalis Saúde... copie e cole", com a frase do comprovante
+       dele e o fecho "Vittalis Saúde cuidando do que mais importa" (a mesma
+       do cartão de agendamento). Tom formal; muda só o serviço e a chave. */
+    const servicoTxt = st === 'vacinas' ? 'da vacinação' : 'da consulta ou terapia';
+    const textoAviso = `Prezado(a) cliente,\n\nSegue abaixo a chave Pix da Clínica Vittalis Saúde para o pagamento ${servicoTxt}.\n\nA chave vai sozinha na próxima mensagem: é só tocar nela, copiar e colar no aplicativo do seu banco.\n\nApós o pagamento, me envie o comprovante por gentileza, a fim de anexarmos em nosso sistema para a devida baixa.\n\nVittalis Saúde cuidando do que mais importa 🩵`;
     const textoChave = px.chave;
     let modo = 'texto';
     if (conv.channel === 'whatsapp' && zapiOk()) {
