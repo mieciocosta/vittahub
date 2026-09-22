@@ -69,8 +69,11 @@ export async function cartaoAgendamento(dados = {}, opts = {}) {
   /* 📌 PRÉ-AGENDADO é diferente de confirmado: o horário está reservado, mas
      ainda depende do sim da família. Dizer "confirmada" nessa hora é prometer o
      que não foi combinado (caso da Sra. Isabel, 27/08). */
+  /* opts.quando: 'amanha' (padrão), 'dois_dias' (vacina, 2 dias antes) ou
+     'hoje' (manhã do dia) — ordem do master, 22/09. */
+  const quandoTxt = opts.quando === 'dois_dias' ? 'é depois de amanhã' : opts.quando === 'hoje' ? 'é hoje' : 'é amanhã';
   const titulo = opts.titulo || (opts.lembrete
-    ? `🔔 ${assunto.posse} ${assunto.nome} é amanhã`
+    ? `🔔 ${assunto.posse} ${assunto.nome} ${quandoTxt}`
     : opts.preAgendado
       ? `📌 ${assunto.nome.charAt(0).toUpperCase() + assunto.nome.slice(1)} pré-agendada`
       : `✅ ${assunto.nome.charAt(0).toUpperCase() + assunto.nome.slice(1)} confirmad${assunto.fem ? 'a' : 'o'}`);

@@ -6343,12 +6343,22 @@ async function confirmacaoVespera() {
       [JSON.stringify({ dia: hojeSLZ })]).catch(() => {});
 
     const amanha = new Date(Date.now() - 3 * 3600 * 1000 + 86400000).toISOString().slice(0, 10); // amanhã no fuso SLZ
+    const depoisDeAmanha = new Date(Date.now() - 3 * 3600 * 1000 + 2 * 86400000).toISOString().slice(0, 10);
+    /* 💉 VACINAS: 2 DIAS ANTES (ordem do master, 22/09: "quero que o lembrete
+       seja 2 dias antes da vacinação e no mesmo dia logo cedo, umas 7h").
+       Consultas e terapias seguem na véspera. Vacina marcada em cima da hora
+       (menos de 2 dias antes) ainda recebe o aviso de véspera, pra ninguém
+       ficar sem lembrete. O da manhã do dia está em lembreteManhaVacinas(). */
     const { rows: eventos } = await query(`
       SELECT * FROM agenda_eventos
-      WHERE data = $1 AND status IN ('Agendado','Confirmado')
+      WHERE status IN ('Agendado','Confirmado')
         AND COALESCE(confirmacao_enviada, false) = false
         AND servico IS DISTINCT FROM 'Pós Vacinal'  -- ordem do master: pós-vacinal SÓ na agenda, nenhuma mensagem sai sozinha
-      ORDER BY hora LIMIT 60`, [amanha]);
+        AND (
+          (COALESCE(setor,'vacinas') <> 'vacinas' AND data = $1)                 -- consultas/terapias: véspera
+          OR (COALESCE(setor,'vacinas') = 'vacinas' AND data IN ($1, $2))        -- vacinas: 2 dias antes (ou véspera, se marcou tarde)
+        )
+      ORDER BY data, hora LIMIT 80`, [amanha, depoisDeAmanha]);
     let n = 0, semConversa = 0;
     for (const ev of eventos) {
       // Marca ANTES de enviar: mesmo sem conversa, não fica re-tentando pra sempre
@@ -6356,12 +6366,17 @@ async function confirmacaoVespera() {
       const convId = await convDoEvento(ev);
       if (!convId) { semConversa++; continue; }
       const nome = String(ev.paciente || '').split(' ')[0];
+      const dataEv = String(ev.data instanceof Date ? ev.data.toISOString() : ev.data).slice(0, 10);
+      const emDoisDias = dataEv === depoisDeAmanha;
+      const dataBR = dataEv.split('-').reverse().slice(0, 2).join('/');
       /* O lembrete é o MESMO cartão da confirmação (ordem do master, 24/08):
          muda só o título e a frase inicial. Tom afirmativo, avisando que está
          tudo pronto, em vez de pedir confirmação — reduz desistência. */
       const txt = await cartaoDoEvento(ev, {
-        lembrete: true,
-        frase: `Oi! 💙 Aqui é da Vittalis Saúde 😊 Passando para lembrar que é amanhã o atendimento${nome ? ` do(a) ${nome}` : ''}, e está tudo organizado, com muito amor e carinho, para receber vocês 🥰`,
+        lembrete: true, quando: emDoisDias ? 'dois_dias' : 'amanha',
+        frase: emDoisDias
+          ? `Oi! 💙 Aqui é da Vittalis Saúde 😊 Passando para lembrar que a vacinação${nome ? ` do(a) ${nome}` : ''} é depois de amanhã, dia ${dataBR}, e já está tudo organizado, com muito amor e carinho, para receber vocês 🥰`
+          : `Oi! 💙 Aqui é da Vittalis Saúde 😊 Passando para lembrar que é amanhã o atendimento${nome ? ` do(a) ${nome}` : ''}, e está tudo organizado, com muito amor e carinho, para receber vocês 🥰`,
       });
       await query(`INSERT INTO mensagens_agendadas (conversa_id, texto, enviar_em, criado_por) VALUES ($1, $2, NOW(), 'Vitta · Confirmação de agenda')`,
         [convId, txt]).catch(() => {});
@@ -6385,6 +6400,56 @@ async function confirmacaoVespera() {
 // Tick de 20 min: com o marcador diário acima, basta uma passada depois das 17h.
 setInterval(confirmacaoVespera, 20 * 60 * 1000);
 setTimeout(confirmacaoVespera, 45000);   // e uma logo após o boot, pra deploy tardio não perder o dia
+
+/* 🌅 LEMBRETE DA MANHÃ DO DIA DA VACINAÇÃO (ordem do master, 22/09: "no mesmo
+   dia logo cedo, umas 7h"). Das 7h em diante (relógio de São Luís), uma vez
+   por dia, pra toda vacinação de HOJE que ainda não recebeu o aviso da
+   manhã. Só vacinas; pós-vacinal nunca. Mesmo cartão oficial, frase de bom
+   dia. Se o servidor reiniciar às 7h, o marcador diário garante que roda
+   assim que voltar. */
+async function lembreteManhaVacinas() {
+  try {
+    const agoraSLZ = new Date(Date.now() - 3 * 3600 * 1000);
+    if (agoraSLZ.getUTCHours() < 7) return;                   // antes das 7h de São Luís
+    const hojeSLZ = agoraSLZ.toISOString().slice(0, 10);
+    const { rows: [marca] } = await query(
+      "SELECT valor FROM configuracoes WHERE chave = 'lembrete_manha_vacinas_dia'").catch(() => ({ rows: [] }));
+    if (marca?.valor?.dia === hojeSLZ) return;
+    await query(`INSERT INTO configuracoes (chave, valor) VALUES ('lembrete_manha_vacinas_dia', $1::jsonb)
+                 ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`,
+      [JSON.stringify({ dia: hojeSLZ })]).catch(() => {});
+    const { rows: eventos } = await query(`
+      SELECT * FROM agenda_eventos
+      WHERE data = $1 AND status IN ('Agendado','Confirmado')
+        AND COALESCE(setor,'vacinas') = 'vacinas'
+        AND lembrete_dia_enviado_em IS NULL
+        AND servico IS DISTINCT FROM 'Pós Vacinal'
+      ORDER BY hora LIMIT 80`, [hojeSLZ]);
+    let n = 0, semConversa = 0;
+    for (const ev of eventos) {
+      await query('UPDATE agenda_eventos SET lembrete_dia_enviado_em = NOW() WHERE id = $1', [ev.id]).catch(() => {});
+      const convId = await convDoEvento(ev);
+      if (!convId) { semConversa++; continue; }
+      const nome = String(ev.paciente || '').split(' ')[0];
+      const hora = String(ev.hora || '').slice(0, 5);
+      const txt = await cartaoDoEvento(ev, {
+        lembrete: true, quando: 'hoje',
+        frase: `Bom dia! ☀️💙 Aqui é da Vittalis Saúde 😊 Hoje é o dia da vacinação${nome ? ` do(a) ${nome}` : ''}${hora ? `, às ${hora}` : ''}, e está tudo pronto, com muito carinho, para receber vocês 🥰`,
+      });
+      await query(`INSERT INTO mensagens_agendadas (conversa_id, texto, enviar_em, criado_por) VALUES ($1, $2, NOW(), 'Vitta · Lembrete da manhã')`,
+        [convId, txt]).catch(() => {});
+      n++;
+    }
+    if (n) console.log(`🌅 Lembrete da manhã (vacinas): ${n} mensagem(ns) para ${hojeSLZ}`);
+    if (semConversa) {
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('agenda', $1, $2, true)`,
+        ['📵 Lembretes da manhã não enviados',
+         `${semConversa} vacinação(ões) de hoje não têm conversa no WhatsApp, então não receberam o lembrete das 7h. Vale ligar.`]).catch(() => {});
+    }
+  } catch (e) { console.error('Lembrete manhã vacinas erro:', e.message); }
+}
+setInterval(lembreteManhaVacinas, 10 * 60 * 1000);
+setTimeout(lembreteManhaVacinas, 60000);
 
 // ─── 💰 RESGATE DE ORÇAMENTO SEM RESPOSTA ────────────────────────────────────
 // Proposta (PDF) enviada há 24-48h e o cliente não respondeu nada desde então →

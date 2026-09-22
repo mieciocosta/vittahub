@@ -866,6 +866,8 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       UNIQUE (mes, atendente_id)
     )`).catch(() => {});
     await query(`ALTER TABLE agenda_eventos ADD COLUMN IF NOT EXISTS local_link TEXT`).catch(() => {});
+    // 🌅 Lembrete da manhã do dia da vacinação (ordem do master, 22/09)
+    await query(`ALTER TABLE agenda_eventos ADD COLUMN IF NOT EXISTS lembrete_dia_enviado_em TIMESTAMPTZ`).catch(() => {});
     await query(`ALTER TABLE agenda_eventos ADD COLUMN IF NOT EXISTS email TEXT`).catch(() => {});
     await query(`ALTER TABLE agenda_eventos ADD COLUMN IF NOT EXISTS valor NUMERIC(10,2)`).catch(() => {});
     await query(`ALTER TABLE agenda_eventos ADD COLUMN IF NOT EXISTS forma_pagamento TEXT`).catch(() => {});
