@@ -6703,7 +6703,7 @@ r.post('/conversations/:id/pix', async (req, res) => {
        o que fazer, 2) a chave sozinha (copia com um toque), 3) o comprovante. */
     const textoAviso = `💠 *Pix para o pagamento ${servicoTxt}*\nClínica Vittalis Saúde · chave ${px.tipo}\n\nCopie a chave abaixo e cole no seu banco.\n\n*Chave Pix* 👇`;
     const textoChave = px.chave;
-    const textoComprovante = 'Após o pagamento, me envie o comprovante por gentileza, para a devida baixa 🩵';
+    const textoComprovante = 'Após o pagamento, me envie o comprovante por gentileza, para a devida baixa em nosso sistema.';
     let modo = 'texto';
     if (conv.channel === 'whatsapp' && zapiOk()) {
       const waNumber = conv.contact_id ? conv.contact_id.replace('@s.whatsapp.net', '') : `55${conv.phone}`;
