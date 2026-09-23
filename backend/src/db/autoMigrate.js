@@ -3282,13 +3282,19 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
      · mensagem dele ainda visível passa a assinar Poliana (o cliente já
        recebeu no WhatsApp; o que dá pra consertar é o histórico). */
   try {
-    const { rows: [flagLimpa] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_limpa_miecio_poliana_2026-09-23'");
+    const { rows: [flagLimpa] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_limpa_miecio_poliana_2026-09-23_v2'");
     if (!flagLimpa) {
       const { rows: [polL] } = await query("SELECT id, nome FROM usuarios WHERE nome ILIKE 'poliana%' ORDER BY ativo DESC, nome LIMIT 1").catch(() => ({ rows: [] }));
       let nDel = 0, nRen = 0;
       if (polL) {
         const primeiro = String(polL.nome).trim().split(/\s+/)[0];
-        const cond = `conversa_id IN (SELECT id FROM conversas WHERE responsavel_id = $1)
+        /* Alcance: conversas da Poliana (responsável), conversas em que ELA
+           escreveu hoje (lead ainda sem dona, como a Danny do print) e a da
+           Danny pelo telefone, por garantia. */
+        const cond = `conversa_id IN (
+                SELECT id FROM conversas WHERE responsavel_id = $1
+                UNION SELECT conversa_id FROM mensagens WHERE from_type = 'me' AND sender_nome ILIKE 'poliana%' AND (created_at - interval '3 hours')::date = DATE '2026-09-23'
+                UNION SELECT id FROM conversas WHERE regexp_replace(COALESCE(phone,''), '\\D', '', 'g') LIKE '%98986268699')
               AND from_type = 'me' AND sender_nome ~* 'mi[eé]cio'
               AND (created_at - interval '3 hours')::date = DATE '2026-09-23'`;
         const del = await query(`DELETE FROM mensagens WHERE status = 'deleted' AND ${cond} RETURNING conversa_id`, [polL.id]).catch((e) => { console.error('limpa miecio del:', e.message); return null; });
@@ -3304,7 +3310,7 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
                        WHERE c.id = $1`, [cid]).catch(() => {});
         }
       }
-      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_limpa_miecio_poliana_2026-09-23', '{"ok":true}') ON CONFLICT DO NOTHING`);
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_limpa_miecio_poliana_2026-09-23_v2', '{"ok":true}') ON CONFLICT DO NOTHING`);
       await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
         ['🧹 Rastro do Miécio na conversa da Poliana',
          polL ? `${nDel} mensagem(ns) apagada(s) sumiram do histórico e ${nRen} passaram a assinar ${String(polL.nome).split(' ')[0]}, nas conversas dela de hoje.` : 'Não achei a usuária Poliana para fazer a limpeza.']).catch(() => {});
