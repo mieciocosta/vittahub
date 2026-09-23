@@ -3253,6 +3253,25 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       }
     }
   } catch (e) { console.error('mayara fidelidade:', e.message); }
+  /* 🌱 MARINA (ordem do master, 23/09: "cria rápido um usuário: Marina
+     Cristiny Pereira Sampaio, CPF 62116427339"). Atendente híbrida, igual
+     ao padrão da casa (setor principal vacinas + os outros dois na lista),
+     senha inicial padrão; o master ajusta setor e papel em Configurações. */
+  try {
+    const { rows: [flagMarina] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_marina_v1'");
+    if (!flagMarina) {
+      const bcryptX = await import('bcryptjs');
+      const hashX = await bcryptX.default.hash('Vittalis@2026', 10);
+      await query(`INSERT INTO usuarios (id, nome, email, cpf, senha, role, cor, ativo, setor, setores)
+        VALUES (gen_random_uuid()::text, 'Marina Cristiny Pereira Sampaio', 'marina.sampaio@vittahub.local', '62116427339', $1, 'atendente', '#f472b6', true, 'vacinas', '{vacinas,consultas,terapias}')
+        ON CONFLICT (email) DO UPDATE SET senha = EXCLUDED.senha, ativo = true, cpf = EXCLUDED.cpf`, [hashX])
+        .catch((e) => console.error('seed Marina:', e.message));
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_marina_v1', '{"ok":true}') ON CONFLICT DO NOTHING`);
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+        ['👤 Usuária criada: Marina', 'Marina Cristiny Pereira Sampaio entra com o CPF 62116427339 e a senha inicial Vittalis@2026 (troca no primeiro acesso). Perfil: atendente, vacinas + consultas + terapias. Ajuste em Configurações → Usuários se precisar.']).catch(() => {});
+      console.log('🌱 Marina: usuária criada');
+    }
+  } catch (e) { console.error('seed marina:', e.message); }
   try { await colunasCriticas(); } catch (e) { console.error('colunas criticas:', e.message); }
   try { await tabelaOcultas(); } catch (e) { console.error('tabela ocultas:', e.message); }
   /* ⚠️ DEPOIS de colunasCriticas, sempre. As metas por setor gravam numa coluna
