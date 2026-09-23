@@ -54,7 +54,13 @@ function logAudit(req, usuarioId, usuarioNome, acao, detalhes) {
    cadastro continua valendo, mas a tela não pode depender dela. */
 const semAcentoMin = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 const soCarteiraDe = (u) => u?.so_carteira === true || /(^|[^a-z])gabriel/.test(semAcentoMin(u?.nome));
-const soFidelidadeDe = (u) => u?.so_fidelidade === true || /(^|[^a-z])(poliana|mayara)/.test(semAcentoMin(u?.nome));   // Mayara: Fidelidade desde 23/09
+const soFidelidadeDe = (u) => u?.so_fidelidade === true || /(^|[^a-z])(poliana|ma[iy]ara)/.test(semAcentoMin(u?.nome));   // Mayara/Maiara: Fidelidade desde 23/09
+/* 💛 Quem é Fidelidade é VACINAS, pelo login (cobrança da Poliana, 23/09: "o
+   CRM da Mayara ainda está como de Consultas"). O setor gravado no cadastro
+   pode atrasar (deploy, semente que não achou o nome); o que vai no token e
+   no /me é o certo, sem depender do banco. */
+const setorDe = (u) => soFidelidadeDe(u) ? 'vacinas' : (u?.setor || null);
+const setoresDe = (u) => soFidelidadeDe(u) ? ['vacinas'] : (u?.setores || null);
 
 r.post('/login', async (req, res) => {
   const ip = getRealIP(req);
@@ -77,7 +83,7 @@ r.post('/login', async (req, res) => {
     const ok = await bcrypt.compare(senha, u.senha);
     if (!ok) { registraFalhaLogin(ip); logAudit(req, null, id, 'login_falha', { motivo: 'Senha incorreta' }); return res.status(401).json({ error: 'Senha incorreta' }); }
     limpaFalhasLogin(ip);
-    const token = jwt.sign({ id: u.id, nome: u.nome, email: u.email, role: u.role, cor: u.cor, setor: u.setor || null, setores: u.setores || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo, ve_geral: !!u.ve_geral, so_carteira: !!u.so_carteira, so_fidelidade: !!u.so_fidelidade, distribuidor: !!u.distribuidor }, SECRET, { expiresIn: u.role === 'master' ? '30d' : '16h' }); // equipe: sessão morre no mesmo dia; master mantém 30d
+    const token = jwt.sign({ id: u.id, nome: u.nome, email: u.email, role: u.role, cor: u.cor, setor: setorDe(u), setores: setoresDe(u), lider: !!u.lider, ve_tudo: !!u.ve_tudo, ve_geral: !!u.ve_geral, so_carteira: !!u.so_carteira, so_fidelidade: !!u.so_fidelidade, distribuidor: !!u.distribuidor }, SECRET, { expiresIn: u.role === 'master' ? '30d' : '16h' }); // equipe: sessão morre no mesmo dia; master mantém 30d
     /* 🌐 RASTREIO DE LOCALIZAÇÃO (ordem do master, 22/08): mesmo login usado
        em ENDEREÇOS (IPs) diferentes num curto intervalo = alerta na hora pro
        master. É o sinal clássico de senha compartilhada. */
@@ -103,7 +109,7 @@ r.post('/login', async (req, res) => {
              VALUES ($1,$2,'login',$3::jsonb,$4,$5)`,
         [u.id, u.nome, JSON.stringify({ metodo: 'cpf', ...(loc || {}) }), ip, req.get('user-agent')?.slice(0, 300)]).catch(() => {});
     }).catch(() => { logAudit(req, u.id, u.nome, 'login', { metodo: 'cpf' }); });
-    res.json({ token, user: { id: u.id, nome: u.nome, email: u.email, cpf: u.cpf, role: u.role, cor: u.cor, avatar: u.avatar || null, setor: u.setor || null, setores: u.setores || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo,
+    res.json({ token, user: { id: u.id, nome: u.nome, email: u.email, cpf: u.cpf, role: u.role, cor: u.cor, avatar: u.avatar || null, setor: setorDe(u), setores: setoresDe(u), lider: !!u.lider, ve_tudo: !!u.ve_tudo,
         /* 📥 Os perfis de carteira vêm JUNTO (01/09). Sem eles, quem entrava —
            ou quem o master impersonava — ficava sem a marca de distribuidora
            até dar F5: a aba de Distribuição e as duas fileiras simplesmente não
@@ -122,7 +128,7 @@ r.get('/me', auth, async (req, res) => {
   try {
     const { rows } = await query('SELECT id,nome,email,cpf,role,cor,avatar,setor,setores,lider,ve_tudo,ve_geral,so_carteira,so_fidelidade,distribuidor,ia_consultas,ia_ligada,pode_impersonar,baixa_supervisionada,ve_carteira_leads FROM usuarios WHERE id=$1', [req.user.id]);
     if (!rows[0]) return res.status(404).json({ error: 'Não encontrado' });
-    res.json({ ...rows[0], so_carteira: soCarteiraDe(rows[0]), so_fidelidade: soFidelidadeDe(rows[0]), dono: ehDono(rows[0]) || rows[0].pode_impersonar === true });
+    res.json({ ...rows[0], setor: setorDe(rows[0]), setores: setoresDe(rows[0]), so_carteira: soCarteiraDe(rows[0]), so_fidelidade: soFidelidadeDe(rows[0]), dono: ehDono(rows[0]) || rows[0].pode_impersonar === true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -178,8 +184,8 @@ r.patch('/me/nome', auth, async (req, res) => {
                    so_carteira, so_fidelidade, distribuidor, pode_impersonar, ve_carteira_leads`,
       [nome, req.user.id]);
     if (!u) return res.status(404).json({ error: 'Usuário não encontrado.' });
-    const token = jwt.sign({ id: u.id, nome: u.nome, email: u.email, role: u.role, cor: u.cor, setor: u.setor || null, setores: u.setores || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo, ve_geral: !!u.ve_geral, so_carteira: !!u.so_carteira, so_fidelidade: !!u.so_fidelidade, distribuidor: !!u.distribuidor }, SECRET, { expiresIn: u.role === 'master' ? '30d' : '16h' }); // equipe: sessão morre no mesmo dia; master mantém 30d
-    res.json({ ok: true, token, user: { id: u.id, nome: u.nome, email: u.email, cpf: u.cpf, role: u.role, cor: u.cor, avatar: u.avatar || null, setor: u.setor || null, setores: u.setores || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo,
+    const token = jwt.sign({ id: u.id, nome: u.nome, email: u.email, role: u.role, cor: u.cor, setor: setorDe(u), setores: setoresDe(u), lider: !!u.lider, ve_tudo: !!u.ve_tudo, ve_geral: !!u.ve_geral, so_carteira: !!u.so_carteira, so_fidelidade: !!u.so_fidelidade, distribuidor: !!u.distribuidor }, SECRET, { expiresIn: u.role === 'master' ? '30d' : '16h' }); // equipe: sessão morre no mesmo dia; master mantém 30d
+    res.json({ ok: true, token, user: { id: u.id, nome: u.nome, email: u.email, cpf: u.cpf, role: u.role, cor: u.cor, avatar: u.avatar || null, setor: setorDe(u), setores: setoresDe(u), lider: !!u.lider, ve_tudo: !!u.ve_tudo,
         /* 📥 Os perfis de carteira vêm JUNTO (01/09). Sem eles, quem entrava —
            ou quem o master impersonava — ficava sem a marca de distribuidora
            até dar F5: a aba de Distribuição e as duas fileiras simplesmente não
@@ -292,7 +298,7 @@ r.post('/impersonar/:id', auth, async (req, res) => {
       /* Os perfis de carteira vão JUNTO (28/08): sem eles, o master entrava como
          a Poliana e via mais do que ela vê de verdade — e a régua nova de acesso
          (fila de leads, carteira fechada) lê exatamente esses campos. */
-      { id: u.id, nome: u.nome, email: u.email, role: u.role, cor: u.cor, setor: u.setor || null, setores: u.setores || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo, ve_geral: !!u.ve_geral,
+      { id: u.id, nome: u.nome, email: u.email, role: u.role, cor: u.cor, setor: setorDe(u), setores: setoresDe(u), lider: !!u.lider, ve_tudo: !!u.ve_tudo, ve_geral: !!u.ve_geral,
         so_carteira: u.so_carteira === true, so_fidelidade: u.so_fidelidade === true, distribuidor: u.distribuidor === true,
         impersonadoPor: req.user.id },
       SECRET, { expiresIn: '12h' });
@@ -310,7 +316,7 @@ r.post('/impersonar/:id', auth, async (req, res) => {
          `${eu.nome} usou a troca de usuário para observar a conta de ${u.nome}. Registrado em ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}.`])
         .catch(() => {});
     }
-    res.json({ token, user: { id: u.id, nome: u.nome, email: u.email, cpf: u.cpf, role: u.role, cor: u.cor, avatar: u.avatar || null, setor: u.setor || null, setores: u.setores || null, lider: !!u.lider, ve_tudo: !!u.ve_tudo,
+    res.json({ token, user: { id: u.id, nome: u.nome, email: u.email, cpf: u.cpf, role: u.role, cor: u.cor, avatar: u.avatar || null, setor: setorDe(u), setores: setoresDe(u), lider: !!u.lider, ve_tudo: !!u.ve_tudo,
         /* 📥 Os perfis de carteira vêm JUNTO (01/09). Sem eles, quem entrava —
            ou quem o master impersonava — ficava sem a marca de distribuidora
            até dar F5: a aba de Distribuição e as duas fileiras simplesmente não

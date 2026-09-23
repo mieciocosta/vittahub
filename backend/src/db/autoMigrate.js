@@ -3212,11 +3212,16 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
         pra desfazer se o master pedir.
      A Poliana não é mexida: fica com o perfil e o que sobrar no nome dela. */
   try {
-    const { rowCount } = await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_mayara_fidelidade_v1', '{"ok":true}') ON CONFLICT DO NOTHING`);
-    if (rowCount) {
-      const { rows: [may] } = await query("SELECT id, nome FROM usuarios WHERE ativo = true AND nome ILIKE 'mayara%' ORDER BY nome LIMIT 1").catch(() => ({ rows: [] }));
+    /* A marca só é gravada quando a usuária É encontrada: se o cadastro
+       estiver como "Maiara" ou com outro nome, a semente tenta de novo no
+       próximo boot (cobrança da Poliana, 23/09: "o CRM dela ainda está como
+       de Consultas"). */
+    const { rows: [jaFeito] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_mayara_fidelidade_v1'");
+    if (!jaFeito) {
+      const { rows: [may] } = await query("SELECT id, nome FROM usuarios WHERE ativo = true AND (nome ILIKE 'mayara%' OR nome ILIKE 'maiara%') ORDER BY nome LIMIT 1").catch(() => ({ rows: [] }));
       const { rows: [pol] } = await query("SELECT * FROM usuarios WHERE nome ILIKE 'poliana%' ORDER BY ativo DESC, nome LIMIT 1").catch(() => ({ rows: [] }));
       if (may) {
+        await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_mayara_fidelidade_v1', '{"ok":true}') ON CONFLICT DO NOTHING`);
         await query(`UPDATE usuarios SET setor = 'vacinas', setores = '{vacinas}', so_fidelidade = true, so_carteira = false,
                        meta_individual = COALESCE($2, meta_individual), metas_setor = COALESCE($3::jsonb, metas_setor),
                        regras_pessoais = COALESCE($4::jsonb, regras_pessoais), ia_consultas = COALESCE($5, ia_consultas), updated_at = NOW()
@@ -3240,8 +3245,11 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
            `${nC} conversa(s) e ${nL} lead(s) da carteira Fidelidade passaram para a ${String(may.nome).split(' ')[0]}. O perfil dela ficou igual ao da Poliana: setor Vacinas, só Fidelidade, mesmas metas e regras.`]).catch(() => {});
         console.log(`💛 Fidelidade → Mayara: ${nC} conversa(s), ${nL} lead(s)`);
       } else {
-        await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
-          ['💛 Carteira de Fidelidade', 'Não encontrei usuária ativa com nome Mayara pra receber a carteira de Fidelidade. Me diga o nome certo do cadastro.']).catch(() => {});
+        // Avisa uma vez só; segue tentando a cada boot até o cadastro bater
+        const { rowCount: avisou } = await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_mayara_fidelidade_aviso', '{"ok":true}') ON CONFLICT DO NOTHING`);
+        if (avisou) await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+          ['💛 Carteira de Fidelidade', 'Não encontrei usuária ativa com nome Mayara/Maiara pra receber a carteira de Fidelidade. Me diga o nome certo do cadastro.']).catch(() => {});
+        console.warn('💛 Fidelidade → Mayara: usuária não encontrada; tento no próximo boot');
       }
     }
   } catch (e) { console.error('mayara fidelidade:', e.message); }

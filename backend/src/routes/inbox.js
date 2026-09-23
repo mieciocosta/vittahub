@@ -451,7 +451,7 @@ async function carregarUsuariosSetor() {
       const n = String(u.nome || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
       if (/(^|[^a-z])gabriel/.test(n)) usuariosSoCarteira.add(String(u.id));
       // 💛 Mayara assume a carteira Fidelidade (ordem do master, 23/09), mesma regra da Poliana
-      if (/(^|[^a-z])(poliana|mayara)/.test(n)) usuariosSoFidelidade.add(String(u.id));
+      if (/(^|[^a-z])(poliana|ma[iy]ara)/.test(n)) usuariosSoFidelidade.add(String(u.id));
     }
     usuariosDistribuidores = new Set(rows.filter(u => u.distribuidor === true).map(u => String(u.id)));
   } catch { /* banco ainda não pronto — tenta de novo no próximo tick */ }
@@ -518,7 +518,7 @@ function setorEfetivo(conv) {
    tudo aparecer pra ela. Agora é uma função só, que aceita QUALQUER das três
    provas — inclusive o NOME que vem dentro do próprio login, que não depende
    de cadastro, de cache nem de a pessoa sair e entrar de novo. */
-const NOME_CARTEIRA_FECHADA = /(^|[^a-z])(gabriel|poliana|mayara)/;   // Mayara: Fidelidade desde 23/09
+const NOME_CARTEIRA_FECHADA = /(^|[^a-z])(gabriel|poliana|ma[iy]ara)/;   // Mayara/Maiara: Fidelidade desde 23/09
 export function carteiraFechadaDe(v) {
   if (!v || v.role === 'master') return false;
   if (v.so_carteira === true || v.so_fidelidade === true) return true;

@@ -136,7 +136,7 @@ export const carteiraFechada = (u) => {
   if (!u || u.role === 'master') return false;
   if (u.so_carteira === true || u.so_fidelidade === true) return true;
   const n = String(u.nome || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-  return /(^|[^a-z])(gabriel|poliana|mayara)/.test(n);   // Mayara: Fidelidade desde 23/09
+  return /(^|[^a-z])(gabriel|poliana|ma[iy]ara)/.test(n);   // Mayara/Maiara: Fidelidade desde 23/09
 };
 
 /* 🔒 Carteira fechada SEM vacinas = só a Gabriellen (so_carteira: consultas e
