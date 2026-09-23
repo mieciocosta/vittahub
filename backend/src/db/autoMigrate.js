@@ -3282,7 +3282,7 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
      · mensagem dele ainda visível passa a assinar Poliana (o cliente já
        recebeu no WhatsApp; o que dá pra consertar é o histórico). */
   try {
-    const { rows: [flagLimpa] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_limpa_miecio_poliana_2026-09-23_v2'");
+    const { rows: [flagLimpa] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_limpa_miecio_poliana_2026-09-23_v3'");
     if (!flagLimpa) {
       const { rows: [polL] } = await query("SELECT id, nome FROM usuarios WHERE nome ILIKE 'poliana%' ORDER BY ativo DESC, nome LIMIT 1").catch(() => ({ rows: [] }));
       let nDel = 0, nRen = 0;
@@ -3297,8 +3297,11 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
                 UNION SELECT id FROM conversas WHERE regexp_replace(COALESCE(phone,''), '\\D', '', 'g') LIKE '%98986268699')
               AND from_type = 'me' AND sender_nome ~* 'mi[eé]cio'
               AND (created_at - interval '3 hours')::date = DATE '2026-09-23'`;
-        const del = await query(`DELETE FROM mensagens WHERE status = 'deleted' AND ${cond} RETURNING conversa_id`, [polL.id]).catch((e) => { console.error('limpa miecio del:', e.message); return null; });
-        nDel = del?.rowCount || 0;
+        // Ordem final do master (23/09): "muda para o nome de Poliana onde tem
+        // Miécio". Nada é apagado: TUDO que estiver assinado por ele nessas
+        // conversas (inclusive o balão já apagado) passa a assinar Poliana.
+        const del = null;
+        nDel = 0;
         const ren = await query(`UPDATE mensagens SET sender_nome = $2,
               content = regexp_replace(content, '^\\*Mi[eé]cio[^\\n]*:\\*', '*' || $2 || ':*')
             WHERE ${cond}`, [polL.id, primeiro]).catch((e) => { console.error('limpa miecio ren:', e.message); return null; });
@@ -3310,10 +3313,10 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
                        WHERE c.id = $1`, [cid]).catch(() => {});
         }
       }
-      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_limpa_miecio_poliana_2026-09-23_v2', '{"ok":true}') ON CONFLICT DO NOTHING`);
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_limpa_miecio_poliana_2026-09-23_v3', '{"ok":true}') ON CONFLICT DO NOTHING`);
       await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
         ['🧹 Rastro do Miécio na conversa da Poliana',
-         polL ? `${nDel} mensagem(ns) apagada(s) sumiram do histórico e ${nRen} passaram a assinar ${String(polL.nome).split(' ')[0]}, nas conversas dela de hoje.` : 'Não achei a usuária Poliana para fazer a limpeza.']).catch(() => {});
+         polL ? `${nRen} mensagem(ns) de hoje que estavam assinadas Miécio passaram a assinar ${String(polL.nome).split(' ')[0]}.` : 'Não achei a usuária Poliana para fazer a troca.']).catch(() => {});
       console.log(`🧹 Limpa Miécio→Poliana: ${nDel} apagada(s), ${nRen} renomeada(s)`);
     }
   } catch (e) { console.error('limpa miecio:', e.message); }
