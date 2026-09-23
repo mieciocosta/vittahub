@@ -3263,15 +3263,25 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       const bcryptX = await import('bcryptjs');
       const hashX = await bcryptX.default.hash('Vittalis@2026', 10);
       await query(`INSERT INTO usuarios (id, nome, email, cpf, senha, role, cor, ativo, setor, setores)
-        VALUES (gen_random_uuid()::text, 'Marina Cristiny Pereira Sampaio', 'marina.sampaio@vittahub.local', '62116427339', $1, 'atendente', '#f472b6', true, 'vacinas', '{vacinas,consultas,terapias}')
+        VALUES (gen_random_uuid()::text, 'Marina Cristiny Pereira Sampaio', 'marina.sampaio@vittahub.local', '62116427339', $1, 'atendente', '#f472b6', true, 'consultas', '{consultas,terapias}')
         ON CONFLICT (email) DO UPDATE SET senha = EXCLUDED.senha, ativo = true, cpf = EXCLUDED.cpf`, [hashX])
         .catch((e) => console.error('seed Marina:', e.message));
       await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_marina_v1', '{"ok":true}') ON CONFLICT DO NOTHING`);
       await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
-        ['👤 Usuária criada: Marina', 'Marina Cristiny Pereira Sampaio entra com o CPF 62116427339 e a senha inicial Vittalis@2026 (troca no primeiro acesso). Perfil: atendente, vacinas + consultas + terapias. Ajuste em Configurações → Usuários se precisar.']).catch(() => {});
+        ['👤 Usuária criada: Marina', 'Marina Cristiny Pereira Sampaio entra com o CPF 62116427339 e a senha inicial Vittalis@2026 (troca no primeiro acesso). Perfil: atendente de consultas e terapias. Ajuste em Configurações → Usuários se precisar.']).catch(() => {});
       console.log('🌱 Marina: usuária criada');
     }
   } catch (e) { console.error('seed marina:', e.message); }
+  // Marina fica em CONSULTAS E TERAPIAS (ordem do master, 23/09). Vale mesmo
+  // que a semente de criação já tenha rodado com o perfil híbrido.
+  try {
+    const { rows: [flagMarina2] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_marina_consultas_v1'");
+    if (!flagMarina2) {
+      const { rowCount } = await query(`UPDATE usuarios SET setor = 'consultas', setores = '{consultas,terapias}', updated_at = NOW()
+        WHERE cpf = '62116427339' OR email = 'marina.sampaio@vittahub.local'`).catch(() => ({ rowCount: 0 }));
+      if (rowCount) await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_marina_consultas_v1', '{"ok":true}') ON CONFLICT DO NOTHING`);
+    }
+  } catch (e) { console.error('seed marina setor:', e.message); }
   /* 🧹 RASTRO DO "MIÉCIO" NA CONVERSA DA POLIANA (ordem do master, 23/09:
      "conversei com nome Miécio agora no usuário de Poliana, apaga"). Passada
      única, só em HOJE (23/09, relógio de São Luís) e só nas conversas cuja
