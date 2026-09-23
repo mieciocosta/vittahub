@@ -54,7 +54,7 @@ function logAudit(req, usuarioId, usuarioNome, acao, detalhes) {
    cadastro continua valendo, mas a tela não pode depender dela. */
 const semAcentoMin = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 const soCarteiraDe = (u) => u?.so_carteira === true || /(^|[^a-z])gabriel/.test(semAcentoMin(u?.nome));
-const soFidelidadeDe = (u) => u?.so_fidelidade === true || /(^|[^a-z])poliana/.test(semAcentoMin(u?.nome));
+const soFidelidadeDe = (u) => u?.so_fidelidade === true || /(^|[^a-z])(poliana|mayara)/.test(semAcentoMin(u?.nome));   // Mayara: Fidelidade desde 23/09
 
 r.post('/login', async (req, res) => {
   const ip = getRealIP(req);

@@ -3201,6 +3201,50 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
     await query(`UPDATE configuracoes SET valor = valor || '{"intensa":true}'::jsonb, updated_at = NOW()
       WHERE chave = 'festa_ativa' AND valor->>'id' LIKE 'vacinas-2026-09-19-%' AND COALESCE(valor->>'intensa','') <> 'true'`);
   } catch (e) { console.error('festa intensa:', e.message); }
+  /* 💛 MAYARA ASSUME A CARTEIRA FIDELIDADE (ordem do master, 23/09: "a
+     partir de agora a Mayara fique com os clientes fidelidade; a tela que
+     está aparecendo para Poliana seja igual para Mayara"). Passada única:
+     1) o perfil da Mayara vira o da Poliana (setor vacinas, só Fidelidade,
+        metas, regras, botão da IA);
+     2) toda conversa e todo lead da pasta Fidelidade, e tudo o que estava
+        no nome da Poliana, passa pra Mayara;
+     3) a lista do que mudou fica em configuracoes.fidelidade_mayara_undo,
+        pra desfazer se o master pedir.
+     A Poliana não é mexida: fica com o perfil e o que sobrar no nome dela. */
+  try {
+    const { rowCount } = await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_mayara_fidelidade_v1', '{"ok":true}') ON CONFLICT DO NOTHING`);
+    if (rowCount) {
+      const { rows: [may] } = await query("SELECT id, nome FROM usuarios WHERE ativo = true AND nome ILIKE 'mayara%' ORDER BY nome LIMIT 1").catch(() => ({ rows: [] }));
+      const { rows: [pol] } = await query("SELECT * FROM usuarios WHERE nome ILIKE 'poliana%' ORDER BY ativo DESC, nome LIMIT 1").catch(() => ({ rows: [] }));
+      if (may) {
+        await query(`UPDATE usuarios SET setor = 'vacinas', setores = '{vacinas}', so_fidelidade = true, so_carteira = false,
+                       meta_individual = COALESCE($2, meta_individual), metas_setor = COALESCE($3::jsonb, metas_setor),
+                       regras_pessoais = COALESCE($4::jsonb, regras_pessoais), ia_consultas = COALESCE($5, ia_consultas), updated_at = NOW()
+                     WHERE id = $1`,
+          [may.id, pol?.meta_individual ?? null, pol?.metas_setor ? JSON.stringify(pol.metas_setor) : null,
+           pol?.regras_pessoais ? JSON.stringify(pol.regras_pessoais) : null, pol?.ia_consultas ?? null]).catch((e) => console.error('mayara perfil:', e.message));
+        const { rows: antes } = await query(
+          `SELECT id, responsavel_id FROM conversas
+            WHERE COALESCE(categoria,'') = 'fidelidade' OR ($1::text IS NOT NULL AND responsavel_id = $1)`, [pol?.id || null]).catch(() => ({ rows: [] }));
+        const ids = antes.map(c => c.id);
+        let nC = 0, nL = 0;
+        if (ids.length) {
+          ({ rowCount: nC } = await query(`UPDATE conversas SET responsavel_id = $1, transferida_por = '{}' WHERE id = ANY($2::text[]) AND COALESCE(responsavel_id,'') <> $1`, [may.id, ids]).catch(() => ({ rowCount: 0 })));
+          ({ rowCount: nL } = await query(`UPDATE leads SET responsavel_id = $1 WHERE id IN (SELECT lead_id FROM conversas WHERE id = ANY($2::text[]) AND lead_id IS NOT NULL)`, [may.id, ids]).catch(() => ({ rowCount: 0 })));
+        }
+        await query(`INSERT INTO configuracoes (chave, valor) VALUES ('fidelidade_mayara_undo', $1::jsonb)
+                     ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`,
+          [JSON.stringify({ em: new Date().toISOString(), para: may.id, conversas: antes })]).catch(() => {});
+        await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+          ['💛 Carteira de Fidelidade com a Mayara',
+           `${nC} conversa(s) e ${nL} lead(s) da carteira Fidelidade passaram para a ${String(may.nome).split(' ')[0]}. O perfil dela ficou igual ao da Poliana: setor Vacinas, só Fidelidade, mesmas metas e regras.`]).catch(() => {});
+        console.log(`💛 Fidelidade → Mayara: ${nC} conversa(s), ${nL} lead(s)`);
+      } else {
+        await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+          ['💛 Carteira de Fidelidade', 'Não encontrei usuária ativa com nome Mayara pra receber a carteira de Fidelidade. Me diga o nome certo do cadastro.']).catch(() => {});
+      }
+    }
+  } catch (e) { console.error('mayara fidelidade:', e.message); }
   try { await colunasCriticas(); } catch (e) { console.error('colunas criticas:', e.message); }
   try { await tabelaOcultas(); } catch (e) { console.error('tabela ocultas:', e.message); }
   /* ⚠️ DEPOIS de colunasCriticas, sempre. As metas por setor gravam numa coluna
