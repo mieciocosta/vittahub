@@ -3272,6 +3272,45 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log('🌱 Marina: usuária criada');
     }
   } catch (e) { console.error('seed marina:', e.message); }
+  /* 🧹 RASTRO DO "MIÉCIO" NA CONVERSA DA POLIANA (ordem do master, 23/09:
+     "conversei com nome Miécio agora no usuário de Poliana, apaga"). Passada
+     única, só em HOJE (23/09, relógio de São Luís) e só nas conversas cuja
+     responsável é a Poliana:
+     · mensagem já apagada (o balão "🚫 Mensagem apagada" com o nome dele)
+       some do banco de vez, e o "última mensagem" da conversa volta a ser a
+       anterior;
+     · mensagem dele ainda visível passa a assinar Poliana (o cliente já
+       recebeu no WhatsApp; o que dá pra consertar é o histórico). */
+  try {
+    const { rows: [flagLimpa] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_limpa_miecio_poliana_2026-09-23'");
+    if (!flagLimpa) {
+      const { rows: [polL] } = await query("SELECT id, nome FROM usuarios WHERE nome ILIKE 'poliana%' ORDER BY ativo DESC, nome LIMIT 1").catch(() => ({ rows: [] }));
+      let nDel = 0, nRen = 0;
+      if (polL) {
+        const primeiro = String(polL.nome).trim().split(/\s+/)[0];
+        const cond = `conversa_id IN (SELECT id FROM conversas WHERE responsavel_id = $1)
+              AND from_type = 'me' AND sender_nome ~* 'mi[eé]cio'
+              AND (created_at - interval '3 hours')::date = DATE '2026-09-23'`;
+        const del = await query(`DELETE FROM mensagens WHERE status = 'deleted' AND ${cond} RETURNING conversa_id`, [polL.id]).catch((e) => { console.error('limpa miecio del:', e.message); return null; });
+        nDel = del?.rowCount || 0;
+        const ren = await query(`UPDATE mensagens SET sender_nome = $2,
+              content = regexp_replace(content, '^\\*Mi[eé]cio[^\\n]*:\\*', '*' || $2 || ':*')
+            WHERE ${cond}`, [polL.id, primeiro]).catch((e) => { console.error('limpa miecio ren:', e.message); return null; });
+        nRen = ren?.rowCount || 0;
+        // "Última mensagem" da conversa volta a ser a que ficou por último
+        for (const cid of new Set((del?.rows || []).map(r => r.conversa_id))) {
+          await query(`UPDATE conversas c SET last_message = COALESCE((SELECT LEFT(COALESCE(m.content,''), 100) FROM mensagens m WHERE m.conversa_id = c.id ORDER BY m.created_at DESC LIMIT 1), ''),
+                         last_message_at = COALESCE((SELECT m.created_at FROM mensagens m WHERE m.conversa_id = c.id ORDER BY m.created_at DESC LIMIT 1), c.last_message_at)
+                       WHERE c.id = $1`, [cid]).catch(() => {});
+        }
+      }
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_limpa_miecio_poliana_2026-09-23', '{"ok":true}') ON CONFLICT DO NOTHING`);
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+        ['🧹 Rastro do Miécio na conversa da Poliana',
+         polL ? `${nDel} mensagem(ns) apagada(s) sumiram do histórico e ${nRen} passaram a assinar ${String(polL.nome).split(' ')[0]}, nas conversas dela de hoje.` : 'Não achei a usuária Poliana para fazer a limpeza.']).catch(() => {});
+      console.log(`🧹 Limpa Miécio→Poliana: ${nDel} apagada(s), ${nRen} renomeada(s)`);
+    }
+  } catch (e) { console.error('limpa miecio:', e.message); }
   try { await colunasCriticas(); } catch (e) { console.error('colunas criticas:', e.message); }
   try { await tabelaOcultas(); } catch (e) { console.error('tabela ocultas:', e.message); }
   /* ⚠️ DEPOIS de colunasCriticas, sempre. As metas por setor gravam numa coluna
