@@ -1,0 +1,57 @@
+name: Religar servidor no Railway
+
+# 🔌 REDEPLOY POR UM CLIQUE (nasceu em 24/09, com o backend parado e ninguém
+# no painel do Railway). Roda à mão (aba Actions → "Religar servidor no
+# Railway" → Run workflow) e pode ser disparado pelo Claude quando o master
+# pedir. Precisa de dois segredos no repositório (Settings → Secrets and
+# variables → Actions):
+#   RAILWAY_TOKEN          token de conta ou de projeto do Railway
+#   RAILWAY_SERVICE_ID     id do serviço vittahub-backend
+#   RAILWAY_FRONT_SERVICE_ID (opcional) id do serviço vittahub-frontend
+# Sem os segredos, o job avisa e termina sem fazer nada.
+
+on:
+  workflow_dispatch:
+    inputs:
+      alvo:
+        description: "backend, frontend ou ambos"
+        default: "backend"
+        required: true
+        type: choice
+        options: [backend, frontend, ambos]
+
+jobs:
+  redeploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Conferir segredos
+        id: rw
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID }}
+        run: |
+          if [ -z "$RAILWAY_TOKEN" ] || [ -z "$RAILWAY_SERVICE_ID" ]; then
+            echo "::error::Faltam os segredos RAILWAY_TOKEN e/ou RAILWAY_SERVICE_ID. Cadastre em Settings → Secrets and variables → Actions."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Instalar Railway CLI
+        if: steps.rw.outputs.ok == 'true'
+        run: npm i -g @railway/cli
+
+      - name: Redeploy backend
+        if: steps.rw.outputs.ok == 'true' && (inputs.alvo == 'backend' || inputs.alvo == 'ambos')
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: railway redeploy --service "${{ secrets.RAILWAY_SERVICE_ID }}" --yes
+
+      - name: Redeploy frontend
+        if: steps.rw.outputs.ok == 'true' && (inputs.alvo == 'frontend' || inputs.alvo == 'ambos')
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          if [ -z "${{ secrets.RAILWAY_FRONT_SERVICE_ID }}" ]; then echo "RAILWAY_FRONT_SERVICE_ID não cadastrado; pulando o frontend"; exit 0; fi
+          railway redeploy --service "${{ secrets.RAILWAY_FRONT_SERVICE_ID }}" --yes
