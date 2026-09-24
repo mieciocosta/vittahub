@@ -133,6 +133,17 @@ createSocketServer(httpServer, ORIGIN);
 
 // ── PG LISTEN/NOTIFY → Socket.io emit ────────────────────────────────────────
 async function start() {
+  /* 🚪 ATENDE PRIMEIRO, ARRUMA DEPOIS (24/09, login com "Failed to fetch"
+     logo após o Railway instalar tudo que estava preso). Antes, o servidor só
+     abria a porta DEPOIS de rodar todas as migrações do boot; num boot pesado
+     o Railway já mandava o tráfego pro container novo e o login ficava sem
+     resposta até o fim delas. Agora a porta abre na hora (o banco de
+     produção já tem o esquema) e as migrações rodam por trás. */
+  httpServer.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 VittaHub v2.4 na porta ${PORT}`);
+    console.log(`🔌 Socket.io ativo`);
+    console.log(`🌐 Frontend: ${ORIGIN}`);
+  });
   try {
     await pool.query('SELECT 1');
     console.log('✅ PostgreSQL conectado');
@@ -235,14 +246,6 @@ async function start() {
   } catch (err) {
     console.error('❌ Startup:', err.message);
   }
-
-  httpServer.listen(PORT, '0.0.0.0', () => {
-    /* 24/09: Railway regularizado pelo master; este marco força a instalação
-       da versão atual (tudo que ficou preso desde 22/09). */
-    console.log(`🚀 VittaHub v2.4 na porta ${PORT}`);
-    console.log(`🔌 Socket.io ativo`);
-    console.log(`🌐 Frontend: ${ORIGIN}`);
-  });
 }
 
 start();

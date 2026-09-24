@@ -3370,21 +3370,10 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       await query(`UPDATE usuarios SET ativo = true, cpf = COALESCE(NULLIF(cpf,''), '62116427339'), setor = 'consultas', setores = '{consultas,terapias}', updated_at = NOW() WHERE id = $1`, [mar.id]).catch(() => {});
     }
   } catch (e) { console.error('reforco marina:', e.message); }
-  try {
-    const { rows: [polR] } = await query("SELECT id, nome FROM usuarios WHERE nome ILIKE 'poliana%' ORDER BY ativo DESC, nome LIMIT 1").catch(() => ({ rows: [] }));
-    if (polR) {
-      const primeiro = String(polR.nome).trim().split(/\s+/)[0];
-      const { rowCount: nRen } = await query(`UPDATE mensagens SET sender_nome = $2,
-              content = regexp_replace(content, '^\\*Mi[eé]cio[^\\n]*:\\*', '*' || $2 || ':*')
-            WHERE from_type = 'me' AND sender_nome ~* 'mi[eé]cio'
-              AND (created_at - interval '3 hours')::date = DATE '2026-09-23'
-              AND conversa_id IN (
-                SELECT id FROM conversas WHERE responsavel_id = $1
-                UNION SELECT conversa_id FROM mensagens WHERE from_type = 'me' AND sender_nome ILIKE 'poliana%' AND (created_at - interval '3 hours')::date = DATE '2026-09-23'
-                UNION SELECT id FROM conversas WHERE regexp_replace(COALESCE(phone,''), '\\D', '', 'g') LIKE '%98986268699')`, [polR.id, primeiro]).catch(() => ({ rowCount: 0 }));
-      if (nRen) console.log(`🔁 Reforço: Miécio → ${primeiro} (${nRen} mensagem(ns))`);
-    }
-  } catch (e) { console.error('reforco miecio:', e.message); }
+  /* (24/09) A troca Miécio → Poliana saiu do reforço de TODO boot: varria a
+     tabela de mensagens inteira a cada reinício e segurava a subida do
+     servidor. A passagem única seed_limpa_miecio_poliana_2026-09-23_v3
+     (logo abaixo) já faz a troca. */
   /* 🧹 RASTRO DO "MIÉCIO" NA CONVERSA DA POLIANA (ordem do master, 23/09:
      "conversei com nome Miécio agora no usuário de Poliana, apaga"). Passada
      única, só em HOJE (23/09, relógio de São Luís) e só nas conversas cuja
