@@ -124,8 +124,11 @@ export function tituloUsuario(u) {
   const base = u?.role === 'master' ? 'Master' : u?.role === 'supervisor' ? 'Supervisora' : 'Atendente';
   if (u?.role === 'master') return base;
   const setores = (Array.isArray(u?.setores) && u.setores.length ? u.setores : [u?.setor]).filter(Boolean);
-  if (!setores.length) return base;
-  return `${base} · ${setores.map(_CAP).join(' e ')}`;
+  // 💛 Carteira Fidelidade aparece no subtítulo (Poliana e Mayara, pedido do
+  // master em 24/09: "Mayara também é fidelidade").
+  const fid = u?.so_fidelidade === true ? ' · Fidelidade' : '';
+  if (!setores.length) return base + fid;
+  return `${base} · ${setores.map(_CAP).join(' e ')}${fid}`;
 }
 
 /* 🔒 CARTEIRA FECHADA (ordem do master, 04-05/09): Gabriellen e Poliana só
