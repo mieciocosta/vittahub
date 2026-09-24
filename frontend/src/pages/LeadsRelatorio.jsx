@@ -103,8 +103,9 @@ export default function LeadsRelatorio() {
   const [setor, setSetor] = useState('');
   const [origem, setOrigem] = useState('');
   const [campanha, setCampanha] = useState('');   // 📣 clicar numa campanha filtra tudo (05/09)
+  const [criativo, setCriativo] = useState('');   // 🖼️ clicar num criativo filtra tudo (24/09)
   const [entrada, setEntrada] = useState(true);
-  const [corte, setCorte] = useState('origem');
+  const [corte, setCorte] = useState('criativo');   // 24/09: abre no somatório por criativo, o que o master mais olha
   const [busca, setBusca] = useState('');
   /* 📣 Cadastrar campanha a partir de uma frase real (05/09) */
   const [novaCamp, setNovaCamp] = useState(null);   // { texto, rotulo }
@@ -218,7 +219,7 @@ export default function LeadsRelatorio() {
     if (csvRef.current) csvRef.current.value = '';
   };
 
-  const limparRecorte = () => { setMes(''); setDia(''); setDow(null); setSetor(''); setOrigem(''); setCampanha(''); };
+  const limparRecorte = () => { setMes(''); setDia(''); setDow(null); setSetor(''); setOrigem(''); setCampanha(''); setCriativo(''); };
 
   /* 📅 A data só vale quando está COMPLETA. O campo de data do navegador
      dispara a cada dígito do ano ("0002", "0020", "0202", "2026") — e cada
@@ -247,11 +248,12 @@ export default function LeadsRelatorio() {
     if (setor) q.set('setor', setor);
     if (origem) q.set('origem', origem);
     if (campanha) q.set('campanha', campanha);
+    if (criativo) q.set('criativo', criativo);
     api.get(`/reports/leads-novos?${q}`)
       .then(d => { if (meu !== pedidoRef.current) return; setDados(d); setCarregando(false); })
       .catch(e => { if (meu !== pedidoRef.current) return; setErro(e.message); setCarregando(false); });
   };
-  useEffect(() => { carregar(); }, [meses, de, ate, mes, dia, dow, setor, origem, campanha, entrada]); // eslint-disable-line
+  useEffect(() => { carregar(); }, [meses, de, ate, mes, dia, dow, setor, origem, campanha, criativo, entrada]); // eslint-disable-line
 
   const t = dados?.totais;
   const lista = useMemo(() => {
@@ -265,7 +267,7 @@ export default function LeadsRelatorio() {
      "tem uma chamada de uma campanha, a mensagem vem como plano de 2 meses").
      Mesmo quadro, mesma leitura: leads, agenda, fechamento e faturamento. */
   const cortes = { origem: dados?.origens || [], setor: dados?.setores || [], equipe: dados?.equipe || [],
-    turno: dados?.turnos || [], hora: dados?.horas || [], campanha: dados?.campanhas || [] };
+    turno: dados?.turnos || [], hora: dados?.horas || [], campanha: dados?.campanhas || [], criativo: dados?.criativos || [] };
   const linhas = cortes[corte] || [];
 
   /* Pega o catálogo atual, junta a frase nova e grava. Se já existe campanha
@@ -343,6 +345,8 @@ export default function LeadsRelatorio() {
     const listaPDF = (dados?.lista || []).slice(0, 200);
     const srcs = [...new Set(listaPDF.map(fotoSrcDe).filter(Boolean))].slice(0, 80);
     const srcsCamp = [...new Set((dados?.campanhas || []).filter(c => (dados?.fotosCampanha || []).includes(c.chave)).map(c => `/reports/campanhas/foto?rotulo=${encodeURIComponent(c.chave)}`))].slice(0, 40);
+    const srcsCriat = (dados?.criativos || []).filter(c => c.exemploId).slice(0, 40).map(c => `/reports/leads/${c.exemploId}/foto`);
+    srcsCamp.push(...srcsCriat);
     const fotos = new Map();
     await Promise.all([...new Set([...srcs, ...srcsCamp])].map(async (src) => { const d = await fotoDataUrl(src); if (d) fotos.set(src, d); }));
     const img = (src, tam = 34) => (src && fotos.get(src)) ? `<img src="${fotos.get(src)}" style="width:${tam}px;height:${tam}px;object-fit:cover;border-radius:6px;vertical-align:middle;border:1px solid #e3ebf1"/>` : '';
@@ -401,6 +405,8 @@ ${(dados?.meses || []).map(linhaCorte).join('')}</table></div>
 ${(dados?.origens || []).map(linhaCorte).join('')}</table></div>
 <div class="sec"><h2>Por setor</h2><table><tr><th>Setor</th><th>Leads</th><th>Agendaram</th><th>Fecharam</th><th>Faturamento</th></tr>
 ${(dados?.setores || []).map(linhaCorte).join('')}</table></div>
+${(dados?.criativos || []).length ? `<div class="sec"><h2>Por criativo (anúncio)</h2><table><tr><th>Criativo</th><th>Anúncio</th><th>Leads</th><th>Agendaram</th><th>Fecharam</th><th>Faturamento</th></tr>
+${(dados?.criativos || []).map((c, i) => `<tr>${cel(img(c.exemploId ? `/reports/leads/${c.exemploId}/foto` : null, 44))}${cel(`Criativo ${i + 1} · ${c.rotulo}<div style="font-size:9.5px;color:#7d94a6">${c.setores || ''}</div>`)}${cel(n0(c.leads), 'n')}${cel(pct(c.txAgenda), 'n')}${cel(pct(c.txFechou), 'n')}${cel(fmt.brl(c.valor), 'n')}</tr>`).join('')}</table></div>` : ''}
 ${(dados?.campanhas || []).length ? `<div class="sec"><h2>Por campanha</h2><table><tr><th>Criativo</th><th>Campanha</th><th>Leads</th><th>Agendaram</th><th>Fecharam</th><th>Faturamento</th></tr>
 ${(dados?.campanhas || []).map(l => `<tr>${cel(img(`/reports/campanhas/foto?rotulo=${encodeURIComponent(l.chave)}`, 40))}${cel(l.chave)}${cel(n0(l.leads), 'n')}${cel(pct(l.txAgenda), 'n')}${cel(pct(l.txFechou), 'n')}${cel(fmt.brl(l.valor), 'n')}</tr>`).join('')}</table></div>` : ''}
 <div class="sec"><h2>Leads do período (${n0((dados?.lista || []).length)})</h2><table>
@@ -682,8 +688,8 @@ Agendamento e venda só contam se aconteceram DEPOIS da chegada do lead. Gerado 
         </div>
 
         {/* Cortes em abas — três quadros viraram um */}
-        <div style={{ borderTop: '1px solid var(--border)', padding: '11px 15px 0', display: 'flex', gap: 6 }}>
-          {[['origem', 'Por origem'], ['campanha', '📣 Por campanha'], ['turno', '⏰ Por turno'], ['hora', '🕐 Por horário'], ['setor', 'Por setor'], ['equipe', 'Por atendente']].map(([k, rot]) => (
+        <div style={{ borderTop: '1px solid var(--border)', padding: '11px 15px 0', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {[['criativo', '🖼️ Por criativo'], ['origem', 'Por origem'], ['campanha', '📣 Por campanha'], ['turno', '⏰ Por turno'], ['hora', '🕐 Por horário'], ['setor', 'Por setor'], ['equipe', 'Por atendente']].map(([k, rot]) => (
             <button key={k} onClick={() => setCorte(k)} style={btn(corte === k)}>{rot}</button>
           ))}
         </div>
@@ -691,13 +697,14 @@ Agendamento e venda só contam se aconteceram DEPOIS da chegada do lead. Gerado 
           {!linhas.length && <div style={{ padding: '14px 0', fontSize: 12, color: 'var(--muted)' }}>Sem leads neste recorte.</div>}
           {linhas.map(l => {
             const maior = Math.max(1, ...linhas.map(x => x.leads));
-            const selecionavel = corte === 'origem' || corte === 'setor' || corte === 'campanha';
+            const selecionavel = corte === 'origem' || corte === 'setor' || corte === 'campanha' || corte === 'criativo';
             const ativo = (corte === 'origem' && origem === l.chave) || (corte === 'setor' && setor === l.chave)
-              || (corte === 'campanha' && campanha === l.chave);
+              || (corte === 'campanha' && campanha === l.chave) || (corte === 'criativo' && criativo === l.chave);
             return (
               <div key={l.chave} onClick={() => { if (!selecionavel) return;
                   if (corte === 'origem') setOrigem(ativo ? '' : l.chave);
                   else if (corte === 'campanha') setCampanha(ativo ? '' : l.chave);
+                  else if (corte === 'criativo') setCriativo(ativo ? '' : l.chave);
                   else setSetor(ativo ? '' : l.chave); }}
                 style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 46px 58px 58px 88px', alignItems: 'center', gap: 8,
                   padding: '8px 6px', borderTop: '1px solid var(--border)', cursor: selecionavel ? 'pointer' : 'default',
@@ -711,8 +718,19 @@ Agendamento e venda só contam se aconteceram DEPOIS da chegada do lead. Gerado 
                           title="Anexar a foto do criativo deste anúncio: ela aparece em cada lead que veio dele"
                           style={{ width: 40, height: 40, borderRadius: 9, border: '1.5px dashed #7c3aed', background: 'transparent', color: '#7c3aed', cursor: 'pointer', fontSize: 15, flexShrink: 0 }}>📷</button>
                   )}
+                  {/* 🖼️ SOMATÓRIO POR CRIATIVO (24/09): a foto do anúncio que trouxe estes leads */}
+                  {corte === 'criativo' && (
+                    <FotoAd src={l.exemploId ? `/reports/leads/${l.exemploId}/foto` : null} tam={54} titulo={l.rotuloFoto || l.rotulo} />
+                  )}
                   <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--txt)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.chave}</div>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--txt)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {corte === 'criativo' ? `Criativo ${linhas.indexOf(l) + 1} · ${l.rotulo}` : l.chave}
+                  </div>
+                  {corte === 'criativo' && (
+                    <div style={{ fontSize: 10.5, color: 'var(--light)', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {l.setores}{l.atendentes ? ` · ${l.atendentes}` : ''}{l.nAds > 1 ? ` · ${l.nAds} anúncios com esta foto` : ''}{!l.temFoto && l.adIds?.[0] ? ` · anúncio ${l.adIds[0]}` : ''}
+                    </div>
+                  )}
                   {/* 📣 O que o Meta cobrou x o que realmente chegou (05/09) */}
                   {corte === 'campanha' && (l.metaGasto != null || l.metaResultados != null) && (
                     <div style={{ fontSize: 10, color: 'var(--light)', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -739,6 +757,14 @@ Agendamento e venda só contam se aconteceram DEPOIS da chegada do lead. Gerado 
             borderTop: '1px solid var(--border)', fontSize: 9.5, color: 'var(--light)', textTransform: 'uppercase', letterSpacing: .5, fontWeight: 700 }}>
             <div />{['Leads', 'Agenda', 'Fechou', 'R$'].map(x => <div key={x} style={{ textAlign: 'right' }}>{x}</div>)}
           </div>
+          {corte === 'criativo' && (
+            <div style={{ fontSize: 11, color: 'var(--muted)', padding: '8px 6px 0', lineHeight: 1.5 }}>
+              {(dados?.criativos || []).length
+                ? `${n0((dados?.criativos || []).reduce((t, c) => t + c.leads, 0))} lead(s) de anúncio em ${n0((dados?.criativos || []).length)} criativo(s). Toque num criativo pra ver só os leads dele.`
+                : 'Nenhum lead de anúncio com criativo neste período. O criativo só é gravado para conversas iniciadas pelo botão do anúncio.'}
+              {dados?.semCriativo ? ` ${n0(dados.semCriativo)} lead(s) de anúncio vieram sem foto nem código do anúncio.` : ''}
+            </div>
+          )}
           {/* 🗣️ As frases que chegaram e o sistema não soube de qual anúncio são.
               É daqui que sai o cadastro de uma campanha nova: a frase mais
               repetida no topo, com quantas vezes veio. */}
@@ -915,6 +941,17 @@ Agendamento e venda só contam se aconteceram DEPOIS da chegada do lead. Gerado 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '13px 15px 0', flexWrap: 'wrap' }}>
           <div style={{ flex: 1, minWidth: 180 }}>
             <div style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--txt)' }}>Leads deste recorte</div>
+            {criativo && (() => {
+              const i = (dados?.criativos || []).findIndex(c => c.chave === criativo);
+              const c = (dados?.criativos || [])[i];
+              return (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, padding: '6px 8px', borderRadius: 10, background: 'var(--tq4)', fontSize: 11.5, fontWeight: 700, color: 'var(--txt)' }}>
+                  {c && <FotoAd src={c.exemploId ? `/reports/leads/${c.exemploId}/foto` : null} tam={30} titulo={c.rotulo} />}
+                  <span style={{ flex: 1 }}>Só os leads do criativo {i >= 0 ? i + 1 : ''}{c ? ` · ${n0(c.leads)} lead(s)` : ''}</span>
+                  <button onClick={() => setCriativo('')} style={{ ...btn(false), padding: '3px 9px' }}>✕ Ver todos</button>
+                </div>
+              );
+            })()}
             <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
               {n0(lista.length)} na tela{dados?.truncada ? ` · ${n0(dados.truncada)} no total (o Excel traz todos)` : ''} · clique pra abrir a conversa
             </div>

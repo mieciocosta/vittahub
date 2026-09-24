@@ -543,7 +543,9 @@ async function montarLeads(de, ate, campanhas) {
                EXTRACT(EPOCH FROM (a.pout - a.pin))/60 AS resp_min,
                a.msgs_cliente,
                right(regexp_replace(COALESCE(c.phone, ''), '\\D', '', 'g'), 8) AS tel8,
-               c.campanha_ad, c.campanha_ad_id, (c.campanha_ad_foto IS NOT NULL) AS tem_foto_ad
+               c.campanha_ad, c.campanha_ad_id, (c.campanha_ad_foto IS NOT NULL) AS tem_foto_ad,
+               CASE WHEN c.campanha_ad_foto IS NOT NULL
+                    THEN md5(length(c.campanha_ad_foto)::text || right(c.campanha_ad_foto, 3000)) END AS foto_hash
           FROM agg a
           JOIN conversas c ON c.id = a.conversa_id
           LEFT JOIN usuarios u ON u.id = c.responsavel_id
@@ -691,6 +693,12 @@ async function montarLeads(de, ate, campanhas) {
         campanhaProvada: !!campanhaAd,   // veio do WhatsApp, não de adivinhação
         temFotoAd: c.tem_foto_ad === true,   // 🖼️ miniatura do criativo guardada na conversa
         campanhaAdId: adId || null,          // id do anúncio no Meta (Excel, 21/09)
+        /* 🖼️ O CRIATIVO (ordem do master, 24/09: "mostra o fly de onde veio o
+           lead, mas não tem o somatório de quantos de cada fly ou anúncio").
+           Todos chegam como "Anúncio · Converse conosco" (é o texto do botão),
+           então o que separa um anúncio do outro é a FOTO que o WhatsApp manda
+           no clique; sem foto, o id do anúncio no Meta. */
+        criativo: c.foto_hash ? `foto:${c.foto_hash}` : adId ? `ad:${adId}` : null,
         campanhaForca: campanhaAd ? 'whatsapp' : detTxt ? (detTxt.porFrase ? 'frase' : 'palavras') : null,
         iniciais: (iniciaisDe.get(c.id) || '').slice(0, 300),
         primeiraMsg: primeiraMsg.slice(0, 160),
@@ -758,7 +766,7 @@ async function aquecerCarteira() {
       const { leads, avisos } = await montarLeads(de, ate, campanhas);
       // catálogo mudou no meio (import/edição): este resultado já nasceu velho
       if (versao !== VERSAO_CATALOGO) { console.log('🔥 aquecimento descartado: catálogo mudou'); return; }
-      if (!avisos.length) guardarCacheLeads(`${de}|${ate}`, leads);
+      if (!avisos.length) guardarCacheLeads(`${de}|${ate}|v2`, leads);
       console.log(`🔥 Carteira de Leads aquecida ${de}${ate ? ` a ${ate}` : '+'}: ${leads.length} leads em ${Date.now() - t0} ms`);
     }
   } catch (e) { console.error('aquecerCarteira:', e.message); }
@@ -974,6 +982,7 @@ r.get('/leads-novos', async (req, res) => {
     const fSetor  = String(req.query.setor  || '').slice(0, 30);
     const fOrigem = String(req.query.origem || '').slice(0, 40);
     const fCampanha = String(req.query.campanha || '').slice(0, 80);   // 📣 clicar numa campanha filtra o relatório inteiro
+    const fCriativo = String(req.query.criativo || '').slice(0, 80);   // 🖼️ clicar num criativo filtra o relatório inteiro (24/09)
 
     /* Janela: período escolhido à mão (de/até) ou os últimos N meses. Calculada
        aqui em JS já no horário de São Luís e mandada como data literal — assim
@@ -998,7 +1007,7 @@ r.get('/leads-novos', async (req, res) => {
     const ATE_FIM = ate ? ` AND ${SLZ('a.pin')} < TIMESTAMP '${ate} 00:00:00' + interval '1 day'` : '';
 
     const DOW = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
-    const chaveCache = `${de}|${ate}`;
+    const chaveCache = `${de}|${ate}|v2`;   // v2 (24/09): leads com a chave do criativo
     const fresh = String(req.query.fresh || '') === '1';
     /* A lista de campanhas vive FORA do bloco do cache: ela é usada lá embaixo,
        no cruzamento com os números do Meta, mesmo quando os leads vieram
@@ -1061,9 +1070,9 @@ r.get('/leads-novos', async (req, res) => {
       (!fSetor  || l.setor === fSetor) &&
       (!fOrigem || l.origem === fOrigem)
     );
-    const recorte = fCampanha
+    const recorte = (fCampanha
       ? recorteSemCampanha.filter(l => (l.campanha || 'Orgânico · sem anúncio') === fCampanha)
-      : recorteSemCampanha;
+      : recorteSemCampanha).filter(l => !fCriativo || l.criativo === fCriativo);
 
     // Dias do mês escolhido (ou da janela toda, se nenhum mês foi clicado)
     const paraDias = universo.filter(l =>
@@ -1087,7 +1096,7 @@ r.get('/leads-novos', async (req, res) => {
     res.json({
       janela: { de, ate: ate || hojeSLZ, meses, manual: periodoManual, entradaSomente: soEntrada },
       avisos,
-      filtros: { mes: fMes, dia: fDia, dow: fDow, setor: fSetor, origem: fOrigem, campanha: fCampanha },
+      filtros: { mes: fMes, dia: fDia, dow: fDow, setor: fSetor, origem: fOrigem, campanha: fCampanha, criativo: fCriativo },
       totais: {
         ...taxas(tot),
         semResposta: recorte.filter(l => !l.respondido).length,
@@ -1138,6 +1147,24 @@ r.get('/leads-novos', async (req, res) => {
             chegouPct: cfg.meta_resultados ? Math.round((c.leads / cfg.meta_resultados) * 1000) / 10 : null };
         })
         .sort((a, b) => b.leads - a.leads),
+      /* 🖼️ SOMATÓRIO POR CRIATIVO (24/09): um grupo por foto de anúncio (ou,
+         sem foto, por id do anúncio), com leads, agenda, fechamento e R$. A
+         foto de exemplo vem de um lead do grupo (/reports/leads/:id/foto). */
+      criativos: (() => {
+        const base = recorteSemCampanha.filter(l => l.criativo);
+        return agrupar(base, l => l.criativo).map(g => {
+          const ls = base.filter(l => l.criativo === g.chave);
+          const ex = ls.find(l => l.temFotoAd) || ls[0];
+          const conta = (arr) => { const m = new Map(); for (const x of arr) if (x) m.set(x, (m.get(x) || 0) + 1); return [...m.entries()].sort((a, b) => b[1] - a[1]); };
+          const rot = conta(ls.map(l => l.campanha))[0]?.[0] || 'Anúncio';
+          const adIds = [...new Set(ls.map(l => l.campanhaAdId).filter(Boolean))];
+          return { ...g, exemploId: ex?.id || null, temFoto: !!ex?.temFotoAd, rotulo: rot, rotuloFoto: ex?.campanha || '',
+            adIds: adIds.slice(0, 5), nAds: adIds.length,
+            setores: conta(ls.map(l => l.setor)).map(([k, n]) => `${k} ${n}`).join(' · '),
+            atendentes: conta(ls.map(l => l.responsavel)).slice(0, 3).map(([k, n]) => `${String(k).split(' ')[0]} ${n}`).join(' · ') };
+        }).sort((a, b) => b.leads - a.leads);
+      })(),
+      semCriativo: recorteSemCampanha.filter(l => !l.criativo && l.campanhaProvada).length,
       /* 🗣️ O QUE O CLIENTE ESCREVEU E NINGUÉM RECONHECEU. É por aqui que se
          descobre a frase real de um anúncio novo: as mais repetidas, no topo.
          Basta o master mandar a frase que eu cadastro a campanha. */
