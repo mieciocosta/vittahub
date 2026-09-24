@@ -50,6 +50,7 @@ CRM de WhatsApp para clínica de pediatria/vacinação. Dono/master: Dr. Miécio
    puppeteer-core, servindo `dist` com http-server) e conferir `pageerror` no console.
 
 ## Armadilhas conhecidas
+- **Rotinas de boot que rodam SEMPRE desfazem sementes** (lição de 24/09, Mayara voltava pra consultas): `setoresDaEquipe`, `titulosDaEquipe`, `equipeDaCasa` e afins gravam setor/título por NOME a cada boot (ou até achar todo mundo). Acerto de pessoa específica vai no FIM de `runMigrate` (bloco "ÚLTIMA ETAPA DO BOOT") e as listas antigas precisam ser atualizadas junto. Para provar, rode o boot num Postgres local: `/usr/lib/postgresql/16/bin/initdb` como usuário `postgres` em `/var/tmp`, `pg_ctl ... -o '-p 5499 -k /var/tmp/vhpg'`, `DATABASE_URL=postgresql://postgres@localhost:5499/vh?host=/var/tmp/vhpg`, importe `runMigrate` e/ou suba `node src/index.js` e teste `/api/auth/login`.
 - Duas sessões podem trabalhar em paralelo: `git pull --rebase origin main` se o push falhar.
 - Sandbox sem rede externa (proxy 403): não valide URLs de YouTube/sites; Puppeteer local usa `executablePath /opt/pw-browsers/.../chrome` e `waitUntil:'load'` (networkidle trava).
 - `window.prompt`/`confirm` falham em webview mobile — use popups próprios.

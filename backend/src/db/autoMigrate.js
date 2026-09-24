@@ -3201,6 +3201,36 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
     await query(`UPDATE configuracoes SET valor = valor || '{"intensa":true}'::jsonb, updated_at = NOW()
       WHERE chave = 'festa_ativa' AND valor->>'id' LIKE 'vacinas-2026-09-19-%' AND COALESCE(valor->>'intensa','') <> 'true'`);
   } catch (e) { console.error('festa intensa:', e.message); }
+  try { await colunasCriticas(); } catch (e) { console.error('colunas criticas:', e.message); }
+  try { await tabelaOcultas(); } catch (e) { console.error('tabela ocultas:', e.message); }
+  /* ⚠️ DEPOIS de colunasCriticas, sempre. As metas por setor gravam numa coluna
+     que nasce lá — rodando antes, o UPDATE falhava calado (a coluna não existia
+     ainda) e a meta da Danielle nunca mudava, sem erro nenhum na tela.
+     Cobrança dele, 03/09: "a meta de Danielle não mudou". */
+  try { await metasPorSetor(); } catch (e) { console.error('metas por setor:', e.message); }
+  try { await metaDiariaDosSetores(); } catch (e) { console.error('meta diaria dos setores:', e.message); }
+  try { await carteiraLeadsParaJose(); } catch (e) { console.error('carteira de leads jose:', e.message); }
+  try { await gabriellenSoRepasse(); } catch (e) { console.error('gabriellen so repasse:', e.message); }
+  try { await gabriellenCarteiraConsultasTerapias(); } catch (e) { console.error('gabriellen carteira:', e.message); }
+  try { await limparCarteirasFechadas(); } catch (e) { console.error('limpar carteiras fechadas:', e.message); }
+  try { await setoresDaEquipe(); } catch (e) { console.error('setores da equipe:', e.message); }
+  try { await regrasGabriellen(); } catch (e) { console.error('regras gabriellen:', e.message); }
+  try { await equipeDaCasa(); } catch (e) { console.error('equipe da casa:', e.message); }
+  try { await donosDaCasa(); } catch (e) { console.error('donos da casa:', e.message); }
+  try { await marketingForaDoPainel(); } catch (e) { console.error('marketing fora do painel:', e.message); }
+  // 👤 Depois de marcar donos e distribuidoras: liberar a observação pra gestora
+  try { await gestoraPodeObservar(); } catch (e) { console.error('gestora observar:', e.message); }
+  try { await distribuidoraDosLeads(); } catch (e) { console.error('distribuidora:', e.message); }
+  try { await usuariosNovos(); } catch (e) { console.error('usuarios novos:', e.message); }
+  // 🧹 Depois de criar/garantir a equipe nova: devolver pra fila o que o rodízio entregou sozinho
+  try { await desfazerRodizioDaEquipeNova(); } catch (e) { console.error('desfazer rodizio:', e.message); }
+
+  /* ═══ ÚLTIMA ETAPA DO BOOT: acertos de 23-24/09 (Mayara, Marina, Poliana).
+     Ficam no FIM de propósito (cobrança do master, 24/09: "a Mayara continua
+     em consultas"): rotinas antigas acima (setoresDaEquipe, titulosDaEquipe)
+     rodam em todo boot e regravavam a Mayara como consultas/terapias DEPOIS
+     do reforço. Aqui, por último, nada mais desfaz. Reproduzido e testado
+     num PostgreSQL local com o boot completo. */
   /* 💛 MAYARA ASSUME A CARTEIRA FIDELIDADE (ordem do master, 23/09: "a
      partir de agora a Mayara fique com os clientes fidelidade; a tela que
      está aparecendo para Poliana seja igual para Mayara"). Passada única:
@@ -3290,9 +3320,10 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
         senha não é mexida);
      3) mensagens de 23/09 assinadas Miécio nas conversas da Poliana → Poliana. */
   try {
-    const { rowCount: nMay } = await query(`UPDATE usuarios SET setor = 'vacinas', setores = '{vacinas}', so_fidelidade = true, so_carteira = false, updated_at = NOW()
+    const { rowCount: nMay } = await query(`UPDATE usuarios SET setor = 'vacinas', setores = '{vacinas}', so_fidelidade = true, so_carteira = false, titulo = 'Fidelidade', updated_at = NOW()
       WHERE ativo = true AND (nome ILIKE 'mayara%' OR nome ILIKE 'maiara%')
-        AND (COALESCE(setor,'') <> 'vacinas' OR COALESCE(so_fidelidade,false) = false OR COALESCE(array_length(setores,1),0) <> 1)`).catch(() => ({ rowCount: 0 }));
+        AND (COALESCE(setor,'') <> 'vacinas' OR COALESCE(so_fidelidade,false) = false OR COALESCE(array_length(setores,1),0) <> 1
+             OR COALESCE(titulo,'') <> 'Fidelidade')`).catch(() => ({ rowCount: 0 }));
     if (nMay) console.log(`🔁 Reforço: Mayara → vacinas/Fidelidade (${nMay})`);
   } catch (e) { console.error('reforco mayara:', e.message); }
   try {
@@ -3371,29 +3402,6 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log(`🧹 Limpa Miécio→Poliana: ${nDel} apagada(s), ${nRen} renomeada(s)`);
     }
   } catch (e) { console.error('limpa miecio:', e.message); }
-  try { await colunasCriticas(); } catch (e) { console.error('colunas criticas:', e.message); }
-  try { await tabelaOcultas(); } catch (e) { console.error('tabela ocultas:', e.message); }
-  /* ⚠️ DEPOIS de colunasCriticas, sempre. As metas por setor gravam numa coluna
-     que nasce lá — rodando antes, o UPDATE falhava calado (a coluna não existia
-     ainda) e a meta da Danielle nunca mudava, sem erro nenhum na tela.
-     Cobrança dele, 03/09: "a meta de Danielle não mudou". */
-  try { await metasPorSetor(); } catch (e) { console.error('metas por setor:', e.message); }
-  try { await metaDiariaDosSetores(); } catch (e) { console.error('meta diaria dos setores:', e.message); }
-  try { await carteiraLeadsParaJose(); } catch (e) { console.error('carteira de leads jose:', e.message); }
-  try { await gabriellenSoRepasse(); } catch (e) { console.error('gabriellen so repasse:', e.message); }
-  try { await gabriellenCarteiraConsultasTerapias(); } catch (e) { console.error('gabriellen carteira:', e.message); }
-  try { await limparCarteirasFechadas(); } catch (e) { console.error('limpar carteiras fechadas:', e.message); }
-  try { await setoresDaEquipe(); } catch (e) { console.error('setores da equipe:', e.message); }
-  try { await regrasGabriellen(); } catch (e) { console.error('regras gabriellen:', e.message); }
-  try { await equipeDaCasa(); } catch (e) { console.error('equipe da casa:', e.message); }
-  try { await donosDaCasa(); } catch (e) { console.error('donos da casa:', e.message); }
-  try { await marketingForaDoPainel(); } catch (e) { console.error('marketing fora do painel:', e.message); }
-  // 👤 Depois de marcar donos e distribuidoras: liberar a observação pra gestora
-  try { await gestoraPodeObservar(); } catch (e) { console.error('gestora observar:', e.message); }
-  try { await distribuidoraDosLeads(); } catch (e) { console.error('distribuidora:', e.message); }
-  try { await usuariosNovos(); } catch (e) { console.error('usuarios novos:', e.message); }
-  // 🧹 Depois de criar/garantir a equipe nova: devolver pra fila o que o rodízio entregou sozinho
-  try { await desfazerRodizioDaEquipeNova(); } catch (e) { console.error('desfazer rodizio:', e.message); }
 }
 
 
@@ -3632,7 +3640,7 @@ async function desfazerRodizioDaEquipeNova() {
 const EQUIPE_CASA = [
   { nome: 'Mayara Santos Aguiar Miranda', email: 'mayara.miranda@vittahub.local',
     cpf: '61242108351', cor: '#0ea5e9', role: 'atendente',
-    setor: 'vacinas', setores: ['vacinas', 'consultas', 'terapias'], titulo: 'Atendimento geral' },
+    setor: 'vacinas', setores: ['vacinas'], titulo: 'Fidelidade' },   // Fidelidade desde 23/09
   { nome: 'Suellen Pãozinho Anceles', email: 'suellen.anceles@vittahub.local',
     cpf: '61683378300', cor: '#22c55e', role: 'atendente',
     setor: 'vacinas', setores: ['vacinas', 'consultas', 'terapias'], titulo: 'Atendimento geral' },
@@ -3952,7 +3960,7 @@ async function limparCarteirasFechadas() {
 const SETORES_EQUIPE = [
   { quem: 'gabriel',    setor: 'consultas', setores: ['consultas', 'terapias'] },   // Gabriellen (qualquer grafia)
   { quem: 'suel+en',    setor: 'consultas', setores: ['consultas', 'terapias'] },
-  { quem: 'mayara',     setor: 'consultas', setores: ['consultas', 'terapias'] },
+  { quem: 'ma[iy]ara',  setor: 'vacinas',   setores: ['vacinas'] },   // Fidelidade desde 23/09 (ordem do master)
   { quem: 'danielle',   setor: 'consultas', setores: ['vacinas', 'consultas', 'terapias'] },
   { quem: 'raylane',    setor: 'vacinas',   setores: ['vacinas'] },
   { quem: 'poliana',    setor: 'vacinas',   setores: ['vacinas'] },
@@ -4126,7 +4134,7 @@ async function titulosDaEquipe() {
     ['stefany',  'Vacinas em Geral'],
     ['danielle', 'Terapias'],
     ['suellen',  'Consultas'],
-    ['mayara',   'Terapia Ativos'],
+    ['mayara',   'Fidelidade'],   // era 'Terapia Ativos'; Fidelidade desde 23/09
     ['yasmin',   'Plano Vacinal Ativos'],
     ['gabriellen', 'Terapias ABA e Neuropediatra'],
   ];
