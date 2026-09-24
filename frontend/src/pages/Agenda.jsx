@@ -1,6 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Plus, Phone, MessageSquare, Check, X as XIcon, Pencil, Trash2, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import RelatorioLider from '../components/RelatorioLider.jsx';
+import RotaAtiva from '../components/RotaAtiva.jsx';     // 🛰 iniciar rota / rastreio (24/09/2026)
+import RotasMaster from '../components/RotasMaster.jsx'; // 🛰 trajetos e paradas — só master
 import { mensagemAgendamento } from '../hooks/celebra.js';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
@@ -307,7 +309,7 @@ export default function Agenda() {
       </div>
 
       <div style={{ display: 'flex', gap: 7, marginBottom: 12, flexWrap: 'wrap' }}>
-        {[['lista', '📅 Agenda do dia'], ...(podeVerVittaMed ? [['vittamed', '🏥 VittaMed']] : []), ...(podeLogistica ? [['logistica', '🚚 Logística']] : []), ['relatorio', '📋 Relatório e produtividade']].map(([k, l]) => (
+        {[['lista', '📅 Agenda do dia'], ...(podeVerVittaMed ? [['vittamed', '🏥 VittaMed']] : []), ...(podeLogistica ? [['logistica', '🚚 Logística']] : []), ...(isMasterAg ? [['rotas', '🛰 Rotas GPS']] : []), ['relatorio', '📋 Relatório e produtividade']].map(([k, l]) => (
           <button key={k} onClick={() => { setAba(k); if (k === 'relatorio') { setRel({ carregando: true }); api.get(`/extras/agenda/relatorio-dia?data=${data}`).then(setRel).catch(e => setRel({ erro: e.message })); } }}
             style={{ padding: '7px 15px', borderRadius: 10, fontSize: 12.5, fontWeight: 800, cursor: 'pointer',
               border: `1.5px solid ${aba === k ? 'var(--tq)' : 'var(--border)'}`,
@@ -337,6 +339,7 @@ export default function Agenda() {
 
       {aba === 'vittamed' ? <AgendaVittaMed vmed={vmed} setor={vmedSetor} setSetor={setVmedSetor} rotuloDia={rotuloDia} onRecarregar={loadVmed} ehMaster={user?.role === 'master'} /> :
        aba === 'logistica' ? <Logistica eventos={eventos} data={data} rotuloDia={rotuloDia} /> :
+       aba === 'rotas' ? <RotasMaster api={api} /> :
        aba === 'relatorio' ? <RelatorioDia rel={rel} data={data} rotuloDia={rotuloDia} onLider={() => setRelLider(true)} /> : (<>
       {/* ⬆️ AGENDA DE AGENDAMENTOS — as visitas e atendimentos do dia */}
       <div className="card" style={{ padding: 0, overflow: 'hidden', background: 'var(--card)' }}>
@@ -780,7 +783,30 @@ function AgendaVittaMed({ vmed, setor, setSetor, rotuloDia, onRecarregar, ehMast
    inteiro no Google Maps, na ordem das visitas. Dá pra mandar no WhatsApp em um
    toque ou copiar o texto. Nada é enviado sozinho: quem manda é o master. */
 function Logistica({ eventos, data, rotuloDia }) {
+  const api = useApi();
+  const { user } = useAuth();
   const [copiado, setCopiado] = React.useState(false);
+  /* 🛰 INICIAR ROTA É OBRIGATÓRIO (ordem do master, 24/09/2026). A rota do dia
+     nasce aqui: um link com token que a atendente usa na hora (aqui mesmo) ou
+     manda pro motorista no WhatsApp. O Google Maps só abre DEPOIS de iniciar —
+     é assim que a obrigação vira regra. O trajeto e a análise ficam na aba
+     🛰 Rotas GPS, que só o master vê. */
+  const [rotaDia, setRotaDia] = React.useState(null);   // { rota, visitas } do servidor
+  const [gerando, setGerando] = React.useState(false);
+  const [erroRota, setErroRota] = React.useState('');
+  React.useEffect(() => {
+    let vivo = true; setRotaDia(null);
+    api.get(`/rotas/dia?data=${data}`).then(d => { if (vivo) setRotaDia(d); }).catch(() => { if (vivo) setRotaDia({ rota: null }); });
+    return () => { vivo = false; };
+  }, [data]); // eslint-disable-line
+  const gerarRota = async () => {
+    setGerando(true); setErroRota('');
+    try { const d = await api.post('/rotas/link', { data, setor: 'vacinas' }); setRotaDia(x => ({ ...(x || {}), rota: d.rota })); }
+    catch (e) { setErroRota(e.message); }
+    setGerando(false);
+  };
+  const rotaGps = rotaDia?.rota || null;
+  const linkMotorista = rotaGps?.token ? `${window.location.origin}/rota/${rotaGps.token}` : null;
 
   const ehVisita = (e) => {
     const end = String(e.endereco || '').trim();
@@ -801,9 +827,12 @@ function Logistica({ eventos, data, rotuloDia }) {
   // Rota completa: sai da clínica e passa por cada casa, na ordem do horário
   const CLINICA = 'Av. Cel. Colares Moreira, 3A, Renascença, São Luís, MA';
   const comRua = visitas.filter(v => enderecoDe(v) && !semRua(v));
-  const rota = comRua.length
+  const rotaMaps = comRua.length
     ? `https://www.google.com/maps/dir/${encodeURIComponent(CLINICA)}/${comRua.map(v => encodeURIComponent(`${enderecoDe(v)}, São Luís, MA`)).join('/')}`
     : null;
+  // A rota completa do Maps só vai no texto DEPOIS de iniciada: antes disso o
+  // que vai é o link "Iniciar rota", que abre o Maps ao iniciar (regra do master).
+  const rotaIniciada = rotaGps?.status === 'em_andamento';
 
   const texto = [
     `🚚 ROTEIRO DE VISITAS — ${rotuloDia}`,
@@ -816,7 +845,8 @@ function Logistica({ eventos, data, rotuloDia }) {
       enderecoDe(v) && !semRua(v) ? `🗺️ ${mapsDe(v)}` : null,
       '',
     ].filter(Boolean).join('\n')),
-    rota ? `🗺️ Rota completa (saindo da clínica):\n${rota}` : '',
+    linkMotorista ? `▶ INICIAR A ROTA (obrigatório antes de sair — abre o Google Maps e registra o trajeto):\n${linkMotorista}` : '',
+    rotaIniciada && rotaMaps ? `\n🗺️ Rota completa (saindo da clínica):\n${rotaMaps}` : '',
   ].join('\n').trim();
 
   const copiar = async () => {
@@ -840,6 +870,41 @@ function Logistica({ eventos, data, rotuloDia }) {
         </span>
       </div>
 
+      {/* 🛰 A rota do dia: gerar → iniciar (aqui ou pelo link do motorista) → acompanhar */}
+      <div style={{ borderBottom: '1px solid var(--border)', background: 'var(--card)' }}>
+        {rotaDia === null ? (
+          <div style={{ padding: '12px 18px', fontSize: 12.5, color: 'var(--muted)' }}>Verificando a rota do dia…</div>
+        ) : !rotaGps ? (
+          <div style={{ padding: '14px 18px', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            <div style={{ flex: 1, minWidth: 220, fontSize: 12.5, color: 'var(--txt2)', lineHeight: 1.5 }}>
+              <b style={{ color: 'var(--txt)' }}>▶ Iniciar a rota é obrigatório.</b> Gere a rota do dia: quem for dirigir inicia aqui mesmo ou pelo link no WhatsApp. O Google Maps abre ao iniciar, e o trajeto fica registrado.
+            </div>
+            <button onClick={gerarRota} disabled={gerando} style={btn('#0e7490')}>{gerando ? 'Gerando…' : '🛰 Gerar rota do dia'}</button>
+            {erroRota && <div style={{ width: '100%', color: 'var(--err)', fontWeight: 700, fontSize: 12.5 }}>⚠️ {erroRota}</div>}
+          </div>
+        ) : (
+          <>
+            <RotaAtiva token={rotaGps.token} rotaInicial={rotaGps} modo="equipe" nomeSugerido={user?.nome || ''} usuarioId={user?.id || null}
+              onChange={(r) => setRotaDia(x => ({ ...(x || {}), rota: { ...(x?.rota || {}), ...r } }))} />
+            {(rotaGps.status === 'finalizada' || rotaGps.status === 'abandonada') && (
+              <div style={{ padding: '0 18px 12px', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', fontSize: 12 }}>
+                <span style={{ color: 'var(--muted)' }}>Vai sair de novo hoje (segunda viagem)?</span>
+                <button onClick={gerarRota} disabled={gerando} style={{ ...btn('#0e7490'), padding: '6px 11px', fontSize: 12 }}>{gerando ? 'Gerando…' : '🛰 Gerar nova rota'}</button>
+                {erroRota && <span style={{ color: 'var(--err)', fontWeight: 700 }}>⚠️ {erroRota}</span>}
+              </div>
+            )}
+            {linkMotorista && rotaGps.status !== 'finalizada' && rotaGps.status !== 'abandonada' && (
+              <div style={{ padding: '8px 18px 12px', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', fontSize: 12 }}>
+                <span style={{ color: 'var(--muted)' }}>Quem dirige é outra pessoa? Mande o link dela:</span>
+                <a href={`https://wa.me/?text=${encodeURIComponent(`▶ Rota de visitas de ${rotuloDia}. Abra o link no celular e toque em "Iniciar rota" antes de sair (obrigatório):\n${linkMotorista}`)}`} target="_blank" rel="noreferrer"
+                  style={{ ...btn('#25D366'), padding: '6px 11px', fontSize: 12 }}>💬 Link do motorista</a>
+                <code style={{ fontSize: 11, color: 'var(--muted)', wordBreak: 'break-all' }}>{linkMotorista}</code>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
       {visitas.length === 0 ? (
         <div style={{ padding: '44px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: 13.5 }}>
           Nenhuma visita em casa neste dia. Atendimento na clínica não entra no roteiro.
@@ -847,10 +912,15 @@ function Logistica({ eventos, data, rotuloDia }) {
       ) : (
         <>
           <div style={{ display: 'flex', gap: 8, padding: '13px 18px', flexWrap: 'wrap', borderBottom: '1px solid var(--border)' }}>
-            {rota && (
-              <a href={rota} target="_blank" rel="noreferrer" style={btn('#0e7490')}>
+            {rotaMaps && rotaIniciada && (
+              <a href={rotaMaps} target="_blank" rel="noreferrer" style={btn('#0e7490')}>
                 🗺️ Abrir rota no Google Maps
               </a>
+            )}
+            {rotaMaps && !rotaIniciada && (
+              <span style={{ ...btn('var(--bg2)'), color: 'var(--muted)', boxShadow: 'none', border: '1px dashed var(--border)', cursor: 'default' }} title="O Google Maps abre ao iniciar a rota">
+                🗺️ Google Maps abre ao iniciar a rota
+              </span>
             )}
             <a href={`https://wa.me/?text=${encodeURIComponent(texto)}`} target="_blank" rel="noreferrer" style={btn('#25D366')}>
               💬 Enviar no WhatsApp

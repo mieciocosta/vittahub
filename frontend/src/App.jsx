@@ -54,6 +54,7 @@ const Relatorios = telaTardia(() => import('./pages/Relatorios.jsx'));
 const Configuracoes = telaTardia(() => import('./pages/Configuracoes.jsx'));
 const Agenda = telaTardia(() => import('./pages/Agenda.jsx'));
 const AgendarPublico = telaTardia(() => import('./pages/AgendarPublico.jsx'));
+const RotaMotorista = telaTardia(() => import('./pages/RotaMotorista.jsx')); // 🛰 rota do motorista (link com token, sem login)
 const SolicitacaoVacinas = telaTardia(() => import('./pages/SolicitacaoVacinas.jsx'));
 const MinhaCarteira = telaTardia(() => import('./pages/MinhaCarteira.jsx'));
 const PlanoVacinal = telaTardia(() => import('./pages/PlanoVacinal.jsx'));
@@ -626,6 +627,11 @@ export default function App() {
   // 🔗 Agendamento público: única tela que NÃO exige login (link do Instagram)
   if (window.location.pathname === '/agendar') return (
     <React.Suspense fallback={null}><AgendarPublico /></React.Suspense>
+  );
+  // 🛰 Rota do motorista (24/09/2026): o link /rota/<token> abre SEM login — o
+  // motorista não tem conta; o token só enxerga a rota daquele dia.
+  if (/^\/rota\/[a-f0-9]{32}/.test(window.location.pathname)) return (
+    <React.Suspense fallback={null}><RotaMotorista /></React.Suspense>
   );
 
   if (!user) return <Login />;

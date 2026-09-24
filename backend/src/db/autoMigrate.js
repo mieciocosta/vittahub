@@ -38,6 +38,37 @@ export default async function runMigrate() {
     await query(`CREATE INDEX IF NOT EXISTS idx_usuarios_lider ON usuarios (lider_id)`).catch(() => {});
     // Meta individual mensal (R$) do liderado — cobrança de meta pessoal.
     await query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS meta_mensal NUMERIC(10,2) DEFAULT 0`).catch(() => {});
+
+    /* 🛰 ROTA DA LOGÍSTICA COM GPS (ordem do master, 24/09/2026): "Iniciar a
+       rota" grava hora de saída, trajeto, paradas e hora de volta; só o master
+       vê. Uma linha por rota do dia; os pontos do GPS ficam em rota_pontos. */
+    await query(`CREATE TABLE IF NOT EXISTS rotas (
+      id SERIAL PRIMARY KEY,
+      token TEXT UNIQUE,
+      data DATE NOT NULL,
+      setor TEXT DEFAULT 'vacinas',
+      criado_por TEXT, criado_por_nome TEXT,
+      condutor_nome TEXT, condutor_usuario_id TEXT,
+      status TEXT NOT NULL DEFAULT 'aguardando',
+      iniciada_em TIMESTAMPTZ, finalizada_em TIMESTAMPTZ,
+      origem_lat DOUBLE PRECISION, origem_lng DOUBLE PRECISION,
+      destino_lat DOUBLE PRECISION, destino_lng DOUBLE PRECISION,
+      km_total NUMERIC(8,2) DEFAULT 0, pontos INT DEFAULT 0, minutos INT,
+      visitas JSONB DEFAULT '[]'::jsonb, analise JSONB, paradas_fora INT DEFAULT 0,
+      dispositivo TEXT, observacoes TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS idx_rotas_data ON rotas (data)`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS idx_rotas_token ON rotas (token)`).catch(() => {});
+    await query(`CREATE TABLE IF NOT EXISTS rota_pontos (
+      id SERIAL PRIMARY KEY,
+      rota_id INT NOT NULL REFERENCES rotas(id) ON DELETE CASCADE,
+      em TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      lat DOUBLE PRECISION NOT NULL, lng DOUBLE PRECISION NOT NULL,
+      precisao INT, velocidade REAL,
+      tipo TEXT DEFAULT 'gps', evento_id INT, nota TEXT
+    )`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS idx_rota_pontos_rota ON rota_pontos (rota_id, em)`).catch(() => {});
     // Acesso total: vê TODAS as conversas e leads, sem trava de setor (ex.: Danielle).
     await query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS ve_tudo BOOLEAN DEFAULT false`).catch(() => {});
     /* Permissão de ENTRAR COMO outro usuário, controlada pelo master na tela.
