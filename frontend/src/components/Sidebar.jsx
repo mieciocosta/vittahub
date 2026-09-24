@@ -12,7 +12,7 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { aoVivo } from '../hooks/polling.js';
 import { useApi } from '../context/AuthContext.jsx';
 import { setToken } from '../hooks/api.js';
-import { fmt, clarear, escurecer, tituloUsuario, carteiraFechada, carteiraSemVacinas } from '../hooks/utils.js';
+import { fmt, clarear, escurecer, tituloUsuario, carteiraFechada, carteiraSemVacinas, veFidelidade } from '../hooks/utils.js';
 import { versiculoDoDia } from '../hooks/versiculos.js';
 
 // 4 tons por família: p<0 clareia, p>0 escurece. Quatro é o ponto em que a
@@ -671,7 +671,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
         /* 💛 A pasta Fidelidade é da Poliana (ordem do master, 27/08: "todos os
            clientes da Poliana não aparecem para os demais"). Pra quem não é da
            carteira ela abriria vazia — então nem aparece no menu. */
-        .filter(s => s.cls !== 'fidelidade' || ['master','supervisor'].includes(user?.role) || user?.ve_tudo || user?.so_fidelidade === true)
+        .filter(s => s.cls !== 'fidelidade' || ['master','supervisor'].includes(user?.role) || user?.ve_tudo || veFidelidade(user))
         .filter(s => podeSetor(s.setor))
         .map(s => setorItem(s.to || `/inbox?cls=${s.cls}`, s.cor, s.label, setorCount[s.cls]))}
     </>
@@ -1034,7 +1034,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                quem não tem setor nenhum (marketing) — aí não há o que filtrar. */
             && (!n.terapias || podeSetor('terapias'))
             && (!n.vacinas || podeSetor('vacinas'))
-            && (!n.fidelidade || podeSetor('vacinas') || user?.so_fidelidade === true)
+            && (!n.fidelidade || podeSetor('vacinas') || veFidelidade(user))
             && (!n.agendaVacinas || duasAgendas || podeSetor('vacinas'))
             && (!n.agendaConsultas || duasAgendas || podeSetor('consultas') || podeSetor('terapias'))
             && (!n.comercial || ['master','supervisor'].includes(user?.role) || user?.distribuidor === true)

@@ -426,6 +426,12 @@ let usuariosNome = new Map();    // id → nome ATUAL (assinatura sempre com o n
 let usuariosSoCarteira = new Set(); // 🏠 home office por produção: só vê o que foi transferido
 let usuariosSoFidelidade = new Set(); // 💛 vê SOMENTE a carteira de Fidelidade (ordem do master, 24/08)
 let usuariosDistribuidores = new Set(); // 📥 recebem a fila de leads sem dona (28/08)
+/* Depois que o cadastro carregou, ELE manda nos perfis fechados (24/09): a
+   Poliana deixou de ser carteira fechada e o token antigo dela ainda dizia
+   so_fidelidade=true — sem isto ela só voltaria ao normal depois de sair e
+   entrar. Antes do primeiro carregamento, vale o token (não abre nada). */
+let usuariosCarregados = false;
+const perfilDoToken = (v, campo) => !usuariosCarregados && v?.[campo] === true;
 async function carregarUsuariosSetor() {
   try {
     let rows;
@@ -450,10 +456,13 @@ async function carregarUsuariosSetor() {
     for (const u of rows) {
       const n = String(u.nome || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
       if (/(^|[^a-z])gabriel/.test(n)) usuariosSoCarteira.add(String(u.id));
-      // 💛 Mayara assume a carteira Fidelidade (ordem do master, 23/09), mesma regra da Poliana
-      if (/(^|[^a-z])(poliana|ma[iy]ara)/.test(n)) usuariosSoFidelidade.add(String(u.id));
+      // 💛 Mayara é a carteira Fidelidade fechada (23/09). A Poliana saiu da
+      // regra em 24/09 (ordem do master): "ela não é mais somente fidelidade,
+      // é fidelidade e atendimento em geral de vacinas".
+      if (/(^|[^a-z])ma[iy]ara/.test(n)) usuariosSoFidelidade.add(String(u.id));
     }
     usuariosDistribuidores = new Set(rows.filter(u => u.distribuidor === true).map(u => String(u.id)));
+    usuariosCarregados = true;
   } catch { /* banco ainda não pronto — tenta de novo no próximo tick */ }
 }
 carregarUsuariosSetor();
@@ -518,10 +527,10 @@ function setorEfetivo(conv) {
    tudo aparecer pra ela. Agora é uma função só, que aceita QUALQUER das três
    provas — inclusive o NOME que vem dentro do próprio login, que não depende
    de cadastro, de cache nem de a pessoa sair e entrar de novo. */
-const NOME_CARTEIRA_FECHADA = /(^|[^a-z])(gabriel|poliana|ma[iy]ara)/;   // Mayara/Maiara: Fidelidade desde 23/09
+const NOME_CARTEIRA_FECHADA = /(^|[^a-z])(gabriel|ma[iy]ara)/;   // Mayara/Maiara: Fidelidade desde 23/09 · Poliana saiu em 24/09
 export function carteiraFechadaDe(v) {
   if (!v || v.role === 'master') return false;
-  if (v.so_carteira === true || v.so_fidelidade === true) return true;
+  if (perfilDoToken(v, 'so_carteira') || perfilDoToken(v, 'so_fidelidade')) return true;
   if (usuariosSoCarteira.has(String(v.id)) || usuariosSoFidelidade.has(String(v.id))) return true;
   const n = String(v.nome || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   return NOME_CARTEIRA_FECHADA.test(n);
@@ -565,14 +574,14 @@ export function podeVerSetor(viewer, conv) {
      enxerga o que foi TRANSFERIDO pra ela — nem o pool sem dono. Vem antes de
      qualquer outra regra (inclusive ve_tudo): é o contrato desse perfil.
      O flag vale pelo token OU pelo cache (token antigo não fura a regra). */
-  if (viewer.so_carteira === true || usuariosSoCarteira.has(String(viewer.id))) {
+  if (perfilDoToken(viewer, 'so_carteira') || usuariosSoCarteira.has(String(viewer.id))) {
     return String(conv.responsavel_id || '') === String(viewer.id);
   }
   /* 💛 CARTEIRA DE FIDELIDADE (ordem do master, 24/08: "o usuário da Poliana
      tem a visão apenas da carteira do Fidelidade... coloca no funil principal
      apenas esse"). Quem tem esse perfil enxerga SÓ as conversas da pasta
      Fidelidade — na lista, na busca e ao abrir. Vem antes de setor e ve_tudo. */
-  if (viewer.so_fidelidade === true || usuariosSoFidelidade.has(String(viewer.id))) {
+  if (perfilDoToken(viewer, 'so_fidelidade') || usuariosSoFidelidade.has(String(viewer.id))) {
     /* 28/08, ordem do master: "quero que a Poliana só veja os que ela já tem no
        nome dela". Antes ela via a pasta Fidelidade inteira; agora vê a própria
        carteira. Cliente novo de fidelidade chega pela distribuição — a Danielle
@@ -6933,7 +6942,7 @@ r.post('/conversations/:id/send', async (req, res) => {
        (so_carteira = Gabriellen, so_fidelidade = Poliana): elas recebem o
        atendimento entregue, não pegam da fila — nem pela porta do
        "visível pra equipe toda". */
-    const perfilFechado = req.user?.so_carteira === true || req.user?.so_fidelidade === true
+    const perfilFechado = perfilDoToken(req.user, 'so_carteira') || perfilDoToken(req.user, 'so_fidelidade')
       || usuariosSoCarteira.has(String(req.user?.id)) || usuariosSoFidelidade.has(String(req.user?.id));
     const podeAssumirSozinha = !perfilFechado;
     if (!conv.responsavel_id && req.user?.id && podeAssumirSozinha) {

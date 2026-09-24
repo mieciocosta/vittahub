@@ -11,7 +11,8 @@ const Ctx = createContext(null);
 const normalizarUsuario = (u) => {
   if (!u || u.role === 'master') return u;
   const n = String(u.nome || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-  const fidelidade = u.so_fidelidade === true || /(^|[^a-z])(poliana|ma[iy]ara)/.test(n);
+  // Poliana saiu da carteira fechada em 24/09 (atendimento geral de vacinas)
+  const fidelidade = u.so_fidelidade === true || /(^|[^a-z])ma[iy]ara/.test(n);
   return fidelidade ? { ...u, so_fidelidade: true, setor: 'vacinas', setores: ['vacinas'] } : u;
 };
 

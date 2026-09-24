@@ -3424,6 +3424,46 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log(`🚪 Gabriellen inativada: ${gabs.length} usuária(s)`);
     }
   } catch (e) { console.error('gabriellen inativa:', e.message); }
+  /* ↩️ POLIANA DE VOLTA (ordem do master, 24/09: "as conversas que a Poliana
+     estava tendo não aparecem mais pra ela, está zerada; reveja e reative;
+     ela não é mais somente fidelidade, é fidelidade e atendimento em geral
+     de vacinas").
+     O que aconteceu: quando o Railway voltou a instalar (24/09), rodou a
+     passagem de 23/09 "Mayara assume a Fidelidade", que levou pra Mayara
+     TUDO o que estava no nome da Poliana, não só a carteira fidelidade.
+     Aqui, uma vez só:
+     1) Poliana: ativa, setor vacinas, sem carteira fechada (vê a fila, pode
+        assumir, continua com os clientes fidelidade DELA);
+     2) toda conversa que era dela (lista guardada em fidelidade_mayara_undo)
+        e ainda está com a Mayara volta pra ela, com o lead junto;
+     3) o que a passagem levou de fidelidade SEM dona fica com a Mayara. */
+  try {
+    const { rows: [flagPolVolta] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_poliana_volta_2026-09-24'");
+    if (!flagPolVolta) {
+      const { rows: [polV] } = await query("SELECT id, nome FROM usuarios WHERE nome ILIKE 'poliana%' ORDER BY nome LIMIT 1").catch(() => ({ rows: [] }));
+      const { rows: [mayV] } = await query("SELECT id, nome FROM usuarios WHERE nome ILIKE 'mayara%' OR nome ILIKE 'maiara%' ORDER BY ativo DESC, nome LIMIT 1").catch(() => ({ rows: [] }));
+      let nConv = 0, nLead = 0;
+      if (polV) {
+        await query(`UPDATE usuarios SET ativo = true, so_fidelidade = false, so_carteira = false,
+                       setor = 'vacinas', setores = '{vacinas}', updated_at = NOW() WHERE id = $1`, [polV.id]);
+        const { rows: [undo] } = await query("SELECT valor FROM configuracoes WHERE chave = 'fidelidade_mayara_undo'").catch(() => ({ rows: [] }));
+        const dela = (undo?.valor?.conversas || []).filter(c => String(c.responsavel_id || '') === String(polV.id)).map(c => c.id);
+        if (dela.length && mayV) {
+          const rc = await query(`UPDATE conversas SET responsavel_id = $1 WHERE id = ANY($2::text[]) AND responsavel_id = $3`, [polV.id, dela, mayV.id]).catch((e) => { console.error('poliana volta conv:', e.message); return null; });
+          nConv = rc?.rowCount || 0;
+          const rl = await query(`UPDATE leads SET responsavel_id = $1
+                                   WHERE id IN (SELECT lead_id FROM conversas WHERE id = ANY($2::text[]) AND lead_id IS NOT NULL)
+                                     AND responsavel_id = $3`, [polV.id, dela, mayV.id]).catch(() => null);
+          nLead = rl?.rowCount || 0;
+        }
+        await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_poliana_volta_2026-09-24', '{"ok":true}') ON CONFLICT DO NOTHING`);
+        await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+          ['↩️ Conversas da Poliana devolvidas',
+           `${nConv} conversa(s) e ${nLead} lead(s) que tinham ido para a Mayara voltaram para a ${String(polV.nome).split(' ')[0]}. Ela volta a ser atendente geral de vacinas (vê a fila e pode assumir) e continua com os clientes fidelidade dela. Os clientes fidelidade que estavam sem dona seguem com a Mayara.`]).catch(() => {});
+        console.log(`↩️ Poliana de volta: ${nConv} conversa(s), ${nLead} lead(s)`);
+      }
+    }
+  } catch (e) { console.error('poliana volta:', e.message); }
 }
 
 

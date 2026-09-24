@@ -126,7 +126,7 @@ export function tituloUsuario(u) {
   const setores = (Array.isArray(u?.setores) && u.setores.length ? u.setores : [u?.setor]).filter(Boolean);
   // 💛 Carteira Fidelidade aparece no subtítulo (Poliana e Mayara, pedido do
   // master em 24/09: "Mayara também é fidelidade").
-  const fid = u?.so_fidelidade === true ? ' · Fidelidade' : '';
+  const fid = veFidelidade(u) ? ' · Fidelidade' : '';
   if (!setores.length) return base + fid;
   return `${base} · ${setores.map(_CAP).join(' e ')}${fid}`;
 }
@@ -139,7 +139,7 @@ export const carteiraFechada = (u) => {
   if (!u || u.role === 'master') return false;
   if (u.so_carteira === true || u.so_fidelidade === true) return true;
   const n = String(u.nome || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-  return /(^|[^a-z])(gabriel|poliana|ma[iy]ara)/.test(n);   // Mayara/Maiara: Fidelidade desde 23/09
+  return /(^|[^a-z])(gabriel|ma[iy]ara)/.test(n);   // Mayara/Maiara: Fidelidade desde 23/09 · Poliana saiu em 24/09
 };
 
 /* 🔒 Carteira fechada SEM vacinas = só a Gabriellen (so_carteira: consultas e
@@ -154,4 +154,14 @@ export const carteiraSemVacinas = (u) => {
   if (u.so_fidelidade === true) return false;
   const n = String(u.nome || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   return /(^|[^a-z])gabriel/.test(n);
+};
+
+/* 💛 Quem trabalha a Fidelidade (24/09): a Mayara (carteira fechada) e a
+   Poliana, que voltou a ser atendente geral de vacinas MAS segue com os
+   clientes fidelidade dela. Usado pra mostrar a pasta e o rótulo. */
+export const veFidelidade = (u) => {
+  if (!u) return false;
+  if (u.so_fidelidade === true) return true;
+  const n = String(u.nome || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  return /(^|[^a-z])(poliana|ma[iy]ara)/.test(n);
 };

@@ -54,7 +54,7 @@ function logAudit(req, usuarioId, usuarioNome, acao, detalhes) {
    cadastro continua valendo, mas a tela não pode depender dela. */
 const semAcentoMin = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 const soCarteiraDe = (u) => u?.so_carteira === true || /(^|[^a-z])gabriel/.test(semAcentoMin(u?.nome));
-const soFidelidadeDe = (u) => u?.so_fidelidade === true || /(^|[^a-z])(poliana|ma[iy]ara)/.test(semAcentoMin(u?.nome));   // Mayara/Maiara: Fidelidade desde 23/09
+const soFidelidadeDe = (u) => u?.so_fidelidade === true || /(^|[^a-z])ma[iy]ara/.test(semAcentoMin(u?.nome));   // Mayara/Maiara: Fidelidade desde 23/09 · Poliana saiu em 24/09
 /* 💛 Quem é Fidelidade é VACINAS, pelo login (cobrança da Poliana, 23/09: "o
    CRM da Mayara ainda está como de Consultas"). O setor gravado no cadastro
    pode atrasar (deploy, semente que não achou o nome); o que vai no token e
