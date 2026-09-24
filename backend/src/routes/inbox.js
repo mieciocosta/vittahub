@@ -7124,7 +7124,9 @@ async function nomeAssinatura(conv) {
   return 'Equipe Vittalis';
 }
 
-async function enviarTextoConversa(conv, texto, senderNome, opts = {}) {
+// Exportada (24/09/2026): a ponte de integração usa a MESMA função pra que o
+// que o VittaSys manda apareça no inbox daqui, gravado e assinado.
+export async function enviarTextoConversa(conv, texto, senderNome, opts = {}) {
   if (opts.deBot) texto = semTravessao(texto);
   /* Bloqueia ANTES de gravar: se a tranca barrar depois, o histórico mostra a
      mensagem como enviada e ninguém entende por que o cliente não respondeu. */

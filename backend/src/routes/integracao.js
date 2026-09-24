@@ -64,6 +64,76 @@ r.get('/status', (req, res) => {
   res.json({ ok: true, whatsapp: !!zapiOk() });
 });
 
+/* ═══ 💬 A CONVERSA DO WHATSAPP DENTRO DO VITTASYS (ordem do master, 24/09/2026) ═══
+   "Na hora do Chamar a família, quero um chat igual ao do CRM do VittaHub."
+   O número do WhatsApp é UM só, e um número só entrega mensagem (webhook) pra
+   um sistema — este. Então o VittaSys não liga na Z-API por conta própria: ele
+   lê e escreve NA MESMA conversa daqui, pela ponte. O que a equipe do VittaSys
+   manda aparece no inbox do VittaHub assinado com o nome dela; o que a família
+   responde aparece nos dois. Nada de segundo webhook, nada de histórico
+   partido em dois. */
+const digitos = (v) => String(v || '').replace(/\D/g, '');
+async function conversaPorTelefone(phoneIn, { criar = false, nome = null } = {}) {
+  let d = digitos(phoneIn);
+  if (d.length < 10) return null;
+  const com55 = d.startsWith('55') ? d : `55${d}`;
+  const sem55 = com55.slice(2);
+  const { rows } = await query(`
+    SELECT * FROM conversas
+    WHERE channel = 'whatsapp' AND (
+      contact_id = $1 || '@s.whatsapp.net' OR contact_id = $2 || '@s.whatsapp.net'
+      OR regexp_replace(COALESCE(phone,''), '\\D', '', 'g') IN ($1, $2)
+      OR RIGHT(regexp_replace(COALESCE(phone,''), '\\D', '', 'g'), 10) = RIGHT($1, 10))
+    ORDER BY last_message_at DESC NULLS LAST LIMIT 1`, [com55, sem55]);
+  if (rows[0] || !criar) return rows[0] || null;
+  const { rows: [nova] } = await query(`
+    INSERT INTO conversas (channel, contact_name, contact_id, phone, unread, last_message, last_message_at, status_atend)
+    VALUES ('whatsapp', $1, $2 || '@s.whatsapp.net', $2, 0, '', NOW(), 'aberto')
+    ON CONFLICT (contact_id) DO UPDATE SET updated_at = NOW() RETURNING *`, [String(nome || com55).slice(0, 120), com55]);
+  return nova;
+}
+
+// GET /api/integracao/conversa?phone=…&limite=80&desde=<ISO> — histórico da conversa
+r.get('/conversa', async (req, res) => {
+  if (!autenticado(req)) return res.status(403).json({ error: 'Token de integração ausente ou inválido.' });
+  try {
+    const conv = await conversaPorTelefone(req.query.phone);
+    if (!conv) return res.json({ conversa: null, mensagens: [] });
+    const limite = Math.min(300, Math.max(1, +req.query.limite || 80));
+    const desde = req.query.desde && !isNaN(new Date(req.query.desde)) ? new Date(req.query.desde) : null;
+    const { rows } = await query(`
+      SELECT id, from_type, type, content, sender_nome, status, created_at, filename, mimetype, transcricao
+      FROM mensagens WHERE conversa_id = $1 AND from_type <> 'system' AND ($2::timestamptz IS NULL OR created_at > $2)
+      ORDER BY created_at DESC LIMIT $3`, [conv.id, desde, limite]);
+    let resp = null;
+    if (conv.responsavel_id) { const { rows: [u] } = await query(`SELECT nome FROM usuarios WHERE id = $1`, [conv.responsavel_id]).catch(() => ({ rows: [] })); resp = u?.nome || null; }
+    res.json({
+      conversa: { id: conv.id, nome: conv.contact_name, phone: conv.phone, unread: conv.unread || 0, responsavel: resp, status_atend: conv.status_atend || null, bot_ativo: !!conv.bot_ativo, ultima_em: conv.last_message_at },
+      mensagens: rows.reverse().map(m => ({ id: m.id, de: m.from_type === 'contact' ? 'cliente' : (m.from_type === 'bot' ? 'vitta' : 'equipe'), tipo: m.type || 'text',
+        texto: m.content, quem: m.sender_nome || null, status: m.status || null, em: m.created_at, arquivo: m.filename || null, mime: m.mimetype || null, transcricao: m.transcricao || null })),
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/integracao/conversa/enviar { phone, message, sender_nome, nome_contato } — grava aqui e manda pelo WhatsApp
+r.post('/conversa/enviar', async (req, res) => {
+  if (!autenticado(req)) return res.status(403).json({ error: 'Token de integração ausente ou inválido.' });
+  const b = req.body || {};
+  const message = String(b.message || '').trim().slice(0, 3000);
+  if (!message || digitos(b.phone).length < 10) return res.status(400).json({ error: 'Informe phone (com DDD) e message.' });
+  try {
+    const conv = await conversaPorTelefone(b.phone, { criar: true, nome: b.nome_contato });
+    if (!conv) return res.status(400).json({ error: 'Telefone inválido.' });
+    const { enviarTextoConversa } = await import('./inbox.js');
+    const quem = String(b.sender_nome || 'VittaSys').slice(0, 60);
+    const msg = await enviarTextoConversa(conv, message, `${quem} · VittaSys`);
+    res.json({ ok: true, conversa_id: conv.id, mensagem: { id: msg.id, de: 'equipe', tipo: 'text', texto: msg.content, quem: msg.sender_nome, status: msg.status, em: msg.created_at }, whatsapp: !!zapiOk() });
+  } catch (err) {
+    const teste = /teste bloqueada/i.test(err.message || '');
+    res.status(teste ? 409 : 502).json({ error: err.message });
+  }
+});
+
 // POST /api/integracao/aviso — o VittaSys manda um aviso para o sino do VittaHub.
 // Pedido do master: os dois sistemas conversam; o que o VittaSys detecta
 // (cliente fidelidade sumido, oportunidade de plano) chega para quem atende aqui.
