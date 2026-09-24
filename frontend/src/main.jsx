@@ -1,3 +1,4 @@
+/* 24/09: marco de reinstalação após o Railway ser regularizado (força o deploy da tela). */
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';

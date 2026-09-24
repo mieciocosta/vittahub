@@ -235,7 +235,9 @@ async function start() {
   }
 
   httpServer.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 VittaHub v2.3 na porta ${PORT}`);
+    /* 24/09: Railway regularizado pelo master; este marco força a instalação
+       da versão atual (tudo que ficou preso desde 22/09). */
+    console.log(`🚀 VittaHub v2.4 na porta ${PORT}`);
     console.log(`🔌 Socket.io ativo`);
     console.log(`🌐 Frontend: ${ORIGIN}`);
   });
