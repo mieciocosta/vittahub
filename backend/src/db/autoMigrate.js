@@ -3282,6 +3282,47 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       if (rowCount) await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_marina_consultas_v1', '{"ok":true}') ON CONFLICT DO NOTHING`);
     }
   } catch (e) { console.error('seed marina setor:', e.message); }
+  /* 🔁 REFORÇO EM TODO BOOT (ordem do master, 24/09: "reforça logo esses
+     comandos nesses usuários"). As sementes acima rodam uma vez; estas três
+     rodam SEMPRE que o servidor sobe, são baratas e idempotentes:
+     1) Mayara/Maiara: setor vacinas, só Fidelidade, marcada;
+     2) Marina: cadastrada (se já existe, só garante CPF, ativo e setor; a
+        senha não é mexida);
+     3) mensagens de 23/09 assinadas Miécio nas conversas da Poliana → Poliana. */
+  try {
+    const { rowCount: nMay } = await query(`UPDATE usuarios SET setor = 'vacinas', setores = '{vacinas}', so_fidelidade = true, so_carteira = false, updated_at = NOW()
+      WHERE ativo = true AND (nome ILIKE 'mayara%' OR nome ILIKE 'maiara%')
+        AND (COALESCE(setor,'') <> 'vacinas' OR COALESCE(so_fidelidade,false) = false OR COALESCE(array_length(setores,1),0) <> 1)`).catch(() => ({ rowCount: 0 }));
+    if (nMay) console.log(`🔁 Reforço: Mayara → vacinas/Fidelidade (${nMay})`);
+  } catch (e) { console.error('reforco mayara:', e.message); }
+  try {
+    const { rows: [mar] } = await query(`SELECT id FROM usuarios WHERE regexp_replace(COALESCE(cpf,''), '\\D', '', 'g') = '62116427339' OR email = 'marina.sampaio@vittahub.local' LIMIT 1`).catch(() => ({ rows: [] }));
+    if (!mar) {
+      const bcryptR = await import('bcryptjs');
+      const hashR = await bcryptR.default.hash('Vittalis@2026', 10);
+      await query(`INSERT INTO usuarios (id, nome, email, cpf, senha, role, cor, ativo, setor, setores)
+        VALUES (gen_random_uuid()::text, 'Marina Cristiny Pereira Sampaio', 'marina.sampaio@vittahub.local', '62116427339', $1, 'atendente', '#f472b6', true, 'consultas', '{consultas,terapias}')
+        ON CONFLICT (email) DO NOTHING`, [hashR]).catch((e) => console.error('reforco marina insert:', e.message));
+      console.log('🔁 Reforço: Marina cadastrada');
+    } else {
+      await query(`UPDATE usuarios SET ativo = true, cpf = COALESCE(NULLIF(cpf,''), '62116427339'), setor = 'consultas', setores = '{consultas,terapias}', updated_at = NOW() WHERE id = $1`, [mar.id]).catch(() => {});
+    }
+  } catch (e) { console.error('reforco marina:', e.message); }
+  try {
+    const { rows: [polR] } = await query("SELECT id, nome FROM usuarios WHERE nome ILIKE 'poliana%' ORDER BY ativo DESC, nome LIMIT 1").catch(() => ({ rows: [] }));
+    if (polR) {
+      const primeiro = String(polR.nome).trim().split(/\s+/)[0];
+      const { rowCount: nRen } = await query(`UPDATE mensagens SET sender_nome = $2,
+              content = regexp_replace(content, '^\\*Mi[eé]cio[^\\n]*:\\*', '*' || $2 || ':*')
+            WHERE from_type = 'me' AND sender_nome ~* 'mi[eé]cio'
+              AND (created_at - interval '3 hours')::date = DATE '2026-09-23'
+              AND conversa_id IN (
+                SELECT id FROM conversas WHERE responsavel_id = $1
+                UNION SELECT conversa_id FROM mensagens WHERE from_type = 'me' AND sender_nome ILIKE 'poliana%' AND (created_at - interval '3 hours')::date = DATE '2026-09-23'
+                UNION SELECT id FROM conversas WHERE regexp_replace(COALESCE(phone,''), '\\D', '', 'g') LIKE '%98986268699')`, [polR.id, primeiro]).catch(() => ({ rowCount: 0 }));
+      if (nRen) console.log(`🔁 Reforço: Miécio → ${primeiro} (${nRen} mensagem(ns))`);
+    }
+  } catch (e) { console.error('reforco miecio:', e.message); }
   /* 🧹 RASTRO DO "MIÉCIO" NA CONVERSA DA POLIANA (ordem do master, 23/09:
      "conversei com nome Miécio agora no usuário de Poliana, apaga"). Passada
      única, só em HOJE (23/09, relógio de São Luís) e só nas conversas cuja
