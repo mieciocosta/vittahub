@@ -3,8 +3,22 @@ import { api, setToken, clearToken, getToken } from '../hooks/api.js';
 
 const Ctx = createContext(null);
 
+/* 💛 QUEM É FIDELIDADE É VACINAS, também na tela (cobrança do master, 24/09:
+   "o usuário de Mayara ainda está só consultas e ela agora é vacinas"). O
+   servidor já corrige no login; esta é a rede de segurança do lado de cá,
+   pra sessão antiga ou servidor atrasado: Poliana e Mayara/Maiara (marca ou
+   nome) entram na tela com setor vacinas e só esse setor. */
+const normalizarUsuario = (u) => {
+  if (!u || u.role === 'master') return u;
+  const n = String(u.nome || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const fidelidade = u.so_fidelidade === true || /(^|[^a-z])(poliana|ma[iy]ara)/.test(n);
+  return fidelidade ? { ...u, so_fidelidade: true, setor: 'vacinas', setores: ['vacinas'] } : u;
+};
+
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null);
+  const [userBruto, setUserBruto] = useState(null);
+  const user = normalizarUsuario(userBruto);
+  const setUser = (u) => setUserBruto(typeof u === 'function' ? (prev) => u(normalizarUsuario(prev)) : u);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
