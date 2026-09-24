@@ -544,8 +544,12 @@ async function montarLeads(de, ate, campanhas) {
                a.msgs_cliente,
                right(regexp_replace(COALESCE(c.phone, ''), '\\D', '', 'g'), 8) AS tel8,
                c.campanha_ad, c.campanha_ad_id, (c.campanha_ad_foto IS NOT NULL) AS tem_foto_ad,
+               /* Impressão digital BARATA da foto (24/09): octet_length não abre o
+                  arquivo e substr(1, n) lê só o começo. A versão anterior usava
+                  right(), que obrigava o banco a descompactar a foto INTEIRA de
+                  cada lead e deixou a troca de período lenta. */
                CASE WHEN c.campanha_ad_foto IS NOT NULL
-                    THEN md5(length(c.campanha_ad_foto)::text || right(c.campanha_ad_foto, 3000)) END AS foto_hash
+                    THEN md5(octet_length(c.campanha_ad_foto)::text || substr(c.campanha_ad_foto, 1, 4000)) END AS foto_hash
           FROM agg a
           JOIN conversas c ON c.id = a.conversa_id
           LEFT JOIN usuarios u ON u.id = c.responsavel_id
@@ -766,7 +770,7 @@ async function aquecerCarteira() {
       const { leads, avisos } = await montarLeads(de, ate, campanhas);
       // catálogo mudou no meio (import/edição): este resultado já nasceu velho
       if (versao !== VERSAO_CATALOGO) { console.log('🔥 aquecimento descartado: catálogo mudou'); return; }
-      if (!avisos.length) guardarCacheLeads(`${de}|${ate}|v2`, leads);
+      if (!avisos.length) guardarCacheLeads(`${de}|${ate}|v3`, leads);
       console.log(`🔥 Carteira de Leads aquecida ${de}${ate ? ` a ${ate}` : '+'}: ${leads.length} leads em ${Date.now() - t0} ms`);
     }
   } catch (e) { console.error('aquecerCarteira:', e.message); }
@@ -1007,7 +1011,7 @@ r.get('/leads-novos', async (req, res) => {
     const ATE_FIM = ate ? ` AND ${SLZ('a.pin')} < TIMESTAMP '${ate} 00:00:00' + interval '1 day'` : '';
 
     const DOW = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
-    const chaveCache = `${de}|${ate}|v2`;   // v2 (24/09): leads com a chave do criativo
+    const chaveCache = `${de}|${ate}|v3`;   // v3 (24/09): leads com a chave do criativo
     const fresh = String(req.query.fresh || '') === '1';
     /* A lista de campanhas vive FORA do bloco do cache: ela é usada lá embaixo,
        no cruzamento com os números do Meta, mesmo quando os leads vieram
@@ -1158,7 +1162,13 @@ r.get('/leads-novos', async (req, res) => {
           const conta = (arr) => { const m = new Map(); for (const x of arr) if (x) m.set(x, (m.get(x) || 0) + 1); return [...m.entries()].sort((a, b) => b[1] - a[1]); };
           const rot = conta(ls.map(l => l.campanha))[0]?.[0] || 'Anúncio';
           const adIds = [...new Set(ls.map(l => l.campanhaAdId).filter(Boolean))];
-          return { ...g, exemploId: ex?.id || null, temFoto: !!ex?.temFotoAd, rotulo: rot, rotuloFoto: ex?.campanha || '',
+          /* A foto vem de um lead que TEM foto; sem nenhuma, a do catálogo da
+             campanha (se anexada); senão nada — nada de pedir foto que não
+             existe (eram os 404 no console). */
+          const exFoto = ls.find(l => l.temFotoAd);
+          const fotoSrc = exFoto ? `/reports/leads/${exFoto.id}/foto`
+            : (campanhas.find(x => x.rotulo === rot && x.foto) ? `/reports/campanhas/foto?rotulo=${encodeURIComponent(rot)}` : null);
+          return { ...g, exemploId: exFoto?.id || null, fotoSrc, temFoto: !!exFoto, rotulo: rot, rotuloFoto: ex?.campanha || '',
             adIds: adIds.slice(0, 5), nAds: adIds.length,
             setores: conta(ls.map(l => l.setor)).map(([k, n]) => `${k} ${n}`).join(' · '),
             atendentes: conta(ls.map(l => l.responsavel)).slice(0, 3).map(([k, n]) => `${String(k).split(' ')[0]} ${n}`).join(' · ') };

@@ -345,7 +345,7 @@ export default function LeadsRelatorio() {
     const listaPDF = (dados?.lista || []).slice(0, 200);
     const srcs = [...new Set(listaPDF.map(fotoSrcDe).filter(Boolean))].slice(0, 80);
     const srcsCamp = [...new Set((dados?.campanhas || []).filter(c => (dados?.fotosCampanha || []).includes(c.chave)).map(c => `/reports/campanhas/foto?rotulo=${encodeURIComponent(c.chave)}`))].slice(0, 40);
-    const srcsCriat = (dados?.criativos || []).filter(c => c.exemploId).slice(0, 40).map(c => `/reports/leads/${c.exemploId}/foto`);
+    const srcsCriat = (dados?.criativos || []).filter(c => c.fotoSrc).slice(0, 40).map(c => c.fotoSrc);
     srcsCamp.push(...srcsCriat);
     const fotos = new Map();
     await Promise.all([...new Set([...srcs, ...srcsCamp])].map(async (src) => { const d = await fotoDataUrl(src); if (d) fotos.set(src, d); }));
@@ -406,7 +406,7 @@ ${(dados?.origens || []).map(linhaCorte).join('')}</table></div>
 <div class="sec"><h2>Por setor</h2><table><tr><th>Setor</th><th>Leads</th><th>Agendaram</th><th>Fecharam</th><th>Faturamento</th></tr>
 ${(dados?.setores || []).map(linhaCorte).join('')}</table></div>
 ${(dados?.criativos || []).length ? `<div class="sec"><h2>Por criativo (anúncio)</h2><table><tr><th>Criativo</th><th>Anúncio</th><th>Leads</th><th>Agendaram</th><th>Fecharam</th><th>Faturamento</th></tr>
-${(dados?.criativos || []).map((c, i) => `<tr>${cel(img(c.exemploId ? `/reports/leads/${c.exemploId}/foto` : null, 44))}${cel(`Criativo ${i + 1} · ${c.rotulo}<div style="font-size:9.5px;color:#7d94a6">${c.setores || ''}</div>`)}${cel(n0(c.leads), 'n')}${cel(pct(c.txAgenda), 'n')}${cel(pct(c.txFechou), 'n')}${cel(fmt.brl(c.valor), 'n')}</tr>`).join('')}</table></div>` : ''}
+${(dados?.criativos || []).map((c, i) => `<tr>${cel(img(c.fotoSrc || null, 44))}${cel(`Criativo ${i + 1} · ${c.rotulo}<div style="font-size:9.5px;color:#7d94a6">${c.setores || ''}</div>`)}${cel(n0(c.leads), 'n')}${cel(pct(c.txAgenda), 'n')}${cel(pct(c.txFechou), 'n')}${cel(fmt.brl(c.valor), 'n')}</tr>`).join('')}</table></div>` : ''}
 ${(dados?.campanhas || []).length ? `<div class="sec"><h2>Por campanha</h2><table><tr><th>Criativo</th><th>Campanha</th><th>Leads</th><th>Agendaram</th><th>Fecharam</th><th>Faturamento</th></tr>
 ${(dados?.campanhas || []).map(l => `<tr>${cel(img(`/reports/campanhas/foto?rotulo=${encodeURIComponent(l.chave)}`, 40))}${cel(l.chave)}${cel(n0(l.leads), 'n')}${cel(pct(l.txAgenda), 'n')}${cel(pct(l.txFechou), 'n')}${cel(fmt.brl(l.valor), 'n')}</tr>`).join('')}</table></div>` : ''}
 <div class="sec"><h2>Leads do período (${n0((dados?.lista || []).length)})</h2><table>
@@ -473,7 +473,12 @@ Agendamento e venda só contam se aconteceram DEPOIS da chegada do lead. Gerado 
   return (
     <>
     {modalCampanhas}
-    <div style={{ padding: '18px 20px 40px', maxWidth: 1180, margin: '0 auto' }}>
+    <div className={carregando && dados ? 'lr-carregando' : ''} style={{ padding: '18px 20px 40px', maxWidth: 1180, margin: '0 auto' }}>
+      {/* ⏳ Trocou o período: os números antigos ficam apagados até os novos
+         chegarem (24/09: "muda os meses e não atualiza os números nem os
+         criativos" — eles estavam lá, só não dava pra saber que vinham). */}
+      <style>{`.lr-carregando > *:nth-child(n+4){opacity:.35;transition:opacity .2s;pointer-events:none}
+        @keyframes lr-gira{to{transform:rotate(360deg)}}`}</style>
 
       {/* 1 · Cabeçalho e período */}
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
@@ -484,7 +489,13 @@ Agendamento e venda só contam se aconteceram DEPOIS da chegada do lead. Gerado 
           </div>
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
-          {carregando && dados && <span style={{ fontSize: 11, color: 'var(--muted)', alignSelf: 'center' }}>atualizando…</span>}
+          {carregando && dados && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, fontWeight: 800, color: 'var(--tq2)', alignSelf: 'center',
+              background: 'var(--tq4)', borderRadius: 20, padding: '4px 10px' }}>
+              <span style={{ width: 11, height: 11, border: '2px solid var(--tq)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'lr-gira .8s linear infinite' }} />
+              Carregando o período…
+            </span>
+          )}
           <button onClick={() => carregar(true)} title="Atualizar" style={{ ...btn(false), padding: '5px 9px' }}><RefreshCw size={13} /></button>
           <button onClick={gerarPDF} style={{ ...btn(false), display: 'flex', alignItems: 'center', gap: 5 }}><FileText size={13} /> PDF</button>
           <button onClick={baixarCSV} style={{ ...btn(false), display: 'flex', alignItems: 'center', gap: 5 }}><Download size={13} /> Excel</button>
@@ -720,7 +731,7 @@ Agendamento e venda só contam se aconteceram DEPOIS da chegada do lead. Gerado 
                   )}
                   {/* 🖼️ SOMATÓRIO POR CRIATIVO (24/09): a foto do anúncio que trouxe estes leads */}
                   {corte === 'criativo' && (
-                    <FotoAd src={l.exemploId ? `/reports/leads/${l.exemploId}/foto` : null} tam={54} titulo={l.rotuloFoto || l.rotulo} />
+                    <FotoAd src={l.fotoSrc || null} tam={54} titulo={l.rotuloFoto || l.rotulo} />
                   )}
                   <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--txt)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -946,7 +957,7 @@ Agendamento e venda só contam se aconteceram DEPOIS da chegada do lead. Gerado 
               const c = (dados?.criativos || [])[i];
               return (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, padding: '6px 8px', borderRadius: 10, background: 'var(--tq4)', fontSize: 11.5, fontWeight: 700, color: 'var(--txt)' }}>
-                  {c && <FotoAd src={c.exemploId ? `/reports/leads/${c.exemploId}/foto` : null} tam={30} titulo={c.rotulo} />}
+                  {c && <FotoAd src={c.fotoSrc || null} tam={30} titulo={c.rotulo} />}
                   <span style={{ flex: 1 }}>Só os leads do criativo {i >= 0 ? i + 1 : ''}{c ? ` · ${n0(c.leads)} lead(s)` : ''}</span>
                   <button onClick={() => setCriativo('')} style={{ ...btn(false), padding: '3px 9px' }}>✕ Ver todos</button>
                 </div>
