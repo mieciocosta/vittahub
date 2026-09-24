@@ -3402,6 +3402,28 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       console.log(`🧹 Limpa Miécio→Poliana: ${nDel} apagada(s), ${nRen} renomeada(s)`);
     }
   } catch (e) { console.error('limpa miecio:', e.message); }
+  /* 🚪 GABRIELLEN INATIVADA (ordem do master, 24/09: "inativa o usuário de
+     Gabriellen"). Uma vez só: se a gestão reativar depois em Configurações,
+     nada aqui desliga de novo. O middleware de auth corta a sessão aberta em
+     até 15 s. As conversas dela ficam onde estão (a Danielle, supervisora de
+     consultas e terapias, enxerga e pode transferir). */
+  try {
+    const { rows: [flagGab] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_gabriellen_inativa_2026-09-24'");
+    if (!flagGab) {
+      const SEM_ACENTO_G = "'áàâãäéèêëíìîïóòôõöúùûüç','aaaaaeeeeiiiiooooouuuuc'";
+      const { rows: gabs } = await query(`UPDATE usuarios SET ativo = false, updated_at = NOW()
+          WHERE role <> 'master' AND (regexp_replace(COALESCE(cpf,''), '\\D', '', 'g') = '05678089390'
+             OR lower(translate(COALESCE(nome,''), ${SEM_ACENTO_G})) ~ '(^|[^a-z])gabriel')
+        RETURNING id, nome`).catch((e) => { console.error('inativa gabriellen:', e.message); return { rows: [] }; });
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_gabriellen_inativa_2026-09-24', '{"ok":true}') ON CONFLICT DO NOTHING`);
+      const { rows: [nConvs] } = await query(`SELECT COUNT(*)::int n FROM conversas WHERE responsavel_id = ANY($1::text[])`, [gabs.map(g => g.id)]).catch(() => ({ rows: [{ n: 0 }] }));
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+        ['🚪 Gabriellen inativada',
+         gabs.length ? `${gabs.map(g => g.nome).join(', ')} não entra mais no CRM (sessão aberta cai em segundos). ${nConvs?.n || 0} conversa(s) seguem no nome dela: a Danielle enxerga e pode transferir. Pra reativar: Configurações → Usuários.`
+                     : 'Não encontrei usuária Gabriellen ativa pra inativar.']).catch(() => {});
+      console.log(`🚪 Gabriellen inativada: ${gabs.length} usuária(s)`);
+    }
+  } catch (e) { console.error('gabriellen inativa:', e.message); }
 }
 
 
@@ -3567,9 +3589,11 @@ async function usuariosNovos() {
       'SELECT id FROM usuarios WHERE cpf = $1 OR email = $2 LIMIT 1', [p.cpf, p.email])
       .catch(() => ({ rows: [1] }));
     if (ja) {
-      // Já existe: só garante a carteira e o setor, sem tocar na senha
+      // Já existe: só garante a carteira e o setor, sem tocar na senha.
+      // NÃO reativa (24/09): esta rotina roda em todo boot e religava quem a
+      // gestão tinha desligado — a Gabriellen voltava sozinha a cada deploy.
       await query(`UPDATE usuarios SET titulo = COALESCE(titulo, $2), setor = COALESCE(setor, $3),
-                     setores = COALESCE(setores, $4::text[]), ativo = true
+                     setores = COALESCE(setores, $4::text[])
                    WHERE cpf = $1`, [p.cpf, p.titulo, p.setor, p.setores]).catch(() => {});
       continue;
     }
