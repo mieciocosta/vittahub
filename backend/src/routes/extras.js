@@ -6639,7 +6639,24 @@ r.delete('/chat-equipe/:id', async (req, res) => {
 // Quem pode ser chamado por @ — alimenta o autocomplete da caixa de escrever
 r.get('/chat-equipe/equipe', async (req, res) => {
   try {
-    const { rows } = await query('SELECT id, nome, cor FROM usuarios WHERE ativo = true ORDER BY nome');
-    res.json(rows.map(u => ({ id: u.id, nome: u.nome, primeiro: String(u.nome).trim().split(' ')[0], cor: u.cor })));
+    /* 👥 A LISTA DO CHAT (25/09, ordem do master: "quero que apareça a lista e
+       melhore tudo"): quem é da equipe, o setor e se está ONLINE agora (sinal
+       de presença dos últimos 2 min, o mesmo que a Auditoria usa). Só o
+       online/visto por último; localização não sai daqui. */
+    const { rows } = await query(`SELECT u.id, u.nome, u.cor, u.role, u.setor, u.setores,
+         p.ultimo_heartbeat AS visto_em
+       FROM usuarios u LEFT JOIN presenca p ON p.usuario_id = u.id
+       WHERE u.ativo = true AND u.role <> 'bot' ORDER BY u.nome`)
+      .catch(() => query('SELECT id, nome, cor, role, setor, setores, NULL::timestamptz AS visto_em FROM usuarios WHERE ativo = true ORDER BY nome'));
+    const SETOR = { vacinas: 'Vacinas', consultas: 'Consultas', terapias: 'Terapias' };
+    res.json(rows.map(u => {
+      const setores = (Array.isArray(u.setores) && u.setores.length ? u.setores : (u.setor ? [u.setor] : [])).map(x => SETOR[x] || x);
+      return {
+        id: u.id, nome: u.nome, primeiro: String(u.nome).trim().split(' ')[0], cor: u.cor,
+        papel: u.role === 'master' ? 'Direção' : setores.join(' · '),
+        visto_em: u.visto_em || null,
+        online: !!u.visto_em && Date.now() - new Date(u.visto_em).getTime() < 2 * 60 * 1000,
+      };
+    }));
   } catch (err) { res.json([]); }
 });

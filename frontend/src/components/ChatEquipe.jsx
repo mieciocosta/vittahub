@@ -278,12 +278,52 @@ export function BotaoChatEquipe({ api, user, onAbrir, aberto, compacto = false, 
 }
 
 /* ─── O PAINEL ────────────────────────────────────────────────────────────── */
+/* 👥 PAINEL DO CHAT DA EQUIPE — versão 2 (25/09, ordem do master: "quero
+   melhorar esse chat com a equipe, quero que apareça a lista e melhore tudo").
+   · LISTA DA EQUIPE à esquerda: cor, setor e bolinha verde de quem está
+     online agora (sinal de presença dos últimos 2 min). Um toque na pessoa
+     já escreve o @nome dela, o jeito de chamar alguém.
+   · Mensagens com a bolinha de quem escreveu; seguidas da mesma pessoa em
+     poucos minutos ficam agrupadas (menos repetição de nome).
+   · Busca dentro do chat da equipe.
+   · Apagar e erro de envio sem window.confirm/alert: no celular (webview)
+     essas janelas simplesmente não abrem.
+   Em tela estreita (e dentro da coluna da lista) a equipe vira uma fileira
+   de bolinhas embaixo do cabeçalho. */
+const iniciais = (n) => String(n || '?').trim().split(/\s+/).slice(0, 2).map(p => p[0]).join('').toUpperCase();
+function Bolinha({ nome, cor, tam = 30, online = null }) {
+  return (
+    <span style={{ position: 'relative', flexShrink: 0, width: tam, height: tam }}>
+      <span style={{ width: tam, height: tam, borderRadius: '50%', background: cor || TURQ, color: '#fff',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: Math.round(tam * .36), fontWeight: 900 }}>
+        {iniciais(nome)}
+      </span>
+      {online !== null && (
+        <span style={{ position: 'absolute', right: -1, bottom: -1, width: Math.max(9, tam * .3), height: Math.max(9, tam * .3), borderRadius: '50%',
+          background: online ? '#22c55e' : '#94a3b8', border: '2px solid var(--card,#fff)' }} />
+      )}
+    </span>
+  );
+}
+const vistoHa = (d) => {
+  if (!d) return 'sem acesso recente';
+  const min = Math.floor((Date.now() - new Date(d).getTime()) / 60000);
+  if (min < 60) return `visto há ${Math.max(1, min)} min`;
+  if (min < 1440) return `visto há ${Math.floor(min / 60)}h`;
+  return `visto há ${Math.floor(min / 1440)} dia(s)`;
+};
+
 export function PainelChatEquipe({ api, user, onFechar, modo = 'lateral' }) {
   const [msgs, setMsgs] = useState([]);
   const [equipe, setEquipe] = useState([]);
   const [txt, setTxt] = useState('');
   const [enviando, setEnviando] = useState(false);
+  const [erroEnvio, setErroEnvio] = useState('');
   const [carregou, setCarregou] = useState(false);
+  const [busca, setBusca] = useState('');
+  const [buscando, setBuscando] = useState(false);
+  const [apagarId, setApagarId] = useState(null);
+  const [largura, setLargura] = useState(typeof window !== 'undefined' ? window.innerWidth : 1200);
   const fimRef = useRef(null);
   const inputRef = useRef(null);
   const meuPrimeiro = primeiroNome(user?.nome);
@@ -293,14 +333,24 @@ export function PainelChatEquipe({ api, user, onFechar, modo = 'lateral' }) {
       .then(d => { setMsgs(Array.isArray(d?.data) ? d.data : []); setCarregou(true); })
       .catch(() => setCarregou(true));
   }, [api]);
+  const carregarEquipe = useCallback(() => {
+    api.get('/extras/chat-equipe/equipe').then(d => setEquipe(Array.isArray(d) ? d : [])).catch(() => {});
+  }, [api]);
 
   useEffect(() => {
-    carregar();
-    api.get('/extras/chat-equipe/equipe').then(d => setEquipe(Array.isArray(d) ? d : [])).catch(() => {});
+    carregar(); carregarEquipe();
     // Abriu = leu tudo. O botão apaga na hora.
     api.post('/extras/chat-equipe/li', {}).catch(() => {});
-    return aoVivo(carregar, 6000);
-  }, [carregar]);
+    const paraMsgs = aoVivo(carregar, 6000);
+    const paraEquipe = aoVivo(carregarEquipe, 30000);   // quem está online muda devagar
+    return () => { paraMsgs?.(); paraEquipe?.(); };
+  }, [carregar, carregarEquipe]); // eslint-disable-line
+
+  useEffect(() => {
+    const medir = () => setLargura(window.innerWidth);
+    window.addEventListener('resize', medir);
+    return () => window.removeEventListener('resize', medir);
+  }, []);
 
   // Mensagem que chega pelo socket entra na hora, sem esperar o próximo ciclo
   useEffect(() => {
@@ -319,19 +369,25 @@ export function PainelChatEquipe({ api, user, onFechar, modo = 'lateral' }) {
     };
   }, [api]);
 
-  useEffect(() => { fimRef.current?.scrollIntoView({ block: 'end' }); }, [msgs.length]);
+  useEffect(() => { if (!busca) fimRef.current?.scrollIntoView({ block: 'end' }); }, [msgs.length, busca]);
 
   const enviar = async () => {
     const t = txt.trim();
     if (!t || enviando) return;
-    setEnviando(true);
+    setEnviando(true); setErroEnvio('');
     try {
       const d = await api.post('/extras/chat-equipe', { texto: t });
       if (d?.mensagem) setMsgs(p => (p.some(x => x.id === d.mensagem.id) ? p : [...p, d.mensagem]));
       setTxt('');
-    } catch (e) { window.alert(e.message || 'Não consegui enviar'); }
+    } catch (e) { setErroEnvio(e.message || 'Não consegui enviar. Tente de novo.'); }
     setEnviando(false);
     inputRef.current?.focus();
+  };
+
+  const apagar = async (id) => {
+    await api.delete(`/extras/chat-equipe/${id}`).catch(() => {});
+    setMsgs(p => p.filter(x => x.id !== id));
+    setApagarId(null);
   };
 
   /* Sugestão de @ enquanto digita: a menção só funciona se o nome estiver
@@ -339,145 +395,228 @@ export function PainelChatEquipe({ api, user, onFechar, modo = 'lateral' }) {
   const sugestoes = useMemo(() => {
     const m = txt.match(/@([\p{L}]*)$/u);
     if (!m) return [];
-    const busca = m[1].toLowerCase();
-    return equipe
-      .filter(u => u.id !== user?.id && u.primeiro.toLowerCase().startsWith(busca))
-      .slice(0, 5);
+    const b = m[1].toLowerCase();
+    return equipe.filter(u => u.id !== user?.id && u.primeiro.toLowerCase().startsWith(b)).slice(0, 5);
   }, [txt, equipe, user?.id]);
-
   const usarSugestao = (u) => {
     setTxt(t => t.replace(/@([\p{L}]*)$/u, `@${u.primeiro} `));
     inputRef.current?.focus();
   };
+  // Tocar numa pessoa da lista = chamar ela pelo @nome
+  const chamar = (u) => {
+    if (u.id === user?.id) return;
+    setTxt(t => `${t && !/\s$/.test(t) ? `${t} ` : t}@${u.primeiro} `);
+    setTimeout(() => inputRef.current?.focus(), 30);
+  };
 
-  let diaAnterior = null;
+  const equipeOrdenada = useMemo(() => [...equipe].sort((a, b) =>
+    (b.online === true) - (a.online === true) || String(a.nome).localeCompare(String(b.nome))), [equipe]);
+  const nOnline = equipe.filter(u => u.online).length;
+  const corDe = useMemo(() => Object.fromEntries(equipe.map(u => [u.id, u.cor])), [equipe]);
+
+  const termo = busca.trim().toLowerCase();
+  const visiveis = termo
+    ? msgs.filter(m => `${m.texto || ''} ${m.autor_nome || ''}`.toLowerCase().includes(termo))
+    : msgs;
 
   /* Aberto pela LISTA, ocupa a coluna da lista (a pessoa ainda não escolheu
-     conversa). Aberto DE DENTRO de um atendimento, vira gaveta à direita: cobrir
-     a conversa que ela está lendo para mostrar o chat interno seria trocar um
-     problema pelo outro. */
+     conversa). Aberto DE DENTRO de um atendimento ou da faixa, vira gaveta à
+     direita, agora larga o bastante pra lista da equipe caber ao lado. */
   const gaveta = modo === 'gaveta';
+  const comLista = gaveta && largura >= 760;
   const caixa = gaveta
-    ? { position: 'fixed', top: 0, right: 0, bottom: 0, width: 'min(420px, 100vw)', zIndex: 1200,
+    ? { position: 'fixed', top: 0, right: 0, bottom: 0, width: comLista ? 'min(780px, 100vw)' : 'min(440px, 100vw)', zIndex: 1200,
         boxShadow: '-14px 0 40px rgba(15,23,42,.22)', borderLeft: '1px solid var(--border)' }
     : { position: 'absolute', inset: 0, zIndex: 40 };
+
+  let diaAnterior = null;
+  let anterior = null;
 
   return (
     <>
       {gaveta && <div onClick={onFechar} style={{ position: 'fixed', inset: 0, zIndex: 1199, background: 'rgba(15,23,42,.35)' }} />}
     <div style={{ ...caixa, display: 'flex', flexDirection: 'column', background: 'var(--card,#fff)' }}>
       {/* Cabeçalho */}
-      <div style={{
-        padding: '12px 14px', flexShrink: 0, color: '#fff',
-        background: `linear-gradient(135deg, ${TURQ}, #0e7490)`,
-        display: 'flex', alignItems: 'center', gap: 10,
-      }}>
-        <span style={{ fontSize: 20 }}>💬</span>
+      <div style={{ padding: '12px 14px', flexShrink: 0, color: '#fff', background: `linear-gradient(135deg, ${TURQ}, #0e7490)`,
+        display: 'flex', alignItems: 'center', gap: 10 }}>
+        <span style={{ fontSize: 22 }}>💬</span>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 800, fontSize: 15 }}>Chat da equipe</div>
-          <div style={{ fontSize: 11, opacity: .85 }}>
-            {equipe.length ? `${equipe.length} pessoas · use @nome para chamar alguém` : 'use @nome para chamar alguém'}
+          <div style={{ fontWeight: 900, fontSize: 16 }}>Chat da equipe</div>
+          <div style={{ fontSize: 11.5, opacity: .9 }}>
+            {equipe.length ? `${equipe.length} pessoas · ` : ''}
+            <span style={{ fontWeight: 800 }}>🟢 {nOnline} online agora</span>
+            {' · toque no nome pra chamar'}
           </div>
         </div>
+        <button onClick={() => { setBuscando(v => !v); if (buscando) setBusca(''); }} title="Procurar no chat da equipe"
+          style={{ border: 'none', background: buscando ? '#fff' : 'rgba(255,255,255,.18)', color: buscando ? '#0e7490' : '#fff',
+            width: 32, height: 32, borderRadius: 9, cursor: 'pointer', fontSize: 14, fontWeight: 800 }}>🔍</button>
         <button onClick={onFechar} title="Fechar"
-          style={{ border: 'none', background: 'rgba(255,255,255,.18)', color: '#fff', width: 30, height: 30,
-            borderRadius: 9, cursor: 'pointer', fontSize: 15, fontWeight: 800, lineHeight: 1 }}>×</button>
+          style={{ border: 'none', background: 'rgba(255,255,255,.18)', color: '#fff', width: 32, height: 32,
+            borderRadius: 9, cursor: 'pointer', fontSize: 16, fontWeight: 800, lineHeight: 1 }}>×</button>
       </div>
+      {buscando && (
+        <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)', background: 'var(--card,#fff)', flexShrink: 0 }}>
+          <input autoFocus value={busca} onChange={e => setBusca(e.target.value)} placeholder="Procurar mensagem ou pessoa…"
+            style={{ width: '100%', padding: '8px 11px', borderRadius: 10, border: '1.5px solid var(--border)', fontSize: 13,
+              background: 'var(--bg2,#f8fafc)', color: 'var(--txt,#0f172a)', outline: 'none' }} />
+          {termo && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 5 }}>{visiveis.length} mensagem(ns) encontrada(s)</div>}
+        </div>
+      )}
+      {/* Equipe em fileira (tela estreita ou dentro da coluna da lista) */}
+      {!comLista && equipe.length > 0 && (
+        <div style={{ display: 'flex', gap: 10, overflowX: 'auto', padding: '10px 12px', borderBottom: '1px solid var(--border)',
+          background: 'var(--card,#fff)', flexShrink: 0 }}>
+          {equipeOrdenada.filter(u => u.id !== user?.id).map(u => (
+            <button key={u.id} onClick={() => chamar(u)} title={`${u.nome}${u.papel ? ` · ${u.papel}` : ''} · ${u.online ? 'online' : vistoHa(u.visto_em)}. Toque pra chamar`}
+              style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, border: 'none', background: 'transparent',
+                cursor: 'pointer', padding: 0, minWidth: 46 }}>
+              <Bolinha nome={u.nome} cor={u.cor} tam={34} online={!!u.online} />
+              <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt2)', maxWidth: 56, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.primeiro}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
-      {/* Mensagens */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '14px 12px', background: 'var(--bg2,#f6f9fb)' }}>
-        {carregou && msgs.length === 0 && (
-          <div style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13, marginTop: 40, padding: '0 20px' }}>
-            <div style={{ fontSize: 34, marginBottom: 8 }}>👋</div>
-            Ninguém escreveu ainda.<br />Manda a primeira — a equipe toda vê aqui.
+      <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
+        {/* 👥 A LISTA DA EQUIPE (coluna da esquerda) */}
+        {comLista && (
+          <div style={{ width: 230, flexShrink: 0, borderRight: '1px solid var(--border)', overflowY: 'auto', background: 'var(--card,#fff)' }}>
+            <div style={{ padding: '12px 14px 6px', fontSize: 10.5, fontWeight: 900, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--muted)' }}>
+              Equipe · {nOnline} online
+            </div>
+            {equipeOrdenada.map(u => {
+              const eu = u.id === user?.id;
+              return (
+                <button key={u.id} onClick={() => chamar(u)} disabled={eu}
+                  title={eu ? 'Você' : `Chamar ${u.primeiro} (escreve @${u.primeiro})`}
+                  style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', border: 'none',
+                    background: 'transparent', cursor: eu ? 'default' : 'pointer', textAlign: 'left', opacity: u.online || eu ? 1 : .72 }}
+                  onMouseEnter={e => { if (!eu) e.currentTarget.style.background = 'var(--bg2,#f1f5f9)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}>
+                  <Bolinha nome={u.nome} cor={u.cor} tam={34} online={!!u.online} />
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ display: 'block', fontSize: 13, fontWeight: 800, color: 'var(--txt,#0f172a)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {u.primeiro}{eu ? ' (você)' : ''}
+                    </span>
+                    <span style={{ display: 'block', fontSize: 11, color: u.online ? '#16a34a' : 'var(--muted)', fontWeight: u.online ? 800 : 500,
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {u.online ? 'online agora' : vistoHa(u.visto_em)}{u.papel ? ` · ${u.papel}` : ''}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
           </div>
         )}
-        {msgs.map(m => {
-          const meu = m.autor_id === user?.id;
-          const meChamou = !meu && (m.mencoes || []).includes(user?.id);
-          const dia = rotuloDoDia(m.created_at);
-          const mostraDia = dia !== diaAnterior;
-          diaAnterior = dia;
-          return (
-            <React.Fragment key={m.id}>
-              {mostraDia && (
-                <div style={{ textAlign: 'center', margin: '10px 0 12px' }}>
-                  <span style={{ background: 'var(--card,#fff)', border: '1px solid var(--border)', color: 'var(--muted)',
-                    fontSize: 10.5, fontWeight: 700, padding: '3px 10px', borderRadius: 20 }}>{dia}</span>
-                </div>
-              )}
-              <div style={{ display: 'flex', justifyContent: meu ? 'flex-end' : 'flex-start', marginBottom: 8 }}>
-                <div className="vh-chateq-bolha" style={{
-                  maxWidth: '86%', padding: '8px 11px', borderRadius: 14,
-                  borderBottomRightRadius: meu ? 4 : 14, borderBottomLeftRadius: meu ? 14 : 4,
-                  background: meu ? TURQ : meChamou ? '#ecfdf5' : 'var(--card,#fff)',
-                  color: meu ? '#fff' : 'var(--txt,#0f172a)',
-                  border: meu ? 'none' : `1px solid ${meChamou ? '#86efac' : 'var(--border)'}`,
-                  borderLeft: meChamou ? `3px solid ${VERDE}` : undefined,
-                  boxShadow: '0 1px 3px rgba(15,23,42,.05)', position: 'relative',
-                }}>
-                  {!meu && (
-                    <div style={{ fontSize: 11, fontWeight: 800, marginBottom: 2, color: m.autor_cor || 'var(--tq2,#0891b2)' }}>
-                      {primeiroNome(m.autor_nome)}
-                      {meChamou && <span style={{ color: VERDE, marginLeft: 6 }}>chamou você</span>}
+
+        {/* Mensagens */}
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+          <div style={{ flex: 1, overflowY: 'auto', padding: '14px 14px 6px', background: 'var(--bg2,#f6f9fb)' }}>
+            {carregou && msgs.length === 0 && (
+              <div style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13, marginTop: 40, padding: '0 20px' }}>
+                <div style={{ fontSize: 34, marginBottom: 8 }}>👋</div>
+                Ninguém escreveu ainda.<br />Manda a primeira, a equipe toda vê aqui.
+              </div>
+            )}
+            {termo && visiveis.length === 0 && (
+              <div style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13, marginTop: 30 }}>Nada encontrado com “{busca.trim()}”.</div>
+            )}
+            {visiveis.map(m => {
+              const meu = m.autor_id === user?.id;
+              const meChamou = !meu && (m.mencoes || []).includes(user?.id);
+              const dia = rotuloDoDia(m.created_at);
+              const mostraDia = dia !== diaAnterior;
+              diaAnterior = dia;
+              // Seguida da mesma pessoa em até 5 min: sem repetir nome e bolinha
+              const agrupada = !mostraDia && anterior && anterior.autor_id === m.autor_id
+                && new Date(m.created_at) - new Date(anterior.created_at) < 5 * 60 * 1000;
+              anterior = m;
+              const cor = m.autor_cor || corDe[m.autor_id] || TURQ;
+              return (
+                <React.Fragment key={m.id}>
+                  {mostraDia && (
+                    <div style={{ textAlign: 'center', margin: '10px 0 12px' }}>
+                      <span style={{ background: 'var(--card,#fff)', border: '1px solid var(--border)', color: 'var(--muted)',
+                        fontSize: 10.5, fontWeight: 800, padding: '3px 12px', borderRadius: 20 }}>{dia}</span>
                     </div>
                   )}
-                  <div style={{ fontSize: 13.5, lineHeight: 1.45, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                    <TextoComMencoes texto={m.texto} meuPrimeiro={meuPrimeiro} />
+                  <div style={{ display: 'flex', justifyContent: meu ? 'flex-end' : 'flex-start', alignItems: 'flex-end', gap: 8,
+                    marginTop: agrupada ? 2 : 10 }}>
+                    {!meu && (agrupada ? <span style={{ width: 30, flexShrink: 0 }} /> : <Bolinha nome={m.autor_nome} cor={cor} tam={30} />)}
+                    <div className="vh-chateq-bolha" style={{
+                      maxWidth: '78%', padding: '8px 12px', borderRadius: 16,
+                      borderBottomRightRadius: meu ? 5 : 16, borderBottomLeftRadius: meu ? 16 : 5,
+                      background: meu ? `linear-gradient(135deg, ${TURQ}, #0891b2)` : meChamou ? '#ecfdf5' : 'var(--card,#fff)',
+                      color: meu ? '#fff' : 'var(--txt,#0f172a)',
+                      border: meu ? 'none' : `1px solid ${meChamou ? '#86efac' : 'var(--border)'}`,
+                      borderLeft: meChamou ? `4px solid ${VERDE}` : undefined,
+                      boxShadow: '0 1px 4px rgba(15,23,42,.07)',
+                    }}>
+                      {!meu && (!agrupada || meChamou) && (
+                        <div style={{ fontSize: 11.5, fontWeight: 900, marginBottom: 2, color: cor }}>
+                          {agrupada ? '' : primeiroNome(m.autor_nome)}
+                          {meChamou && <span style={{ color: '#fff', background: VERDE, borderRadius: 8, padding: '0 6px', marginLeft: 6, fontSize: 10 }}>chamou você</span>}
+                        </div>
+                      )}
+                      <div style={{ fontSize: 13.5, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                        <TextoComMencoes texto={m.texto} meuPrimeiro={meuPrimeiro} />
+                      </div>
+                      <div style={{ fontSize: 10, opacity: .65, textAlign: 'right', marginTop: 3, display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 6 }}>
+                        {hhmm(m.created_at)}
+                        {(meu || user?.role === 'master') && (apagarId === m.id ? (
+                          <>
+                            <button onClick={() => apagar(m.id)} style={{ border: 'none', borderRadius: 6, background: '#dc2626', color: '#fff',
+                              cursor: 'pointer', fontSize: 10, fontWeight: 800, padding: '1px 7px' }}>Apagar</button>
+                            <button onClick={() => setApagarId(null)} style={{ border: 'none', background: 'transparent', color: 'inherit',
+                              cursor: 'pointer', fontSize: 10, fontWeight: 700, padding: 0 }}>não</button>
+                          </>
+                        ) : (
+                          <button onClick={() => setApagarId(m.id)} title="Apagar" style={{ border: 'none', background: 'transparent',
+                            cursor: 'pointer', color: 'inherit', opacity: .8, fontSize: 10, padding: 0 }}>🗑</button>
+                        ))}
+                      </div>
+                    </div>
                   </div>
-                  <div style={{ fontSize: 10, opacity: .6, textAlign: 'right', marginTop: 3 }}>
-                    {hhmm(m.created_at)}
-                    {(meu || user?.role === 'master') && (
-                      <button onClick={async () => {
-                          if (!window.confirm('Apagar esta mensagem?')) return;
-                          await api.del(`/extras/chat-equipe/${m.id}`).catch(() => {});
-                          setMsgs(p => p.filter(x => x.id !== m.id));
-                        }}
-                        title="Apagar" style={{ border: 'none', background: 'transparent', cursor: 'pointer',
-                          color: 'inherit', opacity: .8, marginLeft: 6, fontSize: 10, padding: 0 }}>🗑</button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </React.Fragment>
-          );
-        })}
-        <div ref={fimRef} />
-      </div>
-
-      {/* Escrever */}
-      <div style={{ flexShrink: 0, borderTop: '1px solid var(--border)', padding: 10, background: 'var(--card,#fff)', position: 'relative' }}>
-        {sugestoes.length > 0 && (
-          <div style={{ position: 'absolute', bottom: '100%', left: 10, right: 10, marginBottom: 6,
-            background: 'var(--card,#fff)', border: '1px solid var(--border)', borderRadius: 12,
-            boxShadow: '0 8px 24px rgba(15,23,42,.14)', overflow: 'hidden' }}>
-            {sugestoes.map(u => (
-              <button key={u.id} onClick={() => usarSugestao(u)}
-                style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '8px 11px',
-                  border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left', fontSize: 13 }}>
-                <span style={{ width: 22, height: 22, borderRadius: '50%', background: u.cor || TURQ, color: '#fff',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 900 }}>
-                  {u.primeiro[0]?.toUpperCase()}
-                </span>
-                <b>{u.primeiro}</b>
-                <span style={{ color: 'var(--muted)', fontSize: 11 }}>{u.nome}</span>
-              </button>
-            ))}
+                </React.Fragment>
+              );
+            })}
+            <div ref={fimRef} />
           </div>
-        )}
-        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-          <textarea ref={inputRef} value={txt} onChange={e => setTxt(e.target.value)} rows={1}
-            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviar(); } }}
-            placeholder="Escreva para a equipe…  (@nome chama alguém)"
-            style={{ flex: 1, resize: 'none', maxHeight: 110, minHeight: 40, padding: '10px 12px',
-              borderRadius: 12, border: '1px solid var(--border)', fontSize: 13.5, fontFamily: 'inherit',
-              background: 'var(--bg2,#f8fafc)', color: 'var(--txt,#0f172a)', outline: 'none' }} />
-          <button onClick={enviar} disabled={enviando || !txt.trim()}
-            style={{ border: 'none', borderRadius: 12, padding: '0 16px', height: 40, cursor: 'pointer',
-              background: txt.trim() ? `linear-gradient(135deg, ${TURQ}, #0891b2)` : 'var(--border)',
-              color: '#fff', fontWeight: 800, fontSize: 13, opacity: enviando ? .6 : 1 }}>
-            {enviando ? '…' : 'Enviar'}
-          </button>
+
+          {/* Escrever */}
+          <div style={{ flexShrink: 0, borderTop: '1px solid var(--border)', padding: 10, background: 'var(--card,#fff)', position: 'relative' }}>
+            {sugestoes.length > 0 && (
+              <div style={{ position: 'absolute', bottom: '100%', left: 10, right: 10, marginBottom: 6,
+                background: 'var(--card,#fff)', border: '1px solid var(--border)', borderRadius: 12,
+                boxShadow: '0 8px 24px rgba(15,23,42,.14)', overflow: 'hidden' }}>
+                {sugestoes.map(u => (
+                  <button key={u.id} onClick={() => usarSugestao(u)}
+                    style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 9, padding: '8px 11px',
+                      border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left', fontSize: 13, color: 'var(--txt,#0f172a)' }}>
+                    <Bolinha nome={u.nome} cor={u.cor} tam={24} online={!!u.online} />
+                    <b>{u.primeiro}</b>
+                    <span style={{ color: 'var(--muted)', fontSize: 11 }}>{u.online ? 'online' : u.nome}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {erroEnvio && <div style={{ fontSize: 11.5, color: '#dc2626', fontWeight: 700, marginBottom: 6 }}>⚠️ {erroEnvio}</div>}
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+              <textarea ref={inputRef} value={txt} onChange={e => setTxt(e.target.value)} rows={1}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviar(); } }}
+                placeholder="Escreva para a equipe…  (@nome chama alguém)"
+                style={{ flex: 1, resize: 'none', maxHeight: 120, minHeight: 42, padding: '11px 12px',
+                  borderRadius: 12, border: '1.5px solid var(--border)', fontSize: 13.5, fontFamily: 'inherit',
+                  background: 'var(--bg2,#f8fafc)', color: 'var(--txt,#0f172a)', outline: 'none' }} />
+              <button onClick={enviar} disabled={enviando || !txt.trim()}
+                style={{ border: 'none', borderRadius: 12, padding: '0 18px', height: 42, cursor: 'pointer',
+                  background: txt.trim() ? `linear-gradient(135deg, ${TURQ}, #0891b2)` : 'var(--border)',
+                  color: '#fff', fontWeight: 900, fontSize: 13.5, opacity: enviando ? .6 : 1 }}>
+                {enviando ? '…' : 'Enviar ➤'}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
