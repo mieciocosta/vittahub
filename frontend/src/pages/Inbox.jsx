@@ -3371,7 +3371,7 @@ export default function Inbox({ onUnreadChange }) {
             {/* Info panel */}
             {showInfo && (
               // Mais largo (pedido do master): botões do perfil visíveis sem aperto
-              <div style={{ width:'min(350px, 88vw)', flexShrink:0, borderLeft:'1px solid var(--border)', background:'var(--card,#fff)', overflowY:'auto', display:'flex', flexDirection:'column' }}>
+              <div style={{ width:'min(350px, 88vw)', flexShrink:0, borderLeft:'1px solid var(--border)', background:'var(--card,#fff)', overflowY:'auto', display:'flex', flexDirection:'column', position:'relative' }}>
                 <div style={{ padding:'14px 14px 10px', borderBottom:'1px solid var(--border)', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                   <span style={{ fontWeight:700, fontSize:13 }}>Informações</span>
                   <button onClick={()=>setShowInfo(false)} className="vh-fechar">✕ Fechar</button>
@@ -3535,6 +3535,17 @@ export default function Inbox({ onUnreadChange }) {
                       </div>
                     ))}
                   </div>
+                </div>
+                              {/* › Recolher igual ao menu, também nesta coluna (ordem do master, 25/09:
+                    "quero que tenha em todas as colunas") */}
+                <div style={{ position:'sticky', bottom:0, marginTop:'auto', padding:'10px 10px 14px', borderTop:'1px solid var(--border)', background:'var(--card,#fff)' }}>
+                  <button onClick={()=>setShowInfo(false)} title="Recolher as informações (mais espaço pro chat)"
+                    onMouseEnter={e => { e.currentTarget.style.background = 'var(--tq)'; e.currentTarget.style.color = '#fff'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = 'var(--bg2)'; e.currentTarget.style.color = 'var(--txt2)'; }}
+                    style={{ width:'100%', display:'flex', alignItems:'center', justifyContent:'center', gap:6, padding:8, borderRadius:8,
+                      background:'var(--bg2)', color:'var(--txt2)', border:'none', cursor:'pointer', fontSize:11.5, fontWeight:700, transition:'all .15s' }}>
+                    <span>Recolher</span><ChevronRight size={14} />
+                  </button>
                 </div>
               </div>
             )}
