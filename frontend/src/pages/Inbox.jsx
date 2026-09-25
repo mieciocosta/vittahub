@@ -374,7 +374,7 @@ function FilaDistribuicao({ convos, equipe, onSelect, onDistribuir, entregando, 
    ?semDono=true das abas), atualizada a cada 20 s e na hora em que alguém
    move uma conversa. Cada conversa tem o → Carteira, e dá pra arrastar de uma
    coluna pra outra. */
-function ColunaGeral({ api, sinal, selectedId, onSelect, usersById, fixadasIds, onToggleFix, onMover, largura = 360 }) {
+function ColunaGeral({ api, sinal, selectedId, onSelect, usersById, fixadasIds, onToggleFix, onMover, largura = 360, minimizado = false, onAlternar }) {
   const [lista, setLista] = useState([]);
   const [total, setTotal] = useState(0);
   const [busca, setBusca] = useState('');
@@ -390,6 +390,29 @@ function ColunaGeral({ api, sinal, selectedId, onSelect, usersById, fixadasIds, 
   useEffect(() => { carregar(); return aoVivo(carregar, 20000); }, [carregar, sinal]);
   const mover = useMemo(() => ({ rotulo: '→ Carteira', titulo: 'Mover esta conversa para a sua carteira',
     acao: (c) => { setLista(prev => prev.filter(x => x.id !== c.id)); onMover(c, 'minha'); } }), [onMover]);
+  /* ◀ MINIMIZADO (25/09, ordem do master: "quero poder minimizar o atendimento
+     geral, tornar mais fino, para eu ter espaço no meu chat"). Vira uma tira
+     fina com o nome em pé e o número da fila; um toque abre de novo. Continua
+     aceitando conversa arrastada da carteira. */
+  if (minimizado) {
+    return (
+      <div className="vh-coluna-geral" onClick={onAlternar} title="Abrir o Atendimento Geral"
+        onDragOver={e => { e.preventDefault(); if (!soltando) setSoltando(true); }}
+        onDragLeave={() => setSoltando(false)}
+        onDrop={e => { e.preventDefault(); e.stopPropagation(); setSoltando(false); const id = e.dataTransfer.getData('text/vh-conv'); if (id) onMover(id, 'geral'); }}
+        style={{ width: 46, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '12px 0',
+          cursor: 'pointer', background: 'var(--card,#fff)', borderRight: '1px solid var(--border)',
+          outline: soltando ? '2px dashed var(--tq)' : 'none', outlineOffset: -4 }}>
+        <span style={{ fontSize: 15, color: 'var(--tq2,#0891b2)', fontWeight: 900 }}>▶</span>
+        {total > 0 && (
+          <span style={{ background: 'var(--tq)', color: '#fff', borderRadius: 20, padding: '1px 7px', fontSize: 11, fontWeight: 900 }}>{total > 99 ? '99+' : total}</span>
+        )}
+        <span style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', fontSize: 13, fontWeight: 900, color: 'var(--txt2)', letterSpacing: .5 }}>
+          🏥 Atendimento Geral
+        </span>
+      </div>
+    );
+  }
   return (
     <div className="vh-coluna-geral"
       onDragOver={e => { e.preventDefault(); if (!soltando) setSoltando(true); }}
@@ -405,6 +428,11 @@ function ColunaGeral({ api, sinal, selectedId, onSelect, usersById, fixadasIds, 
           <button onClick={carregar} title="Atualizar a fila" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 3 }}>
             <RefreshCw size={14} />
           </button>
+          {onAlternar && (
+            <button onClick={onAlternar} title="Minimizar o Atendimento Geral (mais espaço pro chat)"
+              style={{ border: '1px solid var(--border)', background: 'var(--card,#fff)', borderRadius: 8, cursor: 'pointer',
+                color: 'var(--tq2,#0891b2)', fontWeight: 900, fontSize: 12, padding: '2px 8px' }}>◀</button>
+          )}
         </div>
         <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 7 }}>Fila da equipe, sem dona. Toque em → Carteira ou arraste pra direita.</div>
         <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar na fila…"
@@ -2655,6 +2683,14 @@ export default function Inbox({ onUnreadChange }) {
     return 360;
   });
   const resizingGeral = useRef(false);
+  const [geralMinimizado, setGeralMinimizado] = useState(() => {
+    try { return localStorage.getItem('vh_geral_min') === '1'; } catch { return false; }
+  });
+  const alternarGeral = useCallback(() => setGeralMinimizado(v => {
+    const novo = !v;
+    try { localStorage.setItem('vh_geral_min', novo ? '1' : '0'); } catch { /* ok */ }
+    return novo;
+  }), []);
   const geralRef = useRef(null);
   const listaRef = useRef(null);   // move = a coluna do Geral recarrega na hora
   const abriuDuasColunas = useRef(false);
@@ -2751,10 +2787,11 @@ export default function Inbox({ onUnreadChange }) {
       {duasColunas && !listCollapsed && (
         <div ref={geralRef} style={{ display: 'flex', flexShrink: 0 }}>
           <ColunaGeral api={api} sinal={sinalGeral} selectedId={sel?.id} onSelect={openConvo} usersById={usersById}
-            fixadasIds={fixadasIds} onToggleFix={toggleFix} onMover={moverConversa} largura={larguraGeral} />
+            fixadasIds={fixadasIds} onToggleFix={toggleFix} onMover={moverConversa} largura={larguraGeral}
+            minimizado={geralMinimizado} onAlternar={alternarGeral} />
         </div>
       )}
-      {duasColunas && !listCollapsed && (
+      {duasColunas && !listCollapsed && !geralMinimizado && (
         <div onMouseDown={()=>{resizingGeral.current=true;document.body.style.cursor='col-resize';}}
           title="Arraste para deixar o Atendimento Geral mais largo ou mais estreito"
           style={{ width:6, flexShrink:0, cursor:'col-resize', background:'var(--border)', transition:'background .15s', zIndex:10 }}
