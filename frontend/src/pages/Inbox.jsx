@@ -374,7 +374,7 @@ function FilaDistribuicao({ convos, equipe, onSelect, onDistribuir, entregando, 
    ?semDono=true das abas), atualizada a cada 20 s e na hora em que alguém
    move uma conversa. Cada conversa tem o → Carteira, e dá pra arrastar de uma
    coluna pra outra. */
-function ColunaGeral({ api, sinal, selectedId, onSelect, usersById, fixadasIds, onToggleFix, onMover }) {
+function ColunaGeral({ api, sinal, selectedId, onSelect, usersById, fixadasIds, onToggleFix, onMover, largura = 360 }) {
   const [lista, setLista] = useState([]);
   const [total, setTotal] = useState(0);
   const [busca, setBusca] = useState('');
@@ -396,7 +396,7 @@ function ColunaGeral({ api, sinal, selectedId, onSelect, usersById, fixadasIds, 
       onDragLeave={() => setSoltando(false)}
       onDrop={e => { e.preventDefault(); setSoltando(false); const id = e.dataTransfer.getData('text/vh-conv');
         if (id && !lista.some(c => c.id === id)) onMover(id, 'geral'); }}
-      style={{ width: 360, flexShrink: 0, display: 'flex', flexDirection: 'column', background: 'var(--card,#fff)',
+      style={{ width: largura, flexShrink: 0, display: 'flex', flexDirection: 'column', background: 'var(--card,#fff)', minWidth: 0,
         borderRight: '1px solid var(--border)', outline: soltando ? '2px dashed var(--tq)' : 'none', outlineOffset: -4 }}>
       <div style={{ padding: '12px 12px 10px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
@@ -2645,7 +2645,18 @@ export default function Inbox({ onUnreadChange }) {
     return () => window.removeEventListener('resize', medir);
   }, []);
   const duasColunas = abasCarteira && telaLarga;
-  const [sinalGeral, setSinalGeral] = useState(0);   // move = a coluna do Geral recarrega na hora
+  const [sinalGeral, setSinalGeral] = useState(0);
+  /* ↔️ LARGURA DE CADA COLUNA (25/09, ordem do master: "quero poder reduzir a
+     largura de cada um também"). O Geral ganhou a própria alça de arrastar;
+     cada largura fica guardada no aparelho. As duas medem a partir da borda
+     real da coluna (antes era um número fixo da barra lateral). */
+  const [larguraGeral, setLarguraGeral] = useState(() => {
+    try { const v = parseInt(localStorage.getItem('vh_geral_largura')); if (v >= 240 && v <= 620) return v; } catch { /* ok */ }
+    return 360;
+  });
+  const resizingGeral = useRef(false);
+  const geralRef = useRef(null);
+  const listaRef = useRef(null);   // move = a coluna do Geral recarrega na hora
   const abriuDuasColunas = useRef(false);
   useEffect(() => {
     // Na primeira vez com as duas colunas, a lista da direita abre na carteira
@@ -2722,19 +2733,37 @@ export default function Inbox({ onUnreadChange }) {
   /* ─────────────────── RENDER ──────────────────────────────────────────────── */
   return (
     <div className="vh-inbox-wrap" style={{ display:'flex', height:'100vh', overflow:'hidden' }}
-      onMouseMove={e => { if (resizing.current) { const w=Math.min(620,Math.max(260,e.clientX-230-(duasColunas && !listCollapsed ? 360 : 0))); setListWidth(w); } }}
-      onMouseUp={() => { if (resizing.current) { try { localStorage.setItem('vh_lista_largura', String(listWidth)); } catch { /* ok */ } }
-        resizing.current=false; document.body.style.cursor=''; }}
-      onMouseLeave={() => { resizing.current=false; document.body.style.cursor=''; }}>
+      onMouseMove={e => {
+        if (resizingGeral.current) {
+          const esq = geralRef.current?.getBoundingClientRect().left ?? 230;
+          setLarguraGeral(Math.min(620, Math.max(240, Math.round(e.clientX - esq))));
+        } else if (resizing.current) {
+          const esq = listaRef.current?.getBoundingClientRect().left ?? 230;
+          setListWidth(Math.min(620, Math.max(260, Math.round(e.clientX - esq))));
+        } }}
+      onMouseUp={() => {
+        if (resizing.current) { try { localStorage.setItem('vh_lista_largura', String(listWidth)); } catch { /* ok */ } }
+        if (resizingGeral.current) { try { localStorage.setItem('vh_geral_largura', String(larguraGeral)); } catch { /* ok */ } }
+        resizing.current=false; resizingGeral.current=false; document.body.style.cursor=''; }}
+      onMouseLeave={() => { resizing.current=false; resizingGeral.current=false; document.body.style.cursor=''; }}>
 
       {/* ── 🏥 ATENDIMENTO GERAL (coluna da esquerda, tela larga) ──────────── */}
       {duasColunas && !listCollapsed && (
-        <ColunaGeral api={api} sinal={sinalGeral} selectedId={sel?.id} onSelect={openConvo} usersById={usersById}
-          fixadasIds={fixadasIds} onToggleFix={toggleFix} onMover={moverConversa} />
+        <div ref={geralRef} style={{ display: 'flex', flexShrink: 0 }}>
+          <ColunaGeral api={api} sinal={sinalGeral} selectedId={sel?.id} onSelect={openConvo} usersById={usersById}
+            fixadasIds={fixadasIds} onToggleFix={toggleFix} onMover={moverConversa} largura={larguraGeral} />
+        </div>
+      )}
+      {duasColunas && !listCollapsed && (
+        <div onMouseDown={()=>{resizingGeral.current=true;document.body.style.cursor='col-resize';}}
+          title="Arraste para deixar o Atendimento Geral mais largo ou mais estreito"
+          style={{ width:6, flexShrink:0, cursor:'col-resize', background:'var(--border)', transition:'background .15s', zIndex:10 }}
+          onMouseEnter={e=>e.currentTarget.style.background='var(--tq)'}
+          onMouseLeave={e=>{if(!resizingGeral.current)e.currentTarget.style.background='var(--border)';}}/>
       )}
 
       {/* ── LISTA DE CONVERSAS ─────────────────────────────────────────────── */}
-      <div className={`vh-inbox-list${sel ? ' hidden' : ''}`}
+      <div ref={listaRef} className={`vh-inbox-list${sel ? ' hidden' : ''}`}
         onDragOver={duasColunas && modo === 'minhas' ? (e => e.preventDefault()) : undefined}
         onDrop={duasColunas && modo === 'minhas' ? (e => { e.preventDefault(); const id = e.dataTransfer.getData('text/vh-conv');
           if (id && !convos.some(c => c.id === id && String(c.responsavel_id || '') === String(user?.id || ''))) moverConversa(id, 'minha'); }) : undefined}
