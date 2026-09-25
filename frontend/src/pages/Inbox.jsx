@@ -111,6 +111,17 @@ const StatusBadge = ({ status, size = 'sm' }) => {
 };
 
 /* ── VirtualList ─────────────────────────────────────────────────────────────── */
+/* ⚖️ LARGURAS PROPORCIONAIS À PRIORIDADE (25/09, ordem do master: "deixa
+   proporcional à prioridade, de forma que eu tenha um bom espaço no chat").
+   Em tela larga: o chat fica com mais da metade, a Minha carteira (a lista de
+   trabalho) é a segunda maior e o Atendimento Geral a mais fina. Vale como
+   ponto de partida: quem arrastar a alça, fica com a própria medida. */
+function larguraProporcional(qual) {
+  const util = Math.max(900, (typeof window !== 'undefined' ? window.innerWidth : 1600) - 320);
+  if (qual === 'geral') return Math.min(400, Math.max(250, Math.round(util * 0.19)));
+  return Math.min(440, Math.max(290, Math.round(util * 0.24)));
+}
+
 function VirtualList({ items, selectedId, onSelect, containerHeight, loadMore, hasMore, loadingMore, usersById, fixadasIds, onToggleFix, mover }) {
   const scrollRef = useRef(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -127,10 +138,11 @@ function VirtualList({ items, selectedId, onSelect, containerHeight, loadMore, h
      Agora ela lê a PRÓPRIA altura do elemento que rola, e um ResizeObserver
      avisa toda vez que ela muda. A medida de fora vira só o palpite inicial. */
   const [altura, setAltura] = useState(containerHeight || 500);
+  const [larguraLista, setLarguraLista] = useState(400);   // lista estreita = botões só com ícone
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const medir = () => setAltura(el.clientHeight || containerHeight || 500);
+    const medir = () => { setAltura(el.clientHeight || containerHeight || 500); setLarguraLista(el.clientWidth || 400); };
     medir();
     if (typeof ResizeObserver === 'undefined') return;
     const ro = new ResizeObserver(medir);
@@ -166,7 +178,7 @@ function VirtualList({ items, selectedId, onSelect, containerHeight, loadMore, h
         <div style={{ position: 'absolute', top: visibleStart * ITEM_HEIGHT, left: 0, right: 0 }}>
           {visibleItems.map(c => (
             <ConvoRow key={c.id} conv={c} selected={selectedId === c.id} onSelect={onSelect} usersById={usersById}
-              fixada={!!fixadasIds?.has?.(c.id)} onToggleFix={onToggleFix} mover={mover} />
+              fixada={!!fixadasIds?.has?.(c.id)} onToggleFix={onToggleFix} mover={mover} compacto={larguraLista < 370} />
           ))}
         </div>
       </div>
@@ -388,7 +400,7 @@ function ColunaGeral({ api, sinal, selectedId, onSelect, usersById, fixadasIds, 
     }).catch(() => {});
   }, [api, busca]);
   useEffect(() => { carregar(); return aoVivo(carregar, 20000); }, [carregar, sinal]);
-  const mover = useMemo(() => ({ rotulo: '→ Carteira', titulo: 'Mover esta conversa para a sua carteira',
+  const mover = useMemo(() => ({ rotulo: '→ Carteira', curto: '→💼', titulo: 'Mover esta conversa para a sua carteira',
     acao: (c) => { setLista(prev => prev.filter(x => x.id !== c.id)); onMover(c, 'minha'); } }), [onMover]);
   /* ◀ MINIMIZADO (25/09, ordem do master: "quero poder minimizar o atendimento
      geral, tornar mais fino, para eu ter espaço no meu chat"). Vira uma tira
@@ -455,7 +467,7 @@ function ColunaGeral({ api, sinal, selectedId, onSelect, usersById, fixadasIds, 
   );
 }
 
-const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect, usersById, fixada, onToggleFix, mover }) {
+const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect, usersById, fixada, onToggleFix, mover, compacto = false }) {
   /* 📌 A fixada se reconhece de longe pela borda dourada — é o que diz "seu
      clique funcionou" nas listas que não têm a faixa em cima. */
   const st = STATUS_CFG[conv.status_atend] || STATUS_CFG.aberto;
@@ -522,7 +534,7 @@ const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect, usersB
               style={{ fontSize: 10.5, fontWeight: 900, padding: '5px 10px', borderRadius: 10, cursor: 'pointer',
                 border: '1.5px solid var(--tq)', background: 'var(--card,#fff)', color: 'var(--tq2,#0891b2)',
                 whiteSpace: 'nowrap', flexShrink: 0, lineHeight: 1.25 }}>
-              {mover.rotulo}
+              {compacto ? (mover.curto || mover.rotulo) : mover.rotulo}
             </button>
           )}
           {onToggleFix && (
@@ -538,7 +550,7 @@ const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect, usersB
                    nunca quebra linha nem estica — mesmo tamanho em toda linha */
                 whiteSpace: 'nowrap', flexShrink: 0, lineHeight: 1.25, flexGrow: 0,
                 boxShadow: '0 2px 8px rgba(234,179,8,.55)' }}>
-              📌 {fixada ? 'CONVERSA FIXADA' : 'FIXAR CONVERSA'}
+              📌{compacto ? '' : fixada ? ' CONVERSA FIXADA' : ' FIXAR CONVERSA'}
             </button>
           )}
           {/* 🗑️ Bolinha de iniciais da responsável REMOVIDA da lista (pedido do
@@ -968,8 +980,9 @@ export default function Inbox({ onUnreadChange }) {
   const [listWidth, setListWidth]     = useState(() => {
     /* 📏 Largura da lista de conversas: começa larga (o master pediu) e LEMBRA
        do ajuste de cada um — antes voltava pros 300px a cada abertura. */
-    try { const v = parseInt(localStorage.getItem('vh_lista_largura')); if (v >= 240 && v <= 620) return v; } catch { /* ok */ }
-    return 380;
+    try { const v = parseInt(localStorage.getItem('vh_lista_largura_v2')); if (v >= 240 && v <= 620) return v; } catch { /* ok */ }
+    // ⚖️ Tela larga (duas colunas): começa na proporção da prioridade
+    return typeof window !== 'undefined' && window.innerWidth >= 1450 ? larguraProporcional('carteira') : 380;
   });
   const nav                           = useNavigate();
   const resizing                      = useRef(false);
@@ -2679,8 +2692,8 @@ export default function Inbox({ onUnreadChange }) {
      cada largura fica guardada no aparelho. As duas medem a partir da borda
      real da coluna (antes era um número fixo da barra lateral). */
   const [larguraGeral, setLarguraGeral] = useState(() => {
-    try { const v = parseInt(localStorage.getItem('vh_geral_largura')); if (v >= 240 && v <= 620) return v; } catch { /* ok */ }
-    return 360;
+    try { const v = parseInt(localStorage.getItem('vh_geral_largura_v2')); if (v >= 240 && v <= 620) return v; } catch { /* ok */ }
+    return larguraProporcional('geral');
   });
   const resizingGeral = useRef(false);
   const [geralMinimizado, setGeralMinimizado] = useState(() => {
@@ -2721,8 +2734,8 @@ export default function Inbox({ onUnreadChange }) {
   }, [user?.id, loadConvos]); // eslint-disable-line
   const moverDaLista = useMemo(() => {
     if (!abasCarteira) return null;
-    if (modo === 'geral') return { rotulo: '→ Carteira', titulo: 'Mover esta conversa para a sua carteira', acao: (c) => moverConversa(c, 'minha') };
-    if (modo === 'minhas') return { rotulo: '← Geral', titulo: 'Devolver esta conversa para o Atendimento Geral (fila da equipe)', acao: (c) => moverConversa(c, 'geral') };
+    if (modo === 'geral') return { rotulo: '→ Carteira', curto: '→💼', titulo: 'Mover esta conversa para a sua carteira', acao: (c) => moverConversa(c, 'minha') };
+    if (modo === 'minhas') return { rotulo: '← Geral', curto: '←🏥', titulo: 'Devolver esta conversa para o Atendimento Geral (fila da equipe)', acao: (c) => moverConversa(c, 'geral') };
     return null;
   }, [abasCarteira, modo, moverConversa]);
 
@@ -2778,8 +2791,8 @@ export default function Inbox({ onUnreadChange }) {
           setListWidth(Math.min(620, Math.max(260, Math.round(e.clientX - esq))));
         } }}
       onMouseUp={() => {
-        if (resizing.current) { try { localStorage.setItem('vh_lista_largura', String(listWidth)); } catch { /* ok */ } }
-        if (resizingGeral.current) { try { localStorage.setItem('vh_geral_largura', String(larguraGeral)); } catch { /* ok */ } }
+        if (resizing.current) { try { localStorage.setItem('vh_lista_largura_v2', String(listWidth)); } catch { /* ok */ } }
+        if (resizingGeral.current) { try { localStorage.setItem('vh_geral_largura_v2', String(larguraGeral)); } catch { /* ok */ } }
         resizing.current=false; resizingGeral.current=false; document.body.style.cursor=''; }}
       onMouseLeave={() => { resizing.current=false; resizingGeral.current=false; document.body.style.cursor=''; }}>
 
