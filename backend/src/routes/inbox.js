@@ -4724,6 +4724,15 @@ r.get('/conversations', async (req, res) => {
     planosVacinais: tudo.filter(c => c.classificacao === 'planos_vacinais').length,
     planosTerapeuticos: tudo.filter(c => c.classificacao === 'terapias').length,
     minhas: tudo.filter(c => c.responsavel_id === req.user.id).length,
+    /* 💼🏥 As duas abas lado a lado (25/09): o número de cada uma é o que a
+       lista dela mostra — a carteira inteira (com as pastas) e a fila sem
+       dona que esta pessoa enxerga. */
+    minhaCarteira: Array.from(convoCache.values()).filter(c => !c.arquivada && !c.simulacao
+      && String(c.responsavel_id || '') === String(req.user.id)).length,
+    geral: Array.from(convoCache.values()).filter(c => !c.arquivada && !c.simulacao && !c.responsavel_id
+      && podeVerSetor(req.user, c)
+      && ((req.user?.role !== 'master' && !usuariosDistribuidores.has(String(req.user?.id)) && req.user?.distribuidor !== true)
+          || Date.now() - new Date(c.last_message_at || 0).getTime() < 7 * 24 * 3600 * 1000)).length,
     naoLidas: naLista.filter(c => (c.unread || 0) > 0).length,
     grupos: naLista.filter(c => ehGrupo(c)).length,
     /* 📥 Quantos leads esperando distribuição. Só o master enxerga conversa sem

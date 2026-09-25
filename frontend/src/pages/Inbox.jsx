@@ -111,7 +111,7 @@ const StatusBadge = ({ status, size = 'sm' }) => {
 };
 
 /* ── VirtualList ─────────────────────────────────────────────────────────────── */
-function VirtualList({ items, selectedId, onSelect, containerHeight, loadMore, hasMore, loadingMore, usersById, fixadasIds, onToggleFix }) {
+function VirtualList({ items, selectedId, onSelect, containerHeight, loadMore, hasMore, loadingMore, usersById, fixadasIds, onToggleFix, mover }) {
   const scrollRef = useRef(null);
   const [scrollTop, setScrollTop] = useState(0);
 
@@ -166,7 +166,7 @@ function VirtualList({ items, selectedId, onSelect, containerHeight, loadMore, h
         <div style={{ position: 'absolute', top: visibleStart * ITEM_HEIGHT, left: 0, right: 0 }}>
           {visibleItems.map(c => (
             <ConvoRow key={c.id} conv={c} selected={selectedId === c.id} onSelect={onSelect} usersById={usersById}
-              fixada={!!fixadasIds?.has?.(c.id)} onToggleFix={onToggleFix} />
+              fixada={!!fixadasIds?.has?.(c.id)} onToggleFix={onToggleFix} mover={mover} />
           ))}
         </div>
       </div>
@@ -367,7 +367,7 @@ function FilaDistribuicao({ convos, equipe, onSelect, onDistribuir, entregando, 
   );
 }
 
-const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect, usersById, fixada, onToggleFix }) {
+const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect, usersById, fixada, onToggleFix, mover }) {
   /* 📌 A fixada se reconhece de longe pela borda dourada — é o que diz "seu
      clique funcionou" nas listas que não têm a faixa em cima. */
   const st = STATUS_CFG[conv.status_atend] || STATUS_CFG.aberto;
@@ -383,6 +383,9 @@ const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect, usersB
   const waitLabel = waitMin >= 60 ? `${Math.floor(waitMin / 60)}h${waitMin % 60 ? ' ' + (waitMin % 60) + 'm' : ''}` : `${waitMin}m`;
   return (
     <div onClick={() => onSelect(conv)} className={`conv-row${selected ? ' sel' : ''}`}
+      /* ↔️ Arrastar a conversa até a outra aba move ela de lado (25/09) */
+      draggable={!!mover}
+      onDragStart={mover ? (e) => { try { e.dataTransfer.setData('text/vh-conv', conv.id); e.dataTransfer.effectAllowed = 'move'; } catch { /* navegador antigo */ } } : undefined}
       style={{
         display: 'flex', gap: 11, padding: '0 13px', cursor: 'pointer',
         height: ITEM_HEIGHT, alignItems: 'center',
@@ -424,6 +427,16 @@ const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect, usersB
               a conversa sobe pra seção Fixadas — que aparece sozinha no topo. */}
           {/* Chamativo de propósito (pedido do master): degradê rosa-roxo com
               brilho quando solta; dourado quando fixada. */}
+          {/* ↔️ MOVER PRO LADO (ordem do master, 25/09): da fila da equipe pra
+              carteira dela, ou da carteira de volta pra fila. */}
+          {mover && (
+            <button onClick={e => { e.stopPropagation(); mover.acao(conv); }} title={mover.titulo}
+              style={{ fontSize: 10.5, fontWeight: 900, padding: '5px 10px', borderRadius: 10, cursor: 'pointer',
+                border: '1.5px solid var(--tq)', background: 'var(--card,#fff)', color: 'var(--tq2,#0891b2)',
+                whiteSpace: 'nowrap', flexShrink: 0, lineHeight: 1.25 }}>
+              {mover.rotulo}
+            </button>
+          )}
           {onToggleFix && (
             <button onClick={e => { e.stopPropagation(); onToggleFix(conv); }}
               title={fixada ? 'Desafixar — volta pra lista geral' : 'Fixar conversa — sobe pra sua seção de fixadas (só no seu usuário)'}
@@ -450,7 +463,7 @@ const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect, usersB
 });
 
 /* ── SearchBar ───────────────────────────────────────────────────────────────── */
-function SearchBar({ value, onChange, filter, setFilter, totalUnread, unreadOnly, setUnreadOnly, waiting, setWaiting, setor, setSetor, mostraSetores, modo, setModo, counts, ehDistribuidor, semGrupos, mostraPlanos, planosAtivo, onPlanos }) {
+function SearchBar({ value, onChange, filter, setFilter, totalUnread, unreadOnly, setUnreadOnly, waiting, setWaiting, setor, setSetor, mostraSetores, modo, setModo, counts, ehDistribuidor, semGrupos, mostraPlanos, planosAtivo, onPlanos, abasCarteira, onSoltar }) {
   return (
     <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
       {/* 💎 PLANOS VACINAIS E TERAPÊUTICOS (ordem do master, 04/09: "quero que
@@ -478,6 +491,38 @@ function SearchBar({ value, onChange, filter, setFilter, totalUnread, unreadOnly
           })}
         </div>
       )}
+      {/* 💼🏥 MINHA CARTEIRA | ATENDIMENTO GERAL, lado a lado (ordem do master,
+          25/09: "quero que no CRM tenha 2 abas uma ao lado da outra, Minha
+          carteira e Atendimento Geral, onde a pessoa pode mover para o lado").
+          Carteira = o que está no nome dela. Geral = a fila da equipe, sem
+          dona. Pra mover: o botão em cada conversa ou arrastar a conversa até
+          a outra aba. Carteira fechada (só vê o que é dela) não tem a fila. */}
+      {abasCarteira && (
+        <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+          {[['minhas', '💼 Minha carteira', counts?.minhaCarteira ?? counts?.minhas, 'minha'],
+            ['geral', '🏥 Atendimento Geral', counts?.geral, 'geral']].map(([k, rot, n, destino]) => {
+            const ativo = modo === k;
+            return (
+              <button key={k} onClick={() => setModo(k)}
+                onDragOver={e => { if (!ativo) { e.preventDefault(); e.currentTarget.style.outline = '2px dashed var(--tq)'; } }}
+                onDragLeave={e => { e.currentTarget.style.outline = 'none'; }}
+                onDrop={e => { e.preventDefault(); e.currentTarget.style.outline = 'none';
+                  const id = e.dataTransfer.getData('text/vh-conv'); if (id && !ativo) onSoltar?.(id, destino); }}
+                title={ativo ? undefined : `Toque para ver, ou arraste uma conversa até aqui para mover para ${rot.slice(3)}`}
+                style={{ flex: 1, padding: '9px 6px', borderRadius: 11, cursor: 'pointer', fontSize: 12.5, fontWeight: 900,
+                  border: `1.5px solid ${ativo ? 'var(--tq)' : 'var(--border)'}`,
+                  background: ativo ? 'var(--tq)' : 'var(--card,#fff)', color: ativo ? '#fff' : 'var(--txt2)',
+                  boxShadow: ativo ? '0 3px 10px rgba(0,184,192,.3)' : 'none',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+                {rot}
+                {n != null && (
+                  <span style={{ background: ativo ? 'rgba(255,255,255,.25)' : 'var(--bg2)', borderRadius: 20, padding: '0 7px', fontSize: 11 }}>{n}</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
       <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
         {[['todas','Todas','todas'],
           /* 📥 Distribuição e Meus atendimentos voltaram a ser DUAS ABAS
@@ -485,7 +530,7 @@ function SearchBar({ value, onChange, filter, setFilter, totalUnread, unreadOnly
              a lado"). Lado a lado, dentro da lista do chat, cada uma virava
              uma tira estreita demais e ainda espremia a conversa. */
           ...(ehDistribuidor ? [['distribuir','📥 Distribuição','aDistribuir']] : []),
-          [ 'minhas', ehDistribuidor ? '💬 Meus atendimentos' : 'Minhas', 'minhas'],['naolidas','Não lidas','naoLidas'],
+          ...(abasCarteira ? [] : [[ 'minhas', ehDistribuidor ? '💬 Meus atendimentos' : 'Minhas', 'minhas']]),['naolidas','Não lidas','naoLidas'],
           /* 🔒 Carteira fechada (Gabriellen, Poliana) não tem grupo (ordem do master, 04/09: "retira os grupos, proíbe para a Gabriellen") */
           ...(semGrupos ? [] : [['grupos','Grupos','grupos']]),
           ['fixadas','📌 Fixadas','fixadas']].map(([k, l, ck]) => {
@@ -1638,6 +1683,7 @@ export default function Inbox({ onUnreadChange }) {
       /* 📥 Fila de distribuição e o atalho do Painel Comercial: clicar numa
          pessoa lá abre o chat já filtrado nas conversas DELA (28/08). */
       if (modo === 'distribuir') { params.set('semDono', 'true'); if (verAntigos) params.set('antigos', 'true'); }
+      if (modo === 'geral') params.set('semDono', 'true');   // 🏥 Atendimento Geral = fila da equipe
       if (respFiltro) params.set('responsavel', respFiltro);
       const data = await api.get(`/inbox/conversations?${params}`);
       if (data.counts) setCounts(data.counts);
@@ -1670,6 +1716,7 @@ export default function Inbox({ onUnreadChange }) {
       /* 📥 Fila de distribuição e o atalho do Painel Comercial: clicar numa
          pessoa lá abre o chat já filtrado nas conversas DELA (28/08). */
       if (modo === 'distribuir') { params.set('semDono', 'true'); if (verAntigos) params.set('antigos', 'true'); }
+      if (modo === 'geral') params.set('semDono', 'true');
       if (respFiltro) params.set('responsavel', respFiltro);
       /* 📂 A classificação (pasta/botão Planos) ia só na PRIMEIRA página: as
          seguintes vinham sem filtro, e a pasta parava de carregar (04/09). */
@@ -2523,6 +2570,32 @@ export default function Inbox({ onUnreadChange }) {
     } catch (e) { Toast.show(e.message || 'Não foi possível fixar', 'error'); }
   }, [loadFixadas]); // eslint-disable-line
 
+  /* ↔️ MOVER ENTRE AS ABAS (25/09): pra carteira = a conversa vai pro nome
+     dela; pro geral = volta pra fila da equipe sem dona (a marca de quem
+     transferiu zera, regra de 04/09). Quem tem carteira fechada não tem a fila. */
+  const abasCarteira = !!user && !carteiraFechada(user);
+  const moverConversa = useCallback(async (convOuId, destino) => {
+    const id = typeof convOuId === 'string' ? convOuId : convOuId?.id;
+    if (!id || !user?.id) return;
+    const paraMim = destino === 'minha';
+    try {
+      await api.patch(`/inbox/conversations/${id}/assign`, { responsavel_id: paraMim ? user.id : null });
+      setConvos(prev => prev.map(c => c.id === id ? { ...c, responsavel_id: paraMim ? user.id : null } : c));
+      setCounts(prev => prev ? {
+        ...prev,
+        minhaCarteira: Math.max(0, (prev.minhaCarteira ?? prev.minhas ?? 0) + (paraMim ? 1 : -1)),
+        geral: Math.max(0, (prev.geral ?? 0) + (paraMim ? -1 : 1)),
+      } : prev);
+      Toast.show(paraMim ? 'Conversa movida para 💼 Minha carteira' : 'Conversa devolvida para 🏥 Atendimento Geral', 'success');
+    } catch (e) { Toast.show(e.message || 'Não foi possível mover a conversa', 'error'); }
+  }, [user?.id]); // eslint-disable-line
+  const moverDaLista = useMemo(() => {
+    if (!abasCarteira) return null;
+    if (modo === 'geral') return { rotulo: '→ Carteira', titulo: 'Mover esta conversa para a sua carteira', acao: (c) => moverConversa(c, 'minha') };
+    if (modo === 'minhas') return { rotulo: '← Geral', titulo: 'Devolver esta conversa para o Atendimento Geral (fila da equipe)', acao: (c) => moverConversa(c, 'geral') };
+    return null;
+  }, [abasCarteira, modo, moverConversa]);
+
   const convosExib = useMemo(
     () => {
       // 🔒 Carteira fechada: só o que está no nome dela, em qualquer aba
@@ -2531,6 +2604,9 @@ export default function Inbox({ onUnreadChange }) {
       if (modo === 'fixadas') return filtraCarteira(user, fixadas);
       // 📥 Fila de distribuição: só o que ainda não tem dona (visão do master)
       if (modo === 'distribuir') return convsG.filter(c => !c.responsavel_id);
+      // ↔️ As duas abas lado a lado: o que foi movido sai na hora da aba de origem
+      if (modo === 'geral') return convsG.filter(c => !c.responsavel_id);
+      if (modo === 'minhas') return convsG.filter(c => String(c.responsavel_id || '') === String(user?.id || ''));
       const base = quentesPrimeiro ? [...convsG].sort((a, b) => scoreRank(a.lead_score) - scoreRank(b.lead_score)) : convsG;
       /* 📌 UMA LISTA SÓ (ordem do master, 04/09: "não quero separação").
 
@@ -2604,6 +2680,7 @@ export default function Inbox({ onUnreadChange }) {
           waiting={waiting} setWaiting={setWaiting}
           setor={setorFiltro} setSetor={setSetorFiltro} mostraSetores={user?.role !== 'atendente'}
           semGrupos={carteiraFechada(user)}
+          abasCarteira={abasCarteira} onSoltar={moverConversa}
           /* 💎 O botão dos planos é da Danielle (e do master, que entra como ela) */
           mostraPlanos={user?.role === 'master' || /(^|[^a-z])danielle/i.test(String(user?.nome || '').normalize('NFD').replace(/[\u0300-\u036f]/g, ''))}
           planosAtivo={clsFiltro}
@@ -2680,7 +2757,7 @@ export default function Inbox({ onUnreadChange }) {
           ) : (
             <VirtualList items={convosExib} selectedId={sel?.id} onSelect={openConvo} usersById={usersById}
               containerHeight={listH} loadMore={loadMore} hasMore={hasMore} loadingMore={loadingMore}
-              fixadasIds={fixadasIds} onToggleFix={toggleFix}/>
+              fixadasIds={fixadasIds} onToggleFix={toggleFix} mover={moverDaLista}/>
           )}
           {/* 🫙 LISTA VAZIA EXPLICA O PORQUÊ (cobrança do master, 05/09: "o
               usuário da Dra Gabriellen não está funcionando"). A tela em branco
@@ -2693,7 +2770,8 @@ export default function Inbox({ onUnreadChange }) {
               <div style={{ fontSize:13.5, fontWeight:800, color:'var(--txt2)' }}>
                 {search ? 'Nada encontrado nessa busca'
                   : carteiraFechada(user) ? 'Nenhum atendimento no seu nome ainda'
-                  : modo === 'minhas' ? 'Você ainda não assumiu nenhuma conversa'
+                  : modo === 'minhas' ? 'Sua carteira ainda está vazia'
+                  : modo === 'geral' ? 'Atendimento Geral em dia 🎉'
                   : modo === 'naolidas' ? 'Nenhuma conversa não lida'
                   : modo === 'grupos' ? 'Nenhum grupo por aqui'
                   : modo === 'fixadas' ? 'Você ainda não fixou nenhuma conversa'
@@ -2704,6 +2782,8 @@ export default function Inbox({ onUnreadChange }) {
                   : carteiraFechada(user)
                     ? 'A sua tela mostra só os atendimentos transferidos pro seu nome. Assim que a gestão passar um cliente pra você, ele aparece aqui na hora.'
                     : modo === 'todas' ? 'Cliente novo cai aqui assim que manda mensagem.'
+                    : modo === 'minhas' ? 'Abra o 🏥 Atendimento Geral e toque em → Minha carteira na conversa que for sua.'
+                    : modo === 'geral' ? 'Nenhum cliente sem dona na fila da equipe agora.'
                     : 'Volte pra aba Todas pra ver a fila.'}
               </div>
             </div>
