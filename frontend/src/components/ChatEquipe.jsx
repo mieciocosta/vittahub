@@ -48,8 +48,8 @@ function TextoComMencoes({ texto, meuPrimeiro }) {
         const ehMim = p.slice(1).toLowerCase() === String(meuPrimeiro || '').toLowerCase();
         return (
           <b key={i} style={{
-            color: ehMim ? '#065f46' : 'var(--tq2,#0891b2)',
-            background: ehMim ? '#bbf7d0' : 'transparent',
+            color: ehMim ? '#fff' : 'var(--tq2,#0891b2)',
+            background: ehMim ? '#16a34a' : 'transparent',
             borderRadius: 5, padding: ehMim ? '0 4px' : 0,
           }}>{p}</b>
         );
@@ -547,9 +547,12 @@ export function PainelChatEquipe({ api, user, onFechar, modo = 'lateral' }) {
                     <div className="vh-chateq-bolha" style={{
                       maxWidth: '78%', padding: '8px 12px', borderRadius: 16,
                       borderBottomRightRadius: meu ? 5 : 16, borderBottomLeftRadius: meu ? 16 : 5,
-                      background: meu ? `linear-gradient(135deg, ${TURQ}, #0891b2)` : meChamou ? '#ecfdf5' : 'var(--card,#fff)',
+                      /* Verde TRANSLÚCIDO no "chamou você" (25/09, print do master no
+                         modo escuro): o verde-claro fixo com a letra clara do tema
+                         escuro deixava a mensagem ilegível. Translúcido serve pros dois. */
+                      background: meu ? `linear-gradient(135deg, ${TURQ}, #0891b2)` : meChamou ? 'rgba(34,197,94,.14)' : 'var(--card,#fff)',
                       color: meu ? '#fff' : 'var(--txt,#0f172a)',
-                      border: meu ? 'none' : `1px solid ${meChamou ? '#86efac' : 'var(--border)'}`,
+                      border: meu ? 'none' : `1px solid ${meChamou ? 'rgba(34,197,94,.55)' : 'var(--border)'}`,
                       borderLeft: meChamou ? `4px solid ${VERDE}` : undefined,
                       boxShadow: '0 1px 4px rgba(15,23,42,.07)',
                     }}>
