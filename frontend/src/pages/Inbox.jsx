@@ -753,6 +753,10 @@ const ehGrupoConv = (c) => {
   const dig = String(c?.phone || '').replace(/\D/g, '');
   return dig.length > 13;
 };
+/* 📋 DADOS CADASTRAIS — texto do DONO, palavra por palavra (ordem do master,
+   25/09). Não reescrever, não resumir, não trocar nada. */
+const TEXTO_DADOS_CADASTRAIS = `👶 Dados Cadastrais : \n\n👶 Nome completo do paciente: \n📅 Data de nascimento: \n🆔 CPF (se possuir):  \n👤 DADOS DO RESPONSÁVEL  \n👤 Nome completo: \n🆔 CPF: \n📞 Telefone: \n📧 E-mail: \n🏠 Endereço: \n📍 CEP:`;
+
 const soMinha = (u, c) => !ehGrupoConv(c) && (String(c?.responsavel_id || '') === String(u?.id || '') || c?.aviso_direcao === true);   // 📢 Dra e Dr: em todas as carteiras (25/09)
 const filtraCarteira = (u, lista) => carteiraFechada(u) ? (lista || []).filter(c => soMinha(u, c)) : (lista || []);
 
@@ -4485,9 +4489,27 @@ export default function Inbox({ onUnreadChange }) {
                   {pixBusy ? <Loader2 size={15} className="spin"/> : <span style={{ fontSize:13, lineHeight:1 }}>💠</span>}
                   <span>{pixBusy ? 'Enviando…' : 'Pix'}</span>
                 </button>
+                {/* 📋 DADOS CADASTRAIS INFANTIL - VACINAS (ordem do master, 25/09: "coloca
+                    um botão para Dados Cadastrais" / "esse coloca: Dados cadastrais
+                    Infantil - Vacinas"). Fica na linha de cima, com Figurinhas e Pix (na linha de baixo o nome
+                    comprido espremia a caixa de escrever); o formulário do dono
+                    cai na caixa de escrever pra atendente conferir e enviar. */}
+                <button onClick={() => { setInput(p => (p.trim() ? `${p.trim()}\n\n${TEXTO_DADOS_CADASTRAIS}` : TEXTO_DADOS_CADASTRAIS)); textRef.current?.focus(); }}
+                  title="Dados cadastrais Infantil - Vacinas: o formulário da casa pro cliente preencher (paciente e responsável)"
+                  style={{ display:'flex', alignItems:'center', gap:6, flexShrink:0, border:'none',
+                    padding:'7px 11px', borderRadius:9, cursor:'pointer',
+                    background:'linear-gradient(135deg,#60a5fa,#2563eb)', color:'#fff',
+                    fontSize:11.5, fontWeight:800, letterSpacing:-.2,
+                    boxShadow:'0 3px 12px rgba(37,99,235,.38)' }}>
+                  <span style={{ fontSize:13, lineHeight:1 }}>📋</span>
+                  <span className="vh-so-desktop">Dados cadastrais Infantil - Vacinas</span>
+                </button>
               </div>
             )}
-            <div style={{ display:'flex', gap:6, alignItems:'flex-end' }}>
+            {/* A caixa de escrever nunca fica espremida (25/09): com três colunas
+                abertas, os botões coloridos esmagavam a caixa até 1 palavra por
+                linha. Agora ela tem largura mínima e os botões descem de linha. */}
+            <div style={{ display:'flex', gap:6, alignItems:'flex-end', flexWrap:'wrap' }}>
               {/* Cápsula única com as ferramentas — lado a lado, mas lidas como
                   UM objeto. A divisória separa o que é conteúdo (mensagens,
                   figurinhas, mídia) do que é anexo do momento (clipe e emoji),
@@ -4564,7 +4586,7 @@ export default function Inbox({ onUnreadChange }) {
               <textarea ref={textRef} onPaste={handlePaste} spellCheck lang="pt-BR" value={input} onChange={e=>setInput(e.target.value)}
                 onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}}}
                 placeholder="Mensagem… (Enter envia · Shift+Enter pula linha)" rows={2}
-                style={{ flex:1, padding:'8px 12px', border:'1.5px solid var(--border)', borderRadius:10, fontSize:13, resize:'none', outline:'none', minHeight:44, maxHeight:170, overflowY:'auto', lineHeight:1.55, fontFamily:'DM Sans, sans-serif', transition:'border-color .15s', background:'var(--card,#fff)', color:'var(--txt)' }}
+                style={{ flex:'1 1 300px', minWidth:'min(300px, 100%)', padding:'8px 12px', border:'1.5px solid var(--border)', borderRadius:10, fontSize:13, resize:'none', outline:'none', minHeight:44, maxHeight:170, overflowY:'auto', lineHeight:1.55, fontFamily:'DM Sans, sans-serif', transition:'border-color .15s', background:'var(--card,#fff)', color:'var(--txt)' }}
                 onFocus={e=>{ e.target.style.borderColor='var(--tq)'; setShowEmoji(false); setShowProntas(false); }} onBlur={e=>e.target.style.borderColor='var(--border)'}/>
               {/* 🗓️ AGENDAR EM DESTAQUE (ordem do master, 27/08: "quero que ele
                   apareça embaixo também, em destaque, meio dourado"). É o botão
