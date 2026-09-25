@@ -6547,7 +6547,8 @@ async function acharMencoes(texto) {
 r.get('/chat-equipe', async (req, res) => {
   try {
     const { rows } = await query(
-      `SELECT id, autor_id, autor_nome, autor_cor, texto, mencoes, created_at
+      `SELECT id, autor_id, autor_nome, autor_cor, texto, mencoes, created_at,
+              COALESCE(tipo, 'texto') AS tipo, mime, nome_arquivo, figurinha_id, (midia IS NOT NULL) AS tem_midia
          FROM chat_equipe ORDER BY created_at DESC LIMIT $1`, [CHAT_LIMITE]);
     const { rows: [l] } = await query('SELECT lido_em FROM chat_equipe_leitura WHERE usuario_id = $1', [req.user.id])
       .catch(() => ({ rows: [] }));
@@ -6581,21 +6582,59 @@ r.get('/chat-equipe/status', async (req, res) => {
       `SELECT id, autor_nome, left(texto, 160) texto, ($2 = ANY(mencoes)) chamado
          FROM chat_equipe WHERE created_at > $1 AND autor_id <> $2
         ORDER BY created_at DESC LIMIT 1`, [desde, req.user.id]).catch(() => ({ rows: [] })) : { rows: [] };
-    res.json({ naoLidas: c?.n || 0, chamado: (c?.chamados || 0) > 0, ultima: ult || null });
+    /* 📞 Chamada dos últimos 90 s pra esta pessoa, ainda não atendida: a tela
+       toca mesmo fora do chat (a faixa pergunta a cada 10 s). */
+    const { rows: [cham] } = await query(
+      `SELECT id, autor_nome FROM chat_equipe
+        WHERE tipo = 'chamada' AND $2 = ANY(mencoes) AND created_at > $1 AND created_at > NOW() - interval '90 seconds'
+        ORDER BY created_at DESC LIMIT 1`, [desde, req.user.id]).catch(() => ({ rows: [] }));
+    /* 👀 QUEM ESTÁ ESPERANDO VOCÊ (25/09, ordem do master: "sinalize as
+       conversas em aberto, as pessoas que me chamaram em verde, pra lembrar
+       de abrir e ter o hábito de usar"): cada pessoa com mensagem não lida,
+       quem chamou pelo @nome primeiro. Vai pro menu, embaixo do chat. */
+    const { rows: quem } = c?.n ? await query(
+      `SELECT autor_id, MAX(autor_nome) AS autor_nome, MAX(autor_cor) AS autor_cor, COUNT(*)::int AS n,
+              BOOL_OR($2 = ANY(mencoes)) AS chamou, MAX(created_at) AS ultima
+         FROM chat_equipe WHERE created_at > $1 AND autor_id <> $2
+        GROUP BY autor_id ORDER BY BOOL_OR($2 = ANY(mencoes)) DESC, MAX(created_at) DESC LIMIT 6`, [desde, req.user.id]).catch(() => ({ rows: [] })) : { rows: [] };
+    res.json({ naoLidas: c?.n || 0, chamado: (c?.chamados || 0) > 0, ultima: ult || null, chamada: cham || null, quem });
   } catch (err) { res.json({ naoLidas: 0, chamado: false }); }
 });
 
 r.post('/chat-equipe', async (req, res) => {
   try {
-    const texto = String(req.body?.texto || '').trim().slice(0, 2000);
-    if (!texto) return res.status(400).json({ error: 'Escreva alguma coisa 🙂' });
-    const mencoes = await acharMencoes(texto);
+    const b = req.body || {};
+    const tipo = ['texto', 'audio', 'imagem', 'arquivo', 'figurinha', 'chamada'].includes(b.tipo) ? b.tipo : 'texto';
+    let texto = String(b.texto || '').trim().slice(0, 2000);
+    let mencoes = [];
+    let midia = null, mime = null, nomeArquivo = null, figurinhaId = null;
+    if (tipo === 'texto') {
+      if (!texto) return res.status(400).json({ error: 'Escreva alguma coisa 🙂' });
+      mencoes = await acharMencoes(texto);
+    } else if (tipo === 'chamada') {
+      /* 📞 CHAMAR: toca na tela da colega ("Fulana está te chamando"). */
+      const { rows: [alvo] } = await query('SELECT id, nome FROM usuarios WHERE id = $1 AND ativo = true', [String(b.para_id || '')]);
+      if (!alvo) return res.status(400).json({ error: 'Escolha quem chamar' });
+      texto = `📞 ${String(req.user.nome).split(' ')[0]} chamou ${String(alvo.nome).split(' ')[0]}`;
+      mencoes = [alvo.id];
+    } else if (tipo === 'figurinha') {
+      figurinhaId = String(b.figurinha_id || '').slice(0, 64);
+      if (!figurinhaId) return res.status(400).json({ error: 'Figurinha inválida' });
+    } else {
+      midia = String(b.midia || '');
+      if (!/^data:[\w.+/-]+;base64,/.test(midia)) return res.status(400).json({ error: 'Arquivo inválido' });
+      if (midia.length > 16 * 1024 * 1024) return res.status(413).json({ error: 'Arquivo grande demais (até 12 MB).' });
+      mime = midia.slice(5, midia.indexOf(';')).slice(0, 100);
+      nomeArquivo = String(b.nome_arquivo || '').slice(0, 160) || null;
+      if (texto) mencoes = await acharMencoes(texto);
+    }
     const { rows: [m] } = await query(
-      `INSERT INTO chat_equipe (autor_id, autor_nome, autor_cor, texto, mencoes)
-       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-      [req.user.id, req.user.nome, req.user.cor || null, texto, mencoes]);
+      `INSERT INTO chat_equipe (autor_id, autor_nome, autor_cor, texto, mencoes, tipo, midia, mime, nome_arquivo, figurinha_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+       RETURNING id, autor_id, autor_nome, autor_cor, texto, mencoes, created_at, tipo, mime, nome_arquivo, figurinha_id, (midia IS NOT NULL) AS tem_midia`,
+      [req.user.id, req.user.nome, req.user.cor || null, texto, mencoes, tipo, midia, mime, nomeArquivo, figurinhaId]);
 
-    // Chega na tela de todo mundo na hora, sem precisar recarregar
+    // Chega na tela de todo mundo na hora, sem precisar recarregar (sem a mídia)
     socketEmit('chat_equipe_msg', m);
 
     /* O aviso de "te chamaram" NÃO vai para o sino: a tabela de notificações não
@@ -6623,6 +6662,16 @@ r.post('/chat-equipe/li', async (req, res) => {
 
 /* Apagar a própria mensagem (ou qualquer uma, se for o master). Escreveu errado
    no canal da equipe inteira, tem que dar pra desfazer. */
+// 🎤📎 A mídia de uma mensagem (áudio, foto, arquivo), buscada só quando aparece na tela
+r.get('/chat-equipe/:id/midia', async (req, res) => {
+  try {
+    const { rows: [m] } = await query('SELECT midia, mime, nome_arquivo FROM chat_equipe WHERE id = $1', [req.params.id]);
+    if (!m?.midia) return res.status(404).json({ error: 'Arquivo não encontrado' });
+    res.set('Cache-Control', 'private, max-age=86400');
+    res.json({ midia: m.midia, mime: m.mime, nome_arquivo: m.nome_arquivo });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.delete('/chat-equipe/:id', async (req, res) => {
   try {
     const { rows: [m] } = await query('SELECT autor_id FROM chat_equipe WHERE id = $1', [req.params.id]);
@@ -6654,6 +6703,7 @@ r.get('/chat-equipe/equipe', async (req, res) => {
       return {
         id: u.id, nome: u.nome, primeiro: String(u.nome).trim().split(' ')[0], cor: u.cor,
         papel: u.role === 'master' ? 'Direção' : setores.join(' · '),
+        setores: u.role === 'master' ? ['Direção'] : setores,
         visto_em: u.visto_em || null,
         online: !!u.visto_em && Date.now() - new Date(u.visto_em).getTime() < 2 * 60 * 1000,
       };

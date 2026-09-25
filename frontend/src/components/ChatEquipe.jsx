@@ -107,13 +107,17 @@ export function CartaoMenu({ icone, titulo, sub, c1, c2, direita = null, onClick
 }
 
 /* ─── O BOTÃO DA LATERAL ──────────────────────────────────────────────────── */
-export function BotaoChatEquipe({ api, user, onAbrir, aberto, compacto = false, naBarra = false, comAviso = naBarra, cartao = false }) {
+export function BotaoChatEquipe({ api, user, onAbrir, aberto, compacto = false, naBarra = false, comAviso: comAvisoProp, cartao = false }) {
+  // Quem avisa (prévia e toque de chamada): a faixa do topo; o cartão do menu só mostra quem espera
+  const comAviso = comAvisoProp ?? naBarra;
   const [st, setSt] = useState({ naoLidas: 0, chamado: false });
   /* 🔔 AVISO NA TELA (25/09, "deixa o chat da equipe em maior evidência"):
      quem está no Inbox, na Agenda ou em qualquer página vê a prévia de quem
      escreveu. Só o botão da FAIXA mostra o aviso (ela está em toda tela), pra
      não aparecer 3 avisos iguais quando o Inbox também tem botão. */
   const [aviso, setAviso] = useState(null);   // { autor, texto, chamado }
+  const [tocando, setTocando] = useState(null); // 📞 { id, de } chamada na tela
+  const ultimaChamadaRef = useRef(null);
   const ultimoIdRef = useRef(undefined);      // undefined = ainda não carregou (não avisa o que já estava lá)
   const avisar = useCallback((m) => {
     if (!comAviso || aberto || !m) return;
@@ -125,6 +129,12 @@ export function BotaoChatEquipe({ api, user, onAbrir, aberto, compacto = false, 
     if (aberto) { setSt({ naoLidas: 0, chamado: false }); return; }
     api.get('/extras/chat-equipe/status').then(r => {
       setSt(r);
+      // 📞 Chamada nova pra mim: toca (só o botão que avisa, pra não tocar 3x)
+      if (comAviso && r?.chamada?.id && r.chamada.id !== ultimaChamadaRef.current) {
+        ultimaChamadaRef.current = r.chamada.id;
+        setTocando({ id: r.chamada.id, de: primeiroNome(r.chamada.autor_nome) });
+        tocarChamado(); setTimeout(tocarChamado, 900); setTimeout(tocarChamado, 1800);
+      }
       const id = r?.ultima?.id || null;
       if (ultimoIdRef.current !== undefined && id && id !== ultimoIdRef.current) avisar(r.ultima);
       ultimoIdRef.current = id;
@@ -139,7 +149,7 @@ export function BotaoChatEquipe({ api, user, onAbrir, aberto, compacto = false, 
   }, [aviso]);
   useEffect(() => { if (aberto) setAviso(null); }, [aberto]);
 
-  useEffect(() => { puxar(); return aoVivo(puxar, 20000); }, [puxar]);
+  useEffect(() => { puxar(); return aoVivo(puxar, 10000); }, [puxar]);
 
   /* A mensagem chega pelo socket do Inbox, que a repassa como evento da janela.
      Sem isso o botão só acenderia no próximo ciclo — até 20 s de atraso para
@@ -149,6 +159,11 @@ export function BotaoChatEquipe({ api, user, onAbrir, aberto, compacto = false, 
       const m = e.detail || {};
       if (m.autor_id === user?.id) return;
       if (m.id) ultimoIdRef.current = m.id;   // o próximo ciclo não repete o mesmo aviso
+      if (m.tipo === 'chamada' && comAviso && (m.mencoes || []).includes(user?.id) && m.id !== ultimaChamadaRef.current) {
+        ultimaChamadaRef.current = m.id;
+        setTocando({ id: m.id, de: primeiroNome(m.autor_nome) });
+        tocarChamado(); setTimeout(tocarChamado, 900); setTimeout(tocarChamado, 1800);
+      }
       avisar({ ...m, chamado: (m.mencoes || []).includes(user?.id) });
       setSt(p => ({
         naoLidas: (p.naoLidas || 0) + 1,
@@ -157,7 +172,7 @@ export function BotaoChatEquipe({ api, user, onAbrir, aberto, compacto = false, 
     };
     window.addEventListener('vh_chat_equipe', aoChegar);
     return () => window.removeEventListener('vh_chat_equipe', aoChegar);
-  }, [user?.id, avisar]);
+  }, [user?.id, avisar, comAviso]);
 
   const chamado = st.chamado && !aberto;
 
@@ -179,8 +194,26 @@ export function BotaoChatEquipe({ api, user, onAbrir, aberto, compacto = false, 
      botão discreto ali dentro simplesmente não é visto. Então ele ganha anel
      branco e brilho próprio — e continua ficando VERDE quando chamam, que é o
      único momento em que ele precisa gritar mais alto que o resto da faixa. */
+  const telaChamada = tocando && comAviso ? createPortal(
+    <div style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(15,23,42,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div style={{ width: 'min(360px, 100%)', borderRadius: 20, overflow: 'hidden', background: 'var(--card,#fff)', boxShadow: '0 20px 60px rgba(0,0,0,.35)', textAlign: 'center' }}>
+        <div style={{ padding: '26px 20px 18px', color: '#fff', background: `linear-gradient(135deg, #22c55e, ${VERDE})` }}>
+          <div style={{ fontSize: 44, animation: 'vhChamado 1.2s ease-out infinite', display: 'inline-block', borderRadius: '50%' }}>📞</div>
+          <div style={{ fontSize: 18, fontWeight: 900, marginTop: 8 }}>{tocando.de} está te chamando</div>
+          <div style={{ fontSize: 12.5, opacity: .92, marginTop: 3 }}>no chat da equipe</div>
+        </div>
+        <div style={{ display: 'flex', gap: 10, padding: 16 }}>
+          <button onClick={() => setTocando(null)}
+            style={{ flex: 1, padding: '11px 0', borderRadius: 12, border: '1px solid var(--border)', background: 'var(--card,#fff)', color: 'var(--txt,#0f172a)', fontWeight: 800, cursor: 'pointer' }}>Agora não</button>
+          <button onClick={() => { setTocando(null); onAbrir?.(); }}
+            style={{ flex: 1, padding: '11px 0', borderRadius: 12, border: 'none', background: VERDE, color: '#fff', fontWeight: 900, cursor: 'pointer' }}>Atender</button>
+        </div>
+      </div>
+    </div>, document.body) : null;
+
   const avisoFlutuante = (
       <>
+        {telaChamada}
         {/* Portal no body: a faixa tem overflow escondido e cortava o aviso */}
         {aviso && createPortal(
           <div role="status" onClick={() => { setAviso(null); onAbrir(); }}
@@ -262,6 +295,31 @@ export function BotaoChatEquipe({ api, user, onAbrir, aberto, compacto = false, 
               {st.naoLidas > 99 ? '99+' : st.naoLidas}
             </span>
           ) : null} />
+        {/* 👀 QUEM ESTÁ ESPERANDO VOCÊ (ordem do master, 25/09: "sinalize as
+            conversas em aberto, as pessoas que me chamaram em verde, pra lembrar
+            de abrir e ter o hábito de usar"). Verde = te chamou pelo @nome. */}
+        {!aberto && (st.quem || []).length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 }}>
+            {st.quem.map(q => (
+              <button key={q.autor_id} onClick={onAbrir}
+                title={q.chamou ? `${primeiroNome(q.autor_nome)} te chamou no chat da equipe` : `${primeiroNome(q.autor_nome)} escreveu no chat da equipe`}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '6px 9px', borderRadius: 10, cursor: 'pointer', textAlign: 'left',
+                  border: q.chamou ? '1.5px solid #86efac' : '1px solid rgba(255,255,255,.25)',
+                  background: q.chamou ? 'linear-gradient(135deg, #22c55e, #15803d)' : 'rgba(255,255,255,.12)', color: '#fff',
+                  animation: q.chamou ? 'vhChamado 1.8s ease-out infinite' : 'none' }}>
+                <span style={{ width: 24, height: 24, borderRadius: '50%', flexShrink: 0, background: q.autor_cor || TURQ, border: '2px solid rgba(255,255,255,.8)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 900 }}>
+                  {String(q.autor_nome || '?').trim()[0]?.toUpperCase()}
+                </span>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {q.chamou ? `🔔 ${primeiroNome(q.autor_nome)} te chamou` : `💬 ${primeiroNome(q.autor_nome)} escreveu`}
+                </span>
+                <span style={{ fontSize: 10.5, fontWeight: 900, background: 'rgba(255,255,255,.9)', color: q.chamou ? '#15803d' : '#0e7490', borderRadius: 8, padding: '0 6px' }}>{q.n}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        {telaChamada}
       </>
     );
   }
@@ -337,6 +395,7 @@ export function BotaoChatEquipe({ api, user, onAbrir, aberto, compacto = false, 
      essas janelas simplesmente não abrem.
    Em tela estreita (e dentro da coluna da lista) a equipe vira uma fileira
    de bolinhas embaixo do cabeçalho. */
+const BASE_API = import.meta.env.VITE_API_URL || '';
 const iniciais = (n) => String(n || '?').trim().split(/\s+/).slice(0, 2).map(p => p[0]).join('').toUpperCase();
 function Bolinha({ nome, cor, tam = 30, online = null }) {
   return (
@@ -352,6 +411,50 @@ function Bolinha({ nome, cor, tam = 30, online = null }) {
     </span>
   );
 }
+/* 🏷️ SELO DO SETOR (ordem do master, 25/09: "quero que diga qual é o setor de
+   cada também"). Cor fixa por setor, a mesma em todo lugar do chat. */
+const COR_SETOR = { Vacinas: '#3b82f6', Consultas: '#0d9488', Terapias: '#f59e0b', 'Direção': '#7c3aed' };
+function SeloSetor({ nome }) {
+  const cor = COR_SETOR[nome] || '#64748b';
+  return (
+    <span style={{ display: 'inline-block', fontSize: 9.5, fontWeight: 900, color: '#fff', background: cor,
+      borderRadius: 6, padding: '1px 6px', letterSpacing: .2, whiteSpace: 'nowrap' }}>{nome}</span>
+  );
+}
+
+/* 🎤📎 Mídia de uma mensagem, buscada só quando aparece (a lista não traz o
+   arquivo; guarda na memória da tela pra não baixar de novo). */
+const cacheMidia = new Map();
+function MidiaEquipe({ api, m, meu }) {
+  const [d, setD] = useState(cacheMidia.get(m.id) || null);
+  const [erro, setErro] = useState(false);
+  useEffect(() => {
+    if (d || !m.tem_midia) return;
+    api.get(`/extras/chat-equipe/${m.id}/midia`)
+      .then(r => { cacheMidia.set(m.id, r); setD(r); })
+      .catch(() => setErro(true));
+  }, [m.id]); // eslint-disable-line
+  if (erro) return <div style={{ fontSize: 12, opacity: .8 }}>⚠️ Arquivo indisponível</div>;
+  if (!d) return <div style={{ fontSize: 12, opacity: .75 }}>{m.tipo === 'audio' ? '🎤 carregando áudio…' : '📎 carregando…'}</div>;
+  if (m.tipo === 'audio') return <audio controls src={d.midia} style={{ width: 240, maxWidth: '100%', height: 38 }} />;
+  if (m.tipo === 'imagem') return (
+    <a href={d.midia} target="_blank" rel="noreferrer" title="Abrir a foto">
+      <img src={d.midia} alt={m.nome_arquivo || 'foto'} style={{ display: 'block', maxWidth: 260, maxHeight: 260, borderRadius: 10 }} />
+    </a>
+  );
+  return (
+    <a href={d.midia} download={m.nome_arquivo || 'arquivo'} title="Baixar o arquivo"
+      style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 10, textDecoration: 'none',
+        background: meu ? 'rgba(255,255,255,.18)' : 'var(--bg2,#f1f5f9)', color: 'inherit' }}>
+      <span style={{ fontSize: 22 }}>📄</span>
+      <span style={{ fontSize: 12.5, fontWeight: 800, wordBreak: 'break-all' }}>{m.nome_arquivo || 'arquivo'}</span>
+      <span style={{ fontSize: 11, opacity: .8, marginLeft: 'auto', whiteSpace: 'nowrap' }}>⬇ baixar</span>
+    </a>
+  );
+}
+
+const EMOJIS = ['😀','😂','😊','😍','🥰','😘','😉','😎','🤩','🥳','😅','🙏','👏','🙌','👍','👌','💪','🤝','❤️','💙','💚','💛','💜','🔥','✨','⭐','🎉','🎂','🎁','🌷','☕','🍰','✅','❌','⚠️','📌','📞','💉','🩺','🧸','👶','💬','⏰','📅','🚗','🏥','😢','😮','🤔','🙄'];
+
 const vistoHa = (d) => {
   if (!d) return 'sem acesso recente';
   const min = Math.floor((Date.now() - new Date(d).getTime()) / 60000);
@@ -371,6 +474,11 @@ export function PainelChatEquipe({ api, user, onFechar, modo = 'lateral' }) {
   const [buscando, setBuscando] = useState(false);
   const [apagarId, setApagarId] = useState(null);
   const [largura, setLargura] = useState(typeof window !== 'undefined' ? window.innerWidth : 1200);
+  const [ferramenta, setFerramenta] = useState(null);   // null | 'emoji' | 'figurinha' | 'chamar'
+  const [figs, setFigs] = useState(null);
+  const [gravando, setGravando] = useState(null);       // { mr, inicio } enquanto grava
+  const [segundos, setSegundos] = useState(0);
+  const arquivoRef = useRef(null);
   const fimRef = useRef(null);
   const inputRef = useRef(null);
   const meuPrimeiro = primeiroNome(user?.nome);
@@ -431,6 +539,73 @@ export function PainelChatEquipe({ api, user, onFechar, modo = 'lateral' }) {
     inputRef.current?.focus();
   };
 
+  const enviarEspecial = async (corpo) => {
+    setEnviando(true); setErroEnvio('');
+    try {
+      const d = await api.post('/extras/chat-equipe', corpo);
+      if (d?.mensagem) setMsgs(p => (p.some(x => x.id === d.mensagem.id) ? p : [...p, d.mensagem]));
+      setFerramenta(null);
+    } catch (e) { setErroEnvio(e.message || 'Não consegui enviar. Tente de novo.'); }
+    setEnviando(false);
+  };
+  // 📎 Anexo: foto vira foto na conversa; o resto vira arquivo pra baixar
+  const escolherArquivo = (ev) => {
+    const f = ev.target.files?.[0];
+    ev.target.value = '';
+    if (!f) return;
+    if (f.size > 12 * 1024 * 1024) { setErroEnvio('Arquivo grande demais (até 12 MB).'); return; }
+    const rd = new FileReader();
+    rd.onload = () => enviarEspecial({ tipo: /^image\//.test(f.type) ? 'imagem' : 'arquivo', midia: rd.result, nome_arquivo: f.name, texto: txt.trim() || undefined });
+    rd.onerror = () => setErroEnvio('Não consegui ler o arquivo.');
+    rd.readAsDataURL(f);
+  };
+  // 🎤 Áudio: toca pra gravar, toca de novo pra enviar (ou ✕ pra descartar)
+  const gravar = async () => {
+    if (gravando) return;
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') { setErroEnvio('Este navegador não grava áudio. Use o Chrome.'); return; }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const cand = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'];
+      const mime = cand.find(t => MediaRecorder.isTypeSupported?.(t)) || '';
+      const mr = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+      const pedacos = [];
+      mr.ondataavailable = e => { if (e.data?.size) pedacos.push(e.data); };
+      mr.onstop = () => {
+        stream.getTracks().forEach(t => t.stop());
+        if (mr.__descartar) return;
+        const blob = new Blob(pedacos, { type: (mr.mimeType || 'audio/webm').split(';')[0] });
+        if (blob.size < 1500) { setErroEnvio('Áudio curto demais.'); return; }
+        const rd = new FileReader();
+        rd.onload = () => enviarEspecial({ tipo: 'audio', midia: rd.result, nome_arquivo: 'audio' });
+        rd.readAsDataURL(blob);
+      };
+      mr.start(250);
+      setGravando({ mr, inicio: Date.now() }); setSegundos(0); setErroEnvio('');
+    } catch (e) {
+      setErroEnvio(e?.name === 'NotAllowedError' ? 'Microfone bloqueado: permita o microfone no cadeado ao lado do endereço.' : 'Não consegui usar o microfone.');
+    }
+  };
+  const pararGravacao = (descartar = false) => {
+    if (!gravando) return;
+    gravando.mr.__descartar = descartar;
+    try { gravando.mr.stop(); } catch { /* já parou */ }
+    setGravando(null);
+  };
+  useEffect(() => {
+    if (!gravando) return undefined;
+    const t = setInterval(() => setSegundos(Math.floor((Date.now() - gravando.inicio) / 1000)), 500);
+    return () => clearInterval(t);
+  }, [gravando]);
+  // 💟 Figurinhas: as mesmas da Vittalis que vão pros clientes
+  useEffect(() => {
+    if (ferramenta !== 'figurinha' || figs) return;
+    api.get('/extras/biblioteca?tipo=figurinha&limite=200')
+      .then(d => setFigs(Array.isArray(d) ? d : (d?.itens || [])))
+      .catch(() => setFigs([]));
+  }, [ferramenta]); // eslint-disable-line
+  // 📞 Chamar: toca na tela da pessoa
+  const ligarPara = (u) => { if (u?.id && u.id !== user?.id) enviarEspecial({ tipo: 'chamada', para_id: u.id }); };
+
   const apagar = async (id) => {
     await api.delete(`/extras/chat-equipe/${id}`).catch(() => {});
     setMsgs(p => p.filter(x => x.id !== id));
@@ -460,6 +635,7 @@ export function PainelChatEquipe({ api, user, onFechar, modo = 'lateral' }) {
     (b.online === true) - (a.online === true) || String(a.nome).localeCompare(String(b.nome))), [equipe]);
   const nOnline = equipe.filter(u => u.online).length;
   const corDe = useMemo(() => Object.fromEntries(equipe.map(u => [u.id, u.cor])), [equipe]);
+  const setoresDe = useMemo(() => Object.fromEntries(equipe.map(u => [u.id, u.setores || []])), [equipe]);
 
   const termo = busca.trim().toLowerCase();
   const visiveis = termo
@@ -539,7 +715,8 @@ export function PainelChatEquipe({ api, user, onFechar, modo = 'lateral' }) {
             {equipeOrdenada.map(u => {
               const eu = u.id === user?.id;
               return (
-                <button key={u.id} onClick={() => chamar(u)} disabled={eu}
+                <div key={u.id} style={{ display: 'flex', alignItems: 'center' }}>
+                <button onClick={() => chamar(u)} disabled={eu}
                   title={eu ? 'Você' : `Chamar ${u.primeiro} (escreve @${u.primeiro})`}
                   style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', border: 'none',
                     background: 'transparent', cursor: eu ? 'default' : 'pointer', textAlign: 'left', opacity: u.online || eu ? 1 : .72 }}
@@ -552,10 +729,21 @@ export function PainelChatEquipe({ api, user, onFechar, modo = 'lateral' }) {
                     </span>
                     <span style={{ display: 'block', fontSize: 11, color: u.online ? '#16a34a' : 'var(--muted)', fontWeight: u.online ? 800 : 500,
                       overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {u.online ? 'online agora' : vistoHa(u.visto_em)}{u.papel ? ` · ${u.papel}` : ''}
+                      {u.online ? 'online agora' : vistoHa(u.visto_em)}
                     </span>
+                    {(u.setores || []).length > 0 && (
+                      <span style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginTop: 3 }}>
+                        {u.setores.map(st => <SeloSetor key={st} nome={st} />)}
+                      </span>
+                    )}
                   </span>
                 </button>
+                {!eu && (
+                  <button onClick={() => ligarPara(u)} title={`📞 Chamar ${u.primeiro}: toca na tela dela`}
+                    style={{ flexShrink: 0, marginRight: 8, width: 30, height: 30, borderRadius: 9, border: '1px solid var(--border)',
+                      background: 'var(--card,#fff)', cursor: 'pointer', fontSize: 14 }}>📞</button>
+                )}
+                </div>
               );
             })}
           </div>
@@ -610,12 +798,20 @@ export function PainelChatEquipe({ api, user, onFechar, modo = 'lateral' }) {
                       {!meu && (!agrupada || meChamou) && (
                         <div style={{ fontSize: 11.5, fontWeight: 900, marginBottom: 2, color: cor }}>
                           {agrupada ? '' : primeiroNome(m.autor_nome)}
+                          {!agrupada && (setoresDe[m.autor_id] || []).map(st => <span key={st} style={{ marginLeft: 5 }}><SeloSetor nome={st} /></span>)}
                           {meChamou && <span style={{ color: '#fff', background: VERDE, borderRadius: 8, padding: '0 6px', marginLeft: 6, fontSize: 10 }}>chamou você</span>}
                         </div>
                       )}
-                      <div style={{ fontSize: 13.5, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                        <TextoComMencoes texto={m.texto} meuPrimeiro={meuPrimeiro} />
-                      </div>
+                      {m.tipo === 'figurinha' && m.figurinha_id && (
+                        <img src={`${BASE_API}/api/publico/figurinha/${m.figurinha_id}`} alt="figurinha" style={{ display: 'block', width: 120, height: 120, objectFit: 'contain' }} />
+                      )}
+                      {['audio', 'imagem', 'arquivo'].includes(m.tipo) && <MidiaEquipe api={api} m={m} meu={meu} />}
+                      {m.texto && (
+                        <div style={{ fontSize: m.tipo === 'chamada' ? 13 : 13.5, fontWeight: m.tipo === 'chamada' ? 800 : 400, lineHeight: 1.5,
+                          whiteSpace: 'pre-wrap', wordBreak: 'break-word', marginTop: ['audio', 'imagem', 'arquivo'].includes(m.tipo) ? 5 : 0 }}>
+                          <TextoComMencoes texto={m.texto} meuPrimeiro={meuPrimeiro} />
+                        </div>
+                      )}
                       <div style={{ fontSize: 10, opacity: .65, textAlign: 'right', marginTop: 3, display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 6 }}>
                         {hhmm(m.created_at)}
                         {(meu || user?.role === 'master') && (apagarId === m.id ? (
@@ -656,6 +852,69 @@ export function PainelChatEquipe({ api, user, onFechar, modo = 'lateral' }) {
               </div>
             )}
             {erroEnvio && <div style={{ fontSize: 11.5, color: '#dc2626', fontWeight: 700, marginBottom: 6 }}>⚠️ {erroEnvio}</div>}
+            {/* 😊 Emojis */}
+            {ferramenta === 'emoji' && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(10, 1fr)', gap: 2, marginBottom: 8, padding: 6,
+                border: '1px solid var(--border)', borderRadius: 12, background: 'var(--bg2,#f8fafc)' }}>
+                {EMOJIS.map(e => (
+                  <button key={e} onClick={() => { setTxt(t => t + e); inputRef.current?.focus(); }}
+                    style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 20, padding: 3, borderRadius: 8 }}>{e}</button>
+                ))}
+              </div>
+            )}
+            {/* 💟 Figurinhas */}
+            {ferramenta === 'figurinha' && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(72px, 1fr))', gap: 6, marginBottom: 8, padding: 6,
+                maxHeight: 220, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 12, background: 'var(--bg2,#f8fafc)' }}>
+                {figs === null && <div style={{ gridColumn: '1/-1', fontSize: 12, color: 'var(--muted)', padding: 8 }}>Carregando figurinhas…</div>}
+                {figs && figs.length === 0 && <div style={{ gridColumn: '1/-1', fontSize: 12, color: 'var(--muted)', padding: 8 }}>Nenhuma figurinha cadastrada.</div>}
+                {(figs || []).map(f => (
+                  <button key={f.id} onClick={() => enviarEspecial({ tipo: 'figurinha', figurinha_id: f.id })} title={f.titulo}
+                    style={{ height: 72, border: '1px solid var(--border)', borderRadius: 10, background: 'var(--card,#fff)', cursor: 'pointer', padding: 3 }}>
+                    <img src={`${BASE_API}/api/publico/figurinha/${f.id}`} alt={f.titulo} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                  </button>
+                ))}
+              </div>
+            )}
+            {/* 📞 Chamar alguém */}
+            {ferramenta === 'chamar' && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8, padding: 8, border: '1px solid var(--border)', borderRadius: 12, background: 'var(--bg2,#f8fafc)' }}>
+                <div style={{ width: '100%', fontSize: 11.5, fontWeight: 800, color: 'var(--muted)' }}>📞 Quem você quer chamar? Toca na tela da pessoa.</div>
+                {equipeOrdenada.filter(u => u.id !== user?.id).map(u => (
+                  <button key={u.id} onClick={() => ligarPara(u)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, border: '1px solid var(--border)', borderRadius: 20, padding: '4px 10px 4px 4px',
+                      background: 'var(--card,#fff)', cursor: 'pointer', fontSize: 12, fontWeight: 800, color: 'var(--txt,#0f172a)' }}>
+                    <Bolinha nome={u.nome} cor={u.cor} tam={22} online={!!u.online} /> {u.primeiro}
+                  </button>
+                ))}
+              </div>
+            )}
+            {/* Barra de ferramentas */}
+            <input ref={arquivoRef} type="file" accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt" onChange={escolherArquivo} style={{ display: 'none' }} />
+            {gravando ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, padding: '8px 12px', borderRadius: 12,
+                background: 'rgba(220,38,38,.1)', border: '1px solid rgba(220,38,38,.4)' }}>
+                <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#dc2626', animation: 'vhChamado 1.2s ease-out infinite' }} />
+                <b style={{ fontSize: 13, color: '#dc2626' }}>Gravando {Math.floor(segundos / 60)}:{String(segundos % 60).padStart(2, '0')}</b>
+                <span style={{ flex: 1 }} />
+                <button onClick={() => pararGravacao(true)} style={{ border: '1px solid var(--border)', borderRadius: 9, padding: '5px 10px', background: 'var(--card,#fff)', cursor: 'pointer', fontSize: 12, fontWeight: 800, color: 'var(--txt,#0f172a)' }}>✕ Descartar</button>
+                <button onClick={() => pararGravacao(false)} style={{ border: 'none', borderRadius: 9, padding: '6px 12px', background: '#16a34a', color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 900 }}>➤ Enviar áudio</button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                {[['emoji', '😊', 'Emojis'], ['figurinha', '💟', 'Figurinhas'], ['anexo', '📎', 'Anexar foto ou arquivo'], ['audio', '🎤', 'Gravar áudio'], ['chamar', '📞', 'Chamar alguém (toca na tela da pessoa)']].map(([k, ic, t]) => (
+                  <button key={k} title={t}
+                    onClick={() => {
+                      if (k === 'anexo') { arquivoRef.current?.click(); return; }
+                      if (k === 'audio') { setFerramenta(null); gravar(); return; }
+                      setFerramenta(f => (f === k ? null : k));
+                    }}
+                    style={{ width: 38, height: 34, borderRadius: 10, cursor: 'pointer', fontSize: 17,
+                      border: `1.5px solid ${ferramenta === k ? TURQ : 'var(--border)'}`,
+                      background: ferramenta === k ? 'rgba(0,184,192,.14)' : 'var(--card,#fff)' }}>{ic}</button>
+                ))}
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
               <textarea ref={inputRef} value={txt} onChange={e => setTxt(e.target.value)} rows={1}
                 onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviar(); } }}

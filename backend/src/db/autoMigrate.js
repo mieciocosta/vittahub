@@ -3082,6 +3082,13 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       created_at TIMESTAMPTZ DEFAULT NOW()
     )`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS idx_chat_equipe_data ON chat_equipe (created_at DESC)`).catch(() => {});
+    /* 🎤📎 Chat da equipe com áudio, anexo, figurinha e chamada (25/09, ordem do
+       master: "melhore tudo em termo de ferramentas: áudio, anexos, emojis,
+       figurinhas, ligação"). A mídia mora em `midia` (data URL) e NUNCA vai na
+       lista nem no socket: cada tela busca sob demanda. */
+    for (const col of ["tipo TEXT DEFAULT 'texto'", 'midia TEXT', 'mime TEXT', 'nome_arquivo TEXT', 'figurinha_id TEXT']) {
+      await query(`ALTER TABLE chat_equipe ADD COLUMN IF NOT EXISTS ${col}`).catch(() => {});
+    }
     await query(`CREATE TABLE IF NOT EXISTS chat_equipe_leitura (
       usuario_id TEXT PRIMARY KEY,
       lido_em TIMESTAMPTZ DEFAULT NOW()

@@ -2922,6 +2922,12 @@ export default function Inbox({ onUnreadChange }) {
             onAbrir={()=>setChatEquipe(v => v === 'lateral' ? false : 'lateral')} />
         </div>
 
+        {/* 💬 O botão "Equipe" de dentro da conversa abre a gaveta (25/09, print do
+            master: "quando clico em equipe não abre"). O estado mudava pra
+            'gaveta', mas nenhum painel era desenhado pra ela. */}
+        {chatEquipe === 'gaveta' && (
+          <PainelChatEquipe api={api} user={user} modo="gaveta" onFechar={() => setChatEquipe(false)} />
+        )}
         {chatEquipe === 'lateral' && (
           <PainelChatEquipe api={api} user={user} modo="lateral" onFechar={()=>setChatEquipe(false)} />
         )}
