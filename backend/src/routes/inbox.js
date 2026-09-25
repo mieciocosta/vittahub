@@ -11899,7 +11899,7 @@ export function proximaAberturaIA() {
 }
 function dentroDoHorarioComercial() { return janelaIA(); }
 
-async function gerarMensagemFollowup(conv, count, nomeFU = 'Equipe Vittalis') {
+async function gerarMensagemFollowup(conv, count, nomeFU = 'Equipe Vittalis', contexto = null) {
   // Áudios transcritos entram no contexto — follow-up cego ao que foi FALADO
   // errava o assunto e soava robô
   /* O follow-up VEM DEPOIS DA LEITURA (ordem do master, 24/08): antes de
@@ -11952,7 +11952,14 @@ async function gerarMensagemFollowup(conv, count, nomeFU = 'Equipe Vittalis') {
 
     /* Estratégia por tentativa (método CRC): cada retomada tem um papel —
        repetir "ficou alguma dúvida?" três vezes é o que faz cliente bloquear. */
-    const estrategia = count === 0
+    /* 🔁 REENCONTRO (25/09, ordem do master: "quero que a IA converse com todos
+       os clientes de consultas"): conversa antiga, ou em que a família escreveu
+       e ficou sem resposta, não pode soar como se tivesse sido ontem. */
+    const estrategia = contexto?.clienteSemResposta
+      ? `A FAMÍLIA ESCREVEU E FICOU SEM RESPOSTA há ${contexto.dias} dia(s). Peça desculpas pela demora com leveza e sinceridade (sem desculpa longa), retome EXATAMENTE o que ela pediu ou perguntou e já ofereça o próximo passo com uma pergunta simples (ex.: manhã ou tarde?).`
+      : contexto?.dias >= 7
+        ? `REENCONTRO: a última conversa foi há ${contexto.dias} dias. Não finja que foi ontem. Retome com carinho o que a família buscava (cite a criança e a necessidade), pergunte como a criança está hoje e ofereça ajuda pra dar o próximo passo, com uma pergunta simples de responder.`
+        : count === 0
       ? 'PRIMEIRA retomada: volte na DOR/necessidade que o cliente trouxe (cite o nome da criança se souber) e facilite a resposta com uma pergunta simples de escolha (ex.: "prefere manhã ou tarde?", "quer que eu te explique o investimento certinho?"). Tom próximo, como quem continua uma conversa boa.'
       : count === 1
         ? 'SEGUNDA retomada: NÃO repita a primeira. Agregue algo NOVO — um benefício que ainda não foi dito (atendimento sem pressa, domiciliar incluso nas terapias, Certificado de Coragem, parcelamento) conectado ao caso do cliente. Termine com um convite leve.'
@@ -12001,7 +12008,7 @@ async function enviarFollowupConversa(conv, opts = {}) {
   }
 
   const count = opts.count ?? (conv.followup_count || 0);
-  const gerada = await gerarMensagemFollowup(conv, count, nomeFU);
+  const gerada = await gerarMensagemFollowup(conv, count, nomeFU, opts.contexto || null);
   if (!gerada) { console.log(`Follow-up adiado conv=${conv.id}: IA não gerou (sem texto genérico, ordem do master)`); return false; }
   const msg = semTravessao(gerada);
 
@@ -12011,7 +12018,8 @@ async function enviarFollowupConversa(conv, opts = {}) {
      A retomada com prova social converte muito mais que texto sozinho:
      a família volta a ver o cuidado real da casa antes de decidir. */
   if (zr?.ok) {
-    const nFU = await enviarProvaSocial({ conv, phone55: `55${phoneNum}`, max: 10, autor: nomeFU, fromType: 'bot' }).catch(() => 0);
+    // Reencontro com contato antigo: menos fotos (3), pra não parecer disparo em massa
+    const nFU = await enviarProvaSocial({ conv, phone55: `55${phoneNum}`, max: opts.contexto?.dias >= 30 ? 3 : 10, autor: nomeFU, fromType: 'bot' }).catch(() => 0);
     if (nFU) console.log(`Follow-up conv=${conv.id}: ${nFU} foto(s) de prova social junto`);
   }
   if (!zr?.ok) { console.error('Follow-up Z-API falhou:', conv.id, zr?.status); return false; }
@@ -12070,12 +12078,17 @@ export async function rodarRetomadaConsultas() {
                               AND a.data >= (NOW() - interval '3 hours')::date
                               AND LOWER(COALESCE(a.status,'')) NOT LIKE 'cancel%')`, [id]);
         if (!conv) { estado.puladas = (estado.puladas || 0) + 1; continue; }
-        if (conv.last_from === 'contact') {
+        const diasParada = Math.floor((Date.now() - new Date(conv.last_message_at).getTime()) / 86400000);
+        if (conv.last_from === 'contact' && diasParada < 7) {
           agendarVitta(conv.id);
           estado.respondidas = (estado.respondidas || 0) + 1;
         } else if (new Date(conv.last_message_at).getTime() < Date.now() - 2 * 3600 * 1000) {
+          /* Antiga (7+ dias) ou com a família sem resposta há dias: sai como
+             REENCONTRO, lendo a conversa antes, e não como resposta atrasada. */
+          const contexto = (diasParada >= 7 || conv.last_from === 'contact')
+            ? { dias: diasParada, clienteSemResposta: conv.last_from === 'contact' } : null;
           await query('UPDATE conversas SET followup_count = 0, followup_pausado = false WHERE id = $1', [conv.id]);
-          const ok = await enviarFollowupConversa({ ...conv, followup_count: 0 }, { count: 0 });
+          const ok = await enviarFollowupConversa({ ...conv, followup_count: 0 }, { count: 0, contexto });
           if (ok) estado.retomadas = (estado.retomadas || 0) + 1;
           else estado.puladas = (estado.puladas || 0) + 1;
         } else estado.puladas = (estado.puladas || 0) + 1;   // conversa viva agora: a equipe/IA já está nela

@@ -3525,6 +3525,61 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
     }
   } catch (e) { console.error('aviso da direção:', e.message); }
 
+  /* 🤖 IA COM TODOS OS CLIENTES DE CONSULTAS (ordem do master, 25/09, segunda
+     leva: "quero que a IA converse com todos os clientes de consultas"). A
+     primeira leva (abaixo) só pegou a carteira de quem é de consultas e os
+     últimos 30 dias. Esta pega TODA conversa de consultas/terapias (pelo setor
+     ou pela classificação), de qualquer dona ou sem dona e de qualquer data:
+       · IA ligada em todas (a família que responder é atendida na hora);
+       · entram na MESMA fila de retomada (5 a cada 10 min, janela da IA, lendo
+         antes; antigas saem como "reencontro", não como resposta atrasada),
+         da mais recente pra mais antiga.
+     Ficam de fora: vacinas, grupo, interno, Banco de Dados, arquivada,
+     agendamento marcado, venda nos últimos 15 dias, quem pediu pra parar e
+     quem já recebeu retomada nos últimos 3 dias. */
+  try {
+    const { rows: [flagTodosCli] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_ia_consultas_todos_clientes_2026-09-25'");
+    if (!flagTodosCli) {
+      const FILTRO = `(c.setor IN ('consultas','terapias') OR c.classificacao IN ('consultas','terapias'))
+             AND COALESCE(c.setor, '') <> 'vacinas'
+             AND COALESCE(c.contact_id, '') NOT LIKE '%g.us%'
+             AND COALESCE(c.categoria, '') <> 'banco_dados'
+             AND COALESCE(c.classificacao, '') NOT IN ('gestao','profissional_saude')
+             AND COALESCE(c.arquivada, false) = false
+             AND COALESCE(c.simulacao, false) = false`;
+      const rL = await query(`UPDATE conversas c SET bot_ativo = true, bot_off_manual = false WHERE ${FILTRO}`);
+      const { rows: novos } = await query(`SELECT c.id FROM conversas c
+         WHERE ${FILTRO}
+           AND length(regexp_replace(COALESCE(c.phone,''),'\\D','','g')) >= 10
+           AND (c.followup_last_at IS NULL OR c.followup_last_at < NOW() - interval '3 days')
+           AND NOT EXISTS (SELECT 1 FROM agenda_eventos a WHERE a.conversa_id = c.id
+                             AND a.data >= (NOW() - interval '3 hours')::date
+                             AND LOWER(COALESCE(a.status,'')) NOT LIKE 'cancel%')
+           AND NOT EXISTS (SELECT 1 FROM vendas v WHERE v.conversa_id = c.id
+                             AND v.data_venda > (NOW() - interval '3 hours')::date - 15)
+           AND NOT EXISTS (SELECT 1 FROM mensagens m WHERE m.conversa_id = c.id AND m.from_type = 'contact'
+                             AND COALESCE(m.type, 'text') = 'text'
+                             AND left(m.content, 400) ~* '(n[aã]o (me )?(mande|mandem|envie|enviem|chame|chamem|ligue|liguem)|pare de|parem de|parar de|sair da lista|descadastr|n[aã]o tenho interesse|sem interesse)')
+         ORDER BY c.last_message_at DESC`).catch((e) => { console.error('retomada todos (fila):', e.message); return { rows: [] }; });
+      const { rows: [atual] } = await query(`SELECT valor FROM configuracoes WHERE chave = 'retomada_consultas'`);
+      const est = atual?.valor && typeof atual.valor === 'object' ? atual.valor : { fila: [], respondidas: 0, retomadas: 0, puladas: 0 };
+      const ja = new Set(est.fila || []);
+      const acrescentar = novos.map(r => r.id).filter(id => !ja.has(id));
+      est.fila = [...(est.fila || []), ...acrescentar];
+      est.total = (est.total || 0) + acrescentar.length;
+      delete est.terminou_em;
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('retomada_consultas', $1::jsonb)
+                   ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor, updated_at = NOW()`, [JSON.stringify(est)]);
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_ia_consultas_todos_clientes_2026-09-25', $1::jsonb) ON CONFLICT DO NOTHING`,
+        [JSON.stringify({ ok: true, ligadas: rL.rowCount || 0, fila: acrescentar.length })]);
+      const dias = Math.max(1, Math.ceil(est.fila.length / 420));
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+        ['🤖 IA com todos os clientes de consultas e terapias',
+         `IA ligada em ${rL.rowCount || 0} conversa(s) de consultas e terapias (de qualquer dona, sem dona e de qualquer data). ${acrescentar.length} cliente(s) entraram na fila da retomada, do mais recente pro mais antigo: a IA lê cada conversa antes e escreve no nome da responsável; quem sumiu há tempo recebe uma mensagem de reencontro, e quem escreveu e ficou sem resposta recebe um pedido de desculpas pela demora. Ritmo: 5 a cada 10 minutos, das 8h às 22h (cerca de ${dias} dia(s) pra passar por todos), devagar de propósito pra o WhatsApp não bloquear o número. Ficaram de fora: agendados, quem comprou nos últimos 15 dias, quem pediu pra parar, grupos, internos e Banco de Dados.`]).catch(() => {});
+      console.log(`🤖 IA todos os clientes de consultas: ${rL.rowCount || 0} ligadas, ${acrescentar.length} na fila`);
+    }
+  } catch (e) { console.error('ia consultas todos os clientes:', e.message); }
+
   /* 🤖 IA EM TODAS AS CONVERSAS DE CONSULTAS E TERAPIAS (ordem do master,
      25/09: "ative a IA para todas as conversas dos usuários de consultas e
      terapias / inicie as conversas ou retome, porém leia antes"). Uma vez só:
@@ -3567,7 +3622,7 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
              AND COALESCE(c.classificacao, '') NOT IN ('gestao','profissional_saude')
              AND COALESCE(c.arquivada, false) = false
              AND COALESCE(c.simulacao, false) = false
-             AND length(regexp_replace(COALESCE(c.phone,''),'\D','','g')) >= 10
+             AND length(regexp_replace(COALESCE(c.phone,''),'\\D','','g')) >= 10
              AND c.last_message_at > NOW() - interval '30 days'
              AND NOT EXISTS (SELECT 1 FROM agenda_eventos a WHERE a.conversa_id = c.id
                                AND a.data >= (NOW() - interval '3 hours')::date
