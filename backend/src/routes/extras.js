@@ -6548,7 +6548,7 @@ r.get('/chat-equipe', async (req, res) => {
   try {
     const { rows } = await query(
       `SELECT id, autor_id, autor_nome, autor_cor, texto, mencoes, created_at,
-              COALESCE(tipo, 'texto') AS tipo, mime, nome_arquivo, figurinha_id, (midia IS NOT NULL) AS tem_midia
+              COALESCE(tipo, 'texto') AS tipo, mime, nome_arquivo, figurinha_id, voz_id, (midia IS NOT NULL) AS tem_midia
          FROM chat_equipe ORDER BY created_at DESC LIMIT $1`, [CHAT_LIMITE]);
     const { rows: [l] } = await query('SELECT lido_em FROM chat_equipe_leitura WHERE usuario_id = $1', [req.user.id])
       .catch(() => ({ rows: [] }));
@@ -6618,7 +6618,7 @@ r.get('/chat-equipe/status', async (req, res) => {
        toca mesmo fora do chat (a faixa pergunta a cada 10 s). */
     const { rows: [cham] } = await query(
       `SELECT id, autor_nome FROM chat_equipe
-        WHERE tipo = 'chamada' AND $2 = ANY(mencoes) AND created_at > $1 AND created_at > NOW() - interval '90 seconds'
+        WHERE tipo = 'chamada' AND voz_id IS NULL AND $2 = ANY(mencoes) AND created_at > $1 AND created_at > NOW() - interval '90 seconds'
         ORDER BY created_at DESC LIMIT 1`, [desde, req.user.id]).catch(() => ({ rows: [] }));
     /* 👀 QUEM ESTÁ ESPERANDO VOCÊ (25/09, ordem do master: "sinalize as
        conversas em aberto, as pessoas que me chamaram em verde, pra lembrar
@@ -6629,7 +6629,10 @@ r.get('/chat-equipe/status', async (req, res) => {
               BOOL_OR($2 = ANY(mencoes)) AS chamou, MAX(created_at) AS ultima
          FROM chat_equipe WHERE created_at > $1 AND autor_id <> $2
         GROUP BY autor_id ORDER BY BOOL_OR($2 = ANY(mencoes)) DESC, MAX(created_at) DESC LIMIT 6`, [desde, req.user.id]).catch(() => ({ rows: [] })) : { rows: [] };
-    res.json({ naoLidas: c?.n || 0, chamado: (c?.chamados || 0) > 0, ultima: ult || null, chamada: cham || null, quem });
+    const { rows: [voz] } = await query(
+      `SELECT id, de_nome FROM chamadas_voz WHERE para_id = $1 AND status = 'chamando'
+          AND created_at > NOW() - interval '45 seconds' ORDER BY created_at DESC LIMIT 1`, [req.user.id]).catch(() => ({ rows: [] }));
+    res.json({ naoLidas: c?.n || 0, chamado: (c?.chamados || 0) > 0, ultima: ult || null, chamada: cham || null, quem, voz: voz || null });
   } catch (err) { res.json({ naoLidas: 0, chamado: false }); }
 });
 
@@ -6694,6 +6697,76 @@ r.post('/chat-equipe/li', async (req, res) => {
 
 /* Apagar a própria mensagem (ou qualquer uma, se for o master). Escreveu errado
    no canal da equipe inteira, tem que dar pra desfazer. */
+/* 🎙️ LIGAÇÃO DE VOZ (25/09). O servidor é só o carteiro do convite: quem liga
+   manda a oferta (SDP), quem atende devolve a resposta, e o áudio passa
+   direto entre os dois navegadores. Quem está no meio (a lista, o chat)
+   vê a ligação como mensagem "📞 Fulana ligou pra Beltrana". */
+const vozDe = async (id, uid) => {
+  const { rows: [c] } = await query('SELECT * FROM chamadas_voz WHERE id = $1', [id]);
+  if (!c || (c.de_id !== uid && c.para_id !== uid)) return null;
+  return c;
+};
+r.post('/chat-equipe/voz', async (req, res) => {
+  try {
+    const para = String(req.body?.para_id || '');
+    const oferta = req.body?.oferta ? JSON.stringify(req.body.oferta).slice(0, 200000) : null;
+    if (!para || !oferta) return res.status(400).json({ error: 'Faltou quem e a oferta da ligação' });
+    const { rows: [alvo] } = await query('SELECT id, nome FROM usuarios WHERE id = $1 AND ativo = true', [para]);
+    if (!alvo || alvo.id === req.user.id) return res.status(400).json({ error: 'Escolha outra pessoa' });
+    // Ligação velha dela, ainda "chamando", morre aqui (não fica tocando pra sempre)
+    await query(`UPDATE chamadas_voz SET status = 'perdida', encerrada_em = NOW()
+                  WHERE status = 'chamando' AND created_at < NOW() - interval '60 seconds'`).catch(() => {});
+    const { rows: [c] } = await query(
+      `INSERT INTO chamadas_voz (de_id, de_nome, para_id, para_nome, oferta) VALUES ($1,$2,$3,$4,$5) RETURNING id`,
+      [req.user.id, req.user.nome, alvo.id, alvo.nome, oferta]);
+    const texto = `📞 ${String(req.user.nome).split(' ')[0]} ligou pra ${String(alvo.nome).split(' ')[0]}`;
+    const { rows: [m] } = await query(
+      `INSERT INTO chat_equipe (autor_id, autor_nome, autor_cor, texto, mencoes, tipo, voz_id)
+       VALUES ($1,$2,$3,$4,$5,'chamada',$6)
+       RETURNING id, autor_id, autor_nome, autor_cor, texto, mencoes, created_at, tipo, voz_id, false AS tem_midia`,
+      [req.user.id, req.user.nome, req.user.cor || null, texto, [alvo.id], c.id]).catch(() => ({ rows: [null] }));
+    if (m) socketEmit('chat_equipe_msg', m);
+    res.json({ ok: true, id: c.id, mensagem: m });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+// Leve (uma consulta): tem alguém me ligando agora? A tela pergunta a cada 5 s.
+r.get('/chat-equipe/voz-entrando', async (req, res) => {
+  try {
+    const { rows: [v] } = await query(
+      `SELECT id, de_nome FROM chamadas_voz WHERE para_id = $1 AND status = 'chamando'
+          AND created_at > NOW() - interval '45 seconds' ORDER BY created_at DESC LIMIT 1`, [req.user.id]);
+    res.json({ voz: v || null });
+  } catch (err) { res.json({ voz: null }); }
+});
+r.get('/chat-equipe/voz/:id', async (req, res) => {
+  try {
+    const c = await vozDe(req.params.id, req.user.id);
+    if (!c) return res.status(404).json({ error: 'Ligação não encontrada' });
+    res.json({ id: c.id, status: c.status, de_nome: c.de_nome, para_nome: c.para_nome,
+      oferta: c.para_id === req.user.id && c.oferta ? JSON.parse(c.oferta) : null,
+      resposta: c.de_id === req.user.id && c.resposta ? JSON.parse(c.resposta) : null });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+r.post('/chat-equipe/voz/:id/responder', async (req, res) => {
+  try {
+    const c = await vozDe(req.params.id, req.user.id);
+    if (!c || c.para_id !== req.user.id) return res.status(404).json({ error: 'Ligação não encontrada' });
+    if (c.status !== 'chamando') return res.status(409).json({ error: 'Essa ligação já terminou' });
+    await query(`UPDATE chamadas_voz SET status = 'atendida', resposta = $2, atendida_em = NOW() WHERE id = $1`,
+      [c.id, JSON.stringify(req.body?.resposta || null).slice(0, 200000)]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+r.post('/chat-equipe/voz/:id/encerrar', async (req, res) => {
+  try {
+    const c = await vozDe(req.params.id, req.user.id);
+    if (!c) return res.status(404).json({ error: 'Ligação não encontrada' });
+    const motivo = ['recusada', 'encerrada', 'perdida'].includes(req.body?.motivo) ? req.body.motivo : 'encerrada';
+    await query(`UPDATE chamadas_voz SET status = $2, encerrada_em = NOW() WHERE id = $1 AND status IN ('chamando','atendida')`, [c.id, motivo]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // 🎤📎 A mídia de uma mensagem (áudio, foto, arquivo), buscada só quando aparece na tela
 r.get('/chat-equipe/:id/midia', async (req, res) => {
   try {

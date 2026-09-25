@@ -603,8 +603,14 @@ export function PainelChatEquipe({ api, user, onFechar, modo = 'lateral' }) {
       .then(d => setFigs(Array.isArray(d) ? d : (d?.itens || [])))
       .catch(() => setFigs([]));
   }, [ferramenta]); // eslint-disable-line
-  // 📞 Chamar: toca na tela da pessoa
+  // 🔔 Chamar: toca na tela da pessoa pra ela abrir o chat
   const ligarPara = (u) => { if (u?.id && u.id !== user?.id) enviarEspecial({ tipo: 'chamada', para_id: u.id }); };
+  // 📞 Ligação de voz: quem cuida é o LigacaoEquipe (App), em qualquer página
+  const ligarVoz = (u) => {
+    if (!u?.id || u.id === user?.id) return;
+    setFerramenta(null);
+    window.dispatchEvent(new CustomEvent('vh-ligar-voz', { detail: { para_id: u.id, nome: u.nome } }));
+  };
 
   const apagar = async (id) => {
     await api.delete(`/extras/chat-equipe/${id}`).catch(() => {});
@@ -739,9 +745,12 @@ export function PainelChatEquipe({ api, user, onFechar, modo = 'lateral' }) {
                   </span>
                 </button>
                 {!eu && (
-                  <button onClick={() => ligarPara(u)} title={`📞 Chamar ${u.primeiro}: toca na tela dela`}
-                    style={{ flexShrink: 0, marginRight: 8, width: 30, height: 30, borderRadius: 9, border: '1px solid var(--border)',
-                      background: 'var(--card,#fff)', cursor: 'pointer', fontSize: 14 }}>📞</button>
+                  <span style={{ display: 'flex', gap: 4, marginRight: 8, flexShrink: 0 }}>
+                    <button onClick={() => ligarPara(u)} title={`🔔 Chamar ${u.primeiro}: toca na tela dela pra abrir o chat`}
+                      style={{ width: 28, height: 28, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--card,#fff)', cursor: 'pointer', fontSize: 13 }}>🔔</button>
+                    <button onClick={() => ligarVoz(u)} title={`📞 Ligar pra ${u.primeiro} (ligação de voz)`}
+                      style={{ width: 28, height: 28, borderRadius: 8, border: '1px solid #86efac', background: 'rgba(34,197,94,.12)', cursor: 'pointer', fontSize: 13 }}>📞</button>
+                  </span>
                 )}
                 </div>
               );
@@ -877,11 +886,13 @@ export function PainelChatEquipe({ api, user, onFechar, modo = 'lateral' }) {
               </div>
             )}
             {/* 📞 Chamar alguém */}
-            {ferramenta === 'chamar' && (
+            {(ferramenta === 'chamar' || ferramenta === 'ligar') && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8, padding: 8, border: '1px solid var(--border)', borderRadius: 12, background: 'var(--bg2,#f8fafc)' }}>
-                <div style={{ width: '100%', fontSize: 11.5, fontWeight: 800, color: 'var(--muted)' }}>📞 Quem você quer chamar? Toca na tela da pessoa.</div>
+                <div style={{ width: '100%', fontSize: 11.5, fontWeight: 800, color: 'var(--muted)' }}>
+                  {ferramenta === 'ligar' ? '📞 Pra quem você quer ligar? (ligação de voz, precisa do microfone)' : '🔔 Quem você quer chamar? Toca na tela da pessoa.'}
+                </div>
                 {equipeOrdenada.filter(u => u.id !== user?.id).map(u => (
-                  <button key={u.id} onClick={() => ligarPara(u)}
+                  <button key={u.id} onClick={() => (ferramenta === 'ligar' ? ligarVoz(u) : ligarPara(u))}
                     style={{ display: 'flex', alignItems: 'center', gap: 6, border: '1px solid var(--border)', borderRadius: 20, padding: '4px 10px 4px 4px',
                       background: 'var(--card,#fff)', cursor: 'pointer', fontSize: 12, fontWeight: 800, color: 'var(--txt,#0f172a)' }}>
                     <Bolinha nome={u.nome} cor={u.cor} tam={22} online={!!u.online} /> {u.primeiro}
@@ -902,7 +913,7 @@ export function PainelChatEquipe({ api, user, onFechar, modo = 'lateral' }) {
               </div>
             ) : (
               <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-                {[['emoji', '😊', 'Emojis'], ['figurinha', '💟', 'Figurinhas'], ['anexo', '📎', 'Anexar foto ou arquivo'], ['audio', '🎤', 'Gravar áudio'], ['chamar', '📞', 'Chamar alguém (toca na tela da pessoa)']].map(([k, ic, t]) => (
+                {[['emoji', '😊', 'Emojis'], ['figurinha', '💟', 'Figurinhas'], ['anexo', '📎', 'Anexar foto ou arquivo'], ['audio', '🎤', 'Gravar áudio'], ['chamar', '🔔', 'Chamar alguém (toca na tela da pessoa)'], ['ligar', '📞', 'Ligar (ligação de voz)']].map(([k, ic, t]) => (
                   <button key={k} title={t}
                     onClick={() => {
                       if (k === 'anexo') { arquivoRef.current?.click(); return; }

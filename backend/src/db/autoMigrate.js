@@ -3086,7 +3086,16 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
        master: "melhore tudo em termo de ferramentas: áudio, anexos, emojis,
        figurinhas, ligação"). A mídia mora em `midia` (data URL) e NUNCA vai na
        lista nem no socket: cada tela busca sob demanda. */
-    for (const col of ["tipo TEXT DEFAULT 'texto'", 'midia TEXT', 'mime TEXT', 'nome_arquivo TEXT', 'figurinha_id TEXT']) {
+    /* 🎙️ LIGAÇÃO DE VOZ entre a equipe (25/09, "faça tudo o que pedi": a
+       ligação de verdade). Os dois navegadores falam direto (WebRTC); aqui só
+       passam o convite (oferta) e a resposta, e o estado da chamada. */
+    await query(`CREATE TABLE IF NOT EXISTS chamadas_voz (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      de_id TEXT, de_nome TEXT, para_id TEXT, para_nome TEXT,
+      status TEXT DEFAULT 'chamando', oferta TEXT, resposta TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(), atendida_em TIMESTAMPTZ, encerrada_em TIMESTAMPTZ
+    )`).catch(() => {});
+    for (const col of ["tipo TEXT DEFAULT 'texto'", 'midia TEXT', 'mime TEXT', 'nome_arquivo TEXT', 'figurinha_id TEXT', 'voz_id TEXT']) {
       await query(`ALTER TABLE chat_equipe ADD COLUMN IF NOT EXISTS ${col}`).catch(() => {});
     }
     await query(`CREATE TABLE IF NOT EXISTS chat_equipe_leitura (

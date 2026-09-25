@@ -3,6 +3,8 @@ import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from './context/AuthContext.jsx';
 import Sidebar from './components/Sidebar.jsx';
 import PlacarVendas from './components/PlacarVendas.jsx';
+import LigacaoEquipe from './components/LigacaoEquipe.jsx';
+
 import BuscaRapida from './components/BuscaRapida.jsx';
 import CelebracaoGlobal from './components/CelebracaoGlobal.jsx';
 import TrocaUsuario from './components/TrocaUsuario.jsx';
@@ -676,6 +678,8 @@ export default function App() {
             deixava trocar — pra isso era preciso caçar o botão na lateral. */}
         <ErrorBoundary discreto nome="Troca de usuário"><TrocaUsuario /></ErrorBoundary>
         <ErrorBoundary discreto nome="Placar de vendas"><PlacarVendas /></ErrorBoundary>
+        {/* 🎙️ Ligação de voz da equipe: fica de pé em qualquer página (25/09) */}
+        <ErrorBoundary discreto nome="Ligação da equipe"><LigacaoEquipe user={user} /></ErrorBoundary>
         {/* A rede da TELA se limpa a cada troca de rota: erro numa tela não
             prende mais o sistema todo até recarregar. */}
         <ErrorBoundary resetKey={rota.pathname} nome={rota.pathname}>
