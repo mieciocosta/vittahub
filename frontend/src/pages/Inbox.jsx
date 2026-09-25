@@ -715,7 +715,7 @@ function SearchBar({ value, onChange, filter, setFilter, totalUnread, unreadOnly
       )}
       <div style={{ position: 'relative' }}>
         <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)', pointerEvents: 'none' }} />
-        <input value={value} onChange={e => onChange(e.target.value)}
+        <input id="vh-busca-conversas" value={value} onChange={e => onChange(e.target.value)}
           placeholder="Nome, número, trecho de mensagem ou documento…"
           style={{ width: '100%', padding: '7px 30px 7px 27px', border: '1.5px solid var(--border)', borderRadius: 8, outline: 'none', fontSize: 12.5, background: 'var(--bg)', color: 'var(--txt)' }}
           onFocus={e => e.target.style.borderColor = 'var(--tq)'} onBlur={e => e.target.style.borderColor = 'var(--border)'} />
@@ -1054,6 +1054,22 @@ export default function Inbox({ onUnreadChange }) {
   /* A lista recolhida fica guardada no aparelho, igual ao menu (25/09) */
   const [listCollapsed, setListCollapsed] = useState(() => { try { return localStorage.getItem('vh_lista_min') === '1'; } catch { return false; } });
   useEffect(() => { try { localStorage.setItem('vh_lista_min', listCollapsed ? '1' : '0'); } catch { /* ok */ } }, [listCollapsed]);
+  /* 💬 PESQUISA CONVERSAS (botão roxo do menu, 25/09): chega aqui com
+     ?buscar=1 ou pelo evento, abre a lista se estiver recolhida e põe o
+     cursor na busca de conversas (nome, número ou trecho de mensagem). */
+  useEffect(() => {
+    const focar = () => {
+      setListCollapsed(false);
+      setTimeout(() => { const el = document.getElementById('vh-busca-conversas'); if (el) { el.focus(); el.select?.(); } }, 120);
+    };
+    window.addEventListener('vh-focar-busca-conversas', focar);
+    if (new URLSearchParams(window.location.search).get('buscar') === '1') {
+      focar();
+      const p = new URLSearchParams(window.location.search); p.delete('buscar');
+      window.history.replaceState(null, '', window.location.pathname + (p.toString() ? `?${p}` : ''));
+    }
+    return () => window.removeEventListener('vh-focar-busca-conversas', focar);
+  }, []);
   const [chatEquipe, setChatEquipe] = useState(false);   // 💬 chat da equipe: false | 'lateral' | 'gaveta'
   const [sel, setSel]                     = useState(null);
   const [msgs, setMsgs]                   = useState([]);

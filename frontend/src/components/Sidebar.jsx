@@ -776,14 +776,24 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                 menu, abaixo do cartão do dia, e sumiam da vista. Agora são as
                 duas primeiras coisas depois do nome, grandes e coloridas. */}
             <div style={{ display:'flex', flexDirection:'column', gap:7, marginTop:10 }}>
+              {/* Duas buscas, duas cores (ordem do master, 25/09: "Pesquisa Geral e
+                  Pesquisa Conversas, em evidência, maior tamanho e cores diferentes") */}
               <button onClick={() => window.dispatchEvent(new CustomEvent('vh-abrir-busca', { detail: { q: '' } }))}
-                title="Pesquisar cliente, telefone, mensagem ou tela (Ctrl+K)"
-                style={{ display:'flex', alignItems:'center', gap:9, width:'100%', padding:'11px 12px', borderRadius:12, cursor:'pointer',
-                  border:'1.5px solid rgba(255,255,255,.55)', color:'#0f172a', fontSize:13.5, fontWeight:900, textAlign:'left',
-                  background:'linear-gradient(135deg,#fde68a,#fbbf24)', boxShadow:'0 4px 14px rgba(251,191,36,.35)' }}>
-                <Search size={16} />
-                <span style={{ flex:1 }}>Pesquisa geral</span>
+                title="Pesquisa Geral: cliente, telefone, código, palavras e telas do sistema (Ctrl+K)"
+                style={{ display:'flex', alignItems:'center', gap:10, width:'100%', padding:'13px 14px', borderRadius:13, cursor:'pointer',
+                  border:'1.5px solid rgba(255,255,255,.6)', color:'#0f172a', fontSize:15, fontWeight:900, textAlign:'left',
+                  background:'linear-gradient(135deg,#fde68a,#f59e0b)', boxShadow:'0 4px 16px rgba(245,158,11,.4)' }}>
+                <Search size={18} />
+                <span style={{ flex:1 }}>Pesquisa Geral</span>
                 <span style={{ fontSize:9.5, fontWeight:900, border:'1px solid rgba(15,23,42,.35)', borderRadius:6, padding:'1px 6px' }}>Ctrl+K</span>
+              </button>
+              <button onClick={() => { navegar('/inbox?buscar=1'); setTimeout(() => window.dispatchEvent(new CustomEvent('vh-focar-busca-conversas')), 350); }}
+                title="Pesquisa Conversas: abre o chat com o cursor na busca (nome, número ou trecho de mensagem)"
+                style={{ display:'flex', alignItems:'center', gap:10, width:'100%', padding:'13px 14px', borderRadius:13, cursor:'pointer',
+                  border:'1.5px solid rgba(255,255,255,.6)', color:'#fff', fontSize:15, fontWeight:900, textAlign:'left',
+                  background:'linear-gradient(135deg,#8b5cf6,#c026d3)', boxShadow:'0 4px 16px rgba(139,92,246,.45)' }}>
+                <MessageSquare size={18} />
+                <span style={{ flex:1 }}>Pesquisa Conversas</span>
               </button>
               <BotaoChatEquipe api={api} user={user} onAbrir={() => window.dispatchEvent(new CustomEvent('vh-abrir-chat-equipe'))} />
             </div>
