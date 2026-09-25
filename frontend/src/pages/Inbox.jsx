@@ -435,16 +435,19 @@ function ColunaGeral({ api, sinal, selectedId, onSelect, usersById, fixadasIds, 
         borderRight: '1px solid var(--border)', outline: soltando ? '2px dashed var(--tq)' : 'none', outlineOffset: -4 }}>
       <div style={{ padding: '12px 12px 10px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-          <h2 style={{ fontSize: 16, fontWeight: 800, flex: 1 }}>🏥 Atendimento Geral</h2>
-          <span style={{ background: 'var(--bg2)', borderRadius: 20, padding: '1px 9px', fontSize: 11.5, fontWeight: 800 }}>{total}</span>
+          {/* ◀ Minimizar vem PRIMEIRO (25/09): na coluna estreita o título
+              empurrava o botão pra fora da tela e ele "sumia". */}
+          {onAlternar && (
+            <button onClick={onAlternar} title="Minimizar o Atendimento Geral (mais espaço pro chat)"
+              style={{ flexShrink: 0, border: '1.5px solid var(--tq)', background: 'var(--card,#fff)', borderRadius: 8, cursor: 'pointer',
+                color: 'var(--tq2,#0891b2)', fontWeight: 900, fontSize: 12, padding: '3px 8px' }}>◀</button>
+          )}
+          <h2 style={{ fontSize: 16, fontWeight: 800, flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>🏥 Atendimento Geral</h2>
+          <span style={{ flexShrink: 0, background: 'var(--bg2)', borderRadius: 20, padding: '1px 9px', fontSize: 11.5, fontWeight: 800 }}>{total}</span>
           <button onClick={carregar} title="Atualizar a fila" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 3 }}>
             <RefreshCw size={14} />
           </button>
-          {onAlternar && (
-            <button onClick={onAlternar} title="Minimizar o Atendimento Geral (mais espaço pro chat)"
-              style={{ border: '1px solid var(--border)', background: 'var(--card,#fff)', borderRadius: 8, cursor: 'pointer',
-                color: 'var(--tq2,#0891b2)', fontWeight: 900, fontSize: 12, padding: '2px 8px' }}>◀</button>
-          )}
+
         </div>
         <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 7 }}>Fila da equipe, sem dona. Toque em → Carteira ou arraste pra direita.</div>
         <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar na fila…"
