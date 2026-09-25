@@ -770,33 +770,6 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                 frase dourada é a única com cor própria (é o destaque); e as
                 metas são duas linhas varridas num olhar, com a barra por
                 último. Menos moldura, mais leitura. */}
-            {/* 🔎💬 PESQUISA GERAL E CHAT DA EQUIPE NO TOPO DO MENU (25/09, ordem do
-                master: "quero que de alguma forma o menu de pesquisa fique em
-                maior evidência e o chat com a equipe"). Moravam no meio do
-                menu, abaixo do cartão do dia, e sumiam da vista. Agora são as
-                duas primeiras coisas depois do nome, grandes e coloridas. */}
-            <div style={{ display:'flex', flexDirection:'column', gap:7, marginTop:10 }}>
-              {/* Duas buscas, duas cores (ordem do master, 25/09: "Pesquisa Geral e
-                  Pesquisa Conversas, em evidência, maior tamanho e cores diferentes") */}
-              <button onClick={() => window.dispatchEvent(new CustomEvent('vh-abrir-busca', { detail: { q: '' } }))}
-                title="Pesquisa Geral: cliente, telefone, código, palavras e telas do sistema (Ctrl+K)"
-                style={{ display:'flex', alignItems:'center', gap:10, width:'100%', padding:'13px 14px', borderRadius:13, cursor:'pointer',
-                  border:'1.5px solid rgba(255,255,255,.6)', color:'#0f172a', fontSize:15, fontWeight:900, textAlign:'left',
-                  background:'linear-gradient(135deg,#fde68a,#f59e0b)', boxShadow:'0 4px 16px rgba(245,158,11,.4)' }}>
-                <Search size={18} />
-                <span style={{ flex:1 }}>Pesquisa Geral</span>
-                <span style={{ fontSize:9.5, fontWeight:900, border:'1px solid rgba(15,23,42,.35)', borderRadius:6, padding:'1px 6px' }}>Ctrl+K</span>
-              </button>
-              <button onClick={() => { navegar('/inbox?buscar=1'); setTimeout(() => window.dispatchEvent(new CustomEvent('vh-focar-busca-conversas')), 350); }}
-                title="Pesquisa Conversas: abre o chat com o cursor na busca (nome, número ou trecho de mensagem)"
-                style={{ display:'flex', alignItems:'center', gap:10, width:'100%', padding:'13px 14px', borderRadius:13, cursor:'pointer',
-                  border:'1.5px solid rgba(255,255,255,.6)', color:'#fff', fontSize:15, fontWeight:900, textAlign:'left',
-                  background:'linear-gradient(135deg,#8b5cf6,#c026d3)', boxShadow:'0 4px 16px rgba(139,92,246,.45)' }}>
-                <MessageSquare size={18} />
-                <span style={{ flex:1 }}>Pesquisa Conversas</span>
-              </button>
-              <BotaoChatEquipe api={api} user={user} onAbrir={() => window.dispatchEvent(new CustomEvent('vh-abrir-chat-equipe'))} />
-            </div>
             {/* Linha fina: só o que precisa estar sempre à vista */}
             <button onClick={alternarPerfil}
               title={perfilAberto ? 'Recolher meu dia' : 'Ver meu dia: versículo, frase e metas'}
@@ -997,6 +970,40 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
               fontWeight:700, fontSize:11.5, display:'flex', alignItems:'center', justifyContent:'center', gap:7 }}>
             <Users size={13} /> {trocaOpen ? 'Fechar' : 'Entrar como…'}
           </button>
+        )}
+
+        {/* 🔎💬 PESQUISA GERAL, PESQUISA CONVERSAS E CHAT DA EQUIPE DEPOIS DE TODA A PARTE
+                DE CIMA (foto, bom dia, ícones, Entrar como), logo antes do MENU (25/09,
+                ordem do master: "quero abaixo do bom dia... abaixo do menu principal onde
+                tem a foto, abaixo deles").
+                Nasceram no topo do menu, na mesma data (ordem do
+                master: "quero que de alguma forma o menu de pesquisa fique em
+                maior evidência e o chat com a equipe"). Moravam no meio do
+                menu e sumiam da vista; grandes e coloridas, ficam agora entre o
+                cartão do dia e o menu. */}
+        {!collapsed && (
+            <div style={{ display:'flex', flexDirection:'column', gap:7, marginTop:10 }}>
+              {/* Duas buscas, duas cores (ordem do master, 25/09: "Pesquisa Geral e
+                  Pesquisa Conversas, em evidência, maior tamanho e cores diferentes") */}
+              <button onClick={() => window.dispatchEvent(new CustomEvent('vh-abrir-busca', { detail: { q: '' } }))}
+                title="Pesquisa Geral: cliente, telefone, código, palavras e telas do sistema (Ctrl+K)"
+                style={{ display:'flex', alignItems:'center', gap:10, width:'100%', padding:'13px 14px', borderRadius:13, cursor:'pointer',
+                  border:'1.5px solid rgba(255,255,255,.6)', color:'#0f172a', fontSize:15, fontWeight:900, textAlign:'left',
+                  background:'linear-gradient(135deg,#fde68a,#f59e0b)', boxShadow:'0 4px 16px rgba(245,158,11,.4)' }}>
+                <Search size={18} />
+                <span style={{ flex:1 }}>Pesquisa Geral</span>
+                <span style={{ fontSize:9.5, fontWeight:900, border:'1px solid rgba(15,23,42,.35)', borderRadius:6, padding:'1px 6px' }}>Ctrl+K</span>
+              </button>
+              <button onClick={() => { navegar('/inbox?buscar=1'); setTimeout(() => window.dispatchEvent(new CustomEvent('vh-focar-busca-conversas')), 350); }}
+                title="Pesquisa Conversas: abre o chat com o cursor na busca (nome, número ou trecho de mensagem)"
+                style={{ display:'flex', alignItems:'center', gap:10, width:'100%', padding:'13px 14px', borderRadius:13, cursor:'pointer',
+                  border:'1.5px solid rgba(255,255,255,.6)', color:'#fff', fontSize:15, fontWeight:900, textAlign:'left',
+                  background:'linear-gradient(135deg,#8b5cf6,#c026d3)', boxShadow:'0 4px 16px rgba(139,92,246,.45)' }}>
+                <MessageSquare size={18} />
+                <span style={{ flex:1 }}>Pesquisa Conversas</span>
+              </button>
+              <BotaoChatEquipe api={api} user={user} onAbrir={() => window.dispatchEvent(new CustomEvent('vh-abrir-chat-equipe'))} />
+            </div>
         )}
 
       </div>
