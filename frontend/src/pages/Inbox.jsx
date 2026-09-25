@@ -367,6 +367,66 @@ function FilaDistribuicao({ convos, equipe, onSelect, onDistribuir, entregando, 
   );
 }
 
+/* 🏥 COLUNA DO ATENDIMENTO GERAL (ordem do master, 25/09: "quero duas
+   colunas dessa, uma ao lado da outra; Minha carteira do lado direito,
+   próximo ao chat, e do lado esquerdo Atendimento Geral").
+   Coluna própria, com a sua carga: a fila da equipe sem dona (o mesmo
+   ?semDono=true das abas), atualizada a cada 20 s e na hora em que alguém
+   move uma conversa. Cada conversa tem o → Carteira, e dá pra arrastar de uma
+   coluna pra outra. */
+function ColunaGeral({ api, sinal, selectedId, onSelect, usersById, fixadasIds, onToggleFix, onMover }) {
+  const [lista, setLista] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [busca, setBusca] = useState('');
+  const [soltando, setSoltando] = useState(false);
+  const carregar = useCallback(() => {
+    const q = new URLSearchParams({ page: 1, limit: 300, semDono: 'true' });
+    if (busca.trim()) q.set('search', busca.trim());
+    api.get(`/inbox/conversations?${q}`).then(d => {
+      const l = (d?.data || []).filter(c => !c.responsavel_id);
+      setLista(l); setTotal(d?.total ?? l.length);
+    }).catch(() => {});
+  }, [api, busca]);
+  useEffect(() => { carregar(); return aoVivo(carregar, 20000); }, [carregar, sinal]);
+  const mover = useMemo(() => ({ rotulo: '→ Carteira', titulo: 'Mover esta conversa para a sua carteira',
+    acao: (c) => { setLista(prev => prev.filter(x => x.id !== c.id)); onMover(c, 'minha'); } }), [onMover]);
+  return (
+    <div className="vh-coluna-geral"
+      onDragOver={e => { e.preventDefault(); if (!soltando) setSoltando(true); }}
+      onDragLeave={() => setSoltando(false)}
+      onDrop={e => { e.preventDefault(); setSoltando(false); const id = e.dataTransfer.getData('text/vh-conv');
+        if (id && !lista.some(c => c.id === id)) onMover(id, 'geral'); }}
+      style={{ width: 360, flexShrink: 0, display: 'flex', flexDirection: 'column', background: 'var(--card,#fff)',
+        borderRight: '1px solid var(--border)', outline: soltando ? '2px dashed var(--tq)' : 'none', outlineOffset: -4 }}>
+      <div style={{ padding: '12px 12px 10px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <h2 style={{ fontSize: 16, fontWeight: 800, flex: 1 }}>🏥 Atendimento Geral</h2>
+          <span style={{ background: 'var(--bg2)', borderRadius: 20, padding: '1px 9px', fontSize: 11.5, fontWeight: 800 }}>{total}</span>
+          <button onClick={carregar} title="Atualizar a fila" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 3 }}>
+            <RefreshCw size={14} />
+          </button>
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 7 }}>Fila da equipe, sem dona. Toque em → Carteira ou arraste pra direita.</div>
+        <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar na fila…"
+          style={{ width: '100%', padding: '6px 10px', border: '1.5px solid var(--border)', borderRadius: 8, outline: 'none', fontSize: 12.5, background: 'var(--bg)', color: 'var(--txt)' }} />
+      </div>
+      <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
+        <VirtualList items={lista} selectedId={selectedId} onSelect={onSelect} usersById={usersById}
+          containerHeight={500} loadMore={() => {}} hasMore={false} loadingMore={false}
+          fixadasIds={fixadasIds} onToggleFix={onToggleFix} mover={mover} />
+        {!lista.length && (
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            gap: 8, padding: 24, textAlign: 'center', color: 'var(--muted)', pointerEvents: 'none' }}>
+            <span style={{ fontSize: 30 }}>🎉</span>
+            <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--txt2)' }}>Atendimento Geral em dia</div>
+            <div style={{ fontSize: 11.5 }}>Nenhum cliente sem dona agora.</div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect, usersById, fixada, onToggleFix, mover }) {
   /* 📌 A fixada se reconhece de longe pela borda dourada — é o que diz "seu
      clique funcionou" nas listas que não têm a faixa em cima. */
@@ -2574,6 +2634,27 @@ export default function Inbox({ onUnreadChange }) {
      dela; pro geral = volta pra fila da equipe sem dona (a marca de quem
      transferiu zera, regra de 04/09). Quem tem carteira fechada não tem a fila. */
   const abasCarteira = !!user && !carteiraFechada(user);
+  /* 🏥💼 DUAS COLUNAS (25/09): em tela larga, o Atendimento Geral vira uma
+     coluna à esquerda e a lista principal é a Minha carteira, colada no chat.
+     Em tela estreita (notebook pequeno, celular, tablet) ficam as duas abas:
+     abaixo de 1450 px as duas colunas espremeriam o chat. */
+  const [telaLarga, setTelaLarga] = useState(() => typeof window !== 'undefined' && window.innerWidth >= 1450);
+  useEffect(() => {
+    const medir = () => setTelaLarga(window.innerWidth >= 1450);
+    window.addEventListener('resize', medir);
+    return () => window.removeEventListener('resize', medir);
+  }, []);
+  const duasColunas = abasCarteira && telaLarga;
+  const [sinalGeral, setSinalGeral] = useState(0);   // move = a coluna do Geral recarrega na hora
+  const abriuDuasColunas = useRef(false);
+  useEffect(() => {
+    // Na primeira vez com as duas colunas, a lista da direita abre na carteira
+    if (duasColunas && !abriuDuasColunas.current) {
+      abriuDuasColunas.current = true;
+      if (modo === 'geral' || modo === 'todas') setModo('minhas');
+    }
+    if (duasColunas && modo === 'geral') setModo('minhas');   // o Geral já está na coluna ao lado
+  }, [duasColunas, modo]); // eslint-disable-line
   const moverConversa = useCallback(async (convOuId, destino) => {
     const id = typeof convOuId === 'string' ? convOuId : convOuId?.id;
     if (!id || !user?.id) return;
@@ -2587,8 +2668,10 @@ export default function Inbox({ onUnreadChange }) {
         geral: Math.max(0, (prev.geral ?? 0) + (paraMim ? -1 : 1)),
       } : prev);
       Toast.show(paraMim ? 'Conversa movida para 💼 Minha carteira' : 'Conversa devolvida para 🏥 Atendimento Geral', 'success');
+      setSinalGeral(n => n + 1);
+      if (paraMim) loadConvos();   // veio da outra coluna: a carteira precisa buscar a conversa
     } catch (e) { Toast.show(e.message || 'Não foi possível mover a conversa', 'error'); }
-  }, [user?.id]); // eslint-disable-line
+  }, [user?.id, loadConvos]); // eslint-disable-line
   const moverDaLista = useMemo(() => {
     if (!abasCarteira) return null;
     if (modo === 'geral') return { rotulo: '→ Carteira', titulo: 'Mover esta conversa para a sua carteira', acao: (c) => moverConversa(c, 'minha') };
@@ -2639,13 +2722,22 @@ export default function Inbox({ onUnreadChange }) {
   /* ─────────────────── RENDER ──────────────────────────────────────────────── */
   return (
     <div className="vh-inbox-wrap" style={{ display:'flex', height:'100vh', overflow:'hidden' }}
-      onMouseMove={e => { if (resizing.current) { const w=Math.min(620,Math.max(260,e.clientX-230)); setListWidth(w); } }}
+      onMouseMove={e => { if (resizing.current) { const w=Math.min(620,Math.max(260,e.clientX-230-(duasColunas && !listCollapsed ? 360 : 0))); setListWidth(w); } }}
       onMouseUp={() => { if (resizing.current) { try { localStorage.setItem('vh_lista_largura', String(listWidth)); } catch { /* ok */ } }
         resizing.current=false; document.body.style.cursor=''; }}
       onMouseLeave={() => { resizing.current=false; document.body.style.cursor=''; }}>
 
+      {/* ── 🏥 ATENDIMENTO GERAL (coluna da esquerda, tela larga) ──────────── */}
+      {duasColunas && !listCollapsed && (
+        <ColunaGeral api={api} sinal={sinalGeral} selectedId={sel?.id} onSelect={openConvo} usersById={usersById}
+          fixadasIds={fixadasIds} onToggleFix={toggleFix} onMover={moverConversa} />
+      )}
+
       {/* ── LISTA DE CONVERSAS ─────────────────────────────────────────────── */}
       <div className={`vh-inbox-list${sel ? ' hidden' : ''}`}
+        onDragOver={duasColunas && modo === 'minhas' ? (e => e.preventDefault()) : undefined}
+        onDrop={duasColunas && modo === 'minhas' ? (e => { e.preventDefault(); const id = e.dataTransfer.getData('text/vh-conv');
+          if (id && !convos.some(c => c.id === id && String(c.responsavel_id || '') === String(user?.id || ''))) moverConversa(id, 'minha'); }) : undefined}
         style={{ width:listCollapsed?0:listWidth, flexShrink:0, background:'var(--card,#fff)',
         display:'flex', flexDirection:'column', borderRight:'1px solid var(--border)',
         overflow:'hidden', transition:'width .2s ease',
@@ -2655,7 +2747,7 @@ export default function Inbox({ onUnreadChange }) {
         <div style={{ padding:'12px 12px 0', flexShrink:0, borderBottom:'1px solid var(--border)' }}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
             <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-              <h2 style={{ fontSize:17, fontWeight:700 }}>{user?.setor ? ({vacinas:'Vacinas',consultas:'Consultas',terapias:'Terapias'}[user.setor] || 'Conversas') : 'Conversas'}</h2>
+              <h2 style={{ fontSize:17, fontWeight:700 }}>{duasColunas && modo === 'minhas' ? '💼 Minha carteira' : user?.setor ? ({vacinas:'Vacinas',consultas:'Consultas',terapias:'Terapias'}[user.setor] || 'Conversas') : 'Conversas'}</h2>
               {totalUnread>0 && <span style={{ background:'var(--tq)', color:'#fff', borderRadius:10, padding:'1px 7px', fontSize:10.5, fontWeight:800, boxShadow:'0 2px 6px rgba(0,184,192,.3)' }}>{totalUnread>99?'99+':totalUnread}</span>}
             </div>
             <div style={{ display:'flex', gap:3, alignItems:'center' }}>
@@ -2680,7 +2772,7 @@ export default function Inbox({ onUnreadChange }) {
           waiting={waiting} setWaiting={setWaiting}
           setor={setorFiltro} setSetor={setSetorFiltro} mostraSetores={user?.role !== 'atendente'}
           semGrupos={carteiraFechada(user)}
-          abasCarteira={abasCarteira} onSoltar={moverConversa}
+          abasCarteira={abasCarteira && !duasColunas} onSoltar={moverConversa}
           /* 💎 O botão dos planos é da Danielle (e do master, que entra como ela) */
           mostraPlanos={user?.role === 'master' || /(^|[^a-z])danielle/i.test(String(user?.nome || '').normalize('NFD').replace(/[\u0300-\u036f]/g, ''))}
           planosAtivo={clsFiltro}
