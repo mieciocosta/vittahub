@@ -15,6 +15,7 @@ import { htmlParaPDF } from '../services/pdf.js';
 import { pareceMensagemDeTeste, pareceArquivoDeTeste, avisarTesteBloqueado } from '../services/freio.js';
 import { pacienteVittaMedLocal } from './vittamed.js';
 import { cartaoAgendamento, mensagemEndereco } from '../services/cartaoAgenda.js';
+import { horariosLivres, textoHorariosParaIA, conferirHorario } from '../services/horariosLivres.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const r = express.Router();
@@ -2753,33 +2754,32 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
     }
   } catch { /* contexto é bônus */ }
 
-  /* 📆 JANELAS REAIS DOS PROFISSIONAIS no prompt + ferramenta pre_agendar:
-     a IA fecha o horário NA CONVERSA (último elo do funil sem fricção).
-     Antecedência mínima de 2 dias (regra do master). */
+  /* 📆 HORÁRIOS LIVRES DE VERDADE + COMO AGENDAR (ordem do master, 25/09:
+     "quero que a IA seja inteligente para agendar consultas e terapias").
+     Antes: só a janela semanal dos profissionais DO SETOR DA CONVERSA, sem
+     saber o que já estava ocupado. Agora: horários de 1h de TODOS os
+     profissionais de consultas e terapias, já descontando a agenda do
+     VittaHub e a do VittaMed, e o passo a passo de agendar. */
   if (ehConsulta) try {
-    const setorProf = conv.setor === 'terapias' ? 'terapias' : 'consultas';
-    const { rows: profsJ } = await query(`SELECT nome, especialidade, disponibilidade FROM profissionais
-      WHERE ativo = true AND COALESCE(setor,'consultas') = $1 ORDER BY nome LIMIT 8`, [setorProf]);
-    if (profsJ.length) {
-      const DIAS_K = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab'];
-      const ROTULO_D = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
-      const linhasJ = [];
-      for (const pj of profsJ) {
-        const janelas = [];
-        for (let d = 2; d <= 9 && janelas.length < 4; d++) {   // D+2 até D+9
-          const dt = new Date(Date.now() - 3 * 3600 * 1000 + d * 86400000);
-          const disp = pj.disponibilidade?.[DIAS_K[dt.getUTCDay()]];
-          if (disp?.inicio && disp?.fim) {
-            janelas.push(`${ROTULO_D[dt.getUTCDay()]} ${String(dt.getUTCDate()).padStart(2, '0')}/${String(dt.getUTCMonth() + 1).padStart(2, '0')} (${dt.toISOString().slice(0, 10)}) ${disp.inicio}–${disp.fim}`);
-          }
-        }
-        if (janelas.length) linhasJ.push(`• ${pj.nome}${pj.especialidade ? ` — ${pj.especialidade}` : ''}: ${janelas.join(' · ')}`);
-      }
-      if (linhasJ.length) {
-        sysPrompt += `\n\n📆 JANELAS REAIS DOS PROFISSIONAIS (próximos dias, já respeitando os 2 dias de antecedência — ofereça a alternativa dupla A PARTIR DAQUI e use a ferramenta pre_agendar quando o cliente escolher dia e hora; sessões/consultas duram ~1h, dentro da janela):\n${linhasJ.join('\n')}`;
-      }
+    const hl = await horariosLivres({ diasMin: 2, diasAte: 12 });
+    const txtHl = textoHorariosParaIA(hl, { maxDias: 6, maxHorasDia: 6 });
+    if (txtHl) {
+      const avisoVm = !hl.vittamed.ligado ? '\n(A agenda do VittaMed não está ligada: o horário escolhido entra como pré-agendamento e a equipe confirma.)'
+        : !hl.vittamed.ok ? '\n(O VittaMed não respondeu agora: o horário escolhido entra como pré-agendamento e a equipe confirma.)' : '';
+      sysPrompt += `\n\n📆 HORÁRIOS LIVRES DE VERDADE (já descontados os atendimentos marcados no VittaHub e no VittaMed; cada horário é de 1 hora; a partir de 2 dias pra frente):\n${txtHl}${avisoVm}
+
+🗓️ COMO AGENDAR COM INTELIGÊNCIA (consultas e terapias):
+1. PROFISSIONAL CERTO PRA NECESSIDADE: depois de entender a queixa, escolha pela ESPECIALIDADE da lista acima (ex.: fala → fonoaudiologia; comportamento, atraso, suspeita de TEA ou TDAH → a especialidade da lista que atende isso; rotina, febre, puericultura → pediatria). Nunca ofereça especialidade ou profissional que não está na lista. Havendo mais de um da mesma especialidade, prefira quem tem o horário mais cedo.
+2. SÓ HORÁRIOS DA LISTA: nunca invente, arredonde ou "encaixe" horário. Se o cliente pedir um que não está na lista, diga com carinho que esse já está preenchido e ofereça os mais próximos.
+3. DUAS OPÇÕES CONCRETAS: ofereça dia + hora + profissional, de preferência uma de manhã e outra à tarde, ou as duas no turno que o cliente pediu. Ex.: "Tenho a Dra. X na terça 30/09 às 9h ou na quinta 02/10 às 15h. Qual fica melhor?"
+4. NOME DO PACIENTE ANTES DE RESERVAR: se ainda não sabe o nome da criança/paciente, pergunte junto das opções.
+5. ESCOLHEU, RESERVOU: assim que o cliente escolher um dos horários, chame pre_agendar NA MESMA RESPOSTA com profissional, data (AAAA-MM-DD), hora e serviço exatamente como estão na lista. Não peça confirmação de novo e não escreva a confirmação: o cartão oficial sai sozinho.
+6. TERAPIAS: o primeiro passo é a primeira sessão ou avaliação que estiver na tabela; se a família quiser regularidade, proponha o MESMO dia e hora nas próximas semanas (a equipe confirma a recorrência).
+7. NADA SERVIU: ofereça os próximos horários da lista; se o cliente pedir uma data além da lista ou um profissional que não aparece, diga que a equipe confirma e acione passar_para_equipe com o pedido exato.`;
+    } else {
+      sysPrompt += '\n\n📆 AGENDA: nenhum profissional de consultas ou terapias com horário cadastrado. Não ofereça dia nem hora; quando o cliente quiser agendar, acione passar_para_equipe.';
     }
-  } catch (e) { console.error('janelas no prompt:', e.message); }
+  } catch (e) { console.error('horarios livres no prompt:', e.message); }
 
   /* 🗺️ PROTOCOLO VITTALIS EM 7 ETAPAS no prompt (pedido do master): a Vitta
        recebe o trilho de venda E onde esta conversa está agora — versão leve
@@ -2841,7 +2841,7 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
     },
   }, {
     name: 'pre_agendar',
-    description: 'PRÉ-AGENDA o horário que o cliente escolheu: cria a reserva na Agenda, avisa a equipe e envia AUTOMATICAMENTE ao cliente o cartão de confirmação no formato oficial da casa (não escreva você outra confirmação — só complete os campos local e tratamento). Use SOMENTE depois que o cliente escolheu dia e horário dentro das JANELAS REAIS informadas. Nunca para hoje nem amanhã (mínimo 2 dias).',
+    description: 'PRÉ-AGENDA o horário que o cliente escolheu: confere se ainda está livre (VittaHub e VittaMed), cria a reserva na Agenda, avisa a equipe e envia AUTOMATICAMENTE ao cliente o cartão de confirmação no formato oficial da casa (não escreva você outra confirmação — só complete os campos local e tratamento). Use SOMENTE depois que o cliente escolheu um dos HORÁRIOS LIVRES DE VERDADE informados, com o profissional e a hora exatamente como na lista. Se o horário tiver sido preenchido nesse meio tempo, o sistema responde sozinho oferecendo as duas opções mais próximas. Nunca para hoje nem amanhã (mínimo 2 dias).',
     input_schema: {
       type: 'object',
       properties: {
@@ -2961,21 +2961,40 @@ O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesta):
       if (!/^\d{4}-\d{2}-\d{2}$/.test(dataA) || !/^\d{2}:\d{2}$/.test(horaA) || dataA < minA) {
         console.log(`VITTA conv=${convId}: pre_agendar rejeitado (data/hora inválida ou sem os 2 dias): ${dataA} ${horaA}`);
       } else {
-        // Choque: mesmo profissional, mesma data e hora já ocupados
-        const { rows: [choque] } = await query(`SELECT 1 FROM agenda_eventos
-          WHERE data = $1 AND hora = $2 AND LOWER(COALESCE(profissional,'')) = LOWER($3)
-            AND LOWER(COALESCE(status,'')) NOT LIKE 'cancel%'
-            AND servico IS DISTINCT FROM 'Pós Vacinal' LIMIT 1`,
-          [dataA, horaA, String(inA.profissional || '')]).catch(() => ({ rows: [] }));
+        /* 🔒 Confere o horário na agenda REAL (VittaHub + VittaMed, com folga
+           de 1h e dentro da janela do profissional) antes de reservar (25/09).
+           Consulta ou terapia sem profissional: escolhe pela especialidade. */
+        let choque = null, profCerto = null;
+        if (ehConsulta) {
+          const conf = await conferirHorario({ profissional: inA.profissional, especialidade: inA.especialidade, data: dataA, hora: horaA }).catch(() => null);
+          if (conf && !conf.livre && (conf.prof || conf.alternativas.length)) {
+            choque = conf;
+          } else if (conf?.prof) {
+            profCerto = conf.prof;
+            if (!inA.profissional) inA.profissional = conf.prof.nome;
+            if (!inA.especialidade && conf.prof.especialidade) inA.especialidade = conf.prof.especialidade;
+          }
+        } else {
+          const { rows: [c0] } = await query(`SELECT 1 FROM agenda_eventos
+            WHERE data = $1 AND hora = $2 AND LOWER(COALESCE(profissional,'')) = LOWER($3)
+              AND LOWER(COALESCE(status,'')) NOT LIKE 'cancel%'
+              AND servico IS DISTINCT FROM 'Pós Vacinal' LIMIT 1`,
+            [dataA, horaA, String(inA.profissional || '')]).catch(() => ({ rows: [] }));
+          if (c0) choque = { alternativas: [] };
+        }
         if (choque) {
-          if (!botReply) botReply = 'Esse horário acabou de ser preenchido! Já te trago outras opções, um instante 💙';
+          const alts = (choque.alternativas || []).map(a => `${a.rotulo}${a.profissional && !(choque.prof && a.profissional === choque.prof.nome) ? ` com ${a.profissional}` : ''}`);
+          botReply = alts.length
+            ? `Esse horário acabou de ser preenchido 😕 Mas tenho ${alts.length === 2 ? `${alts[0]} ou ${alts[1]}` : alts[0]}${choque.prof ? ` com ${choque.prof.nome}` : ''}. Qual fica melhor pra vocês? 💙`
+            : 'Esse horário acabou de ser preenchido! Já te trago outras opções, um instante 💙';
+          console.log(`VITTA conv=${convId}: pre_agendar recusado (ocupado ou fora da janela): ${dataA} ${horaA} ${inA.profissional || ''}`);
         } else {
           // 🧪 Em simulação, o cartão sai igualzinho mas NADA entra na agenda real
           if (!conv.simulacao) await query(`INSERT INTO agenda_eventos (paciente, responsavel_nome, servico, data, hora, profissional, telefone, observacoes, status, setor, responsavel_id, conversa_id)
             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'Agendado',$9,$10,$11)`,
             [String(inA.paciente || conv.contact_name || 'Paciente').slice(0, 80), String(conv.contact_name || '').slice(0, 80),
              String(inA.servico || 'Consulta').slice(0, 80), dataA, horaA, String(inA.profissional || '').slice(0, 80),
-             phoneNum, '🤖 Pré-agendado pela IA na conversa — confirmar com o cliente', conv.setor || 'consultas',
+             phoneNum, '🤖 Pré-agendado pela IA na conversa — confirmar com o cliente', profCerto?.setor || conv.setor || 'consultas',
              conv.responsavel_id || null, convId]);
           socketEmit('agenda_update', { convId });
           await query(`INSERT INTO notificacoes (tipo, titulo, texto, conv_id) VALUES ('agenda', $1, $2, $3)`,
