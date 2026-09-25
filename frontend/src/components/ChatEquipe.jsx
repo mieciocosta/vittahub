@@ -479,7 +479,11 @@ export function PainelChatEquipe({ api, user, onFechar, modo = 'lateral' }) {
   let diaAnterior = null;
   let anterior = null;
 
-  return (
+  /* A gaveta vai por PORTAL no body (25/09, print do master: "não mostra o
+     início, a barra de cima está cortada"). Ela nascia dentro da faixa do
+     topo, que é sticky com z-index 90: o z 1200 dela só valia lá dentro, e a
+     barra do "Ver como" (fora da faixa) cobria o cabeçalho do chat. */
+  const conteudo = (
     <>
       {gaveta && <div onClick={onFechar} style={{ position: 'fixed', inset: 0, zIndex: 1199, background: 'rgba(15,23,42,.35)' }} />}
     <div style={{ ...caixa, display: 'flex', flexDirection: 'column', background: 'var(--card,#fff)' }}>
@@ -672,4 +676,5 @@ export function PainelChatEquipe({ api, user, onFechar, modo = 'lateral' }) {
     </div>
     </>
   );
+  return gaveta ? createPortal(conteudo, document.body) : conteudo;
 }
