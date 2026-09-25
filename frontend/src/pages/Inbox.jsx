@@ -5,7 +5,7 @@ import {
   UserPlus, Hash, Bot, FileText, Volume2, File, Tag,
   Smile, PanelLeftClose, PanelLeftOpen, Play, ChevronUp, Loader2, Zap, Plus,
   CheckCircle2, Clock, MessageCircle, Phone, Image,
-  MailOpen, VolumeX, CalendarDays, Bell, Trash2, Sticker, MessageSquare, ChevronLeft, MapPin } from 'lucide-react';
+  MailOpen, VolumeX, CalendarDays, Bell, Trash2, Sticker, MessageSquare, ChevronLeft, ChevronRight, MapPin } from 'lucide-react';
 import { useApi, useAuth } from '../context/AuthContext.jsx';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { fmt, openWA, avatarGrad, carteiraFechada } from '../hooks/utils.js';
@@ -412,16 +412,26 @@ function ColunaGeral({ api, sinal, selectedId, onSelect, usersById, fixadasIds, 
         onDragOver={e => { e.preventDefault(); if (!soltando) setSoltando(true); }}
         onDragLeave={() => setSoltando(false)}
         onDrop={e => { e.preventDefault(); e.stopPropagation(); setSoltando(false); const id = e.dataTransfer.getData('text/vh-conv'); if (id) onMover(id, 'geral'); }}
-        style={{ width: 46, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '12px 0',
+        style={{ width: 46, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '12px 0 0',
           cursor: 'pointer', background: 'var(--card,#fff)', borderRight: '1px solid var(--border)',
           outline: soltando ? '2px dashed var(--tq)' : 'none', outlineOffset: -4 }}>
-        <span style={{ fontSize: 15, color: 'var(--tq2,#0891b2)', fontWeight: 900 }}>▶</span>
         {total > 0 && (
           <span style={{ background: 'var(--tq)', color: '#fff', borderRadius: 20, padding: '1px 7px', fontSize: 11, fontWeight: 900 }}>{total > 99 ? '99+' : total}</span>
         )}
         <span style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', fontSize: 13, fontWeight: 900, color: 'var(--txt2)', letterSpacing: .5 }}>
           🏥 Atendimento Geral
         </span>
+        <div style={{ flex: 1 }} />
+        {/* Igual ao menu (ordem do master, 25/09: "igual a do menu"): o › embaixo abre */}
+        <div style={{ width: '100%', padding: '10px 6px 14px', borderTop: '1px solid var(--border)' }}>
+          <button onClick={onAlternar} title="Abrir o Atendimento Geral"
+          onMouseEnter={e => { e.currentTarget.style.background = 'var(--tq)'; e.currentTarget.style.color = '#fff'; }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'var(--bg2)'; e.currentTarget.style.color = 'var(--txt2)'; }}
+          style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: 8, borderRadius: 8,
+            background: 'var(--bg2)', color: 'var(--txt2)', border: 'none', cursor: 'pointer', fontSize: 11.5, fontWeight: 700, transition: 'all .15s' }}>
+          <ChevronRight size={14} />
+        </button>
+        </div>
       </div>
     );
   }
@@ -466,6 +476,17 @@ function ColunaGeral({ api, sinal, selectedId, onSelect, usersById, fixadasIds, 
           </div>
         )}
       </div>
+      {onAlternar && (
+        <div style={{ padding: '10px 10px 14px', borderTop: '1px solid var(--border)', flexShrink: 0 }}>
+          <button onClick={onAlternar} title="Recolher o Atendimento Geral (mais espaço pro chat)"
+          onMouseEnter={e => { e.currentTarget.style.background = 'var(--tq)'; e.currentTarget.style.color = '#fff'; }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'var(--bg2)'; e.currentTarget.style.color = 'var(--txt2)'; }}
+          style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: 8, borderRadius: 8,
+            background: 'var(--bg2)', color: 'var(--txt2)', border: 'none', cursor: 'pointer', fontSize: 11.5, fontWeight: 700, transition: 'all .15s' }}>
+          <><ChevronLeft size={14} /><span>Recolher</span></>
+        </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -1026,7 +1047,9 @@ export default function Inbox({ onUnreadChange }) {
   const [quentesPrimeiro, setQuentesPrimeiro] = useState(false); // prioriza leads quentes
 
   // ── UI state ───────────────────────────────────────────────────────────────
-  const [listCollapsed, setListCollapsed] = useState(false);
+  /* A lista recolhida fica guardada no aparelho, igual ao menu (25/09) */
+  const [listCollapsed, setListCollapsed] = useState(() => { try { return localStorage.getItem('vh_lista_min') === '1'; } catch { return false; } });
+  useEffect(() => { try { localStorage.setItem('vh_lista_min', listCollapsed ? '1' : '0'); } catch { /* ok */ } }, [listCollapsed]);
   const [chatEquipe, setChatEquipe] = useState(false);   // 💬 chat da equipe: false | 'lateral' | 'gaveta'
   const [sel, setSel]                     = useState(null);
   const [msgs, setMsgs]                   = useState([]);
@@ -2800,19 +2823,47 @@ export default function Inbox({ onUnreadChange }) {
       onMouseLeave={() => { resizing.current=false; resizingGeral.current=false; document.body.style.cursor=''; }}>
 
       {/* ── 🏥 ATENDIMENTO GERAL (coluna da esquerda, tela larga) ──────────── */}
-      {duasColunas && !listCollapsed && (
+      {duasColunas && (
         <div ref={geralRef} style={{ display: 'flex', flexShrink: 0 }}>
           <ColunaGeral api={api} sinal={sinalGeral} selectedId={sel?.id} onSelect={openConvo} usersById={usersById}
             fixadasIds={fixadasIds} onToggleFix={toggleFix} onMover={moverConversa} largura={larguraGeral}
             minimizado={geralMinimizado} onAlternar={alternarGeral} />
         </div>
       )}
-      {duasColunas && !listCollapsed && !geralMinimizado && (
+      {duasColunas && !geralMinimizado && (
         <div onMouseDown={()=>{resizingGeral.current=true;document.body.style.cursor='col-resize';}}
           title="Arraste para deixar o Atendimento Geral mais largo ou mais estreito"
           style={{ width:6, flexShrink:0, cursor:'col-resize', background:'var(--border)', transition:'background .15s', zIndex:10 }}
           onMouseEnter={e=>e.currentTarget.style.background='var(--tq)'}
           onMouseLeave={e=>{if(!resizingGeral.current)e.currentTarget.style.background='var(--border)';}}/>
+      )}
+
+      {/* ▸ LISTA RECOLHIDA = TIRA FINA, IGUAL AO MENU (ordem do master, 25/09:
+          "igual a esse, quero que esteja em todas as colunas"). Antes a lista
+          sumia de vez (largura 0) e o caminho de volta ficava escondido. */}
+      {listCollapsed && (
+        <div className="vh-coluna-min" onClick={() => setListCollapsed(false)} title="Abrir a lista de conversas"
+          onDragOver={duasColunas ? (e => e.preventDefault()) : undefined}
+          onDrop={duasColunas ? (e => { e.preventDefault(); const id = e.dataTransfer.getData('text/vh-conv'); if (id) moverConversa(id, 'minha'); }) : undefined}
+          style={{ width: 46, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '12px 0 0',
+            cursor: 'pointer', background: 'var(--card,#fff)', borderRight: '1px solid var(--border)' }}>
+          {totalUnread > 0 && (
+            <span style={{ background: 'var(--tq)', color: '#fff', borderRadius: 20, padding: '1px 7px', fontSize: 11, fontWeight: 900 }}>{totalUnread > 99 ? '99+' : totalUnread}</span>
+          )}
+          <span style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', fontSize: 13, fontWeight: 900, color: 'var(--txt2)', letterSpacing: .5 }}>
+            {duasColunas && modo === 'minhas' ? '💼 Minha carteira' : '💬 Conversas'}
+          </span>
+          <div style={{ flex: 1 }} />
+          <div style={{ width: '100%', padding: '10px 6px 14px', borderTop: '1px solid var(--border)' }}>
+            <button onClick={(e) => { e.stopPropagation(); setListCollapsed(false); }} title="Abrir a lista de conversas"
+              onMouseEnter={e => { e.currentTarget.style.background = 'var(--tq)'; e.currentTarget.style.color = '#fff'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'var(--bg2)'; e.currentTarget.style.color = 'var(--txt2)'; }}
+              style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 8, borderRadius: 8,
+                background: 'var(--bg2)', color: 'var(--txt2)', border: 'none', cursor: 'pointer', transition: 'all .15s' }}>
+              <ChevronRight size={14} />
+            </button>
+          </div>
+        </div>
       )}
 
       {/* ── LISTA DE CONVERSAS ─────────────────────────────────────────────── */}
@@ -2988,6 +3039,16 @@ export default function Inbox({ onUnreadChange }) {
           <button onClick={()=>setSomAtivo(v=>!v)} title={somAtivo?'Som de notificação ligado':'Som de notificação desligado'}
             style={{ width:26, height:26, borderRadius:8, border:'1.5px solid var(--border)', background: somAtivo?'var(--tq3)':'var(--bg2)', color: somAtivo?'var(--tq2)':'var(--light)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
             {somAtivo ? <Volume2 size={13}/> : <VolumeX size={13}/>}
+          </button>
+        </div>
+        {/* ‹ Recolher embaixo, igual ao menu e ao Atendimento Geral (25/09) */}
+        <div className="vh-so-desktop" style={{ padding:'8px 10px 12px', borderTop:'1px solid var(--border)', flexShrink:0 }}>
+          <button onClick={() => setListCollapsed(true)} title="Recolher esta coluna (mais espaço pro chat)"
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--tq)'; e.currentTarget.style.color = '#fff'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'var(--bg2)'; e.currentTarget.style.color = 'var(--txt2)'; }}
+            style={{ width:'100%', display:'flex', alignItems:'center', justifyContent:'center', gap:6, padding:8, borderRadius:8,
+              background:'var(--bg2)', color:'var(--txt2)', border:'none', cursor:'pointer', fontSize:11.5, fontWeight:700, transition:'all .15s' }}>
+            <ChevronLeft size={14} /><span>Recolher</span>
           </button>
         </div>
       </div>

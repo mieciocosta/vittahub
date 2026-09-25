@@ -282,6 +282,9 @@ h1 { letter-spacing: -0.7px; }
 [data-theme="dark"] ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.65); border: 3px solid transparent; background-clip: padding-box; }
 [data-theme="dark"] * { scrollbar-color: rgba(255,255,255,.4) transparent; }
 
+/* ▸ Recolher coluna é coisa de tela larga: no celular a lista ocupa a tela toda */
+@media (max-width: 768px) { .vh-coluna-min, .vh-so-desktop { display: none !important; } }
+
 /* 🧭 ROLAGEM DAS LISTAS DE CONVERSA (25/09, ordem do master: "coloque isso
    melhorado na aba Minha carteira"). Barra sempre visível, mais larga, na cor
    da casa, com as setinhas de subir e descer. O scrollbar-color do * desliga
