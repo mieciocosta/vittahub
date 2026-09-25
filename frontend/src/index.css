@@ -281,6 +281,22 @@ h1 { letter-spacing: -0.7px; }
 [data-theme="dark"] ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.4); border: 3px solid transparent; background-clip: padding-box; }
 [data-theme="dark"] ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.65); border: 3px solid transparent; background-clip: padding-box; }
 [data-theme="dark"] * { scrollbar-color: rgba(255,255,255,.4) transparent; }
+
+/* 🧭 ROLAGEM DAS LISTAS DE CONVERSA (25/09, ordem do master: "coloque isso
+   melhorado na aba Minha carteira"). Barra sempre visível, mais larga, na cor
+   da casa, com as setinhas de subir e descer. O scrollbar-color do * desliga
+   o estilo -webkit no Chrome novo, então aqui ele volta pro auto. */
+.vh-rolagem-lista { overflow-y: scroll !important; scrollbar-color: auto !important; scrollbar-width: auto !important; }
+.vh-rolagem-lista::-webkit-scrollbar { width: 14px; }
+.vh-rolagem-lista::-webkit-scrollbar-track { background: var(--bg2, #f1f5f9); border-left: 1px solid var(--border, #e2e8f0); }
+.vh-rolagem-lista::-webkit-scrollbar-thumb { background: linear-gradient(180deg, #22d3ee, #0891b2); border-radius: 10px;
+  border: 3px solid var(--bg2, #f1f5f9); min-height: 48px; }
+.vh-rolagem-lista::-webkit-scrollbar-thumb:hover { background: linear-gradient(180deg, #06b6d4, #0e7490); }
+.vh-rolagem-lista::-webkit-scrollbar-button:single-button { display: block; height: 18px; background-color: var(--bg2, #f1f5f9);
+  background-repeat: no-repeat; background-position: center; background-size: 9px; border-left: 1px solid var(--border, #e2e8f0); }
+.vh-rolagem-lista::-webkit-scrollbar-button:single-button:vertical:decrement { background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'><path d='M5 2 L9 8 L1 8 Z' fill='%230891b2'/></svg>"); }
+.vh-rolagem-lista::-webkit-scrollbar-button:single-button:vertical:increment { background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'><path d='M1 2 L9 2 L5 8 Z' fill='%230891b2'/></svg>"); }
+.vh-rolagem-lista::-webkit-scrollbar-button:single-button:hover { background-color: var(--border, #e2e8f0); }
 [data-theme="dark"] .msg-date-pill { background: var(--bg2); color: var(--muted); }
 /* Badges de status: texto mais claro no escuro (o fundo pastel virou translúcido) */
 [data-theme="dark"] .b-novo    { color: #93c5fd; }

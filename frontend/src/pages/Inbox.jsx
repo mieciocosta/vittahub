@@ -158,7 +158,7 @@ function VirtualList({ items, selectedId, onSelect, containerHeight, loadMore, h
   }, [totalHeight, hasMore, loadingMore, loadMore]);
 
   return (
-    <div ref={scrollRef} onScroll={onScroll}
+    <div ref={scrollRef} onScroll={onScroll} className="vh-rolagem-lista"
       /* height 100%: quem manda no tamanho é o espaço que sobrou na tela, não
          um número calculado antes. Era o número que estava errando. */
       style={{ position: 'absolute', inset: 0, overflowY: 'auto' }}>
