@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { aoVivo } from '../hooks/polling.js';
+import { createPortal } from 'react-dom';
 
 /* 💬 CHAT DA EQUIPE — pedido do master ────────────────────────────────────────
    "Um botão em todo chat: Chat da equipe. Que apareça para todos. Bem legal e
@@ -57,14 +58,59 @@ function TextoComMencoes({ texto, meuPrimeiro }) {
   );
 }
 
+/* Dois bipes curtos quando chamam pelo nome. Só no chamado: som em toda
+   mensagem viraria barulho numa equipe de sete. O navegador só deixa tocar
+   depois que a pessoa já clicou na página; se não deixar, fica só o visual. */
+function tocarChamado() {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    const ctx = new Ctx();
+    [0, 0.22].forEach((t) => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'sine'; o.frequency.value = 880;
+      g.gain.setValueAtTime(0.0001, ctx.currentTime + t);
+      g.gain.exponentialRampToValueAtTime(0.18, ctx.currentTime + t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + t + 0.18);
+      o.connect(g); g.connect(ctx.destination);
+      o.start(ctx.currentTime + t); o.stop(ctx.currentTime + t + 0.2);
+    });
+    setTimeout(() => ctx.close().catch(() => {}), 800);
+  } catch { /* sem som, segue o visual */ }
+}
+
 /* ─── O BOTÃO DA LATERAL ──────────────────────────────────────────────────── */
 export function BotaoChatEquipe({ api, user, onAbrir, aberto, compacto = false, naBarra = false }) {
   const [st, setSt] = useState({ naoLidas: 0, chamado: false });
+  /* 🔔 AVISO NA TELA (25/09, "deixa o chat da equipe em maior evidência"):
+     quem está no Inbox, na Agenda ou em qualquer página vê a prévia de quem
+     escreveu. Só o botão da FAIXA mostra o aviso (ela está em toda tela), pra
+     não aparecer 3 avisos iguais quando o Inbox também tem botão. */
+  const [aviso, setAviso] = useState(null);   // { autor, texto, chamado }
+  const ultimoIdRef = useRef(undefined);      // undefined = ainda não carregou (não avisa o que já estava lá)
+  const avisar = useCallback((m) => {
+    if (!naBarra || aberto || !m) return;
+    setAviso({ autor: primeiroNome(m.autor_nome) || 'Equipe', texto: String(m.texto || ''), chamado: !!m.chamado });
+    if (m.chamado) tocarChamado();
+  }, [naBarra, aberto]);
 
   const puxar = useCallback(() => {
     if (aberto) { setSt({ naoLidas: 0, chamado: false }); return; }
-    api.get('/extras/chat-equipe/status').then(setSt).catch(() => {});
-  }, [api, aberto]);
+    api.get('/extras/chat-equipe/status').then(r => {
+      setSt(r);
+      const id = r?.ultima?.id || null;
+      if (ultimoIdRef.current !== undefined && id && id !== ultimoIdRef.current) avisar(r.ultima);
+      ultimoIdRef.current = id;
+    }).catch(() => {});
+  }, [api, aberto, avisar]);
+
+  // O aviso some sozinho (chamado fica mais tempo) e some na hora se o chat abrir
+  useEffect(() => {
+    if (!aviso) return undefined;
+    const t = setTimeout(() => setAviso(null), aviso.chamado ? 15000 : 8000);
+    return () => clearTimeout(t);
+  }, [aviso]);
+  useEffect(() => { if (aberto) setAviso(null); }, [aberto]);
 
   useEffect(() => { puxar(); return aoVivo(puxar, 20000); }, [puxar]);
 
@@ -75,6 +121,8 @@ export function BotaoChatEquipe({ api, user, onAbrir, aberto, compacto = false, 
     const aoChegar = (e) => {
       const m = e.detail || {};
       if (m.autor_id === user?.id) return;
+      if (m.id) ultimoIdRef.current = m.id;   // o próximo ciclo não repete o mesmo aviso
+      avisar({ ...m, chamado: (m.mencoes || []).includes(user?.id) });
       setSt(p => ({
         naoLidas: (p.naoLidas || 0) + 1,
         chamado: p.chamado || (m.mencoes || []).includes(user?.id),
@@ -82,7 +130,7 @@ export function BotaoChatEquipe({ api, user, onAbrir, aberto, compacto = false, 
     };
     window.addEventListener('vh_chat_equipe', aoChegar);
     return () => window.removeEventListener('vh_chat_equipe', aoChegar);
-  }, [user?.id]);
+  }, [user?.id, avisar]);
 
   const chamado = st.chamado && !aberto;
 
@@ -104,29 +152,63 @@ export function BotaoChatEquipe({ api, user, onAbrir, aberto, compacto = false, 
      branco e brilho próprio — e continua ficando VERDE quando chamam, que é o
      único momento em que ele precisa gritar mais alto que o resto da faixa. */
   if (naBarra) {
+    /* Três estados, do mais calmo ao mais alto (25/09, maior evidência):
+       turquesa = nada novo · LARANJA com brilho = mensagem nova no chat ·
+       VERDE pulsando = te chamaram (@nome). O botão também cresceu. */
+    const novas = !aberto && st.naoLidas > 0;
     return (
       <>
         {pulso}
-        <button onClick={onAbrir} title={chamado ? 'Te chamaram no chat da equipe!' : 'Chat da equipe — conversar com as meninas'}
+        <style>{`@keyframes vhNovaMsg {
+          0%,100% { box-shadow: 0 0 0 0 rgba(249,115,22,.55); }
+          50%     { box-shadow: 0 0 0 6px rgba(249,115,22,0); } }
+          @keyframes vhAvisoEntra { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }`}</style>
+        <button onClick={onAbrir} title={chamado ? 'Te chamaram no chat da equipe!' : 'Chat da equipe: conversar com as meninas'}
           style={{
-            display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 12,
-            cursor: 'pointer', whiteSpace: 'nowrap', fontSize: 12, fontWeight: 900, color: '#fff',
-            border: '1px solid rgba(255,255,255,.45)',
+            display: 'flex', alignItems: 'center', gap: 7, padding: '9px 18px', borderRadius: 14,
+            cursor: 'pointer', whiteSpace: 'nowrap', fontSize: 13.5, fontWeight: 900, color: '#fff',
+            border: '2px solid rgba(255,255,255,.75)',
             background: chamado
               ? `linear-gradient(180deg, #22c55e, ${VERDE})`
-              : aberto ? 'linear-gradient(180deg,#0f766e,#115e59)' : `linear-gradient(180deg, #22d3ee, ${TURQ})`,
-            boxShadow: chamado ? '0 3px 14px rgba(34,197,94,.6)' : '0 3px 12px rgba(0,184,192,.5)',
-            animation: chamado ? 'vhChamado 1.6s ease-out infinite' : 'none',
+              : aberto ? 'linear-gradient(180deg,#0f766e,#115e59)'
+              : novas ? 'linear-gradient(180deg,#fb923c,#ea580c)' : `linear-gradient(180deg, #22d3ee, ${TURQ})`,
+            boxShadow: chamado ? '0 3px 16px rgba(34,197,94,.65)' : novas ? '0 3px 16px rgba(249,115,22,.6)' : '0 3px 14px rgba(0,184,192,.55)',
+            animation: chamado ? 'vhChamado 1.6s ease-out infinite' : novas ? 'vhNovaMsg 2.2s ease-out infinite' : 'none',
           }}>
-          <span style={{ fontSize: 14, lineHeight: 1 }}>{chamado ? '🔔' : '💬'}</span>
-          {chamado ? 'Te chamaram!' : 'Chat da equipe'}
-          {!aberto && st.naoLidas > 0 && (
-            <span style={{ background: '#fff', color: chamado ? VERDE : '#0e7490', borderRadius: 9,
-              padding: '0 6px', fontSize: 10, fontWeight: 900 }}>
+          <span style={{ fontSize: 17, lineHeight: 1 }}>{chamado ? '🔔' : '💬'}</span>
+          {chamado ? 'Te chamaram!' : novas ? 'Mensagem da equipe' : 'Chat da equipe'}
+          {novas && (
+            <span style={{ background: '#fff', color: chamado ? VERDE : '#c2410c', borderRadius: 10,
+              padding: '1px 7px', fontSize: 11.5, fontWeight: 900 }}>
               {st.naoLidas > 99 ? '99+' : st.naoLidas}
             </span>
           )}
         </button>
+        {/* Portal no body: a faixa tem overflow escondido e cortava o aviso */}
+        {aviso && createPortal(
+          <div role="status" onClick={() => { setAviso(null); onAbrir(); }}
+            style={{
+              position: 'fixed', right: 16, bottom: 16, zIndex: 9999, width: 'min(340px, calc(100vw - 32px))',
+              cursor: 'pointer', borderRadius: 16, overflow: 'hidden', background: 'var(--card,#fff)', color: 'var(--txt,#0f172a)',
+              border: `2px solid ${aviso.chamado ? VERDE : '#f97316'}`, boxShadow: '0 12px 34px rgba(15,23,42,.28)',
+              animation: 'vhAvisoEntra .25s ease-out', whiteSpace: 'normal', textAlign: 'left',
+            }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', color: '#fff', fontSize: 11.5, fontWeight: 900,
+              background: aviso.chamado ? `linear-gradient(90deg, ${VERDE}, #22c55e)` : 'linear-gradient(90deg,#ea580c,#fb923c)' }}>
+              <span>{aviso.chamado ? '🔔 Te chamaram no chat da equipe' : '💬 Nova mensagem no chat da equipe'}</span>
+              <button onClick={(e) => { e.stopPropagation(); setAviso(null); }} aria-label="Fechar aviso"
+                style={{ marginLeft: 'auto', background: 'transparent', border: 'none', color: '#fff', fontSize: 15, cursor: 'pointer', lineHeight: 1 }}>✕</button>
+            </div>
+            <div style={{ padding: '10px 12px 12px' }}>
+              <div style={{ fontWeight: 900, fontSize: 13.5, marginBottom: 3 }}>{aviso.autor}</div>
+              <div style={{ fontSize: 13, lineHeight: 1.4, color: 'var(--txt2,#334155)', display: '-webkit-box', WebkitLineClamp: 3,
+                WebkitBoxOrient: 'vertical', overflow: 'hidden', wordBreak: 'break-word' }}>
+                <TextoComMencoes texto={aviso.texto} meuPrimeiro={primeiroNome(user?.nome)} />
+              </div>
+              <div style={{ marginTop: 8, fontSize: 12, fontWeight: 900, color: aviso.chamado ? VERDE : '#c2410c' }}>Toque para responder →</div>
+            </div>
+          </div>, document.body
+        )}
       </>
     );
   }

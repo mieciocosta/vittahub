@@ -6574,7 +6574,14 @@ r.get('/chat-equipe/status', async (req, res) => {
       `SELECT COUNT(*)::int n,
               COUNT(*) FILTER (WHERE $2 = ANY(mencoes))::int chamados
          FROM chat_equipe WHERE created_at > $1 AND autor_id <> $2`, [desde, req.user.id]);
-    res.json({ naoLidas: c?.n || 0, chamado: (c?.chamados || 0) > 0 });
+    /* 💬 A prévia do aviso (25/09, "deixa o chat da equipe em maior
+       evidência"): a última mensagem não lida vai junto, pra tela mostrar
+       quem escreveu e o quê em qualquer página, mesmo fora do Inbox. */
+    const { rows: [ult] } = c?.n ? await query(
+      `SELECT id, autor_nome, left(texto, 160) texto, ($2 = ANY(mencoes)) chamado
+         FROM chat_equipe WHERE created_at > $1 AND autor_id <> $2
+        ORDER BY created_at DESC LIMIT 1`, [desde, req.user.id]).catch(() => ({ rows: [] })) : { rows: [] };
+    res.json({ naoLidas: c?.n || 0, chamado: (c?.chamados || 0) > 0, ultima: ult || null });
   } catch (err) { res.json({ naoLidas: 0, chamado: false }); }
 });
 

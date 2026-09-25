@@ -284,6 +284,18 @@ export default function PlacarVendas() {
       {/* brilho que atravessa a faixa — o movimento é o que puxa o olho pra cá */}
       <span style={{ position: 'absolute', inset: 0, background: 'linear-gradient(90deg,transparent,rgba(255,255,255,.13),transparent)', transform: 'translateX(-100%)', animation: 'vh-placar-shine 5s ease-in-out infinite', pointerEvents: 'none' }} />
 
+      {/* 💬 CHAT DA EQUIPE É O PRIMEIRO DA FAIXA (25/09, ordem do master:
+          "coloca logo em cima"). Antes ficava no fim, depois das metas.
+          Na faixa desde 04/09 — a faixa está em
+          toda tela do sistema, então o chat interno passa a estar também: some
+          a dependência de estar no Inbox pra saber que te chamaram. Verde
+          pulsando quando alguém escreve @NomeDela. */}
+      <BotaoChatEquipe api={api} user={user} naBarra aberto={chatAberto}
+        onAbrir={() => setChatAberto(v => !v)} />
+      {chatAberto && (
+        <PainelChatEquipe api={api} user={user} modo="gaveta" onFechar={() => setChatAberto(false)} />
+      )}
+
       {/* 1️⃣ O QUE EU FIZ HOJE */}
       <div title={gestao && hoje?.casa ? `Casa inteira hoje: ${hoje.casa.n} venda(s) · ${fmt.brl(hoje.casa.total)}` : undefined}
         style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '5px 13px 5px 10px', borderRadius: 13,
@@ -595,16 +607,6 @@ export default function PlacarVendas() {
             </>
           )}
         </div>
-      )}
-
-      {/* 💬 CHAT DA EQUIPE NA FAIXA (ordem do master, 04/09) — a faixa está em
-          toda tela do sistema, então o chat interno passa a estar também: some
-          a dependência de estar no Inbox pra saber que te chamaram. Verde
-          pulsando quando alguém escreve @NomeDela. */}
-      <BotaoChatEquipe api={api} user={user} naBarra aberto={chatAberto}
-        onAbrir={() => setChatAberto(v => !v)} />
-      {chatAberto && (
-        <PainelChatEquipe api={api} user={user} modo="gaveta" onFechar={() => setChatAberto(false)} />
       )}
 
       {/* 🏆 Atalho pro pódio — a disputa mora aqui em cima, não escondida no menu */}
