@@ -62,6 +62,24 @@ const soFidelidadeDe = (u) => u?.so_fidelidade === true || /(^|[^a-z])ma[iy]ara/
 const setorDe = (u) => soFidelidadeDe(u) ? 'vacinas' : (u?.setor || null);
 const setoresDe = (u) => soFidelidadeDe(u) ? ['vacinas'] : (u?.setores || null);
 
+/* 🔁 LOGIN QUE NÃO CAI NA TROCA DE VERSÃO (25/09, print da conta da Dra.
+   Nágila com "Erro interno"). Logo depois de um deploy o Railway já manda o
+   tráfego pro servidor novo enquanto as migrações do boot ocupam o banco: a
+   conexão demora mais que o limite do pool, o banco reinicia ou recusa por
+   um instante, e o login quebrava na primeira tentativa. Erro passageiro de
+   banco agora é tentado de novo por uns 15 s antes de desistir; senha errada
+   ou CPF inexistente continuam respondendo na hora. */
+const erroPassageiro = (e) => /timeout|terminated|ECONNRESET|ECONNREFUSED|EPIPE|too many clients|starting up|shutting down|not yet accepting|lock|connect|ENOENT/i.test(String(e?.message || e?.code || ''));
+async function consultaLogin(sql, params) {
+  for (let tentativa = 0; ; tentativa++) {
+    try { return await query(sql, params); }
+    catch (e) {
+      if (tentativa >= 4 || !erroPassageiro(e)) throw e;
+      await new Promise(ok => setTimeout(ok, 1500 * (tentativa + 1)));   // 1,5 + 3 + 4,5 + 6 s
+    }
+  }
+}
+
 r.post('/login', async (req, res) => {
   const ip = getRealIP(req);
   try {
@@ -74,13 +92,13 @@ r.post('/login', async (req, res) => {
     const digits = id.replace(/\D/g, '');
     let rows;
     if (digits.length === 11 && !id.includes('@')) {
-      ({ rows } = await query("SELECT * FROM usuarios WHERE regexp_replace(COALESCE(cpf,''), '\\D', '', 'g') = $1 AND ativo = true", [digits]));
+      ({ rows } = await consultaLogin("SELECT * FROM usuarios WHERE regexp_replace(COALESCE(cpf,''), '\\D', '', 'g') = $1 AND ativo = true", [digits]));
     } else {
-      ({ rows } = await query('SELECT * FROM usuarios WHERE LOWER(email) = LOWER($1) AND ativo = true', [id]));
+      ({ rows } = await consultaLogin('SELECT * FROM usuarios WHERE LOWER(email) = LOWER($1) AND ativo = true', [id]));
     }
     const u = rows[0];
     if (!u) { registraFalhaLogin(ip); return res.status(401).json({ error: 'Usuário não encontrado. Confira o CPF digitado.' }); }
-    const ok = await bcrypt.compare(senha, u.senha);
+    const ok = u.senha ? await bcrypt.compare(String(senha), u.senha) : false;   // cadastro sem senha não pode virar erro 500
     if (!ok) { registraFalhaLogin(ip); logAudit(req, null, id, 'login_falha', { motivo: 'Senha incorreta' }); return res.status(401).json({ error: 'Senha incorreta' }); }
     limpaFalhasLogin(ip);
     const token = jwt.sign({ id: u.id, nome: u.nome, email: u.email, role: u.role, cor: u.cor, setor: setorDe(u), setores: setoresDe(u), lider: !!u.lider, ve_tudo: !!u.ve_tudo, ve_geral: !!u.ve_geral, so_carteira: !!u.so_carteira, so_fidelidade: !!u.so_fidelidade, distribuidor: !!u.distribuidor }, SECRET, { expiresIn: u.role === 'master' ? '30d' : '16h' }); // equipe: sessão morre no mesmo dia; master mantém 30d
@@ -120,6 +138,8 @@ r.post('/login', async (req, res) => {
         dono: ehDono(u) || u.pode_impersonar === true } });
   } catch (err) {
     console.error('Login error:', err.message); // detalhe só no log do servidor
+    // Banco ainda ocupado com a atualização: diz isso com clareza em vez de "erro interno"
+    if (erroPassageiro(err)) return res.status(503).json({ error: 'O sistema está terminando uma atualização. Aguarde 1 minutinho e tente de novo 🙏' });
     res.status(500).json({ error: 'Erro interno. Tente novamente.' }); // não vaza o motivo
   }
 });
