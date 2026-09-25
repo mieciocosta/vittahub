@@ -278,6 +278,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
   /* 🔎 Lupa do menu (pedido do master): digitou, o menu vira só o que bate —
      sem acento, sem caixa, atravessando grupos fechados. */
   const [buscaMenu, setBuscaMenu] = useState('');
+  const navRef = useRef(null);   // Enter na Pesquisa Geral abre a primeira ferramenta achada
   const semAcentoMenu = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   const buscaAtiva = buscaMenu.trim().length > 0;
   const bateBusca = (label) => !buscaAtiva || semAcentoMenu(label).includes(semAcentoMenu(buscaMenu));
@@ -985,22 +986,39 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
             <div style={{ display:'flex', flexDirection:'column', gap:7, marginTop:10 }}>
               {/* Duas buscas, duas cores (ordem do master, 25/09: "Pesquisa Geral e
                   Pesquisa Conversas, em evidência, maior tamanho e cores diferentes") */}
+              {/* 🔎 PESQUISA GERAL = as FERRAMENTAS do menu (ordem do master, 25/09:
+                  "essa pesquisa geral é das ferramentas que tem do lado esquerdo:
+                  chat, caixa etc"). Digitou, o menu logo abaixo filtra na hora;
+                  Enter abre a primeira ferramenta encontrada. */}
+              <div style={{ position:'relative' }}>
+                <Search size={18} style={{ position:'absolute', left:13, top:'50%', transform:'translateY(-50%)', color:'#0f172a', pointerEvents:'none' }} />
+                <input value={buscaMenu} onChange={e => setBuscaMenu(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Escape') setBuscaMenu('');
+                    if (e.key === 'Enter') { const a = navRef.current?.querySelector('a.vh-nav'); if (a) { a.click(); setBuscaMenu(''); } }
+                  }}
+                  placeholder="Pesquisa Geral (Chat, Caixa…)"
+                  title="Pesquisa Geral: procura as ferramentas do menu (Chat, Caixa, Agenda…)"
+                  style={{ width:'100%', padding:'13px 30px 13px 40px', borderRadius:13, fontSize:14.5, fontWeight:900,
+                    border:'1.5px solid rgba(255,255,255,.6)', color:'#0f172a', outline:'none',
+                    background:'linear-gradient(135deg,#fde68a,#f59e0b)', boxShadow:'0 4px 16px rgba(245,158,11,.4)' }} />
+                {buscaAtiva && (
+                  <button onClick={() => setBuscaMenu('')} title="Limpar"
+                    style={{ position:'absolute', right:9, top:'50%', transform:'translateY(-50%)', border:'none', background:'transparent',
+                      color:'#0f172a', cursor:'pointer', fontSize:17, fontWeight:900, lineHeight:1, padding:2 }}>×</button>
+                )}
+              </div>
+              {/* 💬 PESQUISA CONVERSAS = uma conversa ou o que foi dito dentro dela
+                  (ordem do master, 25/09): abre a busca de clientes e de trechos das
+                  conversas, com quem falou e quando (Ctrl+K). */}
               <button onClick={() => window.dispatchEvent(new CustomEvent('vh-abrir-busca', { detail: { q: '' } }))}
-                title="Pesquisa Geral: cliente, telefone, código, palavras e telas do sistema (Ctrl+K)"
-                style={{ display:'flex', alignItems:'center', gap:10, width:'100%', padding:'13px 14px', borderRadius:13, cursor:'pointer',
-                  border:'1.5px solid rgba(255,255,255,.6)', color:'#0f172a', fontSize:15, fontWeight:900, textAlign:'left',
-                  background:'linear-gradient(135deg,#fde68a,#f59e0b)', boxShadow:'0 4px 16px rgba(245,158,11,.4)' }}>
-                <Search size={18} />
-                <span style={{ flex:1 }}>Pesquisa Geral</span>
-                <span style={{ fontSize:9.5, fontWeight:900, border:'1px solid rgba(15,23,42,.35)', borderRadius:6, padding:'1px 6px' }}>Ctrl+K</span>
-              </button>
-              <button onClick={() => { navegar('/inbox?buscar=1'); setTimeout(() => window.dispatchEvent(new CustomEvent('vh-focar-busca-conversas')), 350); }}
-                title="Pesquisa Conversas: abre o chat com o cursor na busca (nome, número ou trecho de mensagem)"
+                title="Pesquisa Conversas: cliente pelo nome ou telefone, ou qualquer palavra dita nas conversas (Ctrl+K)"
                 style={{ display:'flex', alignItems:'center', gap:10, width:'100%', padding:'13px 14px', borderRadius:13, cursor:'pointer',
                   border:'1.5px solid rgba(255,255,255,.6)', color:'#fff', fontSize:15, fontWeight:900, textAlign:'left',
                   background:'linear-gradient(135deg,#8b5cf6,#c026d3)', boxShadow:'0 4px 16px rgba(139,92,246,.45)' }}>
-                <MessageSquare size={18} />
-                <span style={{ flex:1 }}>Pesquisa Conversas</span>
+                <MessageSquare size={18} style={{ flexShrink:0 }} />
+                <span style={{ flex:1, minWidth:0, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', fontSize:14.5 }}>Pesquisa Conversas</span>
+                <span style={{ fontSize:9.5, fontWeight:900, border:'1px solid rgba(255,255,255,.5)', borderRadius:6, padding:'1px 6px' }}>Ctrl+K</span>
               </button>
               <BotaoChatEquipe api={api} user={user} onAbrir={() => window.dispatchEvent(new CustomEvent('vh-abrir-chat-equipe'))} />
             </div>
@@ -1011,7 +1029,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
       {/* 🏥 Ponte pro Vittasys — fica logo abaixo do Chat, no topo do menu */}
       {(() => null)()}
       {/* Nav */}
-      <nav onClick={() => onCloseMobile?.()} style={{ flex:1, padding: collapsed ? '14px 6px' : '14px 10px', display:'flex', flexDirection:'column', gap:3, overflowY:'auto', overflowX:'hidden' }}>
+      <nav ref={navRef} onClick={() => onCloseMobile?.()} style={{ flex:1, padding: collapsed ? '14px 6px' : '14px 10px', display:'flex', flexDirection:'column', gap:3, overflowY:'auto', overflowX:'hidden' }}>
         {!collapsed && <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:1.6, color:'rgba(255,255,255,.62)', padding:'0 12px 6px', textTransform:'uppercase' }}>Menu</div>}
         {/* 🔎 A BUSCA DO MENU VOLTOU (ordem do master, 01/09: "não aparece a
             opção de pesquisar os botões na lateral, somente na conversa").
@@ -1022,22 +1040,8 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
             procura não é uma tela e sim um cliente ou uma mensagem, o mesmo
             termo sobe pra Pesquisa geral no botão logo abaixo, já preenchido.
             Uma caixa, dois destinos, sem escolher nada antes de digitar. */}
-        {!collapsed && (
-          <div style={{ position:'relative', margin:'0 4px 7px' }}>
-            <Search size={13} style={{ position:'absolute', left:10, top:'50%', transform:'translateY(-50%)',
-              color:'rgba(255,255,255,.55)', pointerEvents:'none' }} />
-            <input value={buscaMenu} onChange={e => setBuscaMenu(e.target.value)}
-              placeholder="Procurar no menu…"
-              style={{ width:'100%', padding:'7px 26px 7px 30px', borderRadius:10, fontSize:12, fontWeight:600,
-                border:'1px solid rgba(255,255,255,.22)', background:'rgba(255,255,255,.10)',
-                color:'#fff', outline:'none' }} />
-            {buscaAtiva && (
-              <button onClick={() => setBuscaMenu('')} title="Limpar"
-                style={{ position:'absolute', right:6, top:'50%', transform:'translateY(-50%)', border:'none',
-                  background:'transparent', color:'rgba(255,255,255,.7)', cursor:'pointer', fontSize:13, lineHeight:1, padding:2 }}>×</button>
-            )}
-          </div>
-        )}
+        {/* A caixinha "Procurar no menu" virou a Pesquisa Geral dourada lá em
+            cima (25/09); o menu continua filtrando por ela. */}
         {/* 🔎 PESQUISA GERAL (pedido do master: "onde aparece pra mim?") —
             porta de entrada VISÍVEL pra busca global, que antes só abria com
             Ctrl+K (impossível no celular). Se já digitou algo na caixinha do
@@ -1049,7 +1053,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
               color:'#fff', fontSize:12, fontWeight:800, textAlign:'left', width:'calc(100% - 8px)' }}>
             <span style={{ fontSize:13 }}>🔎</span>
             <span style={{ flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-              {buscaAtiva ? `Pesquisar “${buscaMenu.trim()}” geral` : 'Pesquisa geral'}
+              {`Procurar “${buscaMenu.trim()}” nas conversas`}
             </span>
             <span style={{ fontSize:9, fontWeight:800, opacity:.7, border:'1px solid rgba(255,255,255,.35)', borderRadius:5, padding:'1px 5px', flexShrink:0 }}>Ctrl+K</span>
           </button>
