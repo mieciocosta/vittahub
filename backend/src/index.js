@@ -25,6 +25,7 @@ import { createSocketServer, socketEmit } from './socketServer.js';
 import { startPgListener, onNotify }       from './db/pgListener.js';
 import pool from './db/pool.js';
 import { iniciarFilaGeo } from './services/geo.js';
+import { iniciarCaixaPreta, historicoQuedas } from './services/caixaPreta.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -83,7 +84,7 @@ app.get('/inbox', (req, res) => {
    <backend>/api/versao. Mostra o commit que o Railway subiu e há quanto tempo
    este processo está de pé. Se o commit não for o último do GitHub, o deploy
    não passou — e a resposta deixa isso escrito, sem adivinhação. */
-app.get('/api/versao', (req, res) => {
+app.get('/api/versao', async (req, res) => {
   const sha = (process.env.RAILWAY_GIT_COMMIT_SHA || '').slice(0, 7) || null;
   res.json({
     commit: sha,
@@ -93,6 +94,12 @@ app.get('/api/versao', (req, res) => {
     no_ar_desde: new Date(Date.now() - process.uptime() * 1000).toISOString(),
     minutos_no_ar: Math.round(process.uptime() / 60),
     agora: new Date().toISOString(),
+    memoria_mb: Math.round(process.memoryUsage().rss / 1048576),
+    // ✈️ caixa-preta: reinícios das últimas 24h, separando atualização de queda
+    reinicios_24h: await historicoQuedas().then(l => {
+      const dia = l.filter(x => Date.now() - new Date(x.quando).getTime() < 86400000);
+      return { atualizacoes: dia.filter(x => x.tipo === 'atualizacao').length, quedas: dia.filter(x => x.tipo === 'queda').length, ultimos: l.slice(0, 10) };
+    }).catch(() => null),
   });
 });
 
@@ -147,6 +154,8 @@ async function start() {
   try {
     await pool.query('SELECT 1');
     console.log('✅ PostgreSQL conectado');
+    // ✈️ Caixa-preta ANTES das migrações: se o boot anterior caiu, fica registrado já
+    if (process.env.DATABASE_URL) await iniciarCaixaPreta(pool);
 
     if (process.env.DATABASE_URL) {
       const { default: runMigrate } = await import('./db/autoMigrate.js');
