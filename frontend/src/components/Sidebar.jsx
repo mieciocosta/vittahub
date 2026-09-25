@@ -994,7 +994,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
               {/* 🔎 PESQUISA GERAL = as FERRAMENTAS do menu: toca, vira caixa de
                   digitar; o menu logo abaixo filtra; Enter abre a primeira. */}
               <CartaoMenu c1="#f59e0b" c2="#b45309" icone={<Search size={18} />} titulo="Pesquisa Geral"
-                sub="Acha as ferramentas do menu: Chat, Caixa, Agenda"
+                sub="Achar as ferramentas do menu: Chat, Caixa, Agenda"
                 title="Pesquisa Geral: procura as ferramentas do menu"
                 onClick={() => { setPgAberta(true); setTimeout(() => pgRef.current?.focus(), 30); }}>
                 {(pgAberta || buscaAtiva) ? (
@@ -1011,7 +1011,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
               </CartaoMenu>
               {/* 💬 PESQUISA CONVERSAS = cliente ou o que foi dito dentro da conversa */}
               <CartaoMenu c1="#8b5cf6" c2="#a21caf" icone={<MessageSquare size={18} />} titulo="Pesquisa Conversas"
-                sub="Acha um cliente ou o que foi dito nas conversas"
+                sub="Achar um cliente ou o que foi dito nas conversas"
                 title="Pesquisa Conversas: cliente pelo nome ou telefone, ou qualquer palavra dita nas conversas (Ctrl+K)"
                 onClick={() => window.dispatchEvent(new CustomEvent('vh-abrir-busca', { detail: { q: '' } }))} />
               <BotaoChatEquipe api={api} user={user} cartao onAbrir={() => window.dispatchEvent(new CustomEvent('vh-abrir-chat-equipe'))} />
