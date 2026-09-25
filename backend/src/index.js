@@ -9,7 +9,7 @@ import { fileURLToPath } from 'url';
 import authRouter    from './routes/auth.js';
 import leadsRouter   from './routes/leads.js';
 import reportsRouter from './routes/reports.js';
-import inboxRouter, { rodarFollowups, configurarWebhooksZapi, alertarLeadsSemResposta, vigiaEntradaMensagens, rodarResgateIA } from './routes/inbox.js';
+import inboxRouter, { rodarFollowups, rodarRetomadaConsultas, configurarWebhooksZapi, alertarLeadsSemResposta, vigiaEntradaMensagens, rodarResgateIA } from './routes/inbox.js';
 import extrasRouter, { gerarSolicitacoesDaAgenda } from './routes/extras.js';
 import auditoriaRouter from './routes/auditoria.js';
 import integracaoRouter from './routes/integracao.js';
@@ -194,6 +194,9 @@ async function start() {
       // Follow-up automático: a cada 5 min reativa leads em silêncio (a própria
       // função respeita horário comercial, o liga/desliga e a cadência).
       setInterval(() => { rodarFollowups().catch(e => console.error('Follow-up tick:', e.message)); }, 5 * 60 * 1000);
+      // 🔁 Retomada das carteiras de consultas/terapias (25/09): 5 conversas a cada 10 min
+      setInterval(() => { rodarRetomadaConsultas().catch(e => console.error('Retomada tick:', e.message)); }, 10 * 60 * 1000);
+      setTimeout(() => { rodarRetomadaConsultas().catch(() => {}); }, 3 * 60 * 1000);
       console.log('✅ Follow-up automático de leads agendado (5 min)');
 
       // Alerta de lead não respondido: a cada 5 min avisa a equipe (sino) sobre

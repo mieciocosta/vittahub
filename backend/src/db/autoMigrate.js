@@ -3484,6 +3484,80 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
       }
     }
   } catch (e) { console.error('poliana volta:', e.message); }
+
+  /* 🤖 IA EM TODAS AS CONVERSAS DE CONSULTAS E TERAPIAS (ordem do master,
+     25/09: "ative a IA para todas as conversas dos usuários de consultas e
+     terapias / inicie as conversas ou retome, porém leia antes"). Uma vez só:
+       1) quem é de consultas/terapias ganha o botão da IA e a chave pessoal
+          ligada (ia_consultas, ia_ligada);
+       2) toda conversa NA MÃO delas (fora vacinas, grupo, interno, Banco de
+          Dados e arquivada) fica com a IA ligada, inclusive as desligadas na
+          mão (a ordem do master passa por cima);
+       3) as que tiveram movimento nos últimos 30 dias, sem agendamento pela
+          frente, sem venda no mês e sem pedido do cliente pra parar de mandar
+          mensagem entram na fila de retomada (rodarRetomadaConsultas em
+          inbox.js), que anda devagar e LÊ cada conversa antes de escrever.
+     O passado mais velho que 30 dias fica de fora de propósito: mensagem pra
+     contato frio em massa é o que faz o WhatsApp bloquear o número. */
+  try {
+    const { rows: [flagIATodas] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_ia_consultas_todas_2026-09-25'");
+    if (!flagIATodas) {
+      const { rows: equipeCT } = await query(`UPDATE usuarios SET ia_consultas = true, ia_ligada = true, updated_at = NOW()
+         WHERE ativo = true AND role NOT IN ('master','bot')
+           AND (setor IN ('consultas','terapias') OR COALESCE(setores, '{}') && ARRAY['consultas','terapias']::text[])
+         RETURNING id, nome`);
+      const ids = equipeCT.map(u => u.id);
+      let nLigadas = 0, fila = [];
+      if (ids.length) {
+        const rL = await query(`UPDATE conversas c SET bot_ativo = true, bot_off_manual = false
+           WHERE c.responsavel_id = ANY($1::text[])
+             AND COALESCE(c.setor, '') <> 'vacinas'
+             AND COALESCE(c.contact_id, '') NOT LIKE '%g.us%'
+             AND COALESCE(c.categoria, '') <> 'banco_dados'
+             AND COALESCE(c.classificacao, '') NOT IN ('gestao','profissional_saude')
+             AND COALESCE(c.arquivada, false) = false
+             AND COALESCE(c.simulacao, false) = false`, [ids]);
+        nLigadas = rL.rowCount || 0;
+        const { rows: paraRetomar } = await query(`SELECT c.id FROM conversas c
+           WHERE c.responsavel_id = ANY($1::text[])
+             AND c.bot_ativo = true
+             AND COALESCE(c.setor, '') <> 'vacinas'
+             AND COALESCE(c.contact_id, '') NOT LIKE '%g.us%'
+             AND COALESCE(c.categoria, '') <> 'banco_dados'
+             AND COALESCE(c.classificacao, '') NOT IN ('gestao','profissional_saude')
+             AND COALESCE(c.arquivada, false) = false
+             AND COALESCE(c.simulacao, false) = false
+             AND length(regexp_replace(COALESCE(c.phone,''),'\D','','g')) >= 10
+             AND c.last_message_at > NOW() - interval '30 days'
+             AND NOT EXISTS (SELECT 1 FROM agenda_eventos a WHERE a.conversa_id = c.id
+                               AND a.data >= (NOW() - interval '3 hours')::date
+                               AND LOWER(COALESCE(a.status,'')) NOT LIKE 'cancel%')
+             AND NOT EXISTS (SELECT 1 FROM vendas v WHERE v.conversa_id = c.id
+                               AND v.data_venda > (NOW() - interval '3 hours')::date - 30)
+             AND NOT EXISTS (SELECT 1 FROM mensagens m WHERE m.conversa_id = c.id AND m.from_type = 'contact'
+                               AND m.created_at > NOW() - interval '30 days'
+                               AND m.content ~* '(n[aã]o (me )?(mande|mandem|envie|enviem|chame|chamem|ligue|liguem)|pare de|parem de|parar de|sair da lista|descadastr|n[aã]o tenho interesse|sem interesse)')
+           ORDER BY c.last_message_at DESC`, [ids]).catch((e) => { console.error('retomada (fila):', e.message); return { rows: [] }; });
+        fila = paraRetomar.map(r => r.id);
+      }
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('retomada_consultas', $1::jsonb)
+                   ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor, updated_at = NOW()`,
+        [JSON.stringify({ fila, total: fila.length, criada_em: new Date().toISOString(), respondidas: 0, retomadas: 0, puladas: 0 })]);
+      // As áreas de IA e follow-up precisam estar ligadas pra ordem valer
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('bot', '{"followup":true}'::jsonb)
+                   ON CONFLICT (chave) DO UPDATE SET valor = COALESCE(configuracoes.valor,'{}'::jsonb) || '{"followup":true,"consultaIA":true}'::jsonb, updated_at = NOW()`).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('automacao_pausada', '{"ligado":{"bot":true,"followup":true}}'::jsonb)
+                   ON CONFLICT (chave) DO UPDATE SET valor = jsonb_set(COALESCE(configuracoes.valor,'{}'::jsonb), '{ligado}',
+                     COALESCE(configuracoes.valor->'ligado', CASE WHEN configuracoes.valor->>'pausada' = 'true' THEN '{"lembretes":false,"agendadas":false}'::jsonb ELSE '{}'::jsonb END) || '{"bot":true,"followup":true}'::jsonb), updated_at = NOW()`).catch(() => {});
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_ia_consultas_todas_2026-09-25', $1::jsonb) ON CONFLICT DO NOTHING`,
+        [JSON.stringify({ ok: true, equipe: equipeCT.map(u => u.nome), ligadas: nLigadas, fila: fila.length })]);
+      const horas = Math.ceil(fila.length / 30);
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+        ['🤖 IA ligada em todas as conversas de consultas e terapias',
+         `IA ligada em ${nLigadas} conversa(s) de ${[...new Set(equipeCT.map(u => u.nome.split(' ')[0]))].join(', ') || 'ninguém (não achei usuárias de consultas/terapias)'}. ${fila.length} conversa(s) dos últimos 30 dias entraram na retomada: a IA lê cada uma antes, responde quem falou por último ou retoma quem parou, 5 a cada 10 minutos, só das 8h às 22h${fila.length ? ` (cerca de ${horas}h de janela pra terminar)` : ''}. Ficaram de fora: conversas com agendamento marcado, venda no mês, pedido do cliente pra parar, grupos, internos e Banco de Dados.`]).catch(() => {});
+      console.log(`🤖 IA consultas/terapias: ${nLigadas} conversa(s) ligadas, ${fila.length} na retomada`);
+    }
+  } catch (e) { console.error('ia consultas todas:', e.message); }
 }
 
 

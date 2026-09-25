@@ -11952,6 +11952,117 @@ ATENÇÃO, VOCÊ JÁ RELEU A CONVERSA (ordem do dono da clínica). Este é o ret
   }
 }
 
+/* Um follow-up de UMA conversa: lê, escreve no nome da responsável, envia com
+   as fotos e registra. Separado do tick (25/09) pra retomada das carteiras de
+   consultas e terapias usar exatamente o mesmo caminho, com a mesma leitura. */
+async function enviarFollowupConversa(conv, opts = {}) {
+  let phoneNum = String(conv.phone || '').replace(/\D/g, '');
+  if (phoneNum.startsWith('55') && phoneNum.length >= 12) phoneNum = phoneNum.slice(2);
+  if (phoneNum.length < 10) return false;
+
+  // 💁‍♀️ O follow-up sai NO NOME da responsável ("dentro do usuário dela")
+  let nomeFU = null;
+  if (conv.responsavel_id) {
+    const { rows: [respFU] } = await query('SELECT nome, ia_consultas, ia_ligada FROM usuarios WHERE id = $1', [conv.responsavel_id]).catch(() => ({ rows: [null] }));
+    if (respFU?.ia_ligada === false) return false;   // chave pessoal desligada = a IA cala na carteira dela
+    if (respFU?.nome) nomeFU = String(respFU.nome).trim().split(' ')[0];
+  }
+  if (!nomeFU) { nomeFU = await nomeAssinatura(conv);
+  }
+
+  const count = opts.count ?? (conv.followup_count || 0);
+  const gerada = await gerarMensagemFollowup(conv, count, nomeFU);
+  if (!gerada) { console.log(`Follow-up adiado conv=${conv.id}: IA não gerou (sem texto genérico, ordem do master)`); return false; }
+  const msg = semTravessao(gerada);
+
+  const msgAssinada = msg.trimStart().startsWith('*') ? msg : `*${nomeFU}:*\n${msg}`;
+  const zr = await zapiCall('/send-text', 'POST', { phone: `55${phoneNum}`, message: msgAssinada });
+  /* 📸 REGRA DO MASTER (24/08): follow-up SEMPRE acompanhado de fotos.
+     A retomada com prova social converte muito mais que texto sozinho:
+     a família volta a ver o cuidado real da casa antes de decidir. */
+  if (zr?.ok) {
+    const nFU = await enviarProvaSocial({ conv, phone55: `55${phoneNum}`, max: 10, autor: nomeFU, fromType: 'bot' }).catch(() => 0);
+    if (nFU) console.log(`Follow-up conv=${conv.id}: ${nFU} foto(s) de prova social junto`);
+  }
+  if (!zr?.ok) { console.error('Follow-up Z-API falhou:', conv.id, zr?.status); return false; }
+
+  const { rows: [botMsg] } = await query(
+    `INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome)
+     VALUES ($1,'bot','text',$2,$3) RETURNING *`, [conv.id, msg, nomeFU]
+  ).catch(() => ({ rows: [null] }));
+
+  await query(
+    `UPDATE conversas SET last_message = $1, last_from = 'bot', last_message_at = NOW(),
+       followup_count = COALESCE(followup_count, 0) + 1, followup_last_at = NOW()
+     WHERE id = $2`, [msg.slice(0, 100), conv.id]
+  );
+
+  const { rows: [convAtual] } = await query('SELECT * FROM conversas WHERE id = $1', [conv.id]);
+  if (convAtual) cacheUpdate(convAtual);
+  if (botMsg) socketEmit('new_message', { convId: conv.id, message: botMsg, conv: convAtual });
+  console.log(`Follow-up #${count + 1} → ${conv.contact_name || conv.phone}`);
+  return true;
+}
+
+/* 🔁 RETOMADA DAS CARTEIRAS DE CONSULTAS E TERAPIAS (ordem do master, 25/09:
+   "ative a IA para todas as conversas dos usuários de consultas e terapias,
+   inicie as conversas ou retome, porém leia antes"). A semente
+   seed_ia_consultas_todas_2026-09-25 liga a IA nessas conversas e monta a fila
+   em configuracoes.retomada_consultas. Aqui a fila anda DEVAGAR de propósito:
+   5 conversas a cada 10 min, só na janela da IA, pra o WhatsApp não enxergar
+   disparo em massa e bloquear o número. Cada conversa é LIDA antes:
+     · a última palavra é do cliente → a Vitta responde (vittaResponder, que
+       lê a conversa inteira antes de escrever);
+     · a última palavra é nossa e parou há 2h+ → retomada pelo mesmo caminho
+       do follow-up (lerConversaAntes; sem leitura, nada sai), e a escada de
+       follow-up recomeça dali.
+   Conversa que ganhou agendamento, foi arquivada ou teve a IA desligada no
+   meio do caminho sai da fila sem mensagem. */
+let retomadaRodando = false;
+export async function rodarRetomadaConsultas() {
+  if (retomadaRodando) return;
+  retomadaRodando = true;
+  try {
+    if (await automacaoPausada('bot')) return;
+    if (!zapiOk() || !janelaIA()) return;
+    const { rows: [cfg] } = await query("SELECT valor FROM configuracoes WHERE chave = 'retomada_consultas'");
+    const estado = cfg?.valor;
+    if (!estado || !Array.isArray(estado.fila) || !estado.fila.length) return;
+    const lote = estado.fila.slice(0, 5);
+    estado.fila = estado.fila.slice(5);
+    const gravar = () => query(`UPDATE configuracoes SET valor = $1::jsonb, updated_at = NOW() WHERE chave = 'retomada_consultas'`, [JSON.stringify(estado)]);
+    await gravar();   // tira da fila ANTES de mandar: reinício no meio nunca manda 2x
+    for (const id of lote) {
+      try {
+        const { rows: [conv] } = await query(`SELECT * FROM conversas c WHERE c.id = $1
+            AND c.bot_ativo = true AND COALESCE(c.arquivada, false) = false
+            AND NOT EXISTS (SELECT 1 FROM agenda_eventos a WHERE a.conversa_id = c.id
+                              AND a.data >= (NOW() - interval '3 hours')::date
+                              AND LOWER(COALESCE(a.status,'')) NOT LIKE 'cancel%')`, [id]);
+        if (!conv) { estado.puladas = (estado.puladas || 0) + 1; continue; }
+        if (conv.last_from === 'contact') {
+          agendarVitta(conv.id);
+          estado.respondidas = (estado.respondidas || 0) + 1;
+        } else if (new Date(conv.last_message_at).getTime() < Date.now() - 2 * 3600 * 1000) {
+          await query('UPDATE conversas SET followup_count = 0, followup_pausado = false WHERE id = $1', [conv.id]);
+          const ok = await enviarFollowupConversa({ ...conv, followup_count: 0 }, { count: 0 });
+          if (ok) estado.retomadas = (estado.retomadas || 0) + 1;
+          else estado.puladas = (estado.puladas || 0) + 1;
+        } else estado.puladas = (estado.puladas || 0) + 1;   // conversa viva agora: a equipe/IA já está nela
+      } catch (e) { console.error('retomada consultas', id, e.message); }
+    }
+    if (!estado.fila.length) estado.terminou_em = new Date().toISOString();
+    await gravar();
+    console.log(`🔁 Retomada consultas/terapias: lote de ${lote.length}, faltam ${estado.fila.length}`);
+    if (!estado.fila.length) {
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+        ['✅ Retomada das conversas de consultas e terapias concluída',
+         `A IA leu e respondeu ${estado.respondidas || 0} conversa(s) em que o cliente tinha falado por último e retomou ${estado.retomadas || 0} em que a família tinha parado de responder. ${estado.puladas || 0} ficaram de fora na hora do envio (ganharam agendamento, a IA foi desligada, a conversa estava viva ou a leitura não saiu).`]).catch(() => {});
+    }
+  } catch (e) { console.error('rodarRetomadaConsultas:', e.message); }
+  finally { retomadaRodando = false; }
+}
+
 let followupRodando = false;
 export async function rodarFollowups() {
   if (await automacaoPausada('followup')) return { pausado: true };
@@ -12003,53 +12114,8 @@ export async function rodarFollowups() {
       LIMIT 15`, [FOLLOWUP_MAX]);
 
     for (const conv of candidatos) {
-      try {
-        let phoneNum = String(conv.phone || '').replace(/\D/g, '');
-        if (phoneNum.startsWith('55') && phoneNum.length >= 12) phoneNum = phoneNum.slice(2);
-        if (phoneNum.length < 10) continue;
-
-        // 💁‍♀️ O follow-up sai NO NOME da responsável ("dentro do usuário dela")
-        let nomeFU = null;
-        if (conv.responsavel_id) {
-          const { rows: [respFU] } = await query('SELECT nome, ia_consultas, ia_ligada FROM usuarios WHERE id = $1', [conv.responsavel_id]).catch(() => ({ rows: [null] }));
-          if (respFU?.ia_ligada === false) continue;   // chave pessoal desligada = a IA cala na carteira dela
-          if (respFU?.nome) nomeFU = String(respFU.nome).trim().split(' ')[0];
-        }
-        if (!nomeFU) { nomeFU = await nomeAssinatura(conv);
-        }
-
-        const count = conv.followup_count || 0;
-        const gerada = await gerarMensagemFollowup(conv, count, nomeFU);
-        if (!gerada) { console.log(`Follow-up adiado conv=${conv.id}: IA não gerou (sem texto genérico, ordem do master)`); continue; }
-        const msg = semTravessao(gerada);
-
-        const msgAssinada = msg.trimStart().startsWith('*') ? msg : `*${nomeFU}:*\n${msg}`;
-        const zr = await zapiCall('/send-text', 'POST', { phone: `55${phoneNum}`, message: msgAssinada });
-        /* 📸 REGRA DO MASTER (24/08): follow-up SEMPRE acompanhado de fotos.
-           A retomada com prova social converte muito mais que texto sozinho:
-           a família volta a ver o cuidado real da casa antes de decidir. */
-        if (zr?.ok) {
-          const nFU = await enviarProvaSocial({ conv, phone55: `55${phoneNum}`, max: 10, autor: nomeFU, fromType: 'bot' }).catch(() => 0);
-          if (nFU) console.log(`Follow-up conv=${conv.id}: ${nFU} foto(s) de prova social junto`);
-        }
-        if (!zr?.ok) { console.error('Follow-up Z-API falhou:', conv.id, zr?.status); continue; }
-
-        const { rows: [botMsg] } = await query(
-          `INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome)
-           VALUES ($1,'bot','text',$2,$3) RETURNING *`, [conv.id, msg, nomeFU]
-        ).catch(() => ({ rows: [null] }));
-
-        await query(
-          `UPDATE conversas SET last_message = $1, last_from = 'bot', last_message_at = NOW(),
-             followup_count = COALESCE(followup_count, 0) + 1, followup_last_at = NOW()
-           WHERE id = $2`, [msg.slice(0, 100), conv.id]
-        );
-
-        const { rows: [convAtual] } = await query('SELECT * FROM conversas WHERE id = $1', [conv.id]);
-        if (convAtual) cacheUpdate(convAtual);
-        if (botMsg) socketEmit('new_message', { convId: conv.id, message: botMsg, conv: convAtual });
-        console.log(`Follow-up #${count + 1} → ${conv.contact_name || conv.phone}`);
-      } catch (e) { console.error('Follow-up erro na conversa', conv.id, e.message); }
+      try { await enviarFollowupConversa(conv); }
+      catch (e) { console.error('Follow-up erro na conversa', conv.id, e.message); }
     }
   } catch (e) {
     console.error('rodarFollowups erro:', e.message);
