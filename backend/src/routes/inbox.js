@@ -2148,14 +2148,21 @@ Se algum item não estiver na conversa, escreva "não informado". Sem inventar n
    candidatas do que a quantidade pedida. */
 async function enviarProvaSocial({ conv, phone55, max = 10, legenda = '', autor = null, fromType = 'bot' }) {
   const setorFoto = conv.setor === 'vacinas' ? 'vacinas' : 'terapias';
+  /* 🧯 LEVE (25/09, sistema lento): antes o sorteio trazia a FOTO INTEIRA
+     (base64) das 60 candidatas pra escolher 10, a cada follow-up. Agora o
+     sorteio vem só com os ids e cada foto é lida uma a uma, até completar. */
   const { rows: cands } = await query(`
-    SELECT id, data, msg_id FROM biblioteca_midias
+    SELECT id, msg_id, (data IS NOT NULL AND data <> '') AS tem_data FROM biblioteca_midias
      WHERE tipo IN ('foto', 'imagem', 'image') AND setor IN ($1, 'geral')
      ORDER BY (setor = $1) DESC, random() LIMIT 60`, [setorFoto]).catch(() => ({ rows: [] }));
   const fotos = [];
   for (const f of cands) {
     if (fotos.length >= max) break;
-    let d = f.data;
+    let d = null;
+    if (f.tem_data) {
+      const { rows: [fd] } = await query('SELECT data FROM biblioteca_midias WHERE id = $1', [f.id]).catch(() => ({ rows: [] }));
+      d = fd?.data || null;
+    }
     if (!d && f.msg_id) {
       const { rows: [msgF] } = await query('SELECT content FROM mensagens WHERE id = $1', [f.msg_id]).catch(() => ({ rows: [] }));
       const cF = String(msgF?.content || '');
@@ -2175,7 +2182,7 @@ async function enviarProvaSocial({ conv, phone55, max = 10, legenda = '', autor 
       `INSERT INTO mensagens (conversa_id, from_type, sender_nome, type, content, created_at)
        VALUES ($1,$4,$3,'image',$2,NOW()) RETURNING *`,
       [conv.id, fotos[i], autor, fromType]).catch(() => ({ rows: [null] }));
-    if (fm) socketEmit('new_message', { convId: conv.id, message: fm, conv });
+    if (fm) socketEmit('new_message', { convId: conv.id, message: mensagemLeve(fm), conv });   // sem o base64 pra todas as telas
   }
   return n;
 }
@@ -12104,6 +12111,12 @@ export async function rodarFollowups() {
                                  AND LOWER(COALESCE(a.status,'')) NOT LIKE 'cancel%')))
         AND COALESCE(followup_pausado, false) = false
         AND COALESCE(followup_count, 0) < $1
+        /* 🧯 Só conversa com movimento nos últimos 30 dias (25/09, sistema
+           lento): com a IA ligada em todas as carteiras de consultas, a escada
+           sem teto passou a varrer conversa de meses atrás, cada uma com 10
+           fotos. Além do peso, mensagem em massa pra contato frio derruba o
+           número no WhatsApp. */
+        AND last_message_at > NOW() - INTERVAL '30 days'
         AND phone IS NOT NULL AND phone <> ''
         AND contact_id NOT LIKE '%g.us%'
         AND last_message_at < NOW() - (CASE COALESCE(followup_count, 0)

@@ -146,7 +146,7 @@ r.post('/login', async (req, res) => {
 
 r.get('/me', auth, async (req, res) => {
   try {
-    const { rows } = await query('SELECT id,nome,email,cpf,role,cor,avatar,setor,setores,lider,ve_tudo,ve_geral,so_carteira,so_fidelidade,distribuidor,ia_consultas,ia_ligada,pode_impersonar,baixa_supervisionada,ve_carteira_leads FROM usuarios WHERE id=$1', [req.user.id]);
+    const { rows } = await consultaLogin('SELECT id,nome,email,cpf,role,cor,avatar,setor,setores,lider,ve_tudo,ve_geral,so_carteira,so_fidelidade,distribuidor,ia_consultas,ia_ligada,pode_impersonar,baixa_supervisionada,ve_carteira_leads FROM usuarios WHERE id=$1', [req.user.id]);   // mesma paciência do login
     if (!rows[0]) return res.status(404).json({ error: 'Não encontrado' });
     res.json({ ...rows[0], setor: setorDe(rows[0]), setores: setoresDe(rows[0]), so_carteira: soCarteiraDe(rows[0]), so_fidelidade: soFidelidadeDe(rows[0]), dono: ehDono(rows[0]) || rows[0].pode_impersonar === true });
   } catch (err) { res.status(500).json({ error: err.message }); }

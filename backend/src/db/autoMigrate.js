@@ -3536,7 +3536,7 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
                                AND v.data_venda > (NOW() - interval '3 hours')::date - 30)
              AND NOT EXISTS (SELECT 1 FROM mensagens m WHERE m.conversa_id = c.id AND m.from_type = 'contact'
                                AND m.created_at > NOW() - interval '30 days'
-                               AND m.content ~* '(n[aã]o (me )?(mande|mandem|envie|enviem|chame|chamem|ligue|liguem)|pare de|parem de|parar de|sair da lista|descadastr|n[aã]o tenho interesse|sem interesse)')
+                               AND COALESCE(m.type, 'text') = 'text' AND left(m.content, 400) ~* '(n[aã]o (me )?(mande|mandem|envie|enviem|chame|chamem|ligue|liguem)|pare de|parem de|parar de|sair da lista|descadastr|n[aã]o tenho interesse|sem interesse)')
            ORDER BY c.last_message_at DESC`, [ids]).catch((e) => { console.error('retomada (fila):', e.message); return { rows: [] }; });
         fila = paraRetomar.map(r => r.id);
       }
