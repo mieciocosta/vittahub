@@ -79,8 +79,35 @@ function tocarChamado() {
   } catch { /* sem som, segue o visual */ }
 }
 
+/* 🟦 CARTÃO DO MENU — o MESMO molde pros três atalhos do topo do menu
+   (Pesquisa Geral, Pesquisa Conversas e Chat da equipe). Ordem do master,
+   25/09: "que entendam a diferença de cada um e que possam ser iguais no
+   sentido de layout, menos a cor e o título". Mesmo tamanho, ícone à
+   esquerda, título e uma linha dizendo pra que serve; muda só cor e texto. */
+export function CartaoMenu({ icone, titulo, sub, c1, c2, direita = null, onClick, pulso = false, title, children }) {
+  return (
+    <div role="button" tabIndex={0} onClick={onClick} title={title}
+      onKeyDown={e => { if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) { e.preventDefault(); onClick?.(); } }}
+      style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 11, padding: '10px 12px', minHeight: 60, borderRadius: 13,
+        cursor: 'pointer', color: '#fff', textAlign: 'left', boxSizing: 'border-box',
+        border: '1.5px solid rgba(255,255,255,.5)', background: `linear-gradient(135deg, ${c1}, ${c2})`,
+        boxShadow: `0 4px 14px ${c2}66`, animation: pulso ? 'vhChamado 1.6s ease-out infinite' : 'none' }}>
+      <span style={{ width: 36, height: 36, borderRadius: 10, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: 'rgba(255,255,255,.22)', fontSize: 18 }}>{icone}</span>
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ display: 'block', fontSize: 14.5, fontWeight: 900, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{titulo}</span>
+        {children || (
+          <span style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+            fontSize: 11, fontWeight: 600, opacity: .95, marginTop: 2, lineHeight: 1.3 }}>{sub}</span>
+        )}
+      </span>
+      {direita}
+    </div>
+  );
+}
+
 /* ─── O BOTÃO DA LATERAL ──────────────────────────────────────────────────── */
-export function BotaoChatEquipe({ api, user, onAbrir, aberto, compacto = false, naBarra = false, comAviso = naBarra }) {
+export function BotaoChatEquipe({ api, user, onAbrir, aberto, compacto = false, naBarra = false, comAviso = naBarra, cartao = false }) {
   const [st, setSt] = useState({ naoLidas: 0, chamado: false });
   /* 🔔 AVISO NA TELA (25/09, "deixa o chat da equipe em maior evidência"):
      quem está no Inbox, na Agenda ou em qualquer página vê a prévia de quem
@@ -215,6 +242,26 @@ export function BotaoChatEquipe({ api, user, onAbrir, aberto, compacto = false, 
           )}
         </button>
         {avisoFlutuante}
+      </>
+    );
+  }
+
+  // 🟦 No topo do menu: o mesmo molde das duas pesquisas (25/09)
+  if (cartao) {
+    return (
+      <>
+        {pulso}
+        <CartaoMenu onClick={onAbrir} pulso={chamado}
+          icone={chamado ? '🔔' : '👥'}
+          titulo={chamado ? 'Te chamaram no chat!' : 'Chat da equipe'}
+          sub="Fala com a equipe; @nome chama alguém"
+          c1={chamado ? '#22c55e' : '#06b6d4'} c2={chamado ? VERDE : '#0e7490'}
+          title="Chat da equipe: conversa interna, a equipe toda vê"
+          direita={!aberto && st.naoLidas > 0 ? (
+            <span style={{ background: '#fff', color: chamado ? VERDE : '#0e7490', borderRadius: 10, padding: '1px 8px', fontSize: 11.5, fontWeight: 900, flexShrink: 0 }}>
+              {st.naoLidas > 99 ? '99+' : st.naoLidas}
+            </span>
+          ) : null} />
       </>
     );
   }

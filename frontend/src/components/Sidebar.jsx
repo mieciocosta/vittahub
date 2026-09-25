@@ -24,7 +24,7 @@ const TONS = [
   { nome: 'Escuro', p: 0.5 },
 ];
 import AvatarBuilder from './AvatarBuilder.jsx';
-import { BotaoChatEquipe } from './ChatEquipe.jsx';
+import { BotaoChatEquipe, CartaoMenu } from './ChatEquipe.jsx';
 
 // Atalhos coloridos por classificação → abrem o chat filtrado (?cls=).
 // Fidelidade abre a PASTA (as conversas dela saem do inbox).
@@ -279,6 +279,8 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
      sem acento, sem caixa, atravessando grupos fechados. */
   const [buscaMenu, setBuscaMenu] = useState('');
   const navRef = useRef(null);   // Enter na Pesquisa Geral abre a primeira ferramenta achada
+  const [pgAberta, setPgAberta] = useState(false);   // a Pesquisa Geral virou caixa de digitar
+  const pgRef = useRef(null);
   const semAcentoMenu = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   const buscaAtiva = buscaMenu.trim().length > 0;
   const bateBusca = (label) => !buscaAtiva || semAcentoMenu(label).includes(semAcentoMenu(buscaMenu));
@@ -986,41 +988,33 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
             <div style={{ display:'flex', flexDirection:'column', gap:7, marginTop:10 }}>
               {/* Duas buscas, duas cores (ordem do master, 25/09: "Pesquisa Geral e
                   Pesquisa Conversas, em evidência, maior tamanho e cores diferentes") */}
-              {/* 🔎 PESQUISA GERAL = as FERRAMENTAS do menu (ordem do master, 25/09:
-                  "essa pesquisa geral é das ferramentas que tem do lado esquerdo:
-                  chat, caixa etc"). Digitou, o menu logo abaixo filtra na hora;
-                  Enter abre a primeira ferramenta encontrada. */}
-              <div style={{ position:'relative' }}>
-                <Search size={18} style={{ position:'absolute', left:13, top:'50%', transform:'translateY(-50%)', color:'#0f172a', pointerEvents:'none' }} />
-                <input value={buscaMenu} onChange={e => setBuscaMenu(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Escape') setBuscaMenu('');
-                    if (e.key === 'Enter') { const a = navRef.current?.querySelector('a.vh-nav'); if (a) { a.click(); setBuscaMenu(''); } }
-                  }}
-                  placeholder="Pesquisa Geral (Chat, Caixa…)"
-                  title="Pesquisa Geral: procura as ferramentas do menu (Chat, Caixa, Agenda…)"
-                  style={{ width:'100%', padding:'13px 30px 13px 40px', borderRadius:13, fontSize:14.5, fontWeight:900,
-                    border:'1.5px solid rgba(255,255,255,.6)', color:'#0f172a', outline:'none',
-                    background:'linear-gradient(135deg,#fde68a,#f59e0b)', boxShadow:'0 4px 16px rgba(245,158,11,.4)' }} />
-                {buscaAtiva && (
-                  <button onClick={() => setBuscaMenu('')} title="Limpar"
-                    style={{ position:'absolute', right:9, top:'50%', transform:'translateY(-50%)', border:'none', background:'transparent',
-                      color:'#0f172a', cursor:'pointer', fontSize:17, fontWeight:900, lineHeight:1, padding:2 }}>×</button>
-                )}
-              </div>
-              {/* 💬 PESQUISA CONVERSAS = uma conversa ou o que foi dito dentro dela
-                  (ordem do master, 25/09): abre a busca de clientes e de trechos das
-                  conversas, com quem falou e quando (Ctrl+K). */}
-              <button onClick={() => window.dispatchEvent(new CustomEvent('vh-abrir-busca', { detail: { q: '' } }))}
+              {/* Os três atalhos com o MESMO molde (CartaoMenu), só cor e título
+                  mudam (ordem do master, 25/09). A linha de baixo de cada um diz
+                  pra que serve, pra ninguém confundir as duas pesquisas. */}
+              {/* 🔎 PESQUISA GERAL = as FERRAMENTAS do menu: toca, vira caixa de
+                  digitar; o menu logo abaixo filtra; Enter abre a primeira. */}
+              <CartaoMenu c1="#f59e0b" c2="#b45309" icone={<Search size={18} />} titulo="Pesquisa Geral"
+                sub="Acha as ferramentas do menu: Chat, Caixa, Agenda"
+                title="Pesquisa Geral: procura as ferramentas do menu"
+                onClick={() => { setPgAberta(true); setTimeout(() => pgRef.current?.focus(), 30); }}>
+                {(pgAberta || buscaAtiva) ? (
+                  <input ref={pgRef} value={buscaMenu} onChange={e => setBuscaMenu(e.target.value)}
+                    className="vh-input-cartao"
+                    onClick={e => e.stopPropagation()}
+                    onBlur={() => { if (!buscaMenu.trim()) setPgAberta(false); }}
+                    onKeyDown={e => {
+                      if (e.key === 'Escape') { setBuscaMenu(''); setPgAberta(false); }
+                      if (e.key === 'Enter') { const a = navRef.current?.querySelector('a.vh-nav'); if (a) { a.click(); setBuscaMenu(''); setPgAberta(false); } }
+                    }}
+                    placeholder="Digite: chat, caixa, agenda…" />
+                ) : null}
+              </CartaoMenu>
+              {/* 💬 PESQUISA CONVERSAS = cliente ou o que foi dito dentro da conversa */}
+              <CartaoMenu c1="#8b5cf6" c2="#a21caf" icone={<MessageSquare size={18} />} titulo="Pesquisa Conversas"
+                sub="Acha um cliente ou o que foi dito nas conversas"
                 title="Pesquisa Conversas: cliente pelo nome ou telefone, ou qualquer palavra dita nas conversas (Ctrl+K)"
-                style={{ display:'flex', alignItems:'center', gap:10, width:'100%', padding:'13px 14px', borderRadius:13, cursor:'pointer',
-                  border:'1.5px solid rgba(255,255,255,.6)', color:'#fff', fontSize:15, fontWeight:900, textAlign:'left',
-                  background:'linear-gradient(135deg,#8b5cf6,#c026d3)', boxShadow:'0 4px 16px rgba(139,92,246,.45)' }}>
-                <MessageSquare size={18} style={{ flexShrink:0 }} />
-                <span style={{ flex:1, minWidth:0, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', fontSize:14.5 }}>Pesquisa Conversas</span>
-                <span style={{ fontSize:9.5, fontWeight:900, border:'1px solid rgba(255,255,255,.5)', borderRadius:6, padding:'1px 6px' }}>Ctrl+K</span>
-              </button>
-              <BotaoChatEquipe api={api} user={user} onAbrir={() => window.dispatchEvent(new CustomEvent('vh-abrir-chat-equipe'))} />
+                onClick={() => window.dispatchEvent(new CustomEvent('vh-abrir-busca', { detail: { q: '' } }))} />
+              <BotaoChatEquipe api={api} user={user} cartao onAbrir={() => window.dispatchEvent(new CustomEvent('vh-abrir-chat-equipe'))} />
             </div>
         )}
 

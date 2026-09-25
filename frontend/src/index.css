@@ -282,6 +282,14 @@ h1 { letter-spacing: -0.7px; }
 [data-theme="dark"] ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.65); border: 3px solid transparent; background-clip: padding-box; }
 [data-theme="dark"] * { scrollbar-color: rgba(255,255,255,.4) transparent; }
 
+/* 🟦 Caixa de digitar dentro do cartão da Pesquisa Geral (25/09): vale nos dois
+   temas (o tema escuro força fundo em todo input com !important). */
+input.vh-input-cartao, [data-theme="dark"] input.vh-input-cartao {
+  width: 100% !important; margin-top: 4px !important; padding: 5px 9px !important; font-size: 12.5px !important; font-weight: 700 !important;
+  background: rgba(255,255,255,.95) !important; color: #0f172a !important; border: none !important; border-radius: 8px !important; box-shadow: none !important;
+}
+input.vh-input-cartao::placeholder { color: #64748b !important; }
+
 /* ▸ Recolher coluna é coisa de tela larga: no celular a lista ocupa a tela toda */
 @media (max-width: 768px) { .vh-coluna-min, .vh-so-desktop { display: none !important; } }
 
