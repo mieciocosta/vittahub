@@ -90,6 +90,12 @@ export default function PlacarVendas() {
   const [recolhido, setRecolhido] = useState(() => {
     try { return localStorage.getItem('vh_placar_recolhido') === '1'; } catch { return false; }
   });
+  // 💬 O botão do chat da equipe no topo do menu abre o mesmo painel daqui (25/09)
+  useEffect(() => {
+    const abrir = () => setChatAberto(true);
+    window.addEventListener('vh-abrir-chat-equipe', abrir);
+    return () => window.removeEventListener('vh-abrir-chat-equipe', abrir);
+  }, []);
   const alternarFaixa = () => setRecolhido(v => {
     const novo = !v;
     try { localStorage.setItem('vh_placar_recolhido', novo ? '1' : '0'); } catch { /* sem armazenamento: vale só nesta visita */ }

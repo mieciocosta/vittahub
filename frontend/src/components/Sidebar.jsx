@@ -24,6 +24,7 @@ const TONS = [
   { nome: 'Escuro', p: 0.5 },
 ];
 import AvatarBuilder from './AvatarBuilder.jsx';
+import { BotaoChatEquipe } from './ChatEquipe.jsx';
 
 // Atalhos coloridos por classificação → abrem o chat filtrado (?cls=).
 // Fidelidade abre a PASTA (as conversas dela saem do inbox).
@@ -769,6 +770,23 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
                 frase dourada é a única com cor própria (é o destaque); e as
                 metas são duas linhas varridas num olhar, com a barra por
                 último. Menos moldura, mais leitura. */}
+            {/* 🔎💬 PESQUISA GERAL E CHAT DA EQUIPE NO TOPO DO MENU (25/09, ordem do
+                master: "quero que de alguma forma o menu de pesquisa fique em
+                maior evidência e o chat com a equipe"). Moravam no meio do
+                menu, abaixo do cartão do dia, e sumiam da vista. Agora são as
+                duas primeiras coisas depois do nome, grandes e coloridas. */}
+            <div style={{ display:'flex', flexDirection:'column', gap:7, marginTop:10 }}>
+              <button onClick={() => window.dispatchEvent(new CustomEvent('vh-abrir-busca', { detail: { q: '' } }))}
+                title="Pesquisar cliente, telefone, mensagem ou tela (Ctrl+K)"
+                style={{ display:'flex', alignItems:'center', gap:9, width:'100%', padding:'11px 12px', borderRadius:12, cursor:'pointer',
+                  border:'1.5px solid rgba(255,255,255,.55)', color:'#0f172a', fontSize:13.5, fontWeight:900, textAlign:'left',
+                  background:'linear-gradient(135deg,#fde68a,#fbbf24)', boxShadow:'0 4px 14px rgba(251,191,36,.35)' }}>
+                <Search size={16} />
+                <span style={{ flex:1 }}>Pesquisa geral</span>
+                <span style={{ fontSize:9.5, fontWeight:900, border:'1px solid rgba(15,23,42,.35)', borderRadius:6, padding:'1px 6px' }}>Ctrl+K</span>
+              </button>
+              <BotaoChatEquipe api={api} user={user} onAbrir={() => window.dispatchEvent(new CustomEvent('vh-abrir-chat-equipe'))} />
+            </div>
             {/* Linha fina: só o que precisa estar sempre à vista */}
             <button onClick={alternarPerfil}
               title={perfilAberto ? 'Recolher meu dia' : 'Ver meu dia: versículo, frase e metas'}
@@ -1007,7 +1025,7 @@ export default function Sidebar({ unread = 0, theme = 'light', onToggleTheme, co
             porta de entrada VISÍVEL pra busca global, que antes só abria com
             Ctrl+K (impossível no celular). Se já digitou algo na caixinha do
             menu, o termo vai junto e a pesquisa geral abre já procurando. */}
-        {!collapsed && (
+        {!collapsed && buscaAtiva && (
           <button onClick={() => { window.dispatchEvent(new CustomEvent('vh-abrir-busca', { detail: { q: buscaMenu.trim() } })); setBuscaMenu(''); }}
             style={{ display:'flex', alignItems:'center', gap:8, margin:'0 4px 8px', padding:'8px 12px', borderRadius:10, cursor:'pointer',
               background:'linear-gradient(120deg,rgba(0,184,192,.25),rgba(0,184,192,.12))', border:'1px solid rgba(0,184,192,.45)',
