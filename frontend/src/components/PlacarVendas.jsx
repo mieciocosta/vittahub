@@ -211,6 +211,7 @@ export default function PlacarVendas() {
 
   if (!user || !meta || !meta.metaGlobal) return null;
   const gestao = ['master', 'supervisor'].includes(user.role);
+  const direcao = user.role === 'master';   // 👑 a faixa da direção é o placar da casa (25/09)
   // O servidor decide se manda os valores do setor. Fora da gestão eles nem
   // chegam — assim a colega não descobre o número da outra por subtração.
   const verValores = meta.mostra_valores !== false;
@@ -302,10 +303,10 @@ export default function PlacarVendas() {
       {chatAberto && (
         <PainelChatEquipe api={api} user={user} modo="gaveta" onFechar={() => setChatAberto(false)} />
       )}
-      <span style={{ fontSize: 12.5, fontWeight: 800, whiteSpace: 'nowrap' }}>
+      {!direcao && <span style={{ fontSize: 12.5, fontWeight: 800, whiteSpace: 'nowrap' }}>
         🔥 {nHoje} {nHoje === 1 ? 'venda hoje' : 'vendas hoje'}
-      </span>
-      {verValores && alvoMes > 0 && (
+      </span>}
+      {!direcao && verValores && alvoMes > 0 && (
         <span style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, fontWeight: 800, whiteSpace: 'nowrap' }}>
           <span style={{ color: 'var(--muted,#64748b)', fontWeight: 700 }}>Meta do mês</span>
           <span style={{ width: 90, height: 6, borderRadius: 6, background: 'var(--border,#e2e8f0)', overflow: 'hidden' }}>
@@ -389,6 +390,12 @@ export default function PlacarVendas() {
         </div>
       )}
 
+      {/* 👑 DIREÇÃO VÊ SÓ O PLACAR DA CASA (ordem do master, 25/09: "retira isso;
+          quero tudo o que pedi, reveja com atenção"). Minhas vendas de hoje,
+          metas do dia por setor, alcançado e prêmio são o placar da EQUIPE;
+          pro master a faixa mostra só vacinas R$, consultas + terapias R$,
+          leads do mês e convertidos (o bloco 🏠 lá em cima). */}
+      {!direcao && (<>
       {/* 1️⃣ O QUE EU FIZ HOJE */}
       <div title={gestao && hoje?.casa ? `Casa inteira hoje: ${hoje.casa.n} venda(s) · ${fmt.brl(hoje.casa.total)}` : undefined}
         style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '5px 13px 5px 10px', borderRadius: 13,
@@ -613,6 +620,8 @@ export default function PlacarVendas() {
         </Capsula>
       )}
 
+      </>)}
+
       <div style={{ flex: 1, minWidth: 8 }} />
 
       {/* ⏸️ Chaves do automático (só o master) */}
@@ -731,9 +740,9 @@ export default function PlacarVendas() {
       </button>
 
       {/* Grito de guerra + expediente numa linha só (auditoria: eram dois) */}
-      <div style={{ fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+      {!direcao && <div style={{ fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
         {grito}{restaHoje && !batida ? ` · ⏳ ${restaHoje}` : ''}
-      </div>
+      </div>}
 
       {/* Pausado precisa GRITAR: esquecer o freio puxado é pior que o problema
           que ele resolve (cliente fica sem resposta e ninguém percebe). */}
@@ -779,7 +788,7 @@ export default function PlacarVendas() {
 
       {/* Barra grande do mês colada na base da faixa — o "termômetro" do time.
           Enche na frente de todo mundo a cada venda registrada. */}
-      {verValores && alvoMes > 0 && (
+      {!direcao && verValores && alvoMes > 0 && (
         <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 4, background: 'rgba(0,0,0,.3)' }}>
           <div style={{ width: `${Math.max(pctMes, 1.5)}%`, height: '100%',
             background: pctMes >= 100 ? 'linear-gradient(90deg,#10b981,#6ee7b7)' : 'linear-gradient(90deg,#f59e0b,#fcd34d,#fff8e1)',

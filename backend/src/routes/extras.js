@@ -6582,7 +6582,7 @@ r.get('/placar-casa', async (req, res) => {
                     COALESCE(SUM(valor) FILTER (WHERE setor IN ('consultas','terapias')),0)::float consultas_terapias,
                     COUNT(*) FILTER (WHERE COALESCE(setor,'vacinas') = 'vacinas')::int n_vacinas,
                     COUNT(*) FILTER (WHERE setor IN ('consultas','terapias'))::int n_ct
-               FROM vendas WHERE data_venda >= ${MES}`),
+               FROM vendas WHERE to_char(data_venda,'YYYY-MM') = to_char(NOW() - interval '3 hours','YYYY-MM')`),   // o mesmo recorte do "mês R$" das metas
       query(`SELECT COUNT(*)::int leads,
                     COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM vendas v WHERE v.conversa_id = c.id))::int convertidos
                FROM conversas c
