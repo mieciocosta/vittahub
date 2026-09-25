@@ -105,6 +105,7 @@ export default function PlacarVendas() {
   const nav = useNavigate();
   const { user } = useAuth();
   const [meta, setMeta] = useState(null);
+  const [casa, setCasa] = useState(null);   // 🏠 placar da casa (só master)
   const [hoje, setHoje] = useState(null);
   const [pulse, setPulse] = useState(false);
   const [festaBusy, setFestaBusy] = useState(false); // 🥳 botão do master soltando a festa
@@ -160,6 +161,7 @@ export default function PlacarVendas() {
 
   const carregar = () => {
     api.get('/extras/meta-setor').then(setMeta).catch(() => {});
+    if (user?.role === 'master') api.get('/extras/placar-casa').then(setCasa).catch(() => {});
     api.get('/extras/vendas/hoje').then(setHoje).catch(() => {});
     /* Estado do freio — TODA a equipe vê a tarja (com a Vitta calada, quem não
        responder na mão deixa o cliente no vácuo). Só o master tem o botão. */
@@ -313,6 +315,14 @@ export default function PlacarVendas() {
           {batida ? '🏆 batida' : `${pctMes.toFixed(0)}%`}
         </span>
       )}
+      {user?.role === 'master' && casa && (
+        <span style={{ display: 'flex', gap: 12, fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap', flexWrap: 'wrap' }}>
+          <span>💉 {fmt.brl(casa.vacinas)}</span>
+          <span>🩺 {fmt.brl(casa.consultas_terapias)}</span>
+          <span>📥 {casa.leads} leads</span>
+          <span>✅ {casa.convertidos} convertidos</span>
+        </span>
+      )}
       <span style={{ flex: 1 }} />
       <button onClick={alternarFaixa} title="Mostrar a faixa com as metas, o prêmio e o ranking"
         style={{ padding: '5px 12px', borderRadius: 9, cursor: 'pointer', whiteSpace: 'nowrap', fontSize: 12, fontWeight: 800,
@@ -350,6 +360,33 @@ export default function PlacarVendas() {
         onAbrir={() => setChatAberto(v => !v)} />
       {chatAberto && (
         <PainelChatEquipe api={api} user={user} modo="gaveta" onFechar={() => setChatAberto(false)} />
+      )}
+
+      {/* 🏠 PLACAR DA CASA (ordem do master, 25/09): só pra direção, a clínica
+          inteira no mês: vacinas em R$, consultas + terapias em R$, leads do
+          mês e quantos viraram venda. Cartões grandes, lidos num olhar. */}
+      {user?.role === 'master' && casa && (
+        <div style={{ display: 'flex', alignItems: 'stretch', gap: 8, flexWrap: 'wrap', width: '100%', order: -1 }}>
+          <span style={{ alignSelf: 'center', fontSize: 10.5, fontWeight: 900, letterSpacing: 1, textTransform: 'uppercase', opacity: .8, whiteSpace: 'nowrap' }}>
+            🏠 Placar da casa · {casa.mes}
+          </span>
+          {[
+            ['💉', 'Vacinas', fmt.brl(casa.vacinas), `${casa.n_vacinas} venda(s)`, 'rgba(59,130,246,.35)', '#93c5fd'],
+            ['🩺', 'Consultas + Terapias', fmt.brl(casa.consultas_terapias), `${casa.n_ct} venda(s)`, 'rgba(13,148,136,.35)', '#5eead4'],
+            ['📥', 'Leads do mês', String(casa.leads), 'conversas novas', 'rgba(245,158,11,.3)', '#fcd34d'],
+            ['✅', 'Convertidos', String(casa.convertidos), `${String(casa.taxa).replace('.', ',')}% dos leads`, 'rgba(34,197,94,.3)', '#86efac'],
+          ].map(([ic, rot, val, sub, fundo, cor]) => (
+            <div key={rot} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '6px 14px 6px 10px', borderRadius: 13,
+              background: fundo, border: `1px solid ${cor}66`, minWidth: 150 }}>
+              <span style={{ fontSize: 20 }}>{ic}</span>
+              <div style={{ lineHeight: 1.12 }}>
+                <div style={{ fontSize: 9.5, fontWeight: 900, letterSpacing: .6, textTransform: 'uppercase', opacity: .85 }}>{rot}</div>
+                <div style={{ fontSize: 16.5, fontWeight: 900, color: cor }}>{val}</div>
+                <div style={{ fontSize: 10, opacity: .8 }}>{sub}</div>
+              </div>
+            </div>
+          ))}
+        </div>
       )}
 
       {/* 1️⃣ O QUE EU FIZ HOJE */}

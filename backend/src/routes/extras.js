@@ -6566,6 +6566,38 @@ r.get('/chat-equipe', async (req, res) => {
 
 /* Só o contador — é o que o botão da lateral consulta de tempo em tempo, sem
    trazer as mensagens junto. */
+/* 🏠 PLACAR DA CASA (25/09, ordem do master: "melhore esse painel pra mim e
+   Miécio: placar total de vacinas R$, placar geral de consultas e terapias,
+   placar total de leads do mês e placar de convertidos"). SÓ master: é o
+   número da clínica inteira. Mês corrente no relógio de São Luís.
+   · Vacinas / Consultas+Terapias: soma das vendas lançadas no mês.
+   · Leads do mês: conversas NOVAS do mês (fora grupo, interno, Banco de Dados
+     e simulação). Convertidos: dessas, as que já têm venda lançada. */
+r.get('/placar-casa', async (req, res) => {
+  try {
+    if (req.user.role !== 'master') return res.status(403).json({ error: 'Placar da casa é só da direção' });
+    const MES = `date_trunc('month', NOW() - interval '3 hours')::date`;
+    const [{ rows: [v] }, { rows: [l] }] = await Promise.all([
+      query(`SELECT COALESCE(SUM(valor) FILTER (WHERE COALESCE(setor,'vacinas') = 'vacinas'),0)::float vacinas,
+                    COALESCE(SUM(valor) FILTER (WHERE setor IN ('consultas','terapias')),0)::float consultas_terapias,
+                    COUNT(*) FILTER (WHERE COALESCE(setor,'vacinas') = 'vacinas')::int n_vacinas,
+                    COUNT(*) FILTER (WHERE setor IN ('consultas','terapias'))::int n_ct
+               FROM vendas WHERE data_venda >= ${MES}`),
+      query(`SELECT COUNT(*)::int leads,
+                    COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM vendas v WHERE v.conversa_id = c.id))::int convertidos
+               FROM conversas c
+              WHERE (c.created_at - interval '3 hours') >= ${MES}
+                AND COALESCE(c.contact_id,'') NOT LIKE '%g.us%'
+                AND COALESCE(c.simulacao,false) = false
+                AND COALESCE(c.categoria,'') <> 'banco_dados'
+                AND COALESCE(c.classificacao,'') NOT IN ('gestao','profissional_saude')`),
+    ]);
+    const mes = new Date(Date.now() - 3 * 3600 * 1000).toLocaleDateString('pt-BR', { month: 'long', timeZone: 'UTC' });
+    res.json({ mes, vacinas: v.vacinas, n_vacinas: v.n_vacinas, consultas_terapias: v.consultas_terapias, n_ct: v.n_ct,
+      leads: l.leads, convertidos: l.convertidos, taxa: l.leads ? Math.round((l.convertidos / l.leads) * 1000) / 10 : 0 });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.get('/chat-equipe/status', async (req, res) => {
   try {
     const { rows: [l] } = await query('SELECT lido_em FROM chat_equipe_leitura WHERE usuario_id = $1', [req.user.id])
