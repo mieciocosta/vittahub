@@ -4733,6 +4733,10 @@ r.get('/conversations', async (req, res) => {
     planos: tudo.filter(c => CLS_PLANOS.includes(c.classificacao)).length,   // 💎 botões da Danielle (furam a régua da lista)
     planosVacinais: tudo.filter(c => c.classificacao === 'planos_vacinais').length,
     planosTerapeuticos: tudo.filter(c => c.classificacao === 'terapias').length,
+    /* 📅 Pacote Mensal (botão das meninas de vacinas, 25/09) = classificação
+       Fidelidade. Conta direto do cache porque essas conversas moram na pasta
+       (o `tudo` deixa pasta de fora), respeitando quem pode ver cada uma. */
+    pacoteMensal: Array.from(convoCache.values()).filter(c => c.classificacao === 'fidelidade' && !c.arquivada && podeVerSetor(req.user, c)).length,
     minhas: tudo.filter(c => c.responsavel_id === req.user.id).length,
     /* 💼🏥 As duas abas lado a lado (25/09): o número de cada uma é o que a
        lista dela mostra — a carteira inteira (com as pastas) e a fila sem

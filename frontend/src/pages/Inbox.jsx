@@ -557,7 +557,7 @@ const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect, usersB
               brilho quando solta; dourado quando fixada. */}
           {/* ↔️ MOVER PRO LADO (ordem do master, 25/09): da fila da equipe pra
               carteira dela, ou da carteira de volta pra fila. */}
-          {mover && (
+          {mover && !conv.aviso_direcao && (
             <button onClick={e => { e.stopPropagation(); mover.acao(conv); }} title={mover.titulo}
               style={{ fontSize: 10.5, fontWeight: 900, padding: '5px 10px', borderRadius: 10, cursor: 'pointer',
                 border: '1.5px solid var(--tq)', background: 'var(--card,#fff)', color: 'var(--tq2,#0891b2)',
@@ -591,7 +591,7 @@ const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect, usersB
 });
 
 /* ── SearchBar ───────────────────────────────────────────────────────────────── */
-function SearchBar({ value, onChange, filter, setFilter, totalUnread, unreadOnly, setUnreadOnly, waiting, setWaiting, setor, setSetor, mostraSetores, modo, setModo, counts, ehDistribuidor, semGrupos, mostraPlanos, planosAtivo, onPlanos, abasCarteira, onSoltar }) {
+function SearchBar({ value, onChange, filter, setFilter, totalUnread, unreadOnly, setUnreadOnly, waiting, setWaiting, setor, setSetor, mostraSetores, modo, setModo, counts, ehDistribuidor, semGrupos, mostraPlanos, planosAtivo, onPlanos, abasCarteira, onSoltar, botoesPlanos }) {
   return (
     <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
       {/* 💎 PLANOS VACINAIS E TERAPÊUTICOS (ordem do master, 04/09: "quero que
@@ -602,8 +602,8 @@ function SearchBar({ value, onChange, filter, setFilter, totalUnread, unreadOnly
       {mostraPlanos && (
         /* Dois botões, um ao lado do outro (ordem do master, 04/09) */
         <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-          {[['planos_vacinais', '💉 Planos vacinais', 'planosVacinais', '#3b82f6', '#1d4ed8'],
-            ['terapias', '🤲 Planos terapêuticos', 'planosTerapeuticos', '#f59e0b', '#d97706']].map(([cls, rot, ck, c1, c2]) => {
+          {(botoesPlanos || [['planos_vacinais', '💉 Planos vacinais', 'planosVacinais', '#3b82f6', '#1d4ed8'],
+            ['terapias', '🤲 Planos terapêuticos', 'planosTerapeuticos', '#f59e0b', '#d97706']]).map(([cls, rot, ck, c1, c2]) => {
             const ativo = planosAtivo === cls;
             return (
               <button key={cls} onClick={() => onPlanos(cls)} title={`Todos os contatos classificados como ${rot.slice(3)}`}
@@ -2721,6 +2721,8 @@ export default function Inbox({ onUnreadChange }) {
      dela; pro geral = volta pra fila da equipe sem dona (a marca de quem
      transferiu zera, regra de 04/09). Quem tem carteira fechada não tem a fila. */
   const abasCarteira = !!user && !carteiraFechada(user);
+  const ehDanielle = /(^|[^a-z])danielle/i.test(String(user?.nome || '').normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
+  const ehDeVacinas = user?.setor === 'vacinas' || (Array.isArray(user?.setores) && user.setores.includes('vacinas'));
   /* 🏥💼 DUAS COLUNAS (25/09): em tela larga, o Atendimento Geral vira uma
      coluna à esquerda e a lista principal é a Minha carteira, colada no chat.
      Em tela estreita (notebook pequeno, celular, tablet) ficam as duas abas:
@@ -2931,7 +2933,16 @@ export default function Inbox({ onUnreadChange }) {
           semGrupos={carteiraFechada(user)}
           abasCarteira={abasCarteira && !duasColunas} onSoltar={moverConversa}
           /* 💎 O botão dos planos é da Danielle (e do master, que entra como ela) */
-          mostraPlanos={user?.role === 'master' || /(^|[^a-z])danielle/i.test(String(user?.nome || '').normalize('NFD').replace(/[\u0300-\u036f]/g, ''))}
+          mostraPlanos={user?.role === 'master' || ehDanielle || ehDeVacinas}
+          /* 💉 VACINAS GANHAM OS SEUS DOIS BOTÕES (ordem do master, 25/09: "quero
+             que para todas de vacinas apareça esses, só que com títulos Planos
+             Vacinais e Pacote Mensal"). Pacote Mensal é a classificação
+             Fidelidade (a venda sai como "Fidelidade Mensal", a meta de
+             Pacotes Mensais) e segue as travas da carteira fechada. */
+          botoesPlanos={ehDeVacinas && !ehDanielle && user?.role !== 'master'
+            ? [['planos_vacinais', '💉 Planos Vacinais', 'planosVacinais', '#3b82f6', '#1d4ed8'],
+               ['fidelidade', '📅 Pacote Mensal', 'pacoteMensal', '#f59e0b', '#d97706']]
+            : null}
           planosAtivo={clsFiltro}
           onPlanos={(cls) => { const q = new URLSearchParams(searchParams); if (q.get('cls') === cls) q.delete('cls'); else q.set('cls', cls); setSearchParams(q, { replace: true }); }}
           modo={modo} setModo={setModo} counts={{ ...(counts || {}), fixadas: fixadas.length }}
