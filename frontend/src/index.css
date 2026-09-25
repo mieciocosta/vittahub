@@ -555,6 +555,11 @@ h1 { letter-spacing: -0.7px; }
   .vh-placar > * { font-size: 11px !important; }
   .vh-placar .vh-placar-kpi { padding: 4px 8px !important; }
 }
+/* 🔽 Faixa recolhida (25/09): no celular o ☰ fica fixo no canto esquerdo;
+   a linha fina abre espaço pra ele não cobrir o chat da equipe. */
+@media (max-width: 768px) {
+  .vh-placar-fina { padding-left: 56px !important; gap: 6px 8px !important; }
+}
 
 /* ── Tablet ── */
 @media (min-width: 769px) and (max-width: 1024px) and (orientation: landscape) {

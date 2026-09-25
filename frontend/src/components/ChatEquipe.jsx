@@ -80,7 +80,7 @@ function tocarChamado() {
 }
 
 /* ─── O BOTÃO DA LATERAL ──────────────────────────────────────────────────── */
-export function BotaoChatEquipe({ api, user, onAbrir, aberto, compacto = false, naBarra = false }) {
+export function BotaoChatEquipe({ api, user, onAbrir, aberto, compacto = false, naBarra = false, comAviso = naBarra }) {
   const [st, setSt] = useState({ naoLidas: 0, chamado: false });
   /* 🔔 AVISO NA TELA (25/09, "deixa o chat da equipe em maior evidência"):
      quem está no Inbox, na Agenda ou em qualquer página vê a prévia de quem
@@ -89,10 +89,10 @@ export function BotaoChatEquipe({ api, user, onAbrir, aberto, compacto = false, 
   const [aviso, setAviso] = useState(null);   // { autor, texto, chamado }
   const ultimoIdRef = useRef(undefined);      // undefined = ainda não carregou (não avisa o que já estava lá)
   const avisar = useCallback((m) => {
-    if (!naBarra || aberto || !m) return;
+    if (!comAviso || aberto || !m) return;
     setAviso({ autor: primeiroNome(m.autor_nome) || 'Equipe', texto: String(m.texto || ''), chamado: !!m.chamado });
     if (m.chamado) tocarChamado();
-  }, [naBarra, aberto]);
+  }, [comAviso, aberto]);
 
   const puxar = useCallback(() => {
     if (aberto) { setSt({ naoLidas: 0, chamado: false }); return; }
@@ -137,7 +137,8 @@ export function BotaoChatEquipe({ api, user, onAbrir, aberto, compacto = false, 
   const pulso = (
     <style>{`@keyframes vhChamado {
       0%,100% { box-shadow: 0 0 0 0 rgba(22,163,74,.55); }
-      50%     { box-shadow: 0 0 0 7px rgba(22,163,74,0); } }`}</style>
+      50%     { box-shadow: 0 0 0 7px rgba(22,163,74,0); } }
+    @keyframes vhAvisoEntra { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }`}</style>
   );
 
   /* ── DENTRO DA CONVERSA (pedido do master: "que fique do lado de cada chat") ──
@@ -151,39 +152,8 @@ export function BotaoChatEquipe({ api, user, onAbrir, aberto, compacto = false, 
      botão discreto ali dentro simplesmente não é visto. Então ele ganha anel
      branco e brilho próprio — e continua ficando VERDE quando chamam, que é o
      único momento em que ele precisa gritar mais alto que o resto da faixa. */
-  if (naBarra) {
-    /* Três estados, do mais calmo ao mais alto (25/09, maior evidência):
-       turquesa = nada novo · LARANJA com brilho = mensagem nova no chat ·
-       VERDE pulsando = te chamaram (@nome). O botão também cresceu. */
-    const novas = !aberto && st.naoLidas > 0;
-    return (
+  const avisoFlutuante = (
       <>
-        {pulso}
-        <style>{`@keyframes vhNovaMsg {
-          0%,100% { box-shadow: 0 0 0 0 rgba(249,115,22,.55); }
-          50%     { box-shadow: 0 0 0 6px rgba(249,115,22,0); } }
-          @keyframes vhAvisoEntra { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }`}</style>
-        <button onClick={onAbrir} title={chamado ? 'Te chamaram no chat da equipe!' : 'Chat da equipe: conversar com as meninas'}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 7, padding: '9px 18px', borderRadius: 14,
-            cursor: 'pointer', whiteSpace: 'nowrap', fontSize: 13.5, fontWeight: 900, color: '#fff',
-            border: '2px solid rgba(255,255,255,.75)',
-            background: chamado
-              ? `linear-gradient(180deg, #22c55e, ${VERDE})`
-              : aberto ? 'linear-gradient(180deg,#0f766e,#115e59)'
-              : novas ? 'linear-gradient(180deg,#fb923c,#ea580c)' : `linear-gradient(180deg, #22d3ee, ${TURQ})`,
-            boxShadow: chamado ? '0 3px 16px rgba(34,197,94,.65)' : novas ? '0 3px 16px rgba(249,115,22,.6)' : '0 3px 14px rgba(0,184,192,.55)',
-            animation: chamado ? 'vhChamado 1.6s ease-out infinite' : novas ? 'vhNovaMsg 2.2s ease-out infinite' : 'none',
-          }}>
-          <span style={{ fontSize: 17, lineHeight: 1 }}>{chamado ? '🔔' : '💬'}</span>
-          {chamado ? 'Te chamaram!' : novas ? 'Mensagem da equipe' : 'Chat da equipe'}
-          {novas && (
-            <span style={{ background: '#fff', color: chamado ? VERDE : '#c2410c', borderRadius: 10,
-              padding: '1px 7px', fontSize: 11.5, fontWeight: 900 }}>
-              {st.naoLidas > 99 ? '99+' : st.naoLidas}
-            </span>
-          )}
-        </button>
         {/* Portal no body: a faixa tem overflow escondido e cortava o aviso */}
         {aviso && createPortal(
           <div role="status" onClick={() => { setAviso(null); onAbrir(); }}
@@ -210,6 +180,42 @@ export function BotaoChatEquipe({ api, user, onAbrir, aberto, compacto = false, 
           </div>, document.body
         )}
       </>
+  );
+
+  if (naBarra) {
+    /* Três estados, do mais calmo ao mais alto (25/09, maior evidência):
+       turquesa = nada novo · LARANJA com brilho = mensagem nova no chat ·
+       VERDE pulsando = te chamaram (@nome). O botão também cresceu. */
+    const novas = !aberto && st.naoLidas > 0;
+    return (
+      <>
+        {pulso}
+        <style>{`@keyframes vhNovaMsg {
+          0%,100% { box-shadow: 0 0 0 0 rgba(249,115,22,.55); }
+          50%     { box-shadow: 0 0 0 6px rgba(249,115,22,0); } }`}</style>
+        <button onClick={onAbrir} title={chamado ? 'Te chamaram no chat da equipe!' : 'Chat da equipe: conversar com as meninas'}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 7, padding: '9px 18px', borderRadius: 14,
+            cursor: 'pointer', whiteSpace: 'nowrap', fontSize: 13.5, fontWeight: 900, color: '#fff',
+            border: '2px solid rgba(255,255,255,.75)',
+            background: chamado
+              ? `linear-gradient(180deg, #22c55e, ${VERDE})`
+              : aberto ? 'linear-gradient(180deg,#0f766e,#115e59)'
+              : novas ? 'linear-gradient(180deg,#fb923c,#ea580c)' : `linear-gradient(180deg, #22d3ee, ${TURQ})`,
+            boxShadow: chamado ? '0 3px 16px rgba(34,197,94,.65)' : novas ? '0 3px 16px rgba(249,115,22,.6)' : '0 3px 14px rgba(0,184,192,.55)',
+            animation: chamado ? 'vhChamado 1.6s ease-out infinite' : novas ? 'vhNovaMsg 2.2s ease-out infinite' : 'none',
+          }}>
+          <span style={{ fontSize: 17, lineHeight: 1 }}>{chamado ? '🔔' : '💬'}</span>
+          {chamado ? 'Te chamaram!' : novas ? 'Mensagem da equipe' : 'Chat da equipe'}
+          {novas && (
+            <span style={{ background: '#fff', color: chamado ? VERDE : '#c2410c', borderRadius: 10,
+              padding: '1px 7px', fontSize: 11.5, fontWeight: 900 }}>
+              {st.naoLidas > 99 ? '99+' : st.naoLidas}
+            </span>
+          )}
+        </button>
+        {avisoFlutuante}
+      </>
     );
   }
 
@@ -217,6 +223,7 @@ export function BotaoChatEquipe({ api, user, onAbrir, aberto, compacto = false, 
     return (
       <>
         {pulso}
+        {avisoFlutuante}
         <button onClick={onAbrir} title={chamado ? 'Te chamaram no chat da equipe!' : 'Chat da equipe'}
           style={{
             display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer',

@@ -20,6 +20,18 @@ const pool = new Pool({
 
 pool.on('error', (err) => console.error('Pool error:', err.message));
 
+/* 🧯 NINGUÉM ESPERA TRAVA PRA SEMPRE (25/09, "não estamos conseguindo entrar").
+   A cada subida as migrações fazem ALTER TABLE ... IF NOT EXISTS, que pede
+   trava EXCLUSIVA da tabela mesmo quando a coluna já existe. Se uma consulta
+   pesada (ou presa, de uma versão anterior derrubada no meio) está lendo a
+   tabela, o ALTER fica esperando, e TODA consulta nova naquela tabela entra na
+   fila atrás dele: login, lista de conversas, tudo. O servidor subia, atendia
+   por 30 s e travava. Com lock_timeout, quem espera trava desiste em 5 s com
+   erro (a migração tem .catch e segue; a coluna já existe) e a fila anda. */
+pool.on('connect', (client) => {
+  client.query("SET lock_timeout = '5s'").catch(() => {});
+});
+
 export async function query(text, params) {
   try {
     return await pool.query(text, params);

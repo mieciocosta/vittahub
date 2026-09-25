@@ -82,6 +82,19 @@ const Barra = ({ pct, cor, largura = 62 }) => (
 export default function PlacarVendas() {
   // 💬 Chat da equipe também na faixa do topo — ela aparece em toda tela
   const [chatAberto, setChatAberto] = useState(false);
+  /* 🔽 RECOLHER A FAIXA DE METAS (25/09, ordem do master: "essa tela está
+     visualmente ruim, muita coisa chamativa. Cria um recolher desse topo com
+     valores de meta"). Recolhida, vira uma linha fina com o chat da equipe, o
+     resumo do dia e do mês e o botão de abrir de novo. A escolha é de cada
+     pessoa e fica guardada no aparelho dela. */
+  const [recolhido, setRecolhido] = useState(() => {
+    try { return localStorage.getItem('vh_placar_recolhido') === '1'; } catch { return false; }
+  });
+  const alternarFaixa = () => setRecolhido(v => {
+    const novo = !v;
+    try { localStorage.setItem('vh_placar_recolhido', novo ? '1' : '0'); } catch { /* sem armazenamento: vale só nesta visita */ }
+    return novo;
+  });
   const api = useApi();
   const nav = useNavigate();
   const { user } = useAuth();
@@ -265,6 +278,43 @@ export default function PlacarVendas() {
         </div>
       </div>
     </div>
+  );
+
+  if (recolhido) return (
+    <>
+    {popupFesta}
+    {verRelatorio && estudo?.ultimo?.relatorio && (
+      <RelatorioEstudo registro={estudo.ultimo} onFechar={() => setVerRelatorio(false)} />
+    )}
+    <div className="vh-placar-fina" style={{ position: 'sticky', top: 0, zIndex: 90, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+      padding: '6px 16px', background: 'var(--card,#fff)', color: 'var(--txt,#0f172a)',
+      borderBottom: '1px solid var(--border,#e2e8f0)', boxShadow: '0 1px 6px rgba(15,23,42,.06)' }}>
+      <BotaoChatEquipe api={api} user={user} compacto comAviso aberto={chatAberto}
+        onAbrir={() => setChatAberto(v => !v)} />
+      {chatAberto && (
+        <PainelChatEquipe api={api} user={user} modo="gaveta" onFechar={() => setChatAberto(false)} />
+      )}
+      <span style={{ fontSize: 12.5, fontWeight: 800, whiteSpace: 'nowrap' }}>
+        🔥 {nHoje} {nHoje === 1 ? 'venda hoje' : 'vendas hoje'}
+      </span>
+      {verValores && alvoMes > 0 && (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, fontWeight: 800, whiteSpace: 'nowrap' }}>
+          <span style={{ color: 'var(--muted,#64748b)', fontWeight: 700 }}>Meta do mês</span>
+          <span style={{ width: 90, height: 6, borderRadius: 6, background: 'var(--border,#e2e8f0)', overflow: 'hidden' }}>
+            <span style={{ display: 'block', height: '100%', width: `${Math.max(pctMes, 2)}%`, borderRadius: 6,
+              background: batida ? '#10b981' : '#f59e0b' }} />
+          </span>
+          {batida ? '🏆 batida' : `${pctMes.toFixed(0)}%`}
+        </span>
+      )}
+      <span style={{ flex: 1 }} />
+      <button onClick={alternarFaixa} title="Mostrar a faixa com as metas, o prêmio e o ranking"
+        style={{ padding: '5px 12px', borderRadius: 9, cursor: 'pointer', whiteSpace: 'nowrap', fontSize: 12, fontWeight: 800,
+          border: '1px solid var(--border,#e2e8f0)', background: 'transparent', color: 'var(--txt,#0f172a)' }}>
+        ▾ Mostrar metas
+      </button>
+    </div>
+    </>
   );
 
   return (
@@ -615,6 +665,14 @@ export default function PlacarVendas() {
           border: '1px solid rgba(255,255,255,.28)', background: 'rgba(255,255,255,.1)', color: '#fff',
           fontSize: 11.5, fontWeight: 900, whiteSpace: 'nowrap' }}>
         🏆 Ranking
+      </button>
+
+      {/* 🔼 Recolher a faixa (25/09): vira uma linha fina, a escolha fica guardada */}
+      <button onClick={alternarFaixa} title="Recolher esta faixa (as metas continuam a um clique)"
+        style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 12, cursor: 'pointer',
+          border: '1px solid rgba(255,255,255,.28)', background: 'rgba(255,255,255,.1)', color: '#fff',
+          fontSize: 11.5, fontWeight: 900, whiteSpace: 'nowrap' }}>
+        ▴ Recolher
       </button>
 
       {/* 6️⃣ DO IMPULSO À AÇÃO — o botão CUMPRE o título (cobrança do master:
