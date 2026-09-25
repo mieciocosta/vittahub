@@ -3485,6 +3485,30 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
     }
   } catch (e) { console.error('poliana volta:', e.message); }
 
+  /* 📢 AVISO DA DIREÇÃO (ordem do master, 25/09: "quero que em todas as
+     carteiras esteja a Dra e o Dr Miécio, pois damos avisos importantes").
+     A conversa dos donos ganha a marca aviso_direcao: entra na Minha carteira
+     de todo mundo, no topo, até na carteira fechada. Roda em todo boot, mas é
+     leve (só a tabela conversas, só quem ainda não tem a marca) e pega número
+     novo deles sozinha. Nome apertado de propósito: cliente chamada Nágila não
+     entra, só a Dra. Nágila Maria/Santos e o Miécio. */
+  try {
+    await query(`ALTER TABLE conversas ADD COLUMN IF NOT EXISTS aviso_direcao BOOLEAN DEFAULT false`);
+    const { rows: marcadas } = await query(`UPDATE conversas SET aviso_direcao = true, visivel_todos = true
+       WHERE COALESCE(aviso_direcao, false) = false
+         AND COALESCE(contact_id, '') NOT LIKE '%g.us%'
+         AND (contact_name ~* '(^|[^a-z])mi[eé]cio'
+              OR contact_name ~* 'n[aá]gila\\s+(maria|santos)'
+              OR contact_name ~* 'dra\\.?\\s*n[aá]gila')
+       RETURNING contact_name`);
+    if (marcadas.length) {
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+        ['📢 Aviso da direção em todas as carteiras',
+         `Estas conversas agora aparecem no topo da Minha carteira de toda a equipe: ${marcadas.map(m => m.contact_name).join(', ')}. Se alguma não for sua ou da Dra., me avise que eu tiro.`]).catch(() => {});
+      console.log(`📢 Aviso da direção: ${marcadas.map(m => m.contact_name).join(', ')}`);
+    }
+  } catch (e) { console.error('aviso da direção:', e.message); }
+
   /* 🤖 IA EM TODAS AS CONVERSAS DE CONSULTAS E TERAPIAS (ordem do master,
      25/09: "ative a IA para todas as conversas dos usuários de consultas e
      terapias / inicie as conversas ou retome, porém leia antes"). Uma vez só:

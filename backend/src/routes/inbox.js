@@ -541,6 +541,12 @@ export function podeVerSetor(viewer, conv) {
   // 🙈 Escondida por quem está olhando: nunca mais aparece (vale até pro master)
   if (ocultaPara(viewer, conv)) return false;
   if (!viewer || viewer.role === 'master') return true;
+  /* 📢 AVISO DA DIREÇÃO (ordem do master, 25/09: "quero que em todas as
+     carteiras esteja a Dra e o Dr Miécio, pois damos avisos importantes").
+     A conversa dos donos (conversas.aviso_direcao) aparece pra TODO MUNDO,
+     inclusive carteira fechada: revoga, só pra essas duas conversas, a regra
+     de 04/09 que escondia "mensagem da Dra e do Dr" da carteira fechada. */
+  if (conv.aviso_direcao === true && !ehGrupo(conv)) return true;
   /* 🔒 CARTEIRA FECHADA NÃO VÊ GRUPO NEM A EXCEÇÃO DA CASA (ordem do master,
      04/09: "grupos, mensagem da Dra, Dr e Felipe não é para aparecerem para
      Gabriellen"). Quem tem so_carteira (Gabriellen) ou so_fidelidade (Poliana)
@@ -742,7 +748,7 @@ function cacheGetList({ channel, search, unread_only, waiting, minhas, semDono, 
      principal mostra a própria carteira e o pool sem dona. A supervisora
      olha a carteira de uma colega pela pasta dela (?responsavel=). */
   if (viewer && viewer.role !== 'master' && viewer.ve_geral !== true && !filtrouAlguem) {
-    list = list.filter(c => !c.responsavel_id || String(c.responsavel_id) === String(viewer.id));
+    list = list.filter(c => !c.responsavel_id || String(c.responsavel_id) === String(viewer.id) || c.aviso_direcao === true);
   }
   if (unread_only === 'true') list = list.filter(c => (c.unread || 0) > 0);
   // Aguardando resposta: a última mensagem é do CLIENTE (fila de quem espera)
@@ -752,7 +758,11 @@ function cacheGetList({ channel, search, unread_only, waiting, minhas, semDono, 
     list = list.sort((a, b) => new Date(a.last_message_at || 0) - new Date(b.last_message_at || 0));
   }
   // Filtros do mock: Minhas (sou a responsável) e Grupos (conversas de grupo)
-  if (minhas === 'true' && viewer) list = list.filter(c => c.responsavel_id === viewer.id);
+  /* 📢 Minha carteira de TODO MUNDO traz a Dra e o Dr Miécio no topo (25/09) */
+  if (minhas === 'true' && viewer) {
+    list = list.filter(c => c.responsavel_id === viewer.id || c.aviso_direcao === true);
+    list = [...list.filter(c => c.aviso_direcao === true), ...list.filter(c => c.aviso_direcao !== true)];
+  }
   // 📥 A fila de distribuição do master: leads que ainda não têm dona
   if (semDono === 'true') list = list.filter(c => !c.responsavel_id);
   // Carteira de um atendente específico (gestão vê a carteira de cada um)
@@ -4682,7 +4692,7 @@ r.get('/conversations', async (req, res) => {
         /* 👁 A exceção da casa (Dra. Nágila, 27/08) fura tudo: conversa marcada
            como visível pra equipe toda entra mesmo contra as regras acima. */
         const fechada = carteiraFechadaDe(req.user);
-        conditions.push(fechada ? `(${regras.join(' AND ')})` : `(COALESCE(c.visivel_todos,false) = true OR (${regras.join(' AND ')}))`);
+        conditions.push(fechada ? `(COALESCE(c.aviso_direcao,false) = true OR (${regras.join(' AND ')}))` : `(COALESCE(c.visivel_todos,false) = true OR COALESCE(c.aviso_direcao,false) = true OR (${regras.join(' AND ')}))`);
       }
       // 🙈 O que a pessoa escondeu pra si não volta nem pelo caminho do banco
       if (req.user) {

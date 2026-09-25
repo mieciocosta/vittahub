@@ -543,6 +543,10 @@ const ConvoRow = React.memo(function ConvoRow({ conv, selected, onSelect, usersB
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
           <StatusBadge status={conv.status_atend} size="xs" />
+          {conv.aviso_direcao && (
+            <span title="Conversa da direção: aparece na carteira de toda a equipe" style={{ fontSize: 9.5, fontWeight: 900, color: '#fff',
+              background: 'linear-gradient(135deg,#7c3aed,#c026d3)', padding: '2px 7px', borderRadius: 8, letterSpacing: .3, whiteSpace: 'nowrap', flexShrink: 0 }}>📢 DIREÇÃO</span>
+          )}
           {/* 🗑️ Selo de temperatura (QUENTE/MORNO/FRIO) REMOVIDO da lista
               (pedido do master, 22/08) — segue dentro da conversa, na faixa
               de contexto. O 🔥 do lead quente continua ao lado do nome. */}
@@ -749,7 +753,7 @@ const ehGrupoConv = (c) => {
   const dig = String(c?.phone || '').replace(/\D/g, '');
   return dig.length > 13;
 };
-const soMinha = (u, c) => !ehGrupoConv(c) && String(c?.responsavel_id || '') === String(u?.id || '');
+const soMinha = (u, c) => !ehGrupoConv(c) && (String(c?.responsavel_id || '') === String(u?.id || '') || c?.aviso_direcao === true);   // 📢 Dra e Dr: em todas as carteiras (25/09)
 const filtraCarteira = (u, lista) => carteiraFechada(u) ? (lista || []).filter(c => soMinha(u, c)) : (lista || []);
 
 /* ── LazyMedia: carrega base64 sob demanda via endpoint ─────────────────────── */
@@ -2775,7 +2779,11 @@ export default function Inbox({ onUnreadChange }) {
       if (modo === 'distribuir') return convsG.filter(c => !c.responsavel_id);
       // ↔️ As duas abas lado a lado: o que foi movido sai na hora da aba de origem
       if (modo === 'geral') return convsG.filter(c => !c.responsavel_id);
-      if (modo === 'minhas') return convsG.filter(c => String(c.responsavel_id || '') === String(user?.id || ''));
+      if (modo === 'minhas') {
+        // 📢 A Dra e o Dr Miécio ficam no topo da carteira de todo mundo (25/09)
+        const minhas = convsG.filter(c => String(c.responsavel_id || '') === String(user?.id || '') || c.aviso_direcao === true);
+        return [...minhas.filter(c => c.aviso_direcao === true), ...minhas.filter(c => c.aviso_direcao !== true)];
+      }
       const base = quentesPrimeiro ? [...convsG].sort((a, b) => scoreRank(a.lead_score) - scoreRank(b.lead_score)) : convsG;
       /* 📌 UMA LISTA SÓ (ordem do master, 04/09: "não quero separação").
 
