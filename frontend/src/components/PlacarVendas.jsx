@@ -106,9 +106,29 @@ export default function PlacarVendas() {
   // 🧠 Base de consultas da Vitta (manual gerado das conversas que agendaram)
   const [base, setBase] = useState(null);
   const [gerandoBase, setGerandoBase] = useState(false);
+  /* 📚 Estudo completo das conversas que deram certo (25/09, só o master) */
+  const [estudo, setEstudo] = useState(null);        // { andamento, ultimo, erro }
+  const [verRelatorio, setVerRelatorio] = useState(false);
+  const lerEstudo = () => api.get('/inbox/vitta-base/estudo').then(setEstudo).catch(() => {});
   useEffect(() => {
     if (painel) api.get('/inbox/vitta-base').then(setBase).catch(() => {});
+    if (painel && user?.role === 'master') lerEstudo();
   }, [painel]); // eslint-disable-line
+  // Enquanto o estudo roda, confere o progresso a cada 4 s
+  useEffect(() => {
+    if (!estudo?.andamento) return undefined;
+    const t = setInterval(() => {
+      api.get('/inbox/vitta-base/estudo').then(d => {
+        setEstudo(d);
+        if (!d?.andamento) api.get('/inbox/vitta-base').then(setBase).catch(() => {});
+      }).catch(() => {});
+    }, 4000);
+    return () => clearInterval(t);
+  }, [estudo?.andamento]); // eslint-disable-line
+  const estudarTudo = async () => {
+    try { const d = await api.post('/inbox/vitta-base/estudar', {}); setEstudo(e => ({ ...(e || {}), andamento: d.andamento, erro: null })); }
+    catch (e) { setEstudo(x => ({ ...(x || {}), erro: { erro: e.message } })); }
+  };
   const gerarBase = async () => {
     setGerandoBase(true);
     try {
@@ -250,6 +270,9 @@ export default function PlacarVendas() {
   return (
     <>
     {popupFesta}
+    {verRelatorio && estudo?.ultimo?.relatorio && (
+      <RelatorioEstudo registro={estudo.ultimo} onFechar={() => setVerRelatorio(false)} />
+    )}
     <div className="vh-placar" style={{ position: 'sticky', top: 0, zIndex: 90, display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap',
       padding: '9px 18px 11px', color: '#fff', overflow: 'hidden',
       background: festa ? 'linear-gradient(90deg,#78350f,#b45309,#f59e0b)'
@@ -535,9 +558,35 @@ export default function PlacarVendas() {
                       : 'Ainda sem base — gere pra Vitta aprender com as conversas que agendaram + tabela de preços + profissionais.'}
                     {base?.erro && <span style={{ color: 'var(--err)', fontWeight: 700 }}> {base.erro}</span>}
                   </div>
-                  <button onClick={gerarBase} disabled={gerandoBase} className="btn btn-p btn-sm" style={{ width: '100%', fontWeight: 800 }}>
+                  <button onClick={gerarBase} disabled={gerandoBase || !!estudo?.andamento} className="btn btn-p btn-sm" style={{ width: '100%', fontWeight: 800 }}>
                     {gerandoBase ? '🧠 Estudando as conversas…' : (base?.texto ? '↻ Atualizar a base' : '🧠 Gerar a base agora')}
                   </button>
+                  {/* 📚 ESTUDO COMPLETO (25/09): todas as conversas de consultas e
+                      terapias que deram certo, com relatório pro master */}
+                  {user?.role === 'master' && (
+                    <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed var(--tq3)' }}>
+                      {estudo?.andamento ? (
+                        <div style={{ fontSize: 11, lineHeight: 1.45 }}>
+                          <b>📚 Estudando…</b> {estudo.andamento.fase}
+                          {estudo.andamento.total > 0 && ` · ${estudo.andamento.feitos} de ${estudo.andamento.total}`}
+                          <div style={{ height: 6, borderRadius: 4, background: 'var(--bg2)', marginTop: 5, overflow: 'hidden' }}>
+                            <div style={{ width: `${estudo.andamento.total ? Math.round((estudo.andamento.feitos / estudo.andamento.total) * 100) : 5}%`, height: '100%', background: 'var(--tq)', transition: 'width .4s' }} />
+                          </div>
+                          <div style={{ color: 'var(--muted)', marginTop: 4 }}>Pode fechar este painel: o estudo continua e o senhor recebe um aviso no sino.</div>
+                        </div>
+                      ) : (
+                        <button onClick={estudarTudo} className="btn btn-sm" style={{ width: '100%', fontWeight: 800, background: '#7c3aed', color: '#fff', border: 'none' }}>
+                          📚 Estudar TODAS as conversas que deram certo
+                        </button>
+                      )}
+                      {estudo?.erro?.erro && <div style={{ fontSize: 10.5, color: 'var(--err)', fontWeight: 700, marginTop: 5 }}>{estudo.erro.erro}</div>}
+                      {estudo?.ultimo?.relatorio && (
+                        <button onClick={() => setVerRelatorio(true)} className="btn btn-s btn-sm" style={{ width: '100%', marginTop: 6, fontWeight: 800 }}>
+                          📖 Ver o relatório ({estudo.ultimo.stats?.estudadas || 0} conversas · {new Date(estudo.ultimo.em).toLocaleDateString('pt-BR')})
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <button onClick={pararTudo} className="btn btn-s" style={{ width: '100%', marginTop: 10, color: 'var(--err,#dc2626)', fontWeight: 800 }}>
                   ⏸️ Parar tudo de uma vez
@@ -652,5 +701,59 @@ export default function PlacarVendas() {
       `}</style>
     </div>
     </>
+  );
+}
+
+
+/* 📖 RELATÓRIO DO ESTUDO (25/09): markdown simples (##, listas, **negrito**)
+   renderizado sem biblioteca. Texto escapado antes de virar HTML. */
+function mdParaHtml(md) {
+  const esc = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const inline = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/(^|[^*])\*(?!\s)(.+?)\*(?!\*)/g, '$1<i>$2</i>');
+  const out = []; let lista = null;
+  const fecha = () => { if (lista) { out.push(`</${lista}>`); lista = null; } };
+  for (const linha of String(md || '').split('\n')) {
+    const l = linha.trimEnd();
+    let m;
+    if ((m = l.match(/^#{1,3}\s+(.*)$/))) { fecha(); out.push(`<h3 style="margin:18px 0 6px;font-size:15px;color:#0E8C96">${inline(m[1])}</h3>`); }
+    else if ((m = l.match(/^\s*[-•*]\s+(.*)$/))) { if (lista !== 'ul') { fecha(); out.push('<ul style="margin:4px 0 8px 18px">'); lista = 'ul'; } out.push(`<li style="margin:3px 0">${inline(m[1])}</li>`); }
+    else if ((m = l.match(/^\s*\d+[.)]\s+(.*)$/))) { if (lista !== 'ol') { fecha(); out.push('<ol style="margin:4px 0 8px 18px">'); lista = 'ol'; } out.push(`<li style="margin:3px 0">${inline(m[1])}</li>`); }
+    else if (!l.trim()) { fecha(); }
+    else { fecha(); out.push(`<p style="margin:5px 0">${inline(l)}</p>`); }
+  }
+  fecha();
+  return out.join('');
+}
+function RelatorioEstudo({ registro, onFechar }) {
+  const st = registro.stats || {};
+  const baixar = () => {
+    const blob = new Blob([registro.relatorio], { type: 'text/markdown;charset=utf-8' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = `estudo-conversas-${String(registro.em || '').slice(0, 10)}.md`; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+  };
+  return (
+    <div onClick={onFechar} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: 'var(--card,#fff)', color: 'var(--txt)', borderRadius: 16, width: 820, maxWidth: '100%', maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 24px 70px rgba(0,0,0,.45)' }}>
+        <div style={{ padding: '14px 18px', background: 'linear-gradient(135deg,#6d28d9,#0E8C96)', color: '#fff', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 900, fontSize: 15 }}>📚 Estudo das conversas que deram certo</div>
+            <div style={{ fontSize: 11.5, opacity: .9 }}>
+              {st.estudadas || 0} conversas (consultas {st.por_setor?.consultas || 0} · terapias {st.por_setor?.terapias || 0}) · {new Date(registro.em).toLocaleString('pt-BR')}
+              {registro.manualAtualizado ? ' · manual da Vitta atualizado' : ''}
+            </div>
+          </div>
+          <button onClick={baixar} className="btn btn-sm" style={{ background: 'rgba(255,255,255,.2)', color: '#fff', border: 'none', fontWeight: 800 }}>⬇️ Baixar</button>
+          <button onClick={onFechar} className="vh-fechar" style={{ background: 'rgba(255,255,255,.22)', color: '#fff', border: 'none' }}>✕ Fechar</button>
+        </div>
+        {Array.isArray(st.quem_conduziu) && st.quem_conduziu.length > 0 && (
+          <div style={{ padding: '8px 18px', fontSize: 11.5, background: 'var(--bg2)', borderBottom: '1px solid var(--border)' }}>
+            <b>Quem conduziu as conversas que deram certo:</b> {st.quem_conduziu.map(([k, n]) => `${String(k).split(' ')[0]} ${n}`).join(' · ')}
+          </div>
+        )}
+        <div style={{ padding: '6px 20px 20px', overflowY: 'auto', fontSize: 13.5, lineHeight: 1.6 }}
+          dangerouslySetInnerHTML={{ __html: mdParaHtml(registro.relatorio) }} />
+      </div>
+    </div>
   );
 }

@@ -10499,7 +10499,7 @@ r.get('/vitta-base', async (req, res) => {
 });
 /* Motor do treinamento — chamável pelo botão da gestão, pelo boot (primeiro
    treino automático) e pelo re-treino quando a tabela de preços muda. */
-export async function gerarBaseConsultas(por = 'Vitta (automático)') {
+export async function gerarBaseConsultas(por = 'Vitta (automático)', opts = {}) {
   {
     if (!temIA()) return { error: 'IA não configurada.' };
     // 1) Conversas de consultas que deram certo: vendas + agendamentos
@@ -10516,7 +10516,9 @@ export async function gerarBaseConsultas(por = 'Vitta (automático)') {
         AND COALESCE(a.setor, c.setor) IN ('consultas','terapias')
       ORDER BY a.conversa_id, a.data DESC LIMIT 40`).catch(() => ({ rows: [] }));
     const vistos = new Set(convsVenda.map(x => String(x.id)));
-    const fontes = convsVenda.concat(convsAgd.filter(x => !vistos.has(String(x.id))))
+    /* Com o estudo completo (25/09), o manual nasce das NOTAS de todas as
+       conversas que deram certo; as 12 mais recentes deixam de ser lidas cruas. */
+    const fontes = opts.notasEstudo ? [] : convsVenda.concat(convsAgd.filter(x => !vistos.has(String(x.id))))
       .sort((a, b) => new Date(b.dt) - new Date(a.dt)).slice(0, 12);
     const transcripts = [];
     // Conversas que a gestão marcou À MÃO como exemplo (ex.: Domingas e Felipe
@@ -10548,10 +10550,13 @@ export async function gerarBaseConsultas(por = 'Vitta (automático)') {
     if (!transcripts.length && !precosTxt && !profsTxt) {
       return { error: 'Ainda não há matéria-prima: nenhuma conversa de consulta que agendou/vendeu, tabela de preços vazia e nenhum profissional cadastrado.' };
     }
-    const sys = 'Você escreve o manual interno que a atendente virtual (Vitta) da Vittalis Saúde usa pra conduzir atendimentos de CONSULTAS no WhatsApp. Você destila conversas reais que deram certo em instruções acionáveis. Português do Brasil, direto, sem enrolação.';
-    const user = `Com o material abaixo, escreva o MANUAL DA CASA — CONSULTAS em markdown, com EXATAMENTE estas seções:
+    const sys = 'Você escreve o manual interno que a atendente virtual (Vitta) da Vittalis Saúde usa pra conduzir atendimentos de CONSULTAS e TERAPIAS no WhatsApp. Você destila conversas reais que deram certo em instruções acionáveis. Português do Brasil, direto, sem enrolação.';
+    const materialConversas = opts.notasEstudo
+      ? `ESTUDO DE ${opts.totalEstudadas || 'todas as'} CONVERSAS DE CONSULTAS E TERAPIAS QUE DERAM CERTO (padrões já destilados, com frases reais):\n${String(opts.notasEstudo).slice(0, 60000)}`
+      : `CONVERSAS REAIS QUE DERAM CERTO (${transcripts.length}):\n${transcripts.join('\n\n') || '(nenhuma ainda)'}`;
+    const user = `Com o material abaixo, escreva o MANUAL DA CASA — CONSULTAS E TERAPIAS em markdown, com EXATAMENTE estas seções:
 ## O caminho que agenda (do oi ao horário marcado)
-(passo a passo numerado observado nas conversas reais; em cada passo, 1 frase-modelo pronta tirada/adaptada delas)
+(passo a passo numerado observado nas conversas reais; em cada passo, 1 frase-modelo pronta tirada/adaptada delas; se consultas e terapias tiverem caminhos diferentes, mostre os dois)
 ## Objeções reais e respostas que funcionaram
 (as objeções que apareceram nas conversas — preço, "vou ver com o marido", medo, distância — e a resposta que destravou, citando/adaptando a frase real)
 ## Respostas oficiais da casa
@@ -10561,7 +10566,7 @@ export async function gerarBaseConsultas(por = 'Vitta (automático)') {
 ## O que perde o agendamento
 (erros vistos ou quase-erros nas conversas: demora, textão, preço seco sem próximo passo…)
 
-REGRAS: use SOMENTE o material fornecido — nada inventado (nem valor, nem profissional, nem horário); onde faltar dado, escreva "a equipe confirma". Máximo ~700 palavras. Escreva as instruções falando COM a Vitta ("faça", "responda", "ofereça").
+REGRAS: use SOMENTE o material fornecido — nada inventado (nem valor, nem profissional, nem horário); onde faltar dado, escreva "a equipe confirma". Nunca cite nome de cliente. Máximo ~${opts.notasEstudo ? 1100 : 700} palavras. Escreva as instruções falando COM a Vitta ("faça", "responda", "ofereça").
 
 TABELA OFICIAL DE PREÇOS:
 ${precosTxt || '(vazia — nenhum valor pode ser citado)'}
@@ -10569,19 +10574,211 @@ ${precosTxt || '(vazia — nenhum valor pode ser citado)'}
 PROFISSIONAIS CADASTRADOS:
 ${profsTxt || '(nenhum cadastrado — não cite nomes)'}
 
-CONVERSAS REAIS QUE DERAM CERTO (${transcripts.length}):
-${transcripts.join('\n\n') || '(nenhuma ainda)'}`;
-    const data = await openaiMessages({ model: 'gpt-4o', max_tokens: 2200, system: sys, messages: [{ role: 'user', content: user }] });
+${materialConversas}`;
+    const data = await openaiMessages({ model: 'gpt-4o', max_tokens: opts.notasEstudo ? 3200 : 2200, system: sys, messages: [{ role: 'user', content: user }] });
     if (data.error) return { error: erroIAamigavel(data.error) };
     const texto = (data.content?.find(c => c.type === 'text')?.text || '').trim();
     if (!texto) return { error: 'A IA não retornou o manual. Tente de novo.' };
-    const registro = { texto, conversas: transcripts.length, itens_tabela: (tp?.valor?.itens || []).length, profissionais: profs.length, por, em: new Date().toISOString() };
+    const registro = { texto, conversas: opts.totalEstudadas || transcripts.length, estudoCompleto: !!opts.notasEstudo, itens_tabela: (tp?.valor?.itens || []).length, profissionais: profs.length, por, em: new Date().toISOString() };
     await query(`INSERT INTO configuracoes (chave, valor) VALUES ('vitta_base_consultas', $1::jsonb)
                  ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`, [JSON.stringify(registro)]);
     invalidarBaseConsultas();
     return registro;
   }
 }
+/* ═══ 📚 ESTUDO COMPLETO DAS CONVERSAS QUE DERAM CERTO (ordem do master,
+   25/09: "você agora vai estudar todas as conversas que deram certo para
+   consultas e terapias").
+   O cérebro acima lia só as 12 mais recentes, cortadas. Aqui:
+   1. junta TODAS as conversas de consultas e terapias com venda paga ou
+      agendamento (até 400, das mais novas pras mais antigas), transcrevendo
+      os áudios que faltarem;
+   2. tira nome, telefone e CPF do cliente e lê em lotes de 8 com a IA mini,
+      anotando de cada uma: como começou, o que perguntou antes de oferecer,
+      como apresentou o valor, objeções e o que destravou, a virada e as
+      frases que funcionaram;
+   3. com as notas + os números (tempo de resposta, horário, serviço, quem
+      conduziu), a IA principal escreve o RELATÓRIO do master e o manual
+      novo da Vitta (gerarBaseConsultas com as notas).
+   Roda por trás (leva minutos); o progresso fica em memória e o resultado
+   em configuracoes.estudo_conversas_vencedoras. Só o master dispara e lê
+   (o relatório tem números por atendente). */
+let estudoAndamento = null;
+const LIMITE_ESTUDO = 400;
+const escRx = (t) => String(t).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+function anonimizarTranscript(txt, nomeCliente) {
+  let t = String(txt || '');
+  for (const parte of String(nomeCliente || '').split(/\s+/).filter(p => p.length >= 3 && !/^(de|da|do|dos|das)$/i.test(p))) {
+    t = t.replace(new RegExp(`(^|[^\\p{L}])${escRx(parte)}(?![\\p{L}])`, 'giu'), '$1Cliente');
+  }
+  return t.replace(/\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/g, '[cpf]').replace(/\+?\d[\d\s().-]{7,}\d/g, '[telefone]');
+}
+async function conversasQueDeramCerto() {
+  const { rows: vendas } = await query(`
+    SELECT DISTINCT ON (v.conversa_id) v.conversa_id id, v.data_venda::text dt, COALESCE(NULLIF(v.setor,''), c.setor) setor,
+           'venda' prova, v.servico, v.valor::float valor
+      FROM vendas v JOIN conversas c ON c.id = v.conversa_id
+     WHERE v.status_pagamento IN ('pago','cortesia') AND v.conversa_id IS NOT NULL
+       AND COALESCE(NULLIF(v.setor,''), c.setor) IN ('consultas','terapias')
+     ORDER BY v.conversa_id, v.data_venda DESC`).catch(() => ({ rows: [] }));
+  const { rows: agenda } = await query(`
+    SELECT DISTINCT ON (a.conversa_id) a.conversa_id id, a.data::text dt, COALESCE(NULLIF(a.setor,''), c.setor) setor,
+           'agendou' prova, a.servico, NULL::float valor
+      FROM agenda_eventos a JOIN conversas c ON c.id = a.conversa_id
+     WHERE a.conversa_id IS NOT NULL AND COALESCE(a.status,'') NOT ILIKE 'cancel%'
+       AND a.servico IS DISTINCT FROM 'Pós Vacinal'
+       AND COALESCE(NULLIF(a.setor,''), c.setor) IN ('consultas','terapias')
+     ORDER BY a.conversa_id, a.data DESC`).catch(() => ({ rows: [] }));
+  const vistos = new Set(vendas.map(x => String(x.id)));
+  return vendas.concat(agenda.filter(x => !vistos.has(String(x.id))))
+    .sort((a, b) => String(b.dt).localeCompare(String(a.dt)))
+    .slice(0, LIMITE_ESTUDO);
+}
+const jsonDoTexto = (txt) => { try { const i = txt.indexOf('{'); const j = txt.lastIndexOf('}'); return JSON.parse(txt.slice(i, j + 1)); } catch { return null; } };
+const mediana = (arr) => { const a = arr.filter(v => v != null && isFinite(v)).sort((x, y) => x - y); return a.length ? a[Math.floor(a.length / 2)] : null; };
+
+async function rodarEstudoConversas(por) {
+  const t0 = Date.now();
+  const fontes = await conversasQueDeramCerto();
+  estudoAndamento = { inicio: new Date().toISOString(), por, fase: 'lendo as conversas', feitos: 0, total: fontes.length };
+  if (!fontes.length) throw new Error('Nenhuma conversa de consultas ou terapias com venda paga ou agendamento ainda.');
+
+  // 1) Ler, transcrever áudio, anonimizar e medir cada conversa
+  const lidas = [];
+  for (const f of fontes) {
+    if (process.env.OPENAI_API_KEY) await transcreverAudiosDaConversa(f.id, 6).catch(() => {});
+    const t = await montarTranscriptConversa(f.id, 80).catch(() => null);
+    estudoAndamento.feitos++;
+    if (!t?.transcript) continue;
+    const hist = t.hist || [];
+    const iCli = hist.findIndex(m => m.from_type === 'contact');
+    const iResp = iCli >= 0 ? hist.findIndex((m, k) => k > iCli && (m.from_type === 'me' || m.from_type === 'bot')) : -1;
+    const minResp = iResp >= 0 ? (new Date(hist[iResp].created_at) - new Date(hist[iCli].created_at)) / 60000 : null;
+    const horaSLZ = iCli >= 0 ? new Date(new Date(hist[iCli].created_at).getTime() - 3 * 3600 * 1000).getUTCHours() : null;
+    const conduziu = (() => { const m = new Map(); for (const x of hist) if (x.from_type === 'me' && x.sender_nome) m.set(x.sender_nome, (m.get(x.sender_nome) || 0) + 1); return [...m.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || null; })();
+    lidas.push({
+      id: f.id, setor: f.setor, prova: f.prova, servico: f.servico || null, valor: f.valor || null,
+      msgs: hist.length, audios: hist.filter(m => m.type === 'audio').length, minResp, horaSLZ, conduziu,
+      transcript: anonimizarTranscript(t.transcript, t.conv?.contact_name).slice(0, 3500),
+    });
+  }
+
+  // 2) Lotes de 8 com a IA mini: notas estruturadas de cada conversa
+  estudoAndamento.fase = 'estudando o que deu certo';
+  estudoAndamento.feitos = 0; estudoAndamento.total = Math.ceil(lidas.length / 8);
+  const notas = []; let falhas = 0;
+  const sysMap = 'Você é analista comercial de uma clínica de pediatria, consultas e terapias em São Luís (MA). Recebe conversas REAIS de WhatsApp que terminaram em venda ou agendamento e extrai, de cada uma, o que fez dar certo. Português do Brasil. Nunca escreva nome de cliente.';
+  for (let i = 0; i < lidas.length; i += 8) {
+    const lote = lidas.slice(i, i + 8);
+    const corpo = lote.map((c, k) => `### Conversa ${k + 1} · setor ${c.setor} · ${c.prova === 'venda' ? 'VENDEU' : 'AGENDOU'}${c.servico ? ` · serviço: ${c.servico}` : ''}\n${c.transcript}`).join('\n\n');
+    const pedido = `Para CADA conversa abaixo, devolva um objeto JSON no formato:
+{"conversas":[{"n":1,"abertura":"como a atendente começou (1 frase)","qualificacao":["o que perguntou antes de oferecer"],"valor":"como apresentou preço/plano/forma de pagamento","objecoes":[{"cliente":"o que o cliente disse","resposta":"o que a atendente respondeu e destravou"}],"virada":"o momento ou frase que fez o cliente decidir","frases":["até 3 frases LITERAIS da atendente que funcionaram"],"riscos":["o que quase fez perder o cliente"]}]}
+Campos sem dado ficam vazios. Seja curto.
+
+${corpo}`;
+    const out = await openaiMessages({ model: 'gpt-4o-mini', max_tokens: 3500, system: sysMap, messages: [{ role: 'user', content: pedido }], json: true }).catch((e) => ({ error: { message: e.message } }));
+    const txt = out?.content?.find(c => c.type === 'text')?.text || '';
+    const j = out?.error ? null : jsonDoTexto(txt);
+    if (!j?.conversas) { falhas++; if (txt) notas.push(...lote.map(c => ({ setor: c.setor, prova: c.prova, servico: c.servico, bruto: txt.slice(0, 1500) }))); }
+    else {
+      j.conversas.forEach((n, k) => { const c = lote[(Number(n.n) || k + 1) - 1] || lote[k]; if (c) notas.push({ setor: c.setor, prova: c.prova, servico: c.servico, ...n }); });
+    }
+    estudoAndamento.feitos++;
+  }
+  if (!notas.length) throw new Error('A IA não conseguiu estudar nenhum lote. Tente de novo mais tarde.');
+
+  // 3) Números do estudo (calculados aqui, não pela IA)
+  const por_setor = { consultas: lidas.filter(c => c.setor === 'consultas').length, terapias: lidas.filter(c => c.setor === 'terapias').length };
+  const conta = (arr) => { const m = new Map(); for (const x of arr) if (x) m.set(x, (m.get(x) || 0) + 1); return [...m.entries()].sort((a, b) => b[1] - a[1]); };
+  const faixas = conta(lidas.map(c => c.horaSLZ == null ? null : c.horaSLZ < 12 ? 'manhã (até 12h)' : c.horaSLZ < 18 ? 'tarde (12h às 18h)' : 'noite (depois das 18h)'));
+  const stats = {
+    estudadas: lidas.length, vendas: lidas.filter(c => c.prova === 'venda').length, agendamentos: lidas.filter(c => c.prova === 'agendou').length,
+    por_setor, com_audio: lidas.filter(c => c.audios > 0).length,
+    mediana_resposta_min: mediana(lidas.map(c => c.minResp)),
+    respondidas_em_5min: lidas.filter(c => c.minResp != null && c.minResp <= 5).length,
+    mediana_mensagens: mediana(lidas.map(c => c.msgs)),
+    faturamento: Math.round(lidas.reduce((t, c) => t + (c.valor || 0), 0) * 100) / 100,
+    servicos: conta(lidas.map(c => c.servico)).slice(0, 12),
+    turnos: faixas,
+    quem_conduziu: conta(lidas.map(c => c.conduziu)).slice(0, 10),
+  };
+  const numerosTxt = `Conversas estudadas: ${stats.estudadas} (consultas ${por_setor.consultas}, terapias ${por_setor.terapias}); ${stats.vendas} com venda paga e ${stats.agendamentos} só com agendamento; ${stats.com_audio} tiveram áudio.
+Tempo mediano até a primeira resposta: ${stats.mediana_resposta_min == null ? 'sem dado' : Math.round(stats.mediana_resposta_min) + ' min'}; respondidas em até 5 min: ${stats.respondidas_em_5min}.
+Mensagens por conversa (mediana): ${stats.mediana_mensagens ?? 'sem dado'}. Faturamento das vendas estudadas: R$ ${stats.faturamento.toFixed(2)}.
+Serviços mais fechados: ${stats.servicos.map(([k, n]) => `${k} (${n})`).join(', ') || 'sem dado'}.
+Turno em que o cliente chegou: ${stats.turnos.map(([k, n]) => `${k} ${n}`).join(', ') || 'sem dado'}.`;
+  const compacto = notas.map(n => n.bruto ? `[${n.setor}] ${n.bruto}` : JSON.stringify({ setor: n.setor, prova: n.prova, servico: n.servico, abertura: n.abertura, qualificacao: n.qualificacao, valor: n.valor, objecoes: n.objecoes, virada: n.virada, frases: n.frases, riscos: n.riscos }).slice(0, 900)).join('\n').slice(0, 300000);
+
+  // 4) Relatório do master
+  estudoAndamento.fase = 'escrevendo o relatório';
+  const sysRel = 'Você é consultor comercial da Vittalis Saúde e escreve para o dono da clínica um relatório claro, prático e sem enrolação, em português do Brasil, a partir do estudo de conversas reais de WhatsApp que deram certo. Nunca cite nome de cliente.';
+  const pedidoRel = `Escreva o RELATÓRIO DO ESTUDO em markdown, com EXATAMENTE estas seções:
+## Resumo em números
+(use os números abaixo, sem inventar outros)
+## O que as conversas que deram certo têm em comum
+(os 5 a 8 padrões mais fortes, cada um com quantas conversas mostraram isso, aproximado)
+## Consultas: o caminho que funciona
+(passo a passo com uma frase real em cada passo)
+## Terapias: o caminho que funciona
+(passo a passo com uma frase real em cada passo; se houver pouco material, diga)
+## Objeções mais frequentes e o que destravou
+(da mais comum pra menos comum, com a resposta real que funcionou)
+## Frases que mais funcionaram
+(10 a 15 frases literais das atendentes, prontas pra copiar)
+## O que quase perdeu o cliente
+## Recomendações para a equipe
+(5 a 8 práticas objetivas pra aplicar amanhã)
+
+NÚMEROS DO ESTUDO:
+${numerosTxt}
+
+NOTAS DE CADA CONVERSA (JSON por linha):
+${compacto}`;
+  const rel = await openaiMessages({ model: 'gpt-4o', max_tokens: 6000, system: sysRel, messages: [{ role: 'user', content: pedidoRel }] });
+  if (rel.error) throw new Error(erroIAamigavel(rel.error));
+  const relatorio = (rel.content?.find(c => c.type === 'text')?.text || '').trim();
+  if (!relatorio) throw new Error('A IA não devolveu o relatório. Tente de novo.');
+
+  // 5) O manual da Vitta nasce do estudo
+  estudoAndamento.fase = 'atualizando o manual da Vitta';
+  const base = await gerarBaseConsultas(`Estudo completo · ${por}`, { notasEstudo: relatorio, totalEstudadas: lidas.length }).catch(e => ({ error: e.message }));
+
+  const registro = { relatorio, stats, lotes: Math.ceil(lidas.length / 8), falhas, em: new Date().toISOString(), por,
+    duracao_s: Math.round((Date.now() - t0) / 1000), manualAtualizado: !base?.error, manualErro: base?.error || null };
+  await query(`INSERT INTO configuracoes (chave, valor) VALUES ('estudo_conversas_vencedoras', $1::jsonb)
+               ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`, [JSON.stringify(registro)]);
+  await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+    ['📚 Estudo das conversas que deram certo pronto',
+     `${lidas.length} conversa(s) de consultas e terapias estudadas (${stats.vendas} vendas, ${stats.agendamentos} agendamentos). O relatório está no painel do placar (🧠 Cérebro de consultas → Ver o relatório)${base?.error ? '. O manual da Vitta NÃO foi atualizado: ' + base.error : ' e o manual da Vitta já foi atualizado com o que funcionou'}.`]).catch(() => {});
+  console.log(`📚 Estudo: ${lidas.length} conversas em ${registro.duracao_s}s (${falhas} lote(s) com falha)`);
+  return registro;
+}
+r.post('/vitta-base/estudar', async (req, res) => {
+  try {
+    if (req.user.role !== 'master') return res.status(403).json({ error: 'Só o master dispara o estudo completo.' });
+    if (!temIA()) return res.status(400).json({ error: 'IA não configurada.' });
+    if (estudoAndamento) return res.json({ andamento: estudoAndamento, jaRodando: true });
+    estudoAndamento = { inicio: new Date().toISOString(), por: req.user.nome, fase: 'separando as conversas', feitos: 0, total: 0 };
+    rodarEstudoConversas(req.user.nome)
+      .catch(async (e) => {
+        console.error('estudo conversas:', e.message);
+        await query(`INSERT INTO configuracoes (chave, valor) VALUES ('estudo_conversas_erro', $1::jsonb)
+                     ON CONFLICT (chave) DO UPDATE SET valor = $1::jsonb, updated_at = NOW()`, [JSON.stringify({ erro: e.message, em: new Date().toISOString() })]).catch(() => {});
+      })
+      .finally(() => { estudoAndamento = null; });
+    res.json({ andamento: estudoAndamento, iniciado: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+r.get('/vitta-base/estudo', async (req, res) => {
+  try {
+    if (req.user.role !== 'master') return res.status(403).json({ error: 'Só o master.' });
+    const { rows } = await query("SELECT chave, valor FROM configuracoes WHERE chave IN ('estudo_conversas_vencedoras','estudo_conversas_erro')").catch(() => ({ rows: [] }));
+    const ultimo = rows.find(r2 => r2.chave === 'estudo_conversas_vencedoras')?.valor || null;
+    const erro = rows.find(r2 => r2.chave === 'estudo_conversas_erro')?.valor || null;
+    res.json({ andamento: estudoAndamento, ultimo, erro: erro && (!ultimo || erro.em > ultimo.em) ? erro : null });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 r.post('/vitta-base/gerar', async (req, res) => {
   try {
     if (!['master', 'supervisor'].includes(req.user.role)) return res.status(403).json({ error: 'Acesso restrito à gestão.' });
