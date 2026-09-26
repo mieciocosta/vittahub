@@ -271,8 +271,29 @@ export async function claudeMessages({ model = 'gpt-4o-mini', max_tokens = 800, 
     }
     return { content };
   } catch (e) {
+    avisarIaSemCredito(e?.message).catch(() => {});
     return { error: { message: e?.message || 'erro Claude' } };
   }
+}
+
+/* 💳 IA SEM CRÉDITO = ALERTA NO SINO (26/09: a conta da Anthropic zerou à noite
+   e a Vitta, os follow-ups e a campanha pararam sem ninguém saber). Erro de
+   saldo, cobrança ou chave vira aviso SÓ pro master, no máximo 1 a cada 6 h. */
+let ultimoAvisoIa = 0;
+async function avisarIaSemCredito(msg) {
+  const t = String(msg || '');
+  const credito = /credit balance|billing|purchase credits|insufficient/i.test(t);
+  const chave = /invalid x-api-key|authentication_error|api key/i.test(t);
+  if (!credito && !chave) return;
+  if (Date.now() - ultimoAvisoIa < 6 * 3600 * 1000) return;
+  ultimoAvisoIa = Date.now();
+  const { rows: [ja] } = await query(`SELECT 1 FROM notificacoes WHERE titulo LIKE '💳 A IA parou%' AND created_at > NOW() - interval '6 hours' LIMIT 1`).catch(() => ({ rows: [] }));
+  if (ja) return;
+  await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('alerta', $1, $2, true)`,
+    [credito ? '💳 A IA parou: acabaram os créditos da Anthropic' : '🔑 A IA parou: a chave da Anthropic foi recusada',
+     credito
+       ? 'A Vitta, os follow-ups, a retomada e as campanhas estão sem IA. Entre em console.anthropic.com, Plans & Billing, e compre créditos (vale ligar a recarga automática). A IA volta sozinha assim que o saldo entrar, sem mexer no CRM.'
+       : 'A chave ANTHROPIC_API_KEY do Railway foi recusada. Confira a chave em console.anthropic.com (API Keys) e atualize no Railway.']).catch(() => {});
 }
 
 export async function openaiMessages({ model = 'gpt-4o-mini', max_tokens = 800, system, messages, tools = null, json = false }) {
