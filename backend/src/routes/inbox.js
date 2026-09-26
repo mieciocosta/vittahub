@@ -12159,6 +12159,32 @@ ${leitura || '(sem leitura: use a conversa abaixo)'}`;
   const fechamento = horaSLZ() >= 20 ? CAMPANHA_FECHAMENTO_NOITE : CAMPANHA_FECHAMENTO_DIA;
   return `${CAMPANHA_ABERTURA}\n\n${semTravessao(txt)}\n\n${fechamento}`;
 }
+/* 🖼️ FLYER PELO LINK (26/09, print do master: "não foi a imagem, só o texto").
+   O base64 grande colado na mensagem não chegava; agora o WhatsApp baixa pelo
+   endereço público do servidor, o resultado é CONFERIDO, e o CRM guarda a
+   imagem (pelo mesmo link) na conversa. Falhou pelo link, tenta o base64. */
+const urlFlyerPlano = () => `${URL_BACKEND()}/api/publico/campanha/plano-vacinal-0a9.jpg`;
+async function mandarFlyerPlano(conv, fone, nomeFU, est) {
+  const legenda = 'Plano Vacinal de 0 a 9 meses · oferta válida até 30/09 💙';
+  let zr = await zapiCall('/send-image', 'POST', { phone: `55${fone}`, image: urlFlyerPlano(), caption: legenda }).catch(e => ({ ok: false, status: e.message }));
+  if (!zr?.ok) {
+    const detalhe = await zr?.text?.().catch(() => '') || '';
+    est.ultimo_erro_flyer = `link: ${zr?.status || '?'} ${String(detalhe).slice(0, 120)}`;
+    zr = await zapiCall('/send-image', 'POST', { phone: `55${fone}`, image: await flyerPlano(), caption: legenda }).catch(e => ({ ok: false, status: e.message }));
+  }
+  if (!zr?.ok) {
+    est.flyer_falhas = (est.flyer_falhas || 0) + 1;
+    const detalhe = await zr?.text?.().catch(() => '') || '';
+    est.ultimo_erro_flyer = `${est.ultimo_erro_flyer || ''} | base64: ${zr?.status || '?'} ${String(detalhe).slice(0, 120)}`.slice(0, 300);
+    return false;
+  }
+  est.flyer_ok = [...(est.flyer_ok || []), conv.id];
+  const { rows: [mi] } = await query(`INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome) VALUES ($1,'bot','image',$2,$3) RETURNING *`,
+    [conv.id, urlFlyerPlano(), nomeFU]).catch(() => ({ rows: [null] }));
+  if (mi) socketEmit('new_message', { convId: conv.id, message: mi });
+  return true;
+}
+
 let campanhaPlanoRodando = false;
 let campanhaUltimoErro = null;   // erro da IA no último lote (vai pro status)
 let campanhaUsouPadrao = 0;      // quantas saíram com o corpo padrão (IA sem texto)
@@ -12209,8 +12235,31 @@ export async function rodarCampanhaPlano() {
       }
       if (sins.length) await query(`UPDATE configuracoes SET valor = $2::jsonb, updated_at = NOW() WHERE chave = $1`, [CAMPANHA_PLANO.chave, JSON.stringify(est)]);
     }
+    const gravar = () => query(`UPDATE configuracoes SET valor = $2::jsonb, updated_at = NOW() WHERE chave = $1`, [CAMPANHA_PLANO.chave, JSON.stringify(est)]);
     // Campanha: das 8h até a meia-noite (ordem do master, 26/09: mandar ainda hoje à noite)
-    if (!zapiOk() || horaSLZ() < 8 || !est.fila?.length) return;
+    if (!zapiOk() || horaSLZ() < 8) return;
+    // 🖼️ Quem recebeu só o texto (antes do conserto do flyer) recebe o flyer agora, 10 por lote
+    if (!est.reenvio_flyer_montado) {
+      est.reenvio_flyer = [...(est.enviados || [])];
+      est.reenvio_flyer_montado = true;
+    }
+    if ((est.reenvio_flyer || []).length) {
+      const lote2 = est.reenvio_flyer.slice(0, 10);
+      est.reenvio_flyer = est.reenvio_flyer.slice(10);
+      await gravar();
+      for (const id of lote2) {
+        try {
+          const { rows: [c3] } = await query(`SELECT * FROM conversas WHERE id = $1`, [id]);
+          if (!c3) continue;
+          let f3 = String(c3.phone || '').replace(/\D/g, '');
+          if (f3.startsWith('55') && f3.length >= 12) f3 = f3.slice(2);
+          if (f3.length >= 10) await mandarFlyerPlano(c3, f3, 'Assistente virtual Vittalis', est);
+        } catch (e) { console.error('reenvio flyer', id, e.message); }
+      }
+      await gravar();
+      return;   // este lote foi dos reenvios; as famílias novas seguem no próximo
+    }
+    if (!est.fila?.length) return;
     // ♻️ Uma vez: as famílias puladas por falha da IA (26/09) voltam pra fila
     if (!est.refeita_v2) {
       const ja = new Set([...(est.enviados || []), ...(est.fila || [])]);
@@ -12221,7 +12270,6 @@ export async function rodarCampanhaPlano() {
     // 10 famílias da lista por vez (ordem do master, 26/09: "a cada 10 famílias da lista")
     const lote = est.fila.slice(0, 10);
     est.fila = est.fila.slice(10);
-    const gravar = () => query(`UPDATE configuracoes SET valor = $2::jsonb, updated_at = NOW() WHERE chave = $1`, [CAMPANHA_PLANO.chave, JSON.stringify(est)]);
     await gravar();   // tira da fila ANTES de mandar: reinício no meio nunca manda 2x
     // 🔎 Motivo de cada pulo, contado (26/09: 15 pulos seguidos sem dizer por quê)
     const pulou = (motivo) => { est.puladas++; est.motivos = est.motivos || {}; est.motivos[motivo] = (est.motivos[motivo] || 0) + 1; };
@@ -12244,11 +12292,8 @@ export async function rodarCampanhaPlano() {
         nomeFU = 'Assistente virtual Vittalis';
         const zr = await zapiCall('/send-text', 'POST', { phone: `55${fone}`, message: msg });
         if (!zr?.ok) { pulou('zapi_' + (zr?.status || 'sem_resposta')); continue; }
-        await zapiCall('/send-image', 'POST', { phone: `55${fone}`, image: await flyerPlano(),
-          caption: 'Plano Vacinal de 0 a 9 meses · oferta válida até 30/09 💙' }).catch(() => null);
-        // O flyer fica registrado como marca (não guarda a imagem inteira em cada conversa)
         const { rows: [m1] } = await query(`INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome) VALUES ($1,'bot','text',$2,$3) RETURNING *`, [conv.id, msg, nomeFU]).catch(() => ({ rows: [null] }));
-        await query(`INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome) VALUES ($1,'bot','text',$2,$3)`, [conv.id, '📣 [Flyer enviado: Plano Vacinal de 0 a 9 meses · R$ 5.500 em 10x · até 30/09]', nomeFU]).catch(() => {});
+        await mandarFlyerPlano(conv, fone, nomeFU, est);
         const { rows: [cu] } = await query(`UPDATE conversas SET last_message = $2, last_from = 'bot', last_message_at = NOW() WHERE id = $1 RETURNING *`, [conv.id, '📣 Plano Vacinal 0 a 9 meses (flyer)']).catch(() => ({ rows: [null] }));
         if (cu) cacheUpdate(cu);
         if (m1) socketEmit('new_message', { convId: conv.id, message: m1, conv: cu });

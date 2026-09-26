@@ -25,6 +25,20 @@ const cut = (v, n) => String(v ?? '').trim().slice(0, n);
    passasse por cima (no celular, nunca). Servindo como arquivo, o próprio
    navegador faz preguiçoso e guarda em cache; a segunda abertura é instantânea.
    Só serve tipo 'figurinha': é arte da marca, não tem dado de cliente. */
+/* 📣 Flyer da campanha do Plano Vacinal (26/09): endereço público pra o
+   WhatsApp baixar a imagem pelo link (mais garantido que base64 grande) e pro
+   CRM mostrar a imagem na conversa. */
+r.get('/campanha/plano-vacinal-0a9.jpg', async (req, res) => {
+  try {
+    const fs = await import('fs');
+    const buf = fs.readFileSync(new URL('../assets/campanhas/plano-vacinal-0a9.jpg', import.meta.url));
+    res.set('Content-Type', 'image/jpeg');
+    res.set('Content-Length', buf.length);
+    res.set('Cache-Control', 'public, max-age=86400');
+    res.send(buf);
+  } catch { res.status(404).end(); }
+});
+
 r.get('/figurinha/:id', async (req, res) => {
   try {
     const { rows: [m] } = await query(

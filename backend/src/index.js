@@ -122,7 +122,8 @@ app.get('/api/versao', async (req, res) => {
     campanha_plano: await pool.query("SELECT valor FROM configuracoes WHERE chave = 'campanha_plano_0a9'")
       .then(r => { const e = r.rows[0]?.valor; return e ? { encontrados: e.total || 0, enviados: e.enviadas || 0, pulados: e.puladas || 0,
         faltam: (e.fila || []).length, responderam_sim: (e.sim || []).length, comecou: e.criada_em || null, encerrada: !!e.encerrada,
-        motivos_pulo: e.motivos || null, ultimo_erro: e.ultimo_erro || null, com_texto_padrao: e.usou_padrao || 0 } : null; })
+        motivos_pulo: e.motivos || null, ultimo_erro: e.ultimo_erro || null, com_texto_padrao: e.usou_padrao || 0,
+        flyer_ok: (e.flyer_ok || []).length, flyer_falhas: e.flyer_falhas || 0, reenvio_flyer_faltam: (e.reenvio_flyer || []).length, ultimo_erro_flyer: e.ultimo_erro_flyer || null } : null; })
       .catch(() => null),
     reinicios_24h: await historicoQuedas().then(l => {
       const dia = l.filter(x => Date.now() - new Date(x.quando).getTime() < 86400000);
