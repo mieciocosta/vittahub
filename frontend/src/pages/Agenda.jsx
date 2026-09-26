@@ -115,8 +115,12 @@ export default function Agenda() {
   const [erro, setErro] = useState('');
   const [salvando, setSalvando] = useState(false);
 
+  // 🩺 Pós Consulta (pedido do master, 26/09): lista PRÓPRIA do dia, fora dos
+  // agendamentos — vem de /pos-consulta e recarrega junto com a agenda.
+  const [posCons, setPosCons] = useState([]);
   const load = useCallback(() => {
     api.get(`/extras/agenda?data=${data}`).then(setEventos).catch(() => {});
+    api.get(`/pos-consulta?data=${data}`).then(r => setPosCons(Array.isArray(r?.itens) ? r.itens : [])).catch(() => setPosCons([]));
   }, [data]); // eslint-disable-line
   useEffect(load, [load]);
 
@@ -209,6 +213,84 @@ export default function Agenda() {
   const doSetor = (ev) => !setorAgenda || (ev.setor || 'vacinas') === setorAgenda;
   const agendamentos = eventos.filter(ev => ev.servico !== 'Pós Vacinal' && doSetor(ev));
   const posVacinais = eventos.filter(ev => ev.servico === 'Pós Vacinal' && doSetor(ev));
+  const posConsultas = posCons.filter(doSetor);
+  /* Cada parte de pós aparece para quem é do setor dela: o Pós Vacinal para
+     vacinas, o Pós Consulta para consultas e terapias (o master vê os dois). */
+  const temVacinas = setoresVisiveis.length === 0 || setoresVisiveis.some(([k]) => k === 'vacinas');
+  const temConsultas = setoresVisiveis.length === 0 || setoresVisiveis.some(([k]) => k !== 'vacinas');
+  const mostraPosVacinal = setorAgenda ? setorAgenda === 'vacinas' : temVacinas;
+  const mostraPosConsulta = setorAgenda ? setorAgenda !== 'vacinas' : temConsultas;
+
+  // 🩺 Ações do Pós Consulta: marcar feito / voltar a pendente / tirar da lista
+  const [tirando, setTirando] = useState(null); // id aguardando o 2º toque (popup do navegador falha no celular)
+  const marcarPos = async (p, status) => {
+    setPosCons(l => l.map(x => x.id === p.id ? { ...x, status, feito_por: status === 'Feito' ? (user?.nome || '') : null, feito_em: status === 'Feito' ? new Date().toISOString() : null } : x));
+    try { await api.put(`/pos-consulta/${p.id}`, { status }); } catch { load(); }
+  };
+  const tirarPos = async (p) => {
+    if (tirando !== p.id) { setTirando(p.id); setTimeout(() => setTirando(t => (t === p.id ? null : t)), 4000); return; }
+    setTirando(null);
+    setPosCons(l => l.filter(x => x.id !== p.id));
+    try { await api.delete(`/pos-consulta/${p.id}`); } catch { load(); }
+  };
+  const mandarPosConsulta = (p) => {
+    const primeiro = (n) => String(n || '').trim().split(/\s+/)[0] || '';
+    const resp1 = primeiro(p.responsavel_nome);
+    const pac1 = primeiro(p.paciente);
+    const ontem = p.data_atendimento && (() => { const d = new Date(p.data_atendimento + 'T12:00:00'); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10) === p.data; })();
+    const quando = ontem ? ' de ontem' : p.data_atendimento ? ` do dia ${p.data_atendimento.slice(8, 10)}/${p.data_atendimento.slice(5, 7)}` : '';
+    const oque = p.setor === 'terapias' ? `da sessão de terapia${quando}` : `da consulta${quando}`;
+    // Sem responsável cadastrado, o paciente é quem conversa com a gente
+    const msg = resp1
+      ? `Oi, ${resp1}! 💙 Aqui é da Vittalis Saúde. Passando pra saber como ${pac1 ? `o(a) ${pac1}` : 'o(a) pequeno(a)'} está depois ${oque}. Ficou alguma dúvida sobre as orientações? Qualquer coisa, estamos aqui pra ajudar 🥰`
+      : `Oi${pac1 ? `, ${pac1}` : ''}! 💙 Aqui é da Vittalis Saúde. Passando pra saber como você está depois ${oque}. Ficou alguma dúvida sobre as orientações? Qualquer coisa, estamos aqui pra ajudar 🥰`;
+    if (p.conversa_id) {
+      try { sessionStorage.setItem('vh_rascunho_' + p.conversa_id, msg); } catch { /* ok */ }
+      navigate(`/inbox?conv=${p.conversa_id}`);
+    } else navigate(`/inbox?phone=${String(p.telefone || '').replace(/\D/g, '')}`);
+  };
+  // Uma linha do Pós Consulta: quem, de qual atendimento, e as ações de contato
+  const linhaPosConsulta = (p, i, total) => {
+    const feito = p.status === 'Feito';
+    const quandoAt = p.data_atendimento ? `${p.data_atendimento.slice(8, 10)}/${p.data_atendimento.slice(5, 7)}` : '';
+    return (
+      <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 20px', borderBottom: i < total - 1 ? '1px solid var(--border)' : 'none', flexWrap: 'wrap', background: feito ? 'var(--bg2)' : 'transparent' }}>
+        <div style={{ fontWeight: 800, fontSize: 14, color: '#7c3aed', minWidth: 48 }}>{p.hora}</div>
+        <div style={{ width: 38, height: 38, borderRadius: '50%', flexShrink: 0, background: feito ? '#e2f8ef' : '#ede4f7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 }}>{feito ? '✅' : '🩺'}</div>
+        <div style={{ flex: 1, minWidth: 180 }}>
+          <div style={{ fontWeight: 800, fontSize: 13.5 }}>{p.paciente}</div>
+          <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+            {p.setor === 'terapias' ? '🧩 Pós terapia' : '🩺 Pós consulta'}{quandoAt ? ` de ${quandoAt}` : ''}{p.servico_origem ? ` · ${p.servico_origem}` : ''}{p.profissional ? ` · ${p.profissional}` : ''}{p.responsavel_nome ? ` · Resp.: ${p.responsavel_nome}` : ''}
+          </div>
+          {feito && <div style={{ fontSize: 11, color: '#0a8f5b', fontWeight: 700, marginTop: 2 }}>✓ Feito{p.feito_por ? ` por ${String(p.feito_por).split(' ')[0]}` : ''}{p.feito_em ? ` às ${new Date(p.feito_em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : ''}</div>}
+        </div>
+        <span style={{ padding: '3px 10px', borderRadius: 8, fontSize: 10.5, fontWeight: 800, minWidth: 76, textAlign: 'center', background: feito ? '#e2f8ef' : '#f3ecfd', color: feito ? '#0a8f5b' : '#6d28d9' }}>{feito ? 'Feito' : 'Pendente'}</span>
+        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+          {!feito && (p.conversa_id || p.telefone) && (
+            <button onClick={() => mandarPosConsulta(p)} title="Abre a conversa com a mensagem de pós consulta pronta na caixa"
+              style={{ height: 30, padding: '0 12px', borderRadius: 9, border: 'none', cursor: 'pointer', flexShrink: 0,
+                background: 'linear-gradient(120deg,#6d28d9,#a855f7)', color: '#fff', fontSize: 11, fontWeight: 800,
+                boxShadow: '0 1px 6px rgba(124,58,237,.4)', whiteSpace: 'nowrap' }}>
+              🩺 Mandar Pós Consulta
+            </button>
+          )}
+          {p.telefone && (
+            <>
+              <a href={`tel:+55${String(p.telefone).replace(/\D/g, '').replace(/^55(?=\d{10,11}$)/, '')}`} title="Ligar" style={btnAcao}><Phone size={13} /></a>
+              <button onClick={() => navigate(`/inbox?phone=${String(p.telefone || '').replace(/\D/g, '')}`)} title="Abrir conversa no CRM" style={{ ...btnAcao, color: '#1da955', borderColor: '#bfe8cf', background: '#eafbf1', cursor: 'pointer' }}><MessageSquare size={13} /></button>
+            </>
+          )}
+          {feito
+            ? <button key="pendente" onClick={() => marcarPos(p, 'Pendente')} title="Voltar para pendente" style={{ ...btnAcao, width: 'auto', padding: '0 9px', fontSize: 11, fontWeight: 800, color: 'var(--muted)' }}>↺</button>
+            : <button key="feito" onClick={() => marcarPos(p, 'Feito')} title="Contato feito" style={{ ...btnAcao, width: 'auto', padding: '0 10px', color: 'var(--ok)', borderColor: '#bfe8cf', background: '#eafbf1', fontSize: 11, fontWeight: 800, gap: 4 }}><Check size={13} /> Feito</button>}
+          <button onClick={() => tirarPos(p)} title={tirando === p.id ? 'Toque de novo para tirar da lista' : 'Tirar da lista'}
+            style={{ ...btnAcao, width: tirando === p.id ? 'auto' : 30, padding: tirando === p.id ? '0 9px' : 0, color: 'var(--err)', borderColor: '#f3cccc', background: '#fdf0f0', fontSize: 11, fontWeight: 800 }}>
+            {tirando === p.id ? 'Tirar?' : <XIcon size={13} />}
+          </button>
+        </div>
+      </div>
+    );
+  };
 
   // Uma linha de evento — a MESMA pra agendamentos e pós-vacinais (mesmas ações).
   const linhaEvento = (ev, i, total) => {
@@ -291,7 +373,7 @@ export default function Agenda() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 20 }}>
         <div>
           <h1 style={{ fontSize: 27, fontWeight: 800 }}>📅 Agenda</h1>
-          <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 2 }}>{isMasterAg ? 'Consultas, vacinas, terapias, retornos e pós-vacinais' : `Agenda de ${setoresVisiveis.map(([, l]) => l.replace(/^\S+\s/, '').toLowerCase()).join(' e ') || 'atendimentos'}`}</p>
+          <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 2 }}>{isMasterAg ? 'Consultas, vacinas, terapias, retornos, pós-vacinais e pós-consultas' : `Agenda de ${setoresVisiveis.map(([, l]) => l.replace(/^\S+\s/, '').toLowerCase()).join(' e ') || 'atendimentos'}`}</p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <button onClick={() => mudaDia(-1)} className="btn btn-s" style={{ padding: '8px 10px' }}><ChevronLeft size={15} /></button>
@@ -299,7 +381,11 @@ export default function Agenda() {
             style={{ padding: '8px 12px', borderRadius: 10, border: '1.5px solid var(--border)', fontSize: 13, fontWeight: 700, background: 'var(--card)', color: 'var(--txt)' }} />
           <button onClick={() => mudaDia(1)} className="btn btn-s" style={{ padding: '8px 10px' }}><ChevronRight size={15} /></button>
           {!ehHoje && <button onClick={() => setData(hojeISO())} className="btn btn-s" style={{ fontSize: 12 }}>Hoje</button>}
-          <button onClick={() => baixarPDF([...agendamentos, ...posVacinais], data, rotuloDia)} className="btn btn-s" style={{ gap: 6 }} title="Gera o PDF da agenda do dia pra imprimir ou salvar">
+          <button onClick={() => baixarPDF([...agendamentos, ...(mostraPosVacinal ? posVacinais : []), ...(mostraPosConsulta ? posConsultas.map(p => ({
+            hora: p.hora, paciente: p.paciente, servico: 'Pós Consulta', responsavel_nome: p.responsavel_nome, profissional: p.profissional,
+            telefone: p.telefone, setor: p.setor, status: p.status === 'Feito' ? 'Realizado' : 'Agendado',
+            observacoes: `${p.setor === 'terapias' ? 'Pós terapia' : 'Pós consulta'}${p.data_atendimento ? ` do atendimento de ${p.data_atendimento.split('-').reverse().join('/')}` : ''}${p.servico_origem ? ` (${p.servico_origem})` : ''}`,
+          })) : [])], data, rotuloDia)} className="btn btn-s" style={{ gap: 6 }} title="Gera o PDF da agenda do dia pra imprimir ou salvar">
             ⬇ Baixar PDF
           </button>
           <button onClick={() => setModal({ data, hora: '', setor: setorPadrao })} className="btn btn-p" style={{ gap: 6 }}>
@@ -361,6 +447,7 @@ export default function Agenda() {
       {/* ⬇️ AGENDA DE PÓS VACINAL — separada de propósito (pedido do master):
           não conflita com os agendamentos e a equipe bate o olho e vê a lista
           de contatos do dia, cada um no seu horário (9:00 Fulano, 10:00 Ciclano…). */}
+      {mostraPosVacinal && (
       <div className="card" style={{ padding: 0, overflow: 'hidden', background: 'var(--card)', marginTop: 14 }}>
         <div style={{ padding: '13px 20px', background: 'linear-gradient(90deg,#1d4ed8,#3b82f6)', color: '#fff', fontWeight: 800, fontSize: 14, display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
           <span>💙 Pós Vacinal</span>
@@ -373,6 +460,26 @@ export default function Agenda() {
           </div>
         ) : posVacinais.map((ev, i) => linhaEvento(ev, i, posVacinais.length))}
       </div>
+      )}
+
+      {/* ⬇️ AGENDA DE PÓS CONSULTA (pedido do master, 26/09) — a mesma ideia do
+          Pós Vacinal para consultas e terapias: quem foi atendido ontem aparece
+          aqui hoje, cada um no seu horário. Parte separada e lista própria:
+          não ocupa horário, não entra em lembrete nem nos números do dia. */}
+      {mostraPosConsulta && (
+      <div className="card" style={{ padding: 0, overflow: 'hidden', background: 'var(--card)', marginTop: 14 }}>
+        <div style={{ padding: '13px 20px', background: 'linear-gradient(90deg,#6d28d9,#a855f7)', color: '#fff', fontWeight: 800, fontSize: 14, display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+          <span>🩺 Pós Consulta</span>
+          <span style={{ fontSize: 11.5, fontWeight: 700, opacity: .9 }}>{posConsultas.filter(p => p.status !== 'Feito').length} contato(s) pra realizar{posConsultas.some(p => p.status === 'Feito') ? ` · ${posConsultas.filter(p => p.status === 'Feito').length} feito(s)` : ''}</span>
+        </div>
+        {posConsultas.length === 0 ? (
+          <div style={{ padding: '26px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
+            Nenhum pós consulta neste dia. 🩺<br />
+            <span style={{ fontSize: 11.5 }}>Cada consulta e terapia atendida gera automaticamente o pós do dia seguinte.</span>
+          </div>
+        ) : posConsultas.map((p, i) => linhaPosConsulta(p, i, posConsultas.length))}
+      </div>
+      )}
       </>)}
 
       {/* 🧾 Modal de conclusão: Realizado passa por aqui e PEDE o comprovante
@@ -525,7 +632,7 @@ function baixarPDF(eventos, dataISO, rotuloDia) {
   const esc = (t) => String(t ?? '').replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
   const SET_ICO = { vacinas: '💉', consultas: '🩺', terapias: '🧩' };
   // O chip "Agendamentos" não conta os pós-vacinais — eles são a seção de baixo
-  const ativos = eventos.filter(e => e.status !== 'Cancelado' && e.servico !== 'Pós Vacinal');
+  const ativos = eventos.filter(e => e.status !== 'Cancelado' && !/^Pós /.test(e.servico || ''));
   const totalReceber = ativos.reduce((s, e) => s + (parseFloat(e.valor) || 0), 0);
   const confirmados = ativos.filter(e => e.status === 'Confirmado' || e.status === 'Realizado').length;
 

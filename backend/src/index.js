@@ -19,6 +19,7 @@ import terapiasRouter from './routes/terapias.js';
 import publicoRouter from './routes/publico.js';
 import lembretesRouter, { rodarLembretesAutomaticos } from './routes/lembretes.js';
 import rotasRouter from './routes/rotas.js'; // 🛰 rota da logística com GPS (24/09/2026)
+import posConsultaRouter from './routes/posConsulta.js'; // 🩺 Pós Consulta na agenda do dia seguinte (26/09/2026)
 
 import { sincronizarFidelidadeVittasys, pontePronta } from './services/fidelidadeVittasys.js';
 import { createSocketServer, socketEmit } from './socketServer.js';
@@ -157,6 +158,7 @@ app.use('/api/terapias', terapiasRouter);            // area de terapias + meta 
 app.use('/api/publico', publicoRouter); // 🔗 agendamento pelo site (sem login)
 app.use('/api/lembretes', lembretesRouter);
 app.use('/api/rotas', rotasRouter); // 🛰 iniciar rota, rastreio do motorista (token) e visão do master
+app.use('/api/pos-consulta', posConsultaRouter); // 🩺 lista separada do Pós Consulta (não conflita com agendamentos)
 
 app.use((err, req, res, next) => {
   console.error('❌', err.message);

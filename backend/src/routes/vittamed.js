@@ -58,6 +58,25 @@ async function ponteConfig() {
   } catch { return null; }
 }
 
+/** Agenda de um dia do VittaMed para uso interno (robô do Pós Consulta, 26/09).
+    Devolve a lista de atendimentos, ou null se a ponte está desligada ou o
+    VittaMed não respondeu — quem chama trata null como "não deu para ver". */
+export async function agendaVittaMedDoDia(data) {
+  const ponte = await ponteConfig();
+  if (!ponte || !/^\d{4}-\d{2}-\d{2}$/.test(String(data || ''))) return null;
+  try {
+    const { default: fetch } = await import('node-fetch');
+    const base = String(ponte.api_url).replace(/\/+$/, '');
+    const vr = await fetch(`${base}/api/integracao/agenda?data=${data}`, {
+      headers: { 'x-integracao-token': ponte.token },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!vr.ok) return null;
+    const j = await vr.json().catch(() => null);
+    return Array.isArray(j?.itens) ? j.itens : null;
+  } catch { return null; }
+}
+
 // Master salva a ponte pela tela — o token NUNCA volta pro navegador
 r.put('/ponte', auth, async (req, res) => {
   if (req.user?.role !== 'master') return res.status(403).json({ error: 'Só o master liga a ponte.' });
