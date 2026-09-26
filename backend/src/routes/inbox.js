@@ -12145,7 +12145,23 @@ async function mensagemCampanhaPlano(conv, nomeFU) {
      leitura é bem-vinda mas não obrigatória, e sem texto da IA vai o corpo
      padrão da oferta, entre a abertura e o fechamento ditados. */
   const leitura = hist.length ? await lerConversaAntes(conv, hist.map(m => ({ role: m.from_type === 'contact' ? 'user' : 'assistant', content: String(m.transcricao || m.content || '').slice(0, 600) }))).catch(() => null) : null;
+  /* 👶 LER ANTES, SEMPRE (26/09, master: "consegue primeiro ler cada conversa? tem
+     uns recebendo que não são de plano vacinal de bebês e sim de adultos"). As
+     40 primeiras saíram com a IA sem crédito, sem leitura. Agora: sem leitura,
+     não sai (fica pra depois); e a IA TRIA o público antes de escrever. Só vai
+     pra bebê de até 9 meses ou gestante; adulto, criança maior ou dúvida, não. */
+  if (!hist.length) return { pular: 'sem_conversa' };
+  if (!leitura) return { adiar: 'leitura_falhou' };
   const resumo = hist.map(m => `${m.from_type === 'contact' ? 'Cliente' : 'Nós'} (${new Date(m.created_at).toLocaleDateString('pt-BR')}): ${m.type === 'text' ? String(m.content || '').slice(0, 300) : `[${m.type}] ${String(m.transcricao || '').slice(0, 200)}`}`).join('\n');
+  const triagem = await openaiMessages({ model: 'gpt-4o-mini', max_tokens: 300, json: true,
+    system: `Você faz a TRIAGEM de uma conversa de uma clínica de vacinas antes de uma oferta de PLANO VACINAL DE BEBÊ (0 a 9 meses). Hoje é ${new Date(Date.now() - 3 * 3600 * 1000).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}. Diga PARA QUEM é o atendimento, olhando datas, idades e o que foi pedido.
+Responda SÓ o JSON: {"publico":"bebe_ate_9m"|"gestante"|"crianca_maior"|"adulto"|"indefinido","idade_meses":numero ou null,"motivo":"frase curta"}
+Regras: bebe_ate_9m = bebê que HOJE tem de 0 a 9 meses (considere o tempo que passou desde as mensagens); gestante = mãe grávida ou bebê pra nascer; adulto = vacina pra adulto (gripe, HPV, hepatite, viajante, a própria pessoa); crianca_maior = criança com mais de 9 meses hoje; indefinido = não dá pra saber.`,
+    messages: [{ role: 'user', content: `RETRATO:\n${leitura}\n\nCONVERSA:\n${resumo}` }] });
+  if (triagem?.error) return { adiar: 'ia_triagem: ' + String(triagem.error.message || '').slice(0, 80) };
+  let tri = {};
+  try { tri = JSON.parse(String(triagem?.content?.[0]?.text || '{}')); } catch { tri = {}; }
+  if (!['bebe_ate_9m', 'gestante'].includes(tri.publico)) return { pular: `publico_${tri.publico || 'indefinido'}` };
   const sys = `Você escreve pela assistente virtual Vittalis, da Vittalis Saúde (vacinas, consultas e terapias infantis em São Luís), no WhatsApp. Esta família perguntou sobre PLANO VACINAL. Escreva UMA mensagem de WhatsApp que VENDA a oferta abaixo, logo depois dela vai o flyer.
 
 A OFERTA (use só estes fatos, não invente nada):
@@ -12170,15 +12186,10 @@ ${leitura || '(sem leitura: use a conversa abaixo)'}`;
     txt = String(ai?.content?.find?.(c => c.type === 'text')?.text || ai?.content?.[0]?.text || ai?.choices?.[0]?.message?.content || '').trim();
     if (ai?.error) campanhaUltimoErro = String(ai.error.message || ai.error).slice(0, 200);   // o adaptador devolve o erro em vez de lançar
   } catch (e) { campanhaUltimoErro = String(e.message || e).slice(0, 160); }
-  if (/^PULAR\b/i.test(txt)) return 'PULAR';
-  if (!txt) {
-    campanhaUsouPadrao++;
-    const nome = primeiroNomeUtil(conv.contact_name || '');
-    const trato = nome && !/^\d+$/.test(nome) ? `${nome}, s` : 'S';
-    txt = `${trato}eparamos uma condição especial do Plano Vacinal de 0 a 9 meses pro seu bebê: de R$ 9.000 por R$ 5.500, em 10x de R$ 550 sem juros, válida só até 30/09. 💙\nTem duas vacinadoras aplicando ao mesmo tempo, Buzzy pra aliviar a picada, gelinho, massagem para a mamãe, formatura de conclusão e atendimento domiciliar gratuito.\nO material completo vai logo abaixo.`;
-  }
+  if (/^PULAR\b/i.test(txt)) return { pular: 'ia_pulou' };
+  if (!txt) return { adiar: 'ia_sem_texto' };   // sem o texto lido da conversa, NÃO manda (ordem do master, 26/09)
   const fechamento = horaSLZ() >= 20 ? CAMPANHA_FECHAMENTO_NOITE : CAMPANHA_FECHAMENTO_DIA;
-  return `${CAMPANHA_ABERTURA}\n\n${semTravessao(txt)}\n\n${fechamento}`;
+  return { texto: `${CAMPANHA_ABERTURA}\n\n${semTravessao(txt)}\n\n${fechamento}` };
 }
 /* 🖼️ FLYER PELO LINK (26/09, print do master: "não foi a imagem, só o texto").
    O base64 grande colado na mensagem não chegava; agora o WhatsApp baixa pelo
@@ -12290,8 +12301,16 @@ export async function rodarCampanhaPlano() {
           if (u?.nome) nomeFU = primeiroNomeUtil(u.nome);
         }
         if (!nomeFU) nomeFU = await nomeAssinatura(conv);
-        const msg = await mensagemCampanhaPlano(conv, nomeFU);
-        if (!msg || msg === 'PULAR') { pulou(msg === 'PULAR' ? 'ia_pulou' : 'sem_texto'); continue; }
+        const r3 = await mensagemCampanhaPlano(conv, nomeFU);
+        if (r3?.pular) { pulou(r3.pular); continue; }
+        if (!r3?.texto) {   // IA fora ou sem leitura: tenta de novo mais tarde (no máximo 3 vezes)
+          est.adiados = est.adiados || {};
+          est.adiados[id] = (est.adiados[id] || 0) + 1;
+          if (est.adiados[id] <= 3) est.fila.push(id); else pulou('ia_falhou_3x');
+          est.ultimo_erro = r3?.adiar || est.ultimo_erro;
+          continue;
+        }
+        const msg = r3.texto;
         nomeFU = 'Assistente virtual Vittalis';
         const zr = await zapiCall('/send-text', 'POST', { phone: `55${fone}`, message: msg });
         if (!zr?.ok) { pulou('zapi_' + (zr?.status || 'sem_resposta')); continue; }
