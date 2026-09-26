@@ -12073,6 +12073,14 @@ async function enviarFollowupConversa(conv, opts = {}) {
      fluxo normal de vacinas (a equipe fecha).
    Pausa pelo interruptor do follow-up (Configurações → Automático). */
 const CAMPANHA_PLANO = { chave: 'campanha_plano_0a9', ultimoDia: '2026-09-30' };
+/* ✍️ TEXTOS DO DONO, palavra por palavra (26/09): a mensagem abre dizendo que
+   é a assistente virtual e fecha pedindo o SIM. Não reescrever. Das 8h às 20h
+   (equipe trabalhando) o "amanhã" do fechamento sai, porque a equipe liga no
+   mesmo dia; das 20h à meia-noite vai exatamente como ditado. */
+const CAMPANHA_ABERTURA = 'Este é um aviso da nossa assistente virtual Vittalis, pois cuidar de você é nossa prioridade.';
+const CAMPANHA_FECHAMENTO_NOITE = 'Quer realizar a reserva e aproveitar essa oportunidade única, responda SIM e amanhã nossa equipe de atendimento estará entrando em contato.';
+const CAMPANHA_FECHAMENTO_DIA = 'Quer realizar a reserva e aproveitar essa oportunidade única, responda SIM e nossa equipe de atendimento estará entrando em contato.';
+const horaSLZ = () => (new Date().getUTCHours() - 3 + 24) % 24;
 let flyerPlanoCache = null;
 async function flyerPlano() {
   if (flyerPlanoCache) return flyerPlanoCache;
@@ -12116,7 +12124,7 @@ async function mensagemCampanhaPlano(conv, nomeFU) {
   const leitura = await lerConversaAntes(conv, hist.map(m => ({ role: m.from_type === 'contact' ? 'user' : 'assistant', content: String(m.transcricao || m.content || '').slice(0, 600) })));
   if (!leitura) return null;
   const resumo = hist.map(m => `${m.from_type === 'contact' ? 'Cliente' : 'Nós'} (${new Date(m.created_at).toLocaleDateString('pt-BR')}): ${m.type === 'text' ? String(m.content || '').slice(0, 300) : `[${m.type}] ${String(m.transcricao || '').slice(0, 200)}`}`).join('\n');
-  const sys = `Você é a ${nomeFU}, atendente da Vittalis Saúde (vacinas, consultas e terapias infantis em São Luís) no WhatsApp. Esta família perguntou sobre PLANO VACINAL. Escreva UMA mensagem de WhatsApp que VENDA a oferta abaixo, logo depois dela vai o flyer.
+  const sys = `Você escreve pela assistente virtual Vittalis, da Vittalis Saúde (vacinas, consultas e terapias infantis em São Luís), no WhatsApp. Esta família perguntou sobre PLANO VACINAL. Escreva UMA mensagem de WhatsApp que VENDA a oferta abaixo, logo depois dela vai o flyer.
 
 A OFERTA (use só estes fatos, não invente nada):
 Plano Vacinal de 0 a 9 meses, completo: BCG e Hepatite B ao nascer; Hexa acelular, Pneumocócica 20 e Rotavírus aos 2, 4 e 6 meses (aos 3 meses Hexa, Pneumo 20 e Rotavírus); Meningocócica ACWY e Meningocócica B aos 5 meses; Influenza aos 6 e 7 meses; Febre Amarela aos 9 meses.
@@ -12127,8 +12135,8 @@ COMO ESCREVER:
 - Leia a conversa: cite o nome do bebê e o que a família contou ou perguntou; se já se passaram dias, retome com naturalidade (sem fingir que foi ontem).
 - Mostre a oferta como uma oportunidade especial pra essa família, com a urgência verdadeira do prazo (até 30/09).
 - Diga que o flyer com todos os detalhes vai logo abaixo.
-- Termine com UMA pergunta simples que leve ao fechamento (ex.: posso já garantir essa condição pro seu bebê?).
-- 4 a 7 linhas curtas, calorosa, no máximo 2 emojis. Diga investimento, NUNCA preço nem valor. NUNCA use travessão nem aspas.
+- Escreva SÓ O MIOLO: a mensagem já abre com o aviso de que é a assistente virtual e fecha pedindo pra responder SIM (esses dois textos o sistema coloca). Então NÃO se apresente, NÃO assine com nome e NÃO termine com pergunta.
+- 3 a 5 linhas curtas, calorosa, no máximo 2 emojis. Diga investimento, NUNCA preço nem valor. NUNCA use travessão nem aspas.
 - Se a leitura mostrar que NÃO faz sentido mandar (o bebê já passou dos 9 meses, o paciente é adulto, a família já fechou o plano, pediu pra não receber mensagem, ou é assunto de gestão/fornecedor), responda apenas PULAR.
 
 O QUE VOCÊ JÁ LEU DESTA CONVERSA:
@@ -12138,7 +12146,8 @@ ${leitura}`;
   const txt = String(ai?.content?.find?.(c => c.type === 'text')?.text || ai?.choices?.[0]?.message?.content || '').trim();
   if (!txt) return null;
   if (/^PULAR\b/i.test(txt)) return 'PULAR';
-  return semTravessao(txt);
+  const fechamento = horaSLZ() >= 20 ? CAMPANHA_FECHAMENTO_NOITE : CAMPANHA_FECHAMENTO_DIA;
+  return `${CAMPANHA_ABERTURA}\n\n${semTravessao(txt)}\n\n${fechamento}`;
 }
 let campanhaPlanoRodando = false;
 export async function rodarCampanhaPlano() {
@@ -12170,7 +12179,26 @@ export async function rodarCampanhaPlano() {
       console.log(`📣 Campanha plano 0-9: ${fila.length} na fila`);
     }
     if (await automacaoPausada('followup')) return;
-    if (!zapiOk() || !janelaIA() || !est.fila?.length) return;
+    // ✅ Quem respondeu SIM: a equipe fica sabendo na hora (e a conversa vira lead quente)
+    if (Array.isArray(est.enviados) && est.enviados.length) {
+      const { rows: sins } = await query(`
+        SELECT c.id, c.contact_name FROM conversas c
+         WHERE c.id = ANY($1::text[]) AND NOT (c.id = ANY($2::text[]))
+           AND EXISTS (SELECT 1 FROM mensagens m WHERE m.conversa_id = c.id AND m.from_type = 'contact'
+                         AND m.created_at > $3::timestamptz AND COALESCE(m.type,'text') = 'text'
+                         AND left(m.content, 200) ~* '(^|[^a-z])(sim|quero|reserva|pode reservar|tenho interesse)([^a-z]|$)')`,
+        [est.enviados, est.sim || [], est.criada_em]).catch(() => ({ rows: [] }));
+      for (const c2 of sins) {
+        est.sim = [...(est.sim || []), c2.id];
+        await query(`UPDATE conversas SET classificacao = 'planos_vacinais', lead_score = 'quente', lead_score_motivo = 'Respondeu SIM na campanha do Plano Vacinal 0 a 9 meses', lead_score_at = NOW() WHERE id = $1`, [c2.id]).catch(() => {});
+        await query(`INSERT INTO notificacoes (tipo, titulo, texto) VALUES ('venda', $1, $2)`,
+          [`✅ ${c2.contact_name || 'Cliente'} respondeu SIM ao Plano Vacinal`,
+           `Quer reservar o Plano Vacinal de 0 a 9 meses (R$ 5.500 em 10x, até 30/09). Ligue ou chame no WhatsApp cedo pra fechar a venda! 💙`]).catch(() => {});
+      }
+      if (sins.length) await query(`UPDATE configuracoes SET valor = $2::jsonb, updated_at = NOW() WHERE chave = $1`, [CAMPANHA_PLANO.chave, JSON.stringify(est)]);
+    }
+    // Campanha: das 8h até a meia-noite (ordem do master, 26/09: mandar ainda hoje à noite)
+    if (!zapiOk() || horaSLZ() < 8 || !est.fila?.length) return;
     const lote = est.fila.slice(0, 5);
     est.fila = est.fila.slice(5);
     const gravar = () => query(`UPDATE configuracoes SET valor = $2::jsonb, updated_at = NOW() WHERE chave = $1`, [CAMPANHA_PLANO.chave, JSON.stringify(est)]);
@@ -12191,7 +12219,8 @@ export async function rodarCampanhaPlano() {
         if (!nomeFU) nomeFU = await nomeAssinatura(conv);
         const msg = await mensagemCampanhaPlano(conv, nomeFU);
         if (!msg || msg === 'PULAR') { est.puladas++; continue; }
-        const zr = await zapiCall('/send-text', 'POST', { phone: `55${fone}`, message: `*${nomeFU}:*\n${msg}` });
+        nomeFU = 'Assistente virtual Vittalis';
+        const zr = await zapiCall('/send-text', 'POST', { phone: `55${fone}`, message: msg });
         if (!zr?.ok) { est.puladas++; continue; }
         await zapiCall('/send-image', 'POST', { phone: `55${fone}`, image: await flyerPlano(),
           caption: 'Plano Vacinal de 0 a 9 meses · oferta válida até 30/09 💙' }).catch(() => null);
@@ -12202,6 +12231,7 @@ export async function rodarCampanhaPlano() {
         if (cu) cacheUpdate(cu);
         if (m1) socketEmit('new_message', { convId: conv.id, message: m1, conv: cu });
         est.enviadas++;
+        est.enviados = [...(est.enviados || []), conv.id];
         console.log(`📣 Campanha plano → ${conv.contact_name || fone}`);
       } catch (e) { est.puladas++; console.error('campanha plano', id, e.message); }
     }
