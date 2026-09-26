@@ -12147,6 +12147,7 @@ ${leitura || '(sem leitura: use a conversa abaixo)'}`;
     const ai = await openaiMessages({ model: 'gpt-4o', max_tokens: 500, system: sys,
       messages: [{ role: 'user', content: `Conversa (mais antiga pra mais nova):\n${resumo || '(sem histórico de texto)'}\n\nEscreva a mensagem (ou PULAR).` }] });
     txt = String(ai?.content?.find?.(c => c.type === 'text')?.text || ai?.content?.[0]?.text || ai?.choices?.[0]?.message?.content || '').trim();
+    if (ai?.error) campanhaUltimoErro = String(ai.error.message || ai.error).slice(0, 200);   // o adaptador devolve o erro em vez de lançar
   } catch (e) { campanhaUltimoErro = String(e.message || e).slice(0, 160); }
   if (/^PULAR\b/i.test(txt)) return 'PULAR';
   if (!txt) {

@@ -84,6 +84,26 @@ app.get('/inbox', (req, res) => {
    <backend>/api/versao. Mostra o commit que o Railway subiu e há quanto tempo
    este processo está de pé. Se o commit não for o último do GitHub, o deploy
    não passou — e a resposta deixa isso escrito, sem adivinhação. */
+/* 🧪 TESTE DA IA (26/09, "a IA não está funcionando?"): com ?ia=1 o status
+   chama a IA uma vez (Haiku e o modelo principal, pergunta mínima) e mostra se
+   respondeu ou o ERRO exato (saldo, chave, modelo). Nada de segredo sai daqui.
+   Guarda o resultado 60 s pra ninguém gastar IA recarregando a página. */
+let testeIaCache = { em: 0, r: null };
+async function testarIA() {
+  if (Date.now() - testeIaCache.em < 60000 && testeIaCache.r) return testeIaCache.r;
+  const { claudeMessages, CLAUDE_MODEL, CLAUDE_MODEL_MINI, usaClaude } = await import('./routes/inbox.js');
+  const um = async (model) => {
+    const t0 = Date.now();
+    const r = await claudeMessages({ model, max_tokens: 20, system: 'Responda só: ok', messages: [{ role: 'user', content: 'teste' }] }).catch(e => ({ error: { message: e.message } }));
+    return r?.error ? { ok: false, erro: String(r.error.message || r.error).slice(0, 300), ms: Date.now() - t0 }
+      : { ok: !!r?.content?.length, resposta: String(r?.content?.[0]?.text || '').slice(0, 40), ms: Date.now() - t0 };
+  };
+  const r = { chave_configurada: usaClaude(), modelo: CLAUDE_MODEL(), modelo_mini: CLAUDE_MODEL_MINI(),
+    principal: await um('gpt-4o'), mini: await um('gpt-4o-mini') };
+  testeIaCache = { em: Date.now(), r };
+  return r;
+}
+
 app.get('/api/versao', async (req, res) => {
   const sha = (process.env.RAILWAY_GIT_COMMIT_SHA || '').slice(0, 7) || null;
   res.json({
@@ -95,6 +115,7 @@ app.get('/api/versao', async (req, res) => {
     minutos_no_ar: Math.round(process.uptime() / 60),
     agora: new Date().toISOString(),
     memoria_mb: Math.round(process.memoryUsage().rss / 1048576),
+    ...(req.query.ia === '1' ? { teste_ia: await testarIA().catch(e => ({ erro: e.message })) } : {}),
     // ✈️ caixa-preta: reinícios das últimas 24h, separando atualização de queda
     /* 📣 Andamento da campanha do Plano Vacinal (26/09, "já começou o disparo?"):
        só os NÚMEROS (sem nome nem telefone), pra conferir de fora do CRM. */

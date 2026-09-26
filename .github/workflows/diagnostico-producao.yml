@@ -25,3 +25,5 @@ jobs:
             curl -s -m 30 -o /tmp/l -w "login-falso %{http_code} %{time_total}s\n" -X POST $B/api/auth/login -H 'content-type: application/json' -d '{"login":"000.000.000-00","senha":"x"}' || true; cat /tmp/l 2>/dev/null; echo
             sleep 15
           done
+          echo "=== teste da IA"
+          curl -s -m 60 "$B/api/versao?ia=1" | python3 -c "import sys,json;print(json.dumps(json.load(sys.stdin).get('teste_ia'),ensure_ascii=False,indent=1))" || true
