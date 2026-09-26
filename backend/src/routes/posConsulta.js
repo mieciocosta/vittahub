@@ -33,6 +33,33 @@ import { hojeSLZ, horaSLZ, somaDias, aconteceu, planejarPosConsulta, planejarLim
 
 const r = express.Router();
 const STATUS = ['Pendente', 'Feito'];
+
+/* 🔒 QUEM VÊ O QUÊ: a MESMA régua da agenda (extras.js, GET /agenda). Cada
+   setor tem a sua agenda: vacinas não vê o pós de consultas/terapias (nem os
+   telefones deles) e vice-versa. Master, quem distribui e a supervisora de
+   consultas/terapias veem tudo. Devolve null = vê tudo, ou a lista de setores.
+   O filtro é AQUI no servidor — esconder só na tela é vazamento. */
+async function setoresVisiveis(req) {
+  let distribui = req.user?.distribuidor === true;
+  if (!distribui && req.user?.role !== 'master' && req.user?.distribuidor === undefined) {
+    const { rows: [ud] } = await query('SELECT distribuidor FROM usuarios WHERE id = $1', [req.user?.id])
+      .catch(() => ({ rows: [] }));
+    distribui = ud?.distribuidor === true;
+  }
+  const meuSetor = req.user?.setor;
+  const meusSetores = Array.isArray(req.user?.setores) && req.user.setores.length ? req.user.setores : null;
+  const supervisoraConsultas = req.user?.role === 'supervisor'
+    && ((meusSetores || [meuSetor]).some(s => s === 'consultas' || s === 'terapias'));
+  if (req.user?.role === 'master' || distribui || supervisoraConsultas) return null;
+  return meusSetores || (meuSetor ? [meuSetor] : null);
+}
+/** O pós existe e é do setor de quem pede? (as ações seguem a mesma régua da lista) */
+async function podeMexer(req, id) {
+  const { rows: [p] } = await query(`SELECT setor FROM agenda_pos_consulta WHERE id = $1 AND status <> 'Excluído'`, [id]).catch(() => ({ rows: [] }));
+  if (!p) return false;
+  const setores = await setoresVisiveis(req);
+  return !setores || setores.includes(p.setor || 'consultas');
+}
 const TIPOS_VMED = { consulta: 'Consulta', retorno: 'Retorno', sessao: 'Sessão', avaliacao: 'Avaliação', procedimento: 'Procedimento' };
 
 /** A conversa do WhatsApp pelo telefone (últimos 8 dígitos, como a agenda já faz). */
@@ -54,9 +81,13 @@ export async function rodarPosConsulta(agora = new Date()) {
   try {
     const hoje = hojeSLZ(agora);
     const agoraHM = horaSLZ(agora);
-    const desde = somaDias(hoje, -7);
+    /* Janela de 2 dias (não 7 como o Pós Vacinal): o pós é "do dia seguinte".
+       Um atraso de até 2 dias (servidor fora do ar, sessão lançada depois)
+       ainda gera o pós; mais que isso viraria uma lista de contatos da semana
+       inteira, quase todos às 17h — foi o que a estreia com 7 dias faria. */
+    const desde = somaDias(hoje, -2);
 
-    // 1) Agenda daqui: consultas e terapias dos últimos 7 dias até hoje
+    // 1) Agenda daqui: consultas e terapias dos últimos 2 dias até hoje
     const { rows: ag } = await query(`
       SELECT id, paciente, responsavel_nome, telefone, conversa_id, setor, servico, profissional,
              to_char(data,'YYYY-MM-DD') data, hora, status
@@ -124,6 +155,9 @@ export async function rodarPosConsulta(agora = new Date()) {
                      updated_at = NOW() WHERE id = $1 AND status = 'Pendente'`, [t.id, t.origens]);
     }
     if (apagar.length) await query(`DELETE FROM agenda_pos_consulta WHERE id = ANY($1::int[]) AND status = 'Pendente'`, [apagar]);
+    // Pendente de atendimento mais velho que a janela (a 1ª rodada olhava 7 dias) sai da lista
+    const { rowCount: velhos } = await query(`DELETE FROM agenda_pos_consulta
+      WHERE status = 'Pendente' AND data >= $1 AND data_atendimento < $2`, [hoje, desde]);
 
     // 5) Cria os novos e junta o 2º atendimento do dia no pós que já existe
     const { rows: existentes } = await query(`SELECT id, to_char(data,'YYYY-MM-DD') data, paciente, origens, status
@@ -151,7 +185,7 @@ export async function rodarPosConsulta(agora = new Date()) {
          WHERE id = $1 AND NOT ($2 = ANY(origens))`, [j.id, j.origem, j.servico]);
       juntados += rowCount;
     }
-    const desfeitos = tirar.length + apagar.length;
+    const desfeitos = tirar.length + apagar.length + velhos;
     if (criados || juntados || desfeitos) {
       console.log(`🩺 Pós consulta: ${criados} criado(s), ${juntados} juntado(s), ${desfeitos} desfeito(s)`);
       try { socketEmit('agenda_update', { auto: true, pos_consulta: true }); } catch (_) { /* ok */ }
@@ -179,7 +213,8 @@ r.get('/', auth, async (req, res) => {
         FROM agenda_pos_consulta
        WHERE data = $1 AND status <> 'Excluído'
        ORDER BY hora, paciente`, [data]);
-    res.json({ data, itens: rows });
+    const setores = await setoresVisiveis(req);
+    res.json({ data, itens: setores ? rows.filter(p => setores.includes(p.setor || 'consultas')) : rows });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -196,6 +231,7 @@ r.put('/:id', auth, async (req, res) => {
   const temObs = typeof b.observacoes === 'string';
   if (!status && !temObs) return res.status(400).json({ error: 'Nada para mudar.' });
   try {
+    if (!(await podeMexer(req, req.params.id))) return res.status(404).json({ error: 'Pós consulta não encontrado.' });
     const { rows: [p] } = await query(`
       UPDATE agenda_pos_consulta SET
              status = COALESCE($2::text, status),
@@ -215,6 +251,7 @@ r.put('/:id', auth, async (req, res) => {
 // DELETE /api/pos-consulta/:id — some da lista; a origem fica guardada e o robô não recria
 r.delete('/:id', auth, async (req, res) => {
   try {
+    if (!(await podeMexer(req, req.params.id))) return res.status(404).json({ error: 'Pós consulta não encontrado.' });
     const { rowCount } = await query(`UPDATE agenda_pos_consulta SET status = 'Excluído', feito_por = $2, feito_em = NOW(),
                                         updated_at = NOW() WHERE id = $1`, [req.params.id, req.user?.nome || null]);
     if (!rowCount) return res.status(404).json({ error: 'Pós consulta não encontrado.' });
