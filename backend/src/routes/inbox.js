@@ -12135,19 +12135,6 @@ async function montarFilaCampanhaPlano(opts = {}) {
   for (const r2 of rows) { const f = String(r2.fone).slice(-9); if (vistos.has(f)) continue; vistos.add(f); fila.push(r2.id); }
   return fila;
 }
-/* 📁 PASTA PLANOS VACINAIS (26/09, master: "esses que você perceber que são de
-   plano, coloca tudo na pasta Planos Vacinais"). A triagem da campanha que der
-   bebê de até 9 meses ou gestante classifica a conversa como Planos Vacinais
-   (setor vacinas). Não mexe em quem já está em outra pasta (Pacote Mensal /
-   Fidelidade, consultas, terapias, internos): só sem classificação ou Vacinação. */
-async function classificarPlanoVacinal(convId) {
-  const { rows: [c] } = await query(`UPDATE conversas SET classificacao = 'planos_vacinais', setor = 'vacinas'
-     WHERE id = $1 AND COALESCE(classificacao, '') IN ('', 'vacinacao') AND COALESCE(categoria, '') <> 'fidelidade'
-     RETURNING *`, [convId]).catch(() => ({ rows: [] }));
-  if (c) { cacheUpdate(c); socketEmit('conv_setor', { convId: c.id, setor: 'vacinas', classificacao: 'planos_vacinais' }); }
-  return !!c;
-}
-
 async function mensagemCampanhaPlano(conv, nomeFU, opts = {}) {
   const { rows: histRows } = await query(
     `SELECT from_type, type, content, transcricao, created_at FROM mensagens
@@ -12175,8 +12162,10 @@ Regras: bebe_ate_9m = bebê que HOJE tem de 0 a 9 meses (considere o tempo que p
   let tri = {};
   try { tri = JSON.parse(String(triagem?.content?.[0]?.text || '{}')); } catch { tri = {}; }
   if (!['bebe_ate_9m', 'gestante'].includes(tri.publico)) return { pular: `publico_${tri.publico || 'indefinido'}` };
-  if (await classificarPlanoVacinal(conv.id)) campanhaNaPasta++;
-  if (opts.soTriagem) return { triada: tri.publico };   // só classificar (as 40 que já receberam)
+  /* 📁 Pasta Planos Vacinais DESLIGADA (26/09, master: "mudei de ideia, não quero
+     que vão para a pasta; quero que identifique e mande mensagem"). A triagem
+     só decide quem recebe; a classificação da conversa não é tocada. */
+  if (opts.soTriagem) return { triada: tri.publico };
   const sys = `Você escreve pela assistente virtual Vittalis, da Vittalis Saúde (vacinas, consultas e terapias infantis em São Luís), no WhatsApp. Esta família perguntou sobre PLANO VACINAL. Escreva UMA mensagem de WhatsApp que VENDA a oferta abaixo, logo depois dela vai o flyer.
 
 A OFERTA (use só estes fatos, não invente nada):
@@ -12235,7 +12224,6 @@ async function mandarFlyerPlano(conv, fone, nomeFU, est) {
 let campanhaPlanoRodando = false;
 let campanhaUltimoErro = null;   // erro da IA no último lote (vai pro status)
 let campanhaUsouPadrao = 0;      // quantas saíram com o corpo padrão (IA sem texto)
-let campanhaNaPasta = 0;         // quantas a triagem pôs na pasta Planos Vacinais neste lote
 export async function rodarCampanhaPlano() {
   if (campanhaPlanoRodando) return;
   campanhaPlanoRodando = true;
@@ -12289,27 +12277,11 @@ export async function rodarCampanhaPlano() {
     /* 🖼️ Reenvio do flyer CANCELADO (26/09, master conferiu: "não teve nenhuma
        família que não recebeu flyer, então pode continuar"). As 40 primeiras já
        tinham recebido; reenviar seria mandar o flyer duas vezes. */
-    // 📁 As que já receberam (as 40 da noite de 25/09, sem leitura): a IA lê SÓ pra
-    // classificar na pasta Planos Vacinais; nada é enviado. 10 por lote, antes das novas.
-    if (!est.triagem_enviados_montada) { est.triagem_enviados = [...(est.enviados || [])]; est.triagem_enviados_montada = true; }
-    if ((est.triagem_enviados || []).length) {
-      const lote3 = est.triagem_enviados.slice(0, 10);
-      est.triagem_enviados = est.triagem_enviados.slice(10);
-      await gravar();
-      for (const id of lote3) {
-        try {
-          const { rows: [c4] } = await query(`SELECT * FROM conversas WHERE id = $1`, [id]);
-          if (c4) await mensagemCampanhaPlano(c4, 'Assistente virtual Vittalis', { soTriagem: true });
-        } catch (e) { console.error('triagem enviados', id, e.message); }
-      }
-      est.na_pasta = (est.na_pasta || 0) + campanhaNaPasta; campanhaNaPasta = 0;
-      await gravar();
-      return;
-    }
-    /* 📁➡️📣 DEPOIS DE PÔR NA PASTA, MANDA PRA TODOS DELA (master, 26/09: "após
-       colocar pra lá, envia para todos"). Uma vez: toda conversa da pasta Planos
-       Vacinais (de qualquer data) que ainda não recebeu entra no fim da fila;
-       a triagem de cada uma continua valendo (só bebê até 9 meses ou gestante). */
+    // (A passada que só classificava as 40 já enviadas saiu junto com a pasta, 26/09.)
+    /* 📣 MANDA PRA TODOS QUE FOREM IDENTIFICADOS (master, 26/09: "identifique e
+       mande mensagem"). Uma vez: quem a equipe já classificou como Planos
+       Vacinais (de qualquer data) e ainda não recebeu entra no fim da fila; a
+       triagem de cada um decide (só bebê até 9 meses ou gestante recebe). */
     if (!est.pasta_toda_v1) {
       const ja = new Set([...(est.enviados || []), ...(est.fila || [])]);
       const maisPasta = (await montarFilaCampanhaPlano({ todaPasta: true })).filter(id => !ja.has(id));
@@ -12370,7 +12342,6 @@ export async function rodarCampanhaPlano() {
       } catch (e) { pulou('erro'); est.ultimo_erro = String(e.message || e).slice(0, 160); console.error('campanha plano', id, e.message); }
     }
     est.usou_padrao = (est.usou_padrao || 0) + campanhaUsouPadrao; campanhaUsouPadrao = 0;
-    est.na_pasta = (est.na_pasta || 0) + campanhaNaPasta; campanhaNaPasta = 0;
     if (campanhaUltimoErro) { est.ultimo_erro = campanhaUltimoErro; campanhaUltimoErro = null; }
     await gravar();
   } catch (e) { console.error('rodarCampanhaPlano:', e.message); }
