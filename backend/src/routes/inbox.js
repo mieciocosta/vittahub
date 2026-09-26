@@ -12120,9 +12120,10 @@ async function mensagemCampanhaPlano(conv, nomeFU) {
       WHERE conversa_id = $1 AND type IN ('text','audio','ptt','document','image') AND from_type NOT IN ('system','interno')
       ORDER BY created_at DESC LIMIT 60`, [conv.id]);
   const hist = histRows.reverse();
-  if (!hist.length) return null;
-  const leitura = await lerConversaAntes(conv, hist.map(m => ({ role: m.from_type === 'contact' ? 'user' : 'assistant', content: String(m.transcricao || m.content || '').slice(0, 600) })));
-  if (!leitura) return null;
+  /* 🛟 26/09: 20 famílias puladas porque a leitura/IA voltou vazia. Agora a
+     leitura é bem-vinda mas não obrigatória, e sem texto da IA vai o corpo
+     padrão da oferta, entre a abertura e o fechamento ditados. */
+  const leitura = hist.length ? await lerConversaAntes(conv, hist.map(m => ({ role: m.from_type === 'contact' ? 'user' : 'assistant', content: String(m.transcricao || m.content || '').slice(0, 600) }))).catch(() => null) : null;
   const resumo = hist.map(m => `${m.from_type === 'contact' ? 'Cliente' : 'Nós'} (${new Date(m.created_at).toLocaleDateString('pt-BR')}): ${m.type === 'text' ? String(m.content || '').slice(0, 300) : `[${m.type}] ${String(m.transcricao || '').slice(0, 200)}`}`).join('\n');
   const sys = `Você escreve pela assistente virtual Vittalis, da Vittalis Saúde (vacinas, consultas e terapias infantis em São Luís), no WhatsApp. Esta família perguntou sobre PLANO VACINAL. Escreva UMA mensagem de WhatsApp que VENDA a oferta abaixo, logo depois dela vai o flyer.
 
@@ -12140,16 +12141,26 @@ COMO ESCREVER:
 - Se a leitura mostrar que NÃO faz sentido mandar (o bebê já passou dos 9 meses, o paciente é adulto, a família já fechou o plano, pediu pra não receber mensagem, ou é assunto de gestão/fornecedor), responda apenas PULAR.
 
 O QUE VOCÊ JÁ LEU DESTA CONVERSA:
-${leitura}`;
-  const ai = await openaiMessages({ model: 'gpt-4o', max_tokens: 500, system: sys,
-    messages: [{ role: 'user', content: `Conversa (mais antiga pra mais nova):\n${resumo}\n\nEscreva a mensagem (ou PULAR).` }] });
-  const txt = String(ai?.content?.find?.(c => c.type === 'text')?.text || ai?.choices?.[0]?.message?.content || '').trim();
-  if (!txt) return null;
+${leitura || '(sem leitura: use a conversa abaixo)'}`;
+  let txt = '';
+  try {
+    const ai = await openaiMessages({ model: 'gpt-4o', max_tokens: 500, system: sys,
+      messages: [{ role: 'user', content: `Conversa (mais antiga pra mais nova):\n${resumo || '(sem histórico de texto)'}\n\nEscreva a mensagem (ou PULAR).` }] });
+    txt = String(ai?.content?.find?.(c => c.type === 'text')?.text || ai?.content?.[0]?.text || ai?.choices?.[0]?.message?.content || '').trim();
+  } catch (e) { campanhaUltimoErro = String(e.message || e).slice(0, 160); }
   if (/^PULAR\b/i.test(txt)) return 'PULAR';
+  if (!txt) {
+    campanhaUsouPadrao++;
+    const nome = primeiroNomeUtil(conv.contact_name || '');
+    const trato = nome && !/^\d+$/.test(nome) ? `${nome}, s` : 'S';
+    txt = `${trato}eparamos uma condição especial do Plano Vacinal de 0 a 9 meses pro seu bebê: de R$ 9.000 por R$ 5.500, em 10x de R$ 550 sem juros, válida só até 30/09. 💙\nTem duas vacinadoras aplicando ao mesmo tempo, Buzzy pra aliviar a picada, gelinho, massagem para a mamãe, formatura de conclusão e atendimento domiciliar gratuito.\nO material completo vai logo abaixo.`;
+  }
   const fechamento = horaSLZ() >= 20 ? CAMPANHA_FECHAMENTO_NOITE : CAMPANHA_FECHAMENTO_DIA;
   return `${CAMPANHA_ABERTURA}\n\n${semTravessao(txt)}\n\n${fechamento}`;
 }
 let campanhaPlanoRodando = false;
+let campanhaUltimoErro = null;   // erro da IA no último lote (vai pro status)
+let campanhaUsouPadrao = 0;      // quantas saíram com o corpo padrão (IA sem texto)
 export async function rodarCampanhaPlano() {
   if (campanhaPlanoRodando) return;
   campanhaPlanoRodando = true;
@@ -12199,8 +12210,16 @@ export async function rodarCampanhaPlano() {
     }
     // Campanha: das 8h até a meia-noite (ordem do master, 26/09: mandar ainda hoje à noite)
     if (!zapiOk() || horaSLZ() < 8 || !est.fila?.length) return;
-    const lote = est.fila.slice(0, 5);
-    est.fila = est.fila.slice(5);
+    // ♻️ Uma vez: as famílias puladas por falha da IA (26/09) voltam pra fila
+    if (!est.refeita_v2) {
+      const ja = new Set([...(est.enviados || []), ...(est.fila || [])]);
+      const volta = (await montarFilaCampanhaPlano()).filter(id => !ja.has(id));
+      est.fila = [...volta, ...(est.fila || [])];
+      est.refeita_v2 = true; est.puladas = 0; est.motivos = {};
+    }
+    // 10 famílias da lista por vez (ordem do master, 26/09: "a cada 10 famílias da lista")
+    const lote = est.fila.slice(0, 10);
+    est.fila = est.fila.slice(10);
     const gravar = () => query(`UPDATE configuracoes SET valor = $2::jsonb, updated_at = NOW() WHERE chave = $1`, [CAMPANHA_PLANO.chave, JSON.stringify(est)]);
     await gravar();   // tira da fila ANTES de mandar: reinício no meio nunca manda 2x
     // 🔎 Motivo de cada pulo, contado (26/09: 15 pulos seguidos sem dizer por quê)
@@ -12220,7 +12239,7 @@ export async function rodarCampanhaPlano() {
         }
         if (!nomeFU) nomeFU = await nomeAssinatura(conv);
         const msg = await mensagemCampanhaPlano(conv, nomeFU);
-        if (!msg || msg === 'PULAR') { pulou(msg === 'PULAR' ? 'ia_pulou' : 'sem_texto_ou_leitura'); continue; }
+        if (!msg || msg === 'PULAR') { pulou(msg === 'PULAR' ? 'ia_pulou' : 'sem_texto'); continue; }
         nomeFU = 'Assistente virtual Vittalis';
         const zr = await zapiCall('/send-text', 'POST', { phone: `55${fone}`, message: msg });
         if (!zr?.ok) { pulou('zapi_' + (zr?.status || 'sem_resposta')); continue; }
@@ -12237,6 +12256,8 @@ export async function rodarCampanhaPlano() {
         console.log(`📣 Campanha plano → ${conv.contact_name || fone}`);
       } catch (e) { pulou('erro'); est.ultimo_erro = String(e.message || e).slice(0, 160); console.error('campanha plano', id, e.message); }
     }
+    est.usou_padrao = (est.usou_padrao || 0) + campanhaUsouPadrao; campanhaUsouPadrao = 0;
+    if (campanhaUltimoErro) { est.ultimo_erro = campanhaUltimoErro; campanhaUltimoErro = null; }
     await gravar();
   } catch (e) { console.error('rodarCampanhaPlano:', e.message); }
   finally { campanhaPlanoRodando = false; }
