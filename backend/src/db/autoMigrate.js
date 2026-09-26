@@ -3501,6 +3501,28 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
     }
   } catch (e) { console.error('poliana volta:', e.message); }
 
+  /* ⏸️ IA DESLIGADA 100% (ordem do master, 26/09 madrugada: "desliga a IA para
+     vacinas... aliás, desliga ela 100%"). Uma vez: os interruptores do
+     Automático de IA (bot = Vitta respondendo; followup = follow-up, resgate,
+     recall, retomada e a campanha do Plano Vacinal) ficam DESLIGADOS. Lembretes
+     e mensagens agendadas pela equipe continuam (não são IA). O master religa
+     pela tela (⚙️ Automático) quando quiser. */
+  try {
+    const { rows: [flagIaOff] } = await query("SELECT 1 FROM configuracoes WHERE chave = 'seed_ia_desligada_total_2026-09-26'");
+    if (!flagIaOff) {
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('automacao_pausada', $1::jsonb)
+                   ON CONFLICT (chave) DO UPDATE SET valor = jsonb_set(jsonb_set(COALESCE(configuracoes.valor,'{}'::jsonb), '{ligado}',
+                     COALESCE(configuracoes.valor->'ligado', '{}'::jsonb) || '{"bot":false,"followup":false}'::jsonb),
+                     '{por}', '"Dr. Miécio (IA desligada 100%, 26/09)"'::jsonb), updated_at = NOW()`,
+        [JSON.stringify({ ligado: { bot: false, followup: false, lembretes: true, agendadas: true }, por: 'Dr. Miécio (IA desligada 100%, 26/09)' })]);
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ('seed_ia_desligada_total_2026-09-26','{"ok":true}') ON CONFLICT DO NOTHING`);
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('alerta', $1, $2, true)`,
+        ['⏸️ IA desligada 100%',
+         'A pedido do senhor, a IA parou em todos os setores: a Vitta não responde mais clientes, e pararam follow-up, resgate, recall, retomada de consultas e a campanha do Plano Vacinal. Lembretes e mensagens agendadas pela equipe continuam. Pra religar: botão ⚙️ Automático, na faixa do topo.']).catch(() => {});
+      console.log('⏸️ IA desligada 100% (automático bot + followup)');
+    }
+  } catch (e) { console.error('ia desligada total:', e.message); }
+
   /* 📢 AVISO DA DIREÇÃO (ordem do master, 25/09: "quero que em todas as
      carteiras esteja a Dra e o Dr Miécio, pois damos avisos importantes").
      A conversa dos donos ganha a marca aviso_direcao: entra na Minha carteira

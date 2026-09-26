@@ -2219,6 +2219,10 @@ async function enviarProvaSocial({ conv, phone55, max = 10, legenda = '', autor 
 }
 
 async function vittaResponder(convId) {
+  /* ⏸️ Freio geral vale AQUI também (26/09, "desliga a IA 100%"): antes só a
+     entrada do webhook conferia; ligar o bot na conversa ou a vassoura chamavam
+     a Vitta direto e ela respondia mesmo com o automático parado. */
+  if (await automacaoPausada('bot')) { console.log(`VITTA skip conv=${convId}: automático parado pelo master`); return; }
   // Estado mais recente — o humano pode ter assumido (bot_ativo=false) nesse meio-tempo
   const { rows: [conv] } = await query('SELECT * FROM conversas WHERE id = $1', [convId]);
   if (!conv || !conv.bot_ativo) { console.log(`VITTA skip conv=${convId}: bot_ativo=${conv?.bot_ativo} (conversa inexistente ou bot desligado)`); return; }
