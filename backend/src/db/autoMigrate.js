@@ -907,6 +907,26 @@ Qual delas te trouxe aqui hoje?`]).catch(() => {});
     // Confirmação automática de véspera (não reenviar pro mesmo evento)
     await query(`ALTER TABLE agenda_eventos ADD COLUMN IF NOT EXISTS confirmacao_enviada BOOLEAN DEFAULT false`).catch(() => {});
     await query(`CREATE INDEX IF NOT EXISTS idx_agenda_conversa ON agenda_eventos (conversa_id)`).catch(() => {});
+    /* 🩺 PÓS CONSULTA (pedido do master, 26/09: "cria na agenda do dia seguinte
+       o Pós Consulta de todos os pacientes que fizeram consulta e terapia no
+       dia, de forma que não conflita com agendamentos — pode ficar em uma parte
+       separada"). Tabela PRÓPRIA de propósito: tudo o que lê agenda_eventos
+       (lembrete de véspera, confirmação, motorista, choque de horário, números
+       do dia) nunca enxerga o pós — ele é tarefa de contato da equipe, não um
+       horário do cliente. `origens` guarda de onde veio cada pós
+       ('agenda:ID' | 'sessao:ID' | 'vittamed:ID'): é o que impede criar duas
+       vezes e o que desfaz o pós quando o atendimento vira falta/cancelado. */
+    await query(`CREATE TABLE IF NOT EXISTS agenda_pos_consulta (
+      id SERIAL PRIMARY KEY,
+      data DATE NOT NULL, hora TEXT NOT NULL,
+      paciente TEXT NOT NULL, responsavel_nome TEXT, telefone TEXT, conversa_id TEXT,
+      setor TEXT DEFAULT 'consultas', servico_origem TEXT, profissional TEXT,
+      data_atendimento DATE, origens TEXT[] NOT NULL DEFAULT '{}',
+      status TEXT DEFAULT 'Pendente', observacoes TEXT,
+      feito_por TEXT, feito_em TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS idx_pos_consulta_data ON agenda_pos_consulta (data)`).catch(() => {});
+    await query(`CREATE INDEX IF NOT EXISTS idx_pos_consulta_origens ON agenda_pos_consulta USING GIN (origens)`).catch(() => {});
     // CURSOS / treinamento da equipe (links, vídeos, materiais).
     await query(`CREATE TABLE IF NOT EXISTS cursos (
       id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
