@@ -96,6 +96,12 @@ app.get('/api/versao', async (req, res) => {
     agora: new Date().toISOString(),
     memoria_mb: Math.round(process.memoryUsage().rss / 1048576),
     // ✈️ caixa-preta: reinícios das últimas 24h, separando atualização de queda
+    /* 📣 Andamento da campanha do Plano Vacinal (26/09, "já começou o disparo?"):
+       só os NÚMEROS (sem nome nem telefone), pra conferir de fora do CRM. */
+    campanha_plano: await pool.query("SELECT valor FROM configuracoes WHERE chave = 'campanha_plano_0a9'")
+      .then(r => { const e = r.rows[0]?.valor; return e ? { encontrados: e.total || 0, enviados: e.enviadas || 0, pulados: e.puladas || 0,
+        faltam: (e.fila || []).length, responderam_sim: (e.sim || []).length, comecou: e.criada_em || null, encerrada: !!e.encerrada } : null; })
+      .catch(() => null),
     reinicios_24h: await historicoQuedas().then(l => {
       const dia = l.filter(x => Date.now() - new Date(x.quando).getTime() < 86400000);
       return { atualizacoes: dia.filter(x => x.tipo === 'atualizacao').length, quedas: dia.filter(x => x.tipo === 'queda').length, ultimos: l.slice(0, 10) };
