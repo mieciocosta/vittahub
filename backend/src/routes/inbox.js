@@ -12056,6 +12056,167 @@ async function enviarFollowupConversa(conv, opts = {}) {
        follow-up recomeça dali.
    Conversa que ganhou agendamento, foi arquivada ou teve a IA desligada no
    meio do caminho sai da fila sem mensagem. */
+/* 📣 CAMPANHA PLANO VACINAL DE 0 A 9 MESES (ordem do master, 26/09: "quero
+   vender 5 planos até dia 30/09 e preciso da ajuda da IA. Ache esses clientes
+   que perguntaram sobre plano e mande esse flyer e a mensagem que achar que
+   venda"). Uma vez só, com prazo:
+   · ACHA quem perguntou de PLANO VACINAL (classificação Planos Vacinais ou
+     mensagem do cliente falando do plano de vacinas; "plano de saúde" e
+     convênio ficam de fora), nos últimos 120 dias, sem plano vendido, sem
+     pedido pra parar, um por telefone;
+   · LÊ a conversa e escreve a mensagem de venda no nome da responsável, com a
+     oferta do flyer; se a leitura mostrar que não serve (bebê com mais de 9
+     meses, adulto, já fechou, pediu pra parar), a IA responde PULAR e ninguém
+     recebe nada;
+   · manda a mensagem e depois o FLYER (assets/campanhas/plano-vacinal-0a9.jpg);
+   · 5 a cada 10 min, só das 8h às 22h, até 30/09. Resposta do cliente cai no
+     fluxo normal de vacinas (a equipe fecha).
+   Pausa pelo interruptor do follow-up (Configurações → Automático). */
+const CAMPANHA_PLANO = { chave: 'campanha_plano_0a9', ultimoDia: '2026-09-30' };
+let flyerPlanoCache = null;
+async function flyerPlano() {
+  if (flyerPlanoCache) return flyerPlanoCache;
+  const fs = await import('fs');
+  const buf = fs.readFileSync(new URL('../assets/campanhas/plano-vacinal-0a9.jpg', import.meta.url));
+  flyerPlanoCache = `data:image/jpeg;base64,${buf.toString('base64')}`;
+  return flyerPlanoCache;
+}
+async function montarFilaCampanhaPlano() {
+  const { rows } = await query(`
+    SELECT c.id, regexp_replace(COALESCE(c.phone,''),'\\D','','g') AS fone
+      FROM conversas c
+     WHERE COALESCE(c.contact_id,'') NOT LIKE '%g.us%'
+       AND COALESCE(c.simulacao,false) = false AND COALESCE(c.arquivada,false) = false
+       AND COALESCE(c.categoria,'') <> 'banco_dados'
+       AND COALESCE(c.classificacao,'') NOT IN ('gestao','profissional_saude')
+       AND length(regexp_replace(COALESCE(c.phone,''),'\\D','','g')) >= 10
+       AND c.last_message_at > NOW() - interval '120 days'
+       AND (c.classificacao = 'planos_vacinais'
+            OR EXISTS (SELECT 1 FROM mensagens m WHERE m.conversa_id = c.id AND m.from_type = 'contact'
+                         AND COALESCE(m.type,'text') = 'text' AND m.created_at > NOW() - interval '120 days'
+                         AND left(m.content, 500) ~* '(plano\\s*(vacinal|de vacina|das vacinas|completo|do beb|pro beb|para o beb|da beb)|planos?\\s+vacina|valor do plano|pre[cç]o do plano|investimento do plano|sobre o plano|quanto (e|é|fica|custa|sai) o plano|plano de 0|plano 0 a)'
+                         AND left(m.content, 500) !~* '(plano de sa[uú]de|conv[eê]nio|unimed|hapvida|amil|bradesco|sulam[eé]rica)'))
+       AND NOT EXISTS (SELECT 1 FROM vendas v WHERE v.conversa_id = c.id
+                         AND (COALESCE(v.categoria,'') ILIKE '%plano%' OR COALESCE(v.servico,'') ILIKE '%plano%'))
+       AND NOT EXISTS (SELECT 1 FROM mensagens m WHERE m.conversa_id = c.id AND m.from_type = 'contact'
+                         AND COALESCE(m.type,'text') = 'text'
+                         AND left(m.content, 400) ~* '(n[aã]o (me )?(mande|mandem|envie|enviem|chame|chamem|ligue|liguem)|pare de|parem de|parar de|sair da lista|descadastr|n[aã]o tenho interesse|sem interesse)')
+     ORDER BY c.last_message_at DESC LIMIT 600`);
+  const vistos = new Set(); const fila = [];
+  for (const r2 of rows) { const f = String(r2.fone).slice(-9); if (vistos.has(f)) continue; vistos.add(f); fila.push(r2.id); }
+  return fila;
+}
+async function mensagemCampanhaPlano(conv, nomeFU) {
+  const { rows: histRows } = await query(
+    `SELECT from_type, type, content, transcricao, created_at FROM mensagens
+      WHERE conversa_id = $1 AND type IN ('text','audio','ptt','document','image') AND from_type NOT IN ('system','interno')
+      ORDER BY created_at DESC LIMIT 60`, [conv.id]);
+  const hist = histRows.reverse();
+  if (!hist.length) return null;
+  const leitura = await lerConversaAntes(conv, hist.map(m => ({ role: m.from_type === 'contact' ? 'user' : 'assistant', content: String(m.transcricao || m.content || '').slice(0, 600) })));
+  if (!leitura) return null;
+  const resumo = hist.map(m => `${m.from_type === 'contact' ? 'Cliente' : 'Nós'} (${new Date(m.created_at).toLocaleDateString('pt-BR')}): ${m.type === 'text' ? String(m.content || '').slice(0, 300) : `[${m.type}] ${String(m.transcricao || '').slice(0, 200)}`}`).join('\n');
+  const sys = `Você é a ${nomeFU}, atendente da Vittalis Saúde (vacinas, consultas e terapias infantis em São Luís) no WhatsApp. Esta família perguntou sobre PLANO VACINAL. Escreva UMA mensagem de WhatsApp que VENDA a oferta abaixo, logo depois dela vai o flyer.
+
+A OFERTA (use só estes fatos, não invente nada):
+Plano Vacinal de 0 a 9 meses, completo: BCG e Hepatite B ao nascer; Hexa acelular, Pneumocócica 20 e Rotavírus aos 2, 4 e 6 meses (aos 3 meses Hexa, Pneumo 20 e Rotavírus); Meningocócica ACWY e Meningocócica B aos 5 meses; Influenza aos 6 e 7 meses; Febre Amarela aos 9 meses.
+Investimento: de R$ 9.000 por R$ 5.500, em 10x de R$ 550 sem juros. Oferta válida só até 30/09.
+Bônus exclusivos: duas vacinadoras aplicando ao mesmo tempo (mais rápido e menos desconforto), Buzzy (reduz a dor da picada), gelinho pra aliviar o local, massagem para a mamãe e formatura de conclusão do plano. Atendimento domiciliar gratuito.
+
+COMO ESCREVER:
+- Leia a conversa: cite o nome do bebê e o que a família contou ou perguntou; se já se passaram dias, retome com naturalidade (sem fingir que foi ontem).
+- Mostre a oferta como uma oportunidade especial pra essa família, com a urgência verdadeira do prazo (até 30/09).
+- Diga que o flyer com todos os detalhes vai logo abaixo.
+- Termine com UMA pergunta simples que leve ao fechamento (ex.: posso já garantir essa condição pro seu bebê?).
+- 4 a 7 linhas curtas, calorosa, no máximo 2 emojis. Diga investimento, NUNCA preço nem valor. NUNCA use travessão nem aspas.
+- Se a leitura mostrar que NÃO faz sentido mandar (o bebê já passou dos 9 meses, o paciente é adulto, a família já fechou o plano, pediu pra não receber mensagem, ou é assunto de gestão/fornecedor), responda apenas PULAR.
+
+O QUE VOCÊ JÁ LEU DESTA CONVERSA:
+${leitura}`;
+  const ai = await openaiMessages({ model: 'gpt-4o', max_tokens: 500, system: sys,
+    messages: [{ role: 'user', content: `Conversa (mais antiga pra mais nova):\n${resumo}\n\nEscreva a mensagem (ou PULAR).` }] });
+  const txt = String(ai?.content?.find?.(c => c.type === 'text')?.text || ai?.choices?.[0]?.message?.content || '').trim();
+  if (!txt) return null;
+  if (/^PULAR\b/i.test(txt)) return 'PULAR';
+  return semTravessao(txt);
+}
+let campanhaPlanoRodando = false;
+export async function rodarCampanhaPlano() {
+  if (campanhaPlanoRodando) return;
+  campanhaPlanoRodando = true;
+  try {
+    const hojeSLZ = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+    const { rows: [cfg] } = await query(`SELECT valor FROM configuracoes WHERE chave = $1`, [CAMPANHA_PLANO.chave]);
+    let est = cfg?.valor || null;
+    if (est?.encerrada) return;
+    if (hojeSLZ > CAMPANHA_PLANO.ultimoDia) {
+      if (est) {
+        est.encerrada = true; est.encerrada_em = new Date().toISOString();
+        await query(`UPDATE configuracoes SET valor = $2::jsonb, updated_at = NOW() WHERE chave = $1`, [CAMPANHA_PLANO.chave, JSON.stringify(est)]);
+        await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+          ['📣 Campanha Plano Vacinal 0 a 9 meses encerrada',
+           `A oferta venceu em 30/09. A IA mandou mensagem + flyer pra ${est.enviadas || 0} família(s) e pulou ${est.puladas || 0} (bebê fora da idade, já fechou ou não fazia sentido). ${(est.fila || []).length} ficaram sem envio por causa do prazo.`]).catch(() => {});
+      }
+      return;
+    }
+    if (!est) {
+      const fila = await montarFilaCampanhaPlano();
+      est = { fila, total: fila.length, enviadas: 0, puladas: 0, criada_em: new Date().toISOString() };
+      await query(`INSERT INTO configuracoes (chave, valor) VALUES ($1, $2::jsonb) ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor, updated_at = NOW()`,
+        [CAMPANHA_PLANO.chave, JSON.stringify(est)]);
+      await query(`INSERT INTO notificacoes (tipo, titulo, texto, apenas_master) VALUES ('info', $1, $2, true)`,
+        ['📣 Campanha Plano Vacinal 0 a 9 meses começou',
+         `A IA achou ${fila.length} família(s) que perguntaram sobre plano vacinal nos últimos 120 dias e ainda não fecharam. Pra cada uma, ela lê a conversa e manda uma mensagem de venda no nome da responsável, com o flyer logo depois (5 a cada 10 min, das 8h às 22h, até 30/09). Quem não se encaixa (bebê fora da idade, adulto, já fechou) é pulado. As respostas caem no chat normal de vacinas pra equipe fechar.`]).catch(() => {});
+      console.log(`📣 Campanha plano 0-9: ${fila.length} na fila`);
+    }
+    if (await automacaoPausada('followup')) return;
+    if (!zapiOk() || !janelaIA() || !est.fila?.length) return;
+    const lote = est.fila.slice(0, 5);
+    est.fila = est.fila.slice(5);
+    const gravar = () => query(`UPDATE configuracoes SET valor = $2::jsonb, updated_at = NOW() WHERE chave = $1`, [CAMPANHA_PLANO.chave, JSON.stringify(est)]);
+    await gravar();   // tira da fila ANTES de mandar: reinício no meio nunca manda 2x
+    for (const id of lote) {
+      try {
+        const { rows: [conv] } = await query(`SELECT * FROM conversas WHERE id = $1`, [id]);
+        // Conversa viva agora (alguém falando nos últimos 30 min): não atravessa
+        if (!conv || new Date(conv.last_message_at).getTime() > Date.now() - 30 * 60 * 1000) { est.puladas++; continue; }
+        let fone = String(conv.phone || '').replace(/\D/g, '');
+        if (fone.startsWith('55') && fone.length >= 12) fone = fone.slice(2);
+        if (fone.length < 10) { est.puladas++; continue; }
+        let nomeFU = null;
+        if (conv.responsavel_id) {
+          const { rows: [u] } = await query('SELECT nome FROM usuarios WHERE id = $1 AND ativo = true', [conv.responsavel_id]).catch(() => ({ rows: [] }));
+          if (u?.nome) nomeFU = primeiroNomeUtil(u.nome);
+        }
+        if (!nomeFU) nomeFU = await nomeAssinatura(conv);
+        const msg = await mensagemCampanhaPlano(conv, nomeFU);
+        if (!msg || msg === 'PULAR') { est.puladas++; continue; }
+        const zr = await zapiCall('/send-text', 'POST', { phone: `55${fone}`, message: `*${nomeFU}:*\n${msg}` });
+        if (!zr?.ok) { est.puladas++; continue; }
+        await zapiCall('/send-image', 'POST', { phone: `55${fone}`, image: await flyerPlano(),
+          caption: 'Plano Vacinal de 0 a 9 meses · oferta válida até 30/09 💙' }).catch(() => null);
+        // O flyer fica registrado como marca (não guarda a imagem inteira em cada conversa)
+        const { rows: [m1] } = await query(`INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome) VALUES ($1,'bot','text',$2,$3) RETURNING *`, [conv.id, msg, nomeFU]).catch(() => ({ rows: [null] }));
+        await query(`INSERT INTO mensagens (conversa_id, from_type, type, content, sender_nome) VALUES ($1,'bot','text',$2,$3)`, [conv.id, '📣 [Flyer enviado: Plano Vacinal de 0 a 9 meses · R$ 5.500 em 10x · até 30/09]', nomeFU]).catch(() => {});
+        const { rows: [cu] } = await query(`UPDATE conversas SET last_message = $2, last_from = 'bot', last_message_at = NOW() WHERE id = $1 RETURNING *`, [conv.id, '📣 Plano Vacinal 0 a 9 meses (flyer)']).catch(() => ({ rows: [null] }));
+        if (cu) cacheUpdate(cu);
+        if (m1) socketEmit('new_message', { convId: conv.id, message: m1, conv: cu });
+        est.enviadas++;
+        console.log(`📣 Campanha plano → ${conv.contact_name || fone}`);
+      } catch (e) { est.puladas++; console.error('campanha plano', id, e.message); }
+    }
+    await gravar();
+  } catch (e) { console.error('rodarCampanhaPlano:', e.message); }
+  finally { campanhaPlanoRodando = false; }
+}
+
+// Painel rápido da campanha (só master): quantos na fila, enviados e pulados
+r.get('/campanha-plano', masterOnly, async (req, res) => {
+  const { rows: [cfg] } = await query(`SELECT valor FROM configuracoes WHERE chave = $1`, [CAMPANHA_PLANO.chave]).catch(() => ({ rows: [] }));
+  const e = cfg?.valor || {};
+  res.json({ total: e.total || 0, enviadas: e.enviadas || 0, puladas: e.puladas || 0, faltam: (e.fila || []).length, encerrada: !!e.encerrada, ate: CAMPANHA_PLANO.ultimoDia });
+});
+
 let retomadaRodando = false;
 export async function rodarRetomadaConsultas() {
   if (retomadaRodando) return;

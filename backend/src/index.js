@@ -9,7 +9,7 @@ import { fileURLToPath } from 'url';
 import authRouter    from './routes/auth.js';
 import leadsRouter   from './routes/leads.js';
 import reportsRouter from './routes/reports.js';
-import inboxRouter, { rodarFollowups, rodarRetomadaConsultas, configurarWebhooksZapi, alertarLeadsSemResposta, vigiaEntradaMensagens, rodarResgateIA } from './routes/inbox.js';
+import inboxRouter, { rodarFollowups, rodarRetomadaConsultas, rodarCampanhaPlano, configurarWebhooksZapi, alertarLeadsSemResposta, vigiaEntradaMensagens, rodarResgateIA } from './routes/inbox.js';
 import extrasRouter, { gerarSolicitacoesDaAgenda } from './routes/extras.js';
 import auditoriaRouter from './routes/auditoria.js';
 import integracaoRouter from './routes/integracao.js';
@@ -197,6 +197,9 @@ async function start() {
       // 🔁 Retomada das carteiras de consultas/terapias (25/09): 5 conversas a cada 10 min
       setInterval(() => { rodarRetomadaConsultas().catch(e => console.error('Retomada tick:', e.message)); }, 10 * 60 * 1000);
       setTimeout(() => { rodarRetomadaConsultas().catch(() => {}); }, 3 * 60 * 1000);
+      // 📣 Campanha Plano Vacinal 0 a 9 meses (26/09 a 30/09): 5 a cada 10 min
+      setInterval(() => { rodarCampanhaPlano().catch(e => console.error('Campanha plano tick:', e.message)); }, 10 * 60 * 1000);
+      setTimeout(() => { rodarCampanhaPlano().catch(() => {}); }, 4 * 60 * 1000);
       console.log('✅ Follow-up automático de leads agendado (5 min)');
 
       // Alerta de lead não respondido: a cada 5 min avisa a equipe (sino) sobre
