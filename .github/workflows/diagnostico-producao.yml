@@ -20,7 +20,8 @@ jobs:
           for i in 1 2 3 4 5 6; do
             echo "=== rodada $i $(date -u +%H:%M:%S)"
             curl -s -m 20 -o /tmp/h -w "health %{http_code} %{time_total}s\n" $B/api/health || true; cat /tmp/h 2>/dev/null; echo
-            curl -s -m 20 -o /tmp/v -w "versao %{http_code} %{time_total}s\n" $B/api/versao || true; cat /tmp/v 2>/dev/null | head -c 700; echo
+            curl -s -m 20 -o /tmp/v -w "versao %{http_code} %{time_total}s\n" $B/api/versao || true
+            python3 -c "import json;d=json.load(open('/tmp/v'));print('commit',d.get('commit'),'| no ar ha',d.get('minutos_no_ar'),'min | campanha',json.dumps(d.get('campanha_plano')))" 2>/dev/null || head -c 300 /tmp/v; echo
             curl -s -m 30 -o /tmp/l -w "login-falso %{http_code} %{time_total}s\n" -X POST $B/api/auth/login -H 'content-type: application/json' -d '{"login":"000.000.000-00","senha":"x"}' || true; cat /tmp/l 2>/dev/null; echo
             sleep 15
           done
