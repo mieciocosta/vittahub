@@ -100,7 +100,8 @@ app.get('/api/versao', async (req, res) => {
        só os NÚMEROS (sem nome nem telefone), pra conferir de fora do CRM. */
     campanha_plano: await pool.query("SELECT valor FROM configuracoes WHERE chave = 'campanha_plano_0a9'")
       .then(r => { const e = r.rows[0]?.valor; return e ? { encontrados: e.total || 0, enviados: e.enviadas || 0, pulados: e.puladas || 0,
-        faltam: (e.fila || []).length, responderam_sim: (e.sim || []).length, comecou: e.criada_em || null, encerrada: !!e.encerrada } : null; })
+        faltam: (e.fila || []).length, responderam_sim: (e.sim || []).length, comecou: e.criada_em || null, encerrada: !!e.encerrada,
+        motivos_pulo: e.motivos || null, ultimo_erro: e.ultimo_erro || null } : null; })
       .catch(() => null),
     reinicios_24h: await historicoQuedas().then(l => {
       const dia = l.filter(x => Date.now() - new Date(x.quando).getTime() < 86400000);

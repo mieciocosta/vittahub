@@ -12203,14 +12203,16 @@ export async function rodarCampanhaPlano() {
     est.fila = est.fila.slice(5);
     const gravar = () => query(`UPDATE configuracoes SET valor = $2::jsonb, updated_at = NOW() WHERE chave = $1`, [CAMPANHA_PLANO.chave, JSON.stringify(est)]);
     await gravar();   // tira da fila ANTES de mandar: reinício no meio nunca manda 2x
+    // 🔎 Motivo de cada pulo, contado (26/09: 15 pulos seguidos sem dizer por quê)
+    const pulou = (motivo) => { est.puladas++; est.motivos = est.motivos || {}; est.motivos[motivo] = (est.motivos[motivo] || 0) + 1; };
     for (const id of lote) {
       try {
         const { rows: [conv] } = await query(`SELECT * FROM conversas WHERE id = $1`, [id]);
         // Conversa viva agora (alguém falando nos últimos 30 min): não atravessa
-        if (!conv || new Date(conv.last_message_at).getTime() > Date.now() - 30 * 60 * 1000) { est.puladas++; continue; }
+        if (!conv || new Date(conv.last_message_at).getTime() > Date.now() - 30 * 60 * 1000) { pulou('conversa_viva'); continue; }
         let fone = String(conv.phone || '').replace(/\D/g, '');
         if (fone.startsWith('55') && fone.length >= 12) fone = fone.slice(2);
-        if (fone.length < 10) { est.puladas++; continue; }
+        if (fone.length < 10) { pulou('telefone'); continue; }
         let nomeFU = null;
         if (conv.responsavel_id) {
           const { rows: [u] } = await query('SELECT nome FROM usuarios WHERE id = $1 AND ativo = true', [conv.responsavel_id]).catch(() => ({ rows: [] }));
@@ -12218,10 +12220,10 @@ export async function rodarCampanhaPlano() {
         }
         if (!nomeFU) nomeFU = await nomeAssinatura(conv);
         const msg = await mensagemCampanhaPlano(conv, nomeFU);
-        if (!msg || msg === 'PULAR') { est.puladas++; continue; }
+        if (!msg || msg === 'PULAR') { pulou(msg === 'PULAR' ? 'ia_pulou' : 'sem_texto_ou_leitura'); continue; }
         nomeFU = 'Assistente virtual Vittalis';
         const zr = await zapiCall('/send-text', 'POST', { phone: `55${fone}`, message: msg });
-        if (!zr?.ok) { est.puladas++; continue; }
+        if (!zr?.ok) { pulou('zapi_' + (zr?.status || 'sem_resposta')); continue; }
         await zapiCall('/send-image', 'POST', { phone: `55${fone}`, image: await flyerPlano(),
           caption: 'Plano Vacinal de 0 a 9 meses · oferta válida até 30/09 💙' }).catch(() => null);
         // O flyer fica registrado como marca (não guarda a imagem inteira em cada conversa)
@@ -12233,7 +12235,7 @@ export async function rodarCampanhaPlano() {
         est.enviadas++;
         est.enviados = [...(est.enviados || []), conv.id];
         console.log(`📣 Campanha plano → ${conv.contact_name || fone}`);
-      } catch (e) { est.puladas++; console.error('campanha plano', id, e.message); }
+      } catch (e) { pulou('erro'); est.ultimo_erro = String(e.message || e).slice(0, 160); console.error('campanha plano', id, e.message); }
     }
     await gravar();
   } catch (e) { console.error('rodarCampanhaPlano:', e.message); }
