@@ -12259,27 +12259,9 @@ export async function rodarCampanhaPlano() {
     const gravar = () => query(`UPDATE configuracoes SET valor = $2::jsonb, updated_at = NOW() WHERE chave = $1`, [CAMPANHA_PLANO.chave, JSON.stringify(est)]);
     // Campanha: das 8h até a meia-noite (ordem do master, 26/09: mandar ainda hoje à noite)
     if (!zapiOk() || horaSLZ() < 8) return;
-    // 🖼️ Quem recebeu só o texto (antes do conserto do flyer) recebe o flyer agora, 10 por lote
-    if (!est.reenvio_flyer_montado) {
-      est.reenvio_flyer = [...(est.enviados || [])];
-      est.reenvio_flyer_montado = true;
-    }
-    if ((est.reenvio_flyer || []).length) {
-      const lote2 = est.reenvio_flyer.slice(0, 10);
-      est.reenvio_flyer = est.reenvio_flyer.slice(10);
-      await gravar();
-      for (const id of lote2) {
-        try {
-          const { rows: [c3] } = await query(`SELECT * FROM conversas WHERE id = $1`, [id]);
-          if (!c3) continue;
-          let f3 = String(c3.phone || '').replace(/\D/g, '');
-          if (f3.startsWith('55') && f3.length >= 12) f3 = f3.slice(2);
-          if (f3.length >= 10) await mandarFlyerPlano(c3, f3, 'Assistente virtual Vittalis', est);
-        } catch (e) { console.error('reenvio flyer', id, e.message); }
-      }
-      await gravar();
-      return;   // este lote foi dos reenvios; as famílias novas seguem no próximo
-    }
+    /* 🖼️ Reenvio do flyer CANCELADO (26/09, master conferiu: "não teve nenhuma
+       família que não recebeu flyer, então pode continuar"). As 40 primeiras já
+       tinham recebido; reenviar seria mandar o flyer duas vezes. */
     if (!est.fila?.length) return;
     // ♻️ Uma vez: as famílias puladas por falha da IA (26/09) voltam pra fila
     if (!est.refeita_v2) {
