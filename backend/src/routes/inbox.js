@@ -12192,7 +12192,8 @@ ${leitura || '(sem leitura: use a conversa abaixo)'}`;
   } catch (e) { campanhaUltimoErro = String(e.message || e).slice(0, 160); }
   if (/^PULAR\b/i.test(txt)) return { pular: 'ia_pulou' };
   if (!txt) return { adiar: 'ia_sem_texto' };   // sem o texto lido da conversa, NÃO manda (ordem do master, 26/09)
-  const fechamento = horaSLZ() >= 20 ? CAMPANHA_FECHAMENTO_NOITE : CAMPANHA_FECHAMENTO_DIA;
+  // Noite e madrugada (20h às 8h): o fechamento ditado com o "amanhã"
+  const fechamento = (horaSLZ() >= 20 || horaSLZ() < 8) ? CAMPANHA_FECHAMENTO_NOITE : CAMPANHA_FECHAMENTO_DIA;
   return { texto: `${CAMPANHA_ABERTURA}\n\n${semTravessao(txt)}\n\n${fechamento}` };
 }
 /* 🖼️ FLYER PELO LINK (26/09, print do master: "não foi a imagem, só o texto").
@@ -12272,8 +12273,8 @@ export async function rodarCampanhaPlano() {
       if (sins.length) await query(`UPDATE configuracoes SET valor = $2::jsonb, updated_at = NOW() WHERE chave = $1`, [CAMPANHA_PLANO.chave, JSON.stringify(est)]);
     }
     const gravar = () => query(`UPDATE configuracoes SET valor = $2::jsonb, updated_at = NOW() WHERE chave = $1`, [CAMPANHA_PLANO.chave, JSON.stringify(est)]);
-    // Campanha: das 8h até a meia-noite (ordem do master, 26/09: mandar ainda hoje à noite)
-    if (!zapiOk() || horaSLZ() < 8) return;
+    // Campanha liberada 24 h (ordem do master, 26/09 00h30: "continue a disparar as mensagens")
+    if (!zapiOk()) return;
     /* 🖼️ Reenvio do flyer CANCELADO (26/09, master conferiu: "não teve nenhuma
        família que não recebeu flyer, então pode continuar"). As 40 primeiras já
        tinham recebido; reenviar seria mandar o flyer duas vezes. */
